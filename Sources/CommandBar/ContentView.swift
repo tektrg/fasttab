@@ -2,6 +2,8 @@ import SwiftUI
 
 private let kSpaceKeyCode: UInt16 = 49
 private let kEnterKeyCode: UInt16 = 36
+private let kUpArrowKeyCode: UInt16 = 126
+private let kDownArrowKeyCode: UInt16 = 125
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
@@ -218,6 +220,22 @@ struct ContentView: View {
                         } else {
                             appState.selectedIndex = (appState.selectedIndex + 1) % cycleCount
                         }
+                    }
+                    return nil
+                }
+
+                if event.keyCode == kUpArrowKeyCode {
+                    let tabs = filteredTabs
+                    if !tabs.isEmpty {
+                        appState.selectedIndex = (appState.selectedIndex - 1 + tabs.count) % tabs.count
+                    }
+                    return nil
+                }
+
+                if event.keyCode == kDownArrowKeyCode {
+                    let tabs = filteredTabs
+                    if !tabs.isEmpty {
+                        appState.selectedIndex = (appState.selectedIndex + 1) % tabs.count
                     }
                     return nil
                 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 private let kSpaceKeyCode: UInt16 = 49
 private let kEnterKeyCode: UInt16 = 36
@@ -25,150 +26,116 @@ struct ContentView: View {
         }
     }
 
+    private let cardSize = CGSize(width: 640, height: 460)
+    private let canvasSize = CGSize(width: 760, height: 580)
+
     var body: some View {
-        VStack(spacing: 0) {
-            if !appState.hasAccessibilityAccess {
-                HStack {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                    Text("Accessibility access required for global shortcut (Cmd+Shift+Space).")
-                        .font(.caption)
-                    Spacer()
-                    Button("Grant Access") {
-                        AccessibilityService.requestPermissions()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                }
-                .padding(8)
-                .background(Color.orange.opacity(0.1))
-                .onAppear {
-                    accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-                        Task { @MainActor in
-                            let hadAccess = appState.hasAccessibilityAccess
-                            appState.refreshPermissions()
-                            if !hadAccess && appState.hasAccessibilityAccess {
-                                needsRestartAfterGrant = true
+        ZStack {
+            CommandBarSurface {
+                VStack(spacing: 10) {
+                    if !appState.hasAccessibilityAccess {
+                        PermissionBanner(
+                            icon: "exclamationmark.triangle.fill",
+                            tint: .orange,
+                            message: "Accessibility access required for global shortcut (Cmd+Shift+Space).",
+                            actionTitle: "Grant Access"
+                        ) {
+                            AccessibilityService.requestPermissions()
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .onAppear {
+                            accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+                                Task { @MainActor in
+                                    let hadAccess = appState.hasAccessibilityAccess
+                                    appState.refreshPermissions()
+                                    if !hadAccess && appState.hasAccessibilityAccess {
+                                        needsRestartAfterGrant = true
+                                    }
+                                }
                             }
                         }
-                    }
-                }
-                .onDisappear {
-                    accessibilityTimer?.invalidate()
-                    accessibilityTimer = nil
-                }
-            }
-
-            if needsRestartAfterGrant {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text("Access granted. Restart the app to activate the global shortcut.")
-                        .font(.caption)
-                    Spacer()
-                    Button("Restart") {
-                        let url = Bundle.main.bundleURL
-                        let task = Process()
-                        task.launchPath = "/usr/bin/open"
-                        task.arguments = [url.path]
-                        try? task.run()
-                        NSApp.terminate(nil)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                }
-                .padding(8)
-                .background(Color.green.opacity(0.1))
-            }
-
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                TextField("Search tabs...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.title3)
-                    .focused($isSearchFocused)
-            }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
-
-            Divider()
-
-            List(filteredTabs.indices, id: \.self) { index in
-                let tab = filteredTabs[index]
-                HStack {
-                    AsyncImage(url: faviconURL(for: tab.url)) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFit()
-                        } else {
-                            Image(systemName: "globe")
-                                .foregroundColor(.secondary)
+                        .onDisappear {
+                            accessibilityTimer?.invalidate()
+                            accessibilityTimer = nil
                         }
                     }
-                    .frame(width: 16, height: 16)
 
-                    VStack(alignment: .leading) {
-                        Text(tab.title)
-                            .font(.headline)
-                            .lineLimit(1)
-                        Text(tab.url)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+                    if needsRestartAfterGrant {
+                        PermissionBanner(
+                            icon: "checkmark.circle.fill",
+                            tint: .green,
+                            message: "Access granted. Restart the app to activate the global shortcut.",
+                            actionTitle: "Restart"
+                        ) {
+                            restartApplication()
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    Spacer()
-                    Text(tab.appName)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(4)
-                }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 8)
-                .background(appState.selectedIndex == index ? Color.accentColor.opacity(0.2) : Color.clear)
-                .cornerRadius(6)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    appState.browserService.activateTab(tab)
-                    appState.isVisible = false
-                    NSApp.hide(nil)
-                }
-            }
-            .listStyle(.sidebar)
 
-            Divider()
+                    SearchHeader(
+                        searchText: $searchText,
+                        isSearchFocused: $isSearchFocused,
+                        onUpArrow: {
+                            let tabs = filteredTabs
+                            if !tabs.isEmpty {
+                                appState.selectedIndex = (appState.selectedIndex - 1 + tabs.count) % tabs.count
+                            }
+                        },
+                        onDownArrow: {
+                            let tabs = filteredTabs
+                            if !tabs.isEmpty {
+                                appState.selectedIndex = (appState.selectedIndex + 1) % tabs.count
+                            }
+                        }
+                    )
 
-            HStack {
-                Spacer()
-                ShortcutRecorderView(store: ShortcutStore.shared)
-                    .environmentObject(appState)
-                Spacer()
+                    ScrollViewReader { proxy in
+                        resultsSection(proxy: proxy)
+                            .onChange(of: appState.isVisible) { _, visible in
+                                if visible {
+                                    appState.browserService.fetchTabs()
+                                    searchText = ""
+                                    appState.selectedIndex = 0
+                                    hasCycled = false
+                                    DispatchQueue.main.async {
+                                        isSearchFocused = true
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
+                                            proxy.scrollTo(0, anchor: .top)
+                                        }
+                                    }
+                                }
+                            }
+                            .onChange(of: searchText) {
+                                appState.selectedIndex = 0
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    proxy.scrollTo(0, anchor: .top)
+                                }
+                            }
+                            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                                appState.browserService.fetchTabs()
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    proxy.scrollTo(0, anchor: .top)
+                                }
+                            }
+                    }
+
+                    FooterShortcutBar {
+                        ShortcutRecorderView(store: ShortcutStore.shared)
+                            .environmentObject(appState)
+                    }
+                }
+                .padding(12)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color(NSColor.controlBackgroundColor))
+            .frame(width: cardSize.width, height: cardSize.height)
+            .padding(40)
         }
-        .frame(width: 600, height: 430)
+        .frame(width: canvasSize.width, height: canvasSize.height)
+        .background(Color.clear)
+        .animation(.spring(response: 0.35, dampingFraction: 0.9), value: needsRestartAfterGrant)
         .onAppear {
             appState.browserService.fetchTabs()
             isSearchFocused = true
             setupLocalMonitor()
-        }
-        .onChange(of: appState.isVisible) { _, visible in
-            if visible {
-                appState.browserService.fetchTabs()
-                searchText = ""
-                appState.selectedIndex = 0
-                hasCycled = false
-                // Defer focus so the window is fully key before we request it
-                DispatchQueue.main.async {
-                    isSearchFocused = true
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            appState.browserService.fetchTabs()
         }
         .onDisappear {
             if let monitor = localMonitor {
@@ -176,9 +143,96 @@ struct ContentView: View {
                 localMonitor = nil
             }
         }
-        .onChange(of: searchText) {
-            appState.selectedIndex = 0
+        .onChange(of: appState.browserService.tabs.map(\.id)) {
+            let tabs = filteredTabs
+            if tabs.isEmpty {
+                appState.selectedIndex = 0
+            } else if appState.selectedIndex >= tabs.count {
+                appState.selectedIndex = max(0, tabs.count - 1)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func resultsSection(proxy: ScrollViewProxy) -> some View {
+        Group {
+            if appState.browserService.isLoading && filteredTabs.isEmpty {
+                VStack(spacing: 10) {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.regular)
+                    Text("Fetching tabs…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 300)
+            } else if filteredTabs.isEmpty {
+                VStack(spacing: 8) {
+                    Spacer()
+                    Image(systemName: "rectangle.stack.badge.magnifyingglass")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text(searchText.isEmpty ? "No tabs found" : "No matches")
+                        .font(.headline)
+                    Text(searchText.isEmpty ? "Open a tab in Chrome or Edge and try again." : "Try another keyword")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 300)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                )
+            } else {
+                List(Array(filteredTabs.enumerated()), id: \.element.id) { index, tab in
+                    TabRowView(
+                        tab: tab,
+                        isSelected: appState.selectedIndex == index,
+                        faviconURL: faviconURL(for: tab.url)
+                    )
+                    .contentShape(Rectangle())
+                    .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .onTapGesture {
+                        activateAndHide(tab)
+                    }
+                    .id(index)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .animation(.easeInOut(duration: 0.2), value: filteredTabs.map(\.id))
+            }
+        }
+        .frame(height: 300)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.white.opacity(0.09), lineWidth: 1)
+                )
+        )
+    }
+
+    private func restartApplication() {
+        let url = Bundle.main.bundleURL
+        let task = Process()
+        task.launchPath = "/usr/bin/open"
+        task.arguments = [url.path]
+        try? task.run()
+        NSApp.terminate(nil)
+    }
+
+    private func activateAndHide(_ tab: BrowserTab) {
+        appState.browserService.activateTab(tab)
+        appState.isVisible = false
+        NSApp.hide(nil)
     }
 
     private func faviconURL(for urlString: String) -> URL? {
@@ -208,8 +262,26 @@ struct ContentView: View {
                     return nil   // swallow — never reaches the text field
                 }
 
-                // Plain Space (±Shift) with empty search: also cycle
                 let noModifiers = flags.isEmpty
+
+                // Up/down arrows: navigate full filtered list and swallow so TextField caret doesn't move.
+                if noModifiers && event.keyCode == kUpArrowKeyCode {
+                    let tabs = filteredTabs
+                    if !tabs.isEmpty {
+                        appState.selectedIndex = (appState.selectedIndex - 1 + tabs.count) % tabs.count
+                    }
+                    return nil
+                }
+
+                if noModifiers && event.keyCode == kDownArrowKeyCode {
+                    let tabs = filteredTabs
+                    if !tabs.isEmpty {
+                        appState.selectedIndex = (appState.selectedIndex + 1) % tabs.count
+                    }
+                    return nil
+                }
+
+                // Plain Space (±Shift) with empty search: also cycle
                 let shiftOnly = flags == .shift
                 if event.keyCode == kSpaceKeyCode && (noModifiers || shiftOnly) && searchText.isEmpty {
                     let tabs = filteredTabs
@@ -220,22 +292,6 @@ struct ContentView: View {
                         } else {
                             appState.selectedIndex = (appState.selectedIndex + 1) % cycleCount
                         }
-                    }
-                    return nil
-                }
-
-                if event.keyCode == kUpArrowKeyCode {
-                    let tabs = filteredTabs
-                    if !tabs.isEmpty {
-                        appState.selectedIndex = (appState.selectedIndex - 1 + tabs.count) % tabs.count
-                    }
-                    return nil
-                }
-
-                if event.keyCode == kDownArrowKeyCode {
-                    let tabs = filteredTabs
-                    if !tabs.isEmpty {
-                        appState.selectedIndex = (appState.selectedIndex + 1) % tabs.count
                     }
                     return nil
                 }
@@ -267,5 +323,181 @@ struct ContentView: View {
             }
             return event
         }
+    }
+}
+
+private struct CommandBarSurface<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(.regularMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.28), .white.opacity(0.06)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
+            )
+            .shadow(color: .black.opacity(0.16), radius: 24, y: 10)
+    }
+}
+
+private struct PermissionBanner: View {
+    let icon: String
+    let tint: Color
+    let message: String
+    let actionTitle: String
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+
+            Text(message)
+                .font(.caption)
+                .lineLimit(2)
+
+            Spacer(minLength: 8)
+
+            Button(actionTitle, action: action)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(tint)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.thinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(tint.opacity(0.22), lineWidth: 1)
+                )
+        )
+    }
+}
+
+private struct SearchHeader: View {
+    @Binding var searchText: String
+    @FocusState.Binding var isSearchFocused: Bool
+    let onUpArrow: () -> Void
+    let onDownArrow: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField("Search tabs…", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .focused($isSearchFocused)
+                .onKeyPress(.upArrow) {
+                    onUpArrow()
+                    return .handled
+                }
+                .onKeyPress(.downArrow) {
+                    onDownArrow()
+                    return .handled
+                }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(.white.opacity(0.09), lineWidth: 1)
+                )
+        )
+    }
+}
+
+private struct TabRowView: View {
+    let tab: BrowserTab
+    let isSelected: Bool
+    let faviconURL: URL?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AsyncImage(url: faviconURL) { phase in
+                if let image = phase.image {
+                    image
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Image(systemName: "globe")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 16, height: 16)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(tab.title)
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .lineLimit(1)
+
+                Text(tab.url)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(tab.appName)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(.thinMaterial)
+                )
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.17) : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : .clear, lineWidth: 1)
+                )
+        )
+        .scaleEffect(isSelected ? 1.01 : 1)
+        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
+    }
+}
+
+private struct FooterShortcutBar<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack {
+            Spacer()
+            content
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.thinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                )
+        )
     }
 }

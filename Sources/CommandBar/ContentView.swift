@@ -16,21 +16,15 @@ struct ContentView: View {
     /// True once the user has cycled to a tab via the shortcut; reset when the bar opens.
     @State private var hasCycled = false
 
-    var filteredTabs: [BrowserTab] {
-        if searchText.isEmpty {
-            return appState.browserService.tabs
-        }
-        return appState.browserService.tabs.filter {
-            $0.title.localizedCaseInsensitiveContains(searchText) ||
-            $0.url.localizedCaseInsensitiveContains(searchText)
-        }
+    var filteredResults: [BrowserSearchResult] {
+        appState.browserService.results
     }
 
-    var displayedTabs: [BrowserTab] {
+    var displayedResults: [BrowserSearchResult] {
         if searchText.isEmpty {
-            return Array(filteredTabs.prefix(5))
+            return Array(filteredResults.prefix(5))
         }
-        return filteredTabs
+        return filteredResults
     }
 
     private let cardSize = CGSize(width: 640, height: 460)
@@ -95,8 +89,8 @@ struct ContentView: View {
                         resultsSection(proxy: proxy)
                             .onChange(of: appState.isVisible) { _, visible in
                                 if visible {
-                                    appState.browserService.fetchTabs()
                                     searchText = ""
+                                    appState.browserService.fetchResults(matching: searchText)
                                     appState.selectedIndex = -1
                                     hasCycled = false
                                     DispatchQueue.main.async {
@@ -108,6 +102,7 @@ struct ContentView: View {
                                 }
                             }
                             .onChange(of: searchText) {
+                                appState.browserService.fetchResults(matching: searchText)
                                 appState.selectedIndex = -1
                                 isSearchFocused = true
                                 withAnimation(.easeInOut(duration: 0.18)) {
@@ -115,7 +110,7 @@ struct ContentView: View {
                                 }
                             }
                             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                                appState.browserService.fetchTabs()
+                                appState.browserService.fetchResults(matching: searchText)
                                 withAnimation(.easeInOut(duration: 0.18)) {
                                     proxy.scrollTo(0, anchor: .top)
                                 }
@@ -136,7 +131,7 @@ struct ContentView: View {
         .background(Color.clear)
         .animation(.spring(response: 0.35, dampingFraction: 0.9), value: needsRestartAfterGrant)
         .onAppear {
-            appState.browserService.fetchTabs()
+            appState.browserService.fetchResults(matching: searchText)
             isSearchFocused = true
             setupLocalMonitor()
         }
@@ -146,13 +141,13 @@ struct ContentView: View {
                 localMonitor = nil
             }
         }
-        .onChange(of: appState.browserService.tabs.map(\.id)) {
-            let tabs = displayedTabs
-            if tabs.isEmpty {
+        .onChange(of: appState.browserService.results.map(\.id)) {
+            let results = displayedResults
+            if results.isEmpty {
                 appState.selectedIndex = -1
                 isSearchFocused = true
-            } else if appState.selectedIndex >= tabs.count {
-                appState.selectedIndex = max(0, tabs.count - 1)
+            } else if appState.selectedIndex >= results.count {
+                appState.selectedIndex = max(0, results.count - 1)
             }
         }
     }
@@ -160,19 +155,19 @@ struct ContentView: View {
     @ViewBuilder
     private func resultsSection(proxy: ScrollViewProxy) -> some View {
         Group {
-            if appState.browserService.isLoading && displayedTabs.isEmpty {
+            if appState.browserService.isLoading && displayedResults.isEmpty {
                 VStack(spacing: 10) {
                     Spacer()
                     ProgressView()
                         .controlSize(.regular)
-                    Text("Fetching tabs…")
+                    Text(searchText.isEmpty ? "Fetching tabs…" : "Searching Chrome + Edge…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 300)
-            } else if displayedTabs.isEmpty {
+            } else if displayedResults.isEmpty {
                 VStack(spacing: 8) {
                     Spacer()
                     Image(systemName: "rectangle.stack.badge.magnifyingglass")
@@ -180,7 +175,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                     Text(searchText.isEmpty ? "No tabs found" : "No matches")
                         .font(.headline)
-                    Text(searchText.isEmpty ? "Open a tab in Chrome or Edge and try again." : "Try another keyword")
+                    Text(searchText.isEmpty ? "Open a tab in Chrome or Edge and try again." : "Try another keyword for tabs, bookmarks, or history.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -192,25 +187,25 @@ struct ContentView: View {
                         .fill(.ultraThinMaterial)
                 )
             } else {
-                List(Array(displayedTabs.enumerated()), id: \.element.id) { index, tab in
-                    TabRowView(
-                        tab: tab,
+                List(Array(displayedResults.enumerated()), id: \.element.id) { index, result in
+                    ResultRowView(
+                        result: result,
                         isSelected: appState.selectedIndex == index,
-                        faviconURL: faviconURL(for: tab.url)
+                        faviconURL: faviconURL(for: result.url)
                     )
                     .contentShape(Rectangle())
                     .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                     .onTapGesture {
-                        activateAndHide(tab)
+                        activateAndHide(result)
                     }
                     .id(index)
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(Color.clear)
-                .animation(.easeInOut(duration: 0.2), value: displayedTabs.map(\.id))
+                .animation(.easeInOut(duration: 0.2), value: displayedResults.map(\.id))
             }
         }
         .frame(height: 300)
@@ -233,8 +228,8 @@ struct ContentView: View {
         NSApp.terminate(nil)
     }
 
-    private func activateAndHide(_ tab: BrowserTab) {
-        appState.browserService.activateTab(tab)
+    private func activateAndHide(_ result: BrowserSearchResult) {
+        appState.browserService.activate(result)
         appState.isVisible = false
         NSApp.hide(nil)
     }
@@ -245,16 +240,16 @@ struct ContentView: View {
     }
 
     private func moveSelectionForward(includeSearchField: Bool) {
-        let tabs = displayedTabs
+        let results = displayedResults
         let minimumIndex = includeSearchField ? -1 : 0
 
-        if tabs.isEmpty {
+        if results.isEmpty {
             appState.selectedIndex = minimumIndex
             isSearchFocused = includeSearchField
             return
         }
 
-        let maximumIndex = tabs.count - 1
+        let maximumIndex = results.count - 1
         if appState.selectedIndex < minimumIndex || appState.selectedIndex >= maximumIndex {
             appState.selectedIndex = minimumIndex
         } else {
@@ -265,16 +260,16 @@ struct ContentView: View {
     }
 
     private func moveSelectionBackward(includeSearchField: Bool) {
-        let tabs = displayedTabs
+        let results = displayedResults
         let minimumIndex = includeSearchField ? -1 : 0
 
-        if tabs.isEmpty {
+        if results.isEmpty {
             appState.selectedIndex = minimumIndex
             isSearchFocused = includeSearchField
             return
         }
 
-        let maximumIndex = tabs.count - 1
+        let maximumIndex = results.count - 1
         if appState.selectedIndex <= minimumIndex || appState.selectedIndex > maximumIndex {
             appState.selectedIndex = maximumIndex
         } else {
@@ -331,9 +326,9 @@ struct ContentView: View {
                 }
 
                 if event.keyCode == kEnterKeyCode {
-                    let tabs = displayedTabs
-                    if tabs.indices.contains(appState.selectedIndex) {
-                        appState.browserService.activateTab(tabs[appState.selectedIndex])
+                    let results = displayedResults
+                    if results.indices.contains(appState.selectedIndex) {
+                        appState.browserService.activate(results[appState.selectedIndex])
                         appState.isVisible = false
                         NSApp.hide(nil)
                     }
@@ -346,9 +341,9 @@ struct ContentView: View {
                 let currentMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 // Fire as soon as none of the shortcut's modifiers are still held
                 if !currentMods.contains(shortcutMods) {
-                    let tabs = displayedTabs
-                    if tabs.indices.contains(appState.selectedIndex) {
-                        appState.browserService.activateTab(tabs[appState.selectedIndex])
+                    let results = displayedResults
+                    if results.indices.contains(appState.selectedIndex) {
+                        appState.browserService.activate(results[appState.selectedIndex])
                         appState.isVisible = false
                         NSApp.hide(nil)
                     }
@@ -432,7 +427,7 @@ private struct SearchHeader: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
-            TextField("Search tabs…", text: $searchText)
+            TextField("Search tabs, bookmarks, history…", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 22, weight: .semibold, design: .rounded))
                 .focused($isSearchFocused)
@@ -463,8 +458,8 @@ private struct SearchHeader: View {
     }
 }
 
-private struct TabRowView: View {
-    let tab: BrowserTab
+private struct ResultRowView: View {
+    let result: BrowserSearchResult
     let isSelected: Bool
     let faviconURL: URL?
 
@@ -476,18 +471,18 @@ private struct TabRowView: View {
                         .resizable()
                         .scaledToFit()
                 } else {
-                    Image(systemName: "globe")
+                    Image(systemName: result.type.symbolName)
                         .foregroundStyle(.secondary)
                 }
             }
             .frame(width: 16, height: 16)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(tab.title)
+                Text(result.title)
                     .font(.system(size: 13, weight: .semibold, design: .default))
                     .lineLimit(1)
 
-                Text(tab.url)
+                Text(result.secondaryText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -495,15 +490,10 @@ private struct TabRowView: View {
 
             Spacer(minLength: 8)
 
-            Text(tab.appName)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(.thinMaterial)
-                )
+            HStack(spacing: 6) {
+                ResultBadge(systemImage: result.type.symbolName)
+                BrowserBadge(browserName: result.browserName)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -517,6 +507,65 @@ private struct TabRowView: View {
         )
         .scaleEffect(isSelected ? 1.01 : 1)
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
+    }
+}
+
+private struct ResultBadge: View {
+    let systemImage: String
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(.thinMaterial)
+            )
+    }
+}
+
+private struct BrowserBadge: View {
+    let browserName: String
+
+    var body: some View {
+        Group {
+            if let appIcon = browserAppIcon {
+                Image(nsImage: appIcon)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .padding(4)
+            } else {
+                Image(systemName: "globe")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+            }
+        }
+        .frame(width: 22, height: 22)
+        .background(
+            Capsule(style: .continuous)
+                .fill(.thinMaterial)
+        )
+    }
+
+    private var browserAppIcon: NSImage? {
+        let appPath: String? = switch browserName {
+        case "Google Chrome": "/Applications/Google Chrome.app"
+        case "Microsoft Edge": "/Applications/Microsoft Edge.app"
+        default: nil
+        }
+
+        guard let appPath, FileManager.default.fileExists(atPath: appPath) else {
+            return nil
+        }
+
+        let icon = NSWorkspace.shared.icon(forFile: appPath)
+        icon.size = NSSize(width: 14, height: 14)
+        return icon
     }
 }
 

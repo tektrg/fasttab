@@ -11,22 +11,26 @@ struct ShortcutRecorderView: View {
     @State private var monitor: Any?
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text("Shortcut:")
+        HStack(spacing: 8) {
+            Label("Shortcut", systemImage: "keyboard")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Button(action: toggleRecording) {
                 Text(isRecording ? "Press keys…" : store.displayString)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(isRecording ? .accentColor : .primary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(
-                                isRecording ? Color.accentColor : Color.secondary.opacity(0.35),
-                                lineWidth: 1
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(isRecording ? Color.accentColor : Color.primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(.ultraThinMaterial)
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .strokeBorder(
+                                        isRecording ? Color.accentColor.opacity(0.65) : Color.white.opacity(0.16),
+                                        lineWidth: 1
+                                    )
                             )
                     )
             }
@@ -35,9 +39,11 @@ struct ShortcutRecorderView: View {
             if isRecording {
                 Text("Esc to cancel")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.18), value: isRecording)
         .onDisappear { stopRecording() }
     }
 

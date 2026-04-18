@@ -55,7 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if !appState.isVisible {
                     appState.isVisible = true
                     appState.selectedIndex = -1
-                    appState.browserService.fetchTabs()
+                    appState.browserService.fetchResults()
                     NSApp.activate(ignoringOtherApps: true)
                     NSApp.windows.first?.makeKeyAndOrderFront(nil)
                 } else {

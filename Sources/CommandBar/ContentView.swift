@@ -82,17 +82,12 @@ struct ContentView: View {
                     SearchHeader(
                         searchText: $searchText,
                         isSearchFocused: $isSearchFocused,
+                        isSelected: appState.selectedIndex == -1,
                         onUpArrow: {
-                            let tabs = filteredTabs
-                            if !tabs.isEmpty {
-                                appState.selectedIndex = (appState.selectedIndex - 1 + tabs.count) % tabs.count
-                            }
+                            moveSelectionBackward(includeSearchField: true)
                         },
                         onDownArrow: {
-                            let tabs = filteredTabs
-                            if !tabs.isEmpty {
-                                appState.selectedIndex = (appState.selectedIndex + 1) % tabs.count
-                            }
+                            moveSelectionForward(includeSearchField: true)
                         }
                     )
 
@@ -102,7 +97,7 @@ struct ContentView: View {
                                 if visible {
                                     appState.browserService.fetchTabs()
                                     searchText = ""
-                                    appState.selectedIndex = 0
+                                    appState.selectedIndex = -1
                                     hasCycled = false
                                     DispatchQueue.main.async {
                                         isSearchFocused = true
@@ -113,7 +108,8 @@ struct ContentView: View {
                                 }
                             }
                             .onChange(of: searchText) {
-                                appState.selectedIndex = 0
+                                appState.selectedIndex = -1
+                                isSearchFocused = true
                                 withAnimation(.easeInOut(duration: 0.18)) {
                                     proxy.scrollTo(0, anchor: .top)
                                 }
@@ -153,7 +149,8 @@ struct ContentView: View {
         .onChange(of: appState.browserService.tabs.map(\.id)) {
             let tabs = displayedTabs
             if tabs.isEmpty {
-                appState.selectedIndex = 0
+                appState.selectedIndex = -1
+                isSearchFocused = true
             } else if appState.selectedIndex >= tabs.count {
                 appState.selectedIndex = max(0, tabs.count - 1)
             }
@@ -247,6 +244,51 @@ struct ContentView: View {
         return URL(string: "https://www.google.com/s2/favicons?domain=\(host)&sz=32")
     }
 
+    private func moveSelectionForward(includeSearchField: Bool) {
+        let tabs = displayedTabs
+        let minimumIndex = includeSearchField ? -1 : 0
+
+        if tabs.isEmpty {
+            appState.selectedIndex = minimumIndex
+            isSearchFocused = includeSearchField
+            return
+        }
+
+        let maximumIndex = tabs.count - 1
+        if appState.selectedIndex < minimumIndex || appState.selectedIndex >= maximumIndex {
+            appState.selectedIndex = minimumIndex
+        } else {
+            appState.selectedIndex += 1
+        }
+
+        isSearchFocused = includeSearchField && appState.selectedIndex == -1
+    }
+
+    private func moveSelectionBackward(includeSearchField: Bool) {
+        let tabs = displayedTabs
+        let minimumIndex = includeSearchField ? -1 : 0
+
+        if tabs.isEmpty {
+            appState.selectedIndex = minimumIndex
+            isSearchFocused = includeSearchField
+            return
+        }
+
+        let maximumIndex = tabs.count - 1
+        if appState.selectedIndex <= minimumIndex || appState.selectedIndex > maximumIndex {
+            appState.selectedIndex = maximumIndex
+        } else {
+            appState.selectedIndex -= 1
+        }
+
+        isSearchFocused = includeSearchField && appState.selectedIndex == -1
+    }
+
+    private func cycleShortcutSelectionForward() {
+        moveSelectionForward(includeSearchField: true)
+        hasCycled = appState.selectedIndex != -1
+    }
+
     private func setupLocalMonitor() {
         guard localMonitor == nil else { return }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
@@ -257,54 +299,39 @@ struct ContentView: View {
                 let store = ShortcutStore.shared
                 let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-                // Configured shortcut pressed while the bar is open → cycle forward through first 5 items.
-                // This mirrors what the global monitor does, but locally so it works even with focus.
+                // Configured shortcut pressed while the bar is open → cycle through the current travel loop,
+                // including the search field and the default 5 visible items.
                 if event.keyCode == store.keyCode && flags == store.modifiers.intersection(.deviceIndependentFlagsMask) {
-                    let tabs = filteredTabs
-                    let cycleCount = min(5, tabs.count)
-                    if cycleCount > 0 {
-                        appState.selectedIndex = (appState.selectedIndex + 1) % cycleCount
-                        hasCycled = true
-                    }
+                    cycleShortcutSelectionForward()
                     return nil   // swallow — never reaches the text field
                 }
 
                 let noModifiers = flags.isEmpty
 
-                // Up/down arrows: navigate full filtered list and swallow so TextField caret doesn't move.
+                // Up/down arrows: loop through the search field and visible results without moving the caret.
                 if noModifiers && event.keyCode == kUpArrowKeyCode {
-                    let tabs = filteredTabs
-                    if !tabs.isEmpty {
-                        appState.selectedIndex = (appState.selectedIndex - 1 + tabs.count) % tabs.count
-                    }
+                    moveSelectionBackward(includeSearchField: true)
                     return nil
                 }
 
                 if noModifiers && event.keyCode == kDownArrowKeyCode {
-                    let tabs = filteredTabs
-                    if !tabs.isEmpty {
-                        appState.selectedIndex = (appState.selectedIndex + 1) % tabs.count
-                    }
+                    moveSelectionForward(includeSearchField: true)
                     return nil
                 }
 
-                // Plain Space (±Shift) with empty search: also cycle
+                // Plain Space (±Shift) with empty search: same loop as the shortcut travel.
                 let shiftOnly = flags == .shift
                 if event.keyCode == kSpaceKeyCode && (noModifiers || shiftOnly) && searchText.isEmpty {
-                    let tabs = filteredTabs
-                    let cycleCount = min(5, tabs.count)
-                    if cycleCount > 0 {
-                        if shiftOnly {
-                            appState.selectedIndex = (appState.selectedIndex - 1 + cycleCount) % cycleCount
-                        } else {
-                            appState.selectedIndex = (appState.selectedIndex + 1) % cycleCount
-                        }
+                    if shiftOnly {
+                        moveSelectionBackward(includeSearchField: true)
+                    } else {
+                        moveSelectionForward(includeSearchField: true)
                     }
                     return nil
                 }
 
                 if event.keyCode == kEnterKeyCode {
-                    let tabs = filteredTabs
+                    let tabs = displayedTabs
                     if tabs.indices.contains(appState.selectedIndex) {
                         appState.browserService.activateTab(tabs[appState.selectedIndex])
                         appState.isVisible = false
@@ -319,13 +346,13 @@ struct ContentView: View {
                 let currentMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 // Fire as soon as none of the shortcut's modifiers are still held
                 if !currentMods.contains(shortcutMods) {
-                    let tabs = filteredTabs
+                    let tabs = displayedTabs
                     if tabs.indices.contains(appState.selectedIndex) {
                         appState.browserService.activateTab(tabs[appState.selectedIndex])
+                        appState.isVisible = false
+                        NSApp.hide(nil)
                     }
-                    appState.isVisible = false
                     hasCycled = false
-                    NSApp.hide(nil)
                 }
             }
             return event
@@ -396,6 +423,7 @@ private struct PermissionBanner: View {
 private struct SearchHeader: View {
     @Binding var searchText: String
     @FocusState.Binding var isSearchFocused: Bool
+    let isSelected: Bool
     let onUpArrow: () -> Void
     let onDownArrow: () -> Void
 
@@ -424,9 +452,14 @@ private struct SearchHeader: View {
                 .fill(.ultraThinMaterial)
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(.white.opacity(0.09), lineWidth: 1)
+                        .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.28) : .white.opacity(0.09), lineWidth: 1)
                 )
         )
+        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
     }
 }
 

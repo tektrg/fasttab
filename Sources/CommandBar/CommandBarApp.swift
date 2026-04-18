@@ -54,7 +54,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 appLogger.info("Global shortcut \(store.displayString) detected. isVisible=\(appState.isVisible)")
                 if !appState.isVisible {
                     appState.isVisible = true
-                    appState.selectedIndex = 0
+                    appState.selectedIndex = -1
                     appState.browserService.fetchTabs()
                     NSApp.activate(ignoringOtherApps: true)
                     NSApp.windows.first?.makeKeyAndOrderFront(nil)

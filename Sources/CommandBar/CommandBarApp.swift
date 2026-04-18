@@ -12,20 +12,20 @@ class AppState: ObservableObject {
     @Published var hasAccessibilityAccess: Bool = false
     @Published var isRecordingShortcut: Bool = false
     let browserService = BrowserTabService()
-    
+
     static let shared = AppState()
     private var cancellables = Set<AnyCancellable>()
-    
+
     init() {
         hasAccessibilityAccess = AccessibilityService.isTrusted()
-        
+
         browserService.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
     }
-    
+
     func refreshPermissions() {
         hasAccessibilityAccess = AccessibilityService.isTrusted()
     }
@@ -33,7 +33,7 @@ class AppState: ObservableObject {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var globalMonitor: Any?
-    
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let trusted = AXIsProcessTrusted()
         appLogger.info("Application did finish launching. AXIsProcessTrusted=\(trusted)")
@@ -77,12 +77,54 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct CommandBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState.shared
-    
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .background(WindowChromeConfigurator())
         }
         .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 760, height: 580)
+        .windowResizability(.contentSize)
+    }
+}
+
+private struct WindowChromeConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> ConfigView {
+        ConfigView()
+    }
+
+    func updateNSView(_ nsView: ConfigView, context: Context) {
+        nsView.configureWindowIfNeeded()
+    }
+
+    final class ConfigView: NSView {
+        private var didConfigure = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            configureWindowIfNeeded()
+        }
+
+        func configureWindowIfNeeded() {
+            guard !didConfigure, let window else { return }
+            didConfigure = true
+
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = false
+            window.isMovableByWindowBackground = true
+
+            [NSWindow.ButtonType.closeButton,
+             .miniaturizeButton,
+             .zoomButton].forEach { type in
+                guard let button = window.standardWindowButton(type) else { return }
+                button.isHidden = true
+                button.isEnabled = false
+            }
+        }
     }
 }

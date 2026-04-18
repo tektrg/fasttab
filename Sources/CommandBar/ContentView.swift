@@ -26,6 +26,13 @@ struct ContentView: View {
         }
     }
 
+    var displayedTabs: [BrowserTab] {
+        if searchText.isEmpty {
+            return Array(filteredTabs.prefix(5))
+        }
+        return filteredTabs
+    }
+
     private let cardSize = CGSize(width: 640, height: 460)
     private let canvasSize = CGSize(width: 760, height: 580)
 
@@ -144,7 +151,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: appState.browserService.tabs.map(\.id)) {
-            let tabs = filteredTabs
+            let tabs = displayedTabs
             if tabs.isEmpty {
                 appState.selectedIndex = 0
             } else if appState.selectedIndex >= tabs.count {
@@ -156,7 +163,7 @@ struct ContentView: View {
     @ViewBuilder
     private func resultsSection(proxy: ScrollViewProxy) -> some View {
         Group {
-            if appState.browserService.isLoading && filteredTabs.isEmpty {
+            if appState.browserService.isLoading && displayedTabs.isEmpty {
                 VStack(spacing: 10) {
                     Spacer()
                     ProgressView()
@@ -168,7 +175,7 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 300)
-            } else if filteredTabs.isEmpty {
+            } else if displayedTabs.isEmpty {
                 VStack(spacing: 8) {
                     Spacer()
                     Image(systemName: "rectangle.stack.badge.magnifyingglass")
@@ -188,7 +195,7 @@ struct ContentView: View {
                         .fill(.ultraThinMaterial)
                 )
             } else {
-                List(Array(filteredTabs.enumerated()), id: \.element.id) { index, tab in
+                List(Array(displayedTabs.enumerated()), id: \.element.id) { index, tab in
                     TabRowView(
                         tab: tab,
                         isSelected: appState.selectedIndex == index,
@@ -206,7 +213,7 @@ struct ContentView: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(Color.clear)
-                .animation(.easeInOut(duration: 0.2), value: filteredTabs.map(\.id))
+                .animation(.easeInOut(duration: 0.2), value: displayedTabs.map(\.id))
             }
         }
         .frame(height: 300)

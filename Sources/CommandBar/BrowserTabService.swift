@@ -11,6 +11,12 @@ private func activeKey(appName: String, url: String) -> String {
     "\(appName)|\(url)"
 }
 
+private func appleScriptQuoted(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+}
+
 @MainActor
 class BrowserTabService: ObservableObject {
     @Published var tabs: [BrowserTab] = []
@@ -141,13 +147,36 @@ class BrowserTabService: ObservableObject {
     func activateTab(_ tab: BrowserTab) {
         lastActiveTimes[activeKey(appName: tab.appName, url: tab.url)] = Date()
 
+        let safeURL = appleScriptQuoted(tab.url)
         let script = """
         tell application "\(tab.appName)"
             activate
-            set index of window \(tab.windowIndex) to 1
-            set active tab index of window 1 to \(tab.tabIndex)
+            set targetURL to "\(safeURL)"
+            set foundMatch to false
+            try
+                repeat with w in windows
+                    set tabURLs to URL of every tab of w
+                    repeat with i from 1 to count of tabURLs
+                        if (item i of tabURLs) is equal to targetURL then
+                            set index of w to 1
+                            set active tab index of window 1 to i
+                            set foundMatch to true
+                            exit repeat
+                        end if
+                    end repeat
+                    if foundMatch then exit repeat
+                end repeat
+            end try
+            if foundMatch is false then
+                try
+                    set index of window \(tab.windowIndex) to 1
+                    set active tab index of window 1 to \(tab.tabIndex)
+                end try
+            end if
         end tell
         """
+
+        logger.info("activateTab: app=\(tab.appName, privacy: .public) title='\(tab.title, privacy: .public)' url='\(tab.url, privacy: .public)' window=\(tab.windowIndex) tab=\(tab.tabIndex)")
 
         let task = Process()
         task.launchPath = "/usr/bin/osascript"

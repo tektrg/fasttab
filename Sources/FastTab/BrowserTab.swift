@@ -24,6 +24,16 @@ enum BrowserResultType: String, Codable, Hashable, Sendable {
         case .history: return "clock.arrow.circlepath"
         }
     }
+
+    /// Visual dimming hierarchy for list rows:
+    /// tabs = normal, bookmarks = dimmer, history = dimmest.
+    var dimmingOpacity: Double {
+        switch self {
+        case .tab: return 1.0
+        case .bookmark: return 0.72
+        case .history: return 0.52
+        }
+    }
 }
 
 struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {

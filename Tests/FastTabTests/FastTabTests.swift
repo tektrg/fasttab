@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CommandBar
+@testable import FastTab
 
 @Test func searchResultsSortByTypePriorityBeforeRecency() async throws {
     let now = Date()

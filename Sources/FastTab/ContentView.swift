@@ -10,11 +10,11 @@ struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
-    @State private var accessibilityTimer: Timer?
     @State private var localMonitor: Any?
-    @State private var needsRestartAfterGrant = false
     /// True once the user has cycled to a tab via the shortcut; reset when the bar opens.
     @State private var hasCycled = false
+    @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var suppressNextSearchChange = false
 
     var filteredResults: [BrowserSearchResult] {
         appState.browserService.results
@@ -34,41 +34,13 @@ struct ContentView: View {
         ZStack {
             CommandBarSurface {
                 VStack(spacing: 10) {
-                    if !appState.hasAccessibilityAccess {
+                    if let globalShortcutRegistrationIssue = appState.globalShortcutRegistrationIssue {
                         PermissionBanner(
-                            icon: "exclamationmark.triangle.fill",
+                            icon: "bolt.slash.fill",
                             tint: .orange,
-                            message: "Accessibility access required for global shortcut (Cmd+Shift+Space).",
-                            actionTitle: "Grant Access"
+                            message: "Shortcut \(ShortcutStore.shared.displayString) unavailable. \(globalShortcutRegistrationIssue)",
+                            actionTitle: "Choose Another"
                         ) {
-                            AccessibilityService.requestPermissions()
-                        }
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .onAppear {
-                            accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-                                Task { @MainActor in
-                                    let hadAccess = appState.hasAccessibilityAccess
-                                    appState.refreshPermissions()
-                                    if !hadAccess && appState.hasAccessibilityAccess {
-                                        needsRestartAfterGrant = true
-                                    }
-                                }
-                            }
-                        }
-                        .onDisappear {
-                            accessibilityTimer?.invalidate()
-                            accessibilityTimer = nil
-                        }
-                    }
-
-                    if needsRestartAfterGrant {
-                        PermissionBanner(
-                            icon: "checkmark.circle.fill",
-                            tint: .green,
-                            message: "Access granted. Restart the app to activate the global shortcut.",
-                            actionTitle: "Restart"
-                        ) {
-                            restartApplication()
                         }
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
@@ -89,6 +61,8 @@ struct ContentView: View {
                         resultsSection(proxy: proxy)
                             .onChange(of: appState.isVisible) { _, visible in
                                 if visible {
+                                    searchDebounceTask?.cancel()
+                                    suppressNextSearchChange = true
                                     searchText = ""
                                     appState.browserService.fetchResults(matching: searchText)
                                     appState.selectedIndex = -1
@@ -102,14 +76,24 @@ struct ContentView: View {
                                 }
                             }
                             .onChange(of: searchText) {
-                                appState.browserService.fetchResults(matching: searchText)
-                                appState.selectedIndex = -1
+                                if suppressNextSearchChange {
+                                    suppressNextSearchChange = false
+                                    return
+                                }
+
+                                if searchText.isEmpty {
+                                    appState.selectedIndex = -1
+                                } else {
+                                    appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
+                                }
                                 isSearchFocused = true
                                 withAnimation(.easeInOut(duration: 0.18)) {
                                     proxy.scrollTo(0, anchor: .top)
                                 }
+                                scheduleSearchFetch()
                             }
                             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                                guard appState.isVisible else { return }
                                 appState.browserService.fetchResults(matching: searchText)
                                 withAnimation(.easeInOut(duration: 0.18)) {
                                     proxy.scrollTo(0, anchor: .top)
@@ -129,13 +113,16 @@ struct ContentView: View {
         }
         .frame(width: canvasSize.width, height: canvasSize.height)
         .background(Color.clear)
-        .animation(.spring(response: 0.35, dampingFraction: 0.9), value: needsRestartAfterGrant)
         .onAppear {
-            appState.browserService.fetchResults(matching: searchText)
             isSearchFocused = true
             setupLocalMonitor()
         }
+        .onReceive(NotificationCenter.default.publisher(for: fastTabCycleShortcutNotification)) { _ in
+            guard appState.isVisible else { return }
+            cycleShortcutSelectionForward()
+        }
         .onDisappear {
+            searchDebounceTask?.cancel()
             if let monitor = localMonitor {
                 NSEvent.removeMonitor(monitor)
                 localMonitor = nil
@@ -146,8 +133,12 @@ struct ContentView: View {
             if results.isEmpty {
                 appState.selectedIndex = -1
                 isSearchFocused = true
-            } else if appState.selectedIndex >= results.count {
-                appState.selectedIndex = max(0, results.count - 1)
+            } else if searchText.isEmpty {
+                if appState.selectedIndex >= results.count {
+                    appState.selectedIndex = max(0, results.count - 1)
+                }
+            } else if appState.selectedIndex < 0 || appState.selectedIndex >= results.count {
+                appState.selectedIndex = 0
             }
         }
     }
@@ -191,7 +182,9 @@ struct ContentView: View {
                     ResultRowView(
                         result: result,
                         isSelected: appState.selectedIndex == index,
-                        faviconURL: faviconURL(for: result.url)
+                        faviconURL: faviconURL(for: result.url),
+                        onCopyLink: { appState.browserService.copyLinkToClipboard(result) },
+                        onRemove: { appState.browserService.remove(result) }
                     )
                     .contentShape(Rectangle())
                     .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))
@@ -219,19 +212,21 @@ struct ContentView: View {
         )
     }
 
-    private func restartApplication() {
-        let url = Bundle.main.bundleURL
-        let task = Process()
-        task.launchPath = "/usr/bin/open"
-        task.arguments = [url.path]
-        try? task.run()
-        NSApp.terminate(nil)
+    private func scheduleSearchFetch() {
+        searchDebounceTask?.cancel()
+        let query = searchText
+        searchDebounceTask = Task {
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                appState.browserService.fetchResults(matching: query)
+            }
+        }
     }
 
     private func activateAndHide(_ result: BrowserSearchResult) {
         appState.browserService.activate(result)
-        appState.isVisible = false
-        NSApp.hide(nil)
+        appState.hideCommandBar()
     }
 
     private func faviconURL(for urlString: String) -> URL? {
@@ -287,23 +282,14 @@ struct ContentView: View {
     private func setupLocalMonitor() {
         guard localMonitor == nil else { return }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
-            // Pass everything through while the shortcut recorder is capturing a new key.
             if appState.isRecordingShortcut { return event }
 
             if event.type == .keyDown {
-                let store = ShortcutStore.shared
                 let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                let userModifiers = flags.intersection([.command, .option, .control, .shift])
 
-                // Configured shortcut pressed while the bar is open → cycle through the current travel loop,
-                // including the search field and the default 5 visible items.
-                if event.keyCode == store.keyCode && flags == store.modifiers.intersection(.deviceIndependentFlagsMask) {
-                    cycleShortcutSelectionForward()
-                    return nil   // swallow — never reaches the text field
-                }
+                let noModifiers = userModifiers.isEmpty
 
-                let noModifiers = flags.isEmpty
-
-                // Up/down arrows: loop through the search field and visible results without moving the caret.
                 if noModifiers && event.keyCode == kUpArrowKeyCode {
                     moveSelectionBackward(includeSearchField: true)
                     return nil
@@ -314,8 +300,7 @@ struct ContentView: View {
                     return nil
                 }
 
-                // Plain Space (±Shift) with empty search: same loop as the shortcut travel.
-                let shiftOnly = flags == .shift
+                let shiftOnly = userModifiers == .shift
                 if event.keyCode == kSpaceKeyCode && (noModifiers || shiftOnly) && searchText.isEmpty {
                     if shiftOnly {
                         moveSelectionBackward(includeSearchField: true)
@@ -329,23 +314,19 @@ struct ContentView: View {
                     let results = displayedResults
                     if results.indices.contains(appState.selectedIndex) {
                         appState.browserService.activate(results[appState.selectedIndex])
-                        appState.isVisible = false
-                        NSApp.hide(nil)
+                        appState.hideCommandBar()
                     }
                     return nil
                 }
             } else if event.type == .flagsChanged && hasCycled && appState.isVisible {
-                // When the shortcut's modifier keys are released after cycling, activate the selected tab.
                 let store = ShortcutStore.shared
                 let shortcutMods = store.modifiers.intersection(.deviceIndependentFlagsMask)
                 let currentMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                // Fire as soon as none of the shortcut's modifiers are still held
-                if !currentMods.contains(shortcutMods) {
+                if currentMods.intersection(shortcutMods).isEmpty {
                     let results = displayedResults
                     if results.indices.contains(appState.selectedIndex) {
                         appState.browserService.activate(results[appState.selectedIndex])
-                        appState.isVisible = false
-                        NSApp.hide(nil)
+                        appState.hideCommandBar()
                     }
                     hasCycled = false
                 }
@@ -462,6 +443,8 @@ private struct ResultRowView: View {
     let result: BrowserSearchResult
     let isSelected: Bool
     let faviconURL: URL?
+    let onCopyLink: () -> Void
+    let onRemove: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -493,8 +476,31 @@ private struct ResultRowView: View {
             HStack(spacing: 6) {
                 ResultBadge(systemImage: result.type.symbolName)
                 BrowserBadge(browserName: result.browserName)
+
+                Menu {
+                    Button("Copy Link", action: onCopyLink)
+                    Divider()
+                    if result.type == .tab {
+                        Button("Close Tab", action: onRemove)
+                    } else {
+                        Button("Delete", role: .destructive, action: onRemove)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(.thinMaterial)
+                        )
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
             }
         }
+        .opacity(result.type.dimmingOpacity)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(

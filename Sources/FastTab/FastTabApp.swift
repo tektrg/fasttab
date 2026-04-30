@@ -83,6 +83,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appLogger.info("Application did finish launching")
         NSApp.setActivationPolicy(.accessory)
         setupGlobalShortcut()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            UpdateService.shared.checkForUpdates(manual: false)
+        }
     }
 
     private func setupGlobalShortcut() {
@@ -134,6 +138,7 @@ struct FastTabApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState.shared
     @StateObject private var launchAtLogin = LaunchAtLoginService.shared
+    @StateObject private var updateService = UpdateService.shared
 
     var body: some Scene {
         WindowGroup("Command Bar", id: "command-bar") {
@@ -165,6 +170,18 @@ struct FastTabApp: App {
             }
 
             Divider()
+
+            Divider()
+
+            Button("Check for Updates…") {
+                updateService.checkForUpdates(manual: true)
+            }
+
+            if case .available(let version, _, _) = updateService.status {
+                Button("Download v\(version)") {
+                    updateService.openDownloadURL()
+                }
+            }
 
             Button("Quit") {
                 NSApp.terminate(nil)

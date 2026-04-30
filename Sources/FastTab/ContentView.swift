@@ -8,6 +8,7 @@ private let kDownArrowKeyCode: UInt16 = 125
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
+    @StateObject private var updateService = UpdateService.shared
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
     @State private var localMonitor: Any?
@@ -43,6 +44,18 @@ struct ContentView: View {
                             message: "Shortcut \(ShortcutStore.shared.displayString) unavailable. \(globalShortcutRegistrationIssue)",
                             actionTitle: "Choose Another"
                         ) {
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
+                    if case .available(let version, _, let notes) = updateService.status {
+                        PermissionBanner(
+                            icon: "arrow.down.circle.fill",
+                            tint: .blue,
+                            message: "FastTab \(version) is available.\(notes.map { " \($0)" } ?? "")",
+                            actionTitle: "Download"
+                        ) {
+                            updateService.openDownloadURL()
                         }
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }

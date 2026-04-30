@@ -24,7 +24,7 @@ final class UpdateService: ObservableObject {
     }
 
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "UpdateService")
-    private let manifestURL = URL(string: "https://fasttab.theindie.app/version.json")!
+    private let manifestURL = URL(string: "https://fasttab.theindie.app/fasttab/version.json")!
 
     private var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"

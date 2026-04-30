@@ -14,7 +14,9 @@ struct ContentView: View {
     /// True once the user has cycled to a tab via the shortcut; reset when the bar opens.
     @State private var hasCycled = false
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var faviconPrefetchDebounceTask: Task<Void, Never>?
     @State private var suppressNextSearchChange = false
+    @State private var lastActiveRefreshAt: Date = .distantPast
 
     var filteredResults: [BrowserSearchResult] {
         appState.browserService.results
@@ -87,13 +89,22 @@ struct ContentView: View {
                                     appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
                                 }
                                 isSearchFocused = true
-                                withAnimation(.easeInOut(duration: 0.18)) {
+                                if searchText.count <= 1 {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        proxy.scrollTo(0, anchor: .top)
+                                    }
+                                } else {
                                     proxy.scrollTo(0, anchor: .top)
                                 }
                                 scheduleSearchFetch()
                             }
                             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                                 guard appState.isVisible else { return }
+
+                                let now = Date()
+                                guard now.timeIntervalSince(lastActiveRefreshAt) > 1.2 else { return }
+                                lastActiveRefreshAt = now
+
                                 appState.browserService.fetchResults(matching: searchText)
                                 withAnimation(.easeInOut(duration: 0.18)) {
                                     proxy.scrollTo(0, anchor: .top)
@@ -123,6 +134,7 @@ struct ContentView: View {
         }
         .onDisappear {
             searchDebounceTask?.cancel()
+            faviconPrefetchDebounceTask?.cancel()
             if let monitor = localMonitor {
                 NSEvent.removeMonitor(monitor)
                 localMonitor = nil
@@ -140,6 +152,8 @@ struct ContentView: View {
             } else if appState.selectedIndex < 0 || appState.selectedIndex >= results.count {
                 appState.selectedIndex = 0
             }
+
+            scheduleFaviconPrefetch(for: results)
         }
     }
 
@@ -182,7 +196,7 @@ struct ContentView: View {
                     ResultRowView(
                         result: result,
                         isSelected: appState.selectedIndex == index,
-                        faviconURL: faviconURL(for: result.url),
+                        faviconImage: appState.browserService.faviconImage(for: result),
                         onCopyLink: { appState.browserService.copyLinkToClipboard(result) },
                         onRemove: { appState.browserService.remove(result) }
                     )
@@ -212,6 +226,20 @@ struct ContentView: View {
         )
     }
 
+    private func scheduleFaviconPrefetch(for results: [BrowserSearchResult]) {
+        faviconPrefetchDebounceTask?.cancel()
+        let snapshot = results
+        let prefetchLimit = searchText.isEmpty ? 5 : 12
+
+        faviconPrefetchDebounceTask = Task {
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                appState.browserService.preloadFavicons(for: snapshot, limit: prefetchLimit)
+            }
+        }
+    }
+
     private func scheduleSearchFetch() {
         searchDebounceTask?.cancel()
         let query = searchText
@@ -227,11 +255,6 @@ struct ContentView: View {
     private func activateAndHide(_ result: BrowserSearchResult) {
         appState.browserService.activate(result)
         appState.hideCommandBar()
-    }
-
-    private func faviconURL(for urlString: String) -> URL? {
-        guard let host = URL(string: urlString)?.host else { return nil }
-        return URL(string: "https://www.google.com/s2/favicons?domain=\(host)&sz=32")
     }
 
     private func moveSelectionForward(includeSearchField: Bool) {
@@ -442,23 +465,14 @@ private struct SearchHeader: View {
 private struct ResultRowView: View {
     let result: BrowserSearchResult
     let isSelected: Bool
-    let faviconURL: URL?
+    let faviconImage: NSImage?
     let onCopyLink: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            AsyncImage(url: faviconURL) { phase in
-                if let image = phase.image {
-                    image
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    Image(systemName: result.type.symbolName)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 16, height: 16)
+            LeadingResultIcon(browserName: result.browserName, fallbackSymbol: result.type.symbolName, faviconImage: faviconImage)
+                .frame(width: 16, height: 16)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(result.title)
@@ -537,7 +551,7 @@ private struct BrowserBadge: View {
 
     var body: some View {
         Group {
-            if let appIcon = browserAppIcon {
+            if let appIcon = BrowserIconCache.icon(for: browserName, size: 14) {
                 Image(nsImage: appIcon)
                     .resizable()
                     .interpolation(.high)
@@ -557,21 +571,58 @@ private struct BrowserBadge: View {
                 .fill(.thinMaterial)
         )
     }
+}
 
-    private var browserAppIcon: NSImage? {
-        let appPath: String? = switch browserName {
-        case "Google Chrome": "/Applications/Google Chrome.app"
-        case "Microsoft Edge": "/Applications/Microsoft Edge.app"
-        default: nil
+private struct LeadingResultIcon: View {
+    let browserName: String
+    let fallbackSymbol: String
+    let faviconImage: NSImage?
+
+    var body: some View {
+        if let faviconImage {
+            Image(nsImage: faviconImage)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+        } else if let appIcon = BrowserIconCache.icon(for: browserName, size: 16) {
+            Image(nsImage: appIcon)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+        } else {
+            Image(systemName: fallbackSymbol)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+@MainActor
+private enum BrowserIconCache {
+    private static let appPathByName: [String: String] = [
+        "Google Chrome": "/Applications/Google Chrome.app",
+        "Microsoft Edge": "/Applications/Microsoft Edge.app"
+    ]
+
+    private static var iconStore: [String: NSImage] = [:]
+
+    static func icon(for browserName: String, size: CGFloat) -> NSImage? {
+        if let cached = iconStore[browserName] {
+            let icon = cached.copy() as? NSImage ?? cached
+            icon.size = NSSize(width: size, height: size)
+            return icon
         }
 
-        guard let appPath, FileManager.default.fileExists(atPath: appPath) else {
+        guard let appPath = appPathByName[browserName],
+              FileManager.default.fileExists(atPath: appPath) else {
             return nil
         }
 
         let icon = NSWorkspace.shared.icon(forFile: appPath)
-        icon.size = NSSize(width: 14, height: 14)
-        return icon
+        iconStore[browserName] = icon
+
+        let sized = icon.copy() as? NSImage ?? icon
+        sized.size = NSSize(width: size, height: size)
+        return sized
     }
 }
 

@@ -29,6 +29,7 @@ private struct ChromiumProfile: Sendable {
 
     var bookmarksURL: URL { directoryURL.appendingPathComponent("Bookmarks") }
     var historyURL: URL { directoryURL.appendingPathComponent("History") }
+    var faviconsURL: URL { directoryURL.appendingPathComponent("Favicons") }
 }
 
 @MainActor
@@ -48,9 +49,19 @@ class BrowserTabService: ObservableObject {
     private var cachedBookmarks: [BrowserSearchResult] = []
     private var cachedHistory: [BrowserSearchResult] = []
     private var cacheLastUpdatedAt: Date?
+    private var cachedQuickOpenResults: [BrowserSearchResult] = []
+    private var cachedLiveTabs: [BrowserSearchResult] = []
+    private var lastLiveTabsRefreshAt: Date = .distantPast
+
+    private var faviconDataCache: [String: Data] = [:]
+    private var faviconImageCache: [String: NSImage] = [:]
+    private var faviconLookupTasks: Set<String> = []
+    private var faviconPrefetchTask: Task<Void, Never>?
 
     private let cacheRefreshInterval: TimeInterval = 30
     private let historyCachePerBrowserLimit = 300
+    private let initialVisibleTabLimit = 5
+    private let typedQueryLiveTabsReuseWindow: TimeInterval = 1.0
 
     private let browsers: [ChromiumBrowser] = [
         ChromiumBrowser(appName: "Google Chrome", supportDirectory: "~/Library/Application Support/Google/Chrome"),
@@ -73,15 +84,23 @@ class BrowserTabService: ObservableObject {
         let generation = fetchGeneration
 
         fetchTask?.cancel()
-        isLoading = true
 
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedQuery.isEmpty, !cachedQuickOpenResults.isEmpty {
+            results = cachedQuickOpenResults
+        }
+        isLoading = true
+
         lastIssuedQuery = normalizedQuery
 
         let cachedTimes = self.lastActiveTimes
         let browsers = self.browsers
         let bookmarkSnapshot = self.cachedBookmarks
         let historySnapshot = self.cachedHistory
+        let initialVisibleTabLimit = self.initialVisibleTabLimit
+        let cachedLiveTabsSnapshot = self.cachedLiveTabs
+        let lastLiveTabsRefreshAt = self.lastLiveTabsRefreshAt
+        let typedQueryLiveTabsReuseWindow = self.typedQueryLiveTabsReuseWindow
 
         logger.info("fetchResults start. generation=\(generation) query='\(normalizedQuery, privacy: .public)' bookmarkSnapshot=\(bookmarkSnapshot.count) historySnapshot=\(historySnapshot.count)")
 
@@ -89,10 +108,18 @@ class BrowserTabService: ObservableObject {
             var updatedTimes = cachedTimes
             let fetchStart = Date()
             var liveTabs: [BrowserSearchResult] = []
+            var usedCachedLiveTabs = false
 
-            for browser in browsers {
-                if Task.isCancelled { break }
-                liveTabs.append(contentsOf: Self.fetchTabResults(for: browser, fetchStart: fetchStart, activeTimes: &updatedTimes))
+            if !normalizedQuery.isEmpty,
+               !cachedLiveTabsSnapshot.isEmpty,
+               Date().timeIntervalSince(lastLiveTabsRefreshAt) < typedQueryLiveTabsReuseWindow {
+                liveTabs = cachedLiveTabsSnapshot
+                usedCachedLiveTabs = true
+            } else {
+                for browser in browsers {
+                    if Task.isCancelled { break }
+                    liveTabs.append(contentsOf: Self.fetchTabResults(for: browser, fetchStart: fetchStart, activeTimes: &updatedTimes))
+                }
             }
 
             guard !Task.isCancelled else {
@@ -103,43 +130,106 @@ class BrowserTabService: ObservableObject {
                 return
             }
 
-            let tabMatches = normalizedQuery.isEmpty ? liveTabs : liveTabs.filter { $0.matches(query: normalizedQuery) }
-            let bookmarkMatches = normalizedQuery.isEmpty ? bookmarkSnapshot : bookmarkSnapshot.filter { $0.matches(query: normalizedQuery) }
-            let historyMatches = normalizedQuery.isEmpty ? historySnapshot : historySnapshot.filter { $0.matches(query: normalizedQuery) }
+            let sortedLiveTabs = sortBrowserSearchResults(liveTabs)
+
+            if normalizedQuery.isEmpty {
+                let prioritizedTabs = Array(sortedLiveTabs.prefix(initialVisibleTabLimit))
+
+                await MainActor.run {
+                    guard let self, generation == self.fetchGeneration else { return }
+                    self.lastActiveTimes = updatedTimes
+                    self.results = prioritizedTabs
+                    self.cachedQuickOpenResults = prioritizedTabs
+                    self.cachedLiveTabs = sortedLiveTabs
+                    self.lastLiveTabsRefreshAt = Date()
+                    self.isLoading = false
+                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) topTabs=\(prioritizedTabs.count) liveTabs={\(Self.typeBreakdown(sortedLiveTabs), privacy: .public)}")
+                    self.refreshCachesIfNeeded(force: false)
+                }
+                return
+            }
+
+            let tabMatches = sortedLiveTabs.filter { $0.matches(query: normalizedQuery) }
+            let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(query: normalizedQuery) }
+            let historyMatches = historySnapshot.filter { $0.matches(query: normalizedQuery) }
             let mergedResults = sortBrowserSearchResults(tabMatches + bookmarkMatches + historyMatches)
-            let fallbackResults = sortBrowserSearchResults(liveTabs + bookmarkSnapshot + historySnapshot)
-            let fallbackUsed = !normalizedQuery.isEmpty && mergedResults.isEmpty && !fallbackResults.isEmpty
+            let fallbackResults = sortBrowserSearchResults(sortedLiveTabs + bookmarkSnapshot + historySnapshot)
+            let fallbackUsed = mergedResults.isEmpty && !fallbackResults.isEmpty
             let finalResults = fallbackUsed ? fallbackResults : mergedResults
 
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
                 self.lastActiveTimes = updatedTimes
                 self.results = finalResults
+                if !usedCachedLiveTabs {
+                    self.cachedLiveTabs = sortedLiveTabs
+                    self.lastLiveTabsRefreshAt = Date()
+                }
                 self.isLoading = false
-                self.logger.info("fetchResults applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' liveTabs={\(Self.typeBreakdown(liveTabs), privacy: .public)} matched={\(Self.typeBreakdown(mergedResults), privacy: .public)} final={\(Self.typeBreakdown(finalResults), privacy: .public)} fallbackUsed=\(fallbackUsed, privacy: .public)")
-                if normalizedQuery.isEmpty {
-                    self.refreshCachesIfNeeded(force: false)
-                }
+                self.logger.info("fetchResults applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' liveTabs={\(Self.typeBreakdown(sortedLiveTabs), privacy: .public)} matched={\(Self.typeBreakdown(mergedResults), privacy: .public)} final={\(Self.typeBreakdown(finalResults), privacy: .public)} fallbackUsed=\(fallbackUsed, privacy: .public) usedCachedLiveTabs=\(usedCachedLiveTabs, privacy: .public)")
+                self.refreshCachesIfNeeded(force: bookmarkSnapshot.isEmpty && historySnapshot.isEmpty)
+            }
+        }
+    }
+
+    func faviconImage(for result: BrowserSearchResult) -> NSImage? {
+        let key = faviconCacheKey(browserName: result.browserName, url: result.url)
+        return faviconImageCache[key]
+    }
+
+    func preloadFavicons(for results: [BrowserSearchResult], limit: Int) {
+        faviconPrefetchTask?.cancel()
+
+        let cappedResults = Array(results.prefix(max(0, limit)))
+        let pending = cappedResults.compactMap { result -> (browserName: String, url: String, key: String)? in
+            guard let parsedURL = URL(string: result.url),
+                  let scheme = parsedURL.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                return nil
             }
 
-            if normalizedQuery.isEmpty {
-                return
+            let key = faviconCacheKey(browserName: result.browserName, url: result.url)
+            guard faviconDataCache[key] == nil, !faviconLookupTasks.contains(key) else {
+                return nil
             }
 
-            guard !Task.isCancelled else {
-                await MainActor.run {
-                    guard let self, generation == self.fetchGeneration else { return }
-                    self.isLoading = false
+            return (result.browserName, result.url, key)
+        }
+
+        guard !pending.isEmpty else { return }
+
+        for item in pending {
+            faviconLookupTasks.insert(item.key)
+        }
+
+        let browsers = self.browsers
+
+        faviconPrefetchTask = Task.detached(priority: .utility) { [weak self] in
+            var fetched: [(String, Data)] = []
+
+            for item in pending {
+                if Task.isCancelled { break }
+                if let data = Self.fetchFaviconData(browserName: item.browserName, pageURL: item.url, browsers: browsers) {
+                    fetched.append((item.key, data))
                 }
-                return
             }
 
             await MainActor.run {
-                guard let self, generation == self.fetchGeneration else { return }
-                self.logger.info("Browser result fetch complete. generation=\(generation) query='\(normalizedQuery, privacy: .public)' resultCount=\(finalResults.count) matchedCount=\(mergedResults.count) fallbackUsed=\(fallbackUsed, privacy: .public) liveTabCount=\(tabMatches.count) cachedBookmarkCount=\(bookmarkSnapshot.count) cachedHistoryCount=\(historySnapshot.count)")
-                self.results = finalResults
-                self.isLoading = false
-                self.refreshCachesIfNeeded(force: bookmarkSnapshot.isEmpty && historySnapshot.isEmpty)
+                guard let self else { return }
+
+                for item in pending {
+                    self.faviconLookupTasks.remove(item.key)
+                }
+
+                guard !fetched.isEmpty else { return }
+
+                for (key, data) in fetched {
+                    self.faviconDataCache[key] = data
+                    if let image = NSImage(data: data) {
+                        self.faviconImageCache[key] = image
+                    }
+                }
+                self.objectWillChange.send()
             }
         }
     }
@@ -171,6 +261,13 @@ class BrowserTabService: ObservableObject {
 
         results.removeAll { $0.id == result.id }
         fetchResults(matching: lastIssuedQuery)
+    }
+
+    private func faviconCacheKey(browserName: String, url: String) -> String {
+        guard let parsedURL = URL(string: url), let host = parsedURL.host?.lowercased(), !host.isEmpty else {
+            return "\(browserName)|\(url)"
+        }
+        return "\(browserName)|\(host)"
     }
 
     private func closeTab(_ result: BrowserSearchResult) {
@@ -389,7 +486,11 @@ class BrowserTabService: ObservableObject {
             cacheLastUpdatedAt = Date()
             logger.info("Search cache refreshed. bookmarks={\(Self.typeBreakdown(cachePayload.bookmarks), privacy: .public)} history={\(Self.typeBreakdown(cachePayload.history), privacy: .public)} perBrowser='\(cachePayload.diagnostics.joined(separator: "; "), privacy: .public)'")
 
-            fetchResults(matching: lastIssuedQuery)
+            if lastIssuedQuery.isEmpty {
+                logger.info("Search cache refresh applied without UI refetch (empty query).")
+            } else {
+                fetchResults(matching: lastIssuedQuery)
+            }
         }
     }
 
@@ -666,6 +767,80 @@ class BrowserTabService: ObservableObject {
             .sorted { $0.timestamp > $1.timestamp }
             .prefix(perBrowserLimit)
             .map { $0 }
+    }
+
+    private nonisolated static func fetchFaviconData(browserName: String, pageURL: String, browsers: [ChromiumBrowser]) -> Data? {
+        guard let browser = browsers.first(where: { $0.appName == browserName }) else {
+            return nil
+        }
+
+        let escapedURL = pageURL.replacingOccurrences(of: "'", with: "''")
+        let originURL: String = {
+            guard let parsed = URL(string: pageURL),
+                  let scheme = parsed.scheme,
+                  let host = parsed.host else {
+                return pageURL
+            }
+            return "\(scheme)://\(host)/"
+        }()
+        let escapedOriginURL = originURL.replacingOccurrences(of: "'", with: "''")
+
+        for profile in chromiumProfiles(for: browser) {
+            guard FileManager.default.fileExists(atPath: profile.faviconsURL.path) else { continue }
+
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-Favicons")
+
+            do {
+                try FileManager.default.copyItem(at: profile.faviconsURL, to: tempURL)
+
+                let sql = """
+                SELECT hex(fb.image_data)
+                FROM icon_mapping im
+                JOIN favicon_bitmaps fb ON fb.icon_id = im.icon_id
+                WHERE im.page_url IN ('\(escapedURL)', '\(escapedOriginURL)')
+                  AND fb.image_data IS NOT NULL
+                ORDER BY fb.width DESC, fb.last_updated DESC
+                LIMIT 1;
+                """
+
+                guard let output = runProcess(
+                    launchPath: "/usr/bin/sqlite3",
+                    arguments: [tempURL.path, sql],
+                    timeoutSeconds: 6
+                ), !output.isEmpty else {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    continue
+                }
+
+                try? FileManager.default.removeItem(at: tempURL)
+
+                if let data = dataFromHex(output) {
+                    return data
+                }
+            } catch {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+        }
+
+        return nil
+    }
+
+    private nonisolated static func dataFromHex(_ hex: String) -> Data? {
+        let compact = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !compact.isEmpty, compact.count.isMultiple(of: 2) else { return nil }
+
+        var data = Data(capacity: compact.count / 2)
+        var index = compact.startIndex
+
+        while index < compact.endIndex {
+            let next = compact.index(index, offsetBy: 2)
+            let byteString = compact[index..<next]
+            guard let byte = UInt8(byteString, radix: 16) else { return nil }
+            data.append(byte)
+            index = next
+        }
+
+        return data
     }
 
     private nonisolated static func chromiumProfiles(for browser: ChromiumBrowser) -> [ChromiumProfile] {

@@ -17,9 +17,14 @@ private func appleScriptQuoted(_ value: String) -> String {
         .replacingOccurrences(of: "\"", with: "\\\"")
 }
 
+private func shellQuoted(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
 private struct ChromiumBrowser: Sendable {
     let appName: String
     let supportDirectory: String
+    let bundleIdentifier: String
 }
 
 private struct ChromiumProfile: Sendable {
@@ -36,6 +41,10 @@ private struct ChromiumProfile: Sendable {
 class BrowserTabService: ObservableObject {
     @Published var results: [BrowserSearchResult] = []
     @Published var isLoading: Bool = false
+    /// True when the fetched live tabs span more than one window (per browser).
+    /// Computed from all live tabs, not just the visible prefix, so the flag is
+    /// correct even when only a subset is shown in the unfiltered list.
+    @Published var hasMultipleWindows: Bool = false
 
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService")
     private var lastActiveTimes: [String: Date] = [:]
@@ -64,9 +73,18 @@ class BrowserTabService: ObservableObject {
     private let typedQueryLiveTabsReuseWindow: TimeInterval = 1.0
 
     private let browsers: [ChromiumBrowser] = [
-        ChromiumBrowser(appName: "Google Chrome", supportDirectory: "~/Library/Application Support/Google/Chrome"),
-        ChromiumBrowser(appName: "Microsoft Edge", supportDirectory: "~/Library/Application Support/Microsoft Edge")
-    ]
+        ChromiumBrowser(appName: "Google Chrome", supportDirectory: "~/Library/Application Support/Google/Chrome", bundleIdentifier: "com.google.Chrome"),
+        ChromiumBrowser(appName: "Microsoft Edge", supportDirectory: "~/Library/Application Support/Microsoft Edge", bundleIdentifier: "com.microsoft.edgemac")
+]
+
+    private nonisolated static func computeHasMultipleWindows(_ tabs: [BrowserSearchResult]) -> Bool {
+        var seen = Set<String>()
+        for tab in tabs where tab.type == .tab {
+            seen.insert(tab.browserName + "|" + String(tab.windowIndex ?? 0))
+            if seen.count > 1 { return true }
+        }
+        return false
+    }
 
     private nonisolated static func typeBreakdown(_ results: [BrowserSearchResult]) -> String {
         let tabs = results.filter { $0.type == .tab }.count
@@ -142,6 +160,7 @@ class BrowserTabService: ObservableObject {
                     self.cachedQuickOpenResults = prioritizedTabs
                     self.cachedLiveTabs = sortedLiveTabs
                     self.lastLiveTabsRefreshAt = Date()
+                    self.hasMultipleWindows = Self.computeHasMultipleWindows(sortedLiveTabs)
                     self.isLoading = false
                     self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) topTabs=\(prioritizedTabs.count) liveTabs={\(Self.typeBreakdown(sortedLiveTabs), privacy: .public)}")
                     self.refreshCachesIfNeeded(force: false)
@@ -164,6 +183,7 @@ class BrowserTabService: ObservableObject {
                 if !usedCachedLiveTabs {
                     self.cachedLiveTabs = sortedLiveTabs
                     self.lastLiveTabsRefreshAt = Date()
+                    self.hasMultipleWindows = Self.computeHasMultipleWindows(sortedLiveTabs)
                 }
                 self.isLoading = false
                 self.logger.info("fetchResults applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' liveTabs={\(Self.typeBreakdown(sortedLiveTabs), privacy: .public)} matched={\(Self.typeBreakdown(mergedResults), privacy: .public)} final={\(Self.typeBreakdown(finalResults), privacy: .public)} fallbackUsed=\(fallbackUsed, privacy: .public) usedCachedLiveTabs=\(usedCachedLiveTabs, privacy: .public)")
@@ -414,6 +434,18 @@ class BrowserTabService: ObservableObject {
         return deletedAny
     }
 
+    private func browserExecutableURL(for browser: ChromiumBrowser) -> URL? {
+        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: browser.bundleIdentifier) else {
+            return nil
+        }
+        let infoPlistURL = appURL.appendingPathComponent("Contents/Info.plist")
+        guard let infoPlist = NSDictionary(contentsOf: infoPlistURL),
+              let executableName = infoPlist["CFBundleExecutable"] as? String else {
+            return nil
+        }
+        return appURL.appendingPathComponent("Contents/MacOS/\(executableName)")
+    }
+
     private func chromiumProfile(for result: BrowserSearchResult) -> ChromiumProfile? {
         guard let browser = browsers.first(where: { $0.appName == result.browserName }) else {
             return nil
@@ -531,6 +563,28 @@ class BrowserTabService: ObservableObject {
     }
 
     private func openURL(_ result: BrowserSearchResult) {
+        // Try profile-aware opening for Chromium browsers
+        if let browser = browsers.first(where: { $0.appName == result.browserName }),
+           let profileName = result.profileName,
+           let executableURL = browserExecutableURL(for: browser) {
+            let executablePath = executableURL.path
+            let script = "nohup \(shellQuoted(executablePath)) --profile-directory=\(shellQuoted(profileName)) \(shellQuoted(result.url)) > /dev/null 2>&1 &"
+            let task = Process()
+            task.launchPath = "/bin/bash"
+            task.arguments = ["-c", script]
+            do {
+                try task.run()
+                task.waitUntilExit()
+                if task.terminationStatus == 0 {
+                    logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) profile=\(profileName, privacy: .public) url='\(result.url, privacy: .public)'")
+                    return
+                }
+            } catch {
+                logger.error("openURL profile-aware failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+
+        // Fallback to AppleScript
         let safeURL = appleScriptQuoted(result.url)
         let script = """
         tell application "\(result.browserName)"
@@ -539,7 +593,7 @@ class BrowserTabService: ObservableObject {
         end tell
         """
 
-        logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) url='\(result.url, privacy: .public)'")
+        logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) url='\(result.url, privacy: .public)' (fallback)")
         runAppleScript(script, logger: logger, action: "openURL")
     }
 
@@ -573,11 +627,12 @@ class BrowserTabService: ObservableObject {
                 set winCount to count of windows
                 repeat with w from 1 to winCount
                     set activeTabIndex to active tab index of window w
+                    set windowTitle to title of window w
                     set tabTitles to title of every tab of window w
                     set tabURLs to URL of every tab of window w
                     repeat with t from 1 to count of tabTitles
                         set isActive to (t is equal to activeTabIndex and w is equal to 1) as string
-                        set rowData to "\(browser.appName)" & fieldSep & w & fieldSep & t & fieldSep & (item t of tabTitles) & fieldSep & (item t of tabURLs) & fieldSep & isActive
+                        set rowData to "\(browser.appName)" & fieldSep & w & fieldSep & t & fieldSep & (item t of tabTitles) & fieldSep & (item t of tabURLs) & fieldSep & isActive & fieldSep & windowTitle
                         if tabData is "" then
                             set tabData to rowData
                         else
@@ -600,7 +655,7 @@ class BrowserTabService: ObservableObject {
         let rows = output.components(separatedBy: kRowSep)
         for row in rows where !row.isEmpty {
             let parts = row.components(separatedBy: kFieldSep)
-            guard parts.count >= 6 else { continue }
+            guard parts.count >= 7 else { continue }
 
             let appName = parts[0]
             let winIdx = Int(parts[1]) ?? 1
@@ -608,6 +663,7 @@ class BrowserTabService: ObservableObject {
             let title = parts[3]
             let url = parts[4]
             let isActive = parts[5] == "true"
+            let windowName = parts[6]
             let key = activeKey(appName: appName, url: url)
             let timestamp = isActive ? fetchStart : (activeTimes[key] ?? Date(timeIntervalSince1970: 0))
 
@@ -623,7 +679,8 @@ class BrowserTabService: ObservableObject {
                     type: .tab,
                     timestamp: timestamp,
                     windowIndex: winIdx,
-                    tabIndex: tabIdx
+                    tabIndex: tabIdx,
+                    windowName: windowName
                 )
             )
         }

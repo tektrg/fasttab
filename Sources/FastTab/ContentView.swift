@@ -30,6 +30,21 @@ struct ContentView: View {
         return filteredResults
     }
 
+    var shouldShowWindowName: Bool {
+        appState.browserService.hasMultipleWindows
+    }
+
+    var shouldShowProfileName: Bool {
+        var seen = Set<String>()
+        for result in displayedResults {
+            guard let name = result.profileName, !name.isEmpty else { continue }
+            let key = result.browserName + "|" + name
+            seen.insert(key)
+            if seen.count > 1 { return true }
+        }
+        return false
+    }
+
     private let cardSize = CGSize(width: 640, height: 460)
     private let canvasSize = CGSize(width: 760, height: 580)
 
@@ -172,6 +187,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private func resultsSection(proxy: ScrollViewProxy) -> some View {
+        // Compute once here — not inside the List closure, which runs per row.
+        let showWindowName = shouldShowWindowName
+        let showProfileName = shouldShowProfileName
         Group {
             if appState.browserService.isLoading && displayedResults.isEmpty {
                 VStack(spacing: 10) {
@@ -210,6 +228,8 @@ struct ContentView: View {
                         result: result,
                         isSelected: appState.selectedIndex == index,
                         faviconImage: appState.browserService.faviconImage(for: result),
+                        showWindowName: showWindowName,
+                        showProfileName: showProfileName,
                         onCopyLink: { appState.browserService.copyLinkToClipboard(result) },
                         onRemove: { appState.browserService.remove(result) }
                     )
@@ -479,6 +499,8 @@ private struct ResultRowView: View {
     let result: BrowserSearchResult
     let isSelected: Bool
     let faviconImage: NSImage?
+    let showWindowName: Bool
+    let showProfileName: Bool
     let onCopyLink: () -> Void
     let onRemove: () -> Void
 
@@ -492,7 +514,7 @@ private struct ResultRowView: View {
                     .font(.system(size: 13, weight: .semibold, design: .default))
                     .lineLimit(1)
 
-                Text(result.secondaryText)
+                Text(result.secondaryText(showWindowName: showWindowName, showProfileName: showProfileName))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

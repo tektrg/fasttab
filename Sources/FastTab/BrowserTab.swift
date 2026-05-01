@@ -44,6 +44,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
     let timestamp: Date
     let windowIndex: Int?
     let tabIndex: Int?
+    let windowName: String?
     let bookmarkID: String?
     let profileName: String?
     let folderPath: String?
@@ -56,6 +57,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         timestamp: Date,
         windowIndex: Int? = nil,
         tabIndex: Int? = nil,
+        windowName: String? = nil,
         bookmarkID: String? = nil,
         profileName: String? = nil,
         folderPath: String? = nil
@@ -67,6 +69,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         self.timestamp = timestamp
         self.windowIndex = windowIndex
         self.tabIndex = tabIndex
+        self.windowName = windowName
         self.bookmarkID = bookmarkID
         self.profileName = profileName
         self.folderPath = folderPath
@@ -83,16 +86,39 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         }
     }
 
-    var secondaryText: String {
+    func secondaryText(showWindowName: Bool, showProfileName: Bool) -> String {
+        let baseText: String
         switch type {
         case .bookmark:
             if let folderPath, !folderPath.isEmpty {
-                return folderPath
+                baseText = folderPath
+            } else {
+                baseText = url
             }
-            return url
         case .tab, .history:
-            return url
+            baseText = url
         }
+
+        var metadata: [String] = []
+
+        if showWindowName,
+           type == .tab,
+           let windowName,
+           !windowName.isEmpty {
+            metadata.append(windowName)
+        }
+
+        if showProfileName,
+           let profileName,
+           !profileName.isEmpty {
+            metadata.append(profileName)
+        }
+
+        guard !metadata.isEmpty else {
+            return baseText
+        }
+
+        return (metadata + [baseText]).joined(separator: " • ")
     }
 
     func matches(query: String) -> Bool {

@@ -3,6 +3,7 @@ import AppKit
 
 private let kSpaceKeyCode: UInt16 = 49
 private let kEnterKeyCode: UInt16 = 36
+private let kEscapeKeyCode: UInt16 = 53
 private let kUpArrowKeyCode: UInt16 = 126
 private let kDownArrowKeyCode: UInt16 = 125
 
@@ -102,7 +103,7 @@ struct ContentView: View {
                                     DispatchQueue.main.async {
                                         isSearchFocused = true
                                         withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
-                                            proxy.scrollTo(0, anchor: .top)
+                                            scrollResultsToTop(proxy)
                                         }
                                     }
                                 }
@@ -121,10 +122,10 @@ struct ContentView: View {
                                 isSearchFocused = true
                                 if searchText.count <= 1 {
                                     withAnimation(.easeInOut(duration: 0.18)) {
-                                        proxy.scrollTo(0, anchor: .top)
+                                        scrollResultsToTop(proxy)
                                     }
                                 } else {
-                                    proxy.scrollTo(0, anchor: .top)
+                                    scrollResultsToTop(proxy)
                                 }
                                 scheduleSearchFetch()
                             }
@@ -137,7 +138,7 @@ struct ContentView: View {
 
                                 appState.browserService.fetchResults(matching: searchText)
                                 withAnimation(.easeInOut(duration: 0.18)) {
-                                    proxy.scrollTo(0, anchor: .top)
+                                    scrollResultsToTop(proxy)
                                 }
                             }
                     }
@@ -242,43 +243,52 @@ struct ContentView: View {
                 .frame(height: 300)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(commandBarElementColor(for: colorScheme))
+                        .fill(.thinMaterial)
                 )
             } else {
-                List(Array(displayedResults.enumerated()), id: \.element.id) { index, result in
-                    ResultRowView(
-                        result: result,
-                        isSelected: appState.selectedIndex == index,
-                        faviconImage: appState.browserService.faviconImage(for: result),
-                        showWindowName: showWindowName,
-                        showProfileName: showProfileName,
-                        onCopyLink: { appState.browserService.copyLinkToClipboard(result) },
-                        onRemove: { appState.browserService.remove(result) }
-                    )
-                    .contentShape(Rectangle())
-                    .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .onTapGesture {
-                        activateAndHide(result)
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(Array(displayedResults.enumerated()), id: \.element.id) { index, result in
+                            ResultRowView(
+                                result: result,
+                                isSelected: appState.selectedIndex == index,
+                                faviconImage: appState.browserService.faviconImage(for: result),
+                                showWindowName: showWindowName,
+                                showProfileName: showProfileName,
+                                onCopyLink: { appState.browserService.copyLinkToClipboard(result) },
+                                onRemove: {
+                                    guard result.type == .tab else {
+                                        appState.browserService.remove(result)
+                                        return
+                                    }
+
+                                    withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                                        appState.browserService.remove(result)
+                                    }
+                                }
+                            )
+                            .contentShape(Rectangle())
+                            .padding(.horizontal, 8)
+                            .onTapGesture {
+                                activateAndHide(result)
+                            }
+                        }
                     }
-                    .id(index)
+                    .padding(.vertical, 3)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
                 .background(Color.clear)
-                .animation(.easeInOut(duration: 0.2), value: displayedResults.map(\.id))
             }
         }
         .frame(height: 300)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(commandBarElementColor(for: colorScheme))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(commandBarPanelBorderColor(for: colorScheme), lineWidth: 1)
-                )
+                .fill(.thinMaterial)
         )
+    }
+
+    private func scrollResultsToTop(_ proxy: ScrollViewProxy) {
+        guard let firstResultID = displayedResults.first?.id else { return }
+        proxy.scrollTo(firstResultID, anchor: .top)
     }
 
     private func scheduleFaviconPrefetch(for results: [BrowserSearchResult]) {
@@ -357,6 +367,18 @@ struct ContentView: View {
         hasCycled = appState.selectedIndex != -1
     }
 
+    private func handleEscapeKey() {
+        if appState.selectedIndex == -1 {
+            appState.hideCommandBar()
+            hasCycled = false
+            return
+        }
+
+        appState.selectedIndex = -1
+        isSearchFocused = true
+        hasCycled = false
+    }
+
     private func setupLocalMonitor() {
         guard localMonitor == nil else { return }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
@@ -367,6 +389,11 @@ struct ContentView: View {
                 let userModifiers = flags.intersection([.command, .option, .control, .shift])
 
                 let noModifiers = userModifiers.isEmpty
+
+                if event.keyCode == kEscapeKeyCode && appState.isVisible {
+                    handleEscapeKey()
+                    return nil
+                }
 
                 if noModifiers && event.keyCode == kUpArrowKeyCode {
                     moveSelectionBackward(includeSearchField: true)
@@ -450,11 +477,7 @@ private struct PermissionBanner: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(commandBarElementColor(for: colorScheme))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(commandBarPanelBorderColor(for: colorScheme), lineWidth: 1)
-                )
+                .fill(.thinMaterial)
         )
     }
 }
@@ -489,14 +512,10 @@ private struct SearchHeader: View {
         .padding(.vertical, 11)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(commandBarElementColor(for: colorScheme))
+                .fill(.thinMaterial)
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(commandBarPanelBorderColor(for: colorScheme), lineWidth: 1)
                 )
         )
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
@@ -580,6 +599,7 @@ private struct ResultRowView: View {
 }
 
 private struct MetadataPill: View {
+    @Environment(\.colorScheme) private var colorScheme
     let title: String
 
     var body: some View {
@@ -591,8 +611,16 @@ private struct MetadataPill: View {
             .padding(.vertical, 3)
             .background(
                 Capsule(style: .continuous)
-                    .fill(.thinMaterial)
+                    .fill(.regularMaterial)
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .fill(metadataPillTint)
+                    )
             )
+    }
+
+    private var metadataPillTint: Color {
+        colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.06)
     }
 }
 
@@ -695,21 +723,9 @@ private struct FooterShortcutBar<Content: View>: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(commandBarElementColor(for: colorScheme))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(commandBarPanelBorderColor(for: colorScheme), lineWidth: 1)
-                )
+                .fill(.thinMaterial)
         )
     }
-}
-
-private func commandBarElementColor(for colorScheme: ColorScheme) -> Color {
-    colorScheme == .dark ? Color.black : Color(nsColor: .windowBackgroundColor)
-}
-
-private func commandBarPanelBorderColor(for colorScheme: ColorScheme) -> Color {
-    colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08)
 }
 
 private func commandBarFullScreenShadowColor(for colorScheme: ColorScheme) -> Color {

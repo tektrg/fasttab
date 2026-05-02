@@ -279,8 +279,16 @@ class BrowserTabService: ObservableObject {
             deleteHistoryItem(result)
         }
 
-        results.removeAll { $0.id == result.id }
+        removeResultFromLocalSnapshots(withID: result.id)
         fetchResults(matching: lastIssuedQuery)
+    }
+
+    private func removeResultFromLocalSnapshots(withID resultID: String) {
+        results.removeAll { $0.id == resultID }
+        cachedQuickOpenResults.removeAll { $0.id == resultID }
+        cachedLiveTabs.removeAll { $0.id == resultID }
+        cachedBookmarks.removeAll { $0.id == resultID }
+        cachedHistory.removeAll { $0.id == resultID }
     }
 
     private func faviconCacheKey(browserName: String, url: String) -> String {
@@ -298,7 +306,6 @@ class BrowserTabService: ObservableObject {
         let script = """
         tell application "\(result.browserName)"
             if it is not running then return
-            activate
             set targetURL to "\(safeURL)"
             set didClose to false
             try
@@ -406,7 +413,7 @@ class BrowserTabService: ObservableObject {
     }
 
     private func deleteBookmarkNode(withID bookmarkID: String, from node: inout [String: Any]) -> Bool {
-        guard var children = node["children"] as? [[String: Any]] else {
+        guard let children = node["children"] as? [[String: Any]] else {
             return false
         }
 

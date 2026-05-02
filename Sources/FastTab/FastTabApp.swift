@@ -55,6 +55,7 @@ class AppState: ObservableObject {
     func showCommandBar() {
         selectedIndex = -1
         NSApp.activate(ignoringOtherApps: true)
+        commandWindow?.centerCommandBarCanvasInVisibleScreen()
         commandWindow?.makeKeyAndOrderFront(nil)
         commandWindow?.orderFrontRegardless()
         isVisible = commandWindow?.isVisible ?? true
@@ -147,7 +148,7 @@ struct FastTabApp: App {
                 .background(WindowChromeConfigurator())
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 760, height: 580)
+        .defaultSize(width: CommandBarLayout.canvasSize.width, height: CommandBarLayout.canvasSize.height)
         .windowResizability(.contentSize)
 
         MenuBarExtra("FastTab", systemImage: "command") {
@@ -219,6 +220,7 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
             window.backgroundColor = .clear
             window.hasShadow = false
             window.isMovableByWindowBackground = true
+            window.centerCommandBarCanvasInVisibleScreen()
 
             [NSWindow.ButtonType.closeButton,
              .miniaturizeButton,
@@ -265,5 +267,26 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
         @objc private func handleObservedWindowChange() {
             AppState.shared.syncVisibilityFromCommandWindow()
         }
+    }
+}
+
+private extension NSWindow {
+    func centerCommandBarCanvasInVisibleScreen() {
+        let displayFrame = preferredCommandBarDisplay?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
+
+        setFrameOrigin(CGPoint(
+            x: displayFrame.midX - frame.width / 2,
+            y: displayFrame.midY - frame.height / 2
+        ))
+    }
+
+    private var preferredCommandBarDisplay: NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+
+        if let mouseScreen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) {
+            return mouseScreen
+        }
+
+        return screen ?? NSScreen.main
     }
 }

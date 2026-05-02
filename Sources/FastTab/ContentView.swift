@@ -7,6 +7,7 @@ private let kUpArrowKeyCode: UInt16 = 126
 private let kDownArrowKeyCode: UInt16 = 125
 
 struct ContentView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var appState: AppState
     @StateObject private var updateService = UpdateService.shared
     @State private var searchText = ""
@@ -45,11 +46,12 @@ struct ContentView: View {
         return false
     }
 
-    private let cardSize = CGSize(width: 640, height: 460)
-    private let canvasSize = CGSize(width: 760, height: 580)
-
     var body: some View {
         ZStack {
+            Color.clear
+            fullScreenAmbientShadow
+                .allowsHitTesting(false)
+
             CommandBarSurface {
                 VStack(spacing: 10) {
                     if let globalShortcutRegistrationIssue = appState.globalShortcutRegistrationIssue {
@@ -147,10 +149,10 @@ struct ContentView: View {
                 }
                 .padding(12)
             }
-            .frame(width: cardSize.width, height: cardSize.height)
-            .padding(40)
+            .frame(width: CommandBarLayout.surfaceSize.width, height: CommandBarLayout.surfaceSize.height)
+            .offset(y: CommandBarLayout.surfaceVerticalOffset)
         }
-        .frame(width: canvasSize.width, height: canvasSize.height)
+        .frame(width: CommandBarLayout.canvasSize.width, height: CommandBarLayout.canvasSize.height)
         .background(Color.clear)
         .onAppear {
             isSearchFocused = true
@@ -183,6 +185,26 @@ struct ContentView: View {
 
             scheduleFaviconPrefetch(for: results)
         }
+    }
+
+    private var fullScreenAmbientShadow: some View {
+        let shadowColor = commandBarFullScreenShadowColor(for: colorScheme)
+        let backdropSize = CGSize(width: CommandBarLayout.canvasSize.width + 900, height: CommandBarLayout.canvasSize.height + 900)
+
+        return RadialGradient(
+            stops: [
+                .init(color: shadowColor.opacity(0.54), location: 0.00),
+                .init(color: shadowColor.opacity(0.46), location: 0.10),
+                .init(color: shadowColor.opacity(0.30), location: 0.32),
+                .init(color: shadowColor.opacity(0.15), location: 0.64),
+                .init(color: shadowColor.opacity(0.04), location: 1.00)
+            ],
+            center: .center,
+            startRadius: 60,
+            endRadius: 1_250
+        )
+        .frame(width: backdropSize.width, height: backdropSize.height)
+        .offset(y: CommandBarLayout.surfaceVerticalOffset)
     }
 
     @ViewBuilder
@@ -220,7 +242,7 @@ struct ContentView: View {
                 .frame(height: 300)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(.ultraThinMaterial)
+                        .fill(commandBarElementColor(for: colorScheme))
                 )
             } else {
                 List(Array(displayedResults.enumerated()), id: \.element.id) { index, result in
@@ -251,10 +273,10 @@ struct ContentView: View {
         .frame(height: 300)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(commandBarElementColor(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(.white.opacity(0.09), lineWidth: 1)
+                        .strokeBorder(commandBarPanelBorderColor(for: colorScheme), lineWidth: 1)
                 )
         )
     }
@@ -397,26 +419,11 @@ private struct CommandBarSurface<Content: View>: View {
 
     var body: some View {
         content
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(.regularMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [.white.opacity(0.28), .white.opacity(0.06)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1
-                            )
-                    )
-            )
-            .shadow(color: .black.opacity(0.16), radius: 24, y: 10)
     }
 }
 
 private struct PermissionBanner: View {
+    @Environment(\.colorScheme) private var colorScheme
     let icon: String
     let tint: Color
     let message: String
@@ -443,16 +450,17 @@ private struct PermissionBanner: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.thinMaterial)
+                .fill(commandBarElementColor(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(tint.opacity(0.22), lineWidth: 1)
+                        .strokeBorder(commandBarPanelBorderColor(for: colorScheme), lineWidth: 1)
                 )
         )
     }
 }
 
 private struct SearchHeader: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var searchText: String
     @FocusState.Binding var isSearchFocused: Bool
     let isSelected: Bool
@@ -662,6 +670,7 @@ private enum BrowserIconCache {
 }
 
 private struct FooterShortcutBar<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ViewBuilder var content: Content
 
     var body: some View {

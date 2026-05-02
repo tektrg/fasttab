@@ -86,19 +86,20 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         }
     }
 
-    func secondaryText(showWindowName: Bool, showProfileName: Bool) -> String {
-        let baseText: String
+    var secondaryBaseText: String {
         switch type {
         case .bookmark:
             if let folderPath, !folderPath.isEmpty {
-                baseText = folderPath
+                return folderPath
             } else {
-                baseText = url
+                return url
             }
         case .tab, .history:
-            baseText = url
+            return url
         }
+    }
 
+    func secondaryMetadata(showWindowName: Bool, showProfileName: Bool) -> [String] {
         var metadata: [String] = []
 
         if showWindowName,
@@ -114,11 +115,17 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             metadata.append(profileName)
         }
 
+        return metadata
+    }
+
+    func secondaryText(showWindowName: Bool, showProfileName: Bool) -> String {
+        let metadata = secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName)
+
         guard !metadata.isEmpty else {
-            return baseText
+            return secondaryBaseText
         }
 
-        return (metadata + [baseText]).joined(separator: " • ")
+        return (metadata + [secondaryBaseText]).joined(separator: " • ")
     }
 
     func matches(query: String) -> Bool {

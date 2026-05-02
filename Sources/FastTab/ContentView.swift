@@ -489,14 +489,14 @@ private struct SearchHeader: View {
         .padding(.vertical, 11)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(commandBarElementColor(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.28) : .white.opacity(0.09), lineWidth: 1)
+                        .strokeBorder(commandBarPanelBorderColor(for: colorScheme), lineWidth: 1)
                 )
         )
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
@@ -512,6 +512,10 @@ private struct ResultRowView: View {
     let onCopyLink: () -> Void
     let onRemove: () -> Void
 
+    private var secondaryMetadata: [String] {
+        result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName)
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             LeadingResultIcon(browserName: result.browserName, fallbackSymbol: result.type.symbolName, faviconImage: faviconImage)
@@ -522,10 +526,16 @@ private struct ResultRowView: View {
                     .font(.system(size: 13, weight: .semibold, design: .default))
                     .lineLimit(1)
 
-                Text(result.secondaryText(showWindowName: showWindowName, showProfileName: showProfileName))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    ForEach(secondaryMetadata, id: \.self) { metadata in
+                        MetadataPill(title: metadata)
+                    }
+
+                    Text(result.secondaryBaseText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: 8)
@@ -547,10 +557,6 @@ private struct ResultRowView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 22, height: 22)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(.thinMaterial)
-                        )
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -573,6 +579,23 @@ private struct ResultRowView: View {
     }
 }
 
+private struct MetadataPill: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(.thinMaterial)
+            )
+    }
+}
+
 private struct ResultBadge: View {
     let systemImage: String
 
@@ -580,12 +603,7 @@ private struct ResultBadge: View {
         Image(systemName: systemImage)
             .font(.caption2)
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(.thinMaterial)
-            )
+            .frame(width: 22, height: 22)
     }
 }
 
@@ -599,20 +617,14 @@ private struct BrowserBadge: View {
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()
-                    .padding(4)
+                    .frame(width: 14, height: 14)
             } else {
                 Image(systemName: "globe")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
             }
         }
         .frame(width: 22, height: 22)
-        .background(
-            Capsule(style: .continuous)
-                .fill(.thinMaterial)
-        )
     }
 }
 
@@ -683,11 +695,23 @@ private struct FooterShortcutBar<Content: View>: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.thinMaterial)
+                .fill(commandBarElementColor(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                        .strokeBorder(commandBarPanelBorderColor(for: colorScheme), lineWidth: 1)
                 )
         )
     }
+}
+
+private func commandBarElementColor(for colorScheme: ColorScheme) -> Color {
+    colorScheme == .dark ? Color.black : Color(nsColor: .windowBackgroundColor)
+}
+
+private func commandBarPanelBorderColor(for colorScheme: ColorScheme) -> Color {
+    colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08)
+}
+
+private func commandBarFullScreenShadowColor(for colorScheme: ColorScheme) -> Color {
+    colorScheme == .dark ? Color.black : Color.black.opacity(0.72)
 }

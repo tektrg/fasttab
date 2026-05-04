@@ -48,6 +48,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
     let bookmarkID: String?
     let profileName: String?
     let folderPath: String?
+    let isCurrentFlowActiveTab: Bool
 
     init(
         title: String,
@@ -60,7 +61,8 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         windowName: String? = nil,
         bookmarkID: String? = nil,
         profileName: String? = nil,
-        folderPath: String? = nil
+        folderPath: String? = nil,
+        isCurrentFlowActiveTab: Bool = false
     ) {
         self.title = title
         self.url = url
@@ -73,6 +75,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         self.bookmarkID = bookmarkID
         self.profileName = profileName
         self.folderPath = folderPath
+        self.isCurrentFlowActiveTab = isCurrentFlowActiveTab
     }
 
     var id: String {
@@ -152,4 +155,8 @@ func sortBrowserSearchResults(_ results: [BrowserSearchResult]) -> [BrowserSearc
 
         return lhs.title.localizedCompare(rhs.title) == .orderedAscending
     }
+}
+
+func quickOpenVisibleTabs(from results: [BrowserSearchResult], limit: Int) -> [BrowserSearchResult] {
+    Array(results.lazy.filter { !$0.isCurrentFlowActiveTab }.prefix(max(0, limit)))
 }

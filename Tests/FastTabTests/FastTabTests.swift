@@ -66,3 +66,60 @@ import Testing
     #expect(result.matches(query: "DOCS.EXAMPLE.COM"))
     #expect(!result.matches(query: "calendar"))
 }
+
+@Test func quickOpenVisibleTabsSkipsCurrentFlowActiveTab() async throws {
+    let now = Date()
+    let activeTab = BrowserSearchResult(
+        title: "Active tab",
+        url: "https://example.com/active",
+        browserName: "Microsoft Edge",
+        type: .tab,
+        timestamp: now,
+        isCurrentFlowActiveTab: true
+    )
+    let previousTab = BrowserSearchResult(
+        title: "Previous tab",
+        url: "https://example.com/previous",
+        browserName: "Microsoft Edge",
+        type: .tab,
+        timestamp: now.addingTimeInterval(-10)
+    )
+    let olderTab = BrowserSearchResult(
+        title: "Older tab",
+        url: "https://example.com/older",
+        browserName: "Microsoft Edge",
+        type: .tab,
+        timestamp: now.addingTimeInterval(-20)
+    )
+
+    let visibleTabs = quickOpenVisibleTabs(from: [activeTab, previousTab, olderTab], limit: 2)
+
+    #expect(visibleTabs.map(\.title) == ["Previous tab", "Older tab"])
+}
+
+@Test func commandBarCanvasExpandsToLargeDisplay() async throws {
+    let displayFrame = CGRect(x: -1920, y: 0, width: 2560, height: 1440)
+
+    let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
+
+    #expect(canvasFrame == displayFrame)
+}
+
+@Test func commandBarCanvasKeepsSurfaceVisibleOnTinyDisplay() async throws {
+    let displayFrame = CGRect(x: 100, y: 200, width: 500, height: 320)
+
+    let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
+
+    #expect(canvasFrame.size == CommandBarLayout.surfaceSize)
+    #expect(canvasFrame.midX == displayFrame.midX)
+    #expect(canvasFrame.midY == displayFrame.midY)
+}
+
+@Test func commandBarShadowBackdropOverscansCanvas() async throws {
+    let canvasSize = CGSize(width: 2560, height: 1440)
+
+    let backdropSize = CommandBarLayout.shadowBackdropSize(for: canvasSize)
+
+    #expect(backdropSize.width == canvasSize.width + CommandBarLayout.shadowOverscan)
+    #expect(backdropSize.height == canvasSize.height + CommandBarLayout.shadowOverscan)
+}

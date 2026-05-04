@@ -48,6 +48,7 @@ class BrowserTabService: ObservableObject {
 
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService")
     private var lastActiveTimes: [String: Date] = [:]
+    private var currentFlowSourceAppBundleIdentifier: String?
 
     private var fetchTask: Task<Void, Never>?
     private var cacheRefreshTask: Task<Void, Never>?
@@ -59,6 +60,7 @@ class BrowserTabService: ObservableObject {
     private var cachedHistory: [BrowserSearchResult] = []
     private var cacheLastUpdatedAt: Date?
     private var cachedQuickOpenResults: [BrowserSearchResult] = []
+    private var cachedQuickOpenSourceAppBundleIdentifier: String?
     private var cachedLiveTabs: [BrowserSearchResult] = []
     private var lastLiveTabsRefreshAt: Date = .distantPast
 
@@ -97,6 +99,10 @@ class BrowserTabService: ObservableObject {
         refreshCachesIfNeeded(force: true)
     }
 
+    func updateCurrentFlowSourceApp(bundleIdentifier: String?) {
+        currentFlowSourceAppBundleIdentifier = bundleIdentifier
+    }
+
     func fetchResults(matching query: String = "") {
         fetchGeneration += 1
         let generation = fetchGeneration
@@ -104,7 +110,9 @@ class BrowserTabService: ObservableObject {
         fetchTask?.cancel()
 
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalizedQuery.isEmpty, !cachedQuickOpenResults.isEmpty {
+        let currentFlowSourceAppBundleIdentifier = self.currentFlowSourceAppBundleIdentifier
+        if normalizedQuery.isEmpty, !cachedQuickOpenResults.isEmpty,
+           cachedQuickOpenSourceAppBundleIdentifier == currentFlowSourceAppBundleIdentifier {
             results = cachedQuickOpenResults
         }
         isLoading = true
@@ -136,7 +144,12 @@ class BrowserTabService: ObservableObject {
             } else {
                 for browser in browsers {
                     if Task.isCancelled { break }
-                    liveTabs.append(contentsOf: Self.fetchTabResults(for: browser, fetchStart: fetchStart, activeTimes: &updatedTimes))
+                    liveTabs.append(contentsOf: Self.fetchTabResults(
+                        for: browser,
+                        fetchStart: fetchStart,
+                        activeTimes: &updatedTimes,
+                        currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+                    ))
                 }
             }
 
@@ -151,13 +164,14 @@ class BrowserTabService: ObservableObject {
             let sortedLiveTabs = sortBrowserSearchResults(liveTabs)
 
             if normalizedQuery.isEmpty {
-                let prioritizedTabs = Array(sortedLiveTabs.prefix(initialVisibleTabLimit))
+                let prioritizedTabs = quickOpenVisibleTabs(from: sortedLiveTabs, limit: initialVisibleTabLimit)
 
                 await MainActor.run {
                     guard let self, generation == self.fetchGeneration else { return }
                     self.lastActiveTimes = updatedTimes
                     self.results = prioritizedTabs
                     self.cachedQuickOpenResults = prioritizedTabs
+                    self.cachedQuickOpenSourceAppBundleIdentifier = currentFlowSourceAppBundleIdentifier
                     self.cachedLiveTabs = sortedLiveTabs
                     self.lastLiveTabsRefreshAt = Date()
                     self.hasMultipleWindows = Self.computeHasMultipleWindows(sortedLiveTabs)
@@ -622,7 +636,8 @@ class BrowserTabService: ObservableObject {
     private nonisolated static func fetchTabResults(
         for browser: ChromiumBrowser,
         fetchStart: Date,
-        activeTimes: inout [String: Date]
+        activeTimes: inout [String: Date],
+        currentFlowSourceAppBundleIdentifier: String?
     ) -> [BrowserSearchResult] {
         let script = """
         tell application "\(browser.appName)"
@@ -672,9 +687,10 @@ class BrowserTabService: ObservableObject {
             let isActive = parts[5] == "true"
             let windowName = parts[6]
             let key = activeKey(appName: appName, url: url)
-            let timestamp = isActive ? fetchStart : (activeTimes[key] ?? Date(timeIntervalSince1970: 0))
+            let isCurrentFlowActiveTab = isActive && browser.bundleIdentifier == currentFlowSourceAppBundleIdentifier
+            let timestamp = isCurrentFlowActiveTab ? fetchStart : (activeTimes[key] ?? Date(timeIntervalSince1970: 0))
 
-            if isActive {
+            if isCurrentFlowActiveTab {
                 activeTimes[key] = fetchStart
             }
 
@@ -687,7 +703,8 @@ class BrowserTabService: ObservableObject {
                     timestamp: timestamp,
                     windowIndex: winIdx,
                     tabIndex: tabIdx,
-                    windowName: windowName
+                    windowName: windowName,
+                    isCurrentFlowActiveTab: isCurrentFlowActiveTab
                 )
             )
         }

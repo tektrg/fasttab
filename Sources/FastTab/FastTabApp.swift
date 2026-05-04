@@ -54,8 +54,9 @@ class AppState: ObservableObject {
 
     func showCommandBar() {
         selectedIndex = -1
+        browserService.updateCurrentFlowSourceApp(bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
         NSApp.activate(ignoringOtherApps: true)
-        commandWindow?.centerCommandBarCanvasInVisibleScreen()
+        commandWindow?.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
         commandWindow?.makeKeyAndOrderFront(nil)
         commandWindow?.orderFrontRegardless()
         isVisible = commandWindow?.isVisible ?? true
@@ -148,7 +149,7 @@ struct FastTabApp: App {
                 .background(WindowChromeConfigurator())
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: CommandBarLayout.canvasSize.width, height: CommandBarLayout.canvasSize.height)
+        .defaultSize(width: CommandBarLayout.defaultCanvasSize.width, height: CommandBarLayout.defaultCanvasSize.height)
         .windowResizability(.contentSize)
 
         MenuBarExtra("FastTab", systemImage: "command") {
@@ -220,7 +221,7 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
             window.backgroundColor = .clear
             window.hasShadow = false
             window.isMovableByWindowBackground = true
-            window.centerCommandBarCanvasInVisibleScreen()
+            window.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
 
             [NSWindow.ButtonType.closeButton,
              .miniaturizeButton,
@@ -262,29 +263,41 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
                     object: window
                 )
             }
+
+            center.addObserver(
+                self,
+                selector: #selector(handleScreenParametersChanged),
+                name: NSApplication.didChangeScreenParametersNotification,
+                object: nil
+            )
         }
 
         @objc private func handleObservedWindowChange() {
             AppState.shared.syncVisibilityFromCommandWindow()
         }
+
+        @objc private func handleScreenParametersChanged() {
+            guard let observedWindow, observedWindow.isVisible else { return }
+            observedWindow.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: false)
+        }
     }
 }
 
 private extension NSWindow {
-    func centerCommandBarCanvasInVisibleScreen() {
-        let displayFrame = preferredCommandBarDisplay?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
+    func fitCommandBarCanvasToVisibleScreen(preferMouseScreen: Bool) {
+        let displayFrame = preferredCommandBarDisplay(preferMouseScreen: preferMouseScreen)?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
+        let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
 
-        setFrameOrigin(CGPoint(
-            x: displayFrame.midX - frame.width / 2,
-            y: displayFrame.midY - frame.height / 2
-        ))
+        setFrame(canvasFrame, display: true, animate: false)
     }
 
-    private var preferredCommandBarDisplay: NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
+    private func preferredCommandBarDisplay(preferMouseScreen: Bool) -> NSScreen? {
+        if preferMouseScreen {
+            let mouseLocation = NSEvent.mouseLocation
 
-        if let mouseScreen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) {
-            return mouseScreen
+            if let mouseScreen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) {
+                return mouseScreen
+            }
         }
 
         return screen ?? NSScreen.main

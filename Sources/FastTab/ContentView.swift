@@ -48,112 +48,118 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.clear
-            fullScreenAmbientShadow
-                .allowsHitTesting(false)
-
-            CommandBarSurface {
-                VStack(spacing: 10) {
-                    if let globalShortcutRegistrationIssue = appState.globalShortcutRegistrationIssue {
-                        PermissionBanner(
-                            icon: "bolt.slash.fill",
-                            tint: .orange,
-                            message: "Shortcut \(ShortcutStore.shared.displayString) unavailable. \(globalShortcutRegistrationIssue)",
-                            actionTitle: "Choose Another"
-                        ) {
-                        }
-                        .transition(.move(edge: .top).combined(with: .opacity))
+        GeometryReader { geometry in
+            ZStack {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissCommandBar()
                     }
+                fullScreenAmbientShadow(canvasSize: geometry.size)
+                    .allowsHitTesting(false)
 
-                    if case .available(let version, _, let notes) = updateService.status {
-                        PermissionBanner(
-                            icon: "arrow.down.circle.fill",
-                            tint: .blue,
-                            message: "FastTab \(version) is available.\(notes.map { " \($0)" } ?? "")",
-                            actionTitle: "Download"
-                        ) {
-                            updateService.openDownloadURL()
+                CommandBarSurface {
+                    VStack(spacing: 10) {
+                        if let globalShortcutRegistrationIssue = appState.globalShortcutRegistrationIssue {
+                            PermissionBanner(
+                                icon: "bolt.slash.fill",
+                                tint: .orange,
+                                message: "Shortcut \(ShortcutStore.shared.displayString) unavailable. \(globalShortcutRegistrationIssue)",
+                                actionTitle: "Choose Another"
+                            ) {
+                            }
+                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    }
 
-                    SearchHeader(
-                        searchText: $searchText,
-                        isSearchFocused: $isSearchFocused,
-                        isSelected: appState.selectedIndex == -1,
-                        onUpArrow: {
-                            moveSelectionBackward(includeSearchField: true)
-                        },
-                        onDownArrow: {
-                            moveSelectionForward(includeSearchField: true)
+                        if case .available(let version, _, let notes) = updateService.status {
+                            PermissionBanner(
+                                icon: "arrow.down.circle.fill",
+                                tint: .blue,
+                                message: "FastTab \(version) is available.\(notes.map { " \($0)" } ?? "")",
+                                actionTitle: "Download"
+                            ) {
+                                updateService.openDownloadURL()
+                            }
+                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
-                    )
 
-                    ScrollViewReader { proxy in
-                        resultsSection(proxy: proxy)
-                            .onChange(of: appState.isVisible) { _, visible in
-                                if visible {
-                                    searchDebounceTask?.cancel()
-                                    suppressNextSearchChange = true
-                                    searchText = ""
-                                    appState.browserService.fetchResults(matching: searchText)
-                                    appState.selectedIndex = -1
-                                    hasCycled = false
-                                    DispatchQueue.main.async {
-                                        isSearchFocused = true
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
-                                            scrollResultsToTop(proxy)
+                        SearchHeader(
+                            searchText: $searchText,
+                            isSearchFocused: $isSearchFocused,
+                            isSelected: appState.selectedIndex == -1,
+                            onUpArrow: {
+                                moveSelectionBackward(includeSearchField: true)
+                            },
+                            onDownArrow: {
+                                moveSelectionForward(includeSearchField: true)
+                            }
+                        )
+
+                        ScrollViewReader { proxy in
+                            resultsSection(proxy: proxy)
+                                .onChange(of: appState.isVisible) { _, visible in
+                                    if visible {
+                                        searchDebounceTask?.cancel()
+                                        suppressNextSearchChange = true
+                                        searchText = ""
+                                        appState.browserService.fetchResults(matching: searchText)
+                                        appState.selectedIndex = -1
+                                        hasCycled = false
+                                        DispatchQueue.main.async {
+                                            isSearchFocused = true
+                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
+                                                scrollResultsToTop(proxy)
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            .onChange(of: searchText) {
-                                if suppressNextSearchChange {
-                                    suppressNextSearchChange = false
-                                    return
-                                }
+                                .onChange(of: searchText) {
+                                    if suppressNextSearchChange {
+                                        suppressNextSearchChange = false
+                                        return
+                                    }
 
-                                if searchText.isEmpty {
-                                    appState.selectedIndex = -1
-                                } else {
-                                    appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
+                                    if searchText.isEmpty {
+                                        appState.selectedIndex = -1
+                                    } else {
+                                        appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
+                                    }
+                                    isSearchFocused = true
+                                    if searchText.count <= 1 {
+                                        withAnimation(.easeInOut(duration: 0.18)) {
+                                            scrollResultsToTop(proxy)
+                                        }
+                                    } else {
+                                        scrollResultsToTop(proxy)
+                                    }
+                                    scheduleSearchFetch()
                                 }
-                                isSearchFocused = true
-                                if searchText.count <= 1 {
+                                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                                    guard appState.isVisible else { return }
+
+                                    let now = Date()
+                                    guard now.timeIntervalSince(lastActiveRefreshAt) > 1.2 else { return }
+                                    lastActiveRefreshAt = now
+
+                                    appState.browserService.fetchResults(matching: searchText)
                                     withAnimation(.easeInOut(duration: 0.18)) {
                                         scrollResultsToTop(proxy)
                                     }
-                                } else {
-                                    scrollResultsToTop(proxy)
                                 }
-                                scheduleSearchFetch()
-                            }
-                            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                                guard appState.isVisible else { return }
+                        }
 
-                                let now = Date()
-                                guard now.timeIntervalSince(lastActiveRefreshAt) > 1.2 else { return }
-                                lastActiveRefreshAt = now
-
-                                appState.browserService.fetchResults(matching: searchText)
-                                withAnimation(.easeInOut(duration: 0.18)) {
-                                    scrollResultsToTop(proxy)
-                                }
-                            }
+                        FooterShortcutBar {
+                            ShortcutRecorderView(store: ShortcutStore.shared)
+                                .environmentObject(appState)
+                        }
                     }
-
-                    FooterShortcutBar {
-                        ShortcutRecorderView(store: ShortcutStore.shared)
-                            .environmentObject(appState)
-                    }
+                    .padding(12)
                 }
-                .padding(12)
+                .frame(width: CommandBarLayout.surfaceSize.width, height: CommandBarLayout.surfaceSize.height)
+                .offset(y: CommandBarLayout.surfaceVerticalOffset)
             }
-            .frame(width: CommandBarLayout.surfaceSize.width, height: CommandBarLayout.surfaceSize.height)
-            .offset(y: CommandBarLayout.surfaceVerticalOffset)
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .frame(width: CommandBarLayout.canvasSize.width, height: CommandBarLayout.canvasSize.height)
         .background(Color.clear)
         .onAppear {
             isSearchFocused = true
@@ -188,9 +194,9 @@ struct ContentView: View {
         }
     }
 
-    private var fullScreenAmbientShadow: some View {
+    private func fullScreenAmbientShadow(canvasSize: CGSize) -> some View {
         let shadowColor = commandBarFullScreenShadowColor(for: colorScheme)
-        let backdropSize = CGSize(width: CommandBarLayout.canvasSize.width + 900, height: CommandBarLayout.canvasSize.height + 900)
+        let backdropSize = CommandBarLayout.shadowBackdropSize(for: canvasSize)
 
         return RadialGradient(
             stops: [
@@ -322,6 +328,11 @@ struct ContentView: View {
         appState.hideCommandBar()
     }
 
+    private func dismissCommandBar() {
+        appState.hideCommandBar()
+        hasCycled = false
+    }
+
     private func moveSelectionForward(includeSearchField: Bool) {
         let results = displayedResults
         let minimumIndex = includeSearchField ? -1 : 0
@@ -381,7 +392,12 @@ struct ContentView: View {
 
     private func setupLocalMonitor() {
         guard localMonitor == nil else { return }
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+        let monitoredEvents: NSEvent.EventTypeMask = [
+            .keyDown,
+            .flagsChanged
+        ]
+
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: monitoredEvents) { event in
             if appState.isRecordingShortcut { return event }
 
             if event.type == .keyDown {

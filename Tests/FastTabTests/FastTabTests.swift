@@ -67,6 +67,18 @@ import Testing
     #expect(!result.matches(query: "calendar"))
 }
 
+@Test func searchResultUsesURLWhenSourceTitleIsEmpty() async throws {
+    let result = BrowserSearchResult(
+        title: "  ",
+        url: "https://example.com/loading",
+        browserName: "Microsoft Edge",
+        type: .tab,
+        timestamp: .now
+    )
+
+    #expect(result.title == "https://example.com/loading")
+}
+
 @Test func quickOpenVisibleTabsSkipsCurrentFlowActiveTab() async throws {
     let now = Date()
     let activeTab = BrowserSearchResult(
@@ -95,6 +107,35 @@ import Testing
     let visibleTabs = quickOpenVisibleTabs(from: [activeTab, previousTab, olderTab], limit: 2)
 
     #expect(visibleTabs.map(\.title) == ["Previous tab", "Older tab"])
+}
+
+@Test func tabRecencyKeyDistinguishesDuplicateURLsByTabSlot() async throws {
+    let first = BrowserSearchResult(
+        title: "First duplicate",
+        url: "https://example.com/shared",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: .now,
+        windowIndex: 1,
+        tabIndex: 1
+    )
+    let second = BrowserSearchResult(
+        title: "Second duplicate",
+        url: "https://example.com/shared",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: .now,
+        windowIndex: 2,
+        tabIndex: 1
+    )
+
+    #expect(first.tabRecencyKey != second.tabRecencyKey)
+    #expect(first.tabRecencyKey == makeTabRecencyKey(
+        browserName: "Google Chrome",
+        windowIndex: 1,
+        tabIndex: 1,
+        url: "https://example.com/shared"
+    ))
 }
 
 @Test func commandBarCanvasExpandsToLargeDisplay() async throws {

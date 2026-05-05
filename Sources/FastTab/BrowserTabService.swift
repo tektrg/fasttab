@@ -6,11 +6,6 @@ import OSLog
 private let kFieldSep = "\u{1F}" // unit separator
 private let kRowSep   = "\u{1C}" // file separator
 
-// Key for lastActiveTimes: URL-based (no tab index) so it survives tab reordering.
-private func activeKey(appName: String, url: String) -> String {
-    "\(appName)|\(url)"
-}
-
 private func appleScriptQuoted(_ value: String) -> String {
     value
         .replacingOccurrences(of: "\\", with: "\\\\")
@@ -548,7 +543,9 @@ class BrowserTabService: ObservableObject {
     }
 
     private func activateTab(_ result: BrowserSearchResult) {
-        lastActiveTimes[activeKey(appName: result.browserName, url: result.url)] = Date()
+        if let key = result.tabRecencyKey {
+            lastActiveTimes[key] = Date()
+        }
 
         let safeURL = appleScriptQuoted(result.url)
         let script = """
@@ -686,11 +683,11 @@ class BrowserTabService: ObservableObject {
             let url = parts[4]
             let isActive = parts[5] == "true"
             let windowName = parts[6]
-            let key = activeKey(appName: appName, url: url)
+            let key = makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
             let isCurrentFlowActiveTab = isActive && browser.bundleIdentifier == currentFlowSourceAppBundleIdentifier
-            let timestamp = isCurrentFlowActiveTab ? fetchStart : (activeTimes[key] ?? Date(timeIntervalSince1970: 0))
+            let timestamp = isActive ? fetchStart : (activeTimes[key] ?? Date(timeIntervalSince1970: 0))
 
-            if isCurrentFlowActiveTab {
+            if isActive {
                 activeTimes[key] = fetchStart
             }
 

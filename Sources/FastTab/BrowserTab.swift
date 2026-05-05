@@ -64,7 +64,8 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         folderPath: String? = nil,
         isCurrentFlowActiveTab: Bool = false
     ) {
-        self.title = title
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.title = normalizedTitle.isEmpty ? url : normalizedTitle
         self.url = url
         self.browserName = browserName
         self.type = type
@@ -137,6 +138,20 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         return title.localizedCaseInsensitiveContains(normalized)
             || url.localizedCaseInsensitiveContains(normalized)
     }
+
+    var tabRecencyKey: String? {
+        guard type == .tab else { return nil }
+        return makeTabRecencyKey(
+            browserName: browserName,
+            windowIndex: windowIndex,
+            tabIndex: tabIndex,
+            url: url
+        )
+    }
+}
+
+func makeTabRecencyKey(browserName: String, windowIndex: Int?, tabIndex: Int?, url: String) -> String {
+    [browserName, String(windowIndex ?? 0), String(tabIndex ?? 0), url].joined(separator: "|")
 }
 
 func sortBrowserSearchResults(_ results: [BrowserSearchResult]) -> [BrowserSearchResult] {

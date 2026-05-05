@@ -4,6 +4,8 @@ import AppKit
 private let kSpaceKeyCode: UInt16 = 49
 private let kEnterKeyCode: UInt16 = 36
 private let kEscapeKeyCode: UInt16 = 53
+private let kLeftArrowKeyCode: UInt16 = 123
+private let kRightArrowKeyCode: UInt16 = 124
 private let kUpArrowKeyCode: UInt16 = 126
 private let kDownArrowKeyCode: UInt16 = 125
 
@@ -20,6 +22,17 @@ struct ContentView: View {
     @State private var faviconPrefetchDebounceTask: Task<Void, Never>?
     @State private var suppressNextSearchChange = false
     @State private var lastActiveRefreshAt: Date = .distantPast
+    @State private var keyboardSwipeResultID: String?
+    @State private var keyboardSwipeAction: ResultSwipeAction?
+    @State private var toastMessage: String?
+    @State private var toastDismissTask: Task<Void, Never>?
+    @State private var hoveredResultID: String?
+    @State private var pointerSwipeResultID: String?
+    @State private var pointerSwipeOffset: CGFloat = 0
+    @State private var pointerSwipeAction: ResultSwipeAction?
+    @State private var didConfirmPointerSwipe = false
+    @State private var suppressPointerSwipeUntilGestureEnds = false
+    @State private var pointerSwipeSuppressionTask: Task<Void, Never>?
 
     var filteredResults: [BrowserSearchResult] {
         appState.browserService.results
@@ -76,7 +89,10 @@ struct ContentView: View {
                                 icon: "arrow.down.circle.fill",
                                 tint: .blue,
                                 message: "FastTab \(version) is available.\(notes.map { " \($0)" } ?? "")",
-                                actionTitle: "Download"
+                                actionTitle: "Download",
+                                dismissAction: {
+                                    updateService.dismiss()
+                                }
                             ) {
                                 updateService.openDownloadURL()
                             }
@@ -105,6 +121,11 @@ struct ContentView: View {
                                         appState.browserService.fetchResults(matching: searchText)
                                         appState.selectedIndex = -1
                                         hasCycled = false
+                                        clearKeyboardSwipe()
+                                        clearPointerSwipeSuppression()
+                                        resetPointerSwipe(animated: false)
+                                        toastDismissTask?.cancel()
+                                        toastMessage = nil
                                         DispatchQueue.main.async {
                                             isSearchFocused = true
                                             withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
@@ -124,6 +145,8 @@ struct ContentView: View {
                                     } else {
                                         appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
                                     }
+                                    clearKeyboardSwipe()
+                                    resetPointerSwipe(animated: false)
                                     isSearchFocused = true
                                     if searchText.count <= 1 {
                                         withAnimation(.easeInOut(duration: 0.18)) {
@@ -157,6 +180,16 @@ struct ContentView: View {
                 }
                 .frame(width: CommandBarLayout.surfaceSize.width, height: CommandBarLayout.surfaceSize.height)
                 .offset(y: CommandBarLayout.surfaceVerticalOffset)
+
+                if let toastMessage {
+                    CommandBarToast(message: toastMessage)
+                        .offset(
+                            y: CommandBarLayout.surfaceVerticalOffset
+                                + (CommandBarLayout.surfaceSize.height / 2)
+                                + 24
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -172,6 +205,8 @@ struct ContentView: View {
         .onDisappear {
             searchDebounceTask?.cancel()
             faviconPrefetchDebounceTask?.cancel()
+            toastDismissTask?.cancel()
+            clearPointerSwipeSuppression()
             if let monitor = localMonitor {
                 NSEvent.removeMonitor(monitor)
                 localMonitor = nil
@@ -182,12 +217,18 @@ struct ContentView: View {
             if results.isEmpty {
                 appState.selectedIndex = -1
                 isSearchFocused = true
+                clearKeyboardSwipe()
+                resetPointerSwipe(animated: false)
             } else if searchText.isEmpty {
                 if appState.selectedIndex >= results.count {
                     appState.selectedIndex = max(0, results.count - 1)
+                    clearKeyboardSwipe()
+                    resetPointerSwipe(animated: false)
                 }
             } else if appState.selectedIndex < 0 || appState.selectedIndex >= results.count {
                 appState.selectedIndex = 0
+                clearKeyboardSwipe()
+                resetPointerSwipe(animated: false)
             }
 
             scheduleFaviconPrefetch(for: results)
@@ -255,21 +296,22 @@ struct ContentView: View {
                 ScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(Array(displayedResults.enumerated()), id: \.element.id) { index, result in
-                            ResultRowView(
+                            SwipeableResultRow(
                                 result: result,
                                 isSelected: appState.selectedIndex == index,
                                 faviconImage: appState.browserService.faviconImage(for: result),
                                 showWindowName: showWindowName,
                                 showProfileName: showProfileName,
-                                onCopyLink: { appState.browserService.copyLinkToClipboard(result) },
-                                onRemove: {
-                                    guard result.type == .tab else {
-                                        appState.browserService.remove(result)
-                                        return
-                                    }
-
-                                    withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                                        appState.browserService.remove(result)
+                                pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
+                                pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
+                                keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
+                                onCopyLink: { performCopyLink(result) },
+                                onRemove: { performRemove(result) },
+                                onHoverChange: { isHovering in
+                                    if isHovering {
+                                        hoveredResultID = result.id
+                                    } else if hoveredResultID == result.id {
+                                        hoveredResultID = nil
                                     }
                                 }
                             )
@@ -324,16 +366,225 @@ struct ContentView: View {
     }
 
     private func activateAndHide(_ result: BrowserSearchResult) {
+        clearKeyboardSwipe()
+        clearPointerSwipeSuppression()
+        resetPointerSwipe(animated: false)
         appState.browserService.activate(result)
         appState.hideCommandBar()
     }
 
     private func dismissCommandBar() {
+        toastDismissTask?.cancel()
+        toastMessage = nil
+        clearKeyboardSwipe()
+        clearPointerSwipeSuppression()
+        resetPointerSwipe(animated: false)
         appState.hideCommandBar()
         hasCycled = false
     }
 
+    private func performCopyLink(_ result: BrowserSearchResult) {
+        appState.browserService.copyLinkToClipboard(result)
+        showToastAndDismiss("Link copied")
+    }
+
+    private func performRemove(_ result: BrowserSearchResult) {
+        clearKeyboardSwipe()
+        resetPointerSwipe(animated: false)
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+            appState.browserService.remove(result)
+        }
+    }
+
+    private func showToastAndDismiss(_ message: String) {
+        toastDismissTask?.cancel()
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+            toastMessage = message
+        }
+
+        toastDismissTask = Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                appState.hideCommandBar()
+                clearKeyboardSwipe()
+                clearPointerSwipeSuppression()
+                resetPointerSwipe(animated: false)
+                withAnimation(.easeOut(duration: 0.16)) {
+                    toastMessage = nil
+                }
+            }
+        }
+    }
+
+    private func clearKeyboardSwipe() {
+        keyboardSwipeResultID = nil
+        keyboardSwipeAction = nil
+    }
+
+    private func resetPointerSwipe(animated: Bool) {
+        let update = {
+            pointerSwipeResultID = nil
+            pointerSwipeOffset = 0
+            pointerSwipeAction = nil
+            didConfirmPointerSwipe = false
+        }
+
+        if animated {
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.88), update)
+        } else {
+            update()
+        }
+    }
+
+    private func clearPointerSwipeSuppression() {
+        pointerSwipeSuppressionTask?.cancel()
+        pointerSwipeSuppressionTask = nil
+        suppressPointerSwipeUntilGestureEnds = false
+    }
+
+    private func suppressPointerSwipeUntilCurrentGestureEnds() {
+        suppressPointerSwipeUntilGestureEnds = true
+        pointerSwipeSuppressionTask?.cancel()
+        pointerSwipeSuppressionTask = Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                suppressPointerSwipeUntilGestureEnds = false
+                pointerSwipeSuppressionTask = nil
+            }
+        }
+    }
+
+    private func handlePointerScrollSwipe(_ event: NSEvent) -> Bool {
+        guard appState.isVisible else { return false }
+
+        let ended = event.phase.contains(.ended) || event.momentumPhase.contains(.ended)
+        let cancelled = event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled)
+        if suppressPointerSwipeUntilGestureEnds {
+            if ended || cancelled {
+                clearPointerSwipeSuppression()
+            }
+            return true
+        }
+
+        if ended || cancelled {
+            return finishPointerScrollSwipe(cancelled: cancelled)
+        }
+
+        let deltaX = normalizedHorizontalScrollDelta(from: event)
+        let deltaY = CGFloat(event.scrollingDeltaY)
+        let absX = abs(deltaX)
+        let absY = abs(deltaY)
+
+        if pointerSwipeResultID != nil, absX < 3, absY > 3 {
+            resetPointerSwipe(animated: true)
+            return false
+        }
+
+        if pointerSwipeResultID == nil {
+            guard absX > 3, absX > absY * 1.35, let hoveredResultID else { return false }
+            pointerSwipeResultID = hoveredResultID
+            didConfirmPointerSwipe = false
+        }
+
+        guard !didConfirmPointerSwipe else { return true }
+
+        let nextOffset = max(
+            -ResultSwipeMetrics.maximumOffset,
+             min(ResultSwipeMetrics.maximumOffset, pointerSwipeOffset + deltaX)
+        )
+        pointerSwipeOffset = nextOffset
+
+        guard let nextAction = swipeAction(for: nextOffset) else {
+            pointerSwipeAction = nil
+            return true
+        }
+
+        if abs(nextOffset) >= ResultSwipeMetrics.confirmDistance {
+            didConfirmPointerSwipe = true
+            confirmPointerSwipe(nextAction)
+        } else if abs(nextOffset) >= ResultSwipeMetrics.revealDistance {
+            pointerSwipeAction = nextAction
+        }
+
+        return true
+    }
+
+    private func finishPointerScrollSwipe(cancelled: Bool) -> Bool {
+        guard pointerSwipeResultID != nil else { return false }
+        guard !didConfirmPointerSwipe else {
+            resetPointerSwipe(animated: false)
+            return true
+        }
+
+        if cancelled || abs(pointerSwipeOffset) < ResultSwipeMetrics.revealDistance {
+            resetPointerSwipe(animated: true)
+            return true
+        }
+
+        let restingAction = swipeAction(for: pointerSwipeOffset)
+        pointerSwipeAction = restingAction
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+            pointerSwipeOffset = (restingAction?.sign ?? 0) * ResultSwipeMetrics.revealDistance
+        }
+        return true
+    }
+
+    private func confirmPointerSwipe(_ action: ResultSwipeAction) {
+        let results = displayedResults
+        guard let pointerSwipeResultID,
+              let result = results.first(where: { $0.id == pointerSwipeResultID }) else {
+            resetPointerSwipe(animated: true)
+            return
+        }
+
+        switch action {
+        case .delete:
+            suppressPointerSwipeUntilCurrentGestureEnds()
+            performRemove(result)
+        case .copy:
+            suppressPointerSwipeUntilCurrentGestureEnds()
+            performCopyLink(result)
+        }
+    }
+
+    private func swipeAction(for offset: CGFloat) -> ResultSwipeAction? {
+        if offset <= -1 { return .delete }
+        if offset >= 1 { return .copy }
+        return nil
+    }
+
+    private func normalizedHorizontalScrollDelta(from event: NSEvent) -> CGFloat {
+        let directionMultiplier: CGFloat = event.isDirectionInvertedFromDevice ? -1 : 1
+        return -CGFloat(event.scrollingDeltaX) * directionMultiplier
+    }
+
+    private func handleKeyboardSwipe(_ action: ResultSwipeAction) {
+        let results = displayedResults
+        guard results.indices.contains(appState.selectedIndex) else { return }
+
+        let result = results[appState.selectedIndex]
+        if keyboardSwipeResultID == result.id, keyboardSwipeAction == action {
+            switch action {
+            case .delete:
+                performRemove(result)
+            case .copy:
+                performCopyLink(result)
+            }
+            return
+        }
+
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+            keyboardSwipeResultID = result.id
+            keyboardSwipeAction = action
+        }
+        isSearchFocused = false
+    }
+
     private func moveSelectionForward(includeSearchField: Bool) {
+        clearKeyboardSwipe()
+        resetPointerSwipe(animated: true)
         let results = displayedResults
         let minimumIndex = includeSearchField ? -1 : 0
 
@@ -354,6 +605,8 @@ struct ContentView: View {
     }
 
     private func moveSelectionBackward(includeSearchField: Bool) {
+        clearKeyboardSwipe()
+        resetPointerSwipe(animated: true)
         let results = displayedResults
         let minimumIndex = includeSearchField ? -1 : 0
 
@@ -382,25 +635,32 @@ struct ContentView: View {
         if appState.selectedIndex == -1 {
             appState.hideCommandBar()
             hasCycled = false
+            clearKeyboardSwipe()
+            resetPointerSwipe(animated: false)
             return
         }
 
         appState.selectedIndex = -1
         isSearchFocused = true
         hasCycled = false
+        clearKeyboardSwipe()
+        resetPointerSwipe(animated: true)
     }
 
     private func setupLocalMonitor() {
         guard localMonitor == nil else { return }
         let monitoredEvents: NSEvent.EventTypeMask = [
             .keyDown,
-            .flagsChanged
+            .flagsChanged,
+            .scrollWheel
         ]
 
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: monitoredEvents) { event in
             if appState.isRecordingShortcut { return event }
 
-            if event.type == .keyDown {
+            if event.type == .scrollWheel {
+                return handlePointerScrollSwipe(event) ? nil : event
+            } else if event.type == .keyDown {
                 let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 let userModifiers = flags.intersection([.command, .option, .control, .shift])
 
@@ -421,6 +681,16 @@ struct ContentView: View {
                     return nil
                 }
 
+                if noModifiers && event.keyCode == kLeftArrowKeyCode && appState.selectedIndex >= 0 {
+                    handleKeyboardSwipe(.delete)
+                    return nil
+                }
+
+                if noModifiers && event.keyCode == kRightArrowKeyCode && appState.selectedIndex >= 0 {
+                    handleKeyboardSwipe(.copy)
+                    return nil
+                }
+
                 let shiftOnly = userModifiers == .shift
                 if event.keyCode == kSpaceKeyCode && (noModifiers || shiftOnly) && searchText.isEmpty {
                     if shiftOnly {
@@ -436,6 +706,7 @@ struct ContentView: View {
                     if results.indices.contains(appState.selectedIndex) {
                         appState.browserService.activate(results[appState.selectedIndex])
                         appState.hideCommandBar()
+                        clearKeyboardSwipe()
                     }
                     return nil
                 }
@@ -448,6 +719,7 @@ struct ContentView: View {
                     if results.indices.contains(appState.selectedIndex) {
                         appState.browserService.activate(results[appState.selectedIndex])
                         appState.hideCommandBar()
+                        clearKeyboardSwipe()
                     }
                     hasCycled = false
                 }
@@ -455,295 +727,4 @@ struct ContentView: View {
             return event
         }
     }
-}
-
-private struct CommandBarSurface<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        content
-    }
-}
-
-private struct PermissionBanner: View {
-    @Environment(\.colorScheme) private var colorScheme
-    let icon: String
-    let tint: Color
-    let message: String
-    let actionTitle: String
-    let action: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .foregroundStyle(tint)
-
-            Text(message)
-                .font(.caption)
-                .lineLimit(2)
-
-            Spacer(minLength: 8)
-
-            Button(actionTitle, action: action)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(tint)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.thinMaterial)
-        )
-    }
-}
-
-private struct SearchHeader: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Binding var searchText: String
-    @FocusState.Binding var isSearchFocused: Bool
-    let isSelected: Bool
-    let onUpArrow: () -> Void
-    let onDownArrow: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField("Search tabs, bookmarks, history…", text: $searchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
-                .focused($isSearchFocused)
-                .onKeyPress(.upArrow) {
-                    onUpArrow()
-                    return .handled
-                }
-                .onKeyPress(.downArrow) {
-                    onDownArrow()
-                    return .handled
-                }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.thinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
-                )
-        )
-        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
-    }
-}
-
-private struct ResultRowView: View {
-    let result: BrowserSearchResult
-    let isSelected: Bool
-    let faviconImage: NSImage?
-    let showWindowName: Bool
-    let showProfileName: Bool
-    let onCopyLink: () -> Void
-    let onRemove: () -> Void
-
-    private var secondaryMetadata: [String] {
-        result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName)
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            LeadingResultIcon(browserName: result.browserName, fallbackSymbol: result.type.symbolName, faviconImage: faviconImage)
-                .frame(width: 16, height: 16)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(result.title)
-                    .font(.system(size: 13, weight: .semibold, design: .default))
-                    .lineLimit(1)
-
-                HStack(spacing: 5) {
-                    ForEach(secondaryMetadata, id: \.self) { metadata in
-                        MetadataPill(title: metadata)
-                    }
-
-                    Text(result.secondaryBaseText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            HStack(spacing: 6) {
-                ResultBadge(systemImage: result.type.symbolName)
-                BrowserBadge(browserName: result.browserName)
-
-                Menu {
-                    Button("Copy Link", action: onCopyLink)
-                    Divider()
-                    if result.type == .tab {
-                        Button("Close Tab", action: onRemove)
-                    } else {
-                        Button("Delete", role: .destructive, action: onRemove)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-            }
-        }
-        .opacity(result.type.dimmingOpacity)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.17) : Color.clear)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : .clear, lineWidth: 1)
-                )
-        )
-        .scaleEffect(isSelected ? 1.01 : 1)
-        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
-    }
-}
-
-private struct MetadataPill: View {
-    @Environment(\.colorScheme) private var colorScheme
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(.caption2.weight(.medium))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(.regularMaterial)
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .fill(metadataPillTint)
-                    )
-            )
-    }
-
-    private var metadataPillTint: Color {
-        colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.06)
-    }
-}
-
-private struct ResultBadge: View {
-    let systemImage: String
-
-    var body: some View {
-        Image(systemName: systemImage)
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .frame(width: 22, height: 22)
-    }
-}
-
-private struct BrowserBadge: View {
-    let browserName: String
-
-    var body: some View {
-        Group {
-            if let appIcon = BrowserIconCache.icon(for: browserName, size: 14) {
-                Image(nsImage: appIcon)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: 14, height: 14)
-            } else {
-                Image(systemName: "globe")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: 22, height: 22)
-    }
-}
-
-private struct LeadingResultIcon: View {
-    let browserName: String
-    let fallbackSymbol: String
-    let faviconImage: NSImage?
-
-    var body: some View {
-        if let faviconImage {
-            Image(nsImage: faviconImage)
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-        } else if let appIcon = BrowserIconCache.icon(for: browserName, size: 16) {
-            Image(nsImage: appIcon)
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-        } else {
-            Image(systemName: fallbackSymbol)
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
-@MainActor
-private enum BrowserIconCache {
-    private static let appPathByName: [String: String] = [
-        "Google Chrome": "/Applications/Google Chrome.app",
-        "Microsoft Edge": "/Applications/Microsoft Edge.app"
-    ]
-
-    private static var iconStore: [String: NSImage] = [:]
-
-    static func icon(for browserName: String, size: CGFloat) -> NSImage? {
-        if let cached = iconStore[browserName] {
-            let icon = cached.copy() as? NSImage ?? cached
-            icon.size = NSSize(width: size, height: size)
-            return icon
-        }
-
-        guard let appPath = appPathByName[browserName],
-              FileManager.default.fileExists(atPath: appPath) else {
-            return nil
-        }
-
-        let icon = NSWorkspace.shared.icon(forFile: appPath)
-        iconStore[browserName] = icon
-
-        let sized = icon.copy() as? NSImage ?? icon
-        sized.size = NSSize(width: size, height: size)
-        return sized
-    }
-}
-
-private struct FooterShortcutBar<Content: View>: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        HStack {
-            Spacer()
-            content
-            Spacer()
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.thinMaterial)
-        )
-    }
-}
-
-private func commandBarFullScreenShadowColor(for colorScheme: ColorScheme) -> Color {
-    colorScheme == .dark ? Color.black : Color.black.opacity(0.72)
 }

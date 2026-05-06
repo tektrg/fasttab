@@ -19,6 +19,8 @@ struct ContentView: View {
     @State private var localMonitor: Any?
     /// True once the user has cycled to a tab via the shortcut; reset when the bar opens.
     @State private var hasCycled = false
+    /// True while the shortcut modifier keys are still held after opening the bar.
+    @State private var isShortcutModifierHeld = false
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var faviconPrefetchDebounceTask: Task<Void, Never>?
     @State private var suppressNextSearchChange = false
@@ -70,6 +72,14 @@ struct ContentView: View {
         let isResultFocused = selectedIndex >= 0 && !isSearchFocused
         let hasResults = !displayedResults.isEmpty
         let queryEmpty = searchText.isEmpty
+
+        // 0: Shortcut modifier still held on fresh open — search bar focused, no cycling yet
+        if isShortcutModifierHeld && !hasCycled && isSearchFocused {
+            return GuidanceHint(tokens: [
+                .init(glyph: store.keyDisplayName, label: "next"),
+                .init(glyph: "Esc", label: "cancel")
+            ])
+        }
 
         // 1–2: Pointer swipe past confirm threshold — "release to act"
         if pointerSwipeResultID != nil, !didConfirmPointerSwipe,
@@ -244,6 +254,10 @@ struct ContentView: View {
                                         appState.selectedIndex = -1
                                         hasCycled = false
                                         lastInteractionKey = .none
+                                        let store = ShortcutStore.shared
+                                        let shortcutMods = store.modifiers.intersection(.deviceIndependentFlagsMask)
+                                        let currentMods = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                                        isShortcutModifierHeld = !currentMods.intersection(shortcutMods).isEmpty
                                         clearKeyboardSwipe()
                                         clearPointerSwipeSuppression()
                                         resetPointerSwipe(animated: false)
@@ -291,6 +305,12 @@ struct ContentView: View {
                                     appState.browserService.fetchResults(matching: searchText)
                                     withAnimation(.easeInOut(duration: 0.18)) {
                                         scrollResultsToTop(proxy)
+                                    }
+                                }
+                                .onChange(of: appState.selectedIndex) { _, _ in
+                                    guard !isSearchFocused else { return }
+                                    withAnimation(.easeInOut(duration: 0.14)) {
+                                        scrollSelectedResultIntoView(proxy)
                                     }
                                 }
                         }
@@ -465,6 +485,12 @@ struct ContentView: View {
     private func scrollResultsToTop(_ proxy: ScrollViewProxy) {
         guard let firstResultID = displayedResults.first?.id else { return }
         proxy.scrollTo(firstResultID, anchor: .top)
+    }
+
+    private func scrollSelectedResultIntoView(_ proxy: ScrollViewProxy) {
+        let results = displayedResults
+        guard results.indices.contains(appState.selectedIndex) else { return }
+        proxy.scrollTo(results[appState.selectedIndex].id, anchor: .center)
     }
 
     private func scheduleFaviconPrefetch(for results: [BrowserSearchResult]) {
@@ -848,18 +874,22 @@ struct ContentView: View {
                     }
                     return nil
                 }
-            } else if event.type == .flagsChanged && hasCycled && appState.isVisible {
+            } else if event.type == .flagsChanged && appState.isVisible {
                 let store = ShortcutStore.shared
                 let shortcutMods = store.modifiers.intersection(.deviceIndependentFlagsMask)
                 let currentMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                if currentMods.intersection(shortcutMods).isEmpty {
-                    let results = displayedResults
-                    if results.indices.contains(appState.selectedIndex) {
-                        appState.browserService.activate(results[appState.selectedIndex])
-                        appState.hideCommandBar()
-                        clearKeyboardSwipe()
+                let modifierReleased = currentMods.intersection(shortcutMods).isEmpty
+                if modifierReleased {
+                    isShortcutModifierHeld = false
+                    if hasCycled {
+                        let results = displayedResults
+                        if results.indices.contains(appState.selectedIndex) {
+                            appState.browserService.activate(results[appState.selectedIndex])
+                            appState.hideCommandBar()
+                            clearKeyboardSwipe()
+                        }
+                        hasCycled = false
                     }
-                    hasCycled = false
                 }
             }
             return event

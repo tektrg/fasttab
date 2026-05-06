@@ -1,16 +1,10 @@
 import Foundation
 import SwiftUI
 import OSLog
-
-struct VersionManifest: Decodable {
-    let version: String
-    let download_url: String
-    let release_notes: String?
-    let mandatory: Bool?
-}
+import Sparkle
 
 @MainActor
-final class UpdateService: ObservableObject {
+final class UpdateService: NSObject, ObservableObject, SPUUserDriver {
     static let shared = UpdateService()
 
     @Published var status: UpdateStatus = .idle
@@ -18,101 +12,221 @@ final class UpdateService: ObservableObject {
     enum UpdateStatus: Equatable {
         case idle
         case checking
-        case available(String, URL, String?) // version, downloadURL, releaseNotes
+        case available(version: String, releaseNotes: String?)
+        case downloading(progress: Double)
+        case extracting(progress: Double)
+        case installing
+        case readyToRestart(version: String)
         case upToDate
         case error(String)
     }
 
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "UpdateService")
-    private let manifestURL = URL(string: "https://fasttab.theindie.app/fasttab/version.json")!
 
-    private var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+    private var updater: SPUUpdater?
+
+    // Replies stored from Sparkle delegate callbacks. Invoked when the user
+    // taps the banner button to drive the next step.
+    private var updateFoundReply: ((SPUUserUpdateChoice) -> Void)?
+    private var readyToRelaunchReply: ((SPUUserUpdateChoice) -> Void)?
+    private var checkCancellation: (() -> Void)?
+    private var downloadCancellation: (() -> Void)?
+
+    // Track download progress.
+    private var expectedContentLength: UInt64 = 0
+    private var receivedContentLength: UInt64 = 0
+
+    // Latest appcast item info, kept so we can label states with version/notes.
+    private var pendingVersion: String?
+    private var pendingReleaseNotes: String?
+    private var manualCheckInFlight = false
+
+    override init() {
+        super.init()
+        let updater = SPUUpdater(
+            hostBundle: Bundle.main,
+            applicationBundle: Bundle.main,
+            userDriver: self,
+            delegate: nil
+        )
+        do {
+            try updater.start()
+            self.updater = updater
+            logger.info("Sparkle updater started")
+        } catch {
+            logger.error("Sparkle updater failed to start: \(error.localizedDescription, privacy: .public)")
+            status = .error("Update service unavailable")
+        }
     }
+
+    // MARK: - Public API
 
     func checkForUpdates(manual: Bool = false) {
-        if case .checking = status, !manual {
-            return
-        }
-
-        status = .checking
-        logger.info("Checking for updates. Current version: \(self.currentVersion, privacy: .public)")
-
-        var request = URLRequest(url: manifestURL)
-        request.setValue(currentVersion, forHTTPHeaderField: "X-FastTab-Version")
-        request.timeoutInterval = 10
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            Task { @MainActor [weak self] in
-                self?.handleResponse(data: data, response: response, error: error, manual: manual)
-            }
-        }.resume()
-    }
-
-    private func handleResponse(data: Data?, response: URLResponse?, error: Error?, manual: Bool) {
-        if let error {
-            logger.error("Update check failed: \(error.localizedDescription, privacy: .public)")
-            status = manual ? .error(error.localizedDescription) : .idle
-            return
-        }
-
-        guard let data else {
-            status = manual ? .error("Empty response from server.") : .idle
-            return
-        }
-
-        do {
-            let manifest = try JSONDecoder().decode(VersionManifest.self, from: data)
-
-            guard let remoteVersion = normalizeVersion(manifest.version),
-                  let localVersion = normalizeVersion(currentVersion) else {
-                status = manual ? .error("Invalid version format.") : .idle
-                return
-            }
-
-            if versionCompare(remoteVersion, localVersion) > 0 {
-                logger.info("Update available: \(manifest.version, privacy: .public)")
-                guard let url = URL(string: manifest.download_url) else {
-                    status = manual ? .error("Invalid download URL.") : .idle
-                    return
-                }
-                status = .available(manifest.version, url, manifest.release_notes)
-            } else {
-                logger.info("App is up to date.")
-                status = manual ? .upToDate : .idle
-            }
-        } catch {
-            logger.error("Failed to decode manifest: \(error.localizedDescription, privacy: .public)")
-            status = manual ? .error("Invalid server response.") : .idle
+        guard let updater else { return }
+        manualCheckInFlight = manual
+        if manual {
+            updater.checkForUpdates()
+        } else {
+            updater.checkForUpdatesInBackground()
         }
     }
 
-    func openDownloadURL() {
-        if case .available(_, let url, _) = status {
-            NSWorkspace.shared.open(url)
+    /// Banner primary action — interpretation depends on current status.
+    func performPrimaryAction() {
+        switch status {
+        case .available:
+            if let reply = updateFoundReply {
+                updateFoundReply = nil
+                reply(.install)
+            }
+        case .readyToRestart:
+            if let reply = readyToRelaunchReply {
+                readyToRelaunchReply = nil
+                reply(.install)
+            }
+        case .idle, .upToDate, .error:
+            checkForUpdates(manual: true)
+        case .checking, .downloading, .extracting, .installing:
+            break
         }
     }
 
     func dismiss() {
+        if let reply = updateFoundReply {
+            updateFoundReply = nil
+            reply(.dismiss)
+        }
+        if let reply = readyToRelaunchReply {
+            readyToRelaunchReply = nil
+            reply(.dismiss)
+        }
+        if let cancel = downloadCancellation {
+            downloadCancellation = nil
+            cancel()
+        }
+        if let cancel = checkCancellation {
+            checkCancellation = nil
+            cancel()
+        }
         status = .idle
     }
 
-    /// Turns "1.2.3" into [1, 2, 3] for numeric comparison.
-    private func normalizeVersion(_ string: String) -> [Int]? {
-        let parts = string.split(separator: ".").compactMap { Int($0) }
-        return parts.isEmpty ? nil : parts
+    // MARK: - SPUUserDriver
+
+    func show(_ request: SPUUpdatePermissionRequest, reply: @escaping (SUUpdatePermissionResponse) -> Void) {
+        // Send anonymous system profile data: no. Auto-check for updates: yes.
+        reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false))
     }
 
-    /// Compares two version arrays lexicographically. Returns >0 if a > b, <0 if a < b, 0 if equal.
-    private func versionCompare(_ a: [Int], _ b: [Int]) -> Int {
-        let maxCount = max(a.count, b.count)
-        for i in 0..<maxCount {
-            let av = i < a.count ? a[i] : 0
-            let bv = i < b.count ? b[i] : 0
-            if av != bv {
-                return av - bv
-            }
+    func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
+        checkCancellation = cancellation
+        status = .checking
+    }
+
+    func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState, reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        pendingVersion = appcastItem.displayVersionString
+        let notes: String?
+        if let body = appcastItem.itemDescription, !body.isEmpty {
+            notes = stripHTML(body)
+        } else {
+            notes = nil
         }
-        return 0
+        pendingReleaseNotes = notes
+        updateFoundReply = reply
+        status = .available(version: appcastItem.displayVersionString, releaseNotes: notes)
+    }
+
+    func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
+        // No-op — using inline description from appcast.
+    }
+
+    func showUpdateReleaseNotesFailedToDownloadWithError(_ error: Error) {
+        logger.error("Release notes download failed: \(error.localizedDescription, privacy: .public)")
+    }
+
+    func showUpdateNotFoundWithError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        logger.info("No update found")
+        status = manualCheckInFlight ? .upToDate : .idle
+        manualCheckInFlight = false
+        acknowledgement()
+    }
+
+    func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        logger.error("Updater error: \(error.localizedDescription, privacy: .public)")
+        status = .error(error.localizedDescription)
+        acknowledgement()
+    }
+
+    func showDownloadInitiated(cancellation: @escaping () -> Void) {
+        downloadCancellation = cancellation
+        expectedContentLength = 0
+        receivedContentLength = 0
+        status = .downloading(progress: 0)
+    }
+
+    func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
+        self.expectedContentLength = expectedContentLength
+    }
+
+    func showDownloadDidReceiveData(ofLength length: UInt64) {
+        receivedContentLength &+= length
+        let progress: Double
+        if expectedContentLength > 0 {
+            progress = min(1.0, Double(receivedContentLength) / Double(expectedContentLength))
+        } else {
+            progress = 0
+        }
+        status = .downloading(progress: progress)
+    }
+
+    func showDownloadDidStartExtractingUpdate() {
+        downloadCancellation = nil
+        status = .extracting(progress: 0)
+    }
+
+    func showExtractionReceivedProgress(_ progress: Double) {
+        status = .extracting(progress: progress)
+    }
+
+    func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        readyToRelaunchReply = reply
+        let version = pendingVersion ?? ""
+        status = .readyToRestart(version: version)
+    }
+
+    func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
+        status = .installing
+    }
+
+    func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
+        acknowledgement()
+    }
+
+    func showUpdateInFocus() {
+        // No dedicated update window; banner suffices.
+    }
+
+    func dismissUpdateInstallation() {
+        updateFoundReply = nil
+        readyToRelaunchReply = nil
+        downloadCancellation = nil
+        checkCancellation = nil
+        if case .readyToRestart = status { return }
+        if case .installing = status { return }
+        status = .idle
+    }
+
+    // MARK: - Helpers
+
+    private func stripHTML(_ html: String) -> String {
+        guard let data = html.data(using: .utf8) else { return html }
+        let opts: [NSAttributedString.DocumentReadingOptionKey: Any] = [
+            .documentType: NSAttributedString.DocumentType.html,
+            .characterEncoding: String.Encoding.utf8.rawValue,
+        ]
+        if let attr = try? NSAttributedString(data: data, options: opts, documentAttributes: nil) {
+            return attr.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return html
     }
 }

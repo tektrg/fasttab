@@ -8,3 +8,4 @@ DerivedData/
 .netrc
 .env
 /dist/release/*.dmg
+/dist/FastTab.app/Contents/Frameworks/

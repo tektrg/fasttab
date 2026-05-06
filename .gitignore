@@ -9,3 +9,5 @@ DerivedData/
 .env
 /dist/release/*.dmg
 /dist/FastTab.app/Contents/Frameworks/
+sparkle_private_key.pem
+*sparkle*private*.pem

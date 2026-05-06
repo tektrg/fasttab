@@ -13,6 +13,7 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var appState: AppState
     @StateObject private var updateService = UpdateService.shared
+    @ObservedObject private var shortcutStore = ShortcutStore.shared
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
     @State private var localMonitor: Any?
@@ -31,8 +32,11 @@ struct ContentView: View {
     @State private var pointerSwipeOffset: CGFloat = 0
     @State private var pointerSwipeAction: ResultSwipeAction?
     @State private var didConfirmPointerSwipe = false
+    @State private var isPointerSwipeGestureActive = false
     @State private var suppressPointerSwipeUntilGestureEnds = false
     @State private var pointerSwipeSuppressionTask: Task<Void, Never>?
+    @AppStorage("guidance.hasDiscoveredSwipe") private var hasDiscoveredSwipe: Bool = false
+    @State private var lastInteractionKey: LastInteractionKey = .none
 
     var filteredResults: [BrowserSearchResult] {
         appState.browserService.results
@@ -58,6 +62,122 @@ struct ContentView: View {
             if seen.count > 1 { return true }
         }
         return false
+    }
+
+    var guidanceHint: GuidanceHint {
+        let store = shortcutStore
+        let selectedIndex = appState.selectedIndex
+        let isResultFocused = selectedIndex >= 0 && !isSearchFocused
+        let hasResults = !displayedResults.isEmpty
+        let queryEmpty = searchText.isEmpty
+
+        // 1–2: Pointer swipe past confirm threshold — "release to act"
+        if pointerSwipeResultID != nil, !didConfirmPointerSwipe,
+           abs(pointerSwipeOffset) >= ResultSwipeMetrics.confirmDistance {
+            return pointerSwipeOffset < 0
+                ? GuidanceHint(tokens: [.init(glyph: "←", label: "release to delete")])
+                : GuidanceHint(tokens: [.init(glyph: "→", label: "release to copy link")])
+        }
+
+        // 3–4: Pointer swipe resting at reveal distance (gesture ended, not confirmed)
+        if pointerSwipeResultID != nil, pointerSwipeAction != nil,
+           !isPointerSwipeGestureActive, !didConfirmPointerSwipe {
+            return pointerSwipeOffset < 0
+                ? GuidanceHint(tokens: [.init(glyph: "←", label: "swipe more to delete"),
+                                        .init(glyph: "Esc", label: "cancel")])
+                : GuidanceHint(tokens: [.init(glyph: "→", label: "swipe more to copy"),
+                                        .init(glyph: "Esc", label: "cancel")])
+        }
+
+        // 5–6: Pointer swipe in progress, below confirm threshold
+        if pointerSwipeResultID != nil, isPointerSwipeGestureActive,
+           abs(pointerSwipeOffset) > 3 {
+            return pointerSwipeOffset < 0
+                ? GuidanceHint(tokens: [.init(glyph: "←", label: "keep swiping to delete")])
+                : GuidanceHint(tokens: [.init(glyph: "→", label: "keep swiping to copy link")])
+        }
+
+        // 7: Modifier cycling mode — user is holding modifier and cycling with shortcut key
+        if hasCycled {
+            return GuidanceHint(tokens: [
+                .init(glyph: store.modifierSymbols, label: "release to open"),
+                .init(glyph: store.keyDisplayName, label: "next"),
+                .init(glyph: "Esc", label: "cancel")
+            ])
+        }
+
+        // 8: Keyboard swipe revealed, awaiting second press to confirm
+        if keyboardSwipeResultID != nil {
+            let arrow = keyboardSwipeAction == .delete ? "←" : "→"
+            let verb = keyboardSwipeAction == .delete ? "delete" : "copy"
+            return GuidanceHint(tokens: [
+                .init(glyph: arrow, label: "press again to \(verb)"),
+                .init(glyph: "Esc", label: "cancel")
+            ])
+        }
+
+        // 9–10: Result focused via keyboard navigation (arrow keys or space)
+        if isResultFocused && (lastInteractionKey == .upDown || lastInteractionKey == .space) {
+            if !hasDiscoveredSwipe {
+                return GuidanceHint(tokens: [
+                    .init(glyph: "←→", label: "more options"),
+                    .init(glyph: "↵", label: "open"),
+                    .init(glyph: "Esc", label: "back to search")
+                ])
+            } else {
+                return GuidanceHint(tokens: [
+                    .init(glyph: "←", label: "delete"),
+                    .init(glyph: "→", label: "copy"),
+                    .init(glyph: "↵", label: "open"),
+                    .init(glyph: "Esc", label: "back")
+                ])
+            }
+        }
+
+        // 11: Result focused via mouse click (no keyboard nav recorded)
+        if isResultFocused && lastInteractionKey == .none {
+            return GuidanceHint(tokens: [
+                .init(glyph: "↑↓", label: "navigate"),
+                .init(glyph: "←", label: "delete"),
+                .init(glyph: "→", label: "copy"),
+                .init(glyph: "↵", label: "open")
+            ])
+        }
+
+        // 12: Mouse hover over a row, no keyboard result selected
+        if hoveredResultID != nil && !isResultFocused {
+            return GuidanceHint(tokens: [
+                .init(glyph: "←", label: "swipe to delete"),
+                .init(glyph: "→", label: "swipe to copy")
+            ])
+        }
+
+        // 13: Search field focused, empty query, results present
+        if !isResultFocused && queryEmpty && hasResults {
+            return GuidanceHint(tokens: [
+                .init(glyph: "↑↓", label: "navigate"),
+                .init(glyph: "↵", label: "open"),
+                .init(glyph: "Esc", label: "dismiss")
+            ])
+        }
+
+        // 14: Search field focused, active query, results present
+        if !isResultFocused && !queryEmpty && hasResults {
+            return GuidanceHint(tokens: [
+                .init(glyph: "↑↓", label: "navigate"),
+                .init(glyph: "↵", label: "open")
+            ])
+        }
+
+        // 15–16: No results — empty-state UI owns this moment
+        if !hasResults { return .empty }
+
+        // 18: Fallback
+        return GuidanceHint(tokens: [
+            .init(glyph: "↑↓", label: "navigate"),
+            .init(glyph: "↵", label: "open"),
+            .init(glyph: "Esc", label: "dismiss")
+        ])
     }
 
     var body: some View {
@@ -105,9 +225,11 @@ struct ContentView: View {
                             isSelected: appState.selectedIndex == -1,
                             onUpArrow: {
                                 moveSelectionBackward(includeSearchField: true)
+                                lastInteractionKey = .upDown
                             },
                             onDownArrow: {
                                 moveSelectionForward(includeSearchField: true)
+                                lastInteractionKey = .upDown
                             }
                         )
 
@@ -121,6 +243,7 @@ struct ContentView: View {
                                         appState.browserService.fetchResults(matching: searchText)
                                         appState.selectedIndex = -1
                                         hasCycled = false
+                                        lastInteractionKey = .none
                                         clearKeyboardSwipe()
                                         clearPointerSwipeSuppression()
                                         resetPointerSwipe(animated: false)
@@ -145,6 +268,7 @@ struct ContentView: View {
                                     } else {
                                         appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
                                     }
+                                    lastInteractionKey = .none
                                     clearKeyboardSwipe()
                                     resetPointerSwipe(animated: false)
                                     isSearchFocused = true
@@ -172,8 +296,12 @@ struct ContentView: View {
                         }
 
                         FooterShortcutBar {
-                            ShortcutRecorderView(store: ShortcutStore.shared)
-                                .environmentObject(appState)
+                            HStack(spacing: 0) {
+                                GuidanceBarView(hint: guidanceHint)
+                                Spacer(minLength: 12)
+                                ShortcutRecorderView(store: ShortcutStore.shared)
+                                    .environmentObject(appState)
+                            }
                         }
                     }
                     .padding(12)
@@ -428,6 +556,7 @@ struct ContentView: View {
             pointerSwipeOffset = 0
             pointerSwipeAction = nil
             didConfirmPointerSwipe = false
+            isPointerSwipeGestureActive = false
         }
 
         if animated {
@@ -486,6 +615,7 @@ struct ContentView: View {
             guard absX > 3, absX > absY * 1.35, let hoveredResultID else { return false }
             pointerSwipeResultID = hoveredResultID
             didConfirmPointerSwipe = false
+            isPointerSwipeGestureActive = true
         }
 
         guard !didConfirmPointerSwipe else { return true }
@@ -506,6 +636,7 @@ struct ContentView: View {
             confirmPointerSwipe(nextAction)
         } else if abs(nextOffset) >= ResultSwipeMetrics.revealDistance {
             pointerSwipeAction = nextAction
+            if !hasDiscoveredSwipe { hasDiscoveredSwipe = true }
         }
 
         return true
@@ -513,6 +644,7 @@ struct ContentView: View {
 
     private func finishPointerScrollSwipe(cancelled: Bool) -> Bool {
         guard pointerSwipeResultID != nil else { return false }
+        isPointerSwipeGestureActive = false
         guard !didConfirmPointerSwipe else {
             resetPointerSwipe(animated: false)
             return true
@@ -575,6 +707,7 @@ struct ContentView: View {
             return
         }
 
+        if !hasDiscoveredSwipe { hasDiscoveredSwipe = true }
         withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
             keyboardSwipeResultID = result.id
             keyboardSwipeAction = action
@@ -673,21 +806,25 @@ struct ContentView: View {
 
                 if noModifiers && event.keyCode == kUpArrowKeyCode {
                     moveSelectionBackward(includeSearchField: true)
+                    lastInteractionKey = .upDown
                     return nil
                 }
 
                 if noModifiers && event.keyCode == kDownArrowKeyCode {
                     moveSelectionForward(includeSearchField: true)
+                    lastInteractionKey = .upDown
                     return nil
                 }
 
                 if noModifiers && event.keyCode == kLeftArrowKeyCode && appState.selectedIndex >= 0 {
                     handleKeyboardSwipe(.delete)
+                    lastInteractionKey = .leftRight
                     return nil
                 }
 
                 if noModifiers && event.keyCode == kRightArrowKeyCode && appState.selectedIndex >= 0 {
                     handleKeyboardSwipe(.copy)
+                    lastInteractionKey = .leftRight
                     return nil
                 }
 
@@ -698,6 +835,7 @@ struct ContentView: View {
                     } else {
                         moveSelectionForward(includeSearchField: true)
                     }
+                    lastInteractionKey = .space
                     return nil
                 }
 

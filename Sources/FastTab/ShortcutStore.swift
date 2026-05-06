@@ -30,14 +30,17 @@ class ShortcutStore: ObservableObject {
         UserDefaults.standard.set(keyName, forKey: "shortcut.keyName")
     }
 
-    var displayString: String {
+    var modifierSymbols: String {
         var result = ""
         if modifiers.contains(.control) { result += "⌃" }
         if modifiers.contains(.option)  { result += "⌥" }
         if modifiers.contains(.shift)   { result += "⇧" }
         if modifiers.contains(.command) { result += "⌘" }
-        result += keyDisplayName
         return result
+    }
+
+    var displayString: String {
+        modifierSymbols + keyDisplayName
     }
 
     static func isValid(modifiers: NSEvent.ModifierFlags) -> Bool {

@@ -160,6 +160,10 @@ private struct ResultRowView: View {
                     .lineLimit(1)
 
                 HStack(spacing: 5) {
+                    Image(systemName: result.type.symbolName)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+
                     ForEach(secondaryMetadata, id: \.self) { metadata in
                         MetadataPill(title: metadata)
                     }
@@ -176,7 +180,6 @@ private struct ResultRowView: View {
             Spacer(minLength: 8)
 
             HStack(spacing: 6) {
-                ResultBadge(systemImage: result.type.symbolName)
                 BrowserBadge(browserName: result.browserName)
 
                 Menu {
@@ -237,17 +240,6 @@ private struct MetadataPill: View {
 
     private var metadataPillTint: Color {
         colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.06)
-    }
-}
-
-private struct ResultBadge: View {
-    let systemImage: String
-
-    var body: some View {
-        Image(systemName: systemImage)
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .frame(width: 22, height: 22)
     }
 }
 

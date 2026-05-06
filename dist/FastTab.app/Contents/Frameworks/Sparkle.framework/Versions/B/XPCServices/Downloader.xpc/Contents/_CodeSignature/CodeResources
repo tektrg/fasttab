@@ -3,31 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>files</key>
-	<dict>
-		<key>Resources/AppIcon.icns</key>
-		<data>
-		PbF7NSOhVX+pm7bXagDM9fiR/KE=
-		</data>
-	</dict>
+	<dict/>
 	<key>files2</key>
-	<dict>
-		<key>Frameworks/Sparkle.framework</key>
-		<dict>
-			<key>cdhash</key>
-			<data>
-			PsTPY1uo9EeZBQOTlJUrw7bh4Z4=
-			</data>
-			<key>requirement</key>
-			<string>identifier "org.sparkle-project.Sparkle" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: luongtattrung@gmail.com (SELAV8N2B9)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */</string>
-		</dict>
-		<key>Resources/AppIcon.icns</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			y6r5sbj4dmQHwfhlNfXKQk5Sch6d/xkVwookQ8cVMUM=
-			</data>
-		</dict>
-	</dict>
+	<dict/>
 	<key>rules</key>
 	<dict>
 		<key>^Resources/</key>

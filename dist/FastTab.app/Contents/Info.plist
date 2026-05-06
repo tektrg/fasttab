@@ -7,9 +7,9 @@
   <key>CFBundleIdentifier</key>
   <string>com.trungluong.FastTab</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.2.2-4-g7593321</string>
+  <string>1.2.2-1-g389591f</string>
   <key>CFBundleVersion</key>
-  <string>1.2.2-4-g7593321</string>
+  <string>1.2.2-1-g389591f</string>
   <key>CFBundleName</key>
   <string>FastTab</string>
   <key>CFBundlePackageType</key>
@@ -22,5 +22,15 @@
   <true/>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
+  <key>SUFeedURL</key>
+  <string>https://fasttab.theindie.app/fasttab/appcast.xml</string>
+  <key>SUEnableInstallerLauncherService</key>
+  <false/>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUAutomaticallyUpdate</key>
+  <false/>
+  <key>SUPublicEDKey</key>
+  <string>fiLgH20dfWh+dYcfLJXegU9WjbfyYwHzGNDXUlJCxHY=</string>
 </dict>
 </plist>

@@ -179,10 +179,17 @@ struct FastTabApp: App {
                 updateService.checkForUpdates(manual: true)
             }
 
-            if case .available(let version, _, _) = updateService.status {
-                Button("Download v\(version)") {
-                    updateService.openDownloadURL()
+            switch updateService.status {
+            case .available(let version, _):
+                Button("Update to v\(version)") {
+                    updateService.performPrimaryAction()
                 }
+            case .readyToRestart(let version):
+                Button("Restart to Update v\(version)") {
+                    updateService.performPrimaryAction()
+                }
+            default:
+                EmptyView()
             }
 
             Button("Quit") {

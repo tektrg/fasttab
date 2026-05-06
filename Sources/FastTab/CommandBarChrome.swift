@@ -95,17 +95,13 @@ struct FooterShortcutBar<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        HStack {
-            Spacer()
-            content
-            Spacer()
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.thinMaterial)
-        )
+        content
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.thinMaterial)
+            )
     }
 }
 

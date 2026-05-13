@@ -1,35 +1,13 @@
 import Foundation
 import AppKit
 import OSLog
+import ApplicationServices
 
-// ASCII control characters guaranteed not to appear in URLs or page titles.
-private let kFieldSep = "\u{1F}" // unit separator
-private let kRowSep   = "\u{1C}" // file separator
-
-private func appleScriptQuoted(_ value: String) -> String {
-    value
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\"", with: "\\\"")
-}
-
-private func shellQuoted(_ value: String) -> String {
-    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-}
-
-private struct ChromiumBrowser: Sendable {
-    let appName: String
-    let supportDirectory: String
-    let bundleIdentifier: String
-}
-
-private struct ChromiumProfile: Sendable {
-    let browser: ChromiumBrowser
-    let name: String
-    let directoryURL: URL
-
-    var bookmarksURL: URL { directoryURL.appendingPathComponent("Bookmarks") }
-    var historyURL: URL { directoryURL.appendingPathComponent("History") }
-    var faviconsURL: URL { directoryURL.appendingPathComponent("Favicons") }
+enum SafariAutomationStatus: String, Sendable {
+    case notInstalled
+    case granted
+    case denied
+    case notDetermined
 }
 
 @MainActor
@@ -37,9 +15,8 @@ class BrowserTabService: ObservableObject {
     @Published var results: [BrowserSearchResult] = []
     @Published var isLoading: Bool = false
     /// True when the fetched live tabs span more than one window (per browser).
-    /// Computed from all live tabs, not just the visible prefix, so the flag is
-    /// correct even when only a subset is shown in the unfiltered list.
     @Published var hasMultipleWindows: Bool = false
+    @Published private(set) var safariAutomationStatus: SafariAutomationStatus = .notDetermined
 
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService")
     private var lastActiveTimes: [String: Date] = [:]
@@ -69,10 +46,105 @@ class BrowserTabService: ObservableObject {
     private let initialVisibleTabLimit = 5
     private let typedQueryLiveTabsReuseWindow: TimeInterval = 1.0
 
-    private let browsers: [ChromiumBrowser] = [
-        ChromiumBrowser(appName: "Google Chrome", supportDirectory: "~/Library/Application Support/Google/Chrome", bundleIdentifier: "com.google.Chrome"),
-        ChromiumBrowser(appName: "Microsoft Edge", supportDirectory: "~/Library/Application Support/Microsoft Edge", bundleIdentifier: "com.microsoft.edgemac")
-]
+    private let backends: [any BrowserBackend]
+
+    private static let activeTimesDefaultsKey = "FastTab.lastActiveTimes"
+
+    init() {
+        var backends: [any BrowserBackend] = [
+            ChromiumBackend(
+                appName: "Google Chrome",
+                bundleIdentifier: "com.google.Chrome",
+                supportDirectory: "~/Library/Application Support/Google/Chrome"
+            ),
+            ChromiumBackend(
+                appName: "Microsoft Edge",
+                bundleIdentifier: "com.microsoft.edgemac",
+                supportDirectory: "~/Library/Application Support/Microsoft Edge"
+            )
+        ]
+
+        if Self.isSafariInstalled() {
+            backends.append(SafariBackend())
+        }
+
+        self.backends = backends
+        self.lastActiveTimes = Self.loadActiveTimes()
+        self.safariAutomationStatus = Self.probeSafariAutomation()
+        logger.info("BrowserTabService init. backends=\(backends.map { $0.appName }.joined(separator: ","), privacy: .public) safariAutomation=\(self.safariAutomationStatus.rawValue, privacy: .public)")
+    }
+
+    // MARK: - Safari probes
+
+    private static func isSafariInstalled() -> Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") != nil
+    }
+
+    private static func probeSafariAutomation() -> SafariAutomationStatus {
+        guard isSafariInstalled() else { return .notInstalled }
+
+        var addrDesc = AEAddressDesc()
+        let bundleID = "com.apple.Safari"
+        let createStatus: OSErr = bundleID.withCString { cstr in
+            AECreateDesc(
+                DescType(typeApplicationBundleID),
+                cstr,
+                Int(strlen(cstr)),
+                &addrDesc
+            )
+        }
+        guard createStatus == noErr else { return .notDetermined }
+        defer { AEDisposeDesc(&addrDesc) }
+
+        let result = AEDeterminePermissionToAutomateTarget(&addrDesc, typeWildCard, typeWildCard, false)
+        switch Int(result) {
+        case Int(noErr):
+            return .granted
+        case Int(errAEEventNotPermitted):
+            return .denied
+        case -1744: // errAEEventWouldRequireUserConsent
+            return .notDetermined
+        default:
+            return .notDetermined
+        }
+    }
+
+    func recheckSafariAutomation() {
+        safariAutomationStatus = Self.probeSafariAutomation()
+        logger.info("recheckSafariAutomation status=\(self.safariAutomationStatus.rawValue, privacy: .public)")
+    }
+
+    /// Probes whether the running process has Full Disk Access to Safari's
+    /// protected data. Reads a small prefix of `History.db`; permission errors
+    /// surface as `false`. Lightweight enough to call on Settings focus.
+    func canReadSafariProtectedData() -> Bool {
+        let path = (("~/Library/Safari/History.db" as NSString).expandingTildeInPath)
+        guard FileManager.default.fileExists(atPath: path) else { return false }
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
+            return false
+        }
+        defer { try? handle.close() }
+        do {
+            _ = try handle.read(upToCount: 16)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Persistence
+
+    private static func loadActiveTimes() -> [String: Date] {
+        guard let raw = UserDefaults.standard.dictionary(forKey: activeTimesDefaultsKey) as? [String: Double] else {
+            return [:]
+        }
+        return raw.mapValues { Date(timeIntervalSince1970: $0) }
+    }
+
+    private func persistActiveTimes() {
+        let raw = lastActiveTimes.mapValues { $0.timeIntervalSince1970 }
+        UserDefaults.standard.set(raw, forKey: Self.activeTimesDefaultsKey)
+    }
 
     private nonisolated static func computeHasMultipleWindows(_ tabs: [BrowserSearchResult]) -> Bool {
         var seen = Set<String>()
@@ -115,7 +187,7 @@ class BrowserTabService: ObservableObject {
         lastIssuedQuery = normalizedQuery
 
         let cachedTimes = self.lastActiveTimes
-        let browsers = self.browsers
+        let backends = self.backends
         let bookmarkSnapshot = self.cachedBookmarks
         let historySnapshot = self.cachedHistory
         let initialVisibleTabLimit = self.initialVisibleTabLimit
@@ -137,10 +209,9 @@ class BrowserTabService: ObservableObject {
                 liveTabs = cachedLiveTabsSnapshot
                 usedCachedLiveTabs = true
             } else {
-                for browser in browsers {
+                for backend in backends {
                     if Task.isCancelled { break }
-                    liveTabs.append(contentsOf: Self.fetchTabResults(
-                        for: browser,
+                    liveTabs.append(contentsOf: backend.fetchLiveTabs(
                         fetchStart: fetchStart,
                         activeTimes: &updatedTimes,
                         currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
@@ -164,6 +235,7 @@ class BrowserTabService: ObservableObject {
                 await MainActor.run {
                     guard let self, generation == self.fetchGeneration else { return }
                     self.lastActiveTimes = updatedTimes
+                    self.persistActiveTimes()
                     self.results = prioritizedTabs
                     self.cachedQuickOpenResults = prioritizedTabs
                     self.cachedQuickOpenSourceAppBundleIdentifier = currentFlowSourceAppBundleIdentifier
@@ -188,6 +260,7 @@ class BrowserTabService: ObservableObject {
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
                 self.lastActiveTimes = updatedTimes
+                self.persistActiveTimes()
                 self.results = finalResults
                 if !usedCachedLiveTabs {
                     self.cachedLiveTabs = sortedLiveTabs
@@ -231,15 +304,21 @@ class BrowserTabService: ObservableObject {
             faviconLookupTasks.insert(item.key)
         }
 
-        let browsers = self.browsers
+        let backends = self.backends
 
         faviconPrefetchTask = Task.detached(priority: .utility) { [weak self] in
             var fetched: [(String, Data)] = []
 
-            for item in pending {
+            let byBrowser = Dictionary(grouping: pending, by: { $0.browserName })
+            for (browserName, items) in byBrowser {
                 if Task.isCancelled { break }
-                if let data = Self.fetchFaviconData(browserName: item.browserName, pageURL: item.url, browsers: browsers) {
-                    fetched.append((item.key, data))
+                guard let backend = backends.first(where: { $0.appName == browserName }) else { continue }
+                let urls = items.map { $0.url }
+                let resolved = backend.fetchFaviconsBatch(pageURLs: urls)
+                for item in items {
+                    if let data = resolved[item.url] {
+                        fetched.append((item.key, data))
+                    }
                 }
             }
 
@@ -266,9 +345,13 @@ class BrowserTabService: ObservableObject {
     func activate(_ result: BrowserSearchResult) {
         switch result.type {
         case .tab:
-            activateTab(result)
+            if let key = result.tabRecencyKey {
+                lastActiveTimes[key] = Date()
+                persistActiveTimes()
+            }
+            backend(for: result)?.activateTab(result)
         case .bookmark, .history:
-            openURL(result)
+            backend(for: result)?.openURL(result)
         }
     }
 
@@ -281,11 +364,11 @@ class BrowserTabService: ObservableObject {
     func remove(_ result: BrowserSearchResult) {
         switch result.type {
         case .tab:
-            closeTab(result)
+            backend(for: result)?.closeTab(result)
         case .bookmark:
-            deleteBookmark(result)
+            backend(for: result)?.deleteBookmark(result)
         case .history:
-            deleteHistoryItem(result)
+            backend(for: result)?.deleteHistoryItem(result)
         }
 
         removeResultFromLocalSnapshots(withID: result.id)
@@ -307,171 +390,8 @@ class BrowserTabService: ObservableObject {
         return "\(browserName)|\(host)"
     }
 
-    private func closeTab(_ result: BrowserSearchResult) {
-        let safeURL = appleScriptQuoted(result.url)
-        let fallbackWindow = max(1, result.windowIndex ?? 1)
-        let fallbackTab = max(1, result.tabIndex ?? 1)
-
-        let script = """
-        tell application "\(result.browserName)"
-            if it is not running then return
-            set targetURL to "\(safeURL)"
-            set didClose to false
-            try
-                repeat with w in windows
-                    set tabURLs to URL of every tab of w
-                    repeat with i from 1 to count of tabURLs
-                        if (item i of tabURLs) is equal to targetURL then
-                            close tab i of w
-                            set didClose to true
-                            exit repeat
-                        end if
-                    end repeat
-                    if didClose then exit repeat
-                end repeat
-            end try
-            if didClose is false then
-                try
-                    close tab \(fallbackTab) of window \(fallbackWindow)
-                end try
-            end if
-        end tell
-        """
-
-        logger.info("closeTab: app=\(result.browserName, privacy: .public) title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
-        runAppleScript(script, logger: logger, action: "closeTab")
-    }
-
-    private func deleteBookmark(_ result: BrowserSearchResult) {
-        guard let bookmarkID = result.bookmarkID else {
-            logger.error("deleteBookmark: missing bookmarkID for url='\(result.url, privacy: .public)'")
-            return
-        }
-
-        guard let profile = chromiumProfile(for: result) else {
-            logger.error("deleteBookmark: profile not found for browser=\(result.browserName, privacy: .public) profile=\(result.profileName ?? "", privacy: .public)")
-            return
-        }
-
-        do {
-            let data = try Data(contentsOf: profile.bookmarksURL)
-            guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  var roots = root["roots"] as? [String: Any] else {
-                logger.error("deleteBookmark: invalid bookmark JSON at path=\(profile.bookmarksURL.path, privacy: .public)")
-                return
-            }
-
-            var deleted = false
-            for (key, value) in roots {
-                guard var node = value as? [String: Any] else { continue }
-                if deleteBookmarkNode(withID: bookmarkID, from: &node) {
-                    deleted = true
-                }
-                roots[key] = node
-            }
-
-            guard deleted else {
-                logger.error("deleteBookmark: bookmark id=\(bookmarkID, privacy: .public) not found")
-                return
-            }
-
-            root["roots"] = roots
-            let updatedData = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
-            try updatedData.write(to: profile.bookmarksURL, options: .atomic)
-            logger.info("deleteBookmark: removed bookmark id=\(bookmarkID, privacy: .public) from profile=\(profile.name, privacy: .public)")
-        } catch {
-            logger.error("deleteBookmark: failed for profile=\(profile.name, privacy: .public) error=\(String(describing: error), privacy: .public)")
-        }
-    }
-
-    private func deleteHistoryItem(_ result: BrowserSearchResult) {
-        guard let profile = chromiumProfile(for: result) else {
-            logger.error("deleteHistoryItem: profile not found for browser=\(result.browserName, privacy: .public) profile=\(result.profileName ?? "", privacy: .public)")
-            return
-        }
-
-        let historyURL = profile.historyURL
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-History")
-
-        do {
-            guard FileManager.default.fileExists(atPath: historyURL.path) else {
-                logger.error("deleteHistoryItem: history DB missing at path=\(historyURL.path, privacy: .public)")
-                return
-            }
-
-            try FileManager.default.copyItem(at: historyURL, to: tempURL)
-
-            let escapedURL = result.url.replacingOccurrences(of: "'", with: "''")
-            let sql = """
-            DELETE FROM visits WHERE url IN (SELECT id FROM urls WHERE url = '\(escapedURL)');
-            DELETE FROM urls WHERE url = '\(escapedURL)';
-            """
-
-            guard Self.runProcess(launchPath: "/usr/bin/sqlite3", arguments: [tempURL.path, sql]) != nil else {
-                logger.error("deleteHistoryItem: sqlite delete failed for url='\(result.url, privacy: .public)'")
-                try? FileManager.default.removeItem(at: tempURL)
-                return
-            }
-
-            _ = try FileManager.default.replaceItemAt(historyURL, withItemAt: tempURL)
-            logger.info("deleteHistoryItem: removed url='\(result.url, privacy: .public)' from profile=\(profile.name, privacy: .public)")
-        } catch {
-            logger.error("deleteHistoryItem: failed for profile=\(profile.name, privacy: .public) error=\(String(describing: error), privacy: .public)")
-            try? FileManager.default.removeItem(at: tempURL)
-        }
-    }
-
-    private func deleteBookmarkNode(withID bookmarkID: String, from node: inout [String: Any]) -> Bool {
-        guard let children = node["children"] as? [[String: Any]] else {
-            return false
-        }
-
-        var deletedAny = false
-        var nextChildren: [[String: Any]] = []
-        nextChildren.reserveCapacity(children.count)
-
-        for var child in children {
-            if (child["id"] as? String) == bookmarkID {
-                deletedAny = true
-                continue
-            }
-
-            if deleteBookmarkNode(withID: bookmarkID, from: &child) {
-                deletedAny = true
-            }
-
-            nextChildren.append(child)
-        }
-
-        if deletedAny {
-            node["children"] = nextChildren
-        }
-
-        return deletedAny
-    }
-
-    private func browserExecutableURL(for browser: ChromiumBrowser) -> URL? {
-        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: browser.bundleIdentifier) else {
-            return nil
-        }
-        let infoPlistURL = appURL.appendingPathComponent("Contents/Info.plist")
-        guard let infoPlist = NSDictionary(contentsOf: infoPlistURL),
-              let executableName = infoPlist["CFBundleExecutable"] as? String else {
-            return nil
-        }
-        return appURL.appendingPathComponent("Contents/MacOS/\(executableName)")
-    }
-
-    private func chromiumProfile(for result: BrowserSearchResult) -> ChromiumProfile? {
-        guard let browser = browsers.first(where: { $0.appName == result.browserName }) else {
-            return nil
-        }
-
-        let profiles = Self.chromiumProfiles(for: browser)
-        if let profileName = result.profileName {
-            return profiles.first(where: { $0.name == profileName })
-        }
-        return profiles.first
+    private func backend(for result: BrowserSearchResult) -> (any BrowserBackend)? {
+        backends.first(where: { $0.appName == result.browserName })
     }
 
     private func refreshCachesIfNeeded(force: Bool) {
@@ -490,7 +410,7 @@ class BrowserTabService: ObservableObject {
 
         self.logger.info("refreshCachesIfNeeded start. force=\(force, privacy: .public) query='\(self.lastIssuedQuery, privacy: .public)'")
 
-        let browsers = self.browsers
+        let backends = self.backends
         let historyLimit = self.historyCachePerBrowserLimit
 
         cacheRefreshTask = Task(priority: .utility) {
@@ -504,18 +424,18 @@ class BrowserTabService: ObservableObject {
                 var historyResults: [BrowserSearchResult] = []
                 var diagnostics: [String] = []
 
-                for browser in browsers {
+                for backend in backends {
                     if Task.isCancelled {
                         return (bookmarks: [BrowserSearchResult](), history: [BrowserSearchResult](), diagnostics: [String]())
                     }
 
-                    diagnosticLogger.info("cache-refresh browser start app='\(browser.appName, privacy: .public)'")
-                    let browserBookmarks = Self.fetchAllBookmarkResults(for: browser)
-                    diagnosticLogger.info("cache-refresh bookmarks app='\(browser.appName, privacy: .public)' count=\(browserBookmarks.count)")
-                    let browserHistory = Self.fetchRecentHistoryResults(for: browser, perBrowserLimit: historyLimit)
-                    diagnosticLogger.info("cache-refresh history app='\(browser.appName, privacy: .public)' count=\(browserHistory.count)")
+                    diagnosticLogger.info("cache-refresh browser start app='\(backend.appName, privacy: .public)'")
+                    let browserBookmarks = backend.fetchAllBookmarks()
+                    diagnosticLogger.info("cache-refresh bookmarks app='\(backend.appName, privacy: .public)' count=\(browserBookmarks.count)")
+                    let browserHistory = backend.fetchRecentHistory(perBrowserLimit: historyLimit)
+                    diagnosticLogger.info("cache-refresh history app='\(backend.appName, privacy: .public)' count=\(browserHistory.count)")
 
-                    diagnostics.append("\(browser.appName):bookmarks=\(browserBookmarks.count),history=\(browserHistory.count)")
+                    diagnostics.append("\(backend.appName):bookmarks=\(browserBookmarks.count),history=\(browserHistory.count)")
                     bookmarkResults.append(contentsOf: browserBookmarks)
                     historyResults.append(contentsOf: browserHistory)
                 }
@@ -539,459 +459,6 @@ class BrowserTabService: ObservableObject {
             } else {
                 fetchResults(matching: lastIssuedQuery)
             }
-        }
-    }
-
-    private func activateTab(_ result: BrowserSearchResult) {
-        if let key = result.tabRecencyKey {
-            lastActiveTimes[key] = Date()
-        }
-
-        let safeURL = appleScriptQuoted(result.url)
-        let script = """
-        tell application "\(result.browserName)"
-            activate
-            set targetURL to "\(safeURL)"
-            set foundMatch to false
-            try
-                repeat with w in windows
-                    set tabURLs to URL of every tab of w
-                    repeat with i from 1 to count of tabURLs
-                        if (item i of tabURLs) is equal to targetURL then
-                            set index of w to 1
-                            set active tab index of window 1 to i
-                            set foundMatch to true
-                            exit repeat
-                        end if
-                    end repeat
-                    if foundMatch then exit repeat
-                end repeat
-            end try
-            if foundMatch is false then
-                try
-                    set index of window \(result.windowIndex ?? 1) to 1
-                    set active tab index of window 1 to \(result.tabIndex ?? 1)
-                end try
-            end if
-        end tell
-        """
-
-        logger.info("activateTab: app=\(result.browserName, privacy: .public) title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
-        runAppleScript(script, logger: logger, action: "activateTab")
-    }
-
-    private func openURL(_ result: BrowserSearchResult) {
-        // Try profile-aware opening for Chromium browsers
-        if let browser = browsers.first(where: { $0.appName == result.browserName }),
-           let profileName = result.profileName,
-           let executableURL = browserExecutableURL(for: browser) {
-            let executablePath = executableURL.path
-            let script = "nohup \(shellQuoted(executablePath)) --profile-directory=\(shellQuoted(profileName)) \(shellQuoted(result.url)) > /dev/null 2>&1 &"
-            let task = Process()
-            task.launchPath = "/bin/bash"
-            task.arguments = ["-c", script]
-            do {
-                try task.run()
-                task.waitUntilExit()
-                if task.terminationStatus == 0 {
-                    logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) profile=\(profileName, privacy: .public) url='\(result.url, privacy: .public)'")
-                    return
-                }
-            } catch {
-                logger.error("openURL profile-aware failed: \(String(describing: error), privacy: .public)")
-            }
-        }
-
-        // Fallback to AppleScript
-        let safeURL = appleScriptQuoted(result.url)
-        let script = """
-        tell application "\(result.browserName)"
-            activate
-            open location "\(safeURL)"
-        end tell
-        """
-
-        logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) url='\(result.url, privacy: .public)' (fallback)")
-        runAppleScript(script, logger: logger, action: "openURL")
-    }
-
-    private func runAppleScript(_ script: String, logger: Logger, action: String) {
-        let task = Process()
-        task.launchPath = "/usr/bin/osascript"
-        task.arguments = ["-e", script]
-        do {
-            try task.run()
-            task.waitUntilExit()
-            if task.terminationStatus != 0 {
-                logger.error("\(action, privacy: .public): osascript exited with status \(task.terminationStatus)")
-            }
-        } catch {
-            logger.error("\(action, privacy: .public): failed to run osascript: \(String(describing: error), privacy: .public)")
-        }
-    }
-
-    private nonisolated static func fetchTabResults(
-        for browser: ChromiumBrowser,
-        fetchStart: Date,
-        activeTimes: inout [String: Date],
-        currentFlowSourceAppBundleIdentifier: String?
-    ) -> [BrowserSearchResult] {
-        let script = """
-        tell application "\(browser.appName)"
-            if it is not running then return ""
-            set fieldSep to (ASCII character 31)
-            set rowSep to (ASCII character 28)
-            set tabData to ""
-            try
-                set winCount to count of windows
-                repeat with w from 1 to winCount
-                    set activeTabIndex to active tab index of window w
-                    set windowTitle to title of window w
-                    set tabTitles to title of every tab of window w
-                    set tabURLs to URL of every tab of window w
-                    repeat with t from 1 to count of tabTitles
-                        set isActive to (t is equal to activeTabIndex and w is equal to 1) as string
-                        set rowData to "\(browser.appName)" & fieldSep & w & fieldSep & t & fieldSep & (item t of tabTitles) & fieldSep & (item t of tabURLs) & fieldSep & isActive & fieldSep & windowTitle
-                        if tabData is "" then
-                            set tabData to rowData
-                        else
-                            set tabData to tabData & rowSep & rowData
-                        end if
-                    end repeat
-                end repeat
-            on error
-                return ""
-            end try
-            return tabData
-        end tell
-        """
-
-        guard let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]), !output.isEmpty else {
-            return []
-        }
-
-        var newResults: [BrowserSearchResult] = []
-        let rows = output.components(separatedBy: kRowSep)
-        for row in rows where !row.isEmpty {
-            let parts = row.components(separatedBy: kFieldSep)
-            guard parts.count >= 7 else { continue }
-
-            let appName = parts[0]
-            let winIdx = Int(parts[1]) ?? 1
-            let tabIdx = Int(parts[2]) ?? 1
-            let title = parts[3]
-            let url = parts[4]
-            let isActive = parts[5] == "true"
-            let windowName = parts[6]
-            let key = makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
-            let isCurrentFlowActiveTab = isActive && browser.bundleIdentifier == currentFlowSourceAppBundleIdentifier
-            let timestamp = isActive ? fetchStart : (activeTimes[key] ?? Date(timeIntervalSince1970: 0))
-
-            if isActive {
-                activeTimes[key] = fetchStart
-            }
-
-            newResults.append(
-                BrowserSearchResult(
-                    title: title,
-                    url: url,
-                    browserName: appName,
-                    type: .tab,
-                    timestamp: timestamp,
-                    windowIndex: winIdx,
-                    tabIndex: tabIdx,
-                    windowName: windowName,
-                    isCurrentFlowActiveTab: isCurrentFlowActiveTab
-                )
-            )
-        }
-
-        return newResults
-    }
-
-    private nonisolated static func fetchAllBookmarkResults(for browser: ChromiumBrowser) -> [BrowserSearchResult] {
-        let profiles = chromiumProfiles(for: browser)
-        var results: [BrowserSearchResult] = []
-
-        for profile in profiles {
-            guard let data = try? Data(contentsOf: profile.bookmarksURL),
-                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let roots = root["roots"] as? [String: Any] else {
-                continue
-            }
-
-            for value in roots.values {
-                guard let node = value as? [String: Any] else { continue }
-                collectBookmarks(
-                    from: node,
-                    browserName: browser.appName,
-                    profileName: profile.name,
-                    folderTrail: [],
-                    results: &results
-                )
-            }
-        }
-
-        return results
-    }
-
-    private nonisolated static func collectBookmarks(
-        from node: [String: Any],
-        browserName: String,
-        profileName: String,
-        folderTrail: [String],
-        results: inout [BrowserSearchResult]
-    ) {
-        let type = node["type"] as? String
-        let nodeName = (node["name"] as? String) ?? ""
-
-        if type == "url" {
-            let url = (node["url"] as? String) ?? ""
-            guard !url.isEmpty else { return }
-
-            results.append(
-                BrowserSearchResult(
-                    title: nodeName.isEmpty ? url : nodeName,
-                    url: url,
-                    browserName: browserName,
-                    type: .bookmark,
-                    timestamp: chromiumDate(from: node["date_added"] as? String) ?? Date(timeIntervalSince1970: 0),
-                    bookmarkID: node["id"] as? String,
-                    profileName: profileName,
-                    folderPath: folderTrail.joined(separator: " / ")
-                )
-            )
-            return
-        }
-
-        let nextTrail = type == "folder" && !nodeName.isEmpty ? folderTrail + [nodeName] : folderTrail
-        guard let children = node["children"] as? [[String: Any]] else { return }
-        for child in children {
-            collectBookmarks(
-                from: child,
-                browserName: browserName,
-                profileName: profileName,
-                folderTrail: nextTrail,
-                results: &results
-            )
-        }
-    }
-
-    private nonisolated static func fetchRecentHistoryResults(for browser: ChromiumBrowser, perBrowserLimit: Int) -> [BrowserSearchResult] {
-        let logger = Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService")
-        var dedupedByURL: [String: BrowserSearchResult] = [:]
-
-        for profile in chromiumProfiles(for: browser) {
-            guard FileManager.default.fileExists(atPath: profile.historyURL.path) else { continue }
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            let profileStart = Date()
-
-            do {
-                try FileManager.default.copyItem(at: profile.historyURL, to: tempURL)
-                let profileQueryLimit = 150
-                let sql = """
-                SELECT title, url, last_visit_time
-                FROM urls
-                WHERE url IS NOT NULL
-                  AND url != ''
-                ORDER BY last_visit_time DESC
-                LIMIT \(profileQueryLimit);
-                """
-
-                guard let output = runProcess(
-                    launchPath: "/usr/bin/sqlite3",
-                    arguments: ["-separator", kFieldSep, tempURL.path, sql],
-                    timeoutSeconds: 15
-                ) else {
-                    logger.error("history profile query failed. browser='\(browser.appName, privacy: .public)' profile='\(profile.name, privacy: .public)'")
-                    try? FileManager.default.removeItem(at: tempURL)
-                    continue
-                }
-
-                let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
-                for row in rows {
-                    let parts = String(row).components(separatedBy: kFieldSep)
-                    guard parts.count >= 3 else { continue }
-
-                    let title = parts[0].isEmpty ? parts[1] : parts[0]
-                    let url = parts[1]
-                    let timestamp = chromiumDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
-                    let candidate = BrowserSearchResult(
-                        title: title,
-                        url: url,
-                        browserName: browser.appName,
-                        type: .history,
-                        timestamp: timestamp,
-                        profileName: profile.name
-                    )
-
-                    let key = "\(browser.appName)|\(url)"
-                    if let existing = dedupedByURL[key], existing.timestamp >= candidate.timestamp {
-                        continue
-                    }
-                    dedupedByURL[key] = candidate
-                }
-
-                let elapsedMs = Int(Date().timeIntervalSince(profileStart) * 1000)
-                logger.info("history profile query complete. browser='\(browser.appName, privacy: .public)' profile='\(profile.name, privacy: .public)' rows=\(rows.count) elapsedMs=\(elapsedMs)")
-                try? FileManager.default.removeItem(at: tempURL)
-            } catch {
-                logger.error("history profile query threw. browser='\(browser.appName, privacy: .public)' profile='\(profile.name, privacy: .public)' error='\(String(describing: error), privacy: .public)'")
-                try? FileManager.default.removeItem(at: tempURL)
-            }
-        }
-
-        return dedupedByURL.values
-            .sorted { $0.timestamp > $1.timestamp }
-            .prefix(perBrowserLimit)
-            .map { $0 }
-    }
-
-    private nonisolated static func fetchFaviconData(browserName: String, pageURL: String, browsers: [ChromiumBrowser]) -> Data? {
-        guard let browser = browsers.first(where: { $0.appName == browserName }) else {
-            return nil
-        }
-
-        let escapedURL = pageURL.replacingOccurrences(of: "'", with: "''")
-        let originURL: String = {
-            guard let parsed = URL(string: pageURL),
-                  let scheme = parsed.scheme,
-                  let host = parsed.host else {
-                return pageURL
-            }
-            return "\(scheme)://\(host)/"
-        }()
-        let escapedOriginURL = originURL.replacingOccurrences(of: "'", with: "''")
-
-        for profile in chromiumProfiles(for: browser) {
-            guard FileManager.default.fileExists(atPath: profile.faviconsURL.path) else { continue }
-
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-Favicons")
-
-            do {
-                try FileManager.default.copyItem(at: profile.faviconsURL, to: tempURL)
-
-                let sql = """
-                SELECT hex(fb.image_data)
-                FROM icon_mapping im
-                JOIN favicon_bitmaps fb ON fb.icon_id = im.icon_id
-                WHERE im.page_url IN ('\(escapedURL)', '\(escapedOriginURL)')
-                  AND fb.image_data IS NOT NULL
-                ORDER BY fb.width DESC, fb.last_updated DESC
-                LIMIT 1;
-                """
-
-                guard let output = runProcess(
-                    launchPath: "/usr/bin/sqlite3",
-                    arguments: [tempURL.path, sql],
-                    timeoutSeconds: 6
-                ), !output.isEmpty else {
-                    try? FileManager.default.removeItem(at: tempURL)
-                    continue
-                }
-
-                try? FileManager.default.removeItem(at: tempURL)
-
-                if let data = dataFromHex(output) {
-                    return data
-                }
-            } catch {
-                try? FileManager.default.removeItem(at: tempURL)
-            }
-        }
-
-        return nil
-    }
-
-    private nonisolated static func dataFromHex(_ hex: String) -> Data? {
-        let compact = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !compact.isEmpty, compact.count.isMultiple(of: 2) else { return nil }
-
-        var data = Data(capacity: compact.count / 2)
-        var index = compact.startIndex
-
-        while index < compact.endIndex {
-            let next = compact.index(index, offsetBy: 2)
-            let byteString = compact[index..<next]
-            guard let byte = UInt8(byteString, radix: 16) else { return nil }
-            data.append(byte)
-            index = next
-        }
-
-        return data
-    }
-
-    private nonisolated static func chromiumProfiles(for browser: ChromiumBrowser) -> [ChromiumProfile] {
-        let basePath = (browser.supportDirectory as NSString).expandingTildeInPath
-        let baseURL = URL(fileURLWithPath: basePath, isDirectory: true)
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: baseURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        return urls
-            .filter { url in
-                (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            }
-            .compactMap { url in
-                let bookmarksExists = FileManager.default.fileExists(atPath: url.appendingPathComponent("Bookmarks").path)
-                let historyExists = FileManager.default.fileExists(atPath: url.appendingPathComponent("History").path)
-                guard bookmarksExists || historyExists else { return nil }
-                return ChromiumProfile(browser: browser, name: url.lastPathComponent, directoryURL: url)
-            }
-            .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-    }
-
-    private nonisolated static func chromiumDate(from rawValue: String?) -> Date? {
-        guard let rawValue, let microseconds = Double(rawValue) else { return nil }
-        return Date(timeIntervalSince1970: (microseconds / 1_000_000) - 11_644_473_600)
-    }
-
-    private nonisolated static func chromiumDate(fromSQLiteValue rawValue: String) -> Date? {
-        guard let microseconds = Double(rawValue) else { return nil }
-        return Date(timeIntervalSince1970: (microseconds / 1_000_000) - 11_644_473_600)
-    }
-
-    private nonisolated static func runProcess(launchPath: String, arguments: [String], timeoutSeconds: TimeInterval = 4) -> String? {
-        let logger = Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService")
-        let task = Process()
-        task.launchPath = launchPath
-        task.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        task.standardOutput = stdoutPipe
-        task.standardError = stderrPipe
-
-        do {
-            try task.run()
-
-            let deadline = Date().addingTimeInterval(timeoutSeconds)
-            while task.isRunning && Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.05)
-            }
-
-            if task.isRunning {
-                task.terminate()
-                logger.error("runProcess timeout. launchPath='\(launchPath, privacy: .public)' timeoutSeconds=\(timeoutSeconds)")
-                return nil
-            }
-
-            guard task.terminationStatus == 0 else {
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
-                logger.error("runProcess failed. launchPath='\(launchPath, privacy: .public)' status=\(task.terminationStatus) stderr='\(stderrText, privacy: .public)'")
-                return nil
-            }
-
-            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
-            logger.error("runProcess threw. launchPath='\(launchPath, privacy: .public)' error='\(String(describing: error), privacy: .public)'")
-            return nil
         }
     }
 }

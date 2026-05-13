@@ -86,6 +86,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         setupGlobalShortcut()
 
+        if OnboardingWindowController.shared.isNeeded {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                OnboardingWindowController.shared.show()
+            }
+        }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             UpdateService.shared.checkForUpdates(manual: false)
         }
@@ -139,7 +145,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 struct FastTabApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState.shared
-    @StateObject private var launchAtLogin = LaunchAtLoginService.shared
     @StateObject private var updateService = UpdateService.shared
 
     var body: some Scene {
@@ -152,26 +157,21 @@ struct FastTabApp: App {
         .defaultSize(width: CommandBarLayout.defaultCanvasSize.width, height: CommandBarLayout.defaultCanvasSize.height)
         .windowResizability(.contentSize)
 
+        Settings {
+            SettingsView()
+                .environmentObject(appState)
+        }
+
         MenuBarExtra("FastTab", systemImage: "command") {
-            Button(appState.isVisible ? "Hide Command Bar" : "Open Command Bar") {
+            Button(appState.isVisible ? "Hide FastTab" : "Show FastTab") {
                 appState.toggleCommandBar()
             }
 
             Divider()
 
-            Toggle("Launch at Login", isOn: Binding(
-                get: { launchAtLogin.isEnabled },
-                set: { launchAtLogin.setEnabled($0) }
-            ))
-
-            if let errorMessage = launchAtLogin.errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+            SettingsLink {
+                Text("Settings…")
             }
-
-            Divider()
 
             Divider()
 

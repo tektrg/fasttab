@@ -49,6 +49,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
     let profileName: String?
     let folderPath: String?
     let isCurrentFlowActiveTab: Bool
+    let hasMediaIndicator: Bool
 
     init(
         title: String,
@@ -62,7 +63,8 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         bookmarkID: String? = nil,
         profileName: String? = nil,
         folderPath: String? = nil,
-        isCurrentFlowActiveTab: Bool = false
+        isCurrentFlowActiveTab: Bool = false,
+        hasMediaIndicator: Bool = false
     ) {
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         self.title = normalizedTitle.isEmpty ? url : normalizedTitle
@@ -72,11 +74,12 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         self.timestamp = timestamp
         self.windowIndex = windowIndex
         self.tabIndex = tabIndex
-        self.windowName = windowName
+        self.windowName = windowName.map(normalizedBrowserWindowName)
         self.bookmarkID = bookmarkID
         self.profileName = profileName
         self.folderPath = folderPath
         self.isCurrentFlowActiveTab = isCurrentFlowActiveTab
+        self.hasMediaIndicator = hasMediaIndicator
     }
 
     var id: String {
@@ -133,10 +136,19 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
     }
 
     func matches(query: String) -> Bool {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return true }
-        return title.localizedCaseInsensitiveContains(normalized)
-            || url.localizedCaseInsensitiveContains(normalized)
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        let tokens = trimmed
+            .components(separatedBy: .whitespaces)
+            .map { stripPunctuation($0) }
+            .filter { !$0.isEmpty }
+        guard !tokens.isEmpty else { return true }
+        let normalizedTitle = stripPunctuation(title)
+        let normalizedURL = stripPunctuation(url)
+        return tokens.allSatisfy {
+            normalizedTitle.localizedCaseInsensitiveContains($0)
+                || normalizedURL.localizedCaseInsensitiveContains($0)
+        }
     }
 
     var tabRecencyKey: String? {
@@ -149,6 +161,64 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         )
     }
 }
+
+private func stripPunctuation(_ s: String) -> String {
+    s.components(separatedBy: .punctuationCharacters).joined()
+}
+
+func normalizedBrowserWindowName(_ windowName: String) -> String {
+    var normalized = windowName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    while let first = normalized.unicodeScalars.first,
+          browserWindowMediaIndicatorScalars.contains(first.value) {
+        normalized.removeFirst()
+        normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    while let last = normalized.unicodeScalars.last,
+          browserWindowMediaIndicatorScalars.contains(last.value) {
+        normalized.removeLast()
+        normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    return normalized
+}
+
+func browserWindowMediaIndicatorBelongsToTab(tabTitle: String, windowName: String) -> Bool {
+    guard browserWindowNameHasMediaIndicator(windowName) else { return false }
+
+    let normalizedWindowName = normalizedBrowserWindowName(windowName)
+    let normalizedTabTitle = tabTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedWindowName.isEmpty, !normalizedTabTitle.isEmpty else { return false }
+
+    if normalizedTabTitle == normalizedWindowName { return true }
+    if normalizedTabTitle.contains(normalizedWindowName) { return true }
+
+    let ellipsisParts = normalizedWindowName.split(separator: "…", omittingEmptySubsequences: true)
+    guard ellipsisParts.count == 2,
+          let prefix = ellipsisParts.first,
+          let suffix = ellipsisParts.last else {
+        return false
+    }
+
+    return normalizedTabTitle.hasPrefix(prefix) && normalizedTabTitle.hasSuffix(suffix)
+}
+
+private func browserWindowNameHasMediaIndicator(_ windowName: String) -> Bool {
+    let scalars = windowName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars
+    guard let first = scalars.first else { return false }
+    if browserWindowMediaIndicatorScalars.contains(first.value) { return true }
+    guard let last = scalars.last else { return false }
+    return browserWindowMediaIndicatorScalars.contains(last.value)
+}
+
+private let browserWindowMediaIndicatorScalars: Set<UInt32> = [
+    0xFE0F,  // emoji variation selector
+    0x1F507, // speaker with cancellation stroke
+    0x1F508, // speaker
+    0x1F509, // speaker with one sound wave
+    0x1F50A  // speaker with three sound waves
+]
 
 func makeTabRecencyKey(browserName: String, windowIndex: Int?, tabIndex: Int?, url: String) -> String {
     [browserName, String(windowIndex ?? 0), String(tabIndex ?? 0), url].joined(separator: "|")

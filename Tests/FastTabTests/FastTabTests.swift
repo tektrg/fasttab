@@ -79,6 +79,35 @@ import Testing
     #expect(result.title == "https://example.com/loading")
 }
 
+@Test func searchResultStripsMediaIndicatorFromWindowNameOnly() async throws {
+    let result = BrowserSearchResult(
+        title: "\u{1F50A} Playing tab title",
+        url: "https://example.com/audio",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: .now,
+        windowName: "\u{1F50A} Shared audio window"
+    )
+
+    #expect(result.title == "\u{1F50A} Playing tab title")
+    #expect(result.windowName == "Shared audio window")
+}
+
+@Test func browserWindowMediaIndicatorMapsToOnlyMatchingTab() async throws {
+    #expect(browserWindowMediaIndicatorBelongsToTab(
+        tabTitle: "How to Claim Your Leadership Power | Michael Timms | TED - YouTube",
+        windowName: "\u{1F50A} How to Claim Your Leadership P…Michael Timms | TED - YouTube"
+    ))
+    #expect(!browserWindowMediaIndicatorBelongsToTab(
+        tabTitle: "Extensions",
+        windowName: "\u{1F50A} How to Claim Your Leadership P…Michael Timms | TED - YouTube"
+    ))
+}
+
+@Test func normalizedBrowserWindowNameStripsTrailingMediaIndicator() async throws {
+    #expect(normalizedBrowserWindowName("Shared audio window \u{1F50A}") == "Shared audio window")
+}
+
 @Test func quickOpenVisibleTabsSkipsCurrentFlowActiveTab() async throws {
     let now = Date()
     let activeTab = BrowserSearchResult(

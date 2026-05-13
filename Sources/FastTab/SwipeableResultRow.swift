@@ -155,9 +155,17 @@ private struct ResultRowView: View {
                 .frame(width: 16, height: 16)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(result.title)
-                    .font(.system(size: 13, weight: .semibold, design: .default))
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    if result.hasMediaIndicator {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text(result.title)
+                        .font(.system(size: 13, weight: .semibold, design: .default))
+                        .lineLimit(1)
+                }
 
                 HStack(spacing: 5) {
                     Image(systemName: result.type.symbolName)

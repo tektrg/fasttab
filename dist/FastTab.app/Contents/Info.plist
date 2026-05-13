@@ -7,9 +7,9 @@
   <key>CFBundleIdentifier</key>
   <string>com.trungluong.FastTab</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.2.2-1-g389591f</string>
+  <string>1.3.0</string>
   <key>CFBundleVersion</key>
-  <string>1.2.2-1-g389591f</string>
+  <string>1.3.0</string>
   <key>CFBundleName</key>
   <string>FastTab</string>
   <key>CFBundlePackageType</key>
@@ -30,7 +30,5 @@
   <true/>
   <key>SUAutomaticallyUpdate</key>
   <false/>
-  <key>SUPublicEDKey</key>
-  <string>fiLgH20dfWh+dYcfLJXegU9WjbfyYwHzGNDXUlJCxHY=</string>
 </dict>
 </plist>

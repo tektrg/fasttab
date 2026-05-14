@@ -72,6 +72,8 @@ struct SafariBackend: BrowserBackend {
 
         var newResults: [BrowserSearchResult] = []
         let rows = output.components(separatedBy: kRowSep)
+        let activeTimesCount = activeTimes.count
+        logger.info("recency-sort fetchLiveTabs start. browser='Safari' activeTimesCount=\(activeTimesCount) rows=\(rows.count)")
         for row in rows where !row.isEmpty {
             let parts = row.components(separatedBy: kFieldSep)
             guard parts.count >= 7 else { continue }
@@ -88,7 +90,9 @@ struct SafariBackend: BrowserBackend {
             let key = makeTabRecencyKey(browserName: browserName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
             let isCurrentFlowActiveTab = isActive && bundleIdentifier == currentFlowSourceAppBundleIdentifier
             let activeTimestamp = fetchStart.addingTimeInterval(-Double(winIdx - 1))
-            let timestamp = isActive ? activeTimestamp : (activeTimes[key] ?? Date(timeIntervalSince1970: 0))
+            let storedTime = activeTimes[key]
+            let timestamp = isActive ? activeTimestamp : (storedTime ?? Date(timeIntervalSince1970: 0))
+            logger.info("recency-sort tab. browser='\(browserName, privacy: .public)' win=\(winIdx) tab=\(tabIdx) isActive=\(isActive, privacy: .public) hadStoredTime=\(storedTime != nil, privacy: .public) storedEpoch=\(storedTime?.timeIntervalSince1970 ?? -1) chosenEpoch=\(timestamp.timeIntervalSince1970) key='\(key, privacy: .public)' title='\(title, privacy: .public)'")
 
             if isActive {
                 activeTimes[key] = activeTimestamp

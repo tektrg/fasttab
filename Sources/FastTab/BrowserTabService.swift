@@ -228,6 +228,10 @@ class BrowserTabService: ObservableObject {
             }
 
             let sortedLiveTabs = sortBrowserSearchResults(liveTabs)
+            let recencyTopPreview = sortedLiveTabs.prefix(10).map { r -> String in
+                "[win=\(r.windowIndex ?? -1) tab=\(r.tabIndex ?? -1) ts=\(Int(r.timestamp.timeIntervalSince1970)) '\(r.title.prefix(40))']"
+            }.joined(separator: " ")
+            Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService").info("recency-sort post-sort top10. generation=\(generation) usedCachedLiveTabs=\(usedCachedLiveTabs, privacy: .public) liveTabsCount=\(sortedLiveTabs.count) top='\(recencyTopPreview, privacy: .public)'")
 
             if normalizedQuery.isEmpty {
                 let prioritizedTabs = quickOpenVisibleTabs(from: sortedLiveTabs, limit: initialVisibleTabLimit)
@@ -346,8 +350,12 @@ class BrowserTabService: ObservableObject {
         switch result.type {
         case .tab:
             if let key = result.tabRecencyKey {
-                lastActiveTimes[key] = Date()
+                let now = Date()
+                lastActiveTimes[key] = now
                 persistActiveTimes()
+                logger.info("recency-sort activate persisted. key='\(key, privacy: .public)' epoch=\(now.timeIntervalSince1970) totalKeys=\(self.lastActiveTimes.count) title='\(result.title, privacy: .public)'")
+            } else {
+                logger.info("recency-sort activate skipped (no recency key). title='\(result.title, privacy: .public)' type=\(String(describing: result.type), privacy: .public)")
             }
             backend(for: result)?.activateTab(result)
         case .bookmark, .history:

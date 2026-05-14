@@ -1,0 +1,12 @@
+    <item>
+      <title>Version 1.3.0</title>
+      <pubDate>Wed, 06 May 2026 16:24:23 +0000</pubDate>
+      <sparkle:version>1.3.0</sparkle:version>
+      <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>Release 1.3.0.</p>]]></description>
+      <enclosure
+        url="https://fasttab.theindie.app/fasttab/FastTab-1.3.0.dmg"
+        sparkle:edSignature="s0Pgh/7XfPKW940amBBUu9XYc9BFxiVkg/XbVv2PeAmIKKYbBOsV7ITrrSCBdEn09Wg8Dtb0Ga8j27l3hO/lCw==" length="3370912"
+        type="application/octet-stream" />
+    </item>

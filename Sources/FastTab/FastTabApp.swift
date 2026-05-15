@@ -18,6 +18,8 @@ class AppState: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private weak var commandWindow: NSWindow?
     private var didHideInitialWindow = false
+    private var pendingShowAfterAttach = false
+    var openCommandWindow: (() -> Void)?
 
     init() {
         browserService.objectWillChange
@@ -32,11 +34,21 @@ class AppState: ObservableObject {
     func attachCommandWindow(_ window: NSWindow) {
         commandWindow = window
 
-        guard !didHideInitialWindow else { return }
-        didHideInitialWindow = true
-        window.orderOut(nil)
-        isVisible = false
+        if !didHideInitialWindow {
+            didHideInitialWindow = true
+            if !pendingShowAfterAttach {
+                window.orderOut(nil)
+                isVisible = false
+            }
+        }
+
+        if pendingShowAfterAttach {
+            pendingShowAfterAttach = false
+            showCommandBar()
+        }
     }
+
+    var hasCommandWindow: Bool { commandWindow != nil }
 
     var isCommandWindowFrontAndActive: Bool {
         guard let commandWindow else { return false }
@@ -52,14 +64,41 @@ class AppState: ObservableObject {
         isVisible = commandWindow?.isVisible ?? false
     }
 
+    static func findCommandWindow() -> NSWindow? {
+        // Look for the SwiftUI WindowGroup's NSWindow. The Settings scene
+        // shows up as NSPanel; the command bar window is a content-bearing
+        // NSWindow whose title matches the WindowGroup's title.
+        for window in NSApp.windows {
+            if window.identifier?.rawValue.hasPrefix("command-bar") == true { return window }
+            if window.title == "Command Bar" { return window }
+        }
+        return nil
+    }
+
     func showCommandBar() {
+        guard let commandWindow else {
+            // Window not yet materialized — common when launched at login with
+            // .accessory activation policy, where SwiftUI defers WindowGroup
+            // creation. Ask SwiftUI to open it; attachCommandWindow will
+            // re-invoke showCommandBar once the NSWindow is wired up.
+            pendingShowAfterAttach = true
+            if let fallback = AppState.findCommandWindow() {
+                attachCommandWindow(fallback)
+            } else if let openCommandWindow {
+                openCommandWindow()
+            } else {
+                appLogger.error("showCommandBar: commandWindow is nil and no opener available")
+            }
+            return
+        }
+
         selectedIndex = -1
         browserService.updateCurrentFlowSourceApp(bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
         NSApp.activate(ignoringOtherApps: true)
-        commandWindow?.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
-        commandWindow?.makeKeyAndOrderFront(nil)
-        commandWindow?.orderFrontRegardless()
-        isVisible = commandWindow?.isVisible ?? true
+        commandWindow.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
+        commandWindow.makeKeyAndOrderFront(nil)
+        commandWindow.orderFrontRegardless()
+        isVisible = commandWindow.isVisible
     }
 
     func hideCommandBar() {
@@ -94,6 +133,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             UpdateService.shared.checkForUpdates(manual: false)
+        }
+
+        // When launched at login, SwiftUI's WindowGroup may not push its
+        // NSView hierarchy through `viewDidMoveToWindow` until something
+        // forces a layout, so AppState.commandWindow can stay nil. Probe
+        // NSApp.windows shortly after launch and attach manually if needed.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let state = AppState.shared
+            if !state.hasCommandWindow, let window = AppState.findCommandWindow() {
+                appLogger.info("Eagerly attaching command window discovered in NSApp.windows")
+                state.attachCommandWindow(window)
+            }
         }
     }
 
@@ -163,6 +214,8 @@ struct FastTabApp: App {
         }
 
         MenuBarExtra("FastTab", systemImage: "command") {
+            MenuBarOpenWindowBinder()
+
             Button(appState.isVisible ? "Hide FastTab" : "Show FastTab") {
                 appState.toggleCommandBar()
             }
@@ -197,6 +250,20 @@ struct FastTabApp: App {
             }
         }
         .menuBarExtraStyle(.menu)
+    }
+}
+
+private struct MenuBarOpenWindowBinder: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onAppear {
+                AppState.shared.openCommandWindow = {
+                    openWindow(id: "command-bar")
+                }
+            }
     }
 }
 

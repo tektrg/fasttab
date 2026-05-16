@@ -7,7 +7,6 @@ DerivedData/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
 .env
-/dist/release/*.dmg
-/dist/FastTab.app/Contents/Frameworks/
+/dist/
 sparkle_private_key.pem
 *sparkle*private*.pem

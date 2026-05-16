@@ -255,7 +255,42 @@ class BrowserTabService: ObservableObject {
 
             let tabMatches = sortedLiveTabs.filter { $0.matches(query: normalizedQuery) }
             let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(query: normalizedQuery) }
-            let historyMatches = historySnapshot.filter { $0.matches(query: normalizedQuery) }
+
+            // Phase 1: publish tabs + bookmarks immediately so UI isn't blocked by history DB I/O
+            let phase1Results = sortBrowserSearchResults(tabMatches + bookmarkMatches)
+            await MainActor.run {
+                guard let self, generation == self.fetchGeneration else { return }
+                self.lastActiveTimes = updatedTimes
+                self.persistActiveTimes()
+                if !usedCachedLiveTabs {
+                    self.cachedLiveTabs = sortedLiveTabs
+                    self.lastLiveTabsRefreshAt = Date()
+                    self.hasMultipleWindows = Self.computeHasMultipleWindows(sortedLiveTabs)
+                }
+                if !phase1Results.isEmpty {
+                    self.results = phase1Results
+                }
+                self.logger.info("fetchResults phase1 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' phase1={\(Self.typeBreakdown(phase1Results), privacy: .public)}")
+            }
+
+            guard !Task.isCancelled else {
+                await MainActor.run {
+                    guard let self, generation == self.fetchGeneration else { return }
+                    self.isLoading = false
+                }
+                return
+            }
+
+            // Phase 2: run history search per backend concurrently
+            let historyMatches = await withTaskGroup(of: [BrowserSearchResult].self) { group in
+                for backend in backends {
+                    group.addTask { backend.searchHistory(query: normalizedQuery, limit: 500) }
+                }
+                var all: [BrowserSearchResult] = []
+                for await chunk in group { all.append(contentsOf: chunk) }
+                return all
+            }
+
             let mergedResults = sortBrowserSearchResults(tabMatches + bookmarkMatches + historyMatches)
             let fallbackResults = sortBrowserSearchResults(sortedLiveTabs + bookmarkSnapshot + historySnapshot)
             let fallbackUsed = mergedResults.isEmpty && !fallbackResults.isEmpty
@@ -263,16 +298,9 @@ class BrowserTabService: ObservableObject {
 
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
-                self.lastActiveTimes = updatedTimes
-                self.persistActiveTimes()
                 self.results = finalResults
-                if !usedCachedLiveTabs {
-                    self.cachedLiveTabs = sortedLiveTabs
-                    self.lastLiveTabsRefreshAt = Date()
-                    self.hasMultipleWindows = Self.computeHasMultipleWindows(sortedLiveTabs)
-                }
                 self.isLoading = false
-                self.logger.info("fetchResults applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' liveTabs={\(Self.typeBreakdown(sortedLiveTabs), privacy: .public)} matched={\(Self.typeBreakdown(mergedResults), privacy: .public)} final={\(Self.typeBreakdown(finalResults), privacy: .public)} fallbackUsed=\(fallbackUsed, privacy: .public) usedCachedLiveTabs=\(usedCachedLiveTabs, privacy: .public)")
+                self.logger.info("fetchResults phase2 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' history=\(historyMatches.count) final={\(Self.typeBreakdown(finalResults), privacy: .public)} fallbackUsed=\(fallbackUsed, privacy: .public)")
                 self.refreshCachesIfNeeded(force: bookmarkSnapshot.isEmpty && historySnapshot.isEmpty)
             }
         }

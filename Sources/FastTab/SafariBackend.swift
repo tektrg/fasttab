@@ -259,6 +259,69 @@ struct SafariBackend: BrowserBackend {
         }
     }
 
+    func searchHistory(query: String, limit: Int) -> [BrowserSearchResult] {
+        guard fdaEnabled else { return [] }
+
+        let historyPath = ("~/Library/Safari/History.db" as NSString).expandingTildeInPath
+        let historyURL = URL(fileURLWithPath: historyPath)
+        guard FileManager.default.fileExists(atPath: historyPath) else { return [] }
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-SafariHistory.db")
+
+        do {
+            try Self.copySQLiteDBWithWAL(from: historyURL, to: tempURL)
+            defer { Self.cleanupSQLiteCopy(at: tempURL) }
+
+            let escaped = query.replacingOccurrences(of: "'", with: "''")
+            let sql = """
+            SELECT hi.url, COALESCE(hv.title, hi.url) as title, MAX(hv.visit_time) as last_visit
+            FROM history_items hi
+            JOIN history_visits hv ON hv.history_item = hi.id
+            WHERE (hi.url LIKE '%\(escaped)%' OR hv.title LIKE '%\(escaped)%')
+              AND hi.url IS NOT NULL AND hi.url != ''
+            GROUP BY hi.id
+            ORDER BY last_visit DESC
+            LIMIT \(limit);
+            """
+
+            guard let output = runProcess(
+                launchPath: "/usr/bin/sqlite3",
+                arguments: ["-separator", kFieldSep, tempURL.path, sql],
+                timeoutSeconds: 15
+            ) else {
+                logger.error("safari searchHistory query failed.")
+                return []
+            }
+
+            var results: [BrowserSearchResult] = []
+            let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
+            for row in rows {
+                let parts = String(row).components(separatedBy: kFieldSep)
+                guard parts.count >= 3 else { continue }
+
+                let url = parts[0]
+                let title = parts[1].isEmpty ? url : parts[1]
+                let timestamp = Self.safariDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
+
+                results.append(BrowserSearchResult(
+                    title: title,
+                    url: url,
+                    browserName: appName,
+                    type: .history,
+                    timestamp: timestamp,
+                    profileName: nil
+                ))
+            }
+
+            logger.info("safari searchHistory complete. count=\(results.count)")
+            return results
+        } catch {
+            Self.cleanupSQLiteCopy(at: tempURL)
+            logger.error("safari searchHistory threw. error='\(String(describing: error), privacy: .public)'")
+            return []
+        }
+    }
+
     // MARK: - WAL-aware SQLite copy
 
     /// Copies a SQLite DB plus its `-wal` and `-shm` sidecars to the destination

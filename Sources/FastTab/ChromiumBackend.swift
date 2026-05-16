@@ -250,6 +250,74 @@ struct ChromiumBackend: BrowserBackend {
             .map { $0 }
     }
 
+    func searchHistory(query: String, limit: Int) -> [BrowserSearchResult] {
+        let logger = self.logger
+        let escaped = query.replacingOccurrences(of: "'", with: "''")
+        var dedupedByURL: [String: BrowserSearchResult] = [:]
+
+        for profile in profiles() {
+            guard FileManager.default.fileExists(atPath: profile.historyURL.path) else { continue }
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let profileStart = Date()
+
+            do {
+                try FileManager.default.copyItem(at: profile.historyURL, to: tempURL)
+                let sql = """
+                SELECT title, url, last_visit_time
+                FROM urls
+                WHERE (url LIKE '%\(escaped)%' OR title LIKE '%\(escaped)%')
+                  AND url IS NOT NULL AND url != ''
+                ORDER BY last_visit_time DESC
+                LIMIT \(limit);
+                """
+
+                guard let output = runProcess(
+                    launchPath: "/usr/bin/sqlite3",
+                    arguments: ["-separator", kFieldSep, tempURL.path, sql],
+                    timeoutSeconds: 15
+                ) else {
+                    logger.error("searchHistory query failed. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)'")
+                    try? FileManager.default.removeItem(at: tempURL)
+                    continue
+                }
+
+                let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
+                for row in rows {
+                    let parts = String(row).components(separatedBy: kFieldSep)
+                    guard parts.count >= 3 else { continue }
+
+                    let title = parts[0].isEmpty ? parts[1] : parts[0]
+                    let url = parts[1]
+                    let timestamp = Self.chromiumDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
+                    let candidate = BrowserSearchResult(
+                        title: title,
+                        url: url,
+                        browserName: appName,
+                        type: .history,
+                        timestamp: timestamp,
+                        profileName: profile.name
+                    )
+
+                    let key = "\(appName)|\(url)"
+                    if let existing = dedupedByURL[key], existing.timestamp >= candidate.timestamp { continue }
+                    dedupedByURL[key] = candidate
+                }
+
+                let elapsedMs = Int(Date().timeIntervalSince(profileStart) * 1000)
+                logger.info("searchHistory complete. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)' rows=\(rows.count) elapsedMs=\(elapsedMs)")
+                try? FileManager.default.removeItem(at: tempURL)
+            } catch {
+                logger.error("searchHistory threw. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)' error='\(String(describing: error), privacy: .public)'")
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+        }
+
+        return dedupedByURL.values
+            .sorted { $0.timestamp > $1.timestamp }
+            .prefix(limit)
+            .map { $0 }
+    }
+
     // MARK: - Favicons
 
     func fetchFaviconData(pageURL: String) -> Data? {

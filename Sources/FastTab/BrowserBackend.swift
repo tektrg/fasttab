@@ -32,6 +32,7 @@ protocol BrowserBackend: Sendable {
 
     func fetchAllBookmarks() -> [BrowserSearchResult]
     func fetchRecentHistory(perBrowserLimit: Int) -> [BrowserSearchResult]
+    func searchHistory(query: String, limit: Int) -> [BrowserSearchResult]
     func fetchFaviconData(pageURL: String) -> Data?
     /// Batched favicon resolution: returns `[pageURL: imageData]` for every URL
     /// that resolved. Default impl loops `fetchFaviconData`; backends that

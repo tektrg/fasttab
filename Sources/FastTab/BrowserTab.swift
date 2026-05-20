@@ -151,6 +151,19 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         }
     }
 
+    /// Short relative-time label ("2m", "3h", "Yest", "3d", "Mar 14") for the
+    /// last-visit (history) or last-active (tab) timestamp. Returns nil when
+    /// the timestamp is unset (epoch ~0) or the type doesn't carry a meaningful
+    /// recency signal (bookmarks).
+    var relativeRecencyLabel: String? {
+        switch type {
+        case .bookmark:
+            return nil
+        case .tab, .history:
+            return relativeRecencyAbbreviation(from: timestamp)
+        }
+    }
+
     var tabRecencyKey: String? {
         guard type == .tab else { return nil }
         return makeTabRecencyKey(
@@ -160,6 +173,43 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             url: url
         )
     }
+}
+
+/// Compact relative-time label. Returns nil for missing/sentinel timestamps.
+func relativeRecencyAbbreviation(from date: Date, now: Date = Date()) -> String? {
+    let epoch = date.timeIntervalSince1970
+    // Treat epoch-0 / pre-2001 sentinels as "no data".
+    guard epoch > 978_307_200 else { return nil }
+
+    let delta = now.timeIntervalSince(date)
+    if delta < 0 { return "now" }
+    if delta < 45 { return "now" }
+    if delta < 3_600 {
+        return "\(Int((delta / 60).rounded()))m"
+    }
+    if delta < 6 * 3_600 {
+        return "\(Int((delta / 3_600).rounded()))h"
+    }
+
+    let calendar = Calendar.current
+    if calendar.isDateInToday(date) {
+        return "\(Int((delta / 3_600).rounded()))h"
+    }
+    if calendar.isDateInYesterday(date) {
+        return "Yest"
+    }
+    if delta < 7 * 86_400 {
+        let days = calendar.dateComponents([.day], from: date, to: now).day ?? Int(delta / 86_400)
+        return "\(max(1, days))d"
+    }
+    if delta < 28 * 86_400 {
+        return "\(Int((delta / (7 * 86_400)).rounded()))w"
+    }
+
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.setLocalizedDateFormatFromTemplate("MMM d")
+    return formatter.string(from: date)
 }
 
 private func stripPunctuation(_ s: String) -> String {

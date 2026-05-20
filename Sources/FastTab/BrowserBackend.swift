@@ -30,6 +30,11 @@ protocol BrowserBackend: Sendable {
         currentFlowSourceAppBundleIdentifier: String?
     ) -> [BrowserSearchResult]
 
+    /// Lightweight poll: returns the recency key for the active tab of each window.
+    /// Used by the 10s background poll to keep `lastActiveTimes` fresh without
+    /// running the full per-tab AppleScript scan. No-op when the browser isn't running.
+    func pollActiveTabKeys() -> [String]
+
     func fetchAllBookmarks() -> [BrowserSearchResult]
     func fetchRecentHistory(perBrowserLimit: Int) -> [BrowserSearchResult]
     func searchHistory(query: String, limit: Int) -> [BrowserSearchResult]

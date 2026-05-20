@@ -16,6 +16,8 @@ class BrowserTabService: ObservableObject {
     @Published var isLoading: Bool = false
     /// True when the fetched live tabs span more than one window (per browser).
     @Published var hasMultipleWindows: Bool = false
+    @Published private(set) var openTabCount: Int = 0
+    @Published private(set) var hasFetchedOpenTabCount: Bool = false
     @Published private(set) var safariAutomationStatus: SafariAutomationStatus = .notDetermined
 
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService")
@@ -36,6 +38,14 @@ class BrowserTabService: ObservableObject {
     private var cachedLiveTabs: [BrowserSearchResult] = []
     private var lastLiveTabsRefreshAt: Date = .distantPast
 
+    private struct ClosedTabTombstone {
+        let browserName: String
+        let url: String
+        let timestamp: Date
+    }
+    private var recentlyClosedTabs: [ClosedTabTombstone] = []
+    private let closedTabTombstoneTTL: TimeInterval = 3.0
+
     private var faviconDataCache: [String: Data] = [:]
     private var faviconImageCache: [String: NSImage] = [:]
     private var faviconLookupTasks: Set<String> = []
@@ -49,6 +59,16 @@ class BrowserTabService: ObservableObject {
     private let backends: [any BrowserBackend]
 
     private static let activeTimesDefaultsKey = "FastTab.lastActiveTimes"
+
+    // Background poll of active tabs (frontmost browser only).
+    private let activeTabPollInterval: TimeInterval = 10
+    private var activeTabPollTimer: Timer?
+    private var activeTabPollInFlight = false
+    private var sleepObservers: [NSObjectProtocol] = []
+    // Throttle UserDefaults writes triggered by the 10s poll. Bar-open and
+    // close-tab paths still persist immediately.
+    private let pollPersistInterval: TimeInterval = 60
+    private var lastPollPersistAt: Date = .distantPast
 
     init() {
         var backends: [any BrowserBackend] = [
@@ -72,6 +92,82 @@ class BrowserTabService: ObservableObject {
         self.lastActiveTimes = Self.loadActiveTimes()
         self.safariAutomationStatus = Self.probeSafariAutomation()
         logger.info("BrowserTabService init. backends=\(backends.map { $0.appName }.joined(separator: ","), privacy: .public) safariAutomation=\(self.safariAutomationStatus.rawValue, privacy: .public)")
+        startActiveTabPoll()
+    }
+
+    // MARK: - Active-tab poll
+
+    private func startActiveTabPoll() {
+        let timer = Timer(timeInterval: activeTabPollInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.tickActiveTabPoll()
+            }
+        }
+        timer.tolerance = 2.0
+        RunLoop.main.add(timer, forMode: .common)
+        activeTabPollTimer = timer
+
+        let nc = NSWorkspace.shared.notificationCenter
+        sleepObservers.append(
+            nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.suspendActiveTabPoll() }
+            }
+        )
+        sleepObservers.append(
+            nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.resumeActiveTabPoll() }
+            }
+        )
+    }
+
+    private func suspendActiveTabPoll() {
+        activeTabPollTimer?.invalidate()
+        activeTabPollTimer = nil
+        logger.info("active-tab poll suspended (sleep).")
+    }
+
+    private func resumeActiveTabPoll() {
+        guard activeTabPollTimer == nil else { return }
+        let timer = Timer(timeInterval: activeTabPollInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.tickActiveTabPoll()
+            }
+        }
+        timer.tolerance = 2.0
+        RunLoop.main.add(timer, forMode: .common)
+        activeTabPollTimer = timer
+        logger.info("active-tab poll resumed (wake).")
+    }
+
+    private func tickActiveTabPoll() {
+        guard !activeTabPollInFlight else { return }
+
+        guard let frontBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return }
+        guard let backend = backends.first(where: { $0.bundleIdentifier == frontBundleID }) else { return }
+
+        activeTabPollInFlight = true
+        let backendRef = backend
+        Task.detached(priority: .utility) { [weak self] in
+            let stamp = Date()
+            let keys = backendRef.pollActiveTabKeys()
+            await MainActor.run {
+                guard let self else { return }
+                self.activeTabPollInFlight = false
+                guard !keys.isEmpty else { return }
+                for key in keys {
+                    self.lastActiveTimes[key] = stamp
+                }
+                // Throttle disk writes from the high-frequency poll. In-memory
+                // state is always current; persistence catches up at most once
+                // per pollPersistInterval. Bar-open / close-tab paths still
+                // call persistActiveTimes() directly for immediate durability.
+                if Date().timeIntervalSince(self.lastPollPersistAt) >= self.pollPersistInterval {
+                    self.persistActiveTimes()
+                    self.lastPollPersistAt = Date()
+                }
+                self.logger.info("active-tab poll tick. browser='\(backendRef.appName, privacy: .public)' keys=\(keys.count)")
+            }
+        }
     }
 
     // MARK: - Safari probes
@@ -238,16 +334,20 @@ class BrowserTabService: ObservableObject {
 
                 await MainActor.run {
                     guard let self, generation == self.fetchGeneration else { return }
+                    let filteredLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
+                    let filteredPrioritized = self.filteringRecentlyClosed(prioritizedTabs)
                     self.lastActiveTimes = updatedTimes
                     self.persistActiveTimes()
-                    self.results = prioritizedTabs
-                    self.cachedQuickOpenResults = prioritizedTabs
+                    self.results = filteredPrioritized
+                    self.cachedQuickOpenResults = filteredPrioritized
                     self.cachedQuickOpenSourceAppBundleIdentifier = currentFlowSourceAppBundleIdentifier
-                    self.cachedLiveTabs = sortedLiveTabs
+                    self.cachedLiveTabs = filteredLiveTabs
                     self.lastLiveTabsRefreshAt = Date()
-                    self.hasMultipleWindows = Self.computeHasMultipleWindows(sortedLiveTabs)
+                    self.hasMultipleWindows = Self.computeHasMultipleWindows(filteredLiveTabs)
+                    self.openTabCount = filteredLiveTabs.count
+                    self.hasFetchedOpenTabCount = true
                     self.isLoading = false
-                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) topTabs=\(prioritizedTabs.count) liveTabs={\(Self.typeBreakdown(sortedLiveTabs), privacy: .public)}")
+                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) topTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
                     self.refreshCachesIfNeeded(force: false)
                 }
                 return
@@ -260,17 +360,21 @@ class BrowserTabService: ObservableObject {
             let phase1Results = sortBrowserSearchResults(tabMatches + bookmarkMatches)
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
+                let filteredLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
+                let filteredPhase1 = self.filteringRecentlyClosed(phase1Results)
                 self.lastActiveTimes = updatedTimes
                 self.persistActiveTimes()
                 if !usedCachedLiveTabs {
-                    self.cachedLiveTabs = sortedLiveTabs
+                    self.cachedLiveTabs = filteredLiveTabs
                     self.lastLiveTabsRefreshAt = Date()
-                    self.hasMultipleWindows = Self.computeHasMultipleWindows(sortedLiveTabs)
+                    self.hasMultipleWindows = Self.computeHasMultipleWindows(filteredLiveTabs)
+                    self.openTabCount = filteredLiveTabs.count
+                    self.hasFetchedOpenTabCount = true
                 }
-                if !phase1Results.isEmpty {
-                    self.results = phase1Results
+                if !filteredPhase1.isEmpty {
+                    self.results = filteredPhase1
                 }
-                self.logger.info("fetchResults phase1 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' phase1={\(Self.typeBreakdown(phase1Results), privacy: .public)}")
+                self.logger.info("fetchResults phase1 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' phase1={\(Self.typeBreakdown(filteredPhase1), privacy: .public)}")
             }
 
             guard !Task.isCancelled else {
@@ -298,9 +402,10 @@ class BrowserTabService: ObservableObject {
 
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
-                self.results = finalResults
+                let filteredFinal = self.filteringRecentlyClosed(finalResults)
+                self.results = filteredFinal
                 self.isLoading = false
-                self.logger.info("fetchResults phase2 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' history=\(historyMatches.count) final={\(Self.typeBreakdown(finalResults), privacy: .public)} fallbackUsed=\(fallbackUsed, privacy: .public)")
+                self.logger.info("fetchResults phase2 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' history=\(historyMatches.count) final={\(Self.typeBreakdown(filteredFinal), privacy: .public)} fallbackUsed=\(fallbackUsed, privacy: .public)")
                 self.refreshCachesIfNeeded(force: bookmarkSnapshot.isEmpty && historySnapshot.isEmpty)
             }
         }
@@ -401,22 +506,67 @@ class BrowserTabService: ObservableObject {
         switch result.type {
         case .tab:
             backend(for: result)?.closeTab(result)
+            recentlyClosedTabs.append(
+                ClosedTabTombstone(browserName: result.browserName, url: result.url, timestamp: Date())
+            )
         case .bookmark:
             backend(for: result)?.deleteBookmark(result)
         case .history:
             backend(for: result)?.deleteHistoryItem(result)
         }
 
-        removeResultFromLocalSnapshots(withID: result.id)
+        removeResultFromLocalSnapshots(matching: result)
         fetchResults(matching: lastIssuedQuery)
     }
 
-    private func removeResultFromLocalSnapshots(withID resultID: String) {
-        results.removeAll { $0.id == resultID }
-        cachedQuickOpenResults.removeAll { $0.id == resultID }
-        cachedLiveTabs.removeAll { $0.id == resultID }
-        cachedBookmarks.removeAll { $0.id == resultID }
-        cachedHistory.removeAll { $0.id == resultID }
+    private func removeResultFromLocalSnapshots(matching result: BrowserSearchResult) {
+        let resultID = result.id
+        switch result.type {
+        case .tab:
+            // Indices can shift after a close, so match tabs by (browser, url) with
+            // "consume one" semantics — only the first matching tab in each list is removed,
+            // preserving duplicates that may legitimately exist in other windows.
+            removeFirstTab(in: &results, browserName: result.browserName, url: result.url)
+            removeFirstTab(in: &cachedQuickOpenResults, browserName: result.browserName, url: result.url)
+            removeFirstTab(in: &cachedLiveTabs, browserName: result.browserName, url: result.url)
+        case .bookmark, .history:
+            results.removeAll { $0.id == resultID }
+            cachedQuickOpenResults.removeAll { $0.id == resultID }
+            cachedBookmarks.removeAll { $0.id == resultID }
+            cachedHistory.removeAll { $0.id == resultID }
+        }
+        openTabCount = cachedLiveTabs.count
+    }
+
+    private func removeFirstTab(in list: inout [BrowserSearchResult], browserName: String, url: String) {
+        if let idx = list.firstIndex(where: { $0.type == .tab && $0.browserName == browserName && $0.url == url }) {
+            list.remove(at: idx)
+        }
+    }
+
+    private func pruneClosedTabTombstones() {
+        let cutoff = Date().addingTimeInterval(-closedTabTombstoneTTL)
+        recentlyClosedTabs.removeAll { $0.timestamp < cutoff }
+    }
+
+    /// Filters out tabs that were recently closed by the user but may still appear in a fresh
+    /// live-tab fetch because the browser's scriptable tab list hasn't caught up yet. Uses
+    /// "consume one match per tombstone" so legitimate duplicate URLs in other windows survive.
+    private func filteringRecentlyClosed(_ tabs: [BrowserSearchResult]) -> [BrowserSearchResult] {
+        pruneClosedTabTombstones()
+        guard !recentlyClosedTabs.isEmpty else { return tabs }
+        var remaining = recentlyClosedTabs
+        var out: [BrowserSearchResult] = []
+        out.reserveCapacity(tabs.count)
+        for tab in tabs {
+            if tab.type == .tab,
+               let idx = remaining.firstIndex(where: { $0.browserName == tab.browserName && $0.url == tab.url }) {
+                remaining.remove(at: idx)
+                continue
+            }
+            out.append(tab)
+        }
+        return out
     }
 
     private func faviconCacheKey(browserName: String, url: String) -> String {

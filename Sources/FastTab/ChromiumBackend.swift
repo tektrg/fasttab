@@ -79,14 +79,24 @@ struct ChromiumBackend: BrowserBackend {
             let windowName = parts[6]
             let hasMediaIndicator = browserWindowMediaIndicatorBelongsToTab(tabTitle: title, windowName: windowName)
             let key = makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
-            let isCurrentFlowActiveTab = isActive && bundleIdentifier == currentFlowSourceAppBundleIdentifier
-            let activeTimestamp = fetchStart.addingTimeInterval(-Double(winIdx - 1))
+            // Only the active tab of the FRONT window (winIdx == 1) of the
+            // source browser is treated as "the tab the user is on" and
+            // excluded from quick-open. Other windows' active tabs are fair
+            // game for the recency-ordered top 5.
+            // The tab is "currently being viewed" only when it is the active
+            // tab of the front window AND its app is the frontmost app the
+            // user activated FastTab from. Only then do we treat it as "now".
+            let isFrontActive = isActive && winIdx == 1 && bundleIdentifier == currentFlowSourceAppBundleIdentifier
+            let isCurrentFlowActiveTab = isFrontActive
             let storedTime = activeTimes[key]
-            let timestamp = isActive ? activeTimestamp : (storedTime ?? Date(timeIntervalSince1970: 0))
-            logger.info("recency-sort tab. browser='\(appName, privacy: .public)' win=\(winIdx) tab=\(tabIdx) isActive=\(isActive, privacy: .public) hadStoredTime=\(storedTime != nil, privacy: .public) storedEpoch=\(storedTime?.timeIntervalSince1970 ?? -1) chosenEpoch=\(timestamp.timeIntervalSince1970) key='\(key, privacy: .public)' title='\(title, privacy: .public)'")
+            let timestamp: Date = {
+                if isFrontActive { return fetchStart }
+                return storedTime ?? Date(timeIntervalSince1970: 0)
+            }()
+            logger.info("recency-sort tab. browser='\(appName, privacy: .public)' win=\(winIdx) tab=\(tabIdx) isActive=\(isActive, privacy: .public) isFrontActive=\(isFrontActive, privacy: .public) hadStoredTime=\(storedTime != nil, privacy: .public) storedEpoch=\(storedTime?.timeIntervalSince1970 ?? -1) chosenEpoch=\(timestamp.timeIntervalSince1970) key='\(key, privacy: .public)' title='\(title, privacy: .public)'")
 
-            if isActive {
-                activeTimes[key] = activeTimestamp
+            if isFrontActive {
+                activeTimes[key] = fetchStart
             }
 
             newResults.append(
@@ -106,6 +116,40 @@ struct ChromiumBackend: BrowserBackend {
         }
 
         return newResults
+    }
+
+    // MARK: - Lightweight active-tab poll
+
+    func pollActiveTabKeys() -> [String] {
+        // Only stamp the active tab of the FRONT window (window 1). Stamping
+        // every window's active tab on every tick falsely promotes background
+        // windows' active tabs to "now" whenever this browser is frontmost.
+        let script = """
+        tell application "\(appName)"
+            if it is not running then return ""
+            if (count of windows) is 0 then return ""
+            set fieldSep to (ASCII character 31)
+            try
+                set activeTabIndex to active tab index of window 1
+                set activeURL to URL of tab activeTabIndex of window 1
+                return "1" & fieldSep & activeTabIndex & fieldSep & activeURL
+            on error
+                return ""
+            end try
+        end tell
+        """
+
+        guard let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]), !output.isEmpty else {
+            return []
+        }
+
+        let parts = output.components(separatedBy: kFieldSep)
+        guard parts.count >= 3 else { return [] }
+        let winIdx = Int(parts[0]) ?? 1
+        let tabIdx = Int(parts[1]) ?? 1
+        let url = parts[2]
+        guard !url.isEmpty else { return [] }
+        return [makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)]
     }
 
     // MARK: - Bookmarks

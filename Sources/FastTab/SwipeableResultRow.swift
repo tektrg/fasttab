@@ -172,6 +172,10 @@ private struct ResultRowView: View {
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.secondary)
 
+                    if let recency = result.relativeRecencyLabel {
+                        MetadataPill(title: recency)
+                    }
+
                     ForEach(secondaryMetadata, id: \.self) { metadata in
                         MetadataPill(title: metadata)
                     }

@@ -88,14 +88,17 @@ struct SafariBackend: BrowserBackend {
             let windowName = parts[6]
             let hasMediaIndicator = browserWindowMediaIndicatorBelongsToTab(tabTitle: title, windowName: windowName)
             let key = makeTabRecencyKey(browserName: browserName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
-            let isCurrentFlowActiveTab = isActive && bundleIdentifier == currentFlowSourceAppBundleIdentifier
-            let activeTimestamp = fetchStart.addingTimeInterval(-Double(winIdx - 1))
+            let isFrontActive = isActive && winIdx == 1 && bundleIdentifier == currentFlowSourceAppBundleIdentifier
+            let isCurrentFlowActiveTab = isFrontActive
             let storedTime = activeTimes[key]
-            let timestamp = isActive ? activeTimestamp : (storedTime ?? Date(timeIntervalSince1970: 0))
-            logger.info("recency-sort tab. browser='\(browserName, privacy: .public)' win=\(winIdx) tab=\(tabIdx) isActive=\(isActive, privacy: .public) hadStoredTime=\(storedTime != nil, privacy: .public) storedEpoch=\(storedTime?.timeIntervalSince1970 ?? -1) chosenEpoch=\(timestamp.timeIntervalSince1970) key='\(key, privacy: .public)' title='\(title, privacy: .public)'")
+            let timestamp: Date = {
+                if isFrontActive { return fetchStart }
+                return storedTime ?? Date(timeIntervalSince1970: 0)
+            }()
+            logger.info("recency-sort tab. browser='\(browserName, privacy: .public)' win=\(winIdx) tab=\(tabIdx) isActive=\(isActive, privacy: .public) isFrontActive=\(isFrontActive, privacy: .public) hadStoredTime=\(storedTime != nil, privacy: .public) storedEpoch=\(storedTime?.timeIntervalSince1970 ?? -1) chosenEpoch=\(timestamp.timeIntervalSince1970) key='\(key, privacy: .public)' title='\(title, privacy: .public)'")
 
-            if isActive {
-                activeTimes[key] = activeTimestamp
+            if isFrontActive {
+                activeTimes[key] = fetchStart
             }
 
             newResults.append(
@@ -115,6 +118,40 @@ struct SafariBackend: BrowserBackend {
         }
 
         return newResults
+    }
+
+    // MARK: - Lightweight active-tab poll
+
+    func pollActiveTabKeys() -> [String] {
+        // Only stamp the active tab of the FRONT window (window 1).
+        let script = """
+        tell application "Safari"
+            if it is not running then return ""
+            if (count of windows) is 0 then return ""
+            set fieldSep to (ASCII character 31)
+            try
+                set currentTabRef to current tab of window 1
+                set tabIdx to index of currentTabRef
+                set activeURL to URL of currentTabRef
+                if activeURL is missing value then return ""
+                return "1" & fieldSep & tabIdx & fieldSep & activeURL
+            on error
+                return ""
+            end try
+        end tell
+        """
+
+        guard let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]), !output.isEmpty else {
+            return []
+        }
+
+        let parts = output.components(separatedBy: kFieldSep)
+        guard parts.count >= 3 else { return [] }
+        let winIdx = Int(parts[0]) ?? 1
+        let tabIdx = Int(parts[1]) ?? 1
+        let url = parts[2]
+        guard !url.isEmpty else { return [] }
+        return [makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)]
     }
 
     // MARK: - Bookmarks

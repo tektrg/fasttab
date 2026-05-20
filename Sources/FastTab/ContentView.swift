@@ -12,9 +12,11 @@ private let kDownArrowKeyCode: UInt16 = 125
 struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var licenseService: LicenseService
     @StateObject private var updateService = UpdateService.shared
     @ObservedObject private var shortcutStore = ShortcutStore.shared
     @State private var searchText = ""
+    @State private var isActivationPresented = false
     @FocusState private var isSearchFocused: Bool
     @State private var localMonitor: Any?
     /// True once the user has cycled to a tab via the shortcut; reset when the bar opens.
@@ -64,6 +66,12 @@ struct ContentView: View {
             if seen.count > 1 { return true }
         }
         return false
+    }
+
+    var openTabsStatusText: String? {
+        guard appState.browserService.hasFetchedOpenTabCount else { return nil }
+        let count = appState.browserService.openTabCount
+        return "\(count) \(count == 1 ? "tab" : "tabs") found"
     }
 
     var guidanceHint: GuidanceHint {
@@ -227,99 +235,109 @@ struct ContentView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                         }
 
-                        SearchHeader(
-                            searchText: $searchText,
-                            isSearchFocused: $isSearchFocused,
-                            isSelected: appState.selectedIndex == -1,
-                            onUpArrow: {
-                                moveSelectionBackward(includeSearchField: true)
-                                lastInteractionKey = .upDown
-                            },
-                            onDownArrow: {
-                                moveSelectionForward(includeSearchField: true)
-                                lastInteractionKey = .upDown
+                        if let lastErrorMessage = licenseService.snapshot.lastErrorMessage {
+                            LicenseIssueBanner(message: lastErrorMessage) {
+                                licenseService.openSupport()
                             }
-                        )
+                        }
 
-                        ScrollViewReader { proxy in
-                            resultsSection(proxy: proxy)
-                                .onChange(of: appState.isVisible) { _, visible in
-                                    if visible {
-                                        searchDebounceTask?.cancel()
-                                        suppressNextSearchChange = true
-                                        searchText = ""
-                                        appState.browserService.fetchResults(matching: searchText)
-                                        appState.selectedIndex = -1
-                                        hasCycled = false
-                                        lastInteractionKey = .none
-                                        let store = ShortcutStore.shared
-                                        let shortcutMods = store.modifiers.intersection(.deviceIndependentFlagsMask)
-                                        let currentMods = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                                        isShortcutModifierHeld = !currentMods.intersection(shortcutMods).isEmpty
-                                        clearKeyboardSwipe()
-                                        clearPointerSwipeSuppression()
-                                        resetPointerSwipe(animated: false)
-                                        toastDismissTask?.cancel()
-                                        toastMessage = nil
-                                        DispatchQueue.main.async {
-                                            isSearchFocused = true
-                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
-                                                scrollResultsToTop(proxy)
+                        if licenseService.snapshot.allowsCommandBarUtility {
+                            if let trialDaysRemaining = licenseService.snapshot.trialDaysRemaining {
+                                TrialStatusBanner(daysRemaining: trialDaysRemaining) {
+                                    licenseService.openCheckout()
+                                }
+                            }
+
+                            SearchHeader(
+                                searchText: $searchText,
+                                isSearchFocused: $isSearchFocused,
+                                isSelected: appState.selectedIndex == -1,
+                                onUpArrow: {
+                                    moveSelectionBackward(includeSearchField: true)
+                                    lastInteractionKey = .upDown
+                                },
+                                onDownArrow: {
+                                    moveSelectionForward(includeSearchField: true)
+                                    lastInteractionKey = .upDown
+                                }
+                            )
+
+                            ScrollViewReader { proxy in
+                                resultsSection(proxy: proxy)
+                                    .onChange(of: appState.isVisible) { _, visible in
+                                        if visible {
+                                            resetForCommandBarOpen()
+                                            appState.browserService.fetchResults(matching: searchText)
+                                            DispatchQueue.main.async {
+                                                isSearchFocused = true
+                                                withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
+                                                    scrollResultsToTop(proxy)
+                                                }
                                             }
                                         }
                                     }
-                                }
-                                .onChange(of: searchText) {
-                                    if suppressNextSearchChange {
-                                        suppressNextSearchChange = false
-                                        return
-                                    }
+                                    .onChange(of: searchText) {
+                                        if suppressNextSearchChange {
+                                            suppressNextSearchChange = false
+                                            return
+                                        }
 
-                                    if searchText.isEmpty {
-                                        appState.selectedIndex = -1
-                                    } else {
-                                        appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
+                                        if searchText.isEmpty {
+                                            appState.selectedIndex = -1
+                                        } else {
+                                            appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
+                                        }
+                                        lastInteractionKey = .none
+                                        clearKeyboardSwipe()
+                                        resetPointerSwipe(animated: false)
+                                        isSearchFocused = true
+                                        if searchText.count <= 1 {
+                                            withAnimation(.easeInOut(duration: 0.18)) {
+                                                scrollResultsToTop(proxy)
+                                            }
+                                        } else {
+                                            scrollResultsToTop(proxy)
+                                        }
+                                        scheduleSearchFetch()
                                     }
-                                    lastInteractionKey = .none
-                                    clearKeyboardSwipe()
-                                    resetPointerSwipe(animated: false)
-                                    isSearchFocused = true
-                                    if searchText.count <= 1 {
+                                    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                                        guard appState.isVisible else { return }
+
+                                        let now = Date()
+                                        guard now.timeIntervalSince(lastActiveRefreshAt) > 1.2 else { return }
+                                        lastActiveRefreshAt = now
+
+                                        appState.browserService.fetchResults(matching: searchText)
                                         withAnimation(.easeInOut(duration: 0.18)) {
                                             scrollResultsToTop(proxy)
                                         }
-                                    } else {
-                                        scrollResultsToTop(proxy)
                                     }
-                                    scheduleSearchFetch()
-                                }
-                                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                                    guard appState.isVisible else { return }
-
-                                    let now = Date()
-                                    guard now.timeIntervalSince(lastActiveRefreshAt) > 1.2 else { return }
-                                    lastActiveRefreshAt = now
-
-                                    appState.browserService.fetchResults(matching: searchText)
-                                    withAnimation(.easeInOut(duration: 0.18)) {
-                                        scrollResultsToTop(proxy)
+                                    .onChange(of: appState.selectedIndex) { _, _ in
+                                        guard !isSearchFocused else { return }
+                                        withAnimation(.easeInOut(duration: 0.14)) {
+                                            scrollSelectedResultIntoView(proxy)
+                                        }
                                     }
-                                }
-                                .onChange(of: appState.selectedIndex) { _, _ in
-                                    guard !isSearchFocused else { return }
-                                    withAnimation(.easeInOut(duration: 0.14)) {
-                                        scrollSelectedResultIntoView(proxy)
-                                    }
-                                }
-                        }
-
-                        FooterShortcutBar {
-                            HStack(spacing: 0) {
-                                GuidanceBarView(hint: guidanceHint)
-                                Spacer(minLength: 12)
-                                ShortcutRecorderView(store: ShortcutStore.shared)
-                                    .environmentObject(appState)
                             }
+
+                            FooterShortcutBar {
+                                HStack(spacing: 0) {
+                                    GuidanceBarView(
+                                        hint: guidanceHint,
+                                        statusText: openTabsStatusText
+                                    )
+                                    Spacer(minLength: 12)
+                                    ShortcutRecorderView(store: ShortcutStore.shared)
+                                        .environmentObject(appState)
+                                }
+                            }
+                        } else {
+                            PaywallView(
+                                snapshot: licenseService.snapshot,
+                                onBuy: { licenseService.openCheckout() },
+                                onActivate: { isActivationPresented = true },
+                                onSupport: { licenseService.openSupport() }
+                            )
                         }
                     }
                     .padding(12)
@@ -343,6 +361,11 @@ struct ContentView: View {
         .onAppear {
             isSearchFocused = true
             setupLocalMonitor()
+            licenseService.validateCachedLicenseIfNeeded()
+        }
+        .sheet(isPresented: $isActivationPresented) {
+            LicenseActivationSheet()
+                .environmentObject(licenseService)
         }
         .onReceive(NotificationCenter.default.publisher(for: fastTabCycleShortcutNotification)) { _ in
             guard appState.isVisible else { return }
@@ -515,6 +538,24 @@ struct ContentView: View {
                 appState.browserService.fetchResults(matching: query)
             }
         }
+    }
+
+    private func resetForCommandBarOpen() {
+        searchDebounceTask?.cancel()
+        suppressNextSearchChange = true
+        searchText = ""
+        appState.selectedIndex = -1
+        hasCycled = false
+        lastInteractionKey = .none
+        let store = ShortcutStore.shared
+        let shortcutMods = store.modifiers.intersection(.deviceIndependentFlagsMask)
+        let currentMods = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        isShortcutModifierHeld = !currentMods.intersection(shortcutMods).isEmpty
+        clearKeyboardSwipe()
+        clearPointerSwipeSuppression()
+        resetPointerSwipe(animated: false)
+        toastDismissTask?.cancel()
+        toastMessage = nil
     }
 
     private func activateAndHide(_ result: BrowserSearchResult) {
@@ -892,72 +933,5 @@ struct ContentView: View {
             }
             return event
         }
-    }
-}
-
-private struct UpdateBannerConfig {
-    let icon: String
-    let tint: Color
-    let message: String
-    let actionTitle: String
-    let dismissable: Bool
-}
-
-private func updateBannerConfig(_ status: UpdateService.UpdateStatus) -> UpdateBannerConfig? {
-    switch status {
-    case .idle, .checking:
-        return nil
-    case .available(let version, let notes):
-        let trail = notes.map { " \($0)" } ?? ""
-        return UpdateBannerConfig(
-            icon: "arrow.down.circle.fill",
-            tint: .blue,
-            message: "FastTab \(version) is available.\(trail)",
-            actionTitle: "Update",
-            dismissable: true
-        )
-    case .downloading(let progress):
-        let pct = Int((progress * 100).rounded())
-        return UpdateBannerConfig(
-            icon: "arrow.down.circle",
-            tint: .blue,
-            message: "Downloading update… \(pct)%",
-            actionTitle: "Cancel",
-            dismissable: false
-        )
-    case .extracting:
-        return UpdateBannerConfig(
-            icon: "arrow.down.circle",
-            tint: .blue,
-            message: "Preparing update…",
-            actionTitle: "Cancel",
-            dismissable: false
-        )
-    case .readyToRestart(let version):
-        return UpdateBannerConfig(
-            icon: "arrow.triangle.2.circlepath.circle.fill",
-            tint: .green,
-            message: "FastTab \(version) is ready.",
-            actionTitle: "Restart to Update",
-            dismissable: true
-        )
-    case .installing:
-        return UpdateBannerConfig(
-            icon: "arrow.triangle.2.circlepath.circle",
-            tint: .green,
-            message: "Installing update…",
-            actionTitle: "Installing",
-            dismissable: false
-        )
-    case .upToDate:
-        return nil
-    case .error(let message):
-        return UpdateBannerConfig(
-            icon: "exclamationmark.triangle.fill",
-            tint: .orange,
-            message: "Update failed: \(message)",
-            actionTitle: "Retry",
-            dismissable: true
-        )
     }
 }

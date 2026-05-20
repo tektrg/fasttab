@@ -76,6 +76,8 @@ class AppState: ObservableObject {
     }
 
     func showCommandBar() {
+        LicenseService.shared.refreshTimeSensitiveState()
+
         guard let commandWindow else {
             // Window not yet materialized — common when launched at login with
             // .accessory activation policy, where SwiftUI defers WindowGroup
@@ -124,6 +126,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appLogger.info("Application did finish launching")
         NSApp.setActivationPolicy(.accessory)
         setupGlobalShortcut()
+        LicenseService.shared.validateForLaunch()
 
         if OnboardingWindowController.shared.isNeeded {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -197,12 +200,17 @@ struct FastTabApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState.shared
     @StateObject private var updateService = UpdateService.shared
+    @StateObject private var licenseService = LicenseService.shared
 
     var body: some Scene {
         WindowGroup("Command Bar", id: "command-bar") {
             ContentView()
                 .environmentObject(appState)
+                .environmentObject(licenseService)
                 .background(WindowChromeConfigurator())
+                .onOpenURL { url in
+                    licenseService.handleActivationURL(url)
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: CommandBarLayout.defaultCanvasSize.width, height: CommandBarLayout.defaultCanvasSize.height)
@@ -211,6 +219,7 @@ struct FastTabApp: App {
         Settings {
             SettingsView()
                 .environmentObject(appState)
+                .environmentObject(licenseService)
         }
 
         MenuBarExtra("FastTab", systemImage: "command") {
@@ -218,6 +227,16 @@ struct FastTabApp: App {
 
             Button(appState.isVisible ? "Hide FastTab" : "Show FastTab") {
                 appState.toggleCommandBar()
+            }
+
+            Divider()
+
+            Button("Buy FastTab…") {
+                licenseService.openCheckout()
+            }
+
+            Button("Manage License…") {
+                licenseService.openManageLicense()
             }
 
             Divider()

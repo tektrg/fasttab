@@ -363,21 +363,37 @@ struct ChromiumBackend: BrowserBackend {
 
     // MARK: - Read-only live-DB access
 
-    /// Reads `History` directly from the live profile in read-only mode rather
-    /// than copying it. Chromium uses rollback-journal mode, so a byte-level
-    /// `copyItem` while the browser holds an open transaction captures the
-    /// main file without the `-journal` sidecar needed to resolve uncommitted
-    /// state — which surfaces as missing or stale recent visits. SQLite's
-    /// own locking protocol on the live file gives a consistent snapshot;
-    /// `.timeout` handles the brief moments Chromium holds RESERVED/EXCLUSIVE.
+    /// Reads `History` directly from the live profile via SQLite's `immutable=1`
+    /// URI flag. Chromium opens History with `PRAGMA locking_mode=EXCLUSIVE`, so
+    /// a plain `-readonly` open is rejected with `SQLITE_BUSY (database is
+    /// locked)` even though the file is on disk. `immutable=1` tells SQLite to
+    /// assume the file won't change and skip all locking, which lets us read
+    /// the latest checkpointed state while the browser keeps writing. We never
+    /// open for write, so there's no risk of corrupting the browser's DB.
+    ///
+    /// We previously tried (a) byte-level `copyItem` + query — captured stale
+    /// pages because the `-journal` sidecar wasn't copied alongside, and
+    /// (b) `-readonly` direct open — failed with `SQLITE_BUSY` against
+    /// Chromium's exclusive lock. `immutable=1` is the approach Chrome's own
+    /// history-export tooling uses.
     private static func readonlySQLiteArgs(dbPath: String, sql: String) -> [String] {
-        [
-            "-readonly",
+        let uri = immutableSQLiteURI(dbPath: dbPath)
+        return [
             "-cmd", ".timeout 3000",
             "-separator", kFieldSep,
-            dbPath,
+            uri,
             sql
         ]
+    }
+
+    /// Builds a `file:` URI with `immutable=1` for the given absolute DB path.
+    /// Path components must be percent-encoded so SQLite parses the URI cleanly.
+    private static func immutableSQLiteURI(dbPath: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        // SQLite URIs split on '?' and '#', so we must percent-encode them.
+        allowed.remove(charactersIn: "?#")
+        let encoded = dbPath.addingPercentEncoding(withAllowedCharacters: allowed) ?? dbPath
+        return "file:\(encoded)?immutable=1"
     }
 
     // MARK: - Favicons

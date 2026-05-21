@@ -8,7 +8,7 @@ private struct DropdownContentHeightKey: PreferenceKey {
 }
 
 struct ScopeSuggestionDropdown: View {
-    static let maxHeight: CGFloat = 240
+    static let maxHeight: CGFloat = 260
 
     let suggestions: [ScopeSuggestion]
     let selectedIndex: Int
@@ -49,30 +49,35 @@ struct ScopeSuggestionDropdown: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(suggestions.enumerated()), id: \.element) { index, suggestion in
                             Button {
                                 onPick(suggestion)
                             } label: {
-                                HStack(spacing: 8) {
+                                HStack(spacing: 10) {
                                     Image(systemName: suggestion.symbol)
-                                        .frame(width: 16)
+                                        .font(.system(size: 13))
+                                        .frame(width: 18)
                                         .foregroundStyle(.secondary)
                                     Text(suggestion.label)
                                         .font(.system(size: 13, weight: .medium))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
                                     if let detail = suggestion.detail {
                                         Text(detail)
-                                            .font(.caption2)
+                                            .font(.system(size: 11))
                                             .foregroundStyle(.tertiary)
                                             .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .layoutPriority(-1)
                                     }
                                     Spacer(minLength: 8)
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
                                 .contentShape(Rectangle())
                                 .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                                         .fill(index == selectedIndex ? Color.accentColor.opacity(0.18) : Color.clear)
                                 )
                             }
@@ -103,16 +108,16 @@ struct ScopeSuggestionDropdown: View {
                     }
                 }
             }
-            .padding(6)
+            .padding(8)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(.regularMaterial)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+            .shadow(color: .black.opacity(0.22), radius: 16, y: 8)
         }
     }
 }

@@ -74,7 +74,9 @@ struct ScopeChip: Identifiable, Equatable, Hashable {
         case duplicate
         case bookmarks
         case bookmarksFolder(BookmarkFolderRef)
-        case history(HistoryTimeScope)
+        /// `nil` time scope means "all history" — the parent scope without a
+        /// time bound (produced by typing text that matches no time preset).
+        case history(HistoryTimeScope?)
         case window(WindowRef)
     }
 
@@ -86,7 +88,8 @@ struct ScopeChip: Identifiable, Equatable, Hashable {
         case .duplicate: return "Duplicate"
         case .bookmarks: return "Bookmarks"
         case .bookmarksFolder(let ref): return "Bookmarks: \(ref.displayName)"
-        case .history(let time): return "History: \(time.label)"
+        case .history(let time?): return "History: \(time.label)"
+        case .history(nil): return "History"
         case .window(let ref): return "Window: \(ref.displayName)"
         }
     }
@@ -260,8 +263,10 @@ struct ScopeFilter: Equatable {
                 filter.bookmarkFolder = ref
             case .history(let time):
                 require(type: .history)
-                filter.historySince = time.startDate()
-                filter.historyBefore = time.endDate()
+                if let time {
+                    filter.historySince = time.startDate()
+                    filter.historyBefore = time.endDate()
+                }
             case .window(let ref):
                 require(type: .tab)
                 filter.window = ref

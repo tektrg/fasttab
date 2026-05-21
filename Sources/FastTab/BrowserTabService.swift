@@ -29,13 +29,14 @@ class BrowserTabService: ObservableObject {
 
     private var fetchGeneration = 0
     private var lastIssuedQuery: String = ""
+    private var lastIssuedFilter: ScopeFilter = ScopeFilter()
 
-    private var cachedBookmarks: [BrowserSearchResult] = []
+    private(set) var cachedBookmarks: [BrowserSearchResult] = []
     private var cachedHistory: [BrowserSearchResult] = []
     private var cacheLastUpdatedAt: Date?
     private var cachedQuickOpenResults: [BrowserSearchResult] = []
     private var cachedQuickOpenSourceAppBundleIdentifier: String?
-    private var cachedLiveTabs: [BrowserSearchResult] = []
+    private(set) var cachedLiveTabs: [BrowserSearchResult] = []
     private var lastLiveTabsRefreshAt: Date = .distantPast
 
     private struct ClosedTabTombstone {
@@ -266,7 +267,166 @@ class BrowserTabService: ObservableObject {
         currentFlowSourceAppBundleIdentifier = bundleIdentifier
     }
 
-    func fetchResults(matching query: String = "") {
+    // MARK: - Scope sources
+
+    /// Distinct windows present in the most recent live-tabs snapshot, sorted
+    /// by browser name then window index. Used by the `in:` dropdown.
+    var availableWindows: [WindowRef] {
+        var seen: Set<String> = []
+        var out: [WindowRef] = []
+        for tab in cachedLiveTabs where tab.type == .tab {
+            let name = tab.windowName ?? ""
+            let idx = tab.windowIndex ?? 0
+            let ref = WindowRef(browserName: tab.browserName, windowName: name, windowIndex: idx)
+            if seen.insert(ref.id).inserted {
+                out.append(ref)
+            }
+        }
+        return out.sorted { lhs, rhs in
+            if lhs.browserName != rhs.browserName {
+                return lhs.browserName.localizedCompare(rhs.browserName) == .orderedAscending
+            }
+            return lhs.windowIndex < rhs.windowIndex
+        }
+    }
+
+    /// Distinct bookmark folders present in the cached bookmarks snapshot.
+    var availableBookmarkFolders: [BookmarkFolderRef] {
+        var seen: Set<String> = []
+        var out: [BookmarkFolderRef] = []
+        for bm in cachedBookmarks where bm.type == .bookmark {
+            guard let path = bm.folderPath, !path.isEmpty else { continue }
+            let ref = BookmarkFolderRef(
+                browserName: bm.browserName,
+                profileName: bm.profileName,
+                folderPath: path
+            )
+            if seen.insert(ref.id).inserted {
+                out.append(ref)
+            }
+        }
+        return out.sorted { lhs, rhs in
+            lhs.folderPath.localizedCaseInsensitiveCompare(rhs.folderPath) == .orderedAscending
+        }
+    }
+
+    func fetchResults(matching query: String = "", filter: ScopeFilter = ScopeFilter()) {
+        // Remember the last filter so internal triggers (tab close, cache
+        // refresh) preserve any active scope.
+        lastIssuedFilter = filter
+        guard !filter.isPassthrough else {
+            fetchResultsUnscoped(matching: query)
+            return
+        }
+        fetchScopedResults(matching: query, filter: filter)
+    }
+
+    private func fetchScopedResults(matching query: String, filter: ScopeFilter) {
+        fetchGeneration += 1
+        let generation = fetchGeneration
+        fetchTask?.cancel()
+
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        lastIssuedQuery = normalizedQuery
+
+        guard filter.isSatisfiable else {
+            results = []
+            isLoading = false
+            logger.info("fetchScopedResults short-circuit (unsatisfiable). generation=\(generation)")
+            return
+        }
+
+        isLoading = true
+
+        let backends = self.backends
+        let cachedTimes = self.lastActiveTimes
+        let bookmarkSnapshot = self.cachedBookmarks
+        let currentFlowSourceAppBundleIdentifier = self.currentFlowSourceAppBundleIdentifier
+        let requiredType = filter.requiredType
+
+        fetchTask = Task.detached(priority: .userInitiated) { [weak self] in
+            var updatedTimes = cachedTimes
+            var produced: [BrowserSearchResult] = []
+
+            switch requiredType {
+            case .tab:
+                // Live tabs (always fresh — scope-aware fetches don't reuse cache).
+                var liveTabs: [BrowserSearchResult] = []
+                for backend in backends {
+                    if Task.isCancelled { break }
+                    liveTabs.append(contentsOf: backend.fetchLiveTabs(
+                        fetchStart: Date(),
+                        activeTimes: &updatedTimes,
+                        currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+                    ))
+                }
+                liveTabs = sortBrowserSearchResults(liveTabs)
+                if filter.duplicateOnly {
+                    // Duplicates are scoped per-browser: same URL open in Chrome
+                    // and Safari is not surprising and shouldn't be flagged.
+                    var counts: [String: Int] = [:]
+                    for tab in liveTabs where tab.type == .tab {
+                        let key = tab.browserName + "|" + tab.url
+                        counts[key, default: 0] += 1
+                    }
+                    liveTabs = liveTabs.filter { (counts[$0.browserName + "|" + $0.url] ?? 0) >= 2 }
+                }
+                produced = liveTabs.filter { filter.matches($0) }
+
+            case .bookmark:
+                produced = bookmarkSnapshot.filter { filter.matches($0) }
+
+            case .history:
+                let limit = 500
+                let since = filter.historySince
+                let before = filter.historyBefore
+                let collected: [BrowserSearchResult] = await withTaskGroup(of: [BrowserSearchResult].self) { group in
+                    for backend in backends {
+                        group.addTask {
+                            backend.searchHistory(query: normalizedQuery, limit: limit, since: since, before: before)
+                        }
+                    }
+                    var all: [BrowserSearchResult] = []
+                    for await chunk in group { all.append(contentsOf: chunk) }
+                    return all
+                }
+                produced = sortBrowserSearchResults(collected).filter { filter.matches($0) }
+
+            case .none:
+                produced = []
+            }
+
+            // Apply free-text filter (history is already query-filtered at SQL).
+            if !normalizedQuery.isEmpty, requiredType != .history {
+                produced = produced.filter { $0.matches(query: normalizedQuery) }
+            }
+
+            await MainActor.run {
+                guard let self, generation == self.fetchGeneration else { return }
+                self.lastActiveTimes = updatedTimes
+                self.persistActiveTimes()
+                // Refresh live-tabs cache if we just fetched fresh ones.
+                if requiredType == .tab {
+                    let freshLive = sortBrowserSearchResults(produced.filter { $0.type == .tab })
+                    // Only refresh cache when not duplicate-only (which is a filtered subset).
+                    if !filter.duplicateOnly && filter.window == nil {
+                        self.cachedLiveTabs = freshLive
+                        self.lastLiveTabsRefreshAt = Date()
+                        self.hasMultipleWindows = Self.computeHasMultipleWindows(freshLive)
+                        self.openTabCount = freshLive.count
+                        self.hasFetchedOpenTabCount = true
+                    }
+                }
+                self.results = self.filteringRecentlyClosed(produced)
+                self.isLoading = false
+                self.logger.info("fetchScopedResults applied. generation=\(generation) type=\(String(describing: requiredType), privacy: .public) query='\(normalizedQuery, privacy: .public)' count=\(produced.count)")
+                // Bookmarks scope: if cache empty, force a refresh so the next call has data.
+                self.refreshCachesIfNeeded(force: requiredType == .bookmark && bookmarkSnapshot.isEmpty)
+            }
+        }
+    }
+
+    private func fetchResultsUnscoped(matching query: String = "") {
         fetchGeneration += 1
         let generation = fetchGeneration
 
@@ -516,7 +676,7 @@ class BrowserTabService: ObservableObject {
         }
 
         removeResultFromLocalSnapshots(matching: result)
-        fetchResults(matching: lastIssuedQuery)
+        fetchResults(matching: lastIssuedQuery, filter: lastIssuedFilter)
     }
 
     private func removeResultFromLocalSnapshots(matching result: BrowserSearchResult) {
@@ -643,7 +803,7 @@ class BrowserTabService: ObservableObject {
             if lastIssuedQuery.isEmpty {
                 logger.info("Search cache refresh applied without UI refetch (empty query).")
             } else {
-                fetchResults(matching: lastIssuedQuery)
+                fetchResults(matching: lastIssuedQuery, filter: lastIssuedFilter)
             }
         }
     }

@@ -56,15 +56,31 @@ struct SearchHeader: View {
     @Binding var searchText: String
     @FocusState.Binding var isSearchFocused: Bool
     let isSelected: Bool
+    let scopeChips: [ScopeChip]
+    let focusedChipID: UUID?
+    let onRemoveChip: (ScopeChip) -> Void
+    let onFocusChip: (ScopeChip) -> Void
+    let onBackspaceAtEmpty: () -> Void
+    let onLeftArrowAtEmpty: () -> Void
     let onUpArrow: () -> Void
     let onDownArrow: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
-            TextField("Search tabs, bookmarks, history…", text: $searchText)
+            ScopeChipsRow(
+                chips: scopeChips,
+                focusedChipID: focusedChipID,
+                onRemove: onRemoveChip,
+                onFocusChip: onFocusChip
+            )
+
+            TextField(
+                scopeChips.isEmpty ? "Search tabs, bookmarks, history…" : "",
+                text: $searchText
+            )
                 .textFieldStyle(.plain)
                 .font(.system(size: 22, weight: .semibold, design: .rounded))
                 .focused($isSearchFocused)
@@ -75,6 +91,20 @@ struct SearchHeader: View {
                 .onKeyPress(.downArrow) {
                     onDownArrow()
                     return .handled
+                }
+                .onKeyPress(.leftArrow) {
+                    if searchText.isEmpty && !scopeChips.isEmpty {
+                        onLeftArrowAtEmpty()
+                        return .handled
+                    }
+                    return .ignored
+                }
+                .onKeyPress(.delete) {
+                    if searchText.isEmpty && !scopeChips.isEmpty {
+                        onBackspaceAtEmpty()
+                        return .handled
+                    }
+                    return .ignored
                 }
         }
         .padding(.horizontal, 12)

@@ -3,6 +3,7 @@ import AppKit
 
 private let kSpaceKeyCode: UInt16 = 49
 private let kEnterKeyCode: UInt16 = 36
+private let kDeleteKeyCode: UInt16 = 51
 private let kEscapeKeyCode: UInt16 = 53
 private let kLeftArrowKeyCode: UInt16 = 123
 private let kRightArrowKeyCode: UInt16 = 124
@@ -16,6 +17,12 @@ struct ContentView: View {
     @StateObject private var updateService = UpdateService.shared
     @ObservedObject private var shortcutStore = ShortcutStore.shared
     @State private var searchText = ""
+    @State private var scopeChips: [ScopeChip] = []
+    @State private var scopeSuggestionMode: ScopeSuggestionMode = .hidden
+    @State private var scopeDropdownSelectedIndex: Int = 0
+    /// When set, the named chip is keyboard-focused; the next backspace removes
+    /// it. Cleared as soon as the user types text or moves caret back into input.
+    @State private var focusedChipID: UUID? = nil
     @State private var isActivationPresented = false
     @FocusState private var isSearchFocused: Bool
     @State private var localMonitor: Any?
@@ -175,6 +182,7 @@ struct ContentView: View {
             return GuidanceHint(tokens: [
                 .init(glyph: "↑↓", label: "navigate"),
                 .init(glyph: "↵", label: "open"),
+                .init(glyph: "@", label: "scope"),
                 .init(glyph: "Esc", label: "dismiss")
             ])
         }
@@ -183,7 +191,8 @@ struct ContentView: View {
         if !isResultFocused && !queryEmpty && hasResults {
             return GuidanceHint(tokens: [
                 .init(glyph: "↑↓", label: "navigate"),
-                .init(glyph: "↵", label: "open")
+                .init(glyph: "↵", label: "open"),
+                .init(glyph: "@", label: "scope")
             ])
         }
 
@@ -242,32 +251,68 @@ struct ContentView: View {
                         }
 
                         if licenseService.snapshot.allowsCommandBarUtility {
-                            if let trialDaysRemaining = licenseService.snapshot.trialDaysRemaining {
+                            if let trialDaysRemaining = licenseService.snapshot.trialDaysRemaining,
+                               trialDaysRemaining <= 3 {
                                 TrialStatusBanner(daysRemaining: trialDaysRemaining) {
                                     licenseService.openCheckout()
                                 }
                             }
 
-                            SearchHeader(
-                                searchText: $searchText,
-                                isSearchFocused: $isSearchFocused,
-                                isSelected: appState.selectedIndex == -1,
-                                onUpArrow: {
-                                    moveSelectionBackward(includeSearchField: true)
-                                    lastInteractionKey = .upDown
-                                },
-                                onDownArrow: {
-                                    moveSelectionForward(includeSearchField: true)
-                                    lastInteractionKey = .upDown
+                            VStack(spacing: 6) {
+                                SearchHeader(
+                                    searchText: $searchText,
+                                    isSearchFocused: $isSearchFocused,
+                                    isSelected: appState.selectedIndex == -1,
+                                    scopeChips: scopeChips,
+                                    focusedChipID: focusedChipID,
+                                    onRemoveChip: { chip in
+                                        removeChip(id: chip.id)
+                                    },
+                                    onFocusChip: { chip in
+                                        focusedChipID = chip.id
+                                    },
+                                    onBackspaceAtEmpty: {
+                                        handleBackspaceAtEmptyInput()
+                                    },
+                                    onLeftArrowAtEmpty: {
+                                        handleLeftArrowAtEmptyInput()
+                                    },
+                                    onUpArrow: {
+                                        if isScopeDropdownVisible {
+                                            moveScopeSuggestionSelection(by: -1)
+                                            return
+                                        }
+                                        moveSelectionBackward(includeSearchField: true)
+                                        lastInteractionKey = .upDown
+                                    },
+                                    onDownArrow: {
+                                        if isScopeDropdownVisible {
+                                            moveScopeSuggestionSelection(by: 1)
+                                            return
+                                        }
+                                        moveSelectionForward(includeSearchField: true)
+                                        lastInteractionKey = .upDown
+                                    }
+                                )
+                                if isScopeDropdownVisible {
+                                    let suggestions = currentScopeSuggestions()
+                                    ScopeSuggestionDropdown(
+                                        suggestions: suggestions,
+                                        selectedIndex: scopeDropdownSelectedIndex,
+                                        emptyStateText: scopeDropdownEmptyStateText,
+                                        onHover: { idx in scopeDropdownSelectedIndex = idx },
+                                        onPick: { commitScopeSuggestion($0) }
+                                    )
+                                    .transition(.opacity)
                                 }
-                            )
+                            }
 
                             ScrollViewReader { proxy in
                                 resultsSection(proxy: proxy)
                                     .onChange(of: appState.isVisible) { _, visible in
                                         if visible {
                                             resetForCommandBarOpen()
-                                            appState.browserService.fetchResults(matching: searchText)
+                                            triggerFetch()
                                             DispatchQueue.main.async {
                                                 isSearchFocused = true
                                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
@@ -286,6 +331,12 @@ struct ContentView: View {
                                             appState.selectedIndex = -1
                                         } else {
                                             appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
+                                        }
+                                        recomputeScopeSuggestionMode()
+                                        // Typing into the field returns control
+                                        // to the input — drop any chip focus.
+                                        if !searchText.isEmpty {
+                                            focusedChipID = nil
                                         }
                                         lastInteractionKey = .none
                                         clearKeyboardSwipe()
@@ -307,7 +358,7 @@ struct ContentView: View {
                                         guard now.timeIntervalSince(lastActiveRefreshAt) > 1.2 else { return }
                                         lastActiveRefreshAt = now
 
-                                        appState.browserService.fetchResults(matching: searchText)
+                                        triggerFetch()
                                         withAnimation(.easeInOut(duration: 0.18)) {
                                             scrollResultsToTop(proxy)
                                         }
@@ -530,20 +581,262 @@ struct ContentView: View {
 
     private func scheduleSearchFetch() {
         searchDebounceTask?.cancel()
-        let query = searchText
+        let query = effectiveQueryString()
+        let filter = ScopeFilter.from(chips: scopeChips)
         searchDebounceTask = Task {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                appState.browserService.fetchResults(matching: query)
+                appState.browserService.fetchResults(matching: query, filter: filter)
             }
         }
+    }
+
+    /// Immediate (un-debounced) fetch using the current chip + query state.
+    private func triggerFetch() {
+        searchDebounceTask?.cancel()
+        let query = effectiveQueryString()
+        let filter = ScopeFilter.from(chips: scopeChips)
+        appState.browserService.fetchResults(matching: query, filter: filter)
+    }
+
+    /// The free-text query portion (excludes any in-progress `in:` token, which
+    /// hasn't been committed to a chip yet and shouldn't be sent to the backend).
+    private func effectiveQueryString() -> String {
+        switch scopeSuggestionMode {
+        case .hidden: return searchText
+        case .root(_, let range), .bookmarks(_, let range), .history(_, let range):
+            var copy = searchText
+            copy.removeSubrange(range)
+            return copy.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    private var isScopeDropdownVisible: Bool {
+        switch scopeSuggestionMode {
+        case .hidden: return false
+        case .root: return !currentScopeSuggestions().isEmpty
+        // Drill-down modes always show the dropdown so an empty-folders state
+        // is visible instead of silently disappearing.
+        case .bookmarks, .history: return true
+        }
+    }
+
+    private var scopeDropdownEmptyStateText: String? {
+        switch scopeSuggestionMode {
+        case .bookmarks:
+            return appState.browserService.cachedBookmarks.isEmpty
+                ? "Loading bookmarks…"
+                : "No matching folders"
+        case .history:
+            return "No matching time range"
+        default:
+            return nil
+        }
+    }
+
+    private func currentScopeSuggestions() -> [ScopeSuggestion] {
+        switch scopeSuggestionMode {
+        case .hidden:
+            return []
+        case .root(let prefix, _):
+            let trimmed = prefix.lowercased()
+            var items: [ScopeSuggestion] = [
+                .root(.duplicate),
+                .root(.bookmarks),
+                .root(.history)
+            ]
+            for window in appState.browserService.availableWindows {
+                items.append(.root(.window(window)))
+            }
+            if trimmed.isEmpty { return items }
+            return items.filter { $0.label.lowercased().contains(trimmed) }
+        case .bookmarks(let prefix, _):
+            let trimmed = prefix.lowercased()
+            let folders = appState.browserService.availableBookmarkFolders.map(ScopeSuggestion.bookmarkFolder)
+            if trimmed.isEmpty { return folders }
+            return folders.filter {
+                $0.label.lowercased().contains(trimmed)
+                    || ($0.detail ?? "").lowercased().contains(trimmed)
+            }
+        case .history(let prefix, _):
+            let trimmed = prefix.lowercased()
+            let times = HistoryTimeScope.allCases.map(ScopeSuggestion.historyTime)
+            if trimmed.isEmpty { return times }
+            return times.filter { $0.label.lowercased().contains(trimmed) }
+        }
+    }
+
+    private func recomputeScopeSuggestionMode() {
+        let newMode = ScopeSuggestionParser.mode(for: searchText)
+        if newMode != scopeSuggestionMode {
+            scopeSuggestionMode = newMode
+            scopeDropdownSelectedIndex = 0
+        } else {
+            let count = currentScopeSuggestions().count
+            if count == 0 {
+                scopeDropdownSelectedIndex = 0
+            } else if scopeDropdownSelectedIndex >= count {
+                scopeDropdownSelectedIndex = count - 1
+            }
+        }
+    }
+
+    private func moveScopeSuggestionSelection(by delta: Int) {
+        let count = currentScopeSuggestions().count
+        guard count > 0 else { return }
+        scopeDropdownSelectedIndex = (scopeDropdownSelectedIndex + delta + count) % count
+    }
+
+    private func commitScopeSuggestion(_ suggestion: ScopeSuggestion) {
+        let tokenRange: Range<String.Index>?
+        switch scopeSuggestionMode {
+        case .hidden: tokenRange = nil
+        case .root(_, let range), .bookmarks(_, let range), .history(_, let range):
+            tokenRange = range
+        }
+
+        // Handle drill-down: picking `Bookmarks` or `History` from root replaces
+        // the token with `@Bookmarks:` / `@History:` so the dropdown stays open.
+        if case .root(let rootSugg) = suggestion {
+            switch rootSugg {
+            case .bookmarks:
+                // Always drill into folder picker; the dropdown handles the
+                // empty-folders state. Cold caches will populate via the
+                // ambient refresh triggered by the scoped fetch.
+                replaceToken(at: tokenRange, with: "@Bookmarks:")
+                recomputeScopeSuggestionMode()
+                return
+            case .history:
+                replaceToken(at: tokenRange, with: "@History:")
+                recomputeScopeSuggestionMode()
+                return
+            case .duplicate:
+                replaceToken(at: tokenRange, with: "")
+                appendChip(.init(kind: .duplicate))
+            case .window(let ref):
+                replaceToken(at: tokenRange, with: "")
+                appendChip(.init(kind: .window(ref)))
+            }
+        } else if case .bookmarkFolder(let ref) = suggestion {
+            replaceToken(at: tokenRange, with: "")
+            appendChip(.init(kind: .bookmarksFolder(ref)))
+        } else if case .historyTime(let time) = suggestion {
+            replaceToken(at: tokenRange, with: "")
+            appendChip(.init(kind: .history(time)))
+        }
+
+        recomputeScopeSuggestionMode()
+        triggerFetch()
+        isSearchFocused = true
+    }
+
+    private func replaceToken(at range: Range<String.Index>?, with replacement: String) {
+        guard let range else {
+            searchText = replacement
+            return
+        }
+        var text = searchText
+        text.replaceSubrange(range, with: replacement)
+        // Trim trailing whitespace if the chip eats the whole token, leaving "react in:foo" → "react ".
+        if replacement.isEmpty {
+            while text.hasSuffix(" ") { text.removeLast() }
+        }
+        searchText = text
+    }
+
+    private func appendChip(_ chip: ScopeChip) {
+        // Within a category (window / bookmarksFolder / history), only one
+        // chip is meaningful — `ScopeFilter` honors the last write, so two
+        // folder chips would silently mask the first. Replace within bucket.
+        scopeChips.removeAll(where: { isSameChipBucket($0.kind, chip.kind) })
+        scopeChips.append(chip)
+    }
+
+    private func isSameChipBucket(_ lhs: ScopeChip.Kind, _ rhs: ScopeChip.Kind) -> Bool {
+        switch (lhs, rhs) {
+        case (.duplicate, .duplicate),
+             (.bookmarks, .bookmarks),
+             (.bookmarks, .bookmarksFolder), (.bookmarksFolder, .bookmarks),
+             (.bookmarksFolder, .bookmarksFolder),
+             (.history, .history),
+             (.window, .window):
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Removes the named chip and shifts keyboard focus sensibly: prefer the
+    /// chip just to the left of the removed one, falling back to clearing focus
+    /// (which returns the caret to the input field).
+    private func removeChip(id: UUID) {
+        guard let idx = scopeChips.firstIndex(where: { $0.id == id }) else { return }
+        scopeChips.remove(at: idx)
+        if scopeChips.isEmpty {
+            focusedChipID = nil
+        } else if idx > 0 {
+            focusedChipID = scopeChips[idx - 1].id
+        } else {
+            focusedChipID = nil
+        }
+        isSearchFocused = focusedChipID == nil
+        triggerFetch()
+    }
+
+    /// Gmail-style two-step delete: first backspace at empty input focuses the
+    /// last chip; the next backspace (while a chip is focused) removes it.
+    private func handleBackspaceAtEmptyInput() {
+        guard !scopeChips.isEmpty else { return }
+        if let focusedChipID {
+            removeChip(id: focusedChipID)
+        } else {
+            focusedChipID = scopeChips.last?.id
+        }
+    }
+
+    /// Left-arrow at empty input enters the chip strip from the right and walks
+    /// further leftward through chips on each subsequent press.
+    private func handleLeftArrowAtEmptyInput() {
+        guard !scopeChips.isEmpty else { return }
+        if let current = focusedChipID,
+           let idx = scopeChips.firstIndex(where: { $0.id == current }),
+           idx > 0 {
+            focusedChipID = scopeChips[idx - 1].id
+        } else if focusedChipID == nil {
+            focusedChipID = scopeChips.last?.id
+        }
+    }
+
+    private func handleScopeDropdownEnter() -> Bool {
+        let suggestions = currentScopeSuggestions()
+        guard !suggestions.isEmpty,
+              suggestions.indices.contains(scopeDropdownSelectedIndex) else { return false }
+        commitScopeSuggestion(suggestions[scopeDropdownSelectedIndex])
+        return true
+    }
+
+    private func dismissScopeDropdown() {
+        // Drop the in-progress `in:...` token entirely.
+        if case .root(_, let range) = scopeSuggestionMode {
+            replaceToken(at: range, with: "")
+        } else if case .bookmarks(_, let range) = scopeSuggestionMode {
+            replaceToken(at: range, with: "")
+        } else if case .history(_, let range) = scopeSuggestionMode {
+            replaceToken(at: range, with: "")
+        }
+        scopeSuggestionMode = .hidden
+        scopeDropdownSelectedIndex = 0
     }
 
     private func resetForCommandBarOpen() {
         searchDebounceTask?.cancel()
         suppressNextSearchChange = true
         searchText = ""
+        scopeChips = []
+        scopeSuggestionMode = .hidden
+        scopeDropdownSelectedIndex = 0
+        focusedChipID = nil
         appState.selectedIndex = -1
         hasCycled = false
         lastInteractionKey = .none
@@ -864,18 +1157,48 @@ struct ContentView: View {
 
                 let noModifiers = userModifiers.isEmpty
 
+                // Backspace at empty input: step-back into the chip strip,
+                // then delete on the next press. Routed here (not via SwiftUI
+                // `.onKeyPress(.delete)`) because that hook is unreliable when
+                // the TextField is empty.
+                if noModifiers,
+                   event.keyCode == kDeleteKeyCode,
+                   appState.isVisible,
+                   searchText.isEmpty,
+                   !scopeChips.isEmpty {
+                    handleBackspaceAtEmptyInput()
+                    return nil
+                }
+
                 if event.keyCode == kEscapeKeyCode && appState.isVisible {
+                    if isScopeDropdownVisible {
+                        dismissScopeDropdown()
+                        return nil
+                    }
+                    if focusedChipID != nil {
+                        focusedChipID = nil
+                        isSearchFocused = true
+                        return nil
+                    }
                     handleEscapeKey()
                     return nil
                 }
 
                 if noModifiers && event.keyCode == kUpArrowKeyCode {
+                    if isScopeDropdownVisible {
+                        moveScopeSuggestionSelection(by: -1)
+                        return nil
+                    }
                     moveSelectionBackward(includeSearchField: true)
                     lastInteractionKey = .upDown
                     return nil
                 }
 
                 if noModifiers && event.keyCode == kDownArrowKeyCode {
+                    if isScopeDropdownVisible {
+                        moveScopeSuggestionSelection(by: 1)
+                        return nil
+                    }
                     moveSelectionForward(includeSearchField: true)
                     lastInteractionKey = .upDown
                     return nil
@@ -905,6 +1228,9 @@ struct ContentView: View {
                 }
 
                 if event.keyCode == kEnterKeyCode {
+                    if isScopeDropdownVisible, handleScopeDropdownEnter() {
+                        return nil
+                    }
                     let results = displayedResults
                     if results.indices.contains(appState.selectedIndex) {
                         appState.browserService.activate(results[appState.selectedIndex])

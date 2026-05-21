@@ -297,6 +297,10 @@ struct SafariBackend: BrowserBackend {
     }
 
     func searchHistory(query: String, limit: Int) -> [BrowserSearchResult] {
+        searchHistory(query: query, limit: limit, since: nil, before: nil)
+    }
+
+    func searchHistory(query: String, limit: Int, since: Date?, before: Date?) -> [BrowserSearchResult] {
         guard fdaEnabled else { return [] }
 
         let historyPath = ("~/Library/Safari/History.db" as NSString).expandingTildeInPath
@@ -310,12 +314,25 @@ struct SafariBackend: BrowserBackend {
             defer { Self.cleanupSQLiteCopy(at: tempURL) }
 
             let escaped = query.replacingOccurrences(of: "'", with: "''")
+            // Safari `visit_time` is seconds since 2001-01-01 (Cocoa epoch).
+            func safariSeconds(from date: Date) -> Double {
+                date.timeIntervalSinceReferenceDate
+            }
+            var timeClauses: [String] = []
+            if let since {
+                timeClauses.append("hv.visit_time >= \(safariSeconds(from: since))")
+            }
+            if let before {
+                timeClauses.append("hv.visit_time < \(safariSeconds(from: before))")
+            }
+            let timePredicate = timeClauses.isEmpty ? "" : " AND " + timeClauses.joined(separator: " AND ")
+
             let sql = """
             SELECT hi.url, COALESCE(hv.title, hi.url) as title, MAX(hv.visit_time) as last_visit
             FROM history_items hi
             JOIN history_visits hv ON hv.history_item = hi.id
             WHERE (hi.url LIKE '%\(escaped)%' OR hv.title LIKE '%\(escaped)%')
-              AND hi.url IS NOT NULL AND hi.url != ''
+              AND hi.url IS NOT NULL AND hi.url != ''\(timePredicate)
             GROUP BY hi.id
             ORDER BY last_visit DESC
             LIMIT \(limit);

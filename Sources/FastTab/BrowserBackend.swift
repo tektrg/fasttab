@@ -38,6 +38,9 @@ protocol BrowserBackend: Sendable {
     func fetchAllBookmarks() -> [BrowserSearchResult]
     func fetchRecentHistory(perBrowserLimit: Int) -> [BrowserSearchResult]
     func searchHistory(query: String, limit: Int) -> [BrowserSearchResult]
+    /// Same as `searchHistory(query:limit:)` but bounded by `[since, before)`
+    /// in the SQL itself. Either bound may be nil for open-ended.
+    func searchHistory(query: String, limit: Int, since: Date?, before: Date?) -> [BrowserSearchResult]
     func fetchFaviconData(pageURL: String) -> Data?
     /// Batched favicon resolution: returns `[pageURL: imageData]` for every URL
     /// that resolved. Default impl loops `fetchFaviconData`; backends that
@@ -52,6 +55,18 @@ protocol BrowserBackend: Sendable {
 }
 
 extension BrowserBackend {
+    /// Default forwards to the time-unbounded variant; concrete backends that
+    /// can push time predicates into SQL should override.
+    func searchHistory(query: String, limit: Int, since: Date?, before: Date?) -> [BrowserSearchResult] {
+        let raw = searchHistory(query: query, limit: limit)
+        guard since != nil || before != nil else { return raw }
+        return raw.filter { result in
+            if let since, result.timestamp < since { return false }
+            if let before, result.timestamp >= before { return false }
+            return true
+        }
+    }
+
     func fetchFaviconsBatch(pageURLs: [String]) -> [String: Data] {
         var out: [String: Data] = [:]
         for url in pageURLs {

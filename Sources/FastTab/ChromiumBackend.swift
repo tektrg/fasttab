@@ -230,62 +230,52 @@ struct ChromiumBackend: BrowserBackend {
 
         for profile in profiles() {
             guard FileManager.default.fileExists(atPath: profile.historyURL.path) else { continue }
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             let profileStart = Date()
+            let profileQueryLimit = 150
+            let sql = """
+            SELECT title, url, last_visit_time
+            FROM urls
+            WHERE url IS NOT NULL
+              AND url != ''
+            ORDER BY last_visit_time DESC
+            LIMIT \(profileQueryLimit);
+            """
 
-            do {
-                try FileManager.default.copyItem(at: profile.historyURL, to: tempURL)
-                let profileQueryLimit = 150
-                let sql = """
-                SELECT title, url, last_visit_time
-                FROM urls
-                WHERE url IS NOT NULL
-                  AND url != ''
-                ORDER BY last_visit_time DESC
-                LIMIT \(profileQueryLimit);
-                """
+            guard let output = runProcess(
+                launchPath: "/usr/bin/sqlite3",
+                arguments: Self.readonlySQLiteArgs(dbPath: profile.historyURL.path, sql: sql),
+                timeoutSeconds: 15
+            ) else {
+                logger.error("history profile query failed. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)'")
+                continue
+            }
 
-                guard let output = runProcess(
-                    launchPath: "/usr/bin/sqlite3",
-                    arguments: ["-separator", kFieldSep, tempURL.path, sql],
-                    timeoutSeconds: 15
-                ) else {
-                    logger.error("history profile query failed. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)'")
-                    try? FileManager.default.removeItem(at: tempURL)
+            let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
+            for row in rows {
+                let parts = String(row).components(separatedBy: kFieldSep)
+                guard parts.count >= 3 else { continue }
+
+                let title = parts[0].isEmpty ? parts[1] : parts[0]
+                let url = parts[1]
+                let timestamp = Self.chromiumDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
+                let candidate = BrowserSearchResult(
+                    title: title,
+                    url: url,
+                    browserName: appName,
+                    type: .history,
+                    timestamp: timestamp,
+                    profileName: profile.name
+                )
+
+                let key = "\(appName)|\(url)"
+                if let existing = dedupedByURL[key], existing.timestamp >= candidate.timestamp {
                     continue
                 }
-
-                let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
-                for row in rows {
-                    let parts = String(row).components(separatedBy: kFieldSep)
-                    guard parts.count >= 3 else { continue }
-
-                    let title = parts[0].isEmpty ? parts[1] : parts[0]
-                    let url = parts[1]
-                    let timestamp = Self.chromiumDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
-                    let candidate = BrowserSearchResult(
-                        title: title,
-                        url: url,
-                        browserName: appName,
-                        type: .history,
-                        timestamp: timestamp,
-                        profileName: profile.name
-                    )
-
-                    let key = "\(appName)|\(url)"
-                    if let existing = dedupedByURL[key], existing.timestamp >= candidate.timestamp {
-                        continue
-                    }
-                    dedupedByURL[key] = candidate
-                }
-
-                let elapsedMs = Int(Date().timeIntervalSince(profileStart) * 1000)
-                logger.info("history profile query complete. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)' rows=\(rows.count) elapsedMs=\(elapsedMs)")
-                try? FileManager.default.removeItem(at: tempURL)
-            } catch {
-                logger.error("history profile query threw. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)' error='\(String(describing: error), privacy: .public)'")
-                try? FileManager.default.removeItem(at: tempURL)
+                dedupedByURL[key] = candidate
             }
+
+            let elapsedMs = Int(Date().timeIntervalSince(profileStart) * 1000)
+            logger.info("history profile query complete. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)' rows=\(rows.count) elapsedMs=\(elapsedMs)")
         }
 
         return dedupedByURL.values
@@ -295,71 +285,99 @@ struct ChromiumBackend: BrowserBackend {
     }
 
     func searchHistory(query: String, limit: Int) -> [BrowserSearchResult] {
+        searchHistory(query: query, limit: limit, since: nil, before: nil)
+    }
+
+    func searchHistory(query: String, limit: Int, since: Date?, before: Date?) -> [BrowserSearchResult] {
         let logger = self.logger
         let escaped = query.replacingOccurrences(of: "'", with: "''")
         var dedupedByURL: [String: BrowserSearchResult] = [:]
 
+        // Chromium `last_visit_time` is microseconds since 1601-01-01 UTC.
+        func chromiumMicros(from date: Date) -> Int64 {
+            let unixSeconds = date.timeIntervalSince1970
+            return Int64((unixSeconds + 11_644_473_600) * 1_000_000)
+        }
+
+        var timeClauses: [String] = []
+        if let since {
+            timeClauses.append("last_visit_time >= \(chromiumMicros(from: since))")
+        }
+        if let before {
+            timeClauses.append("last_visit_time < \(chromiumMicros(from: before))")
+        }
+        let timePredicate = timeClauses.isEmpty ? "" : " AND " + timeClauses.joined(separator: " AND ")
+
         for profile in profiles() {
             guard FileManager.default.fileExists(atPath: profile.historyURL.path) else { continue }
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             let profileStart = Date()
+            let sql = """
+            SELECT title, url, last_visit_time
+            FROM urls
+            WHERE (url LIKE '%\(escaped)%' OR title LIKE '%\(escaped)%')
+              AND url IS NOT NULL AND url != ''\(timePredicate)
+            ORDER BY last_visit_time DESC
+            LIMIT \(limit);
+            """
 
-            do {
-                try FileManager.default.copyItem(at: profile.historyURL, to: tempURL)
-                let sql = """
-                SELECT title, url, last_visit_time
-                FROM urls
-                WHERE (url LIKE '%\(escaped)%' OR title LIKE '%\(escaped)%')
-                  AND url IS NOT NULL AND url != ''
-                ORDER BY last_visit_time DESC
-                LIMIT \(limit);
-                """
-
-                guard let output = runProcess(
-                    launchPath: "/usr/bin/sqlite3",
-                    arguments: ["-separator", kFieldSep, tempURL.path, sql],
-                    timeoutSeconds: 15
-                ) else {
-                    logger.error("searchHistory query failed. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)'")
-                    try? FileManager.default.removeItem(at: tempURL)
-                    continue
-                }
-
-                let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
-                for row in rows {
-                    let parts = String(row).components(separatedBy: kFieldSep)
-                    guard parts.count >= 3 else { continue }
-
-                    let title = parts[0].isEmpty ? parts[1] : parts[0]
-                    let url = parts[1]
-                    let timestamp = Self.chromiumDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
-                    let candidate = BrowserSearchResult(
-                        title: title,
-                        url: url,
-                        browserName: appName,
-                        type: .history,
-                        timestamp: timestamp,
-                        profileName: profile.name
-                    )
-
-                    let key = "\(appName)|\(url)"
-                    if let existing = dedupedByURL[key], existing.timestamp >= candidate.timestamp { continue }
-                    dedupedByURL[key] = candidate
-                }
-
-                let elapsedMs = Int(Date().timeIntervalSince(profileStart) * 1000)
-                logger.info("searchHistory complete. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)' rows=\(rows.count) elapsedMs=\(elapsedMs)")
-                try? FileManager.default.removeItem(at: tempURL)
-            } catch {
-                logger.error("searchHistory threw. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)' error='\(String(describing: error), privacy: .public)'")
-                try? FileManager.default.removeItem(at: tempURL)
+            guard let output = runProcess(
+                launchPath: "/usr/bin/sqlite3",
+                arguments: Self.readonlySQLiteArgs(dbPath: profile.historyURL.path, sql: sql),
+                timeoutSeconds: 15
+            ) else {
+                logger.error("searchHistory query failed. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)'")
+                continue
             }
+
+            let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
+            for row in rows {
+                let parts = String(row).components(separatedBy: kFieldSep)
+                guard parts.count >= 3 else { continue }
+
+                let title = parts[0].isEmpty ? parts[1] : parts[0]
+                let url = parts[1]
+                let timestamp = Self.chromiumDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
+                let candidate = BrowserSearchResult(
+                    title: title,
+                    url: url,
+                    browserName: appName,
+                    type: .history,
+                    timestamp: timestamp,
+                    profileName: profile.name
+                )
+
+                let key = "\(appName)|\(url)"
+                if let existing = dedupedByURL[key], existing.timestamp >= candidate.timestamp { continue }
+                dedupedByURL[key] = candidate
+            }
+
+            let elapsedMs = Int(Date().timeIntervalSince(profileStart) * 1000)
+            logger.info("searchHistory complete. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)' rows=\(rows.count) elapsedMs=\(elapsedMs)")
         }
 
         return dedupedByURL.values
             .sorted { $0.timestamp > $1.timestamp }
             .prefix(limit)
             .map { $0 }
+    }
+
+    // MARK: - Read-only live-DB access
+
+    /// Reads `History` directly from the live profile in read-only mode rather
+    /// than copying it. Chromium uses rollback-journal mode, so a byte-level
+    /// `copyItem` while the browser holds an open transaction captures the
+    /// main file without the `-journal` sidecar needed to resolve uncommitted
+    /// state — which surfaces as missing or stale recent visits. SQLite's
+    /// own locking protocol on the live file gives a consistent snapshot;
+    /// `.timeout` handles the brief moments Chromium holds RESERVED/EXCLUSIVE.
+    private static func readonlySQLiteArgs(dbPath: String, sql: String) -> [String] {
+        [
+            "-readonly",
+            "-cmd", ".timeout 3000",
+            "-separator", kFieldSep,
+            dbPath,
+            sql
+        ]
     }
 
     // MARK: - Favicons

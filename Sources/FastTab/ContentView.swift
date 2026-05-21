@@ -1,6 +1,13 @@
 import SwiftUI
 import AppKit
 
+private struct SearchHeaderFrameKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
 private let kSpaceKeyCode: UInt16 = 49
 private let kEnterKeyCode: UInt16 = 36
 private let kDeleteKeyCode: UInt16 = 51
@@ -48,6 +55,10 @@ struct ContentView: View {
     @State private var pointerSwipeSuppressionTask: Task<Void, Never>?
     @AppStorage("guidance.hasDiscoveredSwipe") private var hasDiscoveredSwipe: Bool = false
     @State private var lastInteractionKey: LastInteractionKey = .none
+    /// Measured frame of the SearchHeader in the command-bar coordinate space.
+    /// Used to position the scope dropdown directly below it as an overlay on
+    /// the outer VStack, so the dropdown paints above the results section.
+    @State private var searchHeaderFrame: CGRect = .zero
 
     var filteredResults: [BrowserSearchResult] {
         appState.browserService.results
@@ -258,54 +269,75 @@ struct ContentView: View {
                                 }
                             }
 
-                            VStack(spacing: 6) {
-                                SearchHeader(
-                                    searchText: $searchText,
-                                    isSearchFocused: $isSearchFocused,
-                                    isSelected: appState.selectedIndex == -1,
-                                    scopeChips: scopeChips,
-                                    focusedChipID: focusedChipID,
-                                    onRemoveChip: { chip in
-                                        removeChip(id: chip.id)
-                                    },
-                                    onFocusChip: { chip in
-                                        focusedChipID = chip.id
-                                    },
-                                    onBackspaceAtEmpty: {
-                                        handleBackspaceAtEmptyInput()
-                                    },
-                                    onLeftArrowAtEmpty: {
-                                        handleLeftArrowAtEmptyInput()
-                                    },
-                                    onUpArrow: {
-                                        if isScopeDropdownVisible {
-                                            moveScopeSuggestionSelection(by: -1)
-                                            return
-                                        }
-                                        moveSelectionBackward(includeSearchField: true)
-                                        lastInteractionKey = .upDown
-                                    },
-                                    onDownArrow: {
-                                        if isScopeDropdownVisible {
-                                            moveScopeSuggestionSelection(by: 1)
-                                            return
-                                        }
-                                        moveSelectionForward(includeSearchField: true)
-                                        lastInteractionKey = .upDown
+                            SearchHeader(
+                                searchText: $searchText,
+                                isSearchFocused: $isSearchFocused,
+                                isSelected: appState.selectedIndex == -1,
+                                scopeChips: scopeChips,
+                                focusedChipID: focusedChipID,
+                                onRemoveChip: { chip in
+                                    removeChip(id: chip.id)
+                                },
+                                onFocusChip: { chip in
+                                    focusedChipID = chip.id
+                                },
+                                onBackspaceAtEmpty: {
+                                    handleBackspaceAtEmptyInput()
+                                },
+                                onLeftArrowAtEmpty: {
+                                    handleLeftArrowAtEmptyInput()
+                                },
+                                onUpArrow: {
+                                    if isScopeDropdownVisible {
+                                        moveScopeSuggestionSelection(by: -1)
+                                        return
                                     }
-                                )
-                                if isScopeDropdownVisible {
-                                    let suggestions = currentScopeSuggestions()
-                                    ScopeSuggestionDropdown(
-                                        suggestions: suggestions,
-                                        selectedIndex: scopeDropdownSelectedIndex,
-                                        emptyStateText: scopeDropdownEmptyStateText,
-                                        onHover: { idx in scopeDropdownSelectedIndex = idx },
-                                        onPick: { commitScopeSuggestion($0) }
-                                    )
-                                    .transition(.opacity)
+                                    moveSelectionBackward(includeSearchField: true)
+                                    lastInteractionKey = .upDown
+                                },
+                                onDownArrow: {
+                                    if isScopeDropdownVisible {
+                                        moveScopeSuggestionSelection(by: 1)
+                                        return
+                                    }
+                                    moveSelectionForward(includeSearchField: true)
+                                    lastInteractionKey = .upDown
                                 }
-                            }
+                            )
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: SearchHeaderFrameKey.self,
+                                        value: geo.frame(in: .named("commandBar"))
+                                    )
+                                }
+                            )
+                            .zIndex(50)
+
+                            // Zero-height layer that hosts the floating scope
+                            // dropdown. `frame(height: 0)` keeps it out of the
+                            // VStack's layout (no shift), and `zIndex(100)` makes
+                            // its overlay paint above later VStack siblings.
+                            Color.clear
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 0)
+                                .overlay(alignment: .topLeading) {
+                                    if isScopeDropdownVisible {
+                                        let suggestions = currentScopeSuggestions()
+                                        ScopeSuggestionDropdown(
+                                            suggestions: suggestions,
+                                            selectedIndex: scopeDropdownSelectedIndex,
+                                            emptyStateText: scopeDropdownEmptyStateText,
+                                            onHover: { idx in scopeDropdownSelectedIndex = idx },
+                                            onPick: { commitScopeSuggestion($0) }
+                                        )
+                                        .frame(width: 420, alignment: .topLeading)
+                                        .padding(.top, 8)
+                                        .transition(.opacity)
+                                    }
+                                }
+                                .zIndex(100)
+                                .allowsHitTesting(isScopeDropdownVisible)
 
                             ScrollViewReader { proxy in
                                 resultsSection(proxy: proxy)
@@ -392,6 +424,12 @@ struct ContentView: View {
                         }
                     }
                     .padding(12)
+                    .coordinateSpace(name: "commandBar")
+                    .onPreferenceChange(SearchHeaderFrameKey.self) { newValue in
+                        searchHeaderFrame = newValue
+                    }
+                    // Floating scope-suggestion dropdown — overlaid on the entire
+                    // command-bar surface so it paints above the results section.
                 }
                 .frame(width: CommandBarLayout.surfaceSize.width, height: CommandBarLayout.surfaceSize.height)
                 .offset(y: CommandBarLayout.surfaceVerticalOffset)
@@ -669,6 +707,15 @@ struct ContentView: View {
 
     private func recomputeScopeSuggestionMode() {
         let newMode = ScopeSuggestionParser.mode(for: searchText)
+
+        // Auto-commit drill-down parent when the user's typed prefix matches no
+        // child suggestion. Picking `@Bookmarks:foo` commits `[Bookmarks]` and
+        // leaves `foo` as free text. Only fires while drilling (root mode keeps
+        // its empty state).
+        if autoCommitDrillDownParentIfNeeded(for: newMode) {
+            return
+        }
+
         if newMode != scopeSuggestionMode {
             scopeSuggestionMode = newMode
             scopeDropdownSelectedIndex = 0
@@ -680,6 +727,61 @@ struct ContentView: View {
                 scopeDropdownSelectedIndex = count - 1
             }
         }
+    }
+
+    /// If the user is drilling into `@Bookmarks:` or `@History:` and has typed
+    /// a non-empty prefix that matches no child option, commit the plain parent
+    /// chip and let the prefix continue as free-text search. Returns true when
+    /// it fired (caller should bail out of further mode handling).
+    private func autoCommitDrillDownParentIfNeeded(for mode: ScopeSuggestionMode) -> Bool {
+        switch mode {
+        case .bookmarks(let prefix, let range):
+            let trimmed = prefix.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return false }
+            let lower = trimmed.lowercased()
+            let folders = appState.browserService.availableBookmarkFolders
+            let anyMatch = folders.contains {
+                $0.displayName.lowercased().contains(lower)
+                    || $0.folderPath.lowercased().contains(lower)
+            }
+            guard !anyMatch else { return false }
+            commitDrillDownParent(parent: .bookmarks, keepingFreeText: prefix, tokenRange: range)
+            return true
+        case .history(let prefix, let range):
+            let trimmed = prefix.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return false }
+            let lower = trimmed.lowercased()
+            let anyMatch = HistoryTimeScope.allCases.contains { $0.label.lowercased().contains(lower) }
+            guard !anyMatch else { return false }
+            commitDrillDownParent(parent: .historyAll, keepingFreeText: prefix, tokenRange: range)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private enum DrillDownParent { case bookmarks, historyAll }
+
+    private func commitDrillDownParent(
+        parent: DrillDownParent,
+        keepingFreeText prefix: String,
+        tokenRange: Range<String.Index>
+    ) {
+        // Suppress the searchText onChange that our own replaceToken triggers —
+        // we've already moved to a chip-committed state; the recomputeScope...
+        // call below re-syncs without recursing.
+        suppressNextSearchChange = true
+        replaceToken(at: tokenRange, with: prefix)
+        switch parent {
+        case .bookmarks:
+            appendChip(.init(kind: .bookmarks))
+        case .historyAll:
+            appendChip(.init(kind: .history(nil)))
+        }
+        scopeSuggestionMode = .hidden
+        scopeDropdownSelectedIndex = 0
+        triggerFetch()
+        isSearchFocused = true
     }
 
     private func moveScopeSuggestionSelection(by delta: Int) {
@@ -746,25 +848,9 @@ struct ContentView: View {
     }
 
     private func appendChip(_ chip: ScopeChip) {
-        // Within a category (window / bookmarksFolder / history), only one
-        // chip is meaningful — `ScopeFilter` honors the last write, so two
-        // folder chips would silently mask the first. Replace within bucket.
-        scopeChips.removeAll(where: { isSameChipBucket($0.kind, chip.kind) })
+        // Stackable per design — duplicate chips in the same bucket are allowed
+        // (redundant AND). User removes via backspace if unwanted.
         scopeChips.append(chip)
-    }
-
-    private func isSameChipBucket(_ lhs: ScopeChip.Kind, _ rhs: ScopeChip.Kind) -> Bool {
-        switch (lhs, rhs) {
-        case (.duplicate, .duplicate),
-             (.bookmarks, .bookmarks),
-             (.bookmarks, .bookmarksFolder), (.bookmarksFolder, .bookmarks),
-             (.bookmarksFolder, .bookmarksFolder),
-             (.history, .history),
-             (.window, .window):
-            return true
-        default:
-            return false
-        }
     }
 
     /// Removes the named chip and shifts keyboard focus sensibly: prefer the

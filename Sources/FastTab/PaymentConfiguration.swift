@@ -27,7 +27,7 @@ struct PaymentConfiguration: Equatable {
             teamCheckoutURL: bundle.infoURL(forKey: "FastTabPolarTeamCheckoutURL"),
             pricingURL: bundle.infoURL(forKey: "FastTabPricingURL"),
             manageLicenseURL: bundle.infoURL(forKey: "FastTabPolarManageLicenseURL"),
-            supportURL: bundle.infoURL(forKey: "FastTabSupportURL") ?? URL(string: "mailto:support@theindie.app"),
+            supportURL: bundle.infoURL(forKey: "FastTabSupportURL") ?? URL(string: "mailto:yourfriend@theindie.app"),
             currentMajorVersion: bundle.fastTabMajorVersion,
             personalLicensedMajorVersion: bundle.infoInt(forKey: "FastTabPersonalLicensedMajorVersion") ?? 1,
             apiBaseURL: bundle.infoURL(forKey: "FastTabPolarAPIBaseURL") ?? URL(string: "https://api.polar.sh")!

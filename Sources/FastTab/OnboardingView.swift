@@ -166,7 +166,8 @@ private struct WelcomeStep: View {
         VStack(alignment: .leading, spacing: 10) {
             FeatureRow(icon: "arrow.left.arrow.right", label: "Switch tabs instantly")
             FeatureRow(icon: "magnifyingglass", label: "Search tabs, bookmarks & history")
-            FeatureRow(icon: "macwindow.on.rectangle", label: "Works across Chrome and Edge")
+            FeatureRow(icon: "macwindow.on.rectangle", label: "Works across Chrome, Edge, and Safari")
+            FeatureRow(icon: "lock.shield", label: "100% local. No data collection. No analytics.")
         }
     }
 }

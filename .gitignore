@@ -10,3 +10,8 @@ DerivedData/
 /dist/
 sparkle_private_key.pem
 *sparkle*private*.pem
+
+# Local agent worktrees and generated launch media.
+/.claude/
+/media/
+/launch-video/

@@ -19,13 +19,16 @@ struct LicenseIssueBanner: View {
 struct TrialStatusBanner: View {
     let daysRemaining: Int
     let onBuy: () -> Void
+    let onActivate: () -> Void
 
     var body: some View {
         PermissionBanner(
             icon: isUrgent ? "clock.badge.exclamationmark" : "sparkles",
             tint: isUrgent ? .orange : .accentColor,
             message: message,
-            actionTitle: "Buy FastTab"
+            actionTitle: "Buy FastTab",
+            secondaryActionTitle: "Enter License Key",
+            secondaryAction: onActivate
         ) {
             onBuy()
         }

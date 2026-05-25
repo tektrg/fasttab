@@ -264,9 +264,15 @@ struct ContentView: View {
                         if licenseService.snapshot.allowsCommandBarUtility {
                             if let trialDaysRemaining = licenseService.snapshot.trialDaysRemaining,
                                trialDaysRemaining <= 3 {
-                                TrialStatusBanner(daysRemaining: trialDaysRemaining) {
-                                    licenseService.openCheckout(source: .trialBanner)
-                                }
+                                TrialStatusBanner(
+                                    daysRemaining: trialDaysRemaining,
+                                    onBuy: {
+                                        licenseService.openCheckout(source: .trialBanner)
+                                    },
+                                    onActivate: {
+                                        isActivationPresented = true
+                                    }
+                                )
                             }
 
                             SearchHeader(
@@ -459,6 +465,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: fastTabCycleShortcutNotification)) { _ in
             guard appState.isVisible else { return }
             cycleShortcutSelectionForward()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: fastTabPresentLicenseActivationNotification)) { _ in
+            isActivationPresented = true
         }
         .onDisappear {
             searchDebounceTask?.cancel()

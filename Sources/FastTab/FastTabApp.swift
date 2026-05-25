@@ -5,6 +5,7 @@ import Combine
 
 private let appLogger = Logger(subsystem: "com.trungluong.FastTab", category: "AppDelegate")
 let fastTabCycleShortcutNotification = Notification.Name("FastTabCycleShortcut")
+let fastTabPresentLicenseActivationNotification = Notification.Name("FastTabPresentLicenseActivation")
 
 @MainActor
 class AppState: ObservableObject {
@@ -19,6 +20,7 @@ class AppState: ObservableObject {
     private weak var commandWindow: NSWindow?
     private var didHideInitialWindow = false
     private var pendingShowAfterAttach = false
+    private var pendingLicenseActivationPresentation = false
     var openCommandWindow: (() -> Void)?
 
     init() {
@@ -101,6 +103,7 @@ class AppState: ObservableObject {
         commandWindow.makeKeyAndOrderFront(nil)
         commandWindow.orderFrontRegardless()
         isVisible = commandWindow.isVisible
+        presentPendingLicenseActivationIfNeeded()
     }
 
     func hideCommandBar() {
@@ -113,6 +116,22 @@ class AppState: ObservableObject {
             hideCommandBar()
         } else {
             showCommandBar()
+        }
+    }
+
+    func requestLicenseActivationPresentation() {
+        pendingLicenseActivationPresentation = true
+        showCommandBar()
+    }
+
+    private func presentPendingLicenseActivationIfNeeded() {
+        guard pendingLicenseActivationPresentation else { return }
+        pendingLicenseActivationPresentation = false
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: fastTabPresentLicenseActivationNotification,
+                object: nil
+            )
         }
     }
 }
@@ -233,6 +252,10 @@ struct FastTabApp: App {
 
             Button("Buy FastTab…") {
                 licenseService.openCheckout(source: .menuBar)
+            }
+
+            Button("Enter License Key…") {
+                appState.requestLicenseActivationPresentation()
             }
 
             Button("Manage License…") {

@@ -13,6 +13,8 @@ struct PermissionBanner: View {
     let tint: Color
     let message: String
     let actionTitle: String
+    var secondaryActionTitle: String? = nil
+    var secondaryAction: (() -> Void)? = nil
     var dismissAction: (() -> Void)? = nil
     let action: () -> Void
 
@@ -26,6 +28,11 @@ struct PermissionBanner: View {
                 .lineLimit(2)
 
             Spacer(minLength: 8)
+
+            if let secondaryActionTitle, let secondaryAction {
+                Button(secondaryActionTitle, action: secondaryAction)
+                    .controlSize(.small)
+            }
 
             Button(actionTitle, action: action)
                 .buttonStyle(.borderedProminent)

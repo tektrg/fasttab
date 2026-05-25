@@ -8,6 +8,7 @@ struct PaymentConfiguration: Equatable {
     let personalCheckoutURL: URL?
     let lifetimeCheckoutURL: URL?
     let teamCheckoutURL: URL?
+    let pricingURL: URL?
     let manageLicenseURL: URL?
     let supportURL: URL?
     let currentMajorVersion: Int
@@ -24,6 +25,7 @@ struct PaymentConfiguration: Equatable {
             personalCheckoutURL: bundle.infoURL(forKey: "FastTabPolarPersonalCheckoutURL"),
             lifetimeCheckoutURL: bundle.infoURL(forKey: "FastTabPolarLifetimeCheckoutURL"),
             teamCheckoutURL: bundle.infoURL(forKey: "FastTabPolarTeamCheckoutURL"),
+            pricingURL: bundle.infoURL(forKey: "FastTabPricingURL"),
             manageLicenseURL: bundle.infoURL(forKey: "FastTabPolarManageLicenseURL"),
             supportURL: bundle.infoURL(forKey: "FastTabSupportURL") ?? URL(string: "mailto:support@theindie.app"),
             currentMajorVersion: bundle.fastTabMajorVersion,
@@ -36,8 +38,11 @@ struct PaymentConfiguration: Equatable {
         !organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// The single Buy CTA destination: the pricing page where the user picks a tier.
+    /// Falls back to the lifetime checkout link if the pricing URL is not configured in this build,
+    /// so an older bundle still has a working Buy path.
     var bestCheckoutURL: URL? {
-        lifetimeCheckoutURL ?? personalCheckoutURL ?? teamCheckoutURL
+        pricingURL ?? lifetimeCheckoutURL ?? personalCheckoutURL ?? teamCheckoutURL
     }
 
     var configuredBenefitIDs: Set<String> {

@@ -265,7 +265,7 @@ struct ContentView: View {
                             if let trialDaysRemaining = licenseService.snapshot.trialDaysRemaining,
                                trialDaysRemaining <= 3 {
                                 TrialStatusBanner(daysRemaining: trialDaysRemaining) {
-                                    licenseService.openCheckout()
+                                    licenseService.openCheckout(source: .trialBanner)
                                 }
                             }
 
@@ -417,7 +417,7 @@ struct ContentView: View {
                         } else {
                             PaywallView(
                                 snapshot: licenseService.snapshot,
-                                onBuy: { licenseService.openCheckout() },
+                                onBuy: { licenseService.openCheckout(source: .expiredPaywall) },
                                 onActivate: { isActivationPresented = true },
                                 onSupport: { licenseService.openSupport() }
                             )

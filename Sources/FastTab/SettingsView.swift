@@ -67,7 +67,7 @@ struct SettingsView: View {
 
                 HStack {
                     Button("Buy FastTab") {
-                        licenseService.openCheckout()
+                        licenseService.openCheckout(source: .settings)
                     }
                     Button("Manage License") {
                         licenseService.openManageLicense()

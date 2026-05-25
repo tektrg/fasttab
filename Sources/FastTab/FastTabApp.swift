@@ -232,7 +232,7 @@ struct FastTabApp: App {
             Divider()
 
             Button("Buy FastTab…") {
-                licenseService.openCheckout()
+                licenseService.openCheckout(source: .menuBar)
             }
 
             Button("Manage License…") {

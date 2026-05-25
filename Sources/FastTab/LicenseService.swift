@@ -168,22 +168,34 @@ final class LicenseService: ObservableObject {
         }
     }
 
-    func openCheckout(preferredTier: FastTabLicenseTier? = nil) {
-        let url: URL?
-        switch preferredTier {
-        case .personal:
-            url = configuration.personalCheckoutURL ?? configuration.bestCheckoutURL
-        case .lifetime:
-            url = configuration.lifetimeCheckoutURL ?? configuration.bestCheckoutURL
-        case .team:
-            url = configuration.teamCheckoutURL ?? configuration.bestCheckoutURL
-        case .unknown, nil:
-            url = configuration.bestCheckoutURL
-        }
+    /// Where the user clicked Buy, so the pricing page (and our analytics) can attribute
+    /// conversion by surface. Stays out of the hot command-bar open/search path —
+    /// only consulted when a click already happened.
+    enum CheckoutSource: String {
+        case trialBanner = "trial-banner"
+        case expiredPaywall = "expired-paywall"
+        case settings = "settings"
+        case menuBar = "menu-bar"
+    }
 
-        guard let url else {
+    /// Opens the pricing page where the user picks Personal / Lifetime / Team.
+    /// The tier chooser intentionally lives on the website (single source of truth for price
+    /// and launch-discount copy); see memory/Projects/monetization/payment-implementation-plan.md.
+    func openCheckout(source: CheckoutSource? = nil) {
+        guard let base = configuration.bestCheckoutURL else {
             setError("Checkout is not configured in this build.")
             return
+        }
+
+        let url: URL
+        if let source,
+           var components = URLComponents(url: base, resolvingAgainstBaseURL: false) {
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "ref", value: source.rawValue))
+            components.queryItems = items
+            url = components.url ?? base
+        } else {
+            url = base
         }
         NSWorkspace.shared.open(url)
     }

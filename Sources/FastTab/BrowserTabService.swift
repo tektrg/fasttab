@@ -531,9 +531,7 @@ class BrowserTabService: ObservableObject {
                     self.openTabCount = filteredLiveTabs.count
                     self.hasFetchedOpenTabCount = true
                 }
-                if !filteredPhase1.isEmpty {
-                    self.results = filteredPhase1
-                }
+                self.results = filteredPhase1
                 self.logger.info("fetchResults phase1 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' phase1={\(Self.typeBreakdown(filteredPhase1), privacy: .public)}")
             }
 
@@ -556,16 +554,13 @@ class BrowserTabService: ObservableObject {
             }
 
             let mergedResults = sortBrowserSearchResults(tabMatches + bookmarkMatches + historyMatches)
-            let fallbackResults = sortBrowserSearchResults(sortedLiveTabs + bookmarkSnapshot + historySnapshot)
-            let fallbackUsed = mergedResults.isEmpty && !fallbackResults.isEmpty
-            let finalResults = fallbackUsed ? fallbackResults : mergedResults
 
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
-                let filteredFinal = self.filteringRecentlyClosed(finalResults)
+                let filteredFinal = self.filteringRecentlyClosed(mergedResults)
                 self.results = filteredFinal
                 self.isLoading = false
-                self.logger.info("fetchResults phase2 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' history=\(historyMatches.count) final={\(Self.typeBreakdown(filteredFinal), privacy: .public)} fallbackUsed=\(fallbackUsed, privacy: .public)")
+                self.logger.info("fetchResults phase2 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' history=\(historyMatches.count) final={\(Self.typeBreakdown(filteredFinal), privacy: .public)}")
                 self.refreshCachesIfNeeded(force: bookmarkSnapshot.isEmpty && historySnapshot.isEmpty)
             }
         }

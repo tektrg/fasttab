@@ -182,7 +182,7 @@ private struct ResultRowView: View {
 
                     Text(result.secondaryBaseText)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
             }

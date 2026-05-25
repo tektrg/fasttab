@@ -115,7 +115,7 @@ struct ScopeSuggestionDropdown: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                    .strokeBorder(Color.primary.opacity(0.04), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.22), radius: 16, y: 8)
         }

@@ -314,6 +314,7 @@ private struct WindowChromeConfigurator: NSViewRepresentable {
             window.backgroundColor = .clear
             window.hasShadow = false
             window.isMovableByWindowBackground = true
+            window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
             window.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
 
             [NSWindow.ButtonType.closeButton,

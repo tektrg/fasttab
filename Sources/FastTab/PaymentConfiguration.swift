@@ -38,6 +38,14 @@ struct PaymentConfiguration: Equatable {
         !organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// True when this bundle is wired to the Polar sandbox API (local dev builds
+    /// rebuilt from the repo `.env`). Production license keys will fail to validate
+    /// here, so we suppress the user-facing "Could not validate license" banner —
+    /// see memory/Projects/monetization/202605252330-local-build-production-license-override.md.
+    var isSandboxEnvironment: Bool {
+        apiBaseURL.host?.contains("sandbox") == true
+    }
+
     /// The single Buy CTA destination: the pricing page where the user picks a tier.
     /// Falls back to the lifetime checkout link if the pricing URL is not configured in this build,
     /// so an older bundle still has a working Buy path.

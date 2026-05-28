@@ -269,11 +269,17 @@ final class LicenseService: ObservableObject {
             return true
         } catch {
             logger.error("License validation failed: \(error.localizedDescription, privacy: .public)")
+            // In sandbox/local dev builds, production license keys will always fail
+            // to validate against the sandbox Polar API. Suppress the user-facing
+            // banner there — keep cached access and the log entry only.
+            let errorMessage: String? = configuration.isSandboxEnvironment
+                ? nil
+                : "Could not validate license. Cached access remains active while offline."
             snapshot = EntitlementSnapshot(
                 access: snapshot.access,
                 trial: snapshot.trial,
                 license: snapshot.license,
-                lastErrorMessage: "Could not validate license. Cached access remains active while offline."
+                lastErrorMessage: errorMessage
             )
             return false
         }

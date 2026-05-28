@@ -6,6 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject var licenseService: LicenseService
     @StateObject private var launchAtLogin = LaunchAtLoginService.shared
     @ObservedObject private var shortcutStore = ShortcutStore.shared
+    @ObservedObject private var sourceSelection = SourceSelectionStore.shared
 
     @AppStorage("FastTab.safari.includeFDAData") private var includeSafariFDAData: Bool = false
 
@@ -39,6 +40,36 @@ struct SettingsView: View {
                     Text(issue)
                         .font(.caption)
                         .foregroundStyle(.orange)
+                }
+            }
+
+            Section("Sources") {
+                ForEach(SearchSource.allCases) { source in
+                    Toggle(source.displayName, isOn: Binding(
+                        get: { sourceSelection.isEnabled(source) },
+                        set: { sourceSelection.setEnabled(source, $0) }
+                    ))
+                    .disabled(!source.isInstalled)
+
+                    if !source.isInstalled {
+                        Text("Not installed on this Mac.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                if sourceSelection.needsRestartToApply {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.clockwise.circle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Restart FastTab to apply source changes.")
+                            .font(.callout)
+                        Spacer()
+                        Button("Restart") {
+                            restartApp()
+                        }
+                        .controlSize(.small)
+                    }
                 }
             }
 
@@ -87,6 +118,7 @@ struct SettingsView: View {
                 }
             }
 
+            if sourceSelection.isEnabled(.safari) {
             Section("Safari") {
                 Toggle("Include Safari bookmarks and history", isOn: $includeSafariFDAData)
 
@@ -138,6 +170,7 @@ struct SettingsView: View {
                 }
                 .font(.caption)
             }
+            } // if sourceSelection.isEnabled(.safari)
         }
         .formStyle(.grouped)
         .frame(width: 480)

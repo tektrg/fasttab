@@ -529,7 +529,7 @@ class BrowserTabService: ObservableObject {
     var availableWindows: [WindowRef] {
         var seen: Set<String> = []
         var out: [WindowRef] = []
-        for tab in cachedLiveTabs where tab.type == .tab {
+        for tab in cachedLiveTabs where tab.type == .tab && tab.browserName != "Finder" {
             let name = tab.windowName ?? ""
             let idx = tab.windowIndex ?? 0
             let ref = WindowRef(browserName: tab.browserName, windowName: name, windowIndex: idx)

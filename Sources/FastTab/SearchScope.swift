@@ -78,6 +78,11 @@ struct ScopeChip: Identifiable, Equatable, Hashable {
         /// time bound (produced by typing text that matches no time preset).
         case history(HistoryTimeScope?)
         case window(WindowRef)
+        /// Pin results to a specific source app (e.g. "Finder"). Acts as an
+        /// AND constraint on `browserName`. Today only non-browser sources
+        /// appear in the dropdown — browser-vs-browser filtering is left to
+        /// `@Window:` since browser tabs already mix freely.
+        case source(String)
     }
 
     let id = UUID()
@@ -91,6 +96,7 @@ struct ScopeChip: Identifiable, Equatable, Hashable {
         case .history(let time?): return "History: \(time.label)"
         case .history(nil): return "History"
         case .window(let ref): return "Window: \(ref.displayName)"
+        case .source(let name): return name
         }
     }
 
@@ -154,6 +160,9 @@ enum RootSuggestion: Equatable, Hashable {
     case bookmarks
     case history
     case window(WindowRef)
+    /// Non-browser source filter (e.g. Finder). Picking commits a
+    /// `Kind.source(name)` chip that pins `browserName` to the source app.
+    case source(name: String)
 
     var label: String {
         switch self {
@@ -161,6 +170,7 @@ enum RootSuggestion: Equatable, Hashable {
         case .bookmarks: return "Bookmarks"
         case .history: return "History"
         case .window(let ref): return ref.displayName
+        case .source(let name): return name
         }
     }
 
@@ -170,6 +180,7 @@ enum RootSuggestion: Equatable, Hashable {
         case .bookmarks: return "Search bookmarks"
         case .history: return "Search history"
         case .window: return "Tabs in this window"
+        case .source(let name): return "Only \(name) results"
         }
     }
 
@@ -179,6 +190,12 @@ enum RootSuggestion: Equatable, Hashable {
         case .bookmarks: return "bookmark"
         case .history: return "clock.arrow.circlepath"
         case .window: return "macwindow"
+        case .source(let name):
+            // Finder gets its system glyph; other future sources fall back to
+            // a generic app icon. Kept in sync with the actual app the chip
+            // pins so the dropdown row reads naturally.
+            if name == "Finder" { return "folder" }
+            return "app"
         }
     }
 }
@@ -232,11 +249,15 @@ struct ScopeFilter: Equatable {
     var window: WindowRef?
     /// If true, only tabs whose exact URL appears 2+ times in the live-tabs list.
     var duplicateOnly: Bool = false
+    /// If set, only results whose `browserName` matches this source app pass.
+    /// Drives the fetch-path short-circuit in `BrowserTabService` (no point
+    /// polling Chrome when we've pinned to Finder).
+    var source: String?
 
     /// True when nothing is constrained — fast path can skip the filter.
     var isPassthrough: Bool {
         requiredType == nil && bookmarkFolder == nil && historySince == nil
-            && historyBefore == nil && window == nil && !duplicateOnly
+            && historyBefore == nil && window == nil && !duplicateOnly && source == nil
     }
 
     /// Set internally when chip stack contains incompatible source-types.
@@ -270,10 +291,22 @@ struct ScopeFilter: Equatable {
             case .window(let ref):
                 require(type: .tab)
                 filter.window = ref
+            case .source(let name):
+                // Two source chips with different names → unsatisfiable.
+                if let existing = filter.source, existing != name {
+                    filter.conflicted = true
+                }
+                filter.source = name
             }
         }
 
         if seenTypes.count > 1 {
+            filter.conflicted = true
+        }
+        // Source vs window: pinning a window in a different browser than the
+        // pinned source can never resolve.
+        if let source = filter.source, let window = filter.window,
+           window.browserName != source {
             filter.conflicted = true
         }
         return filter
@@ -306,6 +339,7 @@ struct ScopeFilter: Equatable {
                   (result.windowIndex ?? 0) == window.windowIndex
             else { return false }
         }
+        if let source, result.browserName != source { return false }
         return true
     }
 }

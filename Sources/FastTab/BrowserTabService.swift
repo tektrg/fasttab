@@ -22,6 +22,14 @@ class BrowserTabService: ObservableObject {
 
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService")
     private var lastActiveTimes: [String: Date] = [:]
+    /// Frecency store keyed by `Frecency.key(browser, profile, normalizedURL)`.
+    /// Parallel to `lastActiveTimes` — `lastActiveTimes` still drives the per-tab
+    /// `timestamp` shown in row UI; `frecency` drives the tab-tier sort order.
+    private var frecency: [String: FrecencyEntry] = [:]
+    /// Tracks the last-observed front-tab frecency key per browser. Used by the
+    /// 10s poll to debounce dwell — only the *transition* to a new front tab
+    /// counts as a visit, not every tick on the same tab.
+    private var lastPolledFrontFrecencyKey: [String: String] = [:]
     private var currentFlowSourceAppBundleIdentifier: String?
 
     private var fetchTask: Task<Void, Never>?
@@ -60,6 +68,7 @@ class BrowserTabService: ObservableObject {
     private let backends: [any BrowserBackend]
 
     private static let activeTimesDefaultsKey = "FastTab.lastActiveTimes"
+    private static let frecencyDefaultsKey = "FastTab.frecencyV1"
 
     // Background poll of active tabs (frontmost browser only).
     private let activeTabPollInterval: TimeInterval = 10
@@ -89,10 +98,17 @@ class BrowserTabService: ObservableObject {
             backends.append(SafariBackend())
         }
 
+        backends.append(FinderBackend())
+
         self.backends = backends
         self.lastActiveTimes = Self.loadActiveTimes()
+        let backendAppNames = backends.map { $0.appName }
+        self.frecency = Self.loadFrecency(
+            seedFromLegacy: self.lastActiveTimes,
+            backendAppNames: backendAppNames
+        )
         self.safariAutomationStatus = Self.probeSafariAutomation()
-        logger.info("BrowserTabService init. backends=\(backends.map { $0.appName }.joined(separator: ","), privacy: .public) safariAutomation=\(self.safariAutomationStatus.rawValue, privacy: .public)")
+        logger.info("BrowserTabService init. backends=\(backendAppNames.joined(separator: ","), privacy: .public) safariAutomation=\(self.safariAutomationStatus.rawValue, privacy: .public) frecencyEntries=\(self.frecency.count)")
         startActiveTabPoll()
     }
 
@@ -158,15 +174,28 @@ class BrowserTabService: ObservableObject {
                 for key in keys {
                     self.lastActiveTimes[key] = stamp
                 }
+                // Frecency: record a visit only on front-tab *transition*
+                // (key change since last poll), so a tab left foregrounded
+                // doesn't accumulate one visit per tick.
+                let browserName = backendRef.appName
+                if let url = Self.urlFromCompositeRecencyKey(keys[0], browserName: browserName) {
+                    let frecencyKey = Frecency.key(browser: browserName, profile: nil, url: url)
+                    let previous = self.lastPolledFrontFrecencyKey[browserName]
+                    if previous != frecencyKey {
+                        self.lastPolledFrontFrecencyKey[browserName] = frecencyKey
+                        self.recordVisit(frecencyKey: frecencyKey, now: stamp)
+                    }
+                }
                 // Throttle disk writes from the high-frequency poll. In-memory
                 // state is always current; persistence catches up at most once
                 // per pollPersistInterval. Bar-open / close-tab paths still
                 // call persistActiveTimes() directly for immediate durability.
                 if Date().timeIntervalSince(self.lastPollPersistAt) >= self.pollPersistInterval {
                     self.persistActiveTimes()
+                    self.persistFrecency()
                     self.lastPollPersistAt = Date()
                 }
-                self.logger.info("active-tab poll tick. browser='\(backendRef.appName, privacy: .public)' keys=\(keys.count)")
+                self.logger.info("active-tab poll tick. browser='\(backendRef.appName, privacy: .public)' keys=\(keys.count) frecencyEntries=\(self.frecency.count)")
             }
         }
     }
@@ -241,6 +270,223 @@ class BrowserTabService: ObservableObject {
     private func persistActiveTimes() {
         let raw = lastActiveTimes.mapValues { $0.timeIntervalSince1970 }
         UserDefaults.standard.set(raw, forKey: Self.activeTimesDefaultsKey)
+    }
+
+    // MARK: - Frecency
+
+    /// Loads the persisted frecency dict. On first run after upgrade (no
+    /// `frecencyV1` data) seeds entries from the legacy `lastActiveTimes`
+    /// composite-key dict so users don't lose their recency history. Evicts
+    /// entries older than the eviction threshold during load.
+    private static func loadFrecency(
+        seedFromLegacy legacy: [String: Date],
+        backendAppNames: [String]
+    ) -> [String: FrecencyEntry] {
+        let defaults = UserDefaults.standard
+        let now = Date()
+        var out: [String: FrecencyEntry] = [:]
+
+        if let data = defaults.data(forKey: frecencyDefaultsKey),
+           let decoded = try? JSONDecoder().decode([String: FrecencyEntry].self, from: data) {
+            for (key, entry) in decoded where !Frecency.shouldEvict(entry, now: now) {
+                out[key] = entry
+            }
+            return out
+        }
+
+        // First-run migration. Parse `browser|win|tab|url` and seed a single-
+        // visit entry per (browser, normalizedURL). Multiple legacy keys may
+        // collapse to the same frecency key — accumulate by taking max
+        // lastVisit and summing count.
+        for (legacyKey, ts) in legacy {
+            guard let parsed = parseLegacyRecencyKey(legacyKey, backendAppNames: backendAppNames) else { continue }
+            let fkey = Frecency.key(browser: parsed.browser, profile: nil, url: parsed.url)
+            if var existing = out[fkey] {
+                existing.count += 1
+                if ts > existing.lastVisit {
+                    existing.lastVisit = ts
+                }
+                existing.cachedScore = existing.count
+                existing.cachedScoreAt = ts
+                out[fkey] = existing
+            } else {
+                out[fkey] = FrecencyEntry(
+                    count: 1.0,
+                    lastVisit: ts,
+                    cachedScore: 1.0,
+                    cachedScoreAt: ts
+                )
+            }
+        }
+        out = out.filter { !Frecency.shouldEvict($0.value, now: now) }
+        return out
+    }
+
+    private func persistFrecency() {
+        // Evict stale entries before write so the on-disk size stays bounded.
+        let now = Date()
+        frecency = frecency.filter { !Frecency.shouldEvict($0.value, now: now) }
+        if let data = try? JSONEncoder().encode(frecency) {
+            UserDefaults.standard.set(data, forKey: Self.frecencyDefaultsKey)
+        }
+    }
+
+    /// Mutates the frecency dict to record a visit at `frecencyKey`. Caller is
+    /// responsible for persisting (immediate for activate/close paths, throttled
+    /// for the 10s poll).
+    private func recordVisit(frecencyKey: String, weight: Double = 1.0, now: Date = Date()) {
+        if var existing = frecency[frecencyKey] {
+            Frecency.applyVisit(&existing, weight: weight, now: now)
+            frecency[frecencyKey] = existing
+        } else {
+            frecency[frecencyKey] = Frecency.newEntry(weight: weight, now: now)
+        }
+    }
+
+    /// Returns the cached score for the URL/browser of `result`. Zero when no
+    /// entry exists (treated as the lowest priority tier within tabs). O(1)
+    /// arithmetic; safe to call from sort closures over thousands of items.
+    private func frecencyScore(for result: BrowserSearchResult) -> Double {
+        // For lookup, try both (browser, profile, url) and the collapsed
+        // (browser, *, url). Profile may have been set when the entry was
+        // written but not available now, or vice versa — prefer the more
+        // specific match.
+        if let profile = result.profileName, !profile.isEmpty {
+            let specific = Frecency.key(browser: result.browserName, profile: profile, url: result.url)
+            if let entry = frecency[specific] {
+                return Frecency.liveScore(entry)
+            }
+        }
+        let collapsed = Frecency.key(browser: result.browserName, profile: nil, url: result.url)
+        if let entry = frecency[collapsed] {
+            return Frecency.liveScore(entry)
+        }
+        return 0
+    }
+
+    /// Returns a sendable score-lookup closure that captures a snapshot of
+    /// the current frecency dict. Safe to pass into `Task.detached` since the
+    /// dict is value-copied.
+    private func makeFrecencyScoreLookup() -> @Sendable (BrowserSearchResult) -> Double {
+        let snapshot = frecency
+        return { result in
+            if let profile = result.profileName, !profile.isEmpty {
+                let specific = Frecency.key(browser: result.browserName, profile: profile, url: result.url)
+                if let entry = snapshot[specific] {
+                    return Frecency.liveScore(entry)
+                }
+            }
+            let collapsed = Frecency.key(browser: result.browserName, profile: nil, url: result.url)
+            if let entry = snapshot[collapsed] {
+                return Frecency.liveScore(entry)
+            }
+            return 0
+        }
+    }
+
+    /// Parses a legacy `browser|win|tab|url` recency key. browserName may
+    /// contain spaces but not `|`, so `browser` is matched against the known
+    /// backend names. Returns nil for malformed keys.
+    private static func parseLegacyRecencyKey(
+        _ key: String,
+        backendAppNames: [String]
+    ) -> (browser: String, url: String)? {
+        // Sort longest-first so "Microsoft Edge" matches before "Edge" etc.
+        let sorted = backendAppNames.sorted { $0.count > $1.count }
+        guard let browser = sorted.first(where: { key.hasPrefix($0 + "|") }) else { return nil }
+        // Strip "<browser>|<win>|<tab>|" prefix; URL is the remainder.
+        let afterBrowser = key.dropFirst(browser.count + 1)
+        let parts = afterBrowser.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return nil }
+        let url = String(parts[2])
+        guard !url.isEmpty else { return nil }
+        return (browser, url)
+    }
+
+    /// Extracts URL from a composite recency key returned by
+    /// `backend.pollActiveTabKeys()`. Mirrors `parseLegacyRecencyKey` but
+    /// scoped to a known browser name (avoids prefix-disambiguation).
+    private static func urlFromCompositeRecencyKey(_ key: String, browserName: String) -> String? {
+        guard key.hasPrefix(browserName + "|") else { return nil }
+        let afterBrowser = key.dropFirst(browserName.count + 1)
+        let parts = afterBrowser.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return nil }
+        let url = String(parts[2])
+        return url.isEmpty ? nil : url
+    }
+
+    /// Fan out `fetchLiveTabs` across `backends` in parallel.
+    ///
+    /// The legacy sequential loop made every cold fetch wait for the slowest
+    /// AppleScript-driven backend in series — adding the Finder backend made
+    /// this worse because `target of w as alias` can stall on sleeping NAS /
+    /// SMB shares. Parallel fan-out converts the cost from additive
+    /// (sum of backend latencies) to overlapping (max of backend latencies).
+    ///
+    /// Each task gets a *private* copy of `baseline` to mutate, then returns
+    /// the delta. The merge applies max-timestamp wins (writes only ever
+    /// advance time — see ChromiumBackend / FinderBackend, which write
+    /// `fetchStart` only for the current-flow front tab). This keeps the
+    /// semantics identical to the sequential loop without needing a shared
+    /// `inout` across tasks.
+    ///
+    /// Single-backend case (e.g. source-pinned scope) bypasses the task-group
+    /// to avoid Swift concurrency overhead when there's nothing to overlap.
+    private nonisolated static func fetchLiveTabsParallel(
+        backends: [any BrowserBackend],
+        fetchStart: Date,
+        baseline: [String: Date],
+        activeTimes: inout [String: Date],
+        currentFlowSourceAppBundleIdentifier: String?
+    ) async -> [BrowserSearchResult] {
+        if backends.isEmpty { return [] }
+        if backends.count == 1 {
+            return backends[0].fetchLiveTabs(
+                fetchStart: fetchStart,
+                activeTimes: &activeTimes,
+                currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+            )
+        }
+
+        let collected = await withTaskGroup(
+            of: (tabs: [BrowserSearchResult], updates: [String: Date]).self
+        ) { group in
+            for backend in backends {
+                group.addTask {
+                    if Task.isCancelled { return ([], [:]) }
+                    var local = baseline
+                    let tabs = backend.fetchLiveTabs(
+                        fetchStart: fetchStart,
+                        activeTimes: &local,
+                        currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+                    )
+                    // Diff vs baseline so we don't ship the whole dict across
+                    // task boundaries. In practice updates is 0-1 entries per
+                    // backend (only the current-flow front tab is rewritten).
+                    var updates: [String: Date] = [:]
+                    for (key, value) in local where baseline[key] != value {
+                        updates[key] = value
+                    }
+                    return (tabs, updates)
+                }
+            }
+            var all: [(tabs: [BrowserSearchResult], updates: [String: Date])] = []
+            for await item in group { all.append(item) }
+            return all
+        }
+
+        var liveTabs: [BrowserSearchResult] = []
+        for entry in collected {
+            liveTabs.append(contentsOf: entry.tabs)
+            for (key, value) in entry.updates {
+                if let existing = activeTimes[key] {
+                    if value > existing { activeTimes[key] = value }
+                } else {
+                    activeTimes[key] = value
+                }
+            }
+        }
+        return liveTabs
     }
 
     private nonisolated static func computeHasMultipleWindows(_ tabs: [BrowserSearchResult]) -> Bool {
@@ -338,11 +584,24 @@ class BrowserTabService: ObservableObject {
 
         isLoading = true
 
-        let backends = self.backends
+        let allBackends = self.backends
         let cachedTimes = self.lastActiveTimes
         let bookmarkSnapshot = self.cachedBookmarks
         let currentFlowSourceAppBundleIdentifier = self.currentFlowSourceAppBundleIdentifier
         let requiredType = filter.requiredType
+        let pinnedSource = filter.source
+        let frecencyLookup = makeFrecencyScoreLookup()
+
+        // Source-pinned scope: only the matching backend runs. Saves us from
+        // polling Chrome via AppleScript and reading the Safari history DB
+        // when the user has explicitly asked for, e.g., Finder only. Matches
+        // the CLAUDE.md "no wasted work in fetch path" rule.
+        let backends: [any BrowserBackend]
+        if let pinnedSource {
+            backends = allBackends.filter { $0.appName == pinnedSource }
+        } else {
+            backends = allBackends
+        }
 
         fetchTask = Task.detached(priority: .userInitiated) { [weak self] in
             var updatedTimes = cachedTimes
@@ -351,16 +610,14 @@ class BrowserTabService: ObservableObject {
             switch requiredType {
             case .tab:
                 // Live tabs (always fresh — scope-aware fetches don't reuse cache).
-                var liveTabs: [BrowserSearchResult] = []
-                for backend in backends {
-                    if Task.isCancelled { break }
-                    liveTabs.append(contentsOf: backend.fetchLiveTabs(
-                        fetchStart: Date(),
-                        activeTimes: &updatedTimes,
-                        currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
-                    ))
-                }
-                liveTabs = sortBrowserSearchResults(liveTabs)
+                var liveTabs = await Self.fetchLiveTabsParallel(
+                    backends: backends,
+                    fetchStart: Date(),
+                    baseline: cachedTimes,
+                    activeTimes: &updatedTimes,
+                    currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+                )
+                liveTabs = sortBrowserSearchResults(liveTabs, frecencyScore: frecencyLookup)
                 if filter.duplicateOnly {
                     // Duplicates are scoped per-browser: same URL open in Chrome
                     // and Safari is not surprising and shouldn't be flagged.
@@ -390,10 +647,43 @@ class BrowserTabService: ObservableObject {
                     for await chunk in group { all.append(contentsOf: chunk) }
                     return all
                 }
-                produced = sortBrowserSearchResults(collected).filter { filter.matches($0) }
+                produced = sortBrowserSearchResults(collected, frecencyScore: frecencyLookup).filter { filter.matches($0) }
 
             case .none:
-                produced = []
+                // Source-only scope (e.g. `@Finder` alone, no required type).
+                // Merge live tabs + history from the pinned backend(s) so the
+                // user sees everything the source has to offer in one list,
+                // with the existing tab-tier > history-tier sort.
+                if pinnedSource != nil {
+                    let liveTabs = await Self.fetchLiveTabsParallel(
+                        backends: backends,
+                        fetchStart: Date(),
+                        baseline: cachedTimes,
+                        activeTimes: &updatedTimes,
+                        currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+                    )
+                    let history: [BrowserSearchResult] = await withTaskGroup(of: [BrowserSearchResult].self) { group in
+                        for backend in backends {
+                            group.addTask {
+                                backend.searchHistory(query: normalizedQuery, limit: 500)
+                            }
+                        }
+                        var all: [BrowserSearchResult] = []
+                        for await chunk in group { all.append(contentsOf: chunk) }
+                        return all
+                    }
+                    // De-dup: suppress a history row whose URL is currently
+                    // open as a live tab in the same source — design call,
+                    // avoids the user seeing the same path twice when they
+                    // pin to Finder.
+                    let liveURLs = Set(liveTabs.map { $0.url })
+                    let dedupedHistory = history.filter { !liveURLs.contains($0.url) }
+                    let merged = liveTabs + dedupedHistory
+                    produced = sortBrowserSearchResults(merged, frecencyScore: frecencyLookup)
+                        .filter { filter.matches($0) }
+                } else {
+                    produced = []
+                }
             }
 
             // Apply free-text filter (history is already query-filtered at SQL).
@@ -407,7 +697,7 @@ class BrowserTabService: ObservableObject {
                 self.persistActiveTimes()
                 // Refresh live-tabs cache if we just fetched fresh ones.
                 if requiredType == .tab {
-                    let freshLive = sortBrowserSearchResults(produced.filter { $0.type == .tab })
+                    let freshLive = sortBrowserSearchResults(produced.filter { $0.type == .tab }, frecencyScore: frecencyLookup)
                     // Only refresh cache when not duplicate-only (which is a filtered subset).
                     if !filter.duplicateOnly && filter.window == nil {
                         self.cachedLiveTabs = freshLive
@@ -450,6 +740,7 @@ class BrowserTabService: ObservableObject {
         let cachedLiveTabsSnapshot = self.cachedLiveTabs
         let lastLiveTabsRefreshAt = self.lastLiveTabsRefreshAt
         let typedQueryLiveTabsReuseWindow = self.typedQueryLiveTabsReuseWindow
+        let frecencyLookup = makeFrecencyScoreLookup()
 
         logger.info("fetchResults start. generation=\(generation) query='\(normalizedQuery, privacy: .public)' bookmarkSnapshot=\(bookmarkSnapshot.count) historySnapshot=\(historySnapshot.count)")
 
@@ -465,14 +756,13 @@ class BrowserTabService: ObservableObject {
                 liveTabs = cachedLiveTabsSnapshot
                 usedCachedLiveTabs = true
             } else {
-                for backend in backends {
-                    if Task.isCancelled { break }
-                    liveTabs.append(contentsOf: backend.fetchLiveTabs(
-                        fetchStart: fetchStart,
-                        activeTimes: &updatedTimes,
-                        currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
-                    ))
-                }
+                liveTabs = await Self.fetchLiveTabsParallel(
+                    backends: backends,
+                    fetchStart: fetchStart,
+                    baseline: cachedTimes,
+                    activeTimes: &updatedTimes,
+                    currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+                )
             }
 
             guard !Task.isCancelled else {
@@ -483,14 +773,36 @@ class BrowserTabService: ObservableObject {
                 return
             }
 
-            let sortedLiveTabs = sortBrowserSearchResults(liveTabs)
-            let recencyTopPreview = sortedLiveTabs.prefix(10).map { r -> String in
+            // Empty query (quick-open top-5) must rank by raw recency so the
+            // tab you *just* used is always at the top — a hard UX guarantee
+            // that frecency would violate (a daily-driver gmail tab would
+            // outrank the tab you alt-tabbed to 5 seconds ago). Typed-query
+            // paths below re-sort with frecency.
+            //
+            // Empty-query fast path: only the top-N rows are rendered, and
+            // `cachedLiveTabs` is consumed downstream as an unordered set
+            // (count, hasMultipleWindows, re-sort by typed-query). So we skip
+            // the full O(n log n) sort and compute just top-K (O(n log k)).
+            let sortedLiveTabs: [BrowserSearchResult]
+            let quickOpenTopK: [BrowserSearchResult]?
+            if normalizedQuery.isEmpty {
+                // Filter the current-flow active tab *before* top-K so we
+                // always return `initialVisibleTabLimit` rows (the active
+                // tab would otherwise eat a slot, then be stripped later).
+                let candidates = liveTabs.filter { !$0.isCurrentFlowActiveTab }
+                quickOpenTopK = topKTabsByRecency(candidates, limit: initialVisibleTabLimit)
+                sortedLiveTabs = liveTabs  // unordered; consumers don't need order
+            } else {
+                sortedLiveTabs = sortBrowserSearchResults(liveTabs, frecencyScore: frecencyLookup)
+                quickOpenTopK = nil
+            }
+            let recencyTopPreview = (quickOpenTopK ?? sortedLiveTabs).prefix(10).map { r -> String in
                 "[win=\(r.windowIndex ?? -1) tab=\(r.tabIndex ?? -1) ts=\(Int(r.timestamp.timeIntervalSince1970)) '\(r.title.prefix(40))']"
             }.joined(separator: " ")
             Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService").info("recency-sort post-sort top10. generation=\(generation) usedCachedLiveTabs=\(usedCachedLiveTabs, privacy: .public) liveTabsCount=\(sortedLiveTabs.count) top='\(recencyTopPreview, privacy: .public)'")
 
             if normalizedQuery.isEmpty {
-                let prioritizedTabs = quickOpenVisibleTabs(from: sortedLiveTabs, limit: initialVisibleTabLimit)
+                let prioritizedTabs = quickOpenTopK ?? []
 
                 await MainActor.run {
                     guard let self, generation == self.fetchGeneration else { return }
@@ -517,7 +829,7 @@ class BrowserTabService: ObservableObject {
             let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(query: normalizedQuery) }
 
             // Phase 1: publish tabs + bookmarks immediately so UI isn't blocked by history DB I/O
-            let phase1Results = sortBrowserSearchResults(tabMatches + bookmarkMatches)
+            let phase1Results = sortBrowserSearchResults(tabMatches + bookmarkMatches, frecencyScore: frecencyLookup)
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
                 let filteredLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
@@ -553,7 +865,7 @@ class BrowserTabService: ObservableObject {
                 return all
             }
 
-            let mergedResults = sortBrowserSearchResults(tabMatches + bookmarkMatches + historyMatches)
+            let mergedResults = sortBrowserSearchResults(tabMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
 
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
@@ -637,17 +949,40 @@ class BrowserTabService: ObservableObject {
     func activate(_ result: BrowserSearchResult) {
         switch result.type {
         case .tab:
+            let now = Date()
             if let key = result.tabRecencyKey {
-                let now = Date()
                 lastActiveTimes[key] = now
                 persistActiveTimes()
                 logger.info("recency-sort activate persisted. key='\(key, privacy: .public)' epoch=\(now.timeIntervalSince1970) totalKeys=\(self.lastActiveTimes.count) title='\(result.title, privacy: .public)'")
             } else {
                 logger.info("recency-sort activate skipped (no recency key). title='\(result.title, privacy: .public)' type=\(String(describing: result.type), privacy: .public)")
             }
-            backend(for: result)?.activateTab(result)
+            // Frecency: every user-driven activation is a full-weight visit.
+            let frecencyKey = Frecency.key(
+                browser: result.browserName,
+                profile: result.profileName,
+                url: result.url
+            )
+            recordVisit(frecencyKey: frecencyKey, now: now)
+            persistFrecency()
+            lastPolledFrontFrecencyKey[result.browserName] = frecencyKey
+            logger.info("frecency activate. key='\(frecencyKey, privacy: .public)' score=\(self.frecency[frecencyKey].map { Frecency.liveScore($0) } ?? 0) totalEntries=\(self.frecency.count)")
+            // Dispatch the AppleScript-driven activation off the main thread —
+            // `runAppleScript` is synchronous and can stall (TCC prompt, slow
+            // alias resolution, modal save dialog). Blocking @MainActor here
+            // would freeze the UI for the duration. See "close finder item
+            // hangs the app" root-cause investigation.
+            if let backend = backend(for: result) {
+                Task.detached(priority: .userInitiated) {
+                    backend.activateTab(result)
+                }
+            }
         case .bookmark, .history:
-            backend(for: result)?.openURL(result)
+            if let backend = backend(for: result) {
+                Task.detached(priority: .userInitiated) {
+                    backend.openURL(result)
+                }
+            }
         }
     }
 
@@ -658,16 +993,23 @@ class BrowserTabService: ObservableObject {
     }
 
     func remove(_ result: BrowserSearchResult) {
-        switch result.type {
-        case .tab:
-            backend(for: result)?.closeTab(result)
-            recentlyClosedTabs.append(
-                ClosedTabTombstone(browserName: result.browserName, url: result.url, timestamp: Date())
-            )
-        case .bookmark:
-            backend(for: result)?.deleteBookmark(result)
-        case .history:
-            backend(for: result)?.deleteHistoryItem(result)
+        // All backend mutations route through synchronous `osascript`/sqlite
+        // helpers that can stall briefly (and for Finder, occasionally for
+        // seconds on first-run TCC prompts or sleeping remote volumes).
+        // Dispatch off @MainActor so the UI stays responsive; the snapshot
+        // removal + re-fetch below give immediate visual feedback regardless.
+        if let backend = backend(for: result) {
+            switch result.type {
+            case .tab:
+                Task.detached(priority: .userInitiated) { backend.closeTab(result) }
+                recentlyClosedTabs.append(
+                    ClosedTabTombstone(browserName: result.browserName, url: result.url, timestamp: Date())
+                )
+            case .bookmark:
+                Task.detached(priority: .userInitiated) { backend.deleteBookmark(result) }
+            case .history:
+                Task.detached(priority: .userInitiated) { backend.deleteHistoryItem(result) }
+            }
         }
 
         removeResultFromLocalSnapshots(matching: result)

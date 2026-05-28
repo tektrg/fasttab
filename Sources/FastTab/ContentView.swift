@@ -691,7 +691,11 @@ struct ContentView: View {
             var items: [ScopeSuggestion] = [
                 .root(.duplicate),
                 .root(.bookmarks),
-                .root(.history)
+                .root(.history),
+                // Non-browser sources. Always listed (per design), even when
+                // no Finder window is open — it's a stable category, not an
+                // instance.
+                .root(.source(name: "Finder"))
             ]
             for window in appState.browserService.availableWindows {
                 items.append(.root(.window(window)))
@@ -828,6 +832,9 @@ struct ContentView: View {
             case .window(let ref):
                 replaceToken(at: tokenRange, with: "")
                 appendChip(.init(kind: .window(ref)))
+            case .source(let name):
+                replaceToken(at: tokenRange, with: "")
+                appendChip(.init(kind: .source(name)))
             }
         } else if case .bookmarkFolder(let ref) = suggestion {
             replaceToken(at: tokenRange, with: "")

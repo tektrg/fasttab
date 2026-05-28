@@ -275,21 +275,142 @@ func makeTabRecencyKey(browserName: String, windowIndex: Int?, tabIndex: Int?, u
 }
 
 func sortBrowserSearchResults(_ results: [BrowserSearchResult]) -> [BrowserSearchResult] {
-    results.sorted { lhs, rhs in
-        if lhs.type.sortPriority != rhs.type.sortPriority {
-            return lhs.type.sortPriority < rhs.type.sortPriority
-        }
+    sortBrowserSearchResults(results, frecencyScore: nil)
+}
 
+/// Sort tabs by frecency score (descending) when `frecencyScore` is provided;
+/// bookmarks/history continue to sort by timestamp (descending). Type tier is
+/// always primary (tabs > bookmarks > history). Frecency only affects the
+/// within-tabs ordering, never the cross-tier priority.
+///
+/// When `frecencyScore` is nil, falls back to legacy timestamp-based ordering
+/// (used by cache-refresh paths sorting bookmarks/history only).
+///
+/// Performance notes:
+/// - Tiers are sorted independently and then concatenated. The single-sort
+///   variant repeatedly checked `type.sortPriority` on every comparison
+///   (n log n times) even though the partitioning is static; per-tier sorts
+///   drop that overhead and let each tier use the cheapest comparator it can.
+/// - Tab frecency scores are precomputed once per element (decorate / sort /
+///   undecorate) so the comparator never re-builds the `browser|profile|url`
+///   key string or hits the frecency dict during the n log n compares. For
+///   n=500 tabs that's ~500 lookups instead of ~9000.
+func sortBrowserSearchResults(
+    _ results: [BrowserSearchResult],
+    frecencyScore: ((BrowserSearchResult) -> Double)?
+) -> [BrowserSearchResult] {
+    if results.isEmpty { return results }
+
+    var tabs: [BrowserSearchResult] = []
+    var bookmarks: [BrowserSearchResult] = []
+    var history: [BrowserSearchResult] = []
+    tabs.reserveCapacity(results.count)
+    for r in results {
+        switch r.type {
+        case .tab: tabs.append(r)
+        case .bookmark: bookmarks.append(r)
+        case .history: history.append(r)
+        }
+    }
+
+    let sortedTabs = sortTabsTier(tabs, frecencyScore: frecencyScore)
+    let sortedBookmarks = sortByTimestampTier(bookmarks)
+    let sortedHistory = sortByTimestampTier(history)
+
+    // Concatenate in tier order — tab(0) < bookmark(1) < history(2).
+    var out: [BrowserSearchResult] = []
+    out.reserveCapacity(sortedTabs.count + sortedBookmarks.count + sortedHistory.count)
+    out.append(contentsOf: sortedTabs)
+    out.append(contentsOf: sortedBookmarks)
+    out.append(contentsOf: sortedHistory)
+    return out
+}
+
+/// Sort the tabs tier. When `frecencyScore` is provided, precomputes the
+/// score for each tab once and sorts the decorated array. Tabs with equal
+/// scores fall through to timestamp / browserName / title for a stable feel.
+private func sortTabsTier(
+    _ tabs: [BrowserSearchResult],
+    frecencyScore: ((BrowserSearchResult) -> Double)?
+) -> [BrowserSearchResult] {
+    if tabs.count <= 1 { return tabs }
+    guard let frecencyScore else {
+        return sortByTimestampTier(tabs)
+    }
+    // Decorate-sort-undecorate. Score lookup happens exactly once per tab.
+    let decorated: [(score: Double, result: BrowserSearchResult)] =
+        tabs.map { (frecencyScore($0), $0) }
+    let sorted = decorated.sorted { lhs, rhs in
+        if lhs.score != rhs.score { return lhs.score > rhs.score }
+        if lhs.result.timestamp != rhs.result.timestamp {
+            return lhs.result.timestamp > rhs.result.timestamp
+        }
+        if lhs.result.browserName != rhs.result.browserName {
+            return lhs.result.browserName.localizedCompare(rhs.result.browserName) == .orderedAscending
+        }
+        return lhs.result.title.localizedCompare(rhs.result.title) == .orderedAscending
+    }
+    return sorted.map { $0.result }
+}
+
+/// Sort bookmarks/history (or tabs without frecency) by timestamp desc,
+/// browserName asc, title asc.
+private func sortByTimestampTier(_ items: [BrowserSearchResult]) -> [BrowserSearchResult] {
+    if items.count <= 1 { return items }
+    return items.sorted { lhs, rhs in
         if lhs.timestamp != rhs.timestamp {
             return lhs.timestamp > rhs.timestamp
         }
-
         if lhs.browserName != rhs.browserName {
             return lhs.browserName.localizedCompare(rhs.browserName) == .orderedAscending
         }
-
         return lhs.title.localizedCompare(rhs.title) == .orderedAscending
     }
+}
+
+/// Returns the top-K tabs ordered by recency (timestamp desc, then browser, then title)
+/// without sorting the full list. Used by the empty-query quick-open path where
+/// only `limit` rows are rendered. For n=500, k=5 this is ~500*log2(5)≈1160 ops
+/// vs ~4480 for a full sort.
+///
+/// The empty-query path intentionally ranks by raw recency (not frecency) — the
+/// tab the user just used must always lead. This matches the comparator used
+/// inside `sortByTimestampTier`.
+func topKTabsByRecency(_ tabs: [BrowserSearchResult], limit: Int) -> [BrowserSearchResult] {
+    let k = max(0, limit)
+    if k == 0 || tabs.isEmpty { return [] }
+    if tabs.count <= k { return sortByTimestampTier(tabs) }
+
+    // Comparator: returns true if `a` should rank *before* `b` (higher priority).
+    func ranksBefore(_ a: BrowserSearchResult, _ b: BrowserSearchResult) -> Bool {
+        if a.timestamp != b.timestamp { return a.timestamp > b.timestamp }
+        if a.browserName != b.browserName {
+            return a.browserName.localizedCompare(b.browserName) == .orderedAscending
+        }
+        return a.title.localizedCompare(b.title) == .orderedAscending
+    }
+
+    // Maintain `top` as the current best-K, kept sorted (small — k is typically 5).
+    // For each candidate, if it ranks before the current worst-of-top, replace
+    // and re-insert in sorted position. Insertion into a k=5 array is trivially
+    // cheap; the win is avoiding the n log n full sort.
+    var top: [BrowserSearchResult] = []
+    top.reserveCapacity(k)
+    for item in tabs {
+        if top.count < k {
+            // Insert in sorted position.
+            var idx = top.count
+            while idx > 0 && ranksBefore(item, top[idx - 1]) { idx -= 1 }
+            top.insert(item, at: idx)
+        } else if ranksBefore(item, top[k - 1]) {
+            // Better than current worst; replace and re-insert.
+            top.removeLast()
+            var idx = top.count
+            while idx > 0 && ranksBefore(item, top[idx - 1]) { idx -= 1 }
+            top.insert(item, at: idx)
+        }
+    }
+    return top
 }
 
 func quickOpenVisibleTabs(from results: [BrowserSearchResult], limit: Int) -> [BrowserSearchResult] {

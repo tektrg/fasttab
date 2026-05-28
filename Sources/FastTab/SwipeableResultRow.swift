@@ -303,7 +303,8 @@ private struct LeadingResultIcon: View {
 private enum BrowserIconCache {
     private static let appPathByName: [String: String] = [
         "Google Chrome": "/Applications/Google Chrome.app",
-        "Microsoft Edge": "/Applications/Microsoft Edge.app"
+        "Microsoft Edge": "/Applications/Microsoft Edge.app",
+        "Finder": "/System/Library/CoreServices/Finder.app"
     ]
 
     private static var iconStore: [String: NSImage] = [:]

@@ -80,13 +80,28 @@ extension BrowserBackend {
 
 // MARK: - Shared helpers
 
-func runAppleScript(_ script: String, logger: Logger, action: String) {
+/// Runs an AppleScript via `osascript` with a bounded wait. Without a timeout,
+/// a stuck `tell application "Finder"` (TCC prompt, sleeping NAS alias, modal
+/// save dialog) would park the calling thread forever. Callers should also
+/// dispatch this off the main thread — see `BrowserTabService.remove/activate`.
+func runAppleScript(_ script: String, logger: Logger, action: String, timeoutSeconds: TimeInterval = 8) {
     let task = Process()
     task.launchPath = "/usr/bin/osascript"
     task.arguments = ["-e", script]
     do {
         try task.run()
-        task.waitUntilExit()
+
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while task.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+
+        if task.isRunning {
+            task.terminate()
+            logger.error("\(action, privacy: .public): osascript timeout after \(timeoutSeconds)s")
+            return
+        }
+
         if task.terminationStatus != 0 {
             logger.error("\(action, privacy: .public): osascript exited with status \(task.terminationStatus)")
         }

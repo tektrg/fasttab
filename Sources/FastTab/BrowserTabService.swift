@@ -81,24 +81,29 @@ class BrowserTabService: ObservableObject {
     private var lastPollPersistAt: Date = .distantPast
 
     init() {
-        var backends: [any BrowserBackend] = [
-            ChromiumBackend(
+        let enabled = SourceSelectionStore.shared.enabled
+        var backends: [any BrowserBackend] = []
+
+        if enabled.contains(.chrome) {
+            backends.append(ChromiumBackend(
                 appName: "Google Chrome",
                 bundleIdentifier: "com.google.Chrome",
                 supportDirectory: "~/Library/Application Support/Google/Chrome"
-            ),
-            ChromiumBackend(
+            ))
+        }
+        if enabled.contains(.edge) {
+            backends.append(ChromiumBackend(
                 appName: "Microsoft Edge",
                 bundleIdentifier: "com.microsoft.edgemac",
                 supportDirectory: "~/Library/Application Support/Microsoft Edge"
-            )
-        ]
-
-        if Self.isSafariInstalled() {
+            ))
+        }
+        if enabled.contains(.safari), Self.isSafariInstalled() {
             backends.append(SafariBackend())
         }
-
-        backends.append(FinderBackend())
+        if enabled.contains(.finder) {
+            backends.append(FinderBackend())
+        }
 
         self.backends = backends
         self.lastActiveTimes = Self.loadActiveTimes()
@@ -107,7 +112,11 @@ class BrowserTabService: ObservableObject {
             seedFromLegacy: self.lastActiveTimes,
             backendAppNames: backendAppNames
         )
-        self.safariAutomationStatus = Self.probeSafariAutomation()
+        // Skip the TCC-touching probe when the user has not opted into Safari
+        // — there's no point asking macOS about Automation we won't use.
+        self.safariAutomationStatus = enabled.contains(.safari)
+            ? Self.probeSafariAutomation()
+            : .notInstalled
         logger.info("BrowserTabService init. backends=\(backendAppNames.joined(separator: ","), privacy: .public) safariAutomation=\(self.safariAutomationStatus.rawValue, privacy: .public) frecencyEntries=\(self.frecency.count)")
         startActiveTabPoll()
     }

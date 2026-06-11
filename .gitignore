@@ -15,3 +15,9 @@ sparkle_private_key.pem
 /.claude/
 /media/
 /launch-video/
+
+# Remove root files and project metadata from tracking
+/*
+!.gitignore
+!/Sources/
+!/Tests/

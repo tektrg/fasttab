@@ -310,11 +310,8 @@ private enum BrowserIconCache {
     private static var iconStore: [String: NSImage] = [:]
 
     static func icon(for browserName: String, size: CGFloat) -> NSImage? {
-        if let cached = iconStore[browserName] {
-            let icon = cached.copy() as? NSImage ?? cached
-            icon.size = NSSize(width: size, height: size)
-            return icon
-        }
+        let key = "\(browserName)@\(Int(size))"
+        if let cached = iconStore[key] { return cached }
 
         guard let appPath = appPathByName[browserName],
               FileManager.default.fileExists(atPath: appPath) else {
@@ -322,10 +319,9 @@ private enum BrowserIconCache {
         }
 
         let icon = NSWorkspace.shared.icon(forFile: appPath)
-        iconStore[browserName] = icon
-
         let sized = icon.copy() as? NSImage ?? icon
         sized.size = NSSize(width: size, height: size)
+        iconStore[key] = sized
         return sized
     }
 }

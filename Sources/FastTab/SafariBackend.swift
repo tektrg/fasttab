@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import OSLog
+import os
 import CryptoKit
 
 struct SafariBackend: BrowserBackend {
@@ -8,6 +9,13 @@ struct SafariBackend: BrowserBackend {
     let bundleIdentifier: String = "com.apple.Safari"
 
     static let includeFDADataDefaultsKey = "FastTab.safari.includeFDAData"
+
+    /// Session-level guard for the read-only (`mode=ro`) SQLite fast path. Once a
+    /// read-only open fails (e.g. Safari holds an exclusive lock and `.timeout`
+    /// expires), we stop attempting it and go straight to the WAL-aware copy for
+    /// the rest of the session — otherwise every query would pay a wasted sqlite3
+    /// spawn before falling back. Reset only on app relaunch.
+    private static let readOnlyAccessDisabled = OSAllocatedUnfairLock<Bool>(initialState: false)
 
     private var logger: Logger {
         Logger(subsystem: "com.trungluong.FastTab", category: "SafariBackend")
@@ -240,60 +248,50 @@ struct SafariBackend: BrowserBackend {
             return []
         }
 
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-SafariHistory.db")
+        let sql = """
+        SELECT hi.url, COALESCE(hv.title, hi.url) as title, MAX(hv.visit_time) as last_visit
+        FROM history_items hi
+        JOIN history_visits hv ON hv.history_item = hi.id
+        WHERE hi.url IS NOT NULL AND hi.url != ''
+        GROUP BY hi.id
+        ORDER BY last_visit DESC
+        LIMIT \(perBrowserLimit);
+        """
 
-        do {
-            try Self.copySQLiteDBWithWAL(from: historyURL, to: tempURL)
-            defer { Self.cleanupSQLiteCopy(at: tempURL) }
-
-            let sql = """
-            SELECT hi.url, COALESCE(hv.title, hi.url) as title, MAX(hv.visit_time) as last_visit
-            FROM history_items hi
-            JOIN history_visits hv ON hv.history_item = hi.id
-            WHERE hi.url IS NOT NULL AND hi.url != ''
-            GROUP BY hi.id
-            ORDER BY last_visit DESC
-            LIMIT \(perBrowserLimit);
-            """
-
-            guard let output = runProcess(
-                launchPath: "/usr/bin/sqlite3",
-                arguments: ["-separator", kFieldSep, tempURL.path, sql],
-                timeoutSeconds: 15
-            ) else {
-                logger.error("safari history query failed.")
-                return []
-            }
-
-            var results: [BrowserSearchResult] = []
-            let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
-            for row in rows {
-                let parts = String(row).components(separatedBy: kFieldSep)
-                guard parts.count >= 3 else { continue }
-
-                let url = parts[0]
-                let title = parts[1].isEmpty ? url : parts[1]
-                let timestamp = Self.safariDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
-
-                results.append(
-                    BrowserSearchResult(
-                        title: title,
-                        url: url,
-                        browserName: appName,
-                        type: .history,
-                        timestamp: timestamp,
-                        profileName: nil
-                    )
-                )
-            }
-
-            logger.info("safari history loaded. app=\(appName, privacy: .public) count=\(results.count)")
-            return results
-        } catch {
-            Self.cleanupSQLiteCopy(at: tempURL)
-            logger.error("safari history threw. error='\(String(describing: error), privacy: .public)'")
+        guard let output = Self.runReadOnlyWALQuery(
+            dbPath: historyURL.path,
+            sql: sql,
+            extraArgs: ["-separator", kFieldSep],
+            timeoutSeconds: 15
+        ) else {
+            logger.error("safari history query failed.")
             return []
         }
+
+        var results: [BrowserSearchResult] = []
+        let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
+        for row in rows {
+            let parts = String(row).components(separatedBy: kFieldSep)
+            guard parts.count >= 3 else { continue }
+
+            let url = parts[0]
+            let title = parts[1].isEmpty ? url : parts[1]
+            let timestamp = Self.safariDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
+
+            results.append(
+                BrowserSearchResult(
+                    title: title,
+                    url: url,
+                    browserName: appName,
+                    type: .history,
+                    timestamp: timestamp,
+                    profileName: nil
+                )
+            )
+        }
+
+        logger.info("safari history loaded. app=\(appName, privacy: .public) count=\(results.count)")
+        return results
     }
 
     func searchHistory(query: String, limit: Int) -> [BrowserSearchResult] {
@@ -304,75 +302,122 @@ struct SafariBackend: BrowserBackend {
         guard fdaEnabled else { return [] }
 
         let historyPath = ("~/Library/Safari/History.db" as NSString).expandingTildeInPath
-        let historyURL = URL(fileURLWithPath: historyPath)
         guard FileManager.default.fileExists(atPath: historyPath) else { return [] }
 
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-SafariHistory.db")
+        let escaped = query.replacingOccurrences(of: "'", with: "''")
+        // Safari `visit_time` is seconds since 2001-01-01 (Cocoa epoch).
+        func safariSeconds(from date: Date) -> Double {
+            date.timeIntervalSinceReferenceDate
+        }
+        var timeClauses: [String] = []
+        if let since {
+            timeClauses.append("hv.visit_time >= \(safariSeconds(from: since))")
+        }
+        if let before {
+            timeClauses.append("hv.visit_time < \(safariSeconds(from: before))")
+        }
+        let timePredicate = timeClauses.isEmpty ? "" : " AND " + timeClauses.joined(separator: " AND ")
 
-        do {
-            try Self.copySQLiteDBWithWAL(from: historyURL, to: tempURL)
-            defer { Self.cleanupSQLiteCopy(at: tempURL) }
+        let sql = """
+        SELECT hi.url, COALESCE(hv.title, hi.url) as title, MAX(hv.visit_time) as last_visit
+        FROM history_items hi
+        JOIN history_visits hv ON hv.history_item = hi.id
+        WHERE (hi.url LIKE '%\(escaped)%' OR hv.title LIKE '%\(escaped)%')
+          AND hi.url IS NOT NULL AND hi.url != ''\(timePredicate)
+        GROUP BY hi.id
+        ORDER BY last_visit DESC
+        LIMIT \(limit);
+        """
 
-            let escaped = query.replacingOccurrences(of: "'", with: "''")
-            // Safari `visit_time` is seconds since 2001-01-01 (Cocoa epoch).
-            func safariSeconds(from date: Date) -> Double {
-                date.timeIntervalSinceReferenceDate
-            }
-            var timeClauses: [String] = []
-            if let since {
-                timeClauses.append("hv.visit_time >= \(safariSeconds(from: since))")
-            }
-            if let before {
-                timeClauses.append("hv.visit_time < \(safariSeconds(from: before))")
-            }
-            let timePredicate = timeClauses.isEmpty ? "" : " AND " + timeClauses.joined(separator: " AND ")
-
-            let sql = """
-            SELECT hi.url, COALESCE(hv.title, hi.url) as title, MAX(hv.visit_time) as last_visit
-            FROM history_items hi
-            JOIN history_visits hv ON hv.history_item = hi.id
-            WHERE (hi.url LIKE '%\(escaped)%' OR hv.title LIKE '%\(escaped)%')
-              AND hi.url IS NOT NULL AND hi.url != ''\(timePredicate)
-            GROUP BY hi.id
-            ORDER BY last_visit DESC
-            LIMIT \(limit);
-            """
-
-            guard let output = runProcess(
-                launchPath: "/usr/bin/sqlite3",
-                arguments: ["-separator", kFieldSep, tempURL.path, sql],
-                timeoutSeconds: 15
-            ) else {
-                logger.error("safari searchHistory query failed.")
-                return []
-            }
-
-            var results: [BrowserSearchResult] = []
-            let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
-            for row in rows {
-                let parts = String(row).components(separatedBy: kFieldSep)
-                guard parts.count >= 3 else { continue }
-
-                let url = parts[0]
-                let title = parts[1].isEmpty ? url : parts[1]
-                let timestamp = Self.safariDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
-
-                results.append(BrowserSearchResult(
-                    title: title,
-                    url: url,
-                    browserName: appName,
-                    type: .history,
-                    timestamp: timestamp,
-                    profileName: nil
-                ))
-            }
-
-            logger.info("safari searchHistory complete. count=\(results.count)")
-            return results
-        } catch {
-            Self.cleanupSQLiteCopy(at: tempURL)
-            logger.error("safari searchHistory threw. error='\(String(describing: error), privacy: .public)'")
+        guard let output = Self.runReadOnlyWALQuery(
+            dbPath: historyPath,
+            sql: sql,
+            extraArgs: ["-separator", kFieldSep],
+            timeoutSeconds: 15
+        ) else {
+            logger.error("safari searchHistory query failed.")
             return []
+        }
+
+        var results: [BrowserSearchResult] = []
+        let rows = output.split(separator: "\n", omittingEmptySubsequences: true)
+        for row in rows {
+            let parts = String(row).components(separatedBy: kFieldSep)
+            guard parts.count >= 3 else { continue }
+
+            let url = parts[0]
+            let title = parts[1].isEmpty ? url : parts[1]
+            let timestamp = Self.safariDate(fromSQLiteValue: parts[2]) ?? Date(timeIntervalSince1970: 0)
+
+            results.append(BrowserSearchResult(
+                title: title,
+                url: url,
+                browserName: appName,
+                type: .history,
+                timestamp: timestamp,
+                profileName: nil
+            ))
+        }
+
+        logger.info("safari searchHistory complete. count=\(results.count)")
+        return results
+    }
+
+    // MARK: - Read-only WAL query (no copy) with copy fallback
+
+    /// Runs `sql` against a Safari WAL-mode SQLite DB (`History.db` /
+    /// `favicons.db`) without copying it, by opening read-only with `mode=ro`.
+    ///
+    /// `mode=ro` correctly reads committed-but-uncheckpointed `-wal` frames while
+    /// Safari keeps writing (verified across live-session, dirty-WAL, and
+    /// read-only-directory cases). We deliberately do NOT use Chromium's
+    /// `immutable=1`: against a WAL DB it disables WAL/change detection and
+    /// silently returns stale rows that omit everything still in the `-wal`
+    /// (empirically confirmed — it dropped the newest history entries).
+    ///
+    /// If the read-only open fails (e.g. Safari holds an exclusive lock →
+    /// SQLITE_BUSY after `.timeout`, or any other error), we fall back to the
+    /// WAL-aware byte copy, which produces a consistent offline snapshot. After
+    /// the first failure we skip the read-only attempt for the rest of the
+    /// session (see `readOnlyAccessDisabled`).
+    ///
+    /// Returns the trimmed sqlite3 stdout (possibly empty) on success, or nil if
+    /// both the read-only and copy paths fail.
+    private static func runReadOnlyWALQuery(
+        dbPath: String,
+        sql: String,
+        extraArgs: [String],
+        timeoutSeconds: TimeInterval
+    ) -> String? {
+        let roDisabled = readOnlyAccessDisabled.withLock { $0 }
+        if !roDisabled {
+            let uri = "file:\(sqliteFileURIPath(dbPath))?mode=ro"
+            let roArgs = ["-cmd", ".timeout 3000"] + extraArgs + [uri, sql]
+            if let output = runProcess(
+                launchPath: "/usr/bin/sqlite3",
+                arguments: roArgs,
+                timeoutSeconds: timeoutSeconds
+            ) {
+                return output
+            }
+            // First failure — disable the read-only path for the session and
+            // fall through to the copy below.
+            readOnlyAccessDisabled.withLock { $0 = true }
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString)-SafariRO.db")
+        do {
+            try copySQLiteDBWithWAL(from: URL(fileURLWithPath: dbPath), to: tempURL)
+            defer { cleanupSQLiteCopy(at: tempURL) }
+            return runProcess(
+                launchPath: "/usr/bin/sqlite3",
+                arguments: extraArgs + [tempURL.path, sql],
+                timeoutSeconds: timeoutSeconds
+            )
+        } catch {
+            cleanupSQLiteCopy(at: tempURL)
+            return nil
         }
     }
 
@@ -451,67 +496,57 @@ struct SafariBackend: BrowserBackend {
         let originLikeHTTPSWWW = "https://www.\(likeEscapedHost)/%"
         let originLikeHTTPWWW = "http://www.\(likeEscapedHost)/%"
 
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-SafariFavicons.db")
+        // Safari schema (varies by macOS version): `page_url(url, uuid)` is the only
+        // table we rely on. Earlier versions also had `icon_info(uuid, host, ...)`
+        // but on recent macOS the `host` column is gone, so we only match via
+        // `page_url`: exact URL → origin URL → any URL under the same host.
+        // Bitmaps live on disk at Favicon Cache/Images/<uuid>.png — NOT in the DB.
+        // Resolve page → uuid. Bitmap filename is the uuid with hyphens stripped
+        // (uppercase hex), in `favicons/`.
+        let sql = """
+        SELECT uuid FROM page_url WHERE url IN (\(exactList)) LIMIT 1;
+        SELECT uuid FROM page_url
+          WHERE url LIKE '\(originLikeHTTPS)' ESCAPE '\\'
+             OR url LIKE '\(originLikeHTTP)' ESCAPE '\\'
+             OR url LIKE '\(originLikeHTTPSWWW)' ESCAPE '\\'
+             OR url LIKE '\(originLikeHTTPWWW)' ESCAPE '\\'
+          ORDER BY length(url) ASC
+          LIMIT 1;
+        """
 
-        do {
-            try Self.copySQLiteDBWithWAL(from: URL(fileURLWithPath: dbPath), to: tempURL)
-            defer { Self.cleanupSQLiteCopy(at: tempURL) }
-
-            // Safari schema (varies by macOS version): `page_url(url, uuid)` is the only
-            // table we rely on. Earlier versions also had `icon_info(uuid, host, ...)`
-            // but on recent macOS the `host` column is gone, so we only match via
-            // `page_url`: exact URL → origin URL → any URL under the same host.
-            // Bitmaps live on disk at Favicon Cache/Images/<uuid>.png — NOT in the DB.
-            // Resolve page → uuid. Bitmap filename is the uuid with hyphens stripped
-            // (uppercase hex), in `favicons/`.
-            let sql = """
-            SELECT uuid FROM page_url WHERE url IN (\(exactList)) LIMIT 1;
-            SELECT uuid FROM page_url
-              WHERE url LIKE '\(originLikeHTTPS)' ESCAPE '\\'
-                 OR url LIKE '\(originLikeHTTP)' ESCAPE '\\'
-                 OR url LIKE '\(originLikeHTTPSWWW)' ESCAPE '\\'
-                 OR url LIKE '\(originLikeHTTPWWW)' ESCAPE '\\'
-              ORDER BY length(url) ASC
-              LIMIT 1;
-            """
-
-            guard let output = runProcess(
-                launchPath: "/usr/bin/sqlite3",
-                arguments: [tempURL.path, sql],
-                timeoutSeconds: 6
-            ) else {
-                logger.info("safari favicon: sqlite3 failed host='\(host, privacy: .public)'")
-                return nil
-            }
-
-            let uuids = output
-                .split(separator: "\n", omittingEmptySubsequences: true)
-                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-
-            guard !uuids.isEmpty else {
-                logger.info("safari favicon: no uuid for host='\(host, privacy: .public)'")
-                return nil
-            }
-
-            for uuid in uuids {
-                // Bitmap filename on macOS 26+: uppercase-hex MD5 of the uuid string
-                // (hyphens included), as UTF-8. No extension. Lives in `favicons/`.
-                let digest = Insecure.MD5.hash(data: Data(uuid.utf8))
-                let name = digest.map { String(format: "%02X", $0) }.joined()
-                let imagePath = (imagesDir as NSString).appendingPathComponent(name)
-                if let data = try? Data(contentsOf: URL(fileURLWithPath: imagePath)), !data.isEmpty {
-                    return data
-                }
-            }
-
-            logger.info("safari favicon: image file missing for uuids=\(uuids.joined(separator: ","), privacy: .public) host='\(host, privacy: .public)'")
-            return nil
-        } catch {
-            Self.cleanupSQLiteCopy(at: tempURL)
-            logger.error("safari favicon: threw error='\(String(describing: error), privacy: .public)'")
+        guard let output = Self.runReadOnlyWALQuery(
+            dbPath: dbPath,
+            sql: sql,
+            extraArgs: [],
+            timeoutSeconds: 6
+        ) else {
+            logger.info("safari favicon: sqlite3 failed host='\(host, privacy: .public)'")
             return nil
         }
+
+        let uuids = output
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !uuids.isEmpty else {
+            logger.info("safari favicon: no uuid for host='\(host, privacy: .public)'")
+            return nil
+        }
+
+        for uuid in uuids {
+            // Bitmap filename on macOS 26+: uppercase-hex MD5 of the uuid string
+            // (hyphens included), as UTF-8. No extension. Lives in `favicons/`.
+            let digest = Insecure.MD5.hash(data: Data(uuid.utf8))
+            let name = digest.map { String(format: "%02X", $0) }.joined()
+            let imagePath = (imagesDir as NSString).appendingPathComponent(name)
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: imagePath)), !data.isEmpty {
+                return data
+            }
+        }
+
+        logger.info("safari favicon: image file missing for uuids=\(uuids.joined(separator: ","), privacy: .public) host='\(host, privacy: .public)'")
+        return nil
     }
 
     func fetchFaviconsBatch(pageURLs: [String]) -> [String: Data] {
@@ -540,60 +575,51 @@ struct SafariBackend: BrowserBackend {
         }
         guard !candidateToOriginals.isEmpty else { return [:] }
 
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString)-SafariFavicons.db")
-        do {
-            try Self.copySQLiteDBWithWAL(from: URL(fileURLWithPath: dbPath), to: tempURL)
-            defer { Self.cleanupSQLiteCopy(at: tempURL) }
+        let inList = candidateToOriginals.keys
+            .map { "'\($0.replacingOccurrences(of: "'", with: "''"))'" }
+            .joined(separator: ",")
+        let sql = "SELECT url, uuid FROM page_url WHERE url IN (\(inList));"
 
-            let inList = candidateToOriginals.keys
-                .map { "'\($0.replacingOccurrences(of: "'", with: "''"))'" }
-                .joined(separator: ",")
-            let sql = "SELECT url, uuid FROM page_url WHERE url IN (\(inList));"
-
-            guard let output = runProcess(
-                launchPath: "/usr/bin/sqlite3",
-                arguments: ["-separator", kFieldSep, tempURL.path, sql],
-                timeoutSeconds: 8
-            ), !output.isEmpty else {
-                return [:]
-            }
-
-            // For each original page, pick the first uuid found (exact-URL match wins
-            // because we append page itself before origin variants in the candidate set).
-            var pageToUUID: [String: String] = [:]
-            for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
-                let parts = line.split(separator: Character(kFieldSep), maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-                guard parts.count == 2 else { continue }
-                let matchedURL = parts[0]
-                let uuid = parts[1]
-                guard let originals = candidateToOriginals[matchedURL] else { continue }
-                for orig in originals where pageToUUID[orig] == nil {
-                    pageToUUID[orig] = uuid
-                }
-            }
-
-            // Read each bitmap once, share across pages that resolved to the same uuid.
-            var uuidToData: [String: Data] = [:]
-            var result: [String: Data] = [:]
-            for (page, uuid) in pageToUUID {
-                if let cached = uuidToData[uuid] {
-                    result[page] = cached
-                    continue
-                }
-                let digest = Insecure.MD5.hash(data: Data(uuid.utf8))
-                let name = digest.map { String(format: "%02X", $0) }.joined()
-                let imagePath = (imagesDir as NSString).appendingPathComponent(name)
-                if let data = try? Data(contentsOf: URL(fileURLWithPath: imagePath)), !data.isEmpty {
-                    uuidToData[uuid] = data
-                    result[page] = data
-                }
-            }
-            return result
-        } catch {
-            Self.cleanupSQLiteCopy(at: tempURL)
-            logger.error("safari favicon batch: threw error='\(String(describing: error), privacy: .public)'")
+        guard let output = Self.runReadOnlyWALQuery(
+            dbPath: dbPath,
+            sql: sql,
+            extraArgs: ["-separator", kFieldSep],
+            timeoutSeconds: 8
+        ), !output.isEmpty else {
             return [:]
         }
+
+        // For each original page, pick the first uuid found (exact-URL match wins
+        // because we append page itself before origin variants in the candidate set).
+        var pageToUUID: [String: String] = [:]
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            let parts = line.split(separator: Character(kFieldSep), maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 2 else { continue }
+            let matchedURL = parts[0]
+            let uuid = parts[1]
+            guard let originals = candidateToOriginals[matchedURL] else { continue }
+            for orig in originals where pageToUUID[orig] == nil {
+                pageToUUID[orig] = uuid
+            }
+        }
+
+        // Read each bitmap once, share across pages that resolved to the same uuid.
+        var uuidToData: [String: Data] = [:]
+        var result: [String: Data] = [:]
+        for (page, uuid) in pageToUUID {
+            if let cached = uuidToData[uuid] {
+                result[page] = cached
+                continue
+            }
+            let digest = Insecure.MD5.hash(data: Data(uuid.utf8))
+            let name = digest.map { String(format: "%02X", $0) }.joined()
+            let imagePath = (imagesDir as NSString).appendingPathComponent(name)
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: imagePath)), !data.isEmpty {
+                uuidToData[uuid] = data
+                result[page] = data
+            }
+        }
+        return result
     }
 
     // MARK: - Actions

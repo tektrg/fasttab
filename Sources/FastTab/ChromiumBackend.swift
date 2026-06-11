@@ -389,11 +389,7 @@ struct ChromiumBackend: BrowserBackend {
     /// Builds a `file:` URI with `immutable=1` for the given absolute DB path.
     /// Path components must be percent-encoded so SQLite parses the URI cleanly.
     private static func immutableSQLiteURI(dbPath: String) -> String {
-        var allowed = CharacterSet.urlPathAllowed
-        // SQLite URIs split on '?' and '#', so we must percent-encode them.
-        allowed.remove(charactersIn: "?#")
-        let encoded = dbPath.addingPercentEncoding(withAllowedCharacters: allowed) ?? dbPath
-        return "file:\(encoded)?immutable=1"
+        "file:\(sqliteFileURIPath(dbPath))?immutable=1"
     }
 
     // MARK: - Favicons

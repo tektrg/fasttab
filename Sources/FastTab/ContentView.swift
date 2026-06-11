@@ -71,6 +71,10 @@ struct ContentView: View {
         return filteredResults
     }
 
+    var indexedResults: [(offset: Int, element: BrowserSearchResult)] {
+        Array(displayedResults.enumerated())
+    }
+
     var shouldShowWindowName: Bool {
         appState.browserService.hasMultipleWindows
     }
@@ -562,7 +566,7 @@ struct ContentView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 6) {
-                        ForEach(Array(displayedResults.enumerated()), id: \.element.id) { index, result in
+                        ForEach(indexedResults, id: \.element.id) { index, result in
                             SwipeableResultRow(
                                 result: result,
                                 isSelected: appState.selectedIndex == index,

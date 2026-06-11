@@ -25,6 +25,7 @@ class AppState: ObservableObject {
 
     init() {
         browserService.objectWillChange
+            .debounce(for: .milliseconds(16), scheduler: RunLoop.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -266,6 +267,10 @@ struct FastTabApp: App {
 
             SettingsLink {
                 Text("Settings…")
+            }
+
+            Button("Feedback & Support…") {
+                licenseService.openSupport()
             }
 
             Divider()

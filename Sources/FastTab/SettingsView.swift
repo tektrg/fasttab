@@ -13,6 +13,9 @@ struct SettingsView: View {
     @State private var fdaInitiallyGranted: Bool = false
     @State private var fdaGrantedNow: Bool = false
     @State private var licenseKey: String = ""
+    @State private var didCopySupportEmail: Bool = false
+
+    private let supportEmailAddress = "yourfriend@theindie.app"
 
     var body: some View {
         Form {
@@ -118,6 +121,32 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Feedback & Support") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Need help or want to share feedback?")
+                        .font(.callout.weight(.medium))
+                    Text("Email the founder directly. Bug reports, rough edges, and workflow ideas are all welcome.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 8) {
+                    Button("Email \(supportEmailAddress)") {
+                        licenseService.openSupport()
+                    }
+
+                    Button {
+                        copySupportEmailAddress()
+                    } label: {
+                        Image(systemName: didCopySupportEmail ? "checkmark" : "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(didCopySupportEmail ? "Copied" : "Copy email address")
+                    .accessibilityLabel(didCopySupportEmail ? "Copied support email address" : "Copy support email address")
+                }
+            }
+
             if sourceSelection.isEnabled(.safari) {
             Section("Safari") {
                 Toggle("Include Safari bookmarks and history", isOn: $includeSafariFDAData)
@@ -187,6 +216,17 @@ struct SettingsView: View {
     private func openFullDiskAccessSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
             NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func copySupportEmailAddress() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(supportEmailAddress, forType: .string)
+        didCopySupportEmail = true
+
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            didCopySupportEmail = false
         }
     }
 

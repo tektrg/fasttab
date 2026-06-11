@@ -51,6 +51,21 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
     let isCurrentFlowActiveTab: Bool
     let hasMediaIndicator: Bool
 
+    /// Punctuation-stripped match keys, computed once at construction. Per-keystroke
+    /// filtering (`matches(query:)`) reuses these instead of re-stripping `title`
+    /// and `url` for every result on every keystroke. Derived purely from
+    /// `title`/`url`, so excluded from `Codable` — the encoded shape stays identical
+    /// to the un-derived fields (forward/backward compatible if this type is ever
+    /// persisted); recomputed on decode.
+    let normalizedTitleKey: String
+    let normalizedURLKey: String
+
+    private enum CodingKeys: String, CodingKey {
+        case title, url, browserName, type, timestamp, windowIndex, tabIndex
+        case windowName, bookmarkID, profileName, folderPath
+        case isCurrentFlowActiveTab, hasMediaIndicator
+    }
+
     init(
         title: String,
         url: String,
@@ -67,7 +82,8 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         hasMediaIndicator: Bool = false
     ) {
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.title = normalizedTitle.isEmpty ? url : normalizedTitle
+        let resolvedTitle = normalizedTitle.isEmpty ? url : normalizedTitle
+        self.title = resolvedTitle
         self.url = url
         self.browserName = browserName
         self.type = type
@@ -80,6 +96,29 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         self.folderPath = folderPath
         self.isCurrentFlowActiveTab = isCurrentFlowActiveTab
         self.hasMediaIndicator = hasMediaIndicator
+        self.normalizedTitleKey = stripPunctuation(resolvedTitle)
+        self.normalizedURLKey = stripPunctuation(url)
+    }
+
+    /// Custom decode that recomputes the derived match keys. Routes through the
+    /// designated initializer so key computation lives in exactly one place.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            title: try c.decode(String.self, forKey: .title),
+            url: try c.decode(String.self, forKey: .url),
+            browserName: try c.decode(String.self, forKey: .browserName),
+            type: try c.decode(BrowserResultType.self, forKey: .type),
+            timestamp: try c.decode(Date.self, forKey: .timestamp),
+            windowIndex: try c.decodeIfPresent(Int.self, forKey: .windowIndex),
+            tabIndex: try c.decodeIfPresent(Int.self, forKey: .tabIndex),
+            windowName: try c.decodeIfPresent(String.self, forKey: .windowName),
+            bookmarkID: try c.decodeIfPresent(String.self, forKey: .bookmarkID),
+            profileName: try c.decodeIfPresent(String.self, forKey: .profileName),
+            folderPath: try c.decodeIfPresent(String.self, forKey: .folderPath),
+            isCurrentFlowActiveTab: try c.decodeIfPresent(Bool.self, forKey: .isCurrentFlowActiveTab) ?? false,
+            hasMediaIndicator: try c.decodeIfPresent(Bool.self, forKey: .hasMediaIndicator) ?? false
+        )
     }
 
     var id: String {
@@ -143,11 +182,9 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             .map { stripPunctuation($0) }
             .filter { !$0.isEmpty }
         guard !tokens.isEmpty else { return true }
-        let normalizedTitle = stripPunctuation(title)
-        let normalizedURL = stripPunctuation(url)
         return tokens.allSatisfy {
-            normalizedTitle.localizedCaseInsensitiveContains($0)
-                || normalizedURL.localizedCaseInsensitiveContains($0)
+            normalizedTitleKey.localizedCaseInsensitiveContains($0)
+                || normalizedURLKey.localizedCaseInsensitiveContains($0)
         }
     }
 
@@ -191,7 +228,7 @@ func relativeRecencyAbbreviation(from date: Date, now: Date = Date()) -> String?
         return "\(Int((delta / 3_600).rounded()))h"
     }
 
-    let calendar = Calendar.current
+    let calendar = recencyCalendar
     if calendar.isDateInToday(date) {
         return "\(Int((delta / 3_600).rounded()))h"
     }
@@ -206,11 +243,21 @@ func relativeRecencyAbbreviation(from date: Date, now: Date = Date()) -> String?
         return "\(Int((delta / (7 * 86_400)).rounded()))w"
     }
 
+    return recencyMonthDayFormatter.string(from: date)
+}
+
+/// Shared calendar/formatter for the relative-recency label. Allocating
+/// `Calendar.current` and a `DateFormatter` per row render (one row = one call,
+/// many calls per list paint) showed up in the row-render path; these are
+/// configured once and only read thereafter. Used only from the main-thread
+/// render path, so concurrent-mutation safety isn't a concern.
+private let recencyCalendar = Calendar.current
+private let recencyMonthDayFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.setLocalizedDateFormatFromTemplate("MMM d")
-    return formatter.string(from: date)
-}
+    return formatter
+}()
 
 private func stripPunctuation(_ s: String) -> String {
     s.components(separatedBy: .punctuationCharacters).joined()

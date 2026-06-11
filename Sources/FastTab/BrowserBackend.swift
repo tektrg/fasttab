@@ -15,6 +15,17 @@ func shellQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
+/// Percent-encodes an absolute filesystem path for embedding in a SQLite
+/// `file:` URI (e.g. `file:<encoded>?mode=ro`). `?` and `#` must be encoded
+/// because SQLite splits the URI on them; spaces and other path characters are
+/// handled by `urlPathAllowed`. Used by the read-only DB open paths in both the
+/// Chromium and Safari backends.
+func sqliteFileURIPath(_ dbPath: String) -> String {
+    var allowed = CharacterSet.urlPathAllowed
+    allowed.remove(charactersIn: "?#")
+    return dbPath.addingPercentEncoding(withAllowedCharacters: allowed) ?? dbPath
+}
+
 /// Protocol implemented by each browser backend (Chromium, Safari, ...).
 ///
 /// Conformers must be `Sendable` and have only value semantics / nonisolated

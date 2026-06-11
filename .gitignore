@@ -19,5 +19,9 @@ sparkle_private_key.pem
 # Remove root files and project metadata from tracking
 /*
 !.gitignore
+!/Package.swift
+!/README.md
+!/.github/
+!/.github/SECURITY.md
 !/Sources/
 !/Tests/

@@ -81,6 +81,12 @@ The release app uses configuration keys for things like checkout URLs, license v
 
 Small, practical fixes are welcome. The most useful contributions are reproducible bug reports, focused patches, and tests around behavior that changed. Large feature requests or support expectations are better directed through the official product channel after purchasing the app.
 
+## License
+
+Copyright is retained by the app author. Unless a separate written license says otherwise, this repository does not grant an open source license to copy, redistribute, resell, repackage, or publish modified versions of FastTab.
+
+You may read the source, build it locally for personal evaluation, and submit focused fixes. If you want to use FastTab as a product, please use the official build from [fasttab.theindie.app](https://fasttab.theindie.app).
+
 ## Support
 
 If you are using the official app, use the support path linked from [fasttab.theindie.app](https://fasttab.theindie.app). If you are running a local build, please assume you own the local build environment and any changes you make to it.

@@ -5,6 +5,7 @@ enum CommandBarLayout {
     static let defaultCanvasSize = CGSize(width: 1600, height: 1000)
     static let minimumCanvasSize = surfaceSize
     static let shadowOverscan: CGFloat = 900
+    static let shadowEndRadius: CGFloat = 520
 
     /// SwiftUI points. Negative values move the visible surface upward.
     static let surfaceVerticalOffset: CGFloat = -140
@@ -21,6 +22,19 @@ enum CommandBarLayout {
             width: canvasSize.width,
             height: canvasSize.height
         )
+    }
+
+    static func surfaceFrame(in canvasFrame: CGRect) -> CGRect {
+        CGRect(
+            x: canvasFrame.midX - surfaceSize.width / 2,
+            y: canvasFrame.midY - surfaceSize.height / 2 - surfaceVerticalOffset,
+            width: surfaceSize.width,
+            height: surfaceSize.height
+        )
+    }
+
+    static func shouldDismissClick(at screenLocation: CGPoint, in canvasFrame: CGRect) -> Bool {
+        !surfaceFrame(in: canvasFrame).contains(screenLocation)
     }
 
     static func shadowBackdropSize(for canvasSize: CGSize) -> CGSize {

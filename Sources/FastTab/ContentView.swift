@@ -516,11 +516,11 @@ struct ContentView: View {
                 .init(color: shadowColor.opacity(0.46), location: 0.10),
                 .init(color: shadowColor.opacity(0.30), location: 0.32),
                 .init(color: shadowColor.opacity(0.15), location: 0.64),
-                .init(color: shadowColor.opacity(0.04), location: 1.00)
+                .init(color: shadowColor.opacity(0.00), location: 1.00)
             ],
             center: .center,
             startRadius: 60,
-            endRadius: 1_250
+            endRadius: CommandBarLayout.shadowEndRadius
         )
         .frame(width: backdropSize.width, height: backdropSize.height)
         .offset(y: CommandBarLayout.surfaceVerticalOffset)

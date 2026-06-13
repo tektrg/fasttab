@@ -21,7 +21,6 @@ class AppState: ObservableObject {
     private var didHideInitialWindow = false
     private var pendingShowAfterAttach = false
     private var pendingLicenseActivationPresentation = false
-    var openCommandWindow: (() -> Void)?
 
     init() {
         browserService.objectWillChange
@@ -55,7 +54,7 @@ class AppState: ObservableObject {
 
     var isCommandWindowFrontAndActive: Bool {
         guard let commandWindow else { return false }
-        return commandWindow.isVisible && commandWindow.isKeyWindow && NSApp.isActive
+        return commandWindow.isVisible && commandWindow.isKeyWindow
     }
 
     var commandWindowDebugState: String {
@@ -67,31 +66,14 @@ class AppState: ObservableObject {
         isVisible = commandWindow?.isVisible ?? false
     }
 
-    static func findCommandWindow() -> NSWindow? {
-        // Look for the SwiftUI WindowGroup's NSWindow. The Settings scene
-        // shows up as NSPanel; the command bar window is a content-bearing
-        // NSWindow whose title matches the WindowGroup's title.
-        for window in NSApp.windows {
-            if window.identifier?.rawValue.hasPrefix("command-bar") == true { return window }
-            if window.title == "Command Bar" { return window }
-        }
-        return nil
-    }
-
     func showCommandBar() {
         LicenseService.shared.refreshTimeSensitiveState()
 
         guard let commandWindow else {
-            // Window not yet materialized — common when launched at login with
-            // .accessory activation policy, where SwiftUI defers WindowGroup
-            // creation. Ask SwiftUI to open it; attachCommandWindow will
-            // re-invoke showCommandBar once the NSWindow is wired up.
             pendingShowAfterAttach = true
-            if let fallback = AppState.findCommandWindow() {
-                attachCommandWindow(fallback)
-            } else if let openCommandWindow {
-                openCommandWindow()
-            } else {
+            CommandBarPanelController.shared.prepare()
+
+            if commandWindow == nil {
                 appLogger.error("showCommandBar: commandWindow is nil and no opener available")
             }
             return
@@ -99,10 +81,10 @@ class AppState: ObservableObject {
 
         selectedIndex = -1
         browserService.updateCurrentFlowSourceApp(bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
-        NSApp.activate(ignoringOtherApps: true)
+        commandWindow.configureCommandBarOverlayBehavior()
         commandWindow.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
-        commandWindow.makeKeyAndOrderFront(nil)
         commandWindow.orderFrontRegardless()
+        commandWindow.makeKey()
         isVisible = commandWindow.isVisible
         presentPendingLicenseActivationIfNeeded()
     }
@@ -145,6 +127,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         appLogger.info("Application did finish launching")
         NSApp.setActivationPolicy(.accessory)
+        CommandBarPanelController.shared.prepare()
         setupGlobalShortcut()
         LicenseService.shared.validateForLaunch()
 
@@ -157,17 +140,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             UpdateService.shared.checkForUpdates(manual: false)
         }
+    }
 
-        // When launched at login, SwiftUI's WindowGroup may not push its
-        // NSView hierarchy through `viewDidMoveToWindow` until something
-        // forces a layout, so AppState.commandWindow can stay nil. Probe
-        // NSApp.windows shortly after launch and attach manually if needed.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            let state = AppState.shared
-            if !state.hasCommandWindow, let window = AppState.findCommandWindow() {
-                appLogger.info("Eagerly attaching command window discovered in NSApp.windows")
-                state.attachCommandWindow(window)
-            }
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            LicenseService.shared.handleActivationURL(url)
         }
     }
 
@@ -223,19 +200,6 @@ struct FastTabApp: App {
     @StateObject private var licenseService = LicenseService.shared
 
     var body: some Scene {
-        WindowGroup("Command Bar", id: "command-bar") {
-            ContentView()
-                .environmentObject(appState)
-                .environmentObject(licenseService)
-                .background(WindowChromeConfigurator())
-                .onOpenURL { url in
-                    licenseService.handleActivationURL(url)
-                }
-        }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: CommandBarLayout.defaultCanvasSize.width, height: CommandBarLayout.defaultCanvasSize.height)
-        .windowResizability(.contentSize)
-
         Settings {
             SettingsView()
                 .environmentObject(appState)
@@ -243,8 +207,6 @@ struct FastTabApp: App {
         }
 
         MenuBarExtra("FastTab", systemImage: "command") {
-            MenuBarOpenWindowBinder()
-
             Button(appState.isVisible ? "Hide FastTab" : "Show FastTab") {
                 appState.toggleCommandBar()
             }
@@ -300,112 +262,142 @@ struct FastTabApp: App {
     }
 }
 
-private struct MenuBarOpenWindowBinder: View {
-    @Environment(\.openWindow) private var openWindow
+private final class CommandBarPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
 
-    var body: some View {
-        Color.clear
-            .frame(width: 0, height: 0)
-            .onAppear {
-                AppState.shared.openCommandWindow = {
-                    openWindow(id: "command-bar")
-                }
+    override func sendEvent(_ event: NSEvent) {
+        if event.isMouseDownEvent {
+            let screenLocation = convertPoint(toScreen: event.locationInWindow)
+
+            if CommandBarLayout.shouldDismissClick(at: screenLocation, in: frame) {
+                AppState.shared.hideCommandBar()
+                return
             }
+        }
+
+        super.sendEvent(event)
     }
 }
 
-private struct WindowChromeConfigurator: NSViewRepresentable {
-    func makeNSView(context: Context) -> ConfigView {
-        ConfigView()
+@MainActor
+private final class CommandBarPanelController: NSObject {
+    static let shared = CommandBarPanelController()
+
+    private var panel: CommandBarPanel?
+    private weak var observedWindow: NSWindow?
+    private var globalMouseDownMonitor: Any?
+
+    func prepare() {
+        _ = commandPanel
     }
 
-    func updateNSView(_ nsView: ConfigView, context: Context) {
-        nsView.configureWindowIfNeeded()
+    private var commandPanel: CommandBarPanel {
+        if let panel { return panel }
+
+        let rootView = ContentView()
+            .environmentObject(AppState.shared)
+            .environmentObject(LicenseService.shared)
+
+        let panel = CommandBarPanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.identifier = NSUserInterfaceItemIdentifier("command-bar-panel")
+        panel.title = "Command Bar"
+        panel.contentViewController = NSHostingController(rootView: rootView)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.isMovableByWindowBackground = true
+        panel.configureCommandBarOverlayBehavior()
+        panel.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
+
+        installWindowObservers(for: panel)
+        installOutsideAppClickMonitor()
+        AppState.shared.attachCommandWindow(panel)
+        AppState.shared.syncVisibilityFromCommandWindow()
+
+        self.panel = panel
+        return panel
     }
 
-    final class ConfigView: NSView {
-        private var didConfigure = false
-        private weak var observedWindow: NSWindow?
+    private func installWindowObservers(for window: NSWindow) {
+        guard observedWindow !== window else { return }
 
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            configureWindowIfNeeded()
-        }
+        observedWindow = window
 
-        func configureWindowIfNeeded() {
-            guard !didConfigure, let window else { return }
-            didConfigure = true
+        let center = NotificationCenter.default
+        center.removeObserver(self)
 
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            window.hasShadow = false
-            window.isMovableByWindowBackground = true
-            window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
-            window.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
+        let names: [Notification.Name] = [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didResignKeyNotification,
+            NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification,
+            NSWindow.willCloseNotification
+        ]
 
-            [NSWindow.ButtonType.closeButton,
-             .miniaturizeButton,
-             .zoomButton].forEach { type in
-                guard let button = window.standardWindowButton(type) else { return }
-                button.isHidden = true
-                button.isEnabled = false
-            }
-
-            installWindowObservers(for: window)
-
-            Task { @MainActor in
-                AppState.shared.attachCommandWindow(window)
-                AppState.shared.syncVisibilityFromCommandWindow()
-            }
-        }
-
-        private func installWindowObservers(for window: NSWindow) {
-            guard observedWindow !== window else { return }
-
-            observedWindow = window
-
-            let center = NotificationCenter.default
-            center.removeObserver(self)
-
-            let names: [Notification.Name] = [
-                NSWindow.didBecomeKeyNotification,
-                NSWindow.didResignKeyNotification,
-                NSWindow.didMiniaturizeNotification,
-                NSWindow.didDeminiaturizeNotification,
-                NSWindow.willCloseNotification
-            ]
-
-            for name in names {
-                center.addObserver(
-                    self,
-                    selector: #selector(handleObservedWindowChange),
-                    name: name,
-                    object: window
-                )
-            }
-
+        for name in names {
             center.addObserver(
                 self,
-                selector: #selector(handleScreenParametersChanged),
-                name: NSApplication.didChangeScreenParametersNotification,
-                object: nil
+                selector: #selector(handleObservedWindowChange),
+                name: name,
+                object: window
             )
         }
 
-        @objc private func handleObservedWindowChange() {
-            AppState.shared.syncVisibilityFromCommandWindow()
-        }
+        center.addObserver(
+            self,
+            selector: #selector(handleScreenParametersChanged),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+    }
 
-        @objc private func handleScreenParametersChanged() {
-            guard let observedWindow, observedWindow.isVisible else { return }
-            observedWindow.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: false)
+    @objc private func handleObservedWindowChange() {
+        AppState.shared.syncVisibilityFromCommandWindow()
+    }
+
+    @objc private func handleScreenParametersChanged() {
+        guard let observedWindow, observedWindow.isVisible else { return }
+        observedWindow.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: false)
+    }
+
+    private func installOutsideAppClickMonitor() {
+        guard globalMouseDownMonitor == nil else { return }
+
+        let eventMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        globalMouseDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) { _ in
+            DispatchQueue.main.async {
+                AppState.shared.hideCommandBar()
+            }
         }
+    }
+}
+
+private extension NSEvent {
+    var isMouseDownEvent: Bool {
+        type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
     }
 }
 
 private extension NSWindow {
+    func configureCommandBarOverlayBehavior() {
+        styleMask.insert(.nonactivatingPanel)
+        level = .floating
+
+        var behavior = collectionBehavior
+        behavior.remove(.moveToActiveSpace)
+        behavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary, .stationary])
+        collectionBehavior = behavior
+    }
+
     func fitCommandBarCanvasToVisibleScreen(preferMouseScreen: Bool) {
         let displayFrame = preferredCommandBarDisplay(preferMouseScreen: preferMouseScreen)?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
         let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)

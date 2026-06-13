@@ -185,13 +185,49 @@ import Testing
     #expect(canvasFrame.midY == displayFrame.midY)
 }
 
-@Test func commandBarShadowBackdropOverscansCanvas() async throws {
+@Test func commandBarSurfaceFrameExcludesTransparentCanvasArea() async throws {
+    let displayFrame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+
+    let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
+    let surfaceFrame = CommandBarLayout.surfaceFrame(in: canvasFrame)
+
+    #expect(surfaceFrame.size == CommandBarLayout.surfaceSize)
+    #expect(surfaceFrame.minX > canvasFrame.minX)
+    #expect(surfaceFrame.maxX < canvasFrame.maxX)
+    #expect(surfaceFrame.minY > canvasFrame.minY)
+    #expect(surfaceFrame.maxY < canvasFrame.maxY)
+    #expect(!surfaceFrame.contains(CGPoint(x: canvasFrame.minX + 24, y: canvasFrame.midY)))
+    #expect(surfaceFrame.contains(CGPoint(x: canvasFrame.midX, y: surfaceFrame.midY)))
+    #expect(CommandBarLayout.shouldDismissClick(
+        at: CGPoint(x: canvasFrame.minX + 24, y: canvasFrame.midY),
+        in: canvasFrame
+    ))
+    #expect(!CommandBarLayout.shouldDismissClick(
+        at: CGPoint(x: canvasFrame.midX, y: surfaceFrame.midY),
+        in: canvasFrame
+    ))
+}
+
+@Test func commandBarShadowRadiusStaysInsideLargeDisplays() async throws {
+    let displayFrame = CGRect(x: -1920, y: 0, width: 2560, height: 1440)
     let canvasSize = CGSize(width: 2560, height: 1440)
 
+    let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
     let backdropSize = CommandBarLayout.shadowBackdropSize(for: canvasSize)
+    let shadowCenter = CGPoint(
+        x: canvasFrame.midX,
+        y: canvasFrame.midY + CommandBarLayout.surfaceVerticalOffset
+    )
+    let nearestCanvasEdgeDistance = min(
+        shadowCenter.x - canvasFrame.minX,
+        canvasFrame.maxX - shadowCenter.x,
+        shadowCenter.y - canvasFrame.minY,
+        canvasFrame.maxY - shadowCenter.y
+    )
 
     #expect(backdropSize.width == canvasSize.width + CommandBarLayout.shadowOverscan)
     #expect(backdropSize.height == canvasSize.height + CommandBarLayout.shadowOverscan)
+    #expect(CommandBarLayout.shadowEndRadius < nearestCanvasEdgeDistance)
 }
 
 @Test func trialPolicyExpiresAfterSevenDays() async throws {

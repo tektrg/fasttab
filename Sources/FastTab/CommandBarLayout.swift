@@ -2,6 +2,7 @@ import CoreGraphics
 
 enum CommandBarLayout {
     static let surfaceSize = CGSize(width: 640, height: 460)
+    static let surfaceCornerRadius: CGFloat = 24
     static let defaultCanvasSize = CGSize(width: 1600, height: 1000)
     static let minimumCanvasSize = surfaceSize
     static let shadowOverscan: CGFloat = 900

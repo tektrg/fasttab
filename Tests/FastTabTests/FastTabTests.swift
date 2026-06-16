@@ -208,6 +208,69 @@ import Testing
     ))
 }
 
+@Test func duplicateURLNormalizationStripsTrailingSlash() {
+    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/") == "https://example.com")
+    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/path/") == "https://example.com/path")
+    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/path") == "https://example.com/path")
+}
+
+@Test func duplicateURLNormalizationLowercasesSchemeAndHost() {
+    #expect(BrowserTabService.normalizeDuplicateURL("HTTPS://EXAMPLE.COM/path") == "https://example.com/path")
+    #expect(BrowserTabService.normalizeDuplicateURL("https://Example.Com/Path") == "https://example.com/Path")
+}
+
+@Test func duplicateURLNormalizationStripsQueryAndFragment() {
+    // Query params and fragments are stripped so that session-token-bearing
+    // URLs (e.g. SharePoint, Google Docs) are matched as duplicates.
+    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/search?q=apple") == "https://example.com/search")
+    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/page#section") == "https://example.com/page")
+    #expect(BrowserTabService.normalizeDuplicateURL("https://sharepoint.com/doc?e=session1") == "https://sharepoint.com/doc")
+    #expect(BrowserTabService.normalizeDuplicateURL("https://sharepoint.com/doc?e=session2") == "https://sharepoint.com/doc")
+}
+
+@Test func duplicateURLNormalizationHandlesFinderPaths() {
+    let path = "/Users/trungluong/Desktop"
+    #expect(BrowserTabService.normalizeDuplicateURL(path) == path)
+}
+
+@Test func duplicateScopeFilterDetectsTabsWithSameNormalizedURL() {
+    let now = Date()
+    let chrome = "Google Chrome"
+    let tabs: [BrowserSearchResult] = [
+        BrowserSearchResult(title: "Tab 1", url: "https://example.com/", browserName: chrome, type: .tab, timestamp: now, windowIndex: 1, tabIndex: 1),
+        BrowserSearchResult(title: "Tab 2", url: "https://example.com", browserName: chrome, type: .tab, timestamp: now, windowIndex: 1, tabIndex: 2),
+        BrowserSearchResult(title: "Unique", url: "https://other.com/", browserName: chrome, type: .tab, timestamp: now, windowIndex: 1, tabIndex: 3),
+    ]
+
+    var counts: [String: Int] = [:]
+    for tab in tabs where tab.type == .tab {
+        let key = tab.browserName + "|" + BrowserTabService.normalizeDuplicateURL(tab.url)
+        counts[key, default: 0] += 1
+    }
+    let duplicates = tabs.filter { (counts[$0.browserName + "|" + BrowserTabService.normalizeDuplicateURL($0.url)] ?? 0) >= 2 }
+
+    #expect(duplicates.count == 2)
+    #expect(duplicates.allSatisfy { $0.title != "Unique" })
+}
+
+@Test func duplicateScopeFilterExcludesCrossBrowserMatches() {
+    let now = Date()
+    let url = "https://example.com/"
+    let tabs: [BrowserSearchResult] = [
+        BrowserSearchResult(title: "Chrome tab", url: url, browserName: "Google Chrome", type: .tab, timestamp: now),
+        BrowserSearchResult(title: "Safari tab", url: url, browserName: "Safari", type: .tab, timestamp: now),
+    ]
+
+    var counts: [String: Int] = [:]
+    for tab in tabs where tab.type == .tab {
+        let key = tab.browserName + "|" + BrowserTabService.normalizeDuplicateURL(tab.url)
+        counts[key, default: 0] += 1
+    }
+    let duplicates = tabs.filter { (counts[$0.browserName + "|" + BrowserTabService.normalizeDuplicateURL($0.url)] ?? 0) >= 2 }
+
+    #expect(duplicates.isEmpty, "Cross-browser tabs should NOT be flagged as duplicates")
+}
+
 @Test func commandBarShadowRadiusStaysInsideLargeDisplays() async throws {
     let displayFrame = CGRect(x: -1920, y: 0, width: 2560, height: 1440)
     let canvasSize = CGSize(width: 2560, height: 1440)

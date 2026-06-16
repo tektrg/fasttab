@@ -510,20 +510,15 @@ struct ContentView: View {
         let shadowColor = commandBarFullScreenShadowColor(for: colorScheme)
         let backdropSize = CommandBarLayout.shadowBackdropSize(for: canvasSize)
 
-        return RadialGradient(
-            stops: [
-                .init(color: shadowColor.opacity(0.54), location: 0.00),
-                .init(color: shadowColor.opacity(0.46), location: 0.10),
-                .init(color: shadowColor.opacity(0.30), location: 0.32),
-                .init(color: shadowColor.opacity(0.15), location: 0.64),
-                .init(color: shadowColor.opacity(0.00), location: 1.00)
-            ],
-            center: .center,
-            startRadius: 60,
-            endRadius: CommandBarLayout.shadowEndRadius
-        )
-        .frame(width: backdropSize.width, height: backdropSize.height)
-        .offset(y: CommandBarLayout.surfaceVerticalOffset)
+        return Rectangle()
+            .fill(shadowColor.opacity(0.55))
+            .frame(
+                width: CommandBarLayout.surfaceSize.width,
+                height: CommandBarLayout.surfaceSize.height
+            )
+            .blur(radius: 90)
+            .frame(width: backdropSize.width, height: backdropSize.height)
+            .offset(y: CommandBarLayout.surfaceVerticalOffset)
     }
 
     @ViewBuilder
@@ -559,10 +554,7 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 300)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(.thinMaterial)
-                )
+                .background(CommandBarSurfaceBackground(cornerRadius: 16))
             } else {
                 ScrollView {
                     LazyVStack(spacing: 6) {
@@ -599,10 +591,7 @@ struct ContentView: View {
             }
         }
         .frame(height: 300)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.thinMaterial)
-        )
+        .background(CommandBarSurfaceBackground(cornerRadius: 16))
     }
 
     private func scrollResultsToTop(_ proxy: ScrollViewProxy) {

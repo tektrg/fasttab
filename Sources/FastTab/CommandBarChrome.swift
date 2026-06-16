@@ -8,6 +8,26 @@ struct CommandBarSurface<Content: View>: View {
     }
 }
 
+/// Frosted surface background with an opaque base so the ambient shadow behind
+/// the command bar can't bleed through the translucent material.
+struct CommandBarSurfaceBackground: View {
+    var cornerRadius: CGFloat
+    var accent: Color = .clear
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color(nsColor: .windowBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.thinMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(accent)
+            )
+    }
+}
+
 struct PermissionBanner: View {
     let icon: String
     let tint: Color
@@ -52,10 +72,7 @@ struct PermissionBanner: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.thinMaterial)
-        )
+        .background(CommandBarSurfaceBackground(cornerRadius: 12))
     }
 }
 
@@ -117,12 +134,10 @@ struct SearchHeader: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.thinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
-                )
+            CommandBarSurfaceBackground(
+                cornerRadius: 14,
+                accent: isSelected ? Color.accentColor.opacity(0.14) : Color.clear
+            )
         )
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
     }
@@ -135,10 +150,7 @@ struct FooterShortcutBar<Content: View>: View {
         content
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(.thinMaterial)
-            )
+            .background(CommandBarSurfaceBackground(cornerRadius: 12))
     }
 }
 

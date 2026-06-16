@@ -76,7 +76,7 @@ struct PaywallView: View {
                 Button("Buy FastTab") {
                     onBuy()
                 }
-                .buttonStyle(.borderedProminent)
+                .commandBarProminentButtonStyle()
                 .controlSize(.large)
             }
             Button("Contact Support") {
@@ -90,10 +90,7 @@ struct PaywallView: View {
         .padding(24)
         .frame(maxWidth: .infinity)
         .frame(height: 300)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.thinMaterial)
-        )
+        .background(CommandBarSurfaceBackground(cornerRadius: 16))
     }
 
     private var iconName: String {
@@ -178,7 +175,7 @@ struct LicenseActivationSheet: View {
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .commandBarProminentButtonStyle()
                 .disabled(licenseService.isActivating || licenseKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }

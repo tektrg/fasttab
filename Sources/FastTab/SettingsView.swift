@@ -9,6 +9,7 @@ struct SettingsView: View {
     @ObservedObject private var sourceSelection = SourceSelectionStore.shared
 
     @AppStorage("FastTab.safari.includeFDAData") private var includeSafariFDAData: Bool = false
+    @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = false
 
     @State private var fdaInitiallyGranted: Bool = false
     @State private var fdaGrantedNow: Bool = false
@@ -29,6 +30,12 @@ struct SettingsView: View {
                     Text(errorMessage)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            if #available(macOS 26.0, *) {
+                Section("Appearance") {
+                    Toggle("Glass background panel", isOn: $outerPanelEnabled)
                 }
             }
 

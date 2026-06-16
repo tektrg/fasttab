@@ -122,3 +122,6 @@ run git push origin "${version}"
 
 echo "Release tag ${version} is ready."
 echo "A GitHub Release will be created by .github/workflows/github-release.yml after the tag push."
+echo ""
+echo "Next: run the distribution pipeline to ship the update to users:"
+echo "  scripts/distribute.sh ${version} \"<release notes>\""

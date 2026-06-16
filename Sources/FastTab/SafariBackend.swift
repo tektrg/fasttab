@@ -392,7 +392,7 @@ struct SafariBackend: BrowserBackend {
         let roDisabled = readOnlyAccessDisabled.withLock { $0 }
         if !roDisabled {
             let uri = "file:\(sqliteFileURIPath(dbPath))?mode=ro"
-            let roArgs = ["-cmd", ".timeout 3000"] + extraArgs + [uri, sql]
+            let roArgs = ["-cmd", ".timeout \(kSQLiteLiveReadBusyTimeoutMs)"] + extraArgs + [uri, sql]
             if let output = runProcess(
                 launchPath: "/usr/bin/sqlite3",
                 arguments: roArgs,
@@ -400,10 +400,17 @@ struct SafariBackend: BrowserBackend {
             ) {
                 return output
             }
-            // First failure — disable the read-only path for the session and
-            // fall through to the copy below.
+            // A nil from a *cancelled* query (the user typed another character)
+            // is not a real read-only failure — bail without latching the
+            // session into copy-mode or paying for a wasted DB copy whose
+            // result we'd discard anyway.
+            if Task.isCancelled { return nil }
+            // First genuine failure — disable the read-only path for the
+            // session and fall through to the copy below.
             readOnlyAccessDisabled.withLock { $0 = true }
         }
+
+        if Task.isCancelled { return nil }
 
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString)-SafariRO.db")

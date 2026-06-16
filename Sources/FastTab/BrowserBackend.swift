@@ -5,6 +5,14 @@ import OSLog
 let kFieldSep = "\u{1F}" // unit separator
 let kRowSep   = "\u{1C}" // file separator
 
+/// SQLite `busy_timeout` (ms) for read-only queries against a browser's *live*
+/// History DB. Kept deliberately small so a query that hits a write lock (the
+/// browser is actively writing) fails fast and falls back to a copy instead of
+/// holding a thread for seconds. A multi-second wait here starves the shared
+/// task pool and delays the live-tab fetch the user is actually waiting on —
+/// history must never block tabs. See `runProcess` cancellation handling.
+let kSQLiteLiveReadBusyTimeoutMs = 200
+
 func appleScriptQuoted(_ value: String) -> String {
     value
         .replacingOccurrences(of: "\\", with: "\\\\")
@@ -137,7 +145,15 @@ func runProcess(launchPath: String, arguments: [String], timeoutSeconds: TimeInt
 
         let deadline = Date().addingTimeInterval(timeoutSeconds)
         while task.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
+            // Abandon the moment the owning task is cancelled (e.g. the user
+            // typed another character, superseding this search). Without this
+            // the busy-wait would pin a cooperative-pool thread until the
+            // process exits on its own, starving the live-tab fetch behind it.
+            if Task.isCancelled {
+                task.terminate()
+                return nil
+            }
+            Thread.sleep(forTimeInterval: 0.02)
         }
 
         if task.isRunning {

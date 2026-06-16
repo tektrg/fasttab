@@ -379,7 +379,7 @@ struct ChromiumBackend: BrowserBackend {
     private static func readonlySQLiteArgs(dbPath: String, sql: String) -> [String] {
         let uri = immutableSQLiteURI(dbPath: dbPath)
         return [
-            "-cmd", ".timeout 3000",
+            "-cmd", ".timeout \(kSQLiteLiveReadBusyTimeoutMs)",
             "-separator", kFieldSep,
             uri,
             sql

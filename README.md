@@ -77,6 +77,18 @@ For personal development, `swift run FastTab` is the simplest path. If you want 
 
 The release app uses configuration keys for things like checkout URLs, license validation, support links, and Sparkle updates. Those production values are intentionally part of the official distribution path, not a promise that every source checkout is a supported release build.
 
+## Tagging a Source Release
+
+Maintainers can create a source release tag from a clean, up-to-date `main` branch:
+
+```sh
+scripts/release.sh 1.5.2
+```
+
+The script runs `swift test`, creates an annotated tag, and pushes it to `origin`. A GitHub Actions workflow then creates a GitHub Release entry with generated notes for the pushed version tag.
+
+This does not build, sign, notarize, package, or update Sparkle appcast metadata for the official app distribution.
+
 ## Contributing
 
 Small, practical fixes are welcome. The most useful contributions are reproducible bug reports, focused patches, and tests around behavior that changed. Large feature requests or support expectations are better directed through the official product channel after purchasing the app.

@@ -23,5 +23,7 @@ sparkle_private_key.pem
 !/README.md
 !/.github/
 !/.github/SECURITY.md
+!/scripts/
+!/scripts/release.sh
 !/Sources/
 !/Tests/

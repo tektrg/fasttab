@@ -671,6 +671,17 @@ class BrowserTabService: ObservableObject {
                         activeTimes: &updatedTimes,
                         currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
                     )
+                    // Publish tabs immediately so they're never blocked by the
+                    // history DB read below — mirrors the phase-1/phase-2 split
+                    // in fetchResultsUnscoped. History merges in at the shared
+                    // publish at the end of this task.
+                    let earlyTabs = sortBrowserSearchResults(liveTabs, frecencyScore: frecencyLookup)
+                        .filter { filter.matches($0) }
+                    await MainActor.run {
+                        guard let self, generation == self.fetchGeneration else { return }
+                        self.results = self.filteringRecentlyClosed(earlyTabs)
+                        self.isLoading = false
+                    }
                     let history: [BrowserSearchResult] = await withTaskGroup(of: [BrowserSearchResult].self) { group in
                         for backend in backends {
                             group.addTask {
@@ -1076,10 +1087,13 @@ class BrowserTabService: ObservableObject {
     }
 
     private func faviconCacheKey(browserName: String, url: String) -> String {
-        guard let parsedURL = URL(string: url), let host = parsedURL.host?.lowercased(), !host.isEmpty else {
-            return "\(browserName)|\(url)"
-        }
-        return "\(browserName)|\(host)"
+        // Key by the full page URL, not just the host. Sites like Notion serve a
+        // distinct favicon per page (page-specific icon/emoji), stored per
+        // `page_url` in the browser's favicon DB. Host-keying would collapse every
+        // page of such a site onto one cache slot, so they'd all show whichever
+        // favicon resolved first. The backends already resolve per page URL with an
+        // origin fallback, so single-favicon sites still share the same image data.
+        return "\(browserName)|\(url)"
     }
 
     private func backend(for result: BrowserSearchResult) -> (any BrowserBackend)? {

@@ -207,6 +207,17 @@ struct SettingsView: View {
                 .font(.caption)
             }
             } // if sourceSelection.isEnabled(.safari)
+
+            Section {
+                HStack {
+                    Spacer()
+                    Text("Version \(appVersion)")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                }
+                .listRowBackground(Color.clear)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 480)
@@ -218,6 +229,15 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             fdaGrantedNow = appState.browserService.canReadSafariProtectedData()
         }
+    }
+
+    private var appVersion: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        if !build.isEmpty && build != short {
+            return "\(short) (\(build))"
+        }
+        return short
     }
 
     private func openFullDiskAccessSettings() {

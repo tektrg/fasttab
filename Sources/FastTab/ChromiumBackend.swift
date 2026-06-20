@@ -231,7 +231,7 @@ struct ChromiumBackend: BrowserBackend {
         for profile in profiles() {
             guard FileManager.default.fileExists(atPath: profile.historyURL.path) else { continue }
             let profileStart = Date()
-            let profileQueryLimit = 150
+            let profileQueryLimit = 500
             let sql = """
             SELECT title, url, last_visit_time
             FROM urls

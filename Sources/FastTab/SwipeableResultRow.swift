@@ -304,6 +304,7 @@ private enum BrowserIconCache {
     private static let appPathByName: [String: String] = [
         "Google Chrome": "/Applications/Google Chrome.app",
         "Microsoft Edge": "/Applications/Microsoft Edge.app",
+        "Brave Browser": "/Applications/Brave Browser.app",
         "Finder": "/System/Library/CoreServices/Finder.app"
     ]
 

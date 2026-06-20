@@ -61,7 +61,7 @@ class BrowserTabService: ObservableObject {
     private var faviconPrefetchTask: Task<Void, Never>?
 
     private let cacheRefreshInterval: TimeInterval = 30
-    private let historyCachePerBrowserLimit = 300
+    private let historyCachePerBrowserLimit = 1000
     private let initialVisibleTabLimit = 5
     private let typedQueryLiveTabsReuseWindow: TimeInterval = 1.0
 
@@ -96,6 +96,15 @@ class BrowserTabService: ObservableObject {
                 appName: "Microsoft Edge",
                 bundleIdentifier: "com.microsoft.edgemac",
                 supportDirectory: "~/Library/Application Support/Microsoft Edge"
+            ))
+        }
+        if enabled.contains(.brave) {
+            backends.append(ChromiumBackend(
+                // appName must match Brave's AppleScript target and `.app`
+                // bundle name ("Brave Browser"), not the colloquial "Brave".
+                appName: "Brave Browser",
+                bundleIdentifier: "com.brave.Browser",
+                supportDirectory: "~/Library/Application Support/BraveSoftware/Brave-Browser"
             ))
         }
         if enabled.contains(.safari), Self.isSafariInstalled() {
@@ -645,7 +654,7 @@ class BrowserTabService: ObservableObject {
                 produced = bookmarkSnapshot.filter { filter.matches($0) }
 
             case .history:
-                let limit = 500
+                let limit = 1000
                 let since = filter.historySince
                 let before = filter.historyBefore
                 let collected: [BrowserSearchResult] = await withTaskGroup(of: [BrowserSearchResult].self) { group in
@@ -687,7 +696,7 @@ class BrowserTabService: ObservableObject {
                     let history: [BrowserSearchResult] = await withTaskGroup(of: [BrowserSearchResult].self) { group in
                         for backend in backends {
                             group.addTask {
-                                backend.searchHistory(query: normalizedQuery, limit: 500)
+                                backend.searchHistory(query: normalizedQuery, limit: 1000)
                             }
                         }
                         var all: [BrowserSearchResult] = []
@@ -880,7 +889,7 @@ class BrowserTabService: ObservableObject {
             // Phase 2: run history search per backend concurrently
             let historyMatches = await withTaskGroup(of: [BrowserSearchResult].self) { group in
                 for backend in backends {
-                    group.addTask { backend.searchHistory(query: normalizedQuery, limit: 500) }
+                    group.addTask { backend.searchHistory(query: normalizedQuery, limit: 1000) }
                 }
                 var all: [BrowserSearchResult] = []
                 for await chunk in group { all.append(contentsOf: chunk) }

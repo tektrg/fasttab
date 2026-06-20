@@ -10,6 +10,7 @@ import AppKit
 enum SearchSource: String, CaseIterable, Identifiable, Sendable {
     case chrome
     case edge
+    case brave
     case safari
     case finder
 
@@ -19,6 +20,7 @@ enum SearchSource: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .chrome: return "Google Chrome"
         case .edge:   return "Microsoft Edge"
+        case .brave:  return "Brave Browser"
         case .safari: return "Safari"
         case .finder: return "Finder"
         }
@@ -30,6 +32,7 @@ enum SearchSource: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .chrome: return "com.google.Chrome"
         case .edge:   return "com.microsoft.edgemac"
+        case .brave:  return "com.brave.Browser"
         case .safari: return "com.apple.Safari"
         case .finder: return "com.apple.finder"
         }

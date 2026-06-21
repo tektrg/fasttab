@@ -27,3 +27,4 @@ sparkle_private_key.pem
 !/scripts/release.sh
 !/Sources/
 !/Tests/
+!/.agents/

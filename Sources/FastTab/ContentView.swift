@@ -16,6 +16,26 @@ private let kLeftArrowKeyCode: UInt16 = 123
 private let kRightArrowKeyCode: UInt16 = 124
 private let kUpArrowKeyCode: UInt16 = 126
 private let kDownArrowKeyCode: UInt16 = 125
+private let quickOpenDisplayLimit = 5
+
+private enum CommandBarDisplayItem: Identifiable {
+    case result(BrowserSearchResult)
+    case showAllTabs(count: Int)
+
+    var id: String {
+        switch self {
+        case .result(let result):
+            return result.id
+        case .showAllTabs:
+            return "command-bar-show-all-tabs"
+        }
+    }
+
+    var result: BrowserSearchResult? {
+        guard case .result(let result) = self else { return nil }
+        return result
+    }
+}
 
 struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -53,6 +73,7 @@ struct ContentView: View {
     @State private var isPointerSwipeGestureActive = false
     @State private var suppressPointerSwipeUntilGestureEnds = false
     @State private var pointerSwipeSuppressionTask: Task<Void, Never>?
+    @State private var isShowingAllOpenTabs = false
     @AppStorage("guidance.hasDiscoveredSwipe") private var hasDiscoveredSwipe: Bool = false
     @State private var lastInteractionKey: LastInteractionKey = .none
     /// Measured frame of the SearchHeader in the command-bar coordinate space.
@@ -66,13 +87,29 @@ struct ContentView: View {
 
     var displayedResults: [BrowserSearchResult] {
         if searchText.isEmpty {
-            return Array(filteredResults.prefix(5))
+            return quickOpenState.results
         }
         return filteredResults
     }
 
-    var indexedResults: [(offset: Int, element: BrowserSearchResult)] {
-        Array(displayedResults.enumerated())
+    private var quickOpenState: QuickOpenDisplayState {
+        quickOpenDisplayState(
+            from: filteredResults,
+            limit: quickOpenDisplayLimit,
+            isShowingAllOpenTabs: isShowingAllOpenTabs
+        )
+    }
+
+    private var displayedItems: [CommandBarDisplayItem] {
+        var items = displayedResults.map(CommandBarDisplayItem.result)
+        if searchText.isEmpty, quickOpenState.includesShowAllTabsItem {
+            items.append(.showAllTabs(count: filteredResults.count))
+        }
+        return items
+    }
+
+    private var indexedDisplayItems: [(offset: Int, element: CommandBarDisplayItem)] {
+        Array(displayedItems.enumerated())
     }
 
     var shouldShowWindowName: Bool {
@@ -100,8 +137,11 @@ struct ContentView: View {
         let store = shortcutStore
         let selectedIndex = appState.selectedIndex
         let isResultFocused = selectedIndex >= 0 && !isSearchFocused
-        let hasResults = !displayedResults.isEmpty
+        let hasResults = !displayedItems.isEmpty
         let queryEmpty = searchText.isEmpty
+        let isShowAllTabsFocused = selectedIndex >= 0
+            && displayedItems.indices.contains(selectedIndex)
+            && displayedItems[selectedIndex].result == nil
 
         // 0: Shortcut modifier still held on fresh open — search bar focused, no cycling yet
         if isShortcutModifierHeld && !hasCycled && isSearchFocused {
@@ -140,7 +180,7 @@ struct ContentView: View {
         // 7: Modifier cycling mode — user is holding modifier and cycling with shortcut key
         if hasCycled {
             return GuidanceHint(tokens: [
-                .init(glyph: store.modifierSymbols, label: "release to open"),
+                .init(glyph: store.modifierSymbols, label: isShowAllTabsFocused ? "release to show" : "release to open"),
                 .init(glyph: store.keyDisplayName, label: "next"),
                 .init(glyph: "Esc", label: "cancel")
             ])
@@ -158,6 +198,13 @@ struct ContentView: View {
 
         // 9–10: Result focused via keyboard navigation (arrow keys or space)
         if isResultFocused && (lastInteractionKey == .upDown || lastInteractionKey == .space) {
+            if isShowAllTabsFocused {
+                return GuidanceHint(tokens: [
+                    .init(glyph: "↵", label: "show all"),
+                    .init(glyph: "Esc", label: "back")
+                ])
+            }
+
             if !hasDiscoveredSwipe {
                 return GuidanceHint(tokens: [
                     .init(glyph: "←→", label: "more options"),
@@ -176,6 +223,13 @@ struct ContentView: View {
 
         // 11: Result focused via mouse click (no keyboard nav recorded)
         if isResultFocused && lastInteractionKey == .none {
+            if isShowAllTabsFocused {
+                return GuidanceHint(tokens: [
+                    .init(glyph: "↑↓", label: "navigate"),
+                    .init(glyph: "↵", label: "show all")
+                ])
+            }
+
             return GuidanceHint(tokens: [
                 .init(glyph: "↑↓", label: "navigate"),
                 .init(glyph: "←", label: "delete"),
@@ -369,6 +423,7 @@ struct ContentView: View {
                                             return
                                         }
 
+                                        isShowingAllOpenTabs = false
                                         if searchText.isEmpty {
                                             appState.selectedIndex = -1
                                         } else {
@@ -484,25 +539,25 @@ struct ContentView: View {
             }
         }
         .onChange(of: appState.browserService.results.map(\.id)) {
-            let results = displayedResults
-            if results.isEmpty {
+            let items = displayedItems
+            if items.isEmpty {
                 appState.selectedIndex = -1
                 isSearchFocused = true
                 clearKeyboardSwipe()
                 resetPointerSwipe(animated: false)
             } else if searchText.isEmpty {
-                if appState.selectedIndex >= results.count {
-                    appState.selectedIndex = max(0, results.count - 1)
+                if appState.selectedIndex >= items.count {
+                    appState.selectedIndex = max(0, items.count - 1)
                     clearKeyboardSwipe()
                     resetPointerSwipe(animated: false)
                 }
-            } else if appState.selectedIndex < 0 || appState.selectedIndex >= results.count {
+            } else if appState.selectedIndex < 0 || appState.selectedIndex >= items.count {
                 appState.selectedIndex = 0
                 clearKeyboardSwipe()
                 resetPointerSwipe(animated: false)
             }
 
-            scheduleFaviconPrefetch(for: results)
+            scheduleFaviconPrefetch(for: displayedResults)
         }
     }
 
@@ -539,7 +594,7 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 300)
-            } else if displayedResults.isEmpty {
+            } else if displayedItems.isEmpty {
                 VStack(spacing: 8) {
                     Spacer()
                     Image(systemName: "rectangle.stack.badge.magnifyingglass")
@@ -558,30 +613,40 @@ struct ContentView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 6) {
-                        ForEach(indexedResults, id: \.element.id) { index, result in
-                            SwipeableResultRow(
-                                result: result,
-                                isSelected: appState.selectedIndex == index,
-                                faviconImage: appState.browserService.faviconImage(for: result),
-                                showWindowName: showWindowName,
-                                showProfileName: showProfileName,
-                                pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
-                                pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
-                                keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
-                                onCopyLink: { performCopyLink(result) },
-                                onRemove: { performRemove(result) },
-                                onHoverChange: { isHovering in
-                                    if isHovering {
-                                        hoveredResultID = result.id
-                                    } else if hoveredResultID == result.id {
-                                        hoveredResultID = nil
+                        ForEach(indexedDisplayItems, id: \.element.id) { index, item in
+                            switch item {
+                            case .result(let result):
+                                SwipeableResultRow(
+                                    result: result,
+                                    isSelected: appState.selectedIndex == index,
+                                    faviconImage: appState.browserService.faviconImage(for: result),
+                                    showWindowName: showWindowName,
+                                    showProfileName: showProfileName,
+                                    pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
+                                    pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
+                                    keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
+                                    onCopyLink: { performCopyLink(result) },
+                                    onRemove: { performRemove(result) },
+                                    onHoverChange: { isHovering in
+                                        if isHovering {
+                                            hoveredResultID = result.id
+                                        } else if hoveredResultID == result.id {
+                                            hoveredResultID = nil
+                                        }
                                     }
+                                )
+                                .contentShape(Rectangle())
+                                .padding(.horizontal, 8)
+                                .onTapGesture {
+                                    activateAndHide(result)
                                 }
-                            )
-                            .contentShape(Rectangle())
-                            .padding(.horizontal, 8)
-                            .onTapGesture {
-                                activateAndHide(result)
+                            case .showAllTabs(let count):
+                                ShowAllTabsRow(count: count, isSelected: appState.selectedIndex == index)
+                                    .contentShape(Rectangle())
+                                    .padding(.horizontal, 8)
+                                    .onTapGesture {
+                                        expandAllOpenTabs()
+                                    }
                             }
                         }
                     }
@@ -595,14 +660,14 @@ struct ContentView: View {
     }
 
     private func scrollResultsToTop(_ proxy: ScrollViewProxy) {
-        guard let firstResultID = displayedResults.first?.id else { return }
-        proxy.scrollTo(firstResultID, anchor: .top)
+        guard let firstItemID = displayedItems.first?.id else { return }
+        proxy.scrollTo(firstItemID, anchor: .top)
     }
 
     private func scrollSelectedResultIntoView(_ proxy: ScrollViewProxy) {
-        let results = displayedResults
-        guard results.indices.contains(appState.selectedIndex) else { return }
-        proxy.scrollTo(results[appState.selectedIndex].id, anchor: .center)
+        let items = displayedItems
+        guard items.indices.contains(appState.selectedIndex) else { return }
+        proxy.scrollTo(items[appState.selectedIndex].id, anchor: .center)
     }
 
     private func scheduleFaviconPrefetch(for results: [BrowserSearchResult]) {
@@ -928,6 +993,7 @@ struct ContentView: View {
         searchDebounceTask?.cancel()
         suppressNextSearchChange = true
         searchText = ""
+        isShowingAllOpenTabs = false
         scopeChips = []
         scopeSuggestionMode = .hidden
         scopeDropdownSelectedIndex = 0
@@ -952,6 +1018,27 @@ struct ContentView: View {
         resetPointerSwipe(animated: false)
         appState.browserService.activate(result)
         appState.hideCommandBar()
+    }
+
+    private func activateSelectedDisplayItem() {
+        let items = displayedItems
+        guard items.indices.contains(appState.selectedIndex) else { return }
+
+        switch items[appState.selectedIndex] {
+        case .result(let result):
+            activateAndHide(result)
+        case .showAllTabs:
+            expandAllOpenTabs()
+        }
+    }
+
+    private func expandAllOpenTabs() {
+        guard searchText.isEmpty else { return }
+        clearKeyboardSwipe()
+        resetPointerSwipe(animated: false)
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+            isShowingAllOpenTabs = true
+        }
     }
 
     private func dismissCommandBar() {
@@ -1146,10 +1233,10 @@ struct ContentView: View {
     }
 
     private func handleKeyboardSwipe(_ action: ResultSwipeAction) {
-        let results = displayedResults
-        guard results.indices.contains(appState.selectedIndex) else { return }
+        let items = displayedItems
+        guard items.indices.contains(appState.selectedIndex),
+              let result = items[appState.selectedIndex].result else { return }
 
-        let result = results[appState.selectedIndex]
         if keyboardSwipeResultID == result.id, keyboardSwipeAction == action {
             switch action {
             case .delete:
@@ -1171,16 +1258,16 @@ struct ContentView: View {
     private func moveSelectionForward(includeSearchField: Bool) {
         clearKeyboardSwipe()
         resetPointerSwipe(animated: true)
-        let results = displayedResults
+        let items = displayedItems
         let minimumIndex = includeSearchField ? -1 : 0
 
-        if results.isEmpty {
+        if items.isEmpty {
             appState.selectedIndex = minimumIndex
             isSearchFocused = includeSearchField
             return
         }
 
-        let maximumIndex = results.count - 1
+        let maximumIndex = items.count - 1
         if appState.selectedIndex < minimumIndex || appState.selectedIndex >= maximumIndex {
             appState.selectedIndex = minimumIndex
         } else {
@@ -1193,16 +1280,16 @@ struct ContentView: View {
     private func moveSelectionBackward(includeSearchField: Bool) {
         clearKeyboardSwipe()
         resetPointerSwipe(animated: true)
-        let results = displayedResults
+        let items = displayedItems
         let minimumIndex = includeSearchField ? -1 : 0
 
-        if results.isEmpty {
+        if items.isEmpty {
             appState.selectedIndex = minimumIndex
             isSearchFocused = includeSearchField
             return
         }
 
-        let maximumIndex = results.count - 1
+        let maximumIndex = items.count - 1
         if appState.selectedIndex <= minimumIndex || appState.selectedIndex > maximumIndex {
             appState.selectedIndex = maximumIndex
         } else {
@@ -1326,12 +1413,7 @@ struct ContentView: View {
                     if isScopeDropdownVisible, handleScopeDropdownEnter() {
                         return nil
                     }
-                    let results = displayedResults
-                    if results.indices.contains(appState.selectedIndex) {
-                        appState.browserService.activate(results[appState.selectedIndex])
-                        appState.hideCommandBar()
-                        clearKeyboardSwipe()
-                    }
+                    activateSelectedDisplayItem()
                     return nil
                 }
             } else if event.type == .flagsChanged && appState.isVisible {
@@ -1342,17 +1424,62 @@ struct ContentView: View {
                 if modifierReleased {
                     isShortcutModifierHeld = false
                     if hasCycled {
-                        let results = displayedResults
-                        if results.indices.contains(appState.selectedIndex) {
-                            appState.browserService.activate(results[appState.selectedIndex])
-                            appState.hideCommandBar()
-                            clearKeyboardSwipe()
-                        }
+                        activateSelectedDisplayItem()
                         hasCycled = false
                     }
                 }
             }
             return event
         }
+    }
+}
+
+private struct ShowAllTabsRow: View {
+    let count: Int
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "rectangle.stack.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 16, height: 16)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Show all tabs...")
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .lineLimit(1)
+
+                HStack(spacing: 5) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    Text("\(count) open \(count == 1 ? "tab" : "tabs")")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
+
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.17) : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : .clear, lineWidth: 1)
+                )
+        )
+        .scaleEffect(isSelected ? 1.01 : 1)
+        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
     }
 }

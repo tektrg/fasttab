@@ -138,6 +138,72 @@ import Testing
     #expect(visibleTabs.map(\.title) == ["Previous tab", "Older tab"])
 }
 
+@Test func quickOpenDisplayStateUsesFifthSlotForShowAllTabs() async throws {
+    let tabs = makeQuickOpenTabs(count: 6)
+
+    let state = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: false)
+
+    #expect(state.results.map(\.title) == ["Tab 1", "Tab 2", "Tab 3", "Tab 4"])
+    #expect(state.includesShowAllTabsItem)
+}
+
+@Test func allQuickOpenTabsSortsFullLiveSnapshotByRecencyAndSkipsCurrentFlowTab() async throws {
+    let now = Date()
+    let activeTab = BrowserSearchResult(
+        title: "Current tab",
+        url: "https://example.com/current",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: now,
+        isCurrentFlowActiveTab: true
+    )
+    let olderTab = BrowserSearchResult(
+        title: "Older tab",
+        url: "https://example.com/older",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: now.addingTimeInterval(-20)
+    )
+    let newerTab = BrowserSearchResult(
+        title: "Newer tab",
+        url: "https://example.com/newer",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: now.addingTimeInterval(-5)
+    )
+
+    let tabs = allQuickOpenTabs(from: [activeTab, olderTab, newerTab])
+
+    #expect(tabs.map(\.title) == ["Newer tab", "Older tab"])
+}
+
+@Test func quickOpenDisplayStateShowsAllTabsWhenExpanded() async throws {
+    let tabs = makeQuickOpenTabs(count: 6)
+
+    let state = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: true)
+
+    #expect(state.results.map(\.title) == tabs.map(\.title))
+    #expect(!state.includesShowAllTabsItem)
+}
+
+@Test func quickOpenDisplayStateDoesNotShowSentinelWhenFourOrFewerTabs() async throws {
+    let tabs = makeQuickOpenTabs(count: 4)
+
+    let state = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: false)
+
+    #expect(state.results.map(\.title) == tabs.map(\.title))
+    #expect(!state.includesShowAllTabsItem)
+}
+
+@Test func quickOpenDisplayStateUsesSentinelWhenExactlyFiveTabs() async throws {
+    let tabs = makeQuickOpenTabs(count: 5)
+
+    let state = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: false)
+
+    #expect(state.results.map(\.title) == ["Tab 1", "Tab 2", "Tab 3", "Tab 4"])
+    #expect(state.includesShowAllTabsItem)
+}
+
 @Test func tabRecencyKeyDistinguishesDuplicateURLsByTabSlot() async throws {
     let first = BrowserSearchResult(
         title: "First duplicate",
@@ -165,6 +231,20 @@ import Testing
         tabIndex: 1,
         url: "https://example.com/shared"
     ))
+}
+
+private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
+    (1...count).map { index in
+        BrowserSearchResult(
+            title: "Tab \(index)",
+            url: "https://example.com/\(index)",
+            browserName: "Google Chrome",
+            type: .tab,
+            timestamp: Date(timeIntervalSince1970: TimeInterval(1_000 - index)),
+            windowIndex: 1,
+            tabIndex: index
+        )
+    }
 }
 
 @Test func commandBarCanvasExpandsToLargeDisplay() async throws {

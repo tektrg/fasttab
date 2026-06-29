@@ -62,7 +62,6 @@ class BrowserTabService: ObservableObject {
 
     private let cacheRefreshInterval: TimeInterval = 30
     private let historyCachePerBrowserLimit = 1000
-    private let initialVisibleTabLimit = 5
     private let typedQueryLiveTabsReuseWindow: TimeInterval = 1.0
 
     private let backends: [any BrowserBackend]
@@ -767,7 +766,6 @@ class BrowserTabService: ObservableObject {
         let backends = self.backends
         let bookmarkSnapshot = self.cachedBookmarks
         let historySnapshot = self.cachedHistory
-        let initialVisibleTabLimit = self.initialVisibleTabLimit
         let cachedLiveTabsSnapshot = self.cachedLiveTabs
         let lastLiveTabsRefreshAt = self.lastLiveTabsRefreshAt
         let typedQueryLiveTabsReuseWindow = self.typedQueryLiveTabsReuseWindow
@@ -804,36 +802,27 @@ class BrowserTabService: ObservableObject {
                 return
             }
 
-            // Empty query (quick-open top-5) must rank by raw recency so the
+            // Empty query (quick-open) must rank by raw recency so the
             // tab you *just* used is always at the top — a hard UX guarantee
             // that frecency would violate (a daily-driver gmail tab would
             // outrank the tab you alt-tabbed to 5 seconds ago). Typed-query
             // paths below re-sort with frecency.
-            //
-            // Empty-query fast path: only the top-N rows are rendered, and
-            // `cachedLiveTabs` is consumed downstream as an unordered set
-            // (count, hasMultipleWindows, re-sort by typed-query). So we skip
-            // the full O(n log n) sort and compute just top-K (O(n log k)).
             let sortedLiveTabs: [BrowserSearchResult]
-            let quickOpenTopK: [BrowserSearchResult]?
+            let quickOpenTabs: [BrowserSearchResult]?
             if normalizedQuery.isEmpty {
-                // Filter the current-flow active tab *before* top-K so we
-                // always return `initialVisibleTabLimit` rows (the active
-                // tab would otherwise eat a slot, then be stripped later).
-                let candidates = liveTabs.filter { !$0.isCurrentFlowActiveTab }
-                quickOpenTopK = topKTabsByRecency(candidates, limit: initialVisibleTabLimit)
-                sortedLiveTabs = liveTabs  // unordered; consumers don't need order
+                quickOpenTabs = allQuickOpenTabs(from: liveTabs)
+                sortedLiveTabs = liveTabs
             } else {
                 sortedLiveTabs = sortBrowserSearchResults(liveTabs, frecencyScore: frecencyLookup)
-                quickOpenTopK = nil
+                quickOpenTabs = nil
             }
-            let recencyTopPreview = (quickOpenTopK ?? sortedLiveTabs).prefix(10).map { r -> String in
+            let recencyTopPreview = (quickOpenTabs ?? sortedLiveTabs).prefix(10).map { r -> String in
                 "[win=\(r.windowIndex ?? -1) tab=\(r.tabIndex ?? -1) ts=\(Int(r.timestamp.timeIntervalSince1970)) '\(r.title.prefix(40))']"
             }.joined(separator: " ")
             Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService").info("recency-sort post-sort top10. generation=\(generation) usedCachedLiveTabs=\(usedCachedLiveTabs, privacy: .public) liveTabsCount=\(sortedLiveTabs.count) top='\(recencyTopPreview, privacy: .public)'")
 
             if normalizedQuery.isEmpty {
-                let prioritizedTabs = quickOpenTopK ?? []
+                let prioritizedTabs = quickOpenTabs ?? []
 
                 await MainActor.run {
                     guard let self, generation == self.fetchGeneration else { return }
@@ -850,7 +839,7 @@ class BrowserTabService: ObservableObject {
                     self.openTabCount = filteredLiveTabs.count
                     self.hasFetchedOpenTabCount = true
                     self.isLoading = false
-                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) topTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
+                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) quickOpenTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
                     self.refreshCachesIfNeeded(force: false)
                 }
                 return

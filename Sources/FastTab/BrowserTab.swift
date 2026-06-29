@@ -415,51 +415,43 @@ private func sortByTimestampTier(_ items: [BrowserSearchResult]) -> [BrowserSear
     }
 }
 
-/// Returns the top-K tabs ordered by recency (timestamp desc, then browser, then title)
-/// without sorting the full list. Used by the empty-query quick-open path where
-/// only `limit` rows are rendered. For n=500, k=5 this is ~500*log2(5)≈1160 ops
-/// vs ~4480 for a full sort.
-///
-/// The empty-query path intentionally ranks by raw recency (not frecency) — the
-/// tab the user just used must always lead. This matches the comparator used
-/// inside `sortByTimestampTier`.
-func topKTabsByRecency(_ tabs: [BrowserSearchResult], limit: Int) -> [BrowserSearchResult] {
-    let k = max(0, limit)
-    if k == 0 || tabs.isEmpty { return [] }
-    if tabs.count <= k { return sortByTimestampTier(tabs) }
-
-    // Comparator: returns true if `a` should rank *before* `b` (higher priority).
-    func ranksBefore(_ a: BrowserSearchResult, _ b: BrowserSearchResult) -> Bool {
-        if a.timestamp != b.timestamp { return a.timestamp > b.timestamp }
-        if a.browserName != b.browserName {
-            return a.browserName.localizedCompare(b.browserName) == .orderedAscending
-        }
-        return a.title.localizedCompare(b.title) == .orderedAscending
-    }
-
-    // Maintain `top` as the current best-K, kept sorted (small — k is typically 5).
-    // For each candidate, if it ranks before the current worst-of-top, replace
-    // and re-insert in sorted position. Insertion into a k=5 array is trivially
-    // cheap; the win is avoiding the n log n full sort.
-    var top: [BrowserSearchResult] = []
-    top.reserveCapacity(k)
-    for item in tabs {
-        if top.count < k {
-            // Insert in sorted position.
-            var idx = top.count
-            while idx > 0 && ranksBefore(item, top[idx - 1]) { idx -= 1 }
-            top.insert(item, at: idx)
-        } else if ranksBefore(item, top[k - 1]) {
-            // Better than current worst; replace and re-insert.
-            top.removeLast()
-            var idx = top.count
-            while idx > 0 && ranksBefore(item, top[idx - 1]) { idx -= 1 }
-            top.insert(item, at: idx)
-        }
-    }
-    return top
-}
-
 func quickOpenVisibleTabs(from results: [BrowserSearchResult], limit: Int) -> [BrowserSearchResult] {
     Array(results.lazy.filter { !$0.isCurrentFlowActiveTab }.prefix(max(0, limit)))
+}
+
+func allQuickOpenTabs(from results: [BrowserSearchResult]) -> [BrowserSearchResult] {
+    sortBrowserSearchResults(results.filter { !$0.isCurrentFlowActiveTab })
+}
+
+struct QuickOpenDisplayState: Equatable {
+    let results: [BrowserSearchResult]
+    let includesShowAllTabsItem: Bool
+}
+
+func quickOpenDisplayState(
+    from results: [BrowserSearchResult],
+    limit: Int,
+    isShowingAllOpenTabs: Bool
+) -> QuickOpenDisplayState {
+    let cappedLimit = max(0, limit)
+    guard cappedLimit > 0 else {
+        return QuickOpenDisplayState(results: [], includesShowAllTabsItem: false)
+    }
+
+    if isShowingAllOpenTabs {
+        return QuickOpenDisplayState(results: results, includesShowAllTabsItem: false)
+    }
+
+    let previewLimit = max(0, cappedLimit - 1)
+    if results.count > previewLimit {
+        return QuickOpenDisplayState(
+            results: Array(results.prefix(previewLimit)),
+            includesShowAllTabsItem: true
+        )
+    }
+
+    return QuickOpenDisplayState(
+        results: Array(results.prefix(cappedLimit)),
+        includesShowAllTabsItem: false
+    )
 }

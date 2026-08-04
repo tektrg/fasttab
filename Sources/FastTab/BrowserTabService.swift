@@ -62,7 +62,15 @@ class BrowserTabService: ObservableObject {
 
     private let cacheRefreshInterval: TimeInterval = 30
     private let historyCachePerBrowserLimit = 1000
-    private let typedQueryLiveTabsReuseWindow: TimeInterval = 1.0
+    // While the user is actively typing, reuse the last live-tab snapshot
+    // instead of re-running the multi-browser AppleScript fan-out (100–600ms)
+    // on nearly every keystroke. The window slides on each cache hit (see
+    // fetchResults), so a continuous typing burst never triggers a rescan; a
+    // pause longer than this refetches. Bar-open (empty query) always fetches
+    // fresh, so open tabs are current at the start of every session — the only
+    // staleness is a tab opened *during* an active burst, which never happens
+    // while the user is typing into the bar.
+    private let typedQueryLiveTabsReuseWindow: TimeInterval = 5.0
 
     private let backends: [any BrowserBackend]
 
@@ -862,6 +870,10 @@ class BrowserTabService: ObservableObject {
                     self.hasMultipleWindows = Self.computeHasMultipleWindows(filteredLiveTabs)
                     self.openTabCount = filteredLiveTabs.count
                     self.hasFetchedOpenTabCount = true
+                } else {
+                    // Slide the reuse window: the user is mid typing-burst, so
+                    // keep trusting the cached snapshot instead of rescanning.
+                    self.lastLiveTabsRefreshAt = Date()
                 }
                 self.results = filteredPhase1
                 self.logger.info("fetchResults phase1 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' phase1={\(Self.typeBreakdown(filteredPhase1), privacy: .public)}")

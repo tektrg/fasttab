@@ -646,8 +646,7 @@ class BrowserTabService: ObservableObject {
                 if filter.duplicateOnly {
                     // Duplicates are scoped per-browser: same URL open in Chrome
                     // and Safari is not surprising and shouldn't be flagged.
-                    // Normalize URLs before counting so minor variations
-                    // (trailing slash, case differences) don't defeat detection.
+                    // URLs must match exactly (see normalizeDuplicateURL).
                     var counts: [String: Int] = [:]
                     for tab in liveTabs where tab.type == .tab {
                         let key = tab.browserName + "|" + Self.normalizeDuplicateURL(tab.url)
@@ -1098,24 +1097,13 @@ class BrowserTabService: ObservableObject {
         return out
     }
 
-    /// Normalizes a URL for duplicate-tab detection:
-    /// - Lowercases scheme + host
-    /// - Strips ALL trailing slashes (including root "/")
-    /// - Drops query string + fragment (session tokens, anchors — same document
-    ///   opened with different session params still counts as a duplicate)
-    /// Falls back to the raw string for Finder paths or unparseable URLs.
+    /// Normalizes a URL for duplicate-tab detection. Duplicates require an
+    /// exact URL match (same scheme, host, path, query, and fragment) — only
+    /// surrounding whitespace is trimmed. Two tabs on the same page but with
+    /// different query params (e.g. distinct session tokens, search terms,
+    /// or anchors) are treated as different tabs, not duplicates.
     nonisolated static func normalizeDuplicateURL(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              let comps = URLComponents(string: trimmed),
-              let scheme = comps.scheme?.lowercased(),
-              !scheme.isEmpty else {
-            return trimmed
-        }
-        let host = (comps.host ?? "").lowercased()
-        var path = comps.path
-        while path.hasSuffix("/") { path.removeLast() }
-        return "\(scheme)://\(host)\(path)"
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func faviconCacheKey(browserName: String, url: String) -> String {

@@ -7,6 +7,7 @@ struct SettingsView: View {
     @StateObject private var launchAtLogin = LaunchAtLoginService.shared
     @ObservedObject private var shortcutStore = ShortcutStore.shared
     @ObservedObject private var sourceSelection = SourceSelectionStore.shared
+    @ObservedObject private var edgeReveal = EdgeRevealStore.shared
 
     @AppStorage("FastTab.safari.includeFDAData") private var includeSafariFDAData: Bool = false
     @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = false
@@ -33,9 +34,26 @@ struct SettingsView: View {
                 }
             }
 
-            if #available(macOS 26.0, *) {
-                Section("Appearance") {
-                    Toggle("Glass background panel", isOn: $outerPanelEnabled)
+            Section("Appearance") {
+                Toggle("Background", isOn: $outerPanelEnabled)
+            }
+
+            Section("Trigger") {
+                Picker("Hover to open", selection: Binding(
+                    get: { edgeReveal.style },
+                    set: { edgeReveal.update($0) }
+                )) {
+                    ForEach(EdgeRevealStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                if edgeReveal.style != .off {
+                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab instantly. Runs a background mouse-position listener whenever this isn't Off.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 

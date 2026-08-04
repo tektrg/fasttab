@@ -60,6 +60,15 @@ protocol BrowserBackend: Sendable {
     /// Same as `searchHistory(query:limit:)` but bounded by `[since, before)`
     /// in the SQL itself. Either bound may be nil for open-ended.
     func searchHistory(query: String, limit: Int, since: Date?, before: Date?) -> [BrowserSearchResult]
+    /// Budget-aware history search. Callers use this when a user-visible search
+    /// should stop widening quickly instead of waiting on the backend default.
+    func searchHistory(
+        query: String,
+        limit: Int,
+        since: Date?,
+        before: Date?,
+        timeoutSeconds: TimeInterval
+    ) -> [BrowserSearchResult]
     func fetchFaviconData(pageURL: String) -> Data?
     /// Batched favicon resolution: returns `[pageURL: imageData]` for every URL
     /// that resolved. Default impl loops `fetchFaviconData`; backends that
@@ -84,6 +93,16 @@ extension BrowserBackend {
             if let before, result.timestamp >= before { return false }
             return true
         }
+    }
+
+    func searchHistory(
+        query: String,
+        limit: Int,
+        since: Date?,
+        before: Date?,
+        timeoutSeconds: TimeInterval
+    ) -> [BrowserSearchResult] {
+        searchHistory(query: query, limit: limit, since: since, before: before)
     }
 
     func fetchFaviconsBatch(pageURLs: [String]) -> [String: Data] {
@@ -129,6 +148,46 @@ func runAppleScript(_ script: String, logger: Logger, action: String, timeoutSec
     }
 }
 
+/// Drains one end of a `Pipe` on a background thread so the child process never
+/// blocks writing into a full (64KB) pipe buffer. `data` is valid only after
+/// `waitUntilDrained()` returns — which happens once the child exits and closes
+/// its write end (EOF). Reading with the process still running, or reading the
+/// pipe only *after* the child exits (the naive pattern), deadlocks any child
+/// that emits more than one buffer's worth of output — e.g. a browser with a
+/// few hundred open tabs.
+private final class PipeDrain: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+    private let finished = DispatchSemaphore(value: 0)
+
+    init(_ handle: FileHandle, on queue: DispatchQueue) {
+        queue.async { [self] in
+            // `defer` guarantees the semaphore is always signalled — even if the
+            // read bails out — so `waitUntilDrained()` can never block forever.
+            defer { finished.signal() }
+            let drained = handle.readDataToEndOfFile()
+            lock.lock()
+            buffer = drained
+            lock.unlock()
+        }
+    }
+
+    func waitUntilDrained() {
+        finished.wait()
+    }
+
+    var data: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return buffer
+    }
+}
+
+/// Shared background queue for concurrent pipe draining across all `runProcess`
+/// calls. Concurrent so several subprocesses (parallel browser fan-out) can each
+/// drain both of their pipes without serializing behind one another.
+private let pipeDrainQueue = DispatchQueue(label: "com.trungluong.FastTab.pipe-drain", attributes: .concurrent)
+
 func runProcess(launchPath: String, arguments: [String], timeoutSeconds: TimeInterval = 4) -> String? {
     let logger = Logger(subsystem: "com.trungluong.FastTab", category: "BrowserBackend")
     let task = Process()
@@ -142,6 +201,13 @@ func runProcess(launchPath: String, arguments: [String], timeoutSeconds: TimeInt
 
     do {
         try task.run()
+
+        // Drain both pipes concurrently while the child runs so it never blocks
+        // on a full pipe buffer. Without this a browser with a few hundred tabs
+        // overflows the 64KB buffer, the child stalls on write(), we time out,
+        // and the user gets an empty result.
+        let stdoutDrain = PipeDrain(stdoutPipe.fileHandleForReading, on: pipeDrainQueue)
+        let stderrDrain = PipeDrain(stderrPipe.fileHandleForReading, on: pipeDrainQueue)
 
         let deadline = Date().addingTimeInterval(timeoutSeconds)
         while task.isRunning && Date() < deadline {
@@ -162,15 +228,18 @@ func runProcess(launchPath: String, arguments: [String], timeoutSeconds: TimeInt
             return nil
         }
 
+        // The child has exited and closed its write ends, so both drains reach
+        // EOF and complete promptly.
+        stdoutDrain.waitUntilDrained()
+        stderrDrain.waitUntilDrained()
+
         guard task.terminationStatus == 0 else {
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
+            let stderrText = String(data: stderrDrain.data, encoding: .utf8) ?? ""
             logger.error("runProcess failed. launchPath='\(launchPath, privacy: .public)' status=\(task.terminationStatus) stderr='\(stderrText, privacy: .public)'")
             return nil
         }
 
-        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(data: stdoutDrain.data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
     } catch {
         logger.error("runProcess threw. launchPath='\(launchPath, privacy: .public)' error='\(String(describing: error), privacy: .public)'")
         return nil

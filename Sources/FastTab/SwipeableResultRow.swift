@@ -44,8 +44,6 @@ struct SwipeableResultRow: View {
     let pointerAction: ResultSwipeAction?
     let pointerOffset: CGFloat
     let keyboardAction: ResultSwipeAction?
-    let onCopyLink: () -> Void
-    let onRemove: () -> Void
     let onHoverChange: (Bool) -> Void
 
     private var visibleAction: ResultSwipeAction? {
@@ -81,9 +79,7 @@ struct SwipeableResultRow: View {
                 isSelected: isSelected,
                 faviconImage: faviconImage,
                 showWindowName: showWindowName,
-                showProfileName: showProfileName,
-                onCopyLink: onCopyLink,
-                onRemove: onRemove
+                showProfileName: showProfileName
             )
             .offset(x: visibleOffset)
             .animation(.spring(response: 0.24, dampingFraction: 0.88), value: keyboardAction)
@@ -142,8 +138,8 @@ private struct ResultRowView: View {
     let faviconImage: NSImage?
     let showWindowName: Bool
     let showProfileName: Bool
-    let onCopyLink: () -> Void
-    let onRemove: () -> Void
+
+    @Environment(\.isCompactCommandBar) private var isCompact
 
     private var secondaryMetadata: [String] {
         result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName)
@@ -151,8 +147,8 @@ private struct ResultRowView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            LeadingResultIcon(browserName: result.browserName, fallbackSymbol: result.type.symbolName, faviconImage: faviconImage)
-                .frame(width: 16, height: 16)
+            LeadingIconColumn(browserName: result.browserName, fallbackSymbol: result.type.symbolName, faviconImage: faviconImage)
+                .frame(maxHeight: .infinity, alignment: .top)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
@@ -164,10 +160,13 @@ private struct ResultRowView: View {
 
                     Text(result.title)
                         .font(.system(size: 13, weight: .semibold, design: .default))
-                        .lineLimit(1)
+                        .lineLimit(isCompact ? 2 : 1)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                HStack(spacing: 5) {
+                // Wraps at the narrow edge-anchored width, where the type
+                // glyph, pills, and URL can't share a single row.
+                WrappingHStack(horizontalSpacing: 5, verticalSpacing: 4) {
                     Image(systemName: result.type.symbolName)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.secondary)
@@ -188,30 +187,6 @@ private struct ResultRowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
-
-            Spacer(minLength: 8)
-
-            HStack(spacing: 6) {
-                BrowserBadge(browserName: result.browserName)
-
-                Menu {
-                    Button("Copy Link", action: onCopyLink)
-                    Divider()
-                    if result.type == .tab {
-                        Button("Close Tab", action: onRemove)
-                    } else {
-                        Button("Delete", role: .destructive, action: onRemove)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-            }
         }
         .opacity(result.type.dimmingOpacity)
         .padding(.horizontal, 10)
@@ -255,24 +230,51 @@ private struct MetadataPill: View {
     }
 }
 
-private struct BrowserBadge: View {
+/// Leading icon for a result row. When the result has a real favicon, it's
+/// the main icon (top-left) and the source browser's icon shrinks to a small
+/// badge overlapping its bottom-right corner, so the two icons don't get
+/// confused for one another. When there's no favicon (e.g. Finder results),
+/// only the single fallback icon is shown, with no badge.
+private struct LeadingIconColumn: View {
+    static let iconSize: CGFloat = 16
+    static let badgeHaloSize: CGFloat = 13
+    static let badgeOffset: CGFloat = 4
+
     let browserName: String
+    let fallbackSymbol: String
+    let faviconImage: NSImage?
 
     var body: some View {
-        Group {
-            if let appIcon = BrowserIconCache.icon(for: browserName, size: 14) {
-                Image(nsImage: appIcon)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: 14, height: 14)
-            } else {
-                Image(systemName: "globe")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+        LeadingResultIcon(browserName: browserName, fallbackSymbol: fallbackSymbol, faviconImage: faviconImage)
+            .frame(width: Self.iconSize, height: Self.iconSize)
+            .overlay(alignment: .bottomTrailing) {
+                if faviconImage != nil {
+                    BrowserBadge(browserName: browserName, size: Self.badgeHaloSize - 3)
+                        .frame(width: Self.badgeHaloSize, height: Self.badgeHaloSize)
+                        .background(Circle().fill(.regularMaterial))
+                        .offset(x: Self.badgeOffset, y: Self.badgeOffset)
+                }
             }
+    }
+}
+
+private struct BrowserBadge: View {
+    let browserName: String
+    var size: CGFloat = 14
+
+    var body: some View {
+        if let appIcon = BrowserIconCache.icon(for: browserName, size: size) {
+            Image(nsImage: appIcon)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: "globe")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(width: size, height: size)
         }
-        .frame(width: 22, height: 22)
     }
 }
 

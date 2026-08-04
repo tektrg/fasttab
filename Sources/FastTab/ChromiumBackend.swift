@@ -289,9 +289,20 @@ struct ChromiumBackend: BrowserBackend {
     }
 
     func searchHistory(query: String, limit: Int, since: Date?, before: Date?) -> [BrowserSearchResult] {
+        searchHistory(query: query, limit: limit, since: since, before: before, timeoutSeconds: 15)
+    }
+
+    func searchHistory(
+        query: String,
+        limit: Int,
+        since: Date?,
+        before: Date?,
+        timeoutSeconds: TimeInterval
+    ) -> [BrowserSearchResult] {
         let logger = self.logger
         let escaped = query.replacingOccurrences(of: "'", with: "''")
         var dedupedByURL: [String: BrowserSearchResult] = [:]
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
 
         // Chromium `last_visit_time` is microseconds since 1601-01-01 UTC.
         func chromiumMicros(from date: Date) -> Int64 {
@@ -309,6 +320,8 @@ struct ChromiumBackend: BrowserBackend {
         let timePredicate = timeClauses.isEmpty ? "" : " AND " + timeClauses.joined(separator: " AND ")
 
         for profile in profiles() {
+            let remainingSeconds = deadline.timeIntervalSinceNow
+            guard remainingSeconds > 0 else { break }
             guard FileManager.default.fileExists(atPath: profile.historyURL.path) else { continue }
             let profileStart = Date()
             let sql = """
@@ -323,7 +336,7 @@ struct ChromiumBackend: BrowserBackend {
             guard let output = runProcess(
                 launchPath: "/usr/bin/sqlite3",
                 arguments: Self.readonlySQLiteArgs(dbPath: profile.historyURL.path, sql: sql),
-                timeoutSeconds: 15
+                timeoutSeconds: max(0.05, remainingSeconds)
             ) else {
                 logger.error("searchHistory query failed. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)'")
                 continue

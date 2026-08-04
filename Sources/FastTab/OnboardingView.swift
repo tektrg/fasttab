@@ -64,6 +64,7 @@ final class OnboardingWindowController: NSObject {
 /// fixed list.
 private enum OnboardingStep: Hashable {
     case welcome
+    case triggerStyle
     case sources
     case safariPermission
     case shortcut
@@ -79,7 +80,7 @@ struct OnboardingView: View {
     @State private var stepIndex: Int = 0
 
     private var steps: [OnboardingStep] {
-        var list: [OnboardingStep] = [.welcome, .sources]
+        var list: [OnboardingStep] = [.welcome, .triggerStyle, .sources]
         if selectionStore.enabled.contains(.safari) {
             list.append(.safariPermission)
         }
@@ -105,6 +106,9 @@ struct OnboardingView: View {
                     switch currentStep {
                     case .welcome:
                         WelcomeStep(onContinue: advance)
+                            .transition(stepTransition)
+                    case .triggerStyle:
+                        TriggerStyleStep(onContinue: advance)
                             .transition(stepTransition)
                     case .sources:
                         SourcePickerStep(
@@ -173,7 +177,7 @@ private struct WelcomeStep: View {
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .padding(.bottom, 10)
 
-            Text("Search and switch between browser tabs\nfrom anywhere — one shortcut, any app.")
+            Text("Search and switch between browser tabs\nfrom anywhere — just hover to open.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -239,7 +243,105 @@ private struct FeatureRow: View {
     }
 }
 
-// MARK: - Step 2: Source picker
+// MARK: - Step 2: Trigger style (headline gesture)
+
+private struct TriggerStyleStep: View {
+    @ObservedObject private var edgeReveal = EdgeRevealStore.shared
+    let onContinue: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 16)
+
+            Image(systemName: "hand.point.up.left")
+                .font(.system(size: 36, weight: .light))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 14)
+
+            Text("Open FastTab by Hovering")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .padding(.bottom, 6)
+
+            Text("Hover the spot below to open FastTab instantly. Pick where it lives:")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+                .padding(.horizontal, 32)
+                .padding(.bottom, 18)
+
+            previewPill
+                .frame(height: 64)
+                .padding(.bottom, 20)
+
+            VStack(spacing: 8) {
+                ForEach(EdgeRevealStyle.allCases) { style in
+                    TriggerStyleRow(
+                        style: style,
+                        isSelected: edgeReveal.style == style,
+                        onSelect: { edgeReveal.update(style) }
+                    )
+                }
+            }
+            .padding(.horizontal, 28)
+            .padding(.bottom, 18)
+
+            Button(action: onContinue) {
+                Text("Continue")
+                    .font(.headline)
+                    .frame(width: 160)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Spacer(minLength: 16)
+        }
+    }
+
+    /// Illustrates where the trigger sits and what shape it hugs — hovering
+    /// this spot for real opens the command bar immediately, with no
+    /// intermediate pill like the one shown here.
+    @ViewBuilder
+    private var previewPill: some View {
+        if edgeReveal.style == .off {
+            Text("Hover trigger off — you can set a keyboard shortcut later in this setup.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+        } else {
+            EdgeRevealPeekView(style: edgeReveal.style)
+        }
+    }
+}
+
+private struct TriggerStyleRow: View {
+    let style: EdgeRevealStyle
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+
+            Text(style.displayName)
+                .font(.callout.weight(.medium))
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.thinMaterial)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+    }
+}
+
+// MARK: - Step 3: Source picker
 
 private struct SourcePickerStep: View {
     @ObservedObject var store: SourceSelectionStore
@@ -367,7 +469,7 @@ private struct SourceRow: View {
     }
 }
 
-// MARK: - Step 3: Safari permission (conditional)
+// MARK: - Step 4: Safari permission (conditional)
 
 private struct SafariPermissionStep: View {
     @EnvironmentObject var appState: AppState
@@ -466,11 +568,12 @@ private struct SafariPermissionStep: View {
     }
 }
 
-// MARK: - Step 4: Shortcut
+// MARK: - Step 5: Shortcut
 
 private struct ShortcutStep: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var shortcutStore = ShortcutStore.shared
+    @ObservedObject private var edgeReveal = EdgeRevealStore.shared
     let onDismiss: (Bool) -> Void
 
     var body: some View {
@@ -482,13 +585,15 @@ private struct ShortcutStep: View {
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 18)
 
-            Text("Your Shortcut")
+            Text(edgeReveal.style == .off ? "Your Shortcut" : "Your Backup Shortcut")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .padding(.bottom, 8)
 
-            Text("Press this from any app to open FastTab:")
+            Text(shortcutStepSubtitle)
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
                 .padding(.bottom, 24)
 
             ShortcutRecorderView(store: shortcutStore)
@@ -524,6 +629,12 @@ private struct ShortcutStep: View {
 
             Spacer()
         }
+    }
+
+    private var shortcutStepSubtitle: String {
+        edgeReveal.style == .off
+            ? "Press this from any app to open FastTab:"
+            : "Hovering opens FastTab, but this works too, from any app:"
     }
 
     private var automationNote: some View {

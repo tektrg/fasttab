@@ -62,7 +62,16 @@ class BrowserTabService: ObservableObject {
 
     private let cacheRefreshInterval: TimeInterval = 30
     private let historyCachePerBrowserLimit = 1000
-    private let typedQueryLiveTabsReuseWindow: TimeInterval = 1.0
+    private let historySearchPerBackendLimit = 1000
+    // While the user is actively typing, reuse the last live-tab snapshot
+    // instead of re-running the multi-browser AppleScript fan-out (100–600ms)
+    // on nearly every keystroke. The window slides on each cache hit (see
+    // fetchResults), so a continuous typing burst never triggers a rescan; a
+    // pause longer than this refetches. Bar-open (empty query) always fetches
+    // fresh, so open tabs are current at the start of every session — the only
+    // staleness is a tab opened *during* an active burst, which never happens
+    // while the user is typing into the bar.
+    private let typedQueryLiveTabsReuseWindow: TimeInterval = 5.0
 
     private let backends: [any BrowserBackend]
 
@@ -608,6 +617,7 @@ class BrowserTabService: ObservableObject {
         let requiredType = filter.requiredType
         let pinnedSource = filter.source
         let frecencyLookup = makeFrecencyScoreLookup()
+        let historySearchPerBackendLimit = self.historySearchPerBackendLimit
 
         // Source-pinned scope: only the matching backend runs. Saves us from
         // polling Chrome via AppleScript and reading the Safari history DB
@@ -638,8 +648,7 @@ class BrowserTabService: ObservableObject {
                 if filter.duplicateOnly {
                     // Duplicates are scoped per-browser: same URL open in Chrome
                     // and Safari is not surprising and shouldn't be flagged.
-                    // Normalize URLs before counting so minor variations
-                    // (trailing slash, case differences) don't defeat detection.
+                    // URLs must match exactly (see normalizeDuplicateURL).
                     var counts: [String: Int] = [:]
                     for tab in liveTabs where tab.type == .tab {
                         let key = tab.browserName + "|" + Self.normalizeDuplicateURL(tab.url)
@@ -653,19 +662,13 @@ class BrowserTabService: ObservableObject {
                 produced = bookmarkSnapshot.filter { filter.matches($0) }
 
             case .history:
-                let limit = 1000
-                let since = filter.historySince
-                let before = filter.historyBefore
-                let collected: [BrowserSearchResult] = await withTaskGroup(of: [BrowserSearchResult].self) { group in
-                    for backend in backends {
-                        group.addTask {
-                            backend.searchHistory(query: normalizedQuery, limit: limit, since: since, before: before)
-                        }
-                    }
-                    var all: [BrowserSearchResult] = []
-                    for await chunk in group { all.append(contentsOf: chunk) }
-                    return all
-                }
+                let collected = await HistorySearchExpansion.search(
+                    query: normalizedQuery,
+                    backends: backends,
+                    perBackendLimit: historySearchPerBackendLimit,
+                    since: filter.historySince,
+                    before: filter.historyBefore
+                )
                 produced = sortBrowserSearchResults(collected, frecencyScore: frecencyLookup).filter { filter.matches($0) }
 
             case .none:
@@ -692,16 +695,13 @@ class BrowserTabService: ObservableObject {
                         self.results = self.filteringRecentlyClosed(earlyTabs)
                         self.isLoading = false
                     }
-                    let history: [BrowserSearchResult] = await withTaskGroup(of: [BrowserSearchResult].self) { group in
-                        for backend in backends {
-                            group.addTask {
-                                backend.searchHistory(query: normalizedQuery, limit: 1000)
-                            }
-                        }
-                        var all: [BrowserSearchResult] = []
-                        for await chunk in group { all.append(contentsOf: chunk) }
-                        return all
-                    }
+                    let history = await HistorySearchExpansion.search(
+                        query: normalizedQuery,
+                        backends: backends,
+                        perBackendLimit: historySearchPerBackendLimit,
+                        since: nil,
+                        before: nil
+                    )
                     // De-dup: suppress a history row whose URL is currently
                     // open as a live tab in the same source — design call,
                     // avoids the user seeing the same path twice when they
@@ -770,6 +770,7 @@ class BrowserTabService: ObservableObject {
         let lastLiveTabsRefreshAt = self.lastLiveTabsRefreshAt
         let typedQueryLiveTabsReuseWindow = self.typedQueryLiveTabsReuseWindow
         let frecencyLookup = makeFrecencyScoreLookup()
+        let historySearchPerBackendLimit = self.historySearchPerBackendLimit
 
         logger.info("fetchResults start. generation=\(generation) query='\(normalizedQuery, privacy: .public)' bookmarkSnapshot=\(bookmarkSnapshot.count) historySnapshot=\(historySnapshot.count)")
 
@@ -862,6 +863,10 @@ class BrowserTabService: ObservableObject {
                     self.hasMultipleWindows = Self.computeHasMultipleWindows(filteredLiveTabs)
                     self.openTabCount = filteredLiveTabs.count
                     self.hasFetchedOpenTabCount = true
+                } else {
+                    // Slide the reuse window: the user is mid typing-burst, so
+                    // keep trusting the cached snapshot instead of rescanning.
+                    self.lastLiveTabsRefreshAt = Date()
                 }
                 self.results = filteredPhase1
                 self.logger.info("fetchResults phase1 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' phase1={\(Self.typeBreakdown(filteredPhase1), privacy: .public)}")
@@ -875,15 +880,15 @@ class BrowserTabService: ObservableObject {
                 return
             }
 
-            // Phase 2: run history search per backend concurrently
-            let historyMatches = await withTaskGroup(of: [BrowserSearchResult].self) { group in
-                for backend in backends {
-                    group.addTask { backend.searchHistory(query: normalizedQuery, limit: 1000) }
-                }
-                var all: [BrowserSearchResult] = []
-                for await chunk in group { all.append(contentsOf: chunk) }
-                return all
-            }
+            // Phase 2: run history search per backend concurrently, widening
+            // from recent to older history when the history result set is sparse.
+            let historyMatches = await HistorySearchExpansion.search(
+                query: normalizedQuery,
+                backends: backends,
+                perBackendLimit: historySearchPerBackendLimit,
+                since: nil,
+                before: nil
+            )
 
             let mergedResults = sortBrowserSearchResults(tabMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
 
@@ -1086,24 +1091,13 @@ class BrowserTabService: ObservableObject {
         return out
     }
 
-    /// Normalizes a URL for duplicate-tab detection:
-    /// - Lowercases scheme + host
-    /// - Strips ALL trailing slashes (including root "/")
-    /// - Drops query string + fragment (session tokens, anchors — same document
-    ///   opened with different session params still counts as a duplicate)
-    /// Falls back to the raw string for Finder paths or unparseable URLs.
+    /// Normalizes a URL for duplicate-tab detection. Duplicates require an
+    /// exact URL match (same scheme, host, path, query, and fragment) — only
+    /// surrounding whitespace is trimmed. Two tabs on the same page but with
+    /// different query params (e.g. distinct session tokens, search terms,
+    /// or anchors) are treated as different tabs, not duplicates.
     nonisolated static func normalizeDuplicateURL(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              let comps = URLComponents(string: trimmed),
-              let scheme = comps.scheme?.lowercased(),
-              !scheme.isEmpty else {
-            return trimmed
-        }
-        let host = (comps.host ?? "").lowercased()
-        var path = comps.path
-        while path.hasSuffix("/") { path.removeLast() }
-        return "\(scheme)://\(host)\(path)"
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func faviconCacheKey(browserName: String, url: String) -> String {

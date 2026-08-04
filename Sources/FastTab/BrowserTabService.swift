@@ -62,6 +62,7 @@ class BrowserTabService: ObservableObject {
 
     private let cacheRefreshInterval: TimeInterval = 30
     private let historyCachePerBrowserLimit = 1000
+    private let historySearchPerBackendLimit = 1000
     // While the user is actively typing, reuse the last live-tab snapshot
     // instead of re-running the multi-browser AppleScript fan-out (100–600ms)
     // on nearly every keystroke. The window slides on each cache hit (see
@@ -616,6 +617,7 @@ class BrowserTabService: ObservableObject {
         let requiredType = filter.requiredType
         let pinnedSource = filter.source
         let frecencyLookup = makeFrecencyScoreLookup()
+        let historySearchPerBackendLimit = self.historySearchPerBackendLimit
 
         // Source-pinned scope: only the matching backend runs. Saves us from
         // polling Chrome via AppleScript and reading the Safari history DB
@@ -660,19 +662,13 @@ class BrowserTabService: ObservableObject {
                 produced = bookmarkSnapshot.filter { filter.matches($0) }
 
             case .history:
-                let limit = 1000
-                let since = filter.historySince
-                let before = filter.historyBefore
-                let collected: [BrowserSearchResult] = await withTaskGroup(of: [BrowserSearchResult].self) { group in
-                    for backend in backends {
-                        group.addTask {
-                            backend.searchHistory(query: normalizedQuery, limit: limit, since: since, before: before)
-                        }
-                    }
-                    var all: [BrowserSearchResult] = []
-                    for await chunk in group { all.append(contentsOf: chunk) }
-                    return all
-                }
+                let collected = await HistorySearchExpansion.search(
+                    query: normalizedQuery,
+                    backends: backends,
+                    perBackendLimit: historySearchPerBackendLimit,
+                    since: filter.historySince,
+                    before: filter.historyBefore
+                )
                 produced = sortBrowserSearchResults(collected, frecencyScore: frecencyLookup).filter { filter.matches($0) }
 
             case .none:
@@ -699,16 +695,13 @@ class BrowserTabService: ObservableObject {
                         self.results = self.filteringRecentlyClosed(earlyTabs)
                         self.isLoading = false
                     }
-                    let history: [BrowserSearchResult] = await withTaskGroup(of: [BrowserSearchResult].self) { group in
-                        for backend in backends {
-                            group.addTask {
-                                backend.searchHistory(query: normalizedQuery, limit: 1000)
-                            }
-                        }
-                        var all: [BrowserSearchResult] = []
-                        for await chunk in group { all.append(contentsOf: chunk) }
-                        return all
-                    }
+                    let history = await HistorySearchExpansion.search(
+                        query: normalizedQuery,
+                        backends: backends,
+                        perBackendLimit: historySearchPerBackendLimit,
+                        since: nil,
+                        before: nil
+                    )
                     // De-dup: suppress a history row whose URL is currently
                     // open as a live tab in the same source — design call,
                     // avoids the user seeing the same path twice when they
@@ -777,6 +770,7 @@ class BrowserTabService: ObservableObject {
         let lastLiveTabsRefreshAt = self.lastLiveTabsRefreshAt
         let typedQueryLiveTabsReuseWindow = self.typedQueryLiveTabsReuseWindow
         let frecencyLookup = makeFrecencyScoreLookup()
+        let historySearchPerBackendLimit = self.historySearchPerBackendLimit
 
         logger.info("fetchResults start. generation=\(generation) query='\(normalizedQuery, privacy: .public)' bookmarkSnapshot=\(bookmarkSnapshot.count) historySnapshot=\(historySnapshot.count)")
 
@@ -886,15 +880,15 @@ class BrowserTabService: ObservableObject {
                 return
             }
 
-            // Phase 2: run history search per backend concurrently
-            let historyMatches = await withTaskGroup(of: [BrowserSearchResult].self) { group in
-                for backend in backends {
-                    group.addTask { backend.searchHistory(query: normalizedQuery, limit: 1000) }
-                }
-                var all: [BrowserSearchResult] = []
-                for await chunk in group { all.append(contentsOf: chunk) }
-                return all
-            }
+            // Phase 2: run history search per backend concurrently, widening
+            // from recent to older history when the history result set is sparse.
+            let historyMatches = await HistorySearchExpansion.search(
+                query: normalizedQuery,
+                backends: backends,
+                perBackendLimit: historySearchPerBackendLimit,
+                since: nil,
+                before: nil
+            )
 
             let mergedResults = sortBrowserSearchResults(tabMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
 

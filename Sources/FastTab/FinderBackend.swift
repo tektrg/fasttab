@@ -117,15 +117,25 @@ struct FinderBackend: BrowserBackend {
     }
 
     func searchHistory(query: String, limit: Int) -> [BrowserSearchResult] {
+        searchHistory(query: query, limit: limit, since: nil, before: nil)
+    }
+
+    func searchHistory(query: String, limit: Int, since: Date?, before: Date?) -> [BrowserSearchResult] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let snapshot = historyStore.snapshot()
         let matches: [FinderHistoryEntry]
         if trimmed.isEmpty {
-            matches = snapshot
+            matches = snapshot.filter { entry in
+                if let since, entry.lastVisit < since { return false }
+                if let before, entry.lastVisit >= before { return false }
+                return true
+            }
         } else {
             let q = trimmed.lowercased()
             matches = snapshot.filter {
-                $0.basename.lowercased().contains(q)
+                if let since, $0.lastVisit < since { return false }
+                if let before, $0.lastVisit >= before { return false }
+                return $0.basename.lowercased().contains(q)
                     || $0.path.lowercased().contains(q)
             }
         }

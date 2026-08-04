@@ -300,6 +300,16 @@ struct SafariBackend: BrowserBackend {
     }
 
     func searchHistory(query: String, limit: Int, since: Date?, before: Date?) -> [BrowserSearchResult] {
+        searchHistory(query: query, limit: limit, since: since, before: before, timeoutSeconds: 15)
+    }
+
+    func searchHistory(
+        query: String,
+        limit: Int,
+        since: Date?,
+        before: Date?,
+        timeoutSeconds: TimeInterval
+    ) -> [BrowserSearchResult] {
         guard fdaEnabled else { return [] }
 
         let historyPath = ("~/Library/Safari/History.db" as NSString).expandingTildeInPath
@@ -334,7 +344,7 @@ struct SafariBackend: BrowserBackend {
             dbPath: historyPath,
             sql: sql,
             extraArgs: ["-separator", kFieldSep],
-            timeoutSeconds: 15
+            timeoutSeconds: max(0.05, timeoutSeconds)
         ) else {
             logger.error("safari searchHistory query failed.")
             return []
@@ -390,6 +400,7 @@ struct SafariBackend: BrowserBackend {
         extraArgs: [String],
         timeoutSeconds: TimeInterval
     ) -> String? {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
         let roDisabled = readOnlyAccessDisabled.withLock { $0 }
         if !roDisabled {
             let uri = "file:\(sqliteFileURIPath(dbPath))?mode=ro"
@@ -397,7 +408,7 @@ struct SafariBackend: BrowserBackend {
             if let output = runProcess(
                 launchPath: "/usr/bin/sqlite3",
                 arguments: roArgs,
-                timeoutSeconds: timeoutSeconds
+                timeoutSeconds: max(0.05, deadline.timeIntervalSinceNow)
             ) {
                 return output
             }
@@ -412,6 +423,8 @@ struct SafariBackend: BrowserBackend {
         }
 
         if Task.isCancelled { return nil }
+        let remainingSeconds = deadline.timeIntervalSinceNow
+        guard remainingSeconds > 0 else { return nil }
 
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString)-SafariRO.db")
@@ -421,7 +434,7 @@ struct SafariBackend: BrowserBackend {
             return runProcess(
                 launchPath: "/usr/bin/sqlite3",
                 arguments: extraArgs + [tempURL.path, sql],
-                timeoutSeconds: timeoutSeconds
+                timeoutSeconds: max(0.05, remainingSeconds)
             )
         } catch {
             cleanupSQLiteCopy(at: tempURL)

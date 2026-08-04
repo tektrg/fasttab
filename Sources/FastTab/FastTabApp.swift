@@ -9,7 +9,21 @@ let fastTabPresentLicenseActivationNotification = Notification.Name("FastTabPres
 
 @MainActor
 class AppState: ObservableObject {
-    @Published var isVisible: Bool = false
+    @Published var isVisible: Bool = false {
+        didSet {
+            guard isVisible != oldValue else { return }
+            // The outside-click dismiss monitor is a *global* event monitor: it
+            // wakes this process for every mouse-down anywhere on the Mac. Only
+            // keep it installed while the bar is actually visible, otherwise a
+            // hidden background app burns energy (and fires a publish storm) on
+            // every click the user makes in any other app.
+            if isVisible {
+                CommandBarPanelController.shared.startOutsideClickMonitoring()
+            } else {
+                CommandBarPanelController.shared.stopOutsideClickMonitoring()
+            }
+        }
+    }
     @Published var selectedIndex: Int = 0
     @Published var isRecordingShortcut: Bool = false
     @Published var globalShortcutRegistrationIssue: String?
@@ -63,7 +77,10 @@ class AppState: ObservableObject {
     }
 
     func syncVisibilityFromCommandWindow() {
-        isVisible = commandWindow?.isVisible ?? false
+        let next = commandWindow?.isVisible ?? false
+        // @Published republishes even on same-value assignment, so guard to
+        // avoid redundant SwiftUI invalidations on every window key/resign.
+        if next != isVisible { isVisible = next }
     }
 
     /// - Parameter revealStyle: non-nil when this open was triggered by the
@@ -102,6 +119,7 @@ class AppState: ObservableObject {
     }
 
     func hideCommandBar() {
+        guard isVisible || (commandWindow?.isVisible ?? false) else { return }
         commandWindow?.orderOut(nil)
         isVisible = false
     }
@@ -351,7 +369,6 @@ private final class CommandBarPanelController: NSObject {
         panel.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
 
         installWindowObservers(for: panel)
-        installOutsideAppClickMonitor()
         AppState.shared.attachCommandWindow(panel)
         AppState.shared.syncVisibilityFromCommandWindow()
 
@@ -414,16 +431,23 @@ private final class CommandBarPanelController: NSObject {
         CommandBarRevealTrigger.shared.fire(anchor: style)
     }
 
-    private func installOutsideAppClickMonitor() {
+    func startOutsideClickMonitoring() {
         guard globalMouseDownMonitor == nil else { return }
 
         let eventMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
 
         globalMouseDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) { _ in
             DispatchQueue.main.async {
+                guard AppState.shared.isVisible else { return }
                 AppState.shared.hideCommandBar()
             }
         }
+    }
+
+    func stopOutsideClickMonitoring() {
+        guard let monitor = globalMouseDownMonitor else { return }
+        NSEvent.removeMonitor(monitor)
+        globalMouseDownMonitor = nil
     }
 }
 

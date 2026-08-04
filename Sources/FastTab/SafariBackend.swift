@@ -32,6 +32,11 @@ struct SafariBackend: BrowserBackend {
         activeTimes: inout [String: Date],
         currentFlowSourceAppBundleIdentifier: String?
     ) -> [BrowserSearchResult] {
+        // Batch the property reads (`name of every tab`, `URL of every tab`,
+        // `index of current tab`) so each window costs a handful of Apple Events
+        // instead of ~3 per tab. This mirrors the Chromium backend; a 100-tab
+        // Safari window drops from ~300 IPC round-trips to a few. Per-window
+        // `try` keeps one bad window from aborting the whole scan.
         let script = """
         tell application "Safari"
             if it is not running then return ""
@@ -42,26 +47,22 @@ struct SafariBackend: BrowserBackend {
                 set winCount to count of windows
                 repeat with w from 1 to winCount
                     try
-                        set currentTabRef to current tab of window w
+                        set activeTabIndex to index of current tab of window w
                         set windowTitle to name of window w
-                        set tabList to tabs of window w
-                        repeat with t from 1 to count of tabList
-                            try
-                                set thisTab to item t of tabList
-                                set isActive to (thisTab is currentTabRef) as string
-                                set tabName to name of thisTab
-                                set tabURL to URL of thisTab
-                                if tabURL is missing value then set tabURL to ""
-                                if tabName is missing value then set tabName to tabURL
-                                set rowData to "Safari" & fieldSep & w & fieldSep & t & fieldSep & tabName & fieldSep & tabURL & fieldSep & isActive & fieldSep & windowTitle
-                                if tabData is "" then
-                                    set tabData to rowData
-                                else
-                                    set tabData to tabData & rowSep & rowData
-                                end if
-                            on error
-                                -- skip tab on error
-                            end try
+                        set tabNames to name of every tab of window w
+                        set tabURLs to URL of every tab of window w
+                        repeat with t from 1 to count of tabNames
+                            set tabName to item t of tabNames
+                            set tabURL to item t of tabURLs
+                            if tabURL is missing value then set tabURL to ""
+                            if tabName is missing value then set tabName to tabURL
+                            set isActive to (t is equal to activeTabIndex) as string
+                            set rowData to "Safari" & fieldSep & w & fieldSep & t & fieldSep & tabName & fieldSep & tabURL & fieldSep & isActive & fieldSep & windowTitle
+                            if tabData is "" then
+                                set tabData to rowData
+                            else
+                                set tabData to tabData & rowSep & rowData
+                            end if
                         end repeat
                     on error
                         -- skip window on error

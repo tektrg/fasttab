@@ -66,7 +66,11 @@ class AppState: ObservableObject {
         isVisible = commandWindow?.isVisible ?? false
     }
 
-    func showCommandBar() {
+    /// - Parameter revealStyle: non-nil when this open was triggered by the
+    ///   notch/edge hover reveal (`EdgeRevealService`), rather than the
+    ///   keyboard shortcut or menu-bar icon. Plays a brief grow-from-that-side
+    ///   animation instead of appearing instantly.
+    func showCommandBar(revealStyle: EdgeRevealStyle? = nil) {
         LicenseService.shared.refreshTimeSensitiveState()
 
         guard let commandWindow else {
@@ -83,6 +87,14 @@ class AppState: ObservableObject {
         browserService.updateCurrentFlowSourceApp(bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
         commandWindow.configureCommandBarOverlayBehavior()
         commandWindow.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
+
+        // Arm the grow animation before the window is ordered front: it must
+        // already be in its shrunk presentation state for the first rendered
+        // frame, or the bar flashes at full size for a frame before shrinking.
+        if let revealStyle {
+            CommandBarPanelController.shared.playRevealAnimation(from: revealStyle)
+        }
+
         commandWindow.orderFrontRegardless()
         commandWindow.makeKey()
         isVisible = commandWindow.isVisible
@@ -123,12 +135,24 @@ class AppState: ObservableObject {
 class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeyService = GlobalHotkeyService()
     private var cancellables = Set<AnyCancellable>()
+    /// Retained for the app's entire lifetime — never call `endActivity`.
+    /// As an accessory app (`LSUIElement`) with no visible window, FastTab is
+    /// exactly the profile macOS targets for App Nap. That throttles the run
+    /// loop over time, which silently stops delivering the continuous global
+    /// mouseMoved stream `EdgeRevealService` depends on for hover detection —
+    /// it works right after launch, then goes quiet a short while later.
+    private var appNapActivityToken: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         appLogger.info("Application did finish launching")
         NSApp.setActivationPolicy(.accessory)
+        appNapActivityToken = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "Continuous global mouse tracking for notch/edge hover reveal"
+        )
         CommandBarPanelController.shared.prepare()
         setupGlobalShortcut()
+        EdgeRevealService.shared.start()
         LicenseService.shared.validateForLaunch()
 
         if OnboardingWindowController.shared.isNeeded {
@@ -266,11 +290,20 @@ private final class CommandBarPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
+    /// AppKit's default behavior pushes any window whose frame reaches into the
+    /// menu bar strip back down below it. That silently shrank the full-screen
+    /// canvas we set in `fitCommandBarCanvasToVisibleScreen`, leaving a
+    /// menu-bar-height gap between the notch-anchored bar and the true top of
+    /// the display. Returning the rect unchanged keeps the canvas flush.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
+
     override func sendEvent(_ event: NSEvent) {
         if event.isMouseDownEvent {
             let screenLocation = convertPoint(toScreen: event.locationInWindow)
 
-            if CommandBarLayout.shouldDismissClick(at: screenLocation, in: frame) {
+            if CommandBarLayout.shouldDismissClick(at: screenLocation, in: frame, anchor: EdgeRevealStyle.commandBarAnchor) {
                 AppState.shared.hideCommandBar()
                 return
             }
@@ -368,6 +401,19 @@ private final class CommandBarPanelController: NSObject {
         observedWindow.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: false)
     }
 
+    /// Arms the SwiftUI-native grow-from-edge reveal animation (see
+    /// `CommandBarRevealTrigger`/`ContentView`) instead of the instant
+    /// appearance used by the keyboard shortcut. Must run before the window
+    /// is ordered front so the first rendered frame is already in its
+    /// shrunk state, matching the same requirement the previous CALayer-based
+    /// version had — a raw `CABasicAnimation` on the whole (screen-sized)
+    /// content-view layer read as the bar sliding into place rather than
+    /// expanding from the edge, since the anchor was applied to the entire
+    /// canvas rather than just the visible surface within it.
+    func playRevealAnimation(from style: EdgeRevealStyle) {
+        CommandBarRevealTrigger.shared.fire(anchor: style)
+    }
+
     private func installOutsideAppClickMonitor() {
         guard globalMouseDownMonitor == nil else { return }
 
@@ -387,10 +433,14 @@ private extension NSEvent {
     }
 }
 
-private extension NSWindow {
+extension NSWindow {
     func configureCommandBarOverlayBehavior() {
         styleMask.insert(.nonactivatingPanel)
-        level = .floating
+        // Above the menu bar (`.mainMenu`), not merely `.floating`: the bar now
+        // sits flush against the true top of the display, so at `.floating` the
+        // menu bar painted over its top strip — invisible with a translucent
+        // menu bar, but an opaque band under Reduce Transparency.
+        level = .statusBar
 
         var behavior = collectionBehavior
         behavior.remove(.moveToActiveSpace)
@@ -399,7 +449,10 @@ private extension NSWindow {
     }
 
     func fitCommandBarCanvasToVisibleScreen(preferMouseScreen: Bool) {
-        let displayFrame = preferredCommandBarDisplay(preferMouseScreen: preferMouseScreen)?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
+        // Full screen frame, not `visibleFrame` — `visibleFrame` excludes the
+        // menu bar strip, which left a gap between the notch anchor and the
+        // true top edge of the display instead of sitting flush against it.
+        let displayFrame = preferredCommandBarDisplay(preferMouseScreen: preferMouseScreen)?.frame ?? NSScreen.main?.frame ?? frame
         let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
 
         setFrame(canvasFrame, display: true, animate: false)

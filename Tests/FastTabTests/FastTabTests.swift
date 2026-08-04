@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 @testable import FastTab
 
@@ -260,52 +261,129 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
 
     let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
 
-    #expect(canvasFrame.size == CommandBarLayout.surfaceSize)
+    #expect(canvasFrame.size == CommandBarLayout.surfaceSize(for: .notch))
     #expect(canvasFrame.midX == displayFrame.midX)
     #expect(canvasFrame.midY == displayFrame.midY)
 }
 
-@Test func commandBarSurfaceFrameExcludesTransparentCanvasArea() async throws {
+@Test func commandBarSurfaceFrameHugsTopEdgeForNotchAnchor() async throws {
     let displayFrame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
 
     let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
-    let surfaceFrame = CommandBarLayout.surfaceFrame(in: canvasFrame)
+    let surfaceFrame = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .notch)
 
-    #expect(surfaceFrame.size == CommandBarLayout.surfaceSize)
+    #expect(surfaceFrame.size == CommandBarLayout.surfaceSize(for: .notch))
     #expect(surfaceFrame.minX > canvasFrame.minX)
     #expect(surfaceFrame.maxX < canvasFrame.maxX)
     #expect(surfaceFrame.minY > canvasFrame.minY)
-    #expect(surfaceFrame.maxY < canvasFrame.maxY)
+    #expect(surfaceFrame.maxY == canvasFrame.maxY) // flush against the top, by design
     #expect(!surfaceFrame.contains(CGPoint(x: canvasFrame.minX + 24, y: canvasFrame.midY)))
     #expect(surfaceFrame.contains(CGPoint(x: canvasFrame.midX, y: surfaceFrame.midY)))
     #expect(CommandBarLayout.shouldDismissClick(
         at: CGPoint(x: canvasFrame.minX + 24, y: canvasFrame.midY),
-        in: canvasFrame
+        in: canvasFrame,
+        anchor: .notch
     ))
     #expect(!CommandBarLayout.shouldDismissClick(
         at: CGPoint(x: canvasFrame.midX, y: surfaceFrame.midY),
-        in: canvasFrame
+        in: canvasFrame,
+        anchor: .notch
     ))
 }
 
-@Test func duplicateURLNormalizationStripsTrailingSlash() {
-    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/") == "https://example.com")
-    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/path/") == "https://example.com/path")
+@Test func commandBarSurfaceFrameHugsSideEdgeForEdgeAnchors() async throws {
+    let displayFrame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+    let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
+
+    let leftFrame = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .leftEdge)
+    #expect(leftFrame.minX == canvasFrame.minX)
+    #expect(leftFrame.maxX < canvasFrame.maxX)
+
+    let rightFrame = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .rightEdge)
+    #expect(rightFrame.maxX == canvasFrame.maxX)
+    #expect(rightFrame.minX > canvasFrame.minX)
+}
+
+@Test func commandBarAnchorFallsBackToNotchWhenOff() async throws {
+    let displayFrame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+    let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
+
+    #expect(
+        CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .off)
+            == CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .notch)
+    )
+}
+
+@Test func commandBarSurfaceSizeHalvesWidthForEdgeAnchors() async throws {
+    let notchSize = CommandBarLayout.surfaceSize(for: .notch)
+    let leftSize = CommandBarLayout.surfaceSize(for: .leftEdge)
+    let rightSize = CommandBarLayout.surfaceSize(for: .rightEdge)
+
+    #expect(leftSize.width == notchSize.width / 2)
+    #expect(rightSize.width == notchSize.width / 2)
+    #expect(leftSize.height == rightSize.height)
+    // Taller than the notch surface, not equal: titles wrap to two lines at
+    // half width, so the same five rows need more vertical room.
+    #expect(leftSize.height > notchSize.height)
+}
+
+@Test func commandBarResultsHeightFitsFiveRowsAtEitherWidth() async throws {
+    // Guards the "5th item needs scrolling" regression: the results list must
+    // stay tall enough for the full default quick-open list, and the surface
+    // tall enough for the list plus its surrounding chrome.
+    for anchor in [EdgeRevealStyle.notch, .leftEdge, .rightEdge] {
+        let resultsHeight = CommandBarLayout.resultsHeight(for: anchor)
+        let rowHeight = CommandBarLayout.isCompact(anchor) ? 78.0 : 56.0
+
+        #expect(resultsHeight >= rowHeight * 5)
+        #expect(CommandBarLayout.surfaceSize(for: anchor).height > resultsHeight)
+    }
+}
+
+@Test func commandBarReservesTopInsetOnlyForAPhysicallyNotchedDisplay() async throws {
+    // Edge surfaces are vertically centered and never reach the top edge.
+    #expect(CommandBarLayout.surfaceTopInset(for: .leftEdge) == 0)
+    #expect(CommandBarLayout.surfaceTopInset(for: .rightEdge) == 0)
+
+    // The notch surface does reach the top edge, so it clears a *physical*
+    // notch — and only that. On a display without one (external monitor,
+    // clamshell, older MacBook) the reserved band is pure empty space, since
+    // the bar already draws above the menu-bar layer.
+    let openingScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+    let isNotched = openingScreen.map { EdgeRevealGeometry.screenInfo(for: $0).hasPhysicalNotch } ?? false
+
+    #expect((CommandBarLayout.surfaceTopInset(for: .notch) > 0) == isNotched)
+}
+
+@Test func commandBarSurfaceCornersAreFlatOnlyOnTheHuggedSide() async throws {
+    let notch = CommandBarLayout.surfaceCorners(for: .notch)
+    #expect(notch.topLeading == 0)
+    #expect(notch.topTrailing == 0)
+    #expect(notch.bottomLeading == CommandBarLayout.surfaceCornerRadius)
+    #expect(notch.bottomTrailing == CommandBarLayout.surfaceCornerRadius)
+
+    let left = CommandBarLayout.surfaceCorners(for: .leftEdge)
+    #expect(left.topLeading == 0)
+    #expect(left.bottomLeading == 0)
+
+    let right = CommandBarLayout.surfaceCorners(for: .rightEdge)
+    #expect(right.topTrailing == 0)
+    #expect(right.bottomTrailing == 0)
+}
+
+@Test func duplicateURLNormalizationTrimsWhitespaceOnly() {
+    #expect(BrowserTabService.normalizeDuplicateURL("  https://example.com/path  ") == "https://example.com/path")
     #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/path") == "https://example.com/path")
 }
 
-@Test func duplicateURLNormalizationLowercasesSchemeAndHost() {
-    #expect(BrowserTabService.normalizeDuplicateURL("HTTPS://EXAMPLE.COM/path") == "https://example.com/path")
-    #expect(BrowserTabService.normalizeDuplicateURL("https://Example.Com/Path") == "https://example.com/Path")
-}
-
-@Test func duplicateURLNormalizationStripsQueryAndFragment() {
-    // Query params and fragments are stripped so that session-token-bearing
-    // URLs (e.g. SharePoint, Google Docs) are matched as duplicates.
-    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/search?q=apple") == "https://example.com/search")
-    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/page#section") == "https://example.com/page")
-    #expect(BrowserTabService.normalizeDuplicateURL("https://sharepoint.com/doc?e=session1") == "https://sharepoint.com/doc")
-    #expect(BrowserTabService.normalizeDuplicateURL("https://sharepoint.com/doc?e=session2") == "https://sharepoint.com/doc")
+@Test func duplicateURLNormalizationRequiresExactMatch() {
+    // Trailing slash, casing, query params, and fragments all make URLs
+    // distinct — duplicate detection is exact-match only, no fuzzing.
+    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/") != BrowserTabService.normalizeDuplicateURL("https://example.com"))
+    #expect(BrowserTabService.normalizeDuplicateURL("HTTPS://EXAMPLE.COM/path") != BrowserTabService.normalizeDuplicateURL("https://example.com/path"))
+    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/search?q=apple") != BrowserTabService.normalizeDuplicateURL("https://example.com/search?q=banana"))
+    #expect(BrowserTabService.normalizeDuplicateURL("https://example.com/page#section") != BrowserTabService.normalizeDuplicateURL("https://example.com/page"))
+    #expect(BrowserTabService.normalizeDuplicateURL("https://sharepoint.com/doc?e=session1") != BrowserTabService.normalizeDuplicateURL("https://sharepoint.com/doc?e=session2"))
 }
 
 @Test func duplicateURLNormalizationHandlesFinderPaths() {
@@ -313,13 +391,14 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     #expect(BrowserTabService.normalizeDuplicateURL(path) == path)
 }
 
-@Test func duplicateScopeFilterDetectsTabsWithSameNormalizedURL() {
+@Test func duplicateScopeFilterDetectsTabsWithSameExactURL() {
     let now = Date()
     let chrome = "Google Chrome"
     let tabs: [BrowserSearchResult] = [
-        BrowserSearchResult(title: "Tab 1", url: "https://example.com/", browserName: chrome, type: .tab, timestamp: now, windowIndex: 1, tabIndex: 1),
-        BrowserSearchResult(title: "Tab 2", url: "https://example.com", browserName: chrome, type: .tab, timestamp: now, windowIndex: 1, tabIndex: 2),
-        BrowserSearchResult(title: "Unique", url: "https://other.com/", browserName: chrome, type: .tab, timestamp: now, windowIndex: 1, tabIndex: 3),
+        BrowserSearchResult(title: "Tab 1", url: "https://example.com/path", browserName: chrome, type: .tab, timestamp: now, windowIndex: 1, tabIndex: 1),
+        BrowserSearchResult(title: "Tab 2", url: "https://example.com/path", browserName: chrome, type: .tab, timestamp: now, windowIndex: 1, tabIndex: 2),
+        BrowserSearchResult(title: "Trailing slash", url: "https://example.com/path/", browserName: chrome, type: .tab, timestamp: now, windowIndex: 1, tabIndex: 3),
+        BrowserSearchResult(title: "Unique", url: "https://other.com/", browserName: chrome, type: .tab, timestamp: now, windowIndex: 1, tabIndex: 4),
     ]
 
     var counts: [String: Int] = [:]
@@ -330,7 +409,7 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     let duplicates = tabs.filter { (counts[$0.browserName + "|" + BrowserTabService.normalizeDuplicateURL($0.url)] ?? 0) >= 2 }
 
     #expect(duplicates.count == 2)
-    #expect(duplicates.allSatisfy { $0.title != "Unique" })
+    #expect(duplicates.allSatisfy { $0.title == "Tab 1" || $0.title == "Tab 2" })
 }
 
 @Test func duplicateScopeFilterExcludesCrossBrowserMatches() {
@@ -351,26 +430,28 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     #expect(duplicates.isEmpty, "Cross-browser tabs should NOT be flagged as duplicates")
 }
 
-@Test func commandBarShadowRadiusStaysInsideLargeDisplays() async throws {
+@Test func commandBarShadowRadiusStaysInsideLargeDisplaysAwayFromTheFlushEdge() async throws {
     let displayFrame = CGRect(x: -1920, y: 0, width: 2560, height: 1440)
     let canvasSize = CGSize(width: 2560, height: 1440)
 
     let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
     let backdropSize = CommandBarLayout.shadowBackdropSize(for: canvasSize)
-    let shadowCenter = CGPoint(
-        x: canvasFrame.midX,
-        y: canvasFrame.midY + CommandBarLayout.surfaceVerticalOffset
-    )
-    let nearestCanvasEdgeDistance = min(
+    let offset = CommandBarLayout.surfaceOffset(canvasSize: canvasSize, anchor: .notch)
+    let shadowCenter = CGPoint(x: canvasFrame.midX + offset.width, y: canvasFrame.midY + offset.height)
+
+    // The notch anchor deliberately touches the top edge (see
+    // commandBarSurfaceFrameHugsTopEdgeForNotchAnchor) — the halo is only
+    // checked against the other three sides, which still have plenty of
+    // room on a large display.
+    let marginsAwayFromAnchor = [
         shadowCenter.x - canvasFrame.minX,
         canvasFrame.maxX - shadowCenter.x,
-        shadowCenter.y - canvasFrame.minY,
         canvasFrame.maxY - shadowCenter.y
-    )
+    ]
 
     #expect(backdropSize.width == canvasSize.width + CommandBarLayout.shadowOverscan)
     #expect(backdropSize.height == canvasSize.height + CommandBarLayout.shadowOverscan)
-    #expect(CommandBarLayout.shadowEndRadius < nearestCanvasEdgeDistance)
+    #expect(marginsAwayFromAnchor.allSatisfy { CommandBarLayout.shadowEndRadius < $0 })
 }
 
 @Test func trialPolicyExpiresAfterSevenDays() async throws {

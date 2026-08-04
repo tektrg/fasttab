@@ -1,32 +1,49 @@
 import SwiftUI
 
 struct CommandBarSurface<Content: View>: View {
+    /// Which screen edge the bar hugs — determines the outer shape below
+    /// (flat on that side, rounded on the rest). See `CommandBarLayout.surfaceCorners`.
+    var anchor: EdgeRevealStyle
     @ViewBuilder var content: Content
     @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = false
 
     var body: some View {
-        // When the user enables the outer panel, the whole bar gets one Liquid
-        // Glass shape. Inner sections then render a faint zone fill instead of
-        // their own glass (CommandBarSurfaceBackground reads the same key).
-        // On macOS 14 the outer panel is never shown — each section keeps its
-        // own frosted material regardless.
-        if #available(macOS 26.0, *), outerPanelEnabled {
-            content.glassEffect(
-                .regular,
-                in: RoundedRectangle(cornerRadius: CommandBarLayout.surfaceCornerRadius, style: .continuous)
-            )
-        } else {
+        // When the user enables Background, the whole bar gets one shape. Inner
+        // sections then render a faint zone fill instead of their own
+        // background (CommandBarSurfaceBackground reads the same key).
+        //
+        // Pure black in both light and dark mode, and a plain fill rather than
+        // `.glassEffect`: the bar reaches under the notch, so it has to match
+        // the notch's own black to read as one shape — a theme-aware material
+        // would leave a visible seam, and Liquid Glass adds a rim highlight
+        // that read as an outline around the whole bar.
+        guard outerPanelEnabled else { return AnyView(content) }
+
+        let corners = CommandBarLayout.surfaceCorners(for: anchor)
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: corners.topLeading,
+            bottomLeadingRadius: corners.bottomLeading,
+            bottomTrailingRadius: corners.bottomTrailing,
+            topTrailingRadius: corners.topTrailing,
+            style: .continuous
+        )
+
+        // Forced dark so labels, pills, and section fills stay light against
+        // the black panel — in light mode they resolve to near-black otherwise.
+        return AnyView(
             content
-        }
+                .environment(\.colorScheme, .dark)
+                .background(shape.fill(Color.black))
+        )
     }
 }
 
 /// Background for a single command-bar section.
 ///
-/// Behaviour depends on two conditions: OS version and the outer-panel preference.
-/// - macOS 26, outer panel OFF → per-section Liquid Glass (default look).
-/// - macOS 26, outer panel ON  → faint zone fill; glass comes from the outer panel.
-/// - macOS 14                  → `.thinMaterial` over opaque base (no glass at all).
+/// Behaviour depends on the outer Background preference (see `CommandBarSurface`):
+/// - Background ON  → faint zone fill; the outer wrap supplies the real background.
+/// - Background OFF, macOS 26 → per-section Liquid Glass (default look).
+/// - Background OFF, macOS 14 → `.thinMaterial` over opaque base (no glass at all).
 struct CommandBarSurfaceBackground: View {
     var cornerRadius: CGFloat
     var accent: Color = .clear
@@ -36,12 +53,10 @@ struct CommandBarSurfaceBackground: View {
     private static let zoneFillOpacity: Double = 0.05
 
     var body: some View {
-        if #available(macOS 26.0, *) {
-            if outerPanelEnabled {
-                zoneFillBackground
-            } else {
-                liquidGlassBackground
-            }
+        if outerPanelEnabled {
+            zoneFillBackground
+        } else if #available(macOS 26.0, *) {
+            liquidGlassBackground
         } else {
             materialFallbackBackground
         }
@@ -54,8 +69,7 @@ struct CommandBarSurfaceBackground: View {
         return Color.clear.glassEffect(glass, in: shape)
     }
 
-    // Faint fill used when the outer panel supplies the glass layer.
-    @available(macOS 26.0, *)
+    // Faint fill used when the outer wrap supplies the real background.
     private var zoneFillBackground: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         return shape
@@ -163,7 +177,7 @@ struct SearchHeader: View {
                 text: $searchText
             )
                 .textFieldStyle(.plain)
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
                 .focused($isSearchFocused)
                 .onKeyPress(.upArrow) {
                     onUpArrow()

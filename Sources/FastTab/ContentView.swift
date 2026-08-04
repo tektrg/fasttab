@@ -43,6 +43,9 @@ struct ContentView: View {
     @EnvironmentObject var licenseService: LicenseService
     @StateObject private var updateService = UpdateService.shared
     @ObservedObject private var shortcutStore = ShortcutStore.shared
+    @ObservedObject private var edgeRevealStore = EdgeRevealStore.shared
+    @ObservedObject private var revealTrigger = CommandBarRevealTrigger.shared
+    @State private var isRevealed = true
     @State private var searchText = ""
     @State private var scopeChips: [ScopeChip] = []
     @State private var scopeSuggestionMode: ScopeSuggestionMode = .hidden
@@ -276,18 +279,33 @@ struct ContentView: View {
         ])
     }
 
+    private var commandBarAnchor: EdgeRevealStyle {
+        edgeRevealStore.style == .off ? .notch : edgeRevealStore.style
+    }
+
+    /// Narrow (half-width) edge-anchored surface — content wraps instead of
+    /// truncating. See `EnvironmentValues.isCompactCommandBar`.
+    private func isCompact(_ anchor: EdgeRevealStyle) -> Bool {
+        CommandBarLayout.isCompact(anchor)
+    }
+
     var body: some View {
+        let anchor = commandBarAnchor
+
         GeometryReader { geometry in
+            let surfaceSize = CommandBarLayout.surfaceSize(for: anchor)
+            let surfaceOffset = CommandBarLayout.surfaceOffset(canvasSize: geometry.size, anchor: anchor)
+
             ZStack {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture {
                         dismissCommandBar()
                     }
-                fullScreenAmbientShadow(canvasSize: geometry.size)
+                fullScreenAmbientShadow(canvasSize: geometry.size, anchor: anchor)
                     .allowsHitTesting(false)
 
-                CommandBarSurface {
+                CommandBarSurface(anchor: anchor) {
                     VStack(spacing: 10) {
                         if let globalShortcutRegistrationIssue = appState.globalShortcutRegistrationIssue {
                             PermissionBanner(
@@ -395,7 +413,9 @@ struct ContentView: View {
                                             onHover: { idx in scopeDropdownSelectedIndex = idx },
                                             onPick: { commitScopeSuggestion($0) }
                                         )
-                                        .frame(width: 420, alignment: .topLeading)
+                                        // Clamped to the surface: 420pt overflows
+                                        // the half-width edge-anchored size.
+                                        .frame(width: min(420, surfaceSize.width - 24), alignment: .topLeading)
                                         .padding(.top, 8)
                                         .transition(.opacity)
                                     }
@@ -469,14 +489,28 @@ struct ContentView: View {
                             }
 
                             FooterShortcutBar {
-                                HStack(spacing: 0) {
-                                    GuidanceBarView(
-                                        hint: guidanceHint,
-                                        statusText: openTabsStatusText
-                                    )
-                                    Spacer(minLength: 12)
-                                    ShortcutRecorderView(store: ShortcutStore.shared)
-                                        .environmentObject(appState)
+                                // Stacks at the narrow edge-anchored width,
+                                // where the hints and the shortcut recorder
+                                // can't sit side by side without clipping.
+                                if isCompact(anchor) {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        GuidanceBarView(
+                                            hint: guidanceHint,
+                                            statusText: openTabsStatusText
+                                        )
+                                        ShortcutRecorderView(store: ShortcutStore.shared)
+                                            .environmentObject(appState)
+                                    }
+                                } else {
+                                    HStack(spacing: 0) {
+                                        GuidanceBarView(
+                                            hint: guidanceHint,
+                                            statusText: openTabsStatusText
+                                        )
+                                        Spacer(minLength: 12)
+                                        ShortcutRecorderView(store: ShortcutStore.shared)
+                                            .environmentObject(appState)
+                                    }
                                 }
                             }
                         } else {
@@ -489,6 +523,15 @@ struct ContentView: View {
                         }
                     }
                     .padding(12)
+                    // Clears the physical notch / menu bar, which the surface
+                    // now reaches under so it can sit flush against the very
+                    // top of the display.
+                    .padding(.top, CommandBarLayout.surfaceTopInset(for: anchor))
+                    // Sized *inside* the surface, not outside it: the panel's
+                    // background wraps whatever it is handed, so framing it from
+                    // the outside made the background hug the (shorter) content
+                    // and centered it, leaving an empty band above and below.
+                    .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
                     .coordinateSpace(name: "commandBar")
                     .onPreferenceChange(SearchHeaderFrameKey.self) { newValue in
                         searchHeaderFrame = newValue
@@ -496,14 +539,20 @@ struct ContentView: View {
                     // Floating scope-suggestion dropdown — overlaid on the entire
                     // command-bar surface so it paints above the results section.
                 }
-                .frame(width: CommandBarLayout.surfaceSize.width, height: CommandBarLayout.surfaceSize.height)
-                .offset(y: CommandBarLayout.surfaceVerticalOffset)
+                .environment(\.isCompactCommandBar, isCompact(anchor))
+                .scaleEffect(
+                    x: isRevealed ? 1 : CommandBarLayout.revealInitialScale(for: anchor).width,
+                    y: isRevealed ? 1 : CommandBarLayout.revealInitialScale(for: anchor).height,
+                    anchor: CommandBarLayout.revealAnchorUnitPoint(for: anchor)
+                )
+                .offset(x: surfaceOffset.width, y: surfaceOffset.height)
 
                 if let toastMessage {
                     CommandBarToast(message: toastMessage)
                         .offset(
-                            y: CommandBarLayout.surfaceVerticalOffset
-                                + (CommandBarLayout.surfaceSize.height / 2)
+                            x: surfaceOffset.width,
+                            y: surfaceOffset.height
+                                + (surfaceSize.height / 2)
                                 + 24
                         )
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -516,6 +565,9 @@ struct ContentView: View {
             isSearchFocused = true
             setupLocalMonitor()
             licenseService.validateCachedLicenseIfNeeded()
+        }
+        .onChange(of: revealTrigger.token) { _, _ in
+            playRevealAnimation()
         }
         .sheet(isPresented: $isActivationPresented) {
             LicenseActivationSheet()
@@ -561,19 +613,35 @@ struct ContentView: View {
         }
     }
 
-    private func fullScreenAmbientShadow(canvasSize: CGSize) -> some View {
+    private func fullScreenAmbientShadow(canvasSize: CGSize, anchor: EdgeRevealStyle) -> some View {
         let shadowColor = commandBarFullScreenShadowColor(for: colorScheme)
         let backdropSize = CommandBarLayout.shadowBackdropSize(for: canvasSize)
+        let offset = CommandBarLayout.surfaceOffset(canvasSize: canvasSize, anchor: anchor)
+        let surfaceSize = CommandBarLayout.surfaceSize(for: anchor)
 
         return Rectangle()
             .fill(shadowColor.opacity(0.55))
             .frame(
-                width: CommandBarLayout.surfaceSize.width,
-                height: CommandBarLayout.surfaceSize.height
+                width: surfaceSize.width,
+                height: surfaceSize.height
             )
             .blur(radius: 90)
             .frame(width: backdropSize.width, height: backdropSize.height)
-            .offset(y: CommandBarLayout.surfaceVerticalOffset)
+            .offset(x: offset.width, y: offset.height)
+    }
+
+    /// Snaps the surface to its shrunk pre-reveal scale, then springs it open
+    /// on the next run-loop turn — the window is ordered front synchronously
+    /// right after this is armed (`AppState.showCommandBar`), so the first
+    /// rendered frame must already be shrunk or the bar flashes at full size
+    /// before shrinking.
+    private func playRevealAnimation() {
+        isRevealed = false
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                isRevealed = true
+            }
+        }
     }
 
     @ViewBuilder
@@ -581,6 +649,7 @@ struct ContentView: View {
         // Compute once here — not inside the List closure, which runs per row.
         let showWindowName = shouldShowWindowName
         let showProfileName = shouldShowProfileName
+        let resultsHeight = CommandBarLayout.resultsHeight(for: commandBarAnchor)
         Group {
             if appState.browserService.isLoading && displayedResults.isEmpty {
                 VStack(spacing: 10) {
@@ -593,7 +662,7 @@ struct ContentView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 300)
+                .frame(height: resultsHeight)
             } else if displayedItems.isEmpty {
                 VStack(spacing: 8) {
                     Spacer()
@@ -608,7 +677,7 @@ struct ContentView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 300)
+                .frame(height: resultsHeight)
                 .background(CommandBarSurfaceBackground(cornerRadius: 16))
             } else {
                 ScrollView {
@@ -625,8 +694,6 @@ struct ContentView: View {
                                     pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
                                     pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
                                     keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
-                                    onCopyLink: { performCopyLink(result) },
-                                    onRemove: { performRemove(result) },
                                     onHoverChange: { isHovering in
                                         if isHovering {
                                             hoveredResultID = result.id
@@ -655,7 +722,10 @@ struct ContentView: View {
                 .background(Color.clear)
             }
         }
-        .frame(height: 300)
+        // `resultsHeight` is what the surface is sized around, but the chrome
+        // allowance it budgets for is an estimate — the list takes up whatever
+        // is actually left over so the slack never shows as a dead band.
+        .frame(minHeight: resultsHeight, maxHeight: .infinity)
         .background(CommandBarSurfaceBackground(cornerRadius: 16))
     }
 

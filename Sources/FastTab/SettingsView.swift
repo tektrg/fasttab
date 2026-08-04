@@ -33,10 +33,8 @@ struct SettingsView: View {
                 }
             }
 
-            if #available(macOS 26.0, *) {
-                Section("Appearance") {
-                    Toggle("Glass background panel", isOn: $outerPanelEnabled)
-                }
+            Section("Appearance") {
+                Toggle("Background", isOn: $outerPanelEnabled)
             }
 
             Section("Shortcut") {

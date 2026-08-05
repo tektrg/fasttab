@@ -8,17 +8,7 @@ private struct SearchHeaderFrameKey: PreferenceKey {
     }
 }
 
-private let kSpaceKeyCode: UInt16 = 49
-private let kEnterKeyCode: UInt16 = 36
-private let kDeleteKeyCode: UInt16 = 51
-private let kEscapeKeyCode: UInt16 = 53
-private let kLeftArrowKeyCode: UInt16 = 123
-private let kRightArrowKeyCode: UInt16 = 124
-private let kUpArrowKeyCode: UInt16 = 126
-private let kDownArrowKeyCode: UInt16 = 125
-private let quickOpenDisplayLimit = 5
-
-private enum CommandBarDisplayItem: Identifiable {
+enum CommandBarDisplayItem: Identifiable {
     case result(BrowserSearchResult)
     case showAllTabs(count: Int)
 
@@ -38,51 +28,63 @@ private enum CommandBarDisplayItem: Identifiable {
 }
 
 struct ContentView: View {
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme) var colorScheme
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var licenseService: LicenseService
-    @StateObject private var updateService = UpdateService.shared
-    @ObservedObject private var shortcutStore = ShortcutStore.shared
-    @ObservedObject private var edgeRevealStore = EdgeRevealStore.shared
-    @ObservedObject private var revealTrigger = CommandBarRevealTrigger.shared
-    @State private var isRevealed = true
-    @State private var searchText = ""
-    @State private var scopeChips: [ScopeChip] = []
-    @State private var scopeSuggestionMode: ScopeSuggestionMode = .hidden
-    @State private var scopeDropdownSelectedIndex: Int = 0
+    @StateObject var updateService = UpdateService.shared
+    @ObservedObject var shortcutStore = ShortcutStore.shared
+    @ObservedObject var edgeRevealStore = EdgeRevealStore.shared
+    @ObservedObject var revealTrigger = CommandBarRevealTrigger.shared
+    @ObservedObject var dismissTrigger = CommandBarDismissTrigger.shared
+    /// Reveal progress on the axis growing out of the anchored edge, and on the
+    /// axis spreading along it. 0 is the pre-reveal sliver, 1 is fully open;
+    /// each is driven by its own spring (see `playRevealAnimation`).
+    @State var revealDepthProgress: Double = 1
+    @State var revealSpreadProgress: Double = 1
+    @State var searchText = ""
+    @State var scopeChips: [ScopeChip] = []
+    @State var scopeSuggestionMode: ScopeSuggestionMode = .hidden
+    @State var scopeDropdownSelectedIndex: Int = 0
     /// When set, the named chip is keyboard-focused; the next backspace removes
     /// it. Cleared as soon as the user types text or moves caret back into input.
-    @State private var focusedChipID: UUID? = nil
+    @State var focusedChipID: UUID? = nil
     @State private var isActivationPresented = false
-    @FocusState private var isSearchFocused: Bool
-    @State private var localMonitor: Any?
+    @FocusState var isSearchFocused: Bool
+    @State var localMonitor: Any?
     /// True once the user has cycled to a tab via the shortcut; reset when the bar opens.
-    @State private var hasCycled = false
+    @State var hasCycled = false
     /// True while the shortcut modifier keys are still held after opening the bar.
-    @State private var isShortcutModifierHeld = false
-    @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var faviconPrefetchDebounceTask: Task<Void, Never>?
-    @State private var suppressNextSearchChange = false
+    @State var isShortcutModifierHeld = false
+    @State var searchDebounceTask: Task<Void, Never>?
+    @State var faviconPrefetchDebounceTask: Task<Void, Never>?
+    @State var suppressNextSearchChange = false
     @State private var lastActiveRefreshAt: Date = .distantPast
-    @State private var keyboardSwipeResultID: String?
-    @State private var keyboardSwipeAction: ResultSwipeAction?
-    @State private var toastMessage: String?
-    @State private var toastDismissTask: Task<Void, Never>?
-    @State private var hoveredResultID: String?
-    @State private var pointerSwipeResultID: String?
-    @State private var pointerSwipeOffset: CGFloat = 0
-    @State private var pointerSwipeAction: ResultSwipeAction?
-    @State private var didConfirmPointerSwipe = false
-    @State private var isPointerSwipeGestureActive = false
-    @State private var suppressPointerSwipeUntilGestureEnds = false
-    @State private var pointerSwipeSuppressionTask: Task<Void, Never>?
-    @State private var isShowingAllOpenTabs = false
-    @AppStorage("guidance.hasDiscoveredSwipe") private var hasDiscoveredSwipe: Bool = false
-    @State private var lastInteractionKey: LastInteractionKey = .none
+    @State var keyboardSwipeResultID: String?
+    @State var keyboardSwipeAction: ResultSwipeAction?
+    @State var toastMessage: String?
+    @State var toastDismissTask: Task<Void, Never>?
+    @State var hoveredResultID: String?
+    @State var pointerSwipeResultID: String?
+    @State var pointerSwipeOffset: CGFloat = 0
+    @State var pointerSwipeAction: ResultSwipeAction?
+    @State var didConfirmPointerSwipe = false
+    @State var isPointerSwipeGestureActive = false
+    @State var suppressPointerSwipeUntilGestureEnds = false
+    @State var pointerSwipeSuppressionTask: Task<Void, Never>?
+    @State var isShowingAllOpenTabs = false
+    @AppStorage("guidance.hasDiscoveredSwipe") var hasDiscoveredSwipe: Bool = false
+    @State var lastInteractionKey: LastInteractionKey = .none
     /// Measured frame of the SearchHeader in the command-bar coordinate space.
     /// Used to position the scope dropdown directly below it as an overlay on
     /// the outer VStack, so the dropdown paints above the results section.
     @State private var searchHeaderFrame: CGRect = .zero
+
+    @AppStorage(CommandBarAppearance.resultRowStyleKey) var rowStyle: ResultRowStyle = .full
+    @AppStorage(CommandBarAppearance.helperPanelVisibleKey) var showHelperPanel: Bool = true
+    /// User's preferred quick-open ("recent tabs") item count. Read through
+    /// `effectiveQuickOpenLimit`, never used directly — it may exceed what the
+    /// current screen can actually fit.
+    @AppStorage(CommandBarAppearance.quickOpenItemLimitKey) var quickOpenItemLimitSetting: Int = 5
 
     var filteredResults: [BrowserSearchResult] {
         appState.browserService.results
@@ -95,15 +97,24 @@ struct ContentView: View {
         return filteredResults
     }
 
-    private var quickOpenState: QuickOpenDisplayState {
+    /// The quick-open item count actually used: the user's setting, clamped to
+    /// the Stepper's bounds and to however many rows the current screen can
+    /// show without the panel growing past its edge (see
+    /// `CommandBarLayout.maxQuickOpenRowsFittingScreen`).
+    var effectiveQuickOpenLimit: Int {
+        let bounded = min(max(quickOpenItemLimitSetting, CommandBarLayout.minQuickOpenItemLimit), CommandBarLayout.maxQuickOpenItemLimit)
+        return min(bounded, CommandBarLayout.maxQuickOpenRowsFittingScreen(rowStyle: rowStyle))
+    }
+
+    var quickOpenState: QuickOpenDisplayState {
         quickOpenDisplayState(
             from: filteredResults,
-            limit: quickOpenDisplayLimit,
+            limit: effectiveQuickOpenLimit,
             isShowingAllOpenTabs: isShowingAllOpenTabs
         )
     }
 
-    private var displayedItems: [CommandBarDisplayItem] {
+    var displayedItems: [CommandBarDisplayItem] {
         var items = displayedResults.map(CommandBarDisplayItem.result)
         if searchText.isEmpty, quickOpenState.includesShowAllTabsItem {
             items.append(.showAllTabs(count: filteredResults.count))
@@ -111,7 +122,7 @@ struct ContentView: View {
         return items
     }
 
-    private var indexedDisplayItems: [(offset: Int, element: CommandBarDisplayItem)] {
+    var indexedDisplayItems: [(offset: Int, element: CommandBarDisplayItem)] {
         Array(displayedItems.enumerated())
     }
 
@@ -130,156 +141,43 @@ struct ContentView: View {
         return false
     }
 
+    /// Row count the panel sizes itself around: shrinks to fit the actual
+    /// visible rows, in both row styles, so a short result list doesn't leave
+    /// dead space below it. Zero results keeps the full row budget instead —
+    /// including for Minimal — so the loading/empty placeholder isn't squashed
+    /// into a single row's worth of height.
+    var resultsSizingRowCount: Int {
+        guard !displayedItems.isEmpty else { return Int.max }
+        return max(displayedItems.count, 1)
+    }
+
+    /// Ceiling `resultsSizingRowCount` clamps against: once "Show all tabs" is
+    /// expanded, a fixed height ceiling (independent of screen size) so the
+    /// panel doesn't grow to fill most of a tall display — see
+    /// `CommandBarLayout.expandedAllTabsMaxHeight`. Otherwise the user's
+    /// configurable, screen-safe quick-open limit while the search field is
+    /// empty, or the fixed live-search row cap.
+    var resultsMaxRows: Int {
+        if isShowingAllOpenTabs {
+            return CommandBarLayout.expandedAllTabsMaxRows(for: commandBarAnchor, rowStyle: rowStyle, showFooter: showHelperPanel)
+        }
+        return searchText.isEmpty ? effectiveQuickOpenLimit : Int(CommandBarLayout.visibleResultRows)
+    }
+
     var openTabsStatusText: String? {
         guard appState.browserService.hasFetchedOpenTabCount else { return nil }
         let count = appState.browserService.openTabCount
         return "\(count) \(count == 1 ? "tab" : "tabs") found"
     }
 
-    var guidanceHint: GuidanceHint {
-        let store = shortcutStore
-        let selectedIndex = appState.selectedIndex
-        let isResultFocused = selectedIndex >= 0 && !isSearchFocused
-        let hasResults = !displayedItems.isEmpty
-        let queryEmpty = searchText.isEmpty
-        let isShowAllTabsFocused = selectedIndex >= 0
-            && displayedItems.indices.contains(selectedIndex)
-            && displayedItems[selectedIndex].result == nil
-
-        // 0: Shortcut modifier still held on fresh open — search bar focused, no cycling yet
-        if isShortcutModifierHeld && !hasCycled && isSearchFocused {
-            return GuidanceHint(tokens: [
-                .init(glyph: store.keyDisplayName, label: "next"),
-                .init(glyph: "Esc", label: "cancel")
-            ])
-        }
-
-        // 1–2: Pointer swipe past confirm threshold — "release to act"
-        if pointerSwipeResultID != nil, !didConfirmPointerSwipe,
-           abs(pointerSwipeOffset) >= ResultSwipeMetrics.confirmDistance {
-            return pointerSwipeOffset < 0
-                ? GuidanceHint(tokens: [.init(glyph: "←", label: "release to delete")])
-                : GuidanceHint(tokens: [.init(glyph: "→", label: "release to copy link")])
-        }
-
-        // 3–4: Pointer swipe resting at reveal distance (gesture ended, not confirmed)
-        if pointerSwipeResultID != nil, pointerSwipeAction != nil,
-           !isPointerSwipeGestureActive, !didConfirmPointerSwipe {
-            return pointerSwipeOffset < 0
-                ? GuidanceHint(tokens: [.init(glyph: "←", label: "swipe more to delete"),
-                                        .init(glyph: "Esc", label: "cancel")])
-                : GuidanceHint(tokens: [.init(glyph: "→", label: "swipe more to copy"),
-                                        .init(glyph: "Esc", label: "cancel")])
-        }
-
-        // 5–6: Pointer swipe in progress, below confirm threshold
-        if pointerSwipeResultID != nil, isPointerSwipeGestureActive,
-           abs(pointerSwipeOffset) > 3 {
-            return pointerSwipeOffset < 0
-                ? GuidanceHint(tokens: [.init(glyph: "←", label: "keep swiping to delete")])
-                : GuidanceHint(tokens: [.init(glyph: "→", label: "keep swiping to copy link")])
-        }
-
-        // 7: Modifier cycling mode — user is holding modifier and cycling with shortcut key
-        if hasCycled {
-            return GuidanceHint(tokens: [
-                .init(glyph: store.modifierSymbols, label: isShowAllTabsFocused ? "release to show" : "release to open"),
-                .init(glyph: store.keyDisplayName, label: "next"),
-                .init(glyph: "Esc", label: "cancel")
-            ])
-        }
-
-        // 8: Keyboard swipe revealed, awaiting second press to confirm
-        if keyboardSwipeResultID != nil {
-            let arrow = keyboardSwipeAction == .delete ? "←" : "→"
-            let verb = keyboardSwipeAction == .delete ? "delete" : "copy"
-            return GuidanceHint(tokens: [
-                .init(glyph: arrow, label: "press again to \(verb)"),
-                .init(glyph: "Esc", label: "cancel")
-            ])
-        }
-
-        // 9–10: Result focused via keyboard navigation (arrow keys or space)
-        if isResultFocused && (lastInteractionKey == .upDown || lastInteractionKey == .space) {
-            if isShowAllTabsFocused {
-                return GuidanceHint(tokens: [
-                    .init(glyph: "↵", label: "show all"),
-                    .init(glyph: "Esc", label: "back")
-                ])
-            }
-
-            if !hasDiscoveredSwipe {
-                return GuidanceHint(tokens: [
-                    .init(glyph: "←→", label: "more options"),
-                    .init(glyph: "↵", label: "open"),
-                    .init(glyph: "Esc", label: "back to search")
-                ])
-            } else {
-                return GuidanceHint(tokens: [
-                    .init(glyph: "←", label: "delete"),
-                    .init(glyph: "→", label: "copy"),
-                    .init(glyph: "↵", label: "open"),
-                    .init(glyph: "Esc", label: "back")
-                ])
-            }
-        }
-
-        // 11: Result focused via mouse click (no keyboard nav recorded)
-        if isResultFocused && lastInteractionKey == .none {
-            if isShowAllTabsFocused {
-                return GuidanceHint(tokens: [
-                    .init(glyph: "↑↓", label: "navigate"),
-                    .init(glyph: "↵", label: "show all")
-                ])
-            }
-
-            return GuidanceHint(tokens: [
-                .init(glyph: "↑↓", label: "navigate"),
-                .init(glyph: "←", label: "delete"),
-                .init(glyph: "→", label: "copy"),
-                .init(glyph: "↵", label: "open")
-            ])
-        }
-
-        // 12: Mouse hover over a row, no keyboard result selected
-        if hoveredResultID != nil && !isResultFocused {
-            return GuidanceHint(tokens: [
-                .init(glyph: "←", label: "swipe to delete"),
-                .init(glyph: "→", label: "swipe to copy")
-            ])
-        }
-
-        // 13: Search field focused, empty query, results present
-        if !isResultFocused && queryEmpty && hasResults {
-            return GuidanceHint(tokens: [
-                .init(glyph: "↑↓", label: "navigate"),
-                .init(glyph: "↵", label: "open"),
-                .init(glyph: "@", label: "scope"),
-                .init(glyph: "Esc", label: "dismiss")
-            ])
-        }
-
-        // 14: Search field focused, active query, results present
-        if !isResultFocused && !queryEmpty && hasResults {
-            return GuidanceHint(tokens: [
-                .init(glyph: "↑↓", label: "navigate"),
-                .init(glyph: "↵", label: "open"),
-                .init(glyph: "@", label: "scope")
-            ])
-        }
-
-        // 15–16: No results — empty-state UI owns this moment
-        if !hasResults { return .empty }
-
-        // 18: Fallback
-        return GuidanceHint(tokens: [
-            .init(glyph: "↑↓", label: "navigate"),
-            .init(glyph: "↵", label: "open"),
-            .init(glyph: "Esc", label: "dismiss")
-        ])
+    /// Hidden once `@duplicate` is already the active filter — tapping the
+    /// tag again would be a no-op.
+    var duplicateTabTagCount: Int {
+        guard !scopeChips.contains(where: { $0.kind == .duplicate }) else { return 0 }
+        return appState.browserService.duplicateTabCount
     }
 
-    private var commandBarAnchor: EdgeRevealStyle {
+    var commandBarAnchor: EdgeRevealStyle {
         edgeRevealStore.style == .off ? .notch : edgeRevealStore.style
     }
 
@@ -292,19 +190,29 @@ struct ContentView: View {
     var body: some View {
         let anchor = commandBarAnchor
 
-        GeometryReader { geometry in
-            let surfaceSize = CommandBarLayout.surfaceSize(for: anchor)
-            let surfaceOffset = CommandBarLayout.surfaceOffset(canvasSize: geometry.size, anchor: anchor)
+        let rowCount = resultsSizingRowCount
+        let maxRows = resultsMaxRows
+        let surfaceSize = CommandBarLayout.surfaceSize(for: anchor, rowStyle: rowStyle, rowCount: rowCount, maxRows: maxRows, showFooter: showHelperPanel)
+        let alignment = CommandBarLayout.surfaceAlignment(for: anchor)
 
-            ZStack {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        dismissCommandBar()
-                    }
-                fullScreenAmbientShadow(canvasSize: geometry.size, anchor: anchor)
+        // Everything is positioned by aligning it against the canvas edge the
+        // anchor hugs — never by measuring the canvas. See
+        // `CommandBarLayout.surfaceAlignment` for why measuring cannot be flush
+        // on the first rendered frame.
+        return Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture {
+                dismissCommandBar()
+            }
+            .overlay(alignment: alignment) {
+                ambientShadow(anchor: anchor, surfaceSize: surfaceSize)
                     .allowsHitTesting(false)
-
+                    // Same tail fade as the surface below — a shadow lingering
+                    // at full strength under a dissolving panel would be the
+                    // last thing left on screen.
+                    .opacity(revealSurfaceOpacity)
+            }
+            .overlay(alignment: alignment) {
                 CommandBarSurface(anchor: anchor) {
                     VStack(spacing: 10) {
                         if let globalShortcutRegistrationIssue = appState.globalShortcutRegistrationIssue {
@@ -488,28 +396,34 @@ struct ContentView: View {
                                     }
                             }
 
-                            FooterShortcutBar {
-                                // Stacks at the narrow edge-anchored width,
-                                // where the hints and the shortcut recorder
-                                // can't sit side by side without clipping.
-                                if isCompact(anchor) {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        GuidanceBarView(
-                                            hint: guidanceHint,
-                                            statusText: openTabsStatusText
-                                        )
-                                        ShortcutRecorderView(store: ShortcutStore.shared)
-                                            .environmentObject(appState)
-                                    }
-                                } else {
-                                    HStack(spacing: 0) {
-                                        GuidanceBarView(
-                                            hint: guidanceHint,
-                                            statusText: openTabsStatusText
-                                        )
-                                        Spacer(minLength: 12)
-                                        ShortcutRecorderView(store: ShortcutStore.shared)
-                                            .environmentObject(appState)
+                            if showHelperPanel {
+                                FooterShortcutBar {
+                                    // Stacks at the narrow edge-anchored width,
+                                    // where the hints and the shortcut recorder
+                                    // can't sit side by side without clipping.
+                                    if isCompact(anchor) {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            GuidanceBarView(
+                                                hint: guidanceHint,
+                                                statusText: openTabsStatusText,
+                                                duplicateTabCount: duplicateTabTagCount,
+                                                onTapDuplicateTag: activateDuplicateFilterFromTag
+                                            )
+                                            ShortcutRecorderView(store: ShortcutStore.shared, showsSettingsButton: true)
+                                                .environmentObject(appState)
+                                        }
+                                    } else {
+                                        HStack(spacing: 0) {
+                                            GuidanceBarView(
+                                                hint: guidanceHint,
+                                                statusText: openTabsStatusText,
+                                                duplicateTabCount: duplicateTabTagCount,
+                                                onTapDuplicateTag: activateDuplicateFilterFromTag
+                                            )
+                                            Spacer(minLength: 12)
+                                            ShortcutRecorderView(store: ShortcutStore.shared, showsSettingsButton: true)
+                                                .environmentObject(appState)
+                                        }
                                     }
                                 }
                             }
@@ -532,42 +446,89 @@ struct ContentView: View {
                     // the outside made the background hug the (shorter) content
                     // and centered it, leaving an empty band above and below.
                     .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
+                    .animation(.easeOut(duration: 0.12), value: surfaceSize)
+                    // Deliberately *inside* the notch connector background added
+                    // below, so the connector stays opaque while the content
+                    // fades — it stands in for the notch itself and has to keep
+                    // reading as solid screen bezel throughout.
+                    //
+                    // Derived from the reveal springs rather than driven by its
+                    // own animation: it then can't drift out of step with the
+                    // growth, and the dismiss animation gets the matching
+                    // fade-out for free.
+                    .opacity(CommandBarLayout.revealContentOpacity(
+                        depthProgress: revealDepthProgress,
+                        spreadProgress: revealSpreadProgress
+                    ))
+                    // Fills the notch-clearance inset above with a small
+                    // notch-width (not panel-width) black connector instead of
+                    // leaving it transparent: without this, the reveal
+                    // animation shrinks that dead space right along with
+                    // everything else, so instead of growing flush out of the
+                    // notch it left a visible gap between the true top edge
+                    // and the first opaque pixel. Kept exactly notch-width so
+                    // it reads as the notch extending down a little, not a
+                    // bar spanning the whole panel.
+                    .background(alignment: .top) {
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 0,
+                            bottomLeadingRadius: 10,
+                            bottomTrailingRadius: 10,
+                            topTrailingRadius: 0,
+                            style: .continuous
+                        )
+                        .fill(Color.black)
+                        .frame(
+                            width: CommandBarLayout.notchConnectorWidth(for: anchor),
+                            height: CommandBarLayout.surfaceTopInset(for: anchor)
+                        )
+                    }
                     .coordinateSpace(name: "commandBar")
                     .onPreferenceChange(SearchHeaderFrameKey.self) { newValue in
                         searchHeaderFrame = newValue
                     }
-                    // Floating scope-suggestion dropdown — overlaid on the entire
-                    // command-bar surface so it paints above the results section.
                 }
                 .environment(\.isCompactCommandBar, isCompact(anchor))
                 .scaleEffect(
-                    x: isRevealed ? 1 : CommandBarLayout.revealInitialScale(for: anchor).width,
-                    y: isRevealed ? 1 : CommandBarLayout.revealInitialScale(for: anchor).height,
+                    x: revealScale(for: anchor, surfaceSize: surfaceSize).width,
+                    y: revealScale(for: anchor, surfaceSize: surfaceSize).height,
                     anchor: CommandBarLayout.revealAnchorUnitPoint(for: anchor)
                 )
-                .offset(x: surfaceOffset.width, y: surfaceOffset.height)
-
+                .opacity(revealSurfaceOpacity)
+            }
+            // Centred on the surface, then pushed 24pt past its bottom edge —
+            // `fixedSize` so the surface-sized positioning box can't squeeze the
+            // message onto a second line at the narrow edge-anchored width.
+            .overlay(alignment: alignment) {
                 if let toastMessage {
                     CommandBarToast(message: toastMessage)
-                        .offset(
-                            x: surfaceOffset.width,
-                            y: surfaceOffset.height
-                                + (surfaceSize.height / 2)
-                                + 24
-                        )
+                        .fixedSize()
+                        .offset(y: (surfaceSize.height / 2) + 24)
+                        .frame(width: surfaceSize.width, height: surfaceSize.height)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-        }
-        .background(Color.clear)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             isSearchFocused = true
             setupLocalMonitor()
             licenseService.validateCachedLicenseIfNeeded()
+            appState.isSearchTextEmpty = searchText.isEmpty
+        }
+        // Separate from the other `searchText` observer above: that one is
+        // gated by `suppressNextSearchChange` and skips the clear that
+        // `resetForCommandBarOpen` does on every open, which would leave
+        // AppState holding a stale non-empty reading for the hover-dismiss
+        // monitor (an AppKit service with no direct view access — see
+        // `CommandBarPanelController.evaluateHoverDismiss`).
+        .onChange(of: searchText) { _, newValue in
+            appState.isSearchTextEmpty = newValue.isEmpty
         }
         .onChange(of: revealTrigger.token) { _, _ in
             playRevealAnimation()
+        }
+        .onChange(of: dismissTrigger.token) { _, _ in
+            playDismissAnimation()
         }
         .sheet(isPresented: $isActivationPresented) {
             LicenseActivationSheet()
@@ -613,22 +574,81 @@ struct ContentView: View {
         }
     }
 
-    private func fullScreenAmbientShadow(canvasSize: CGSize, anchor: EdgeRevealStyle) -> some View {
+    /// Ambient shadow behind the surface. Sized and positioned exactly like the
+    /// surface (the caller aligns it against the same edge), so it needs no
+    /// knowledge of the canvas — only the direction to lean away from the edge.
+    private func ambientShadow(anchor: EdgeRevealStyle, surfaceSize: CGSize) -> some View {
         let shadowColor = commandBarFullScreenShadowColor(for: colorScheme)
-        let backdropSize = CommandBarLayout.shadowBackdropSize(for: canvasSize)
-        let offset = CommandBarLayout.surfaceOffset(canvasSize: canvasSize, anchor: anchor)
-        let surfaceSize = CommandBarLayout.surfaceSize(for: anchor)
+        let shift = CommandBarLayout.shadowShiftVector(for: anchor)
+        let scale = revealScale(for: anchor, surfaceSize: surfaceSize)
+        let anchorPoint = CommandBarLayout.revealAnchorUnitPoint(for: anchor)
+        // The blur has to shrink with the panel too: left at its full radius it
+        // spread the sliver-sized shadow into a haze reaching well past the
+        // anchor edge, which read as a smudge floating away from the
+        // notch/edge during the first frames of the reveal.
+        let blurScale = CommandBarLayout.isCompact(anchor) ? scale.width : scale.height
 
         return Rectangle()
-            .fill(shadowColor.opacity(0.55))
+            .fill(shadowColor.opacity(0.6))
             .frame(
                 width: surfaceSize.width,
                 height: surfaceSize.height
             )
-            .blur(radius: 90)
-            .frame(width: backdropSize.width, height: backdropSize.height)
-            .offset(x: offset.width, y: offset.height)
+            // Shifted toward the surface's growth direction so the shadow reads
+            // as cast away from the flush/anchor edge instead of evenly
+            // surrounding the panel — applied *inside* the `scaleEffect` below
+            // so the shift shrinks with the reveal and the shadow stays tucked
+            // under the surface (see `CommandBarLayout.shadowShiftVector`).
+            .offset(x: shift.width, y: shift.height)
+            // Scaled from the same anchor/initial-scale as the surface itself
+            // (before the blur widens its layout box) so the shadow grows in
+            // lockstep with the reveal instead of popping in at full size while
+            // the panel is still animating.
+            .scaleEffect(x: scale.width, y: scale.height, anchor: anchorPoint)
+            .blur(radius: CommandBarLayout.shadowBlurRadius * blurScale)
     }
+
+    /// Tail fade shared by the surface and its shadow, so the two can never
+    /// dissolve out of step (the same reason `revealScale` is shared).
+    private var revealSurfaceOpacity: Double {
+        CommandBarLayout.revealSurfaceOpacity(
+            depthProgress: revealDepthProgress,
+            spreadProgress: revealSpreadProgress
+        )
+    }
+
+    /// Current reveal scale — interpolated from the pre-reveal sliver to 1:1 by
+    /// the two progress values, per axis. Shared by the surface and its ambient
+    /// shadow so the two can never animate out of step.
+    ///
+    /// Progress can pass 1 while the spring settles; that overshoot is passed
+    /// straight through, so the bar swells a hair past full size and eases
+    /// back. It always overshoots *away* from the anchored edge, so it can
+    /// never lift off that edge.
+    private func revealScale(for anchor: EdgeRevealStyle, surfaceSize: CGSize) -> CGSize {
+        let depth = revealDepthProgress
+        let spread = revealSpreadProgress
+        guard depth != 1 || spread != 1 else { return CGSize(width: 1, height: 1) }
+
+        let start = CommandBarLayout.revealInitialScale(for: anchor, surfaceSize: surfaceSize)
+        // For the edge anchors the bar grows sideways out of the edge, so depth
+        // is the horizontal axis; under the notch it grows downward.
+        let growsSideways = CommandBarLayout.isCompact(anchor)
+        return CGSize(
+            width: CommandBarLayout.revealAxis(from: start.width, progress: growsSideways ? depth : spread),
+            height: CommandBarLayout.revealAxis(from: start.height, progress: growsSideways ? spread : depth)
+        )
+    }
+
+    /// How far (as a fraction of the collapsed→full journey) the reveal jumps
+    /// on the very first rendered frame, with no animation at all. Modeled on
+    /// a reference reveal whose panel was already ~40-50% of its final width
+    /// on the very first frame it appeared in — i.e. that first render wasn't
+    /// an eased start, it was a hard cut partway there. A spring alone can't
+    /// reproduce that: even a very stiff one only covers a small fraction of
+    /// the distance in one frame. This constant is that cut point; the springs
+    /// below only have to carry the remaining distance.
+    private static let instantReactionFraction: Double = 0.5
 
     /// Snaps the surface to its shrunk pre-reveal scale, then springs it open
     /// on the next run-loop turn — the window is ordered front synchronously
@@ -636,920 +656,63 @@ struct ContentView: View {
     /// rendered frame must already be shrunk or the bar flashes at full size
     /// before shrinking.
     private func playRevealAnimation() {
-        isRevealed = false
+        revealDepthProgress = 0
+        revealSpreadProgress = 0
         DispatchQueue.main.async {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
-                isRevealed = true
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func resultsSection(proxy: ScrollViewProxy) -> some View {
-        // Compute once here — not inside the List closure, which runs per row.
-        let showWindowName = shouldShowWindowName
-        let showProfileName = shouldShowProfileName
-        let resultsHeight = CommandBarLayout.resultsHeight(for: commandBarAnchor)
-        Group {
-            if appState.browserService.isLoading && displayedResults.isEmpty {
-                VStack(spacing: 10) {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.regular)
-                    Text(searchText.isEmpty ? "Fetching tabs…" : "Searching Chrome + Edge…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
+            // Unanimated — must land on its own render pass before the spring
+            // below starts, or SwiftUI coalesces both writes into one commit
+            // and this jump is never actually seen.
+            revealDepthProgress = Self.instantReactionFraction
+            revealSpreadProgress = Self.instantReactionFraction
+            DispatchQueue.main.async {
+                // Two springs, one per axis, carrying the remaining distance
+                // from the instant cut above up to 1. Frame-by-frame, the
+                // reference reveal was visually settled ~380ms after it first
+                // appeared (a last sub-pixel creep landing near 500ms), with a
+                // long decelerating tail and only a hair of overshoot — a
+                // gentle arrival, not a snap-back bounce. `bounce` here is a
+                // touch above the reference so the settle is actually
+                // perceptible rather than mathematically present.
+                //
+                // Depth (out of the edge) settles first; spread (along the
+                // edge) trails it a touch, so the reveal has one shared settle
+                // at the tail rather than both axes landing in lockstep.
+                withAnimation(.spring(duration: 0.38, bounce: 0.15)) {
+                    revealDepthProgress = 1
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: resultsHeight)
-            } else if displayedItems.isEmpty {
-                VStack(spacing: 8) {
-                    Spacer()
-                    Image(systemName: "rectangle.stack.badge.magnifyingglass")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                    Text(searchText.isEmpty ? "No tabs found" : "No matches")
-                        .font(.headline)
-                    Text(searchText.isEmpty ? "Open a tab in Chrome or Edge and try again." : "Try another keyword for tabs, bookmarks, or history.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: resultsHeight)
-                .background(CommandBarSurfaceBackground(cornerRadius: 16))
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 6) {
-                        ForEach(indexedDisplayItems, id: \.element.id) { index, item in
-                            switch item {
-                            case .result(let result):
-                                SwipeableResultRow(
-                                    result: result,
-                                    isSelected: appState.selectedIndex == index,
-                                    faviconImage: appState.browserService.faviconImage(for: result),
-                                    showWindowName: showWindowName,
-                                    showProfileName: showProfileName,
-                                    pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
-                                    pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
-                                    keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
-                                    onHoverChange: { isHovering in
-                                        if isHovering {
-                                            hoveredResultID = result.id
-                                        } else if hoveredResultID == result.id {
-                                            hoveredResultID = nil
-                                        }
-                                    }
-                                )
-                                .contentShape(Rectangle())
-                                .padding(.horizontal, 8)
-                                .onTapGesture {
-                                    activateAndHide(result)
-                                }
-                            case .showAllTabs(let count):
-                                ShowAllTabsRow(count: count, isSelected: appState.selectedIndex == index)
-                                    .contentShape(Rectangle())
-                                    .padding(.horizontal, 8)
-                                    .onTapGesture {
-                                        expandAllOpenTabs()
-                                    }
-                            }
-                        }
-                    }
-                    .padding(.vertical, 3)
-                }
-                .background(Color.clear)
-            }
-        }
-        // `resultsHeight` is what the surface is sized around, but the chrome
-        // allowance it budgets for is an estimate — the list takes up whatever
-        // is actually left over so the slack never shows as a dead band.
-        .frame(minHeight: resultsHeight, maxHeight: .infinity)
-        .background(CommandBarSurfaceBackground(cornerRadius: 16))
-    }
-
-    private func scrollResultsToTop(_ proxy: ScrollViewProxy) {
-        guard let firstItemID = displayedItems.first?.id else { return }
-        proxy.scrollTo(firstItemID, anchor: .top)
-    }
-
-    private func scrollSelectedResultIntoView(_ proxy: ScrollViewProxy) {
-        let items = displayedItems
-        guard items.indices.contains(appState.selectedIndex) else { return }
-        proxy.scrollTo(items[appState.selectedIndex].id, anchor: .center)
-    }
-
-    private func scheduleFaviconPrefetch(for results: [BrowserSearchResult]) {
-        faviconPrefetchDebounceTask?.cancel()
-        let snapshot = results
-        let prefetchLimit = searchText.isEmpty ? 5 : 12
-
-        faviconPrefetchDebounceTask = Task {
-            try? await Task.sleep(for: .milliseconds(220))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                appState.browserService.preloadFavicons(for: snapshot, limit: prefetchLimit)
-            }
-        }
-    }
-
-    private func scheduleSearchFetch() {
-        searchDebounceTask?.cancel()
-        let query = effectiveQueryString()
-        let filter = ScopeFilter.from(chips: scopeChips)
-        searchDebounceTask = Task {
-            try? await Task.sleep(for: .milliseconds(180))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                appState.browserService.fetchResults(matching: query, filter: filter)
-            }
-        }
-    }
-
-    /// Immediate (un-debounced) fetch using the current chip + query state.
-    private func triggerFetch() {
-        searchDebounceTask?.cancel()
-        let query = effectiveQueryString()
-        let filter = ScopeFilter.from(chips: scopeChips)
-        appState.browserService.fetchResults(matching: query, filter: filter)
-    }
-
-    /// The free-text query portion (excludes any in-progress `in:` token, which
-    /// hasn't been committed to a chip yet and shouldn't be sent to the backend).
-    private func effectiveQueryString() -> String {
-        switch scopeSuggestionMode {
-        case .hidden: return searchText
-        case .root(_, let range), .bookmarks(_, let range), .history(_, let range):
-            var copy = searchText
-            copy.removeSubrange(range)
-            return copy.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
-
-    private var isScopeDropdownVisible: Bool {
-        switch scopeSuggestionMode {
-        case .hidden: return false
-        case .root: return !currentScopeSuggestions().isEmpty
-        // Drill-down modes always show the dropdown so an empty-folders state
-        // is visible instead of silently disappearing.
-        case .bookmarks, .history: return true
-        }
-    }
-
-    private var scopeDropdownEmptyStateText: String? {
-        switch scopeSuggestionMode {
-        case .bookmarks:
-            return appState.browserService.cachedBookmarks.isEmpty
-                ? "Loading bookmarks…"
-                : "No matching folders"
-        case .history:
-            return "No matching time range"
-        default:
-            return nil
-        }
-    }
-
-    private func currentScopeSuggestions() -> [ScopeSuggestion] {
-        switch scopeSuggestionMode {
-        case .hidden:
-            return []
-        case .root(let prefix, _):
-            let trimmed = prefix.lowercased()
-            var items: [ScopeSuggestion] = [
-                .root(.duplicate),
-                .root(.bookmarks),
-                .root(.history),
-                // Non-browser sources. Always listed (per design), even when
-                // no Finder window is open — it's a stable category, not an
-                // instance.
-                .root(.source(name: "Finder"))
-            ]
-            for window in appState.browserService.availableWindows {
-                items.append(.root(.window(window)))
-            }
-            if trimmed.isEmpty { return items }
-            return items.filter { $0.label.lowercased().contains(trimmed) }
-        case .bookmarks(let prefix, _):
-            let trimmed = prefix.lowercased()
-            let folders = appState.browserService.availableBookmarkFolders.map(ScopeSuggestion.bookmarkFolder)
-            if trimmed.isEmpty { return folders }
-            return folders.filter {
-                $0.label.lowercased().contains(trimmed)
-                    || ($0.detail ?? "").lowercased().contains(trimmed)
-            }
-        case .history(let prefix, _):
-            let trimmed = prefix.lowercased()
-            let times = HistoryTimeScope.allCases.map(ScopeSuggestion.historyTime)
-            if trimmed.isEmpty { return times }
-            return times.filter { $0.label.lowercased().contains(trimmed) }
-        }
-    }
-
-    private func recomputeScopeSuggestionMode() {
-        let newMode = ScopeSuggestionParser.mode(for: searchText)
-
-        // Auto-commit drill-down parent when the user's typed prefix matches no
-        // child suggestion. Picking `@Bookmarks:foo` commits `[Bookmarks]` and
-        // leaves `foo` as free text. Only fires while drilling (root mode keeps
-        // its empty state).
-        if autoCommitDrillDownParentIfNeeded(for: newMode) {
-            return
-        }
-
-        if newMode != scopeSuggestionMode {
-            scopeSuggestionMode = newMode
-            scopeDropdownSelectedIndex = 0
-        } else {
-            let count = currentScopeSuggestions().count
-            if count == 0 {
-                scopeDropdownSelectedIndex = 0
-            } else if scopeDropdownSelectedIndex >= count {
-                scopeDropdownSelectedIndex = count - 1
-            }
-        }
-    }
-
-    /// If the user is drilling into `@Bookmarks:` or `@History:` and has typed
-    /// a non-empty prefix that matches no child option, commit the plain parent
-    /// chip and let the prefix continue as free-text search. Returns true when
-    /// it fired (caller should bail out of further mode handling).
-    private func autoCommitDrillDownParentIfNeeded(for mode: ScopeSuggestionMode) -> Bool {
-        switch mode {
-        case .bookmarks(let prefix, let range):
-            let trimmed = prefix.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { return false }
-            let lower = trimmed.lowercased()
-            let folders = appState.browserService.availableBookmarkFolders
-            let anyMatch = folders.contains {
-                $0.displayName.lowercased().contains(lower)
-                    || $0.folderPath.lowercased().contains(lower)
-            }
-            guard !anyMatch else { return false }
-            commitDrillDownParent(parent: .bookmarks, keepingFreeText: prefix, tokenRange: range)
-            return true
-        case .history(let prefix, let range):
-            let trimmed = prefix.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { return false }
-            let lower = trimmed.lowercased()
-            let anyMatch = HistoryTimeScope.allCases.contains { $0.label.lowercased().contains(lower) }
-            guard !anyMatch else { return false }
-            commitDrillDownParent(parent: .historyAll, keepingFreeText: prefix, tokenRange: range)
-            return true
-        default:
-            return false
-        }
-    }
-
-    private enum DrillDownParent { case bookmarks, historyAll }
-
-    private func commitDrillDownParent(
-        parent: DrillDownParent,
-        keepingFreeText prefix: String,
-        tokenRange: Range<String.Index>
-    ) {
-        // Suppress the searchText onChange that our own replaceToken triggers —
-        // we've already moved to a chip-committed state; the recomputeScope...
-        // call below re-syncs without recursing.
-        suppressNextSearchChange = true
-        replaceToken(at: tokenRange, with: prefix)
-        switch parent {
-        case .bookmarks:
-            appendChip(.init(kind: .bookmarks))
-        case .historyAll:
-            appendChip(.init(kind: .history(nil)))
-        }
-        scopeSuggestionMode = .hidden
-        scopeDropdownSelectedIndex = 0
-        triggerFetch()
-        isSearchFocused = true
-    }
-
-    private func moveScopeSuggestionSelection(by delta: Int) {
-        let count = currentScopeSuggestions().count
-        guard count > 0 else { return }
-        scopeDropdownSelectedIndex = (scopeDropdownSelectedIndex + delta + count) % count
-    }
-
-    private func commitScopeSuggestion(_ suggestion: ScopeSuggestion) {
-        let tokenRange: Range<String.Index>?
-        switch scopeSuggestionMode {
-        case .hidden: tokenRange = nil
-        case .root(_, let range), .bookmarks(_, let range), .history(_, let range):
-            tokenRange = range
-        }
-
-        // Handle drill-down: picking `Bookmarks` or `History` from root replaces
-        // the token with `@Bookmarks:` / `@History:` so the dropdown stays open.
-        if case .root(let rootSugg) = suggestion {
-            switch rootSugg {
-            case .bookmarks:
-                // Always drill into folder picker; the dropdown handles the
-                // empty-folders state. Cold caches will populate via the
-                // ambient refresh triggered by the scoped fetch.
-                replaceToken(at: tokenRange, with: "@Bookmarks:")
-                recomputeScopeSuggestionMode()
-                return
-            case .history:
-                replaceToken(at: tokenRange, with: "@History:")
-                recomputeScopeSuggestionMode()
-                return
-            case .duplicate:
-                replaceToken(at: tokenRange, with: "")
-                appendChip(.init(kind: .duplicate))
-            case .window(let ref):
-                replaceToken(at: tokenRange, with: "")
-                appendChip(.init(kind: .window(ref)))
-            case .source(let name):
-                replaceToken(at: tokenRange, with: "")
-                appendChip(.init(kind: .source(name)))
-            }
-        } else if case .bookmarkFolder(let ref) = suggestion {
-            replaceToken(at: tokenRange, with: "")
-            appendChip(.init(kind: .bookmarksFolder(ref)))
-        } else if case .historyTime(let time) = suggestion {
-            replaceToken(at: tokenRange, with: "")
-            appendChip(.init(kind: .history(time)))
-        }
-
-        recomputeScopeSuggestionMode()
-        triggerFetch()
-        isSearchFocused = true
-    }
-
-    private func replaceToken(at range: Range<String.Index>?, with replacement: String) {
-        guard let range else {
-            searchText = replacement
-            return
-        }
-        var text = searchText
-        text.replaceSubrange(range, with: replacement)
-        // Trim trailing whitespace if the chip eats the whole token, leaving "react in:foo" → "react ".
-        if replacement.isEmpty {
-            while text.hasSuffix(" ") { text.removeLast() }
-        }
-        searchText = text
-    }
-
-    private func appendChip(_ chip: ScopeChip) {
-        // Stackable per design — duplicate chips in the same bucket are allowed
-        // (redundant AND). User removes via backspace if unwanted.
-        scopeChips.append(chip)
-    }
-
-    /// Removes the named chip and shifts keyboard focus sensibly: prefer the
-    /// chip just to the left of the removed one, falling back to clearing focus
-    /// (which returns the caret to the input field).
-    private func removeChip(id: UUID) {
-        guard let idx = scopeChips.firstIndex(where: { $0.id == id }) else { return }
-        scopeChips.remove(at: idx)
-        if scopeChips.isEmpty {
-            focusedChipID = nil
-        } else if idx > 0 {
-            focusedChipID = scopeChips[idx - 1].id
-        } else {
-            focusedChipID = nil
-        }
-        isSearchFocused = focusedChipID == nil
-        triggerFetch()
-    }
-
-    /// Gmail-style two-step delete: first backspace at empty input focuses the
-    /// last chip; the next backspace (while a chip is focused) removes it.
-    private func handleBackspaceAtEmptyInput() {
-        guard !scopeChips.isEmpty else { return }
-        if let focusedChipID {
-            removeChip(id: focusedChipID)
-        } else {
-            focusedChipID = scopeChips.last?.id
-        }
-    }
-
-    /// Left-arrow at empty input enters the chip strip from the right and walks
-    /// further leftward through chips on each subsequent press.
-    private func handleLeftArrowAtEmptyInput() {
-        guard !scopeChips.isEmpty else { return }
-        if let current = focusedChipID,
-           let idx = scopeChips.firstIndex(where: { $0.id == current }),
-           idx > 0 {
-            focusedChipID = scopeChips[idx - 1].id
-        } else if focusedChipID == nil {
-            focusedChipID = scopeChips.last?.id
-        }
-    }
-
-    private func handleScopeDropdownEnter() -> Bool {
-        let suggestions = currentScopeSuggestions()
-        guard !suggestions.isEmpty,
-              suggestions.indices.contains(scopeDropdownSelectedIndex) else { return false }
-        commitScopeSuggestion(suggestions[scopeDropdownSelectedIndex])
-        return true
-    }
-
-    private func dismissScopeDropdown() {
-        // Drop the in-progress `in:...` token entirely.
-        if case .root(_, let range) = scopeSuggestionMode {
-            replaceToken(at: range, with: "")
-        } else if case .bookmarks(_, let range) = scopeSuggestionMode {
-            replaceToken(at: range, with: "")
-        } else if case .history(_, let range) = scopeSuggestionMode {
-            replaceToken(at: range, with: "")
-        }
-        scopeSuggestionMode = .hidden
-        scopeDropdownSelectedIndex = 0
-    }
-
-    private func resetForCommandBarOpen() {
-        searchDebounceTask?.cancel()
-        suppressNextSearchChange = true
-        searchText = ""
-        isShowingAllOpenTabs = false
-        scopeChips = []
-        scopeSuggestionMode = .hidden
-        scopeDropdownSelectedIndex = 0
-        focusedChipID = nil
-        appState.selectedIndex = -1
-        hasCycled = false
-        lastInteractionKey = .none
-        let store = ShortcutStore.shared
-        let shortcutMods = store.modifiers.intersection(.deviceIndependentFlagsMask)
-        let currentMods = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        isShortcutModifierHeld = !currentMods.intersection(shortcutMods).isEmpty
-        clearKeyboardSwipe()
-        clearPointerSwipeSuppression()
-        resetPointerSwipe(animated: false)
-        toastDismissTask?.cancel()
-        toastMessage = nil
-    }
-
-    private func activateAndHide(_ result: BrowserSearchResult) {
-        clearKeyboardSwipe()
-        clearPointerSwipeSuppression()
-        resetPointerSwipe(animated: false)
-        appState.browserService.activate(result)
-        appState.hideCommandBar()
-    }
-
-    private func activateSelectedDisplayItem() {
-        let items = displayedItems
-        guard items.indices.contains(appState.selectedIndex) else { return }
-
-        switch items[appState.selectedIndex] {
-        case .result(let result):
-            activateAndHide(result)
-        case .showAllTabs:
-            expandAllOpenTabs()
-        }
-    }
-
-    private func expandAllOpenTabs() {
-        guard searchText.isEmpty else { return }
-        clearKeyboardSwipe()
-        resetPointerSwipe(animated: false)
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            isShowingAllOpenTabs = true
-        }
-    }
-
-    private func dismissCommandBar() {
-        toastDismissTask?.cancel()
-        toastMessage = nil
-        clearKeyboardSwipe()
-        clearPointerSwipeSuppression()
-        resetPointerSwipe(animated: false)
-        appState.hideCommandBar()
-        hasCycled = false
-    }
-
-    private func performCopyLink(_ result: BrowserSearchResult) {
-        appState.browserService.copyLinkToClipboard(result)
-        showToastAndDismiss("Link copied")
-    }
-
-    private func performRemove(_ result: BrowserSearchResult) {
-        clearKeyboardSwipe()
-        resetPointerSwipe(animated: false)
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            appState.browserService.remove(result)
-        }
-    }
-
-    private func showToastAndDismiss(_ message: String) {
-        toastDismissTask?.cancel()
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
-            toastMessage = message
-        }
-
-        toastDismissTask = Task {
-            try? await Task.sleep(for: .milliseconds(700))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                appState.hideCommandBar()
-                clearKeyboardSwipe()
-                clearPointerSwipeSuppression()
-                resetPointerSwipe(animated: false)
-                withAnimation(.easeOut(duration: 0.16)) {
-                    toastMessage = nil
+                withAnimation(.spring(duration: 0.44, bounce: 0.12)) {
+                    revealSpreadProgress = 1
                 }
             }
         }
     }
 
-    private func clearKeyboardSwipe() {
-        keyboardSwipeResultID = nil
-        keyboardSwipeAction = nil
-    }
-
-    private func resetPointerSwipe(animated: Bool) {
-        let update = {
-            pointerSwipeResultID = nil
-            pointerSwipeOffset = 0
-            pointerSwipeAction = nil
-            didConfirmPointerSwipe = false
-            isPointerSwipeGestureActive = false
+    /// Mirror of `playRevealAnimation` for closing. One spring drives both
+    /// axes together — a shrink reads fine landing in lockstep, it's only the
+    /// *open* that needs depth settling before spread to read as weighted —
+    /// and it's noticeably quicker than the ~0.4s open with no overshoot, so
+    /// the bar visibly retreats instead of just vanishing or bouncing on the
+    /// way out. `AppState.hideCommandBar()` fires the trigger that calls
+    /// this but doesn't order the window out itself; it stays on screen for
+    /// this animation and `finishHidingAfterDismissAnimation()` orders it out
+    /// once this completes.
+    private func playDismissAnimation() {
+        // `.removed` rather than the default `.logicallyComplete`: a spring is
+        // only *logically* done once it reaches its target, while a low-amplitude
+        // tail is still playing. Ordering the window out on the logical
+        // completion therefore cut that tail off mid-motion, which is exactly
+        // what made the last few frames of the collapse land hard. `.removed`
+        // waits for the motion to actually stop.
+        withAnimation(.spring(duration: 0.24, bounce: 0), completionCriteria: .removed) {
+            revealDepthProgress = 0
+            revealSpreadProgress = 0
+        } completion: {
+            appState.finishHidingAfterDismissAnimation()
+            // Ready for the next open: a non-hover open (keyboard shortcut,
+            // menu bar icon) never calls `playRevealAnimation`, so it needs
+            // to find these already at 1 or the bar would appear pre-shrunk.
+            revealDepthProgress = 1
+            revealSpreadProgress = 1
         }
-
-        if animated {
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.88), update)
-        } else {
-            update()
-        }
-    }
-
-    private func clearPointerSwipeSuppression() {
-        pointerSwipeSuppressionTask?.cancel()
-        pointerSwipeSuppressionTask = nil
-        suppressPointerSwipeUntilGestureEnds = false
-    }
-
-    private func suppressPointerSwipeUntilCurrentGestureEnds() {
-        suppressPointerSwipeUntilGestureEnds = true
-        pointerSwipeSuppressionTask?.cancel()
-        pointerSwipeSuppressionTask = Task {
-            try? await Task.sleep(for: .milliseconds(450))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                suppressPointerSwipeUntilGestureEnds = false
-                pointerSwipeSuppressionTask = nil
-            }
-        }
-    }
-
-    private func handlePointerScrollSwipe(_ event: NSEvent) -> Bool {
-        guard appState.isVisible else { return false }
-
-        let ended = event.phase.contains(.ended) || event.momentumPhase.contains(.ended)
-        let cancelled = event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled)
-        if suppressPointerSwipeUntilGestureEnds {
-            if ended || cancelled {
-                clearPointerSwipeSuppression()
-            }
-            return true
-        }
-
-        if ended || cancelled {
-            return finishPointerScrollSwipe(cancelled: cancelled)
-        }
-
-        let deltaX = normalizedHorizontalScrollDelta(from: event)
-        let deltaY = CGFloat(event.scrollingDeltaY)
-        let absX = abs(deltaX)
-        let absY = abs(deltaY)
-
-        if pointerSwipeResultID != nil, absX < 3, absY > 3 {
-            resetPointerSwipe(animated: true)
-            return false
-        }
-
-        if pointerSwipeResultID == nil {
-            guard absX > 3, absX > absY * 1.35, let hoveredResultID else { return false }
-            pointerSwipeResultID = hoveredResultID
-            didConfirmPointerSwipe = false
-            isPointerSwipeGestureActive = true
-        }
-
-        guard !didConfirmPointerSwipe else { return true }
-
-        let nextOffset = max(
-            -ResultSwipeMetrics.maximumOffset,
-             min(ResultSwipeMetrics.maximumOffset, pointerSwipeOffset + deltaX)
-        )
-        pointerSwipeOffset = nextOffset
-
-        guard let nextAction = swipeAction(for: nextOffset) else {
-            pointerSwipeAction = nil
-            return true
-        }
-
-        if abs(nextOffset) >= ResultSwipeMetrics.confirmDistance {
-            didConfirmPointerSwipe = true
-            confirmPointerSwipe(nextAction)
-        } else if abs(nextOffset) >= ResultSwipeMetrics.revealDistance {
-            pointerSwipeAction = nextAction
-            if !hasDiscoveredSwipe { hasDiscoveredSwipe = true }
-        }
-
-        return true
-    }
-
-    private func finishPointerScrollSwipe(cancelled: Bool) -> Bool {
-        guard pointerSwipeResultID != nil else { return false }
-        isPointerSwipeGestureActive = false
-        guard !didConfirmPointerSwipe else {
-            resetPointerSwipe(animated: false)
-            return true
-        }
-
-        if cancelled || abs(pointerSwipeOffset) < ResultSwipeMetrics.revealDistance {
-            resetPointerSwipe(animated: true)
-            return true
-        }
-
-        let restingAction = swipeAction(for: pointerSwipeOffset)
-        pointerSwipeAction = restingAction
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            pointerSwipeOffset = (restingAction?.sign ?? 0) * ResultSwipeMetrics.revealDistance
-        }
-        return true
-    }
-
-    private func confirmPointerSwipe(_ action: ResultSwipeAction) {
-        let results = displayedResults
-        guard let pointerSwipeResultID,
-              let result = results.first(where: { $0.id == pointerSwipeResultID }) else {
-            resetPointerSwipe(animated: true)
-            return
-        }
-
-        switch action {
-        case .delete:
-            suppressPointerSwipeUntilCurrentGestureEnds()
-            performRemove(result)
-        case .copy:
-            suppressPointerSwipeUntilCurrentGestureEnds()
-            performCopyLink(result)
-        }
-    }
-
-    private func swipeAction(for offset: CGFloat) -> ResultSwipeAction? {
-        if offset <= -1 { return .delete }
-        if offset >= 1 { return .copy }
-        return nil
-    }
-
-    private func normalizedHorizontalScrollDelta(from event: NSEvent) -> CGFloat {
-        let directionMultiplier: CGFloat = event.isDirectionInvertedFromDevice ? -1 : 1
-        return -CGFloat(event.scrollingDeltaX) * directionMultiplier
-    }
-
-    private func handleKeyboardSwipe(_ action: ResultSwipeAction) {
-        let items = displayedItems
-        guard items.indices.contains(appState.selectedIndex),
-              let result = items[appState.selectedIndex].result else { return }
-
-        if keyboardSwipeResultID == result.id, keyboardSwipeAction == action {
-            switch action {
-            case .delete:
-                performRemove(result)
-            case .copy:
-                performCopyLink(result)
-            }
-            return
-        }
-
-        if !hasDiscoveredSwipe { hasDiscoveredSwipe = true }
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            keyboardSwipeResultID = result.id
-            keyboardSwipeAction = action
-        }
-        isSearchFocused = false
-    }
-
-    private func moveSelectionForward(includeSearchField: Bool) {
-        clearKeyboardSwipe()
-        resetPointerSwipe(animated: true)
-        let items = displayedItems
-        let minimumIndex = includeSearchField ? -1 : 0
-
-        if items.isEmpty {
-            appState.selectedIndex = minimumIndex
-            isSearchFocused = includeSearchField
-            return
-        }
-
-        let maximumIndex = items.count - 1
-        if appState.selectedIndex < minimumIndex || appState.selectedIndex >= maximumIndex {
-            appState.selectedIndex = minimumIndex
-        } else {
-            appState.selectedIndex += 1
-        }
-
-        isSearchFocused = includeSearchField && appState.selectedIndex == -1
-    }
-
-    private func moveSelectionBackward(includeSearchField: Bool) {
-        clearKeyboardSwipe()
-        resetPointerSwipe(animated: true)
-        let items = displayedItems
-        let minimumIndex = includeSearchField ? -1 : 0
-
-        if items.isEmpty {
-            appState.selectedIndex = minimumIndex
-            isSearchFocused = includeSearchField
-            return
-        }
-
-        let maximumIndex = items.count - 1
-        if appState.selectedIndex <= minimumIndex || appState.selectedIndex > maximumIndex {
-            appState.selectedIndex = maximumIndex
-        } else {
-            appState.selectedIndex -= 1
-        }
-
-        isSearchFocused = includeSearchField && appState.selectedIndex == -1
-    }
-
-    private func cycleShortcutSelectionForward() {
-        moveSelectionForward(includeSearchField: true)
-        hasCycled = appState.selectedIndex != -1
-    }
-
-    private func handleEscapeKey() {
-        if appState.selectedIndex == -1 {
-            appState.hideCommandBar()
-            hasCycled = false
-            clearKeyboardSwipe()
-            resetPointerSwipe(animated: false)
-            return
-        }
-
-        appState.selectedIndex = -1
-        isSearchFocused = true
-        hasCycled = false
-        clearKeyboardSwipe()
-        resetPointerSwipe(animated: true)
-    }
-
-    private func setupLocalMonitor() {
-        guard localMonitor == nil else { return }
-        let monitoredEvents: NSEvent.EventTypeMask = [
-            .keyDown,
-            .flagsChanged,
-            .scrollWheel
-        ]
-
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: monitoredEvents) { event in
-            if appState.isRecordingShortcut { return event }
-
-            if event.type == .scrollWheel {
-                return handlePointerScrollSwipe(event) ? nil : event
-            } else if event.type == .keyDown {
-                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                let userModifiers = flags.intersection([.command, .option, .control, .shift])
-
-                let noModifiers = userModifiers.isEmpty
-
-                // Backspace at empty input: step-back into the chip strip,
-                // then delete on the next press. Routed here (not via SwiftUI
-                // `.onKeyPress(.delete)`) because that hook is unreliable when
-                // the TextField is empty.
-                if noModifiers,
-                   event.keyCode == kDeleteKeyCode,
-                   appState.isVisible,
-                   searchText.isEmpty,
-                   !scopeChips.isEmpty {
-                    handleBackspaceAtEmptyInput()
-                    return nil
-                }
-
-                if event.keyCode == kEscapeKeyCode && appState.isVisible {
-                    if isScopeDropdownVisible {
-                        dismissScopeDropdown()
-                        return nil
-                    }
-                    if focusedChipID != nil {
-                        focusedChipID = nil
-                        isSearchFocused = true
-                        return nil
-                    }
-                    handleEscapeKey()
-                    return nil
-                }
-
-                if noModifiers && event.keyCode == kUpArrowKeyCode {
-                    if isScopeDropdownVisible {
-                        moveScopeSuggestionSelection(by: -1)
-                        return nil
-                    }
-                    moveSelectionBackward(includeSearchField: true)
-                    lastInteractionKey = .upDown
-                    return nil
-                }
-
-                if noModifiers && event.keyCode == kDownArrowKeyCode {
-                    if isScopeDropdownVisible {
-                        moveScopeSuggestionSelection(by: 1)
-                        return nil
-                    }
-                    moveSelectionForward(includeSearchField: true)
-                    lastInteractionKey = .upDown
-                    return nil
-                }
-
-                if noModifiers && event.keyCode == kLeftArrowKeyCode && appState.selectedIndex >= 0 {
-                    handleKeyboardSwipe(.delete)
-                    lastInteractionKey = .leftRight
-                    return nil
-                }
-
-                if noModifiers && event.keyCode == kRightArrowKeyCode && appState.selectedIndex >= 0 {
-                    handleKeyboardSwipe(.copy)
-                    lastInteractionKey = .leftRight
-                    return nil
-                }
-
-                let shiftOnly = userModifiers == .shift
-                if event.keyCode == kSpaceKeyCode && (noModifiers || shiftOnly) && searchText.isEmpty {
-                    if shiftOnly {
-                        moveSelectionBackward(includeSearchField: true)
-                    } else {
-                        moveSelectionForward(includeSearchField: true)
-                    }
-                    lastInteractionKey = .space
-                    return nil
-                }
-
-                if event.keyCode == kEnterKeyCode {
-                    if isScopeDropdownVisible, handleScopeDropdownEnter() {
-                        return nil
-                    }
-                    activateSelectedDisplayItem()
-                    return nil
-                }
-            } else if event.type == .flagsChanged && appState.isVisible {
-                let store = ShortcutStore.shared
-                let shortcutMods = store.modifiers.intersection(.deviceIndependentFlagsMask)
-                let currentMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                let modifierReleased = currentMods.intersection(shortcutMods).isEmpty
-                if modifierReleased {
-                    isShortcutModifierHeld = false
-                    if hasCycled {
-                        activateSelectedDisplayItem()
-                        hasCycled = false
-                    }
-                }
-            }
-            return event
-        }
-    }
-}
-
-private struct ShowAllTabsRow: View {
-    let count: Int
-    let isSelected: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "rectangle.stack.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 16, height: 16)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Show all tabs...")
-                    .font(.system(size: 13, weight: .semibold, design: .default))
-                    .lineLimit(1)
-
-                HStack(spacing: 5) {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
-
-                    Text("\(count) open \(count == 1 ? "tab" : "tabs")")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .layoutPriority(1)
-
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 22, height: 22)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.17) : Color.clear)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : .clear, lineWidth: 1)
-                )
-        )
-        .scaleEffect(isSelected ? 1.01 : 1)
-        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
     }
 }

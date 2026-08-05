@@ -31,8 +31,30 @@ enum ResultSwipeMetrics {
     static let revealDistance: CGFloat = 74
     static let confirmDistance: CGFloat = 138
     static let maximumOffset: CGFloat = 158
-    static let actionIconSize: CGFloat = 30
     static let actionIconInset: CGFloat = 8
+
+    /// Minimal rows are much shorter than Full rows — a full-size 30pt action
+    /// icon would overflow the row height, so it scales down with the style.
+    static func actionIconSize(for rowStyle: ResultRowStyle) -> CGFloat {
+        rowStyle == .minimal ? 22 : 30
+    }
+}
+
+/// Result row display density, set in Settings. Full shows every metadata cue
+/// (type glyph, recency, pills, URL/path); Minimal shows only the leading
+/// icon and title, for fast scanning.
+enum ResultRowStyle: String, CaseIterable, Identifiable {
+    case full
+    case minimal
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .full: return "Full"
+        case .minimal: return "Minimal"
+        }
+    }
 }
 
 struct SwipeableResultRow: View {
@@ -45,6 +67,8 @@ struct SwipeableResultRow: View {
     let pointerOffset: CGFloat
     let keyboardAction: ResultSwipeAction?
     let onHoverChange: (Bool) -> Void
+
+    @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .full
 
     private var visibleAction: ResultSwipeAction? {
         pointerAction ?? keyboardAction ?? action(for: pointerOffset)
@@ -65,7 +89,7 @@ struct SwipeableResultRow: View {
     private var tailIconOpacity: Double {
         guard visibleAction != nil else { return 0 }
         let visibleSpace = abs(visibleOffset)
-        let minimumSpace = ResultSwipeMetrics.actionIconSize + (ResultSwipeMetrics.actionIconInset * 2)
+        let minimumSpace = ResultSwipeMetrics.actionIconSize(for: rowStyle) + (ResultSwipeMetrics.actionIconInset * 2)
         guard visibleSpace >= minimumSpace else { return 0 }
 
         let progress = (visibleSpace - minimumSpace) / (ResultSwipeMetrics.revealDistance - minimumSpace)
@@ -86,7 +110,7 @@ struct SwipeableResultRow: View {
             .animation(.spring(response: 0.24, dampingFraction: 0.88), value: pointerAction)
 
             if let visibleAction {
-                TailSwipeActionIcon(action: visibleAction)
+                TailSwipeActionIcon(action: visibleAction, size: ResultSwipeMetrics.actionIconSize(for: rowStyle))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: visibleAction.tailAlignment)
                     .padding(.horizontal, ResultSwipeMetrics.actionIconInset)
                     .opacity(tailIconOpacity)
@@ -118,12 +142,13 @@ private extension ResultSwipeAction {
 
 private struct TailSwipeActionIcon: View {
     let action: ResultSwipeAction
+    let size: CGFloat
 
     var body: some View {
         Image(systemName: action.iconName)
-            .font(.system(size: 15, weight: .bold))
+            .font(.system(size: size * 0.5, weight: .bold))
             .foregroundStyle(.white)
-            .frame(width: ResultSwipeMetrics.actionIconSize, height: ResultSwipeMetrics.actionIconSize)
+            .frame(width: size, height: size)
             .background(
                 Circle()
                     .fill(action.tint)
@@ -140,6 +165,7 @@ private struct ResultRowView: View {
     let showProfileName: Bool
 
     @Environment(\.isCompactCommandBar) private var isCompact
+    @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .full
 
     private var secondaryMetadata: [String] {
         result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName)
@@ -150,39 +176,11 @@ private struct ResultRowView: View {
             LeadingIconColumn(browserName: result.browserName, fallbackSymbol: result.type.symbolName, faviconImage: faviconImage)
                 .frame(maxHeight: .infinity, alignment: .top)
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
-                    if result.hasMediaIndicator {
-                        Image(systemName: "speaker.wave.2.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Text(result.title)
-                        .font(.system(size: 13, weight: .semibold, design: .default))
-                        .lineLimit(isCompact ? 2 : 1)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                // Wraps at the narrow edge-anchored width, where the type
-                // glyph, pills, and URL can't share a single row.
-                WrappingHStack(horizontalSpacing: 5, verticalSpacing: 4) {
-                    Image(systemName: result.type.symbolName)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
-
-                    if let recency = result.relativeRecencyLabel {
-                        MetadataPill(title: recency)
-                    }
-
-                    ForEach(secondaryMetadata, id: \.self) { metadata in
-                        MetadataPill(title: metadata)
-                    }
-
-                    Text(result.secondaryBaseText)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+            Group {
+                if rowStyle == .minimal {
+                    minimalContent
+                } else {
+                    fullContent
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -201,6 +199,113 @@ private struct ResultRowView: View {
         )
         .scaleEffect(isSelected ? 1.01 : 1)
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
+    }
+
+    @ViewBuilder
+    private var fullContent: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                if result.hasMediaIndicator {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(result.title)
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .lineLimit(isCompact ? 2 : 1)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Wraps at the narrow edge-anchored width, where the type
+            // glyph, pills, and URL can't share a single row.
+            WrappingHStack(horizontalSpacing: 5, verticalSpacing: 4) {
+                Image(systemName: result.type.symbolName)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                if let recency = result.relativeRecencyLabel {
+                    MetadataPill(title: recency)
+                }
+
+                ForEach(secondaryMetadata, id: \.self) { metadata in
+                    MetadataPill(title: metadata)
+                }
+
+                Text(result.secondaryBaseText)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    /// Which browser window the tab lives in, only when that's actually
+    /// informative — several windows are open for the browser (the same
+    /// signal Full mode uses to decide whether to show the window pill at
+    /// all) and the tab has a real window name to show. Finder windows are
+    /// excluded: their "window name" is just the folder name, already
+    /// implied by the result's own title/path.
+    private var windowTag: String? {
+        guard showWindowName,
+              result.type == .tab,
+              result.browserName != "Finder",
+              let windowName = result.windowName,
+              !windowName.isEmpty else {
+            return nil
+        }
+        return windowName
+    }
+
+    /// Icon + title, single line. The window tag (if there are multiple
+    /// windows open) and the URL/path's last segment are shown inline after
+    /// the title when there's room — degrading from both, to just the
+    /// window tag, to just the slug, to the title alone, whichever fits
+    /// without truncating.
+    @ViewBuilder
+    private var minimalContent: some View {
+        switch (windowTag, result.urlPathSlug) {
+        case (let tag?, let slug?):
+            ViewThatFits(in: .horizontal) {
+                minimalLine(tag: tag, slug: slug)
+                minimalLine(tag: tag)
+                minimalLine(slug: slug)
+                minimalTitle
+            }
+        case (let tag?, nil):
+            ViewThatFits(in: .horizontal) {
+                minimalLine(tag: tag)
+                minimalTitle
+            }
+        case (nil, let slug?):
+            ViewThatFits(in: .horizontal) {
+                minimalLine(slug: slug)
+                minimalTitle
+            }
+        case (nil, nil):
+            minimalTitle
+        }
+    }
+
+    private func minimalLine(tag: String? = nil, slug: String? = nil) -> some View {
+        HStack(spacing: 6) {
+            minimalTitle
+            if let tag {
+                MetadataPill(title: tag)
+            }
+            if let slug {
+                Text("/\(slug)")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private var minimalTitle: some View {
+        Text(result.title)
+            .font(.system(size: 13, weight: .semibold, design: .default))
+            .lineLimit(1)
     }
 }
 

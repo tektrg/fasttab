@@ -88,3 +88,23 @@ final class CommandBarRevealTrigger: ObservableObject {
         token += 1
     }
 }
+
+/// Arms the SwiftUI-native shrink-to-edge animation played on every dismiss
+/// (regardless of how the bar was opened, or which of the several dismiss
+/// paths — Escape, outside click, hover-away, picking a result — triggered
+/// it). `AppState.hideCommandBar()` fires this instead of ordering the window
+/// out directly, so the window stays on screen for the shrink; `ContentView`
+/// orders it out itself once the animation finishes, via
+/// `AppState.finishHidingAfterDismissAnimation()`.
+@MainActor
+final class CommandBarDismissTrigger: ObservableObject {
+    static let shared = CommandBarDismissTrigger()
+
+    @Published private(set) var token: Int = 0
+
+    private init() {}
+
+    func fire() {
+        token += 1
+    }
+}

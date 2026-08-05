@@ -16,8 +16,13 @@ final class EdgeRevealService: NSObject {
     /// land pixel-perfect on the (often only 10pt-wide) zone boundary.
     private static let hitTestOutset: CGFloat = 4
 
-    /// How long the cursor must stay in the zone before the bar opens.
-    private static let dwellDelay: TimeInterval = 0.28
+    /// How long the cursor must stay in the zone before the bar opens. Kept
+    /// short enough that the hover reads as an instant reaction rather than a
+    /// hold-to-confirm — under ~150ms the response still lands inside the
+    /// window where a UI feels directly caused by the gesture. A cursor merely
+    /// crossing the (10pt-wide) zone on its way somewhere else clears it in
+    /// well under this, so the pass-through filter still holds.
+    private static let dwellDelay: TimeInterval = 0.14
 
     private var mouseMovedMonitor: Any?
     /// `addGlobalMonitorForEvents` only delivers events posted to *other*
@@ -117,12 +122,19 @@ final class EdgeRevealService: NSObject {
 
     private func handleMouseMoved(_ event: NSEvent) {
         let style = EdgeRevealStore.shared.style
-        guard style != .off, let screen = NSScreen.main else { return }
+        guard style != .off else { return }
+
+        let location = NSEvent.mouseLocation
+        // `NSScreen.main` tracks whichever display currently has keyboard
+        // focus, which lags behind the mouse on a two-display setup: moving
+        // the cursor onto an external display doesn't retarget it until a
+        // window there is actually focused. The trigger zone needs the
+        // display the cursor is physically over.
+        guard let screen = NSScreen.containing(location) ?? NSScreen.main else { return }
 
         let info = EdgeRevealGeometry.screenInfo(for: screen)
         guard let zone = EdgeRevealGeometry.triggerZone(for: style, screenInfo: info) else { return }
 
-        let location = NSEvent.mouseLocation
         let insideZone = zone.insetBy(dx: -Self.hitTestOutset, dy: -Self.hitTestOutset).contains(location)
 
         guard insideZone, !wasInsideZone else {

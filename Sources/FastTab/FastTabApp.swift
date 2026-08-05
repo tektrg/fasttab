@@ -19,9 +19,20 @@ class AppState: ObservableObject {
             // every click the user makes in any other app.
             if isVisible {
                 CommandBarPanelController.shared.startOutsideClickMonitoring()
+                CommandBarPanelController.shared.startHoverDismissMonitoring()
             } else {
                 CommandBarPanelController.shared.stopOutsideClickMonitoring()
+                CommandBarPanelController.shared.stopHoverDismissMonitoring()
             }
+        }
+    }
+    /// Mirrors `ContentView`'s search field so the hover-dismiss monitor (an
+    /// AppKit service with no view access) can gate on it — see
+    /// `CommandBarPanelController.evaluateHoverDismiss`.
+    @Published var isSearchTextEmpty: Bool = true {
+        didSet {
+            guard isSearchTextEmpty != oldValue, isVisible else { return }
+            CommandBarPanelController.shared.evaluateHoverDismiss()
         }
     }
     @Published var selectedIndex: Int = 0
@@ -120,6 +131,14 @@ class AppState: ObservableObject {
 
     func hideCommandBar() {
         guard isVisible || (commandWindow?.isVisible ?? false) else { return }
+        // Keep the window on screen and let `ContentView` play the shrink
+        // animation; it calls `finishHidingAfterDismissAnimation()` once that
+        // finishes, which is what actually orders the window out.
+        CommandBarDismissTrigger.shared.fire()
+    }
+
+    /// Called by `ContentView` after the shrink-out animation completes.
+    func finishHidingAfterDismissAnimation() {
         commandWindow?.orderOut(nil)
         isVisible = false
     }
@@ -240,6 +259,19 @@ struct FastTabApp: App {
     @StateObject private var appState = AppState.shared
     @StateObject private var updateService = UpdateService.shared
     @StateObject private var licenseService = LicenseService.shared
+    /// Persisted preference, read/written from Settings.
+    @AppStorage(CommandBarAppearance.menuBarIconVisibleKey) private var menuBarIconPreference: Bool = true
+    /// What `MenuBarExtra(isInserted:)` actually binds to. Deliberately a
+    /// plain `@State`, not the `@AppStorage` above: SwiftUI's internal
+    /// `MenuBarExtraController` observes `isInserted` via KVO, and wiring
+    /// that directly to `@AppStorage`'s NSUserDefaultsController-backed
+    /// storage sends the controller into a self-triggering write/observe
+    /// loop (it writes the binding, which notifies itself, which writes
+    /// again) that pegs the main thread at ~100% CPU forever. `@State`'s
+    /// storage isn't KVO/UserDefaults-based, so the controller can't
+    /// re-trigger itself through it — the two `onChange`s below just keep
+    /// this mirror in sync with the persisted preference by hand.
+    @State private var menuBarIconInserted: Bool = true
 
     var body: some Scene {
         Settings {
@@ -248,59 +280,70 @@ struct FastTabApp: App {
                 .environmentObject(licenseService)
         }
 
-        MenuBarExtra("FastTab", systemImage: "command") {
-            Button(appState.isVisible ? "Hide FastTab" : "Show FastTab") {
-                appState.toggleCommandBar()
-            }
-
-            Divider()
-
-            Button("Buy FastTab…") {
-                licenseService.openCheckout(source: .menuBar)
-            }
-
-            Button("Enter License Key…") {
-                appState.requestLicenseActivationPresentation()
-            }
-
-            Button("Manage License…") {
-                licenseService.openManageLicense()
-            }
-
-            Divider()
-
-            SettingsLink {
-                Text("Settings…")
-            }
-
-            Button("Feedback & Support…") {
-                licenseService.openSupport()
-            }
-
-            Divider()
-
-            Button("Check for Updates…") {
-                updateService.checkForUpdates(manual: true)
-            }
-
-            switch updateService.status {
-            case .available(let version, _):
-                Button("Update to v\(version)") {
-                    updateService.performPrimaryAction()
-                }
-            case .readyToRestart(let version):
-                Button("Restart to Update v\(version)") {
-                    updateService.performPrimaryAction()
-                }
-            default:
-                EmptyView()
-            }
-
-            Button("Quit") {
-                NSApp.terminate(nil)
-            }
+        MenuBarExtra("FastTab", systemImage: "command", isInserted: $menuBarIconInserted) {
+            menuBarContent
         }
         .menuBarExtraStyle(.menu)
+        .onChange(of: menuBarIconPreference, initial: true) { _, newValue in
+            if menuBarIconInserted != newValue { menuBarIconInserted = newValue }
+        }
+        .onChange(of: menuBarIconInserted) { _, newValue in
+            if menuBarIconPreference != newValue { menuBarIconPreference = newValue }
+        }
+    }
+
+    @ViewBuilder
+    private var menuBarContent: some View {
+        Button(appState.isVisible ? "Hide FastTab" : "Show FastTab") {
+            appState.toggleCommandBar()
+        }
+
+        Divider()
+
+        Button("Buy FastTab…") {
+            licenseService.openCheckout(source: .menuBar)
+        }
+
+        Button("Enter License Key…") {
+            appState.requestLicenseActivationPresentation()
+        }
+
+        Button("Manage License…") {
+            licenseService.openManageLicense()
+        }
+
+        Divider()
+
+        SettingsLink {
+            Text("Settings…")
+        }
+
+        Button("Feedback & Support…") {
+            licenseService.openSupport()
+        }
+
+        Divider()
+
+        Button("Check for Updates…") {
+            updateService.checkForUpdates(manual: true)
+        }
+
+        switch updateService.status {
+        case .available(let version, _):
+            Button("Update to v\(version)") {
+                updateService.performPrimaryAction()
+            }
+        case .readyToRestart(let version):
+            Button("Restart to Update v\(version)") {
+                updateService.performPrimaryAction()
+            }
+        default:
+            EmptyView()
+        }
+
+        Button("Quit") {
+            NSApp.terminate(nil)
+        }
     }
 }
 
@@ -338,6 +381,18 @@ private final class CommandBarPanelController: NSObject {
     private var panel: CommandBarPanel?
     private weak var observedWindow: NSWindow?
     private var globalMouseDownMonitor: Any?
+    private var globalMouseMovedMonitor: Any?
+    private var localMouseMovedMonitor: Any?
+    private var pendingHoverDismiss: DispatchWorkItem?
+
+    /// How far the cursor must clear the surface before it counts as "left" —
+    /// stops the dwell arming from sub-pixel jitter right at the edge.
+    private static let hoverDismissOutset: CGFloat = 6
+    /// Long enough that glancing away for a moment doesn't collapse the bar,
+    /// short enough that leaving it read as intentional. Slightly longer than
+    /// `EdgeRevealService`'s reveal dwell since a false collapse is more
+    /// disruptive than a delayed reveal.
+    private static let hoverDismissDwell: TimeInterval = 0.35
 
     func prepare() {
         _ = commandPanel
@@ -365,6 +420,13 @@ private final class CommandBarPanelController: NSObject {
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = true
+        // AppKit plays its own appear animation for panels (a fade plus a ~2%
+        // scale-up about the window's centre). This window is the size of the
+        // whole screen, so that 2% is ~12pt of displacement at its edges: the
+        // reveal's first frames were composited inset from the screen edge and
+        // slid flush over ~0.12s, which read as a gap the bar grew out of. The
+        // reveal is our own spring — AppKit must not animate the window at all.
+        panel.animationBehavior = .none
         panel.configureCommandBarOverlayBehavior()
         panel.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
 
@@ -449,6 +511,94 @@ private final class CommandBarPanelController: NSObject {
         NSEvent.removeMonitor(monitor)
         globalMouseDownMonitor = nil
     }
+
+    /// Auto-collapses the bar when the cursor leaves it while the search field
+    /// is empty — an idle, untouched bar shouldn't linger on screen. Gated on
+    /// empty search so it never yanks the bar away mid-query.
+    ///
+    /// Needs both a global and a local mouse-moved monitor for the same reason
+    /// `EdgeRevealService` does: the global monitor alone goes quiet while one
+    /// of our own windows is frontmost, which is exactly when this needs to
+    /// keep tracking the cursor leaving that window.
+    func startHoverDismissMonitoring() {
+        guard globalMouseMovedMonitor == nil else { return }
+
+        globalMouseMovedMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
+            DispatchQueue.main.async { self?.evaluateHoverDismiss() }
+        }
+        localMouseMovedMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+            self?.evaluateHoverDismiss()
+            return event
+        }
+    }
+
+    func stopHoverDismissMonitoring() {
+        if let monitor = globalMouseMovedMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalMouseMovedMonitor = nil
+        }
+        if let monitor = localMouseMovedMonitor {
+            NSEvent.removeMonitor(monitor)
+            localMouseMovedMonitor = nil
+        }
+        pendingHoverDismiss?.cancel()
+        pendingHoverDismiss = nil
+    }
+
+    /// Re-checked on every mouse move and every time the search field's
+    /// empty/non-empty state flips, so it reacts to the search being cleared
+    /// while the cursor is already outside just as readily as to the cursor
+    /// leaving while already empty.
+    func evaluateHoverDismiss() {
+        guard AppState.shared.isVisible, AppState.shared.isSearchTextEmpty, panel != nil else {
+            pendingHoverDismiss?.cancel()
+            pendingHoverDismiss = nil
+            return
+        }
+
+        guard isCursorOutsideSurface() else {
+            pendingHoverDismiss?.cancel()
+            pendingHoverDismiss = nil
+            return
+        }
+        guard pendingHoverDismiss == nil else { return }
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.pendingHoverDismiss = nil
+            guard AppState.shared.isVisible, AppState.shared.isSearchTextEmpty,
+                  self?.isCursorOutsideSurface() == true else { return }
+            AppState.shared.hideCommandBar()
+        }
+        pendingHoverDismiss = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverDismissDwell, execute: work)
+    }
+
+    /// Bounds this against the user's *actual* configured row cap
+    /// (`CommandBarAppearance.quickOpenItemLimitKey`), not the global ceiling
+    /// `surfaceFrame` defaults to for the click-dismiss test — hover-dismiss
+    /// only ever runs while the search field is empty, when the panel can
+    /// never grow past that setting, so using the global ceiling there made
+    /// the box tall enough to swallow most of the screen's vertical middle,
+    /// and leaving the bar by moving straight up or down never registered as
+    /// "outside."
+    private func isCursorOutsideSurface() -> Bool {
+        guard let panel else { return true }
+        let defaults = UserDefaults.standard
+        let rowStyle = ResultRowStyle(rawValue: defaults.string(forKey: CommandBarAppearance.resultRowStyleKey) ?? "") ?? .full
+        let showFooter = defaults.object(forKey: CommandBarAppearance.helperPanelVisibleKey) as? Bool ?? true
+        let limitSetting = defaults.object(forKey: CommandBarAppearance.quickOpenItemLimitKey) as? Int ?? 5
+        let maxRows = min(max(limitSetting, CommandBarLayout.minQuickOpenItemLimit), CommandBarLayout.maxQuickOpenItemLimit)
+
+        let surface = CommandBarLayout.surfaceFrame(
+            in: panel.frame,
+            anchor: EdgeRevealStyle.commandBarAnchor,
+            rowStyle: rowStyle,
+            maxRows: maxRows,
+            showFooter: showFooter
+        )
+        return !surface.insetBy(dx: -Self.hoverDismissOutset, dy: -Self.hoverDismissOutset)
+            .contains(NSEvent.mouseLocation)
+    }
 }
 
 private extension NSEvent {
@@ -486,7 +636,7 @@ extension NSWindow {
         if preferMouseScreen {
             let mouseLocation = NSEvent.mouseLocation
 
-            if let mouseScreen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) {
+            if let mouseScreen = NSScreen.containing(mouseLocation) {
                 return mouseScreen
             }
         }

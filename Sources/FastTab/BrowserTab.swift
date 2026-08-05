@@ -210,6 +210,16 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             url: url
         )
     }
+
+    /// Last non-empty path segment of `url` (e.g. "https://notion.so/roadmap"
+    /// -> "roadmap"), for the short inline label shown next to the title in
+    /// Minimal row style when there's room for it. Nil when the URL has no
+    /// path to show (bare domain) or its last segment just repeats the title.
+    var urlPathSlug: String? {
+        guard let parsed = URL(string: url) else { return nil }
+        guard let slug = parsed.pathComponents.last(where: { $0 != "/" }), !slug.isEmpty else { return nil }
+        return slug == title ? nil : slug
+    }
 }
 
 /// Compact relative-time label. Returns nil for missing/sentinel timestamps.

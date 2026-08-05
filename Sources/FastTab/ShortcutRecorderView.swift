@@ -6,15 +6,29 @@ struct ShortcutRecorderView: View {
     // AppState.isRecordingShortcut is set so the ContentView local monitor
     // passes all keys through while we're capturing.
     @EnvironmentObject var appState: AppState
+    /// Shows a gear button that opens the Settings window. Only meaningful
+    /// where this view stands alone in the command bar's helper panel — the
+    /// Settings window itself already has its own way in, so its embedded
+    /// `Section("Shortcut")` call site leaves this off (the default).
+    var showsSettingsButton: Bool = false
 
+    @Environment(\.openSettings) private var openSettings
     @State private var isRecording = false
     @State private var monitor: Any?
 
     var body: some View {
         HStack(spacing: 8) {
-            Label("Shortcut", systemImage: "keyboard")
-                .font(.caption)
+            if showsSettingsButton {
+                Button {
+                    openSettings()
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .help("Open Settings")
+                .accessibilityLabel("Open Settings")
+            }
 
             Button(action: toggleRecording) {
                 Text(isRecording ? "Press keys…" : store.displayString)

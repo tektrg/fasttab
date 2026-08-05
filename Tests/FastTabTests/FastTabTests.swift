@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import SwiftUI
 import Testing
 @testable import FastTab
 
@@ -205,6 +206,24 @@ import Testing
     #expect(state.includesShowAllTabsItem)
 }
 
+@Test func quickOpenDisplayStateUsesSentinelAtMinimumConfigurableLimit() async throws {
+    let tabs = makeQuickOpenTabs(count: 4)
+
+    let state = quickOpenDisplayState(from: tabs, limit: CommandBarLayout.minQuickOpenItemLimit, isShowingAllOpenTabs: false)
+
+    #expect(state.results.map(\.title) == ["Tab 1", "Tab 2"])
+    #expect(state.includesShowAllTabsItem)
+}
+
+@Test func quickOpenDisplayStateUsesSentinelAtMaximumConfigurableLimit() async throws {
+    let tabs = makeQuickOpenTabs(count: 20)
+
+    let state = quickOpenDisplayState(from: tabs, limit: CommandBarLayout.maxQuickOpenItemLimit, isShowingAllOpenTabs: false)
+
+    #expect(state.results.count == CommandBarLayout.maxQuickOpenItemLimit - 1)
+    #expect(state.includesShowAllTabsItem)
+}
+
 @Test func tabRecencyKeyDistinguishesDuplicateURLsByTabSlot() async throws {
     let first = BrowserSearchResult(
         title: "First duplicate",
@@ -261,18 +280,76 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
 
     let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
 
-    #expect(canvasFrame.size == CommandBarLayout.surfaceSize(for: .notch))
+    // The canvas floor is sized to the tallest the panel can ever get on
+    // *this* screen (the quick-open row count clamped to what actually fits),
+    // not the raw configurable ceiling — that unclamped max is taller than
+    // most real displays' logical height, which centered the canvas (and so
+    // the notch-flush panel) above the display's real top edge instead of
+    // flush against it.
+    #expect(canvasFrame.size == CommandBarLayout.surfaceSize(for: .notch, maxRows: CommandBarLayout.maxQuickOpenRowsFittingScreen(rowStyle: .full)))
     #expect(canvasFrame.midX == displayFrame.midX)
     #expect(canvasFrame.midY == displayFrame.midY)
 }
 
+@Test func commandBarCanvasNeverOutgrowsANotchedDisplay() async throws {
+    // A 14" MacBook Pro built-in display: 1512x982 logical, 32pt physical notch.
+    // The canvas floor used to budget only the chrome and rows and then add the
+    // notch clearance on top, so it came out 994pt — 12pt taller than the
+    // display. `canvasFrame` centers the canvas, so those 12pt split into 6pt
+    // hanging off the top and bottom, clipping the panel's top edge and pushing
+    // its content 6pt higher than intended under the notch.
+    let notchedDisplayHeight: CGFloat = 982
+    let physicalNotchHeight: CGFloat = 32
+
+    let canvasSize = CommandBarLayout.minimumCanvasSize(
+        fittingScreenHeight: notchedDisplayHeight,
+        reservedTopInset: physicalNotchHeight
+    )
+
+    #expect(canvasSize.height <= notchedDisplayHeight)
+    // Still generous — the fix must shrink the row budget, not collapse it.
+    #expect(canvasSize.height >= CommandBarLayout.surfaceSize(
+        for: .notch,
+        maxRows: CommandBarLayout.minQuickOpenItemLimit,
+        topInset: physicalNotchHeight
+    ).height)
+
+    // And a display with no notch keeps every row the chrome budget allows.
+    let unnotched = CommandBarLayout.minimumCanvasSize(
+        fittingScreenHeight: notchedDisplayHeight,
+        reservedTopInset: 0
+    )
+    #expect(unnotched.height <= notchedDisplayHeight)
+    #expect(unnotched.height > canvasSize.height)
+}
+
+@Test func maxQuickOpenRowsLeavesRoomForThePhysicalNotch() async throws {
+    let withoutNotch = CommandBarLayout.maxQuickOpenRows(fittingScreenHeight: 982, rowStyle: .full)
+    let withNotch = CommandBarLayout.maxQuickOpenRows(
+        fittingScreenHeight: 982,
+        rowStyle: .full,
+        reservedTopInset: 32
+    )
+
+    #expect(withNotch < withoutNotch)
+    #expect(withNotch >= CommandBarLayout.minQuickOpenItemLimit)
+}
+
 @Test func commandBarSurfaceFrameHugsTopEdgeForNotchAnchor() async throws {
-    let displayFrame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+    // Tall enough that the canvas equals the display itself rather than the
+    // worst-case floor (now sized around the max *configurable* quick-open
+    // count, not a fixed 5 rows) — otherwise there's no slack left below the
+    // (also worst-case-sized) dismiss-test surface frame to assert on.
+    let displayFrame = CGRect(x: 0, y: 0, width: 2560, height: 1440)
 
     let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
     let surfaceFrame = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .notch)
 
-    #expect(surfaceFrame.size == CommandBarLayout.surfaceSize(for: .notch))
+    // `surfaceFrame` backs the outside-click dismiss test, which has no
+    // visibility into the live row style/count — it deliberately uses the
+    // max quick-open row count so an expanded panel is never dismissed by a
+    // click that's still visually inside it.
+    #expect(surfaceFrame.size == CommandBarLayout.surfaceSize(for: .notch, maxRows: CommandBarLayout.maxQuickOpenItemLimit))
     #expect(surfaceFrame.minX > canvasFrame.minX)
     #expect(surfaceFrame.maxX < canvasFrame.maxX)
     #expect(surfaceFrame.minY > canvasFrame.minY)
@@ -340,6 +417,28 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     }
 }
 
+@Test func maxQuickOpenRowsShrinksToFitAShortLaptopScreen() async throws {
+    // A short display should never let the quick-open ceiling push the panel
+    // past its edge, but it should still floor at the minimum rather than 0.
+    let rows = CommandBarLayout.maxQuickOpenRows(fittingScreenHeight: 700, rowStyle: .full)
+
+    #expect(rows >= CommandBarLayout.minQuickOpenItemLimit)
+    #expect(rows < CommandBarLayout.maxQuickOpenItemLimit)
+}
+
+@Test func maxQuickOpenRowsCapsAtTheConfiguredMaximumOnATallScreen() async throws {
+    let rows = CommandBarLayout.maxQuickOpenRows(fittingScreenHeight: 4000, rowStyle: .full)
+
+    #expect(rows == CommandBarLayout.maxQuickOpenItemLimit)
+}
+
+@Test func maxQuickOpenRowsGrowsWithScreenHeight() async throws {
+    let shortScreenRows = CommandBarLayout.maxQuickOpenRows(fittingScreenHeight: 800, rowStyle: .full)
+    let tallScreenRows = CommandBarLayout.maxQuickOpenRows(fittingScreenHeight: 1200, rowStyle: .full)
+
+    #expect(tallScreenRows >= shortScreenRows)
+}
+
 @Test func commandBarReservesTopInsetOnlyForAPhysicallyNotchedDisplay() async throws {
     // Edge surfaces are vertically centered and never reach the top edge.
     #expect(CommandBarLayout.surfaceTopInset(for: .leftEdge) == 0)
@@ -355,20 +454,150 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     #expect((CommandBarLayout.surfaceTopInset(for: .notch) > 0) == isNotched)
 }
 
-@Test func commandBarSurfaceCornersAreFlatOnlyOnTheHuggedSide() async throws {
-    let notch = CommandBarLayout.surfaceCorners(for: .notch)
-    #expect(notch.topLeading == 0)
-    #expect(notch.topTrailing == 0)
-    #expect(notch.bottomLeading == CommandBarLayout.surfaceCornerRadius)
-    #expect(notch.bottomTrailing == CommandBarLayout.surfaceCornerRadius)
+@Test func commandBarSurfaceSilhouetteStaysFlushAndFlaresOnlyAtTheHuggedEdge() async throws {
+    // The shape is handed the surface outset by the flare room on all sides
+    // (`CommandBarSurface` does this with negative padding). It must draw its
+    // hugged edge exactly on the surface's own edge — a shape that flared in
+    // that direction too would lift the bar off the screen edge — and spend
+    // the outset only sideways, on the flare.
+    let flare = CommandBarLayout.surfaceJoinRadius
+    #expect(flare > 0)
+    #expect(flare < CommandBarLayout.surfaceCornerRadius)
 
-    let left = CommandBarLayout.surfaceCorners(for: .leftEdge)
-    #expect(left.topLeading == 0)
-    #expect(left.bottomLeading == 0)
+    let surface = CGRect(x: 40, y: 60, width: 380, height: 300)
+    let outset = surface.insetBy(dx: -flare, dy: -flare)
 
-    let right = CommandBarLayout.surfaceCorners(for: .rightEdge)
-    #expect(right.topTrailing == 0)
-    #expect(right.bottomTrailing == 0)
+    let notch = CommandBarSurfaceShape(anchor: .notch).path(in: outset).boundingRect
+    #expect(abs(notch.minY - surface.minY) < 0.5)
+    #expect(abs(notch.maxY - surface.maxY) < 0.5)
+    #expect(notch.minX < surface.minX)
+    #expect(notch.maxX > surface.maxX)
+
+    let left = CommandBarSurfaceShape(anchor: .leftEdge).path(in: outset).boundingRect
+    #expect(abs(left.minX - surface.minX) < 0.5)
+    #expect(abs(left.maxX - surface.maxX) < 0.5)
+    #expect(left.minY < surface.minY)
+    #expect(left.maxY > surface.maxY)
+
+    let right = CommandBarSurfaceShape(anchor: .rightEdge).path(in: outset).boundingRect
+    #expect(abs(right.maxX - surface.maxX) < 0.5)
+    #expect(abs(right.minX - surface.minX) < 0.5)
+    #expect(right.minY < surface.minY)
+    #expect(right.maxY > surface.maxY)
+}
+
+@Test func commandBarRevealAxisRunsFromTheSliverToFullSizeAndPassesOvershootThrough() async throws {
+    // Each axis of the reveal is its own spring, so each is driven by a plain
+    // 0...1 progress. Progress past 1 is the spring settling and must reach the
+    // scale unclamped — clamping it would flatten the bounce out of the reveal.
+    let start: CGFloat = 0.12
+    #expect(CommandBarLayout.revealAxis(from: start, progress: 0) == start)
+    #expect(CommandBarLayout.revealAxis(from: start, progress: 1) == 1)
+    #expect(CommandBarLayout.revealAxis(from: start, progress: 0.5) == (start + 1) / 2)
+    #expect(CommandBarLayout.revealAxis(from: start, progress: 1.05) > 1)
+}
+
+@Test func commandBarRevealStartsExactlyNotchSizedForTheLiveSurface() async throws {
+    // The pre-reveal sliver has to match the notch it hides behind for the
+    // size the panel is *actually* rendered at. Deriving the ratio from
+    // `surfaceSize(for:)`'s defaults instead made the reveal start ~1.5x off
+    // for anyone on Minimal rows with the helper panel hidden.
+    let openingScreen = NSScreen.containing(NSEvent.mouseLocation) ?? NSScreen.main
+    guard let openingScreen else { return }
+    let notch = EdgeRevealGeometry.notchZone(EdgeRevealGeometry.screenInfo(for: openingScreen))
+
+    for (rowStyle, showFooter) in [(ResultRowStyle.minimal, false), (ResultRowStyle.full, true)] {
+        let surface = CommandBarLayout.surfaceSize(for: .notch, rowStyle: rowStyle, rowCount: 5, maxRows: 5, showFooter: showFooter)
+        let scale = CommandBarLayout.revealInitialScale(for: .notch, surfaceSize: surface)
+
+        #expect(abs(surface.width * scale.width - notch.width) < 0.5)
+        #expect(abs(surface.height * scale.height - notch.height) < 0.5)
+    }
+}
+
+@Test func commandBarRevealContentFadeSpansOnlyTheEarlyPartOfTheGrowth() async throws {
+    let opacity = CommandBarLayout.revealContentOpacity
+
+    // The panel's very first rendered frame jumps straight to
+    // `instantReactionFraction`, which is the fade's lower bound — the shell has
+    // to arrive with no content painted on it at all.
+    #expect(opacity(CommandBarLayout.revealContentFadeRange.lowerBound, 1) == 0)
+    // Anything before that (including the pre-reveal sliver) stays transparent
+    // rather than going negative.
+    #expect(opacity(0, 0) == 0)
+
+    // Fully opaque short of full size, so the spring's settle plays out on
+    // solid content.
+    #expect(opacity(CommandBarLayout.revealContentFadeRange.upperBound, 1) == 1)
+    #expect(CommandBarLayout.revealContentFadeRange.upperBound < 1)
+
+    // The slower axis governs: content must not be solid while one axis is
+    // still barely out of the edge.
+    #expect(opacity(1, CommandBarLayout.revealContentFadeRange.lowerBound) == 0)
+
+    // Overshoot past 1 clamps instead of producing an invalid opacity.
+    #expect(opacity(1.06, 1.04) == 1)
+
+    // Monotonic across the ramp.
+    let midpoint = opacity(0.7, 0.7)
+    #expect(midpoint > 0 && midpoint < 1)
+    #expect(opacity(0.6, 0.6) < midpoint)
+    #expect(opacity(0.8, 0.8) > midpoint)
+}
+
+@Test func commandBarSurfaceTailFadeOnlyAffectsTheCollapse() async throws {
+    let opacity = CommandBarLayout.revealSurfaceOpacity
+
+    // Fully gone at the pre-reveal scale — that scale is a *notch-sized block*,
+    // not zero, so without this the collapse still had a visible block on screen
+    // at the instant the window was ordered out.
+    #expect(opacity(0, 0) == 0)
+    // Partly faded through the tail band.
+    let tail = opacity(CommandBarLayout.revealSurfaceFadeCeiling / 2, 1)
+    #expect(tail > 0 && tail < 1)
+    // Solid from the ceiling onwards, and the reveal's first rendered frame sits
+    // above it — so the panel never fades *in*, only out.
+    #expect(opacity(CommandBarLayout.revealSurfaceFadeCeiling, 1) == 1)
+    #expect(CommandBarLayout.revealSurfaceFadeCeiling < CommandBarLayout.revealContentFadeRange.lowerBound)
+    // Overshoot past 1 clamps.
+    #expect(opacity(1.06, 1.04) == 1)
+}
+
+@Test func commandBarSurfaceAlignmentMatchesTheAnchoredEdge() async throws {
+    // The live bar is flushed against its edge by *alignment*, not by offsetting
+    // half the measured canvas. Measuring lags the window by a layout pass, so
+    // the first rendered frame after the window moved to another display drew
+    // the bar inset from its edge (204pt between a 1512pt and a 1920pt-wide
+    // display; dead centre on the first open after launch) before snapping
+    // flush. Alignment resolves inside the same layout pass, so it cannot lag.
+    #expect(CommandBarLayout.surfaceAlignment(for: .notch) == .top)
+    #expect(CommandBarLayout.surfaceAlignment(for: .off) == .top)
+    #expect(CommandBarLayout.surfaceAlignment(for: .leftEdge) == .leading)
+    #expect(CommandBarLayout.surfaceAlignment(for: .rightEdge) == .trailing)
+
+    // Each anchor's alignment has to agree with the side its shape leaves flat
+    // and the side the reveal scales out of, or the bar would grow out of one
+    // edge while sitting against another.
+    for anchor in [EdgeRevealStyle.notch, .off, .leftEdge, .rightEdge] {
+        let alignment = CommandBarLayout.surfaceAlignment(for: anchor)
+        let unitPoint = CommandBarLayout.revealAnchorUnitPoint(for: anchor)
+        if alignment == .top {
+            #expect(unitPoint == .top)
+        } else if alignment == .leading {
+            #expect(unitPoint == .leading)
+        } else {
+            #expect(unitPoint == .trailing)
+        }
+    }
+}
+
+@Test func commandBarShadowShiftPointsAwayFromTheAnchoredEdge() async throws {
+    // Down for the notch, inboard for the side anchors — the shadow is only
+    // ever cast away from the edge the panel is hinged on.
+    #expect(CommandBarLayout.shadowShiftVector(for: .notch) == CGSize(width: 0, height: CommandBarLayout.shadowDirectionalShift))
+    #expect(CommandBarLayout.shadowShiftVector(for: .off) == CGSize(width: 0, height: CommandBarLayout.shadowDirectionalShift))
+    #expect(CommandBarLayout.shadowShiftVector(for: .leftEdge) == CGSize(width: CommandBarLayout.shadowDirectionalShift, height: 0))
+    #expect(CommandBarLayout.shadowShiftVector(for: .rightEdge) == CGSize(width: -CommandBarLayout.shadowDirectionalShift, height: 0))
 }
 
 @Test func duplicateURLNormalizationTrimsWhitespaceOnly() {

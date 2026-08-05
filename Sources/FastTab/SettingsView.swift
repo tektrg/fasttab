@@ -11,6 +11,10 @@ struct SettingsView: View {
 
     @AppStorage("FastTab.safari.includeFDAData") private var includeSafariFDAData: Bool = false
     @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = false
+    @AppStorage(CommandBarAppearance.resultRowStyleKey) private var resultRowStyle: ResultRowStyle = .full
+    @AppStorage(CommandBarAppearance.quickOpenItemLimitKey) private var quickOpenItemLimit: Int = 5
+    @AppStorage(CommandBarAppearance.menuBarIconVisibleKey) private var showMenuBarIcon: Bool = true
+    @AppStorage(CommandBarAppearance.helperPanelVisibleKey) private var showHelperPanel: Bool = true
 
     @State private var fdaInitiallyGranted: Bool = false
     @State private var fdaGrantedNow: Bool = false
@@ -32,10 +36,61 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                // The gear icon that opens this window lives in the helper
+                // panel, and "Settings…" lives in the menu bar menu — each is
+                // the other's fallback. Refusing to disable the second one
+                // keeps at least one path back into Settings once the icon
+                // and panel are both off.
+                Toggle("Show menu bar icon", isOn: Binding(
+                    get: { showMenuBarIcon },
+                    set: { newValue in
+                        guard newValue || showHelperPanel else { return }
+                        showMenuBarIcon = newValue
+                    }
+                ))
+
+                if !showMenuBarIcon {
+                    Text("The global shortcut still opens FastTab. Reopen this settings window from the helper panel's gear icon.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Toggle("Show helper panel", isOn: Binding(
+                    get: { showHelperPanel },
+                    set: { newValue in
+                        guard newValue || showMenuBarIcon else { return }
+                        showHelperPanel = newValue
+                    }
+                ))
+
+                Text("The row of hints and the shortcut recorder shown at the bottom of the command bar.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Appearance") {
                 Toggle("Background", isOn: $outerPanelEnabled)
+
+                Picker("Result rows", selection: $resultRowStyle) {
+                    ForEach(ResultRowStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Stepper(
+                    "Quick-open items: \(quickOpenItemLimit)",
+                    value: $quickOpenItemLimit,
+                    in: CommandBarLayout.minQuickOpenItemLimit...CommandBarLayout.maxQuickOpenItemLimit
+                )
+
+                Text("Recent tabs shown when FastTab opens with an empty search. Automatically reduced to fit smaller screens.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Trigger") {

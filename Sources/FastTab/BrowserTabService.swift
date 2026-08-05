@@ -17,6 +17,7 @@ class BrowserTabService: ObservableObject {
     /// True when the fetched live tabs span more than one window (per browser).
     @Published var hasMultipleWindows: Bool = false
     @Published private(set) var openTabCount: Int = 0
+    @Published private(set) var duplicateTabCount: Int = 0
     @Published private(set) var hasFetchedOpenTabCount: Bool = false
     @Published private(set) var safariAutomationStatus: SafariAutomationStatus = .notDetermined
 
@@ -649,12 +650,8 @@ class BrowserTabService: ObservableObject {
                     // Duplicates are scoped per-browser: same URL open in Chrome
                     // and Safari is not surprising and shouldn't be flagged.
                     // URLs must match exactly (see normalizeDuplicateURL).
-                    var counts: [String: Int] = [:]
-                    for tab in liveTabs where tab.type == .tab {
-                        let key = tab.browserName + "|" + Self.normalizeDuplicateURL(tab.url)
-                        counts[key, default: 0] += 1
-                    }
-                    liveTabs = liveTabs.filter { (counts[$0.browserName + "|" + Self.normalizeDuplicateURL($0.url)] ?? 0) >= 2 }
+                    let groupCounts = Self.duplicateGroupCounts(in: liveTabs)
+                    liveTabs = liveTabs.filter { groupCounts[$0.browserName + "|" + Self.normalizeDuplicateURL($0.url)] != nil }
                 }
                 produced = liveTabs.filter { filter.matches($0) }
 
@@ -734,6 +731,7 @@ class BrowserTabService: ObservableObject {
                         self.lastLiveTabsRefreshAt = Date()
                         self.hasMultipleWindows = Self.computeHasMultipleWindows(freshLive)
                         self.openTabCount = freshLive.count
+                        self.duplicateTabCount = Self.duplicateTabCount(in: freshLive)
                         self.hasFetchedOpenTabCount = true
                     }
                 }
@@ -838,6 +836,7 @@ class BrowserTabService: ObservableObject {
                     self.lastLiveTabsRefreshAt = Date()
                     self.hasMultipleWindows = Self.computeHasMultipleWindows(filteredLiveTabs)
                     self.openTabCount = filteredLiveTabs.count
+                    self.duplicateTabCount = Self.duplicateTabCount(in: filteredLiveTabs)
                     self.hasFetchedOpenTabCount = true
                     self.isLoading = false
                     self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) quickOpenTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
@@ -862,6 +861,7 @@ class BrowserTabService: ObservableObject {
                     self.lastLiveTabsRefreshAt = Date()
                     self.hasMultipleWindows = Self.computeHasMultipleWindows(filteredLiveTabs)
                     self.openTabCount = filteredLiveTabs.count
+                    self.duplicateTabCount = Self.duplicateTabCount(in: filteredLiveTabs)
                     self.hasFetchedOpenTabCount = true
                 } else {
                     // Slide the reuse window: the user is mid typing-burst, so
@@ -1058,6 +1058,7 @@ class BrowserTabService: ObservableObject {
             cachedHistory.removeAll { $0.id == resultID }
         }
         openTabCount = cachedLiveTabs.count
+        duplicateTabCount = Self.duplicateTabCount(in: cachedLiveTabs)
     }
 
     private func removeFirstTab(in list: inout [BrowserSearchResult], browserName: String, url: String) {
@@ -1098,6 +1099,24 @@ class BrowserTabService: ObservableObject {
     /// or anchors) are treated as different tabs, not duplicates.
     nonisolated static func normalizeDuplicateURL(_ raw: String) -> String {
         raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Groups live tabs by the same (browser, normalized URL) key used by the
+    /// `@duplicate` filter. Returns only the keys with 2+ tabs, each mapped to
+    /// its member count — the shared source of truth for both the
+    /// `@duplicate` results filter and the `duplicateTabCount` tally.
+    nonisolated static func duplicateGroupCounts(in tabs: [BrowserSearchResult]) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for tab in tabs where tab.type == .tab {
+            counts[tab.browserName + "|" + normalizeDuplicateURL(tab.url), default: 0] += 1
+        }
+        return counts.filter { $0.value >= 2 }
+    }
+
+    /// Total number of tabs that are part of a duplicate group (i.e. summing
+    /// group sizes, not the number of distinct duplicated pages).
+    nonisolated static func duplicateTabCount(in tabs: [BrowserSearchResult]) -> Int {
+        duplicateGroupCounts(in: tabs).values.reduce(0, +)
     }
 
     private func faviconCacheKey(browserName: String, url: String) -> String {

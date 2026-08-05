@@ -23,6 +23,25 @@ swift build -c release
 BIN="$(swift build -c release --show-bin-path)/FastTab"
 [[ -f "${BIN}" ]] || { echo "build-app: built binary not found at ${BIN}" >&2; exit 1; }
 
+# Terminate any running instance and WAIT for it to actually exit before
+# touching the bundle's executable. Overwriting/re-signing the binary in
+# place while a live process still has it mapped trips the kernel's code
+# integrity check on the next page-in — SIGKILL "Code Signature Invalid" —
+# which looks like a random crash, not a build issue. Escalate to SIGKILL
+# ourselves if a hung main run loop ignores SIGTERM.
+if pkill -x FastTab 2>/dev/null; then
+  echo "==> Stopping running instance before install"
+  for _ in $(seq 1 20); do          # up to ~5s for a graceful exit
+    pgrep -x FastTab >/dev/null || break
+    sleep 0.25
+  done
+  if pgrep -x FastTab >/dev/null; then
+    echo "==> Old instance ignored SIGTERM; force-killing"
+    pkill -9 -x FastTab 2>/dev/null || true
+    sleep 0.5
+  fi
+fi
+
 echo "==> Installing binary into bundle"
 cp "${BIN}" "${APP}/Contents/MacOS/FastTab"
 
@@ -49,22 +68,5 @@ echo "==> Done. ${APP} refreshed (v${version})"
 
 if [[ "${1:-}" == "--open" ]]; then
   echo "==> Relaunching app"
-  # Terminate the running instance and WAIT for it to actually exit before
-  # `open`. `pkill` only sends SIGTERM and returns immediately; if we `open`
-  # while the old (possibly wedged) process is still registered, LaunchServices
-  # reactivates that dying instance instead of launching the fresh build —
-  # surfacing as "FastTab is not responding". Escalate to SIGKILL if a hung
-  # main run loop ignores SIGTERM.
-  if pkill -x FastTab 2>/dev/null; then
-    for _ in $(seq 1 20); do          # up to ~5s for a graceful exit
-      pgrep -x FastTab >/dev/null || break
-      sleep 0.25
-    done
-    if pgrep -x FastTab >/dev/null; then
-      echo "==> Old instance ignored SIGTERM; force-killing"
-      pkill -9 -x FastTab 2>/dev/null || true
-      sleep 0.5
-    fi
-  fi
   open "${APP}"
 fi

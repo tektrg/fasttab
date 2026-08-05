@@ -20,17 +20,26 @@ struct GuidanceHint: Equatable, Hashable {
 struct GuidanceBarView: View {
     let hint: GuidanceHint
     let statusText: String?
+    var duplicateTabCount: Int = 0
+    var onTapDuplicateTag: (() -> Void)? = nil
 
     @Environment(\.isCompactCommandBar) private var isCompact
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            if let statusText {
-                Text(statusText)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(isCompact ? 2 : 1)
-                    .fixedSize(horizontal: false, vertical: true)
+            if statusText != nil || duplicateTabCount > 0 {
+                HStack(spacing: 6) {
+                    if let statusText {
+                        Text(statusText)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(isCompact ? 2 : 1)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if duplicateTabCount > 0, let onTapDuplicateTag {
+                        DuplicateTabCountTag(count: duplicateTabCount, action: onTapDuplicateTag)
+                    }
+                }
             }
 
             if !hint.isEmpty {
@@ -60,6 +69,32 @@ struct GuidanceBarView: View {
         }
         .animation(.easeInOut(duration: 0.15), value: hint)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Tappable pill next to the tab-count status text. Clicking it applies the
+/// same `@duplicate` filter as picking "Duplicate" from the `@` menu.
+private struct DuplicateTabCountTag: View {
+    let count: Int
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text("\(count) \(count == 1 ? "duplicate" : "duplicates")")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.orange)
+                .lineLimit(1)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.orange.opacity(isHovering ? 0.22 : 0.14))
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
     }
 }
 

@@ -11,7 +11,7 @@ struct SettingsView: View {
 
     @AppStorage("FastTab.safari.includeFDAData") private var includeSafariFDAData: Bool = false
     @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = false
-    @AppStorage(CommandBarAppearance.resultRowStyleKey) private var resultRowStyle: ResultRowStyle = .full
+    @AppStorage(CommandBarAppearance.resultRowStyleKey) private var resultRowStyle: ResultRowStyle = .minimal
     @AppStorage(CommandBarAppearance.quickOpenItemLimitKey) private var quickOpenItemLimit: Int = 5
     @AppStorage(CommandBarAppearance.menuBarIconVisibleKey) private var showMenuBarIcon: Bool = true
     @AppStorage(CommandBarAppearance.helperPanelVisibleKey) private var showHelperPanel: Bool = true

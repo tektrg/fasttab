@@ -68,7 +68,7 @@ struct SwipeableResultRow: View {
     let keyboardAction: ResultSwipeAction?
     let onHoverChange: (Bool) -> Void
 
-    @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .full
+    @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
 
     private var visibleAction: ResultSwipeAction? {
         pointerAction ?? keyboardAction ?? action(for: pointerOffset)
@@ -165,7 +165,7 @@ private struct ResultRowView: View {
     let showProfileName: Bool
 
     @Environment(\.isCompactCommandBar) private var isCompact
-    @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .full
+    @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
 
     private var secondaryMetadata: [String] {
         result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName)

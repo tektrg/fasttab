@@ -22,12 +22,24 @@ struct GuidanceBarView: View {
     let statusText: String?
     var duplicateTabCount: Int = 0
     var onTapDuplicateTag: (() -> Void)? = nil
+    /// Hovered row's underlying result, in Minimal row style only — its
+    /// metadata takes over this status line in place of the tab count while
+    /// hovering, since Minimal rows don't show it inline. Nil otherwise.
+    var hoveredResult: BrowserSearchResult? = nil
+    var showWindowName: Bool = false
+    var showProfileName: Bool = false
 
     @Environment(\.isCompactCommandBar) private var isCompact
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            if statusText != nil || duplicateTabCount > 0 {
+            if let hoveredResult {
+                HoveredResultMetadataRow(
+                    result: hoveredResult,
+                    showWindowName: showWindowName,
+                    showProfileName: showProfileName
+                )
+            } else if statusText != nil || duplicateTabCount > 0 {
                 HStack(spacing: 6) {
                     if let statusText {
                         Text(statusText)
@@ -69,6 +81,40 @@ struct GuidanceBarView: View {
         }
         .animation(.easeInOut(duration: 0.15), value: hint)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Hovered row's type icon, recency, window/profile, and URL — the same
+/// metadata Full row style shows inline, surfaced here because Minimal rows
+/// drop it to stay one line.
+private struct HoveredResultMetadataRow: View {
+    let result: BrowserSearchResult
+    let showWindowName: Bool
+    let showProfileName: Bool
+
+    var body: some View {
+        WrappingHStack(horizontalSpacing: 5, verticalSpacing: 3) {
+            Image(systemName: result.type.symbolName)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            if let recency = result.relativeRecencyLabel {
+                Text(recency)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            ForEach(result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName), id: \.self) { metadata in
+                Text(metadata)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Text(result.secondaryBaseText)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
     }
 }
 

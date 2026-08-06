@@ -121,6 +121,8 @@ class AppState: ObservableObject {
         // frame, or the bar flashes at full size for a frame before shrinking.
         if let revealStyle {
             CommandBarPanelController.shared.playRevealAnimation(from: revealStyle)
+        } else {
+            CommandBarPanelController.shared.armShortcutOpenGracePeriod()
         }
 
         commandWindow.orderFrontRegardless()
@@ -384,6 +386,14 @@ private final class CommandBarPanelController: NSObject {
     private var globalMouseMovedMonitor: Any?
     private var localMouseMovedMonitor: Any?
     private var pendingHoverDismiss: DispatchWorkItem?
+    /// Set when the bar opens from the keyboard shortcut/menu-bar icon, i.e.
+    /// with no guarantee the cursor is anywhere near the surface. Hover-dismiss
+    /// stays fully disarmed until this passes, so a cursor that happens to be
+    /// resting outside the surface at open time can't start the dismiss dwell
+    /// before the user has even looked at the bar. Hover-triggered opens
+    /// (`EdgeRevealService`) skip this — the cursor is already on the surface
+    /// there, so there's nothing to guard against.
+    private var hoverDismissArmDeadline: Date?
 
     /// How far the cursor must clear the surface before it counts as "left" —
     /// stops the dwell arming from sub-pixel jitter right at the edge.
@@ -393,9 +403,20 @@ private final class CommandBarPanelController: NSObject {
     /// `EdgeRevealService`'s reveal dwell since a false collapse is more
     /// disruptive than a delayed reveal.
     private static let hoverDismissDwell: TimeInterval = 0.35
+    /// Grace window after a shortcut/menu-bar open before hover-dismiss can
+    /// arm at all — gives the user time to reach for the keyboard and start
+    /// typing before an incidentally-outside cursor counts against them.
+    private static let shortcutOpenGraceDuration: TimeInterval = 1.0
 
     func prepare() {
         _ = commandPanel
+    }
+
+    /// Called from `AppState.showCommandBar` for shortcut/menu-bar opens
+    /// (not hover reveals) to start the grace window before hover-dismiss
+    /// can arm — see `hoverDismissArmDeadline`.
+    func armShortcutOpenGracePeriod() {
+        hoverDismissArmDeadline = Date().addingTimeInterval(Self.shortcutOpenGraceDuration)
     }
 
     private var commandPanel: CommandBarPanel {
@@ -543,6 +564,7 @@ private final class CommandBarPanelController: NSObject {
         }
         pendingHoverDismiss?.cancel()
         pendingHoverDismiss = nil
+        hoverDismissArmDeadline = nil
     }
 
     /// Re-checked on every mouse move and every time the search field's
@@ -554,6 +576,11 @@ private final class CommandBarPanelController: NSObject {
             pendingHoverDismiss?.cancel()
             pendingHoverDismiss = nil
             return
+        }
+
+        if let armDeadline = hoverDismissArmDeadline {
+            guard Date() >= armDeadline else { return }
+            hoverDismissArmDeadline = nil
         }
 
         guard isCursorOutsideSurface() else {
@@ -584,7 +611,7 @@ private final class CommandBarPanelController: NSObject {
     private func isCursorOutsideSurface() -> Bool {
         guard let panel else { return true }
         let defaults = UserDefaults.standard
-        let rowStyle = ResultRowStyle(rawValue: defaults.string(forKey: CommandBarAppearance.resultRowStyleKey) ?? "") ?? .full
+        let rowStyle = ResultRowStyle(rawValue: defaults.string(forKey: CommandBarAppearance.resultRowStyleKey) ?? "") ?? .minimal
         let showFooter = defaults.object(forKey: CommandBarAppearance.helperPanelVisibleKey) as? Bool ?? true
         let limitSetting = defaults.object(forKey: CommandBarAppearance.quickOpenItemLimitKey) as? Int ?? 5
         let maxRows = min(max(limitSetting, CommandBarLayout.minQuickOpenItemLimit), CommandBarLayout.maxQuickOpenItemLimit)

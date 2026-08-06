@@ -79,7 +79,7 @@ struct ContentView: View {
     /// the outer VStack, so the dropdown paints above the results section.
     @State private var searchHeaderFrame: CGRect = .zero
 
-    @AppStorage(CommandBarAppearance.resultRowStyleKey) var rowStyle: ResultRowStyle = .full
+    @AppStorage(CommandBarAppearance.resultRowStyleKey) var rowStyle: ResultRowStyle = .minimal
     @AppStorage(CommandBarAppearance.helperPanelVisibleKey) var showHelperPanel: Bool = true
     /// User's preferred quick-open ("recent tabs") item count. Read through
     /// `effectiveQuickOpenLimit`, never used directly — it may exceed what the
@@ -168,6 +168,15 @@ struct ContentView: View {
         guard appState.browserService.hasFetchedOpenTabCount else { return nil }
         let count = appState.browserService.openTabCount
         return "\(count) \(count == 1 ? "tab" : "tabs") found"
+    }
+
+    /// Minimal rows hide type/recency/window/URL to stay one line, so the
+    /// footer surfaces that same metadata (in place of the tab-count text)
+    /// while the user hovers a row. Full rows already show it inline, so this
+    /// only applies in Minimal.
+    var hoveredResultFooterMetadata: BrowserSearchResult? {
+        guard rowStyle == .minimal, let hoveredResultID else { return nil }
+        return displayedResults.first { $0.id == hoveredResultID }
     }
 
     /// Hidden once `@duplicate` is already the active filter — tapping the
@@ -407,7 +416,10 @@ struct ContentView: View {
                                                 hint: guidanceHint,
                                                 statusText: openTabsStatusText,
                                                 duplicateTabCount: duplicateTabTagCount,
-                                                onTapDuplicateTag: activateDuplicateFilterFromTag
+                                                onTapDuplicateTag: activateDuplicateFilterFromTag,
+                                                hoveredResult: hoveredResultFooterMetadata,
+                                                showWindowName: shouldShowWindowName,
+                                                showProfileName: shouldShowProfileName
                                             )
                                             ShortcutRecorderView(store: ShortcutStore.shared, showsSettingsButton: true)
                                                 .environmentObject(appState)
@@ -418,7 +430,10 @@ struct ContentView: View {
                                                 hint: guidanceHint,
                                                 statusText: openTabsStatusText,
                                                 duplicateTabCount: duplicateTabTagCount,
-                                                onTapDuplicateTag: activateDuplicateFilterFromTag
+                                                onTapDuplicateTag: activateDuplicateFilterFromTag,
+                                                hoveredResult: hoveredResultFooterMetadata,
+                                                showWindowName: shouldShowWindowName,
+                                                showProfileName: shouldShowProfileName
                                             )
                                             Spacer(minLength: 12)
                                             ShortcutRecorderView(store: ShortcutStore.shared, showsSettingsButton: true)
@@ -513,7 +528,7 @@ struct ContentView: View {
             isSearchFocused = true
             setupLocalMonitor()
             licenseService.validateCachedLicenseIfNeeded()
-            appState.isSearchTextEmpty = searchText.isEmpty
+            appState.isSearchTextEmpty = searchText.isEmpty && scopeChips.isEmpty
         }
         // Separate from the other `searchText` observer above: that one is
         // gated by `suppressNextSearchChange` and skips the clear that
@@ -521,8 +536,15 @@ struct ContentView: View {
         // AppState holding a stale non-empty reading for the hover-dismiss
         // monitor (an AppKit service with no direct view access — see
         // `CommandBarPanelController.evaluateHoverDismiss`).
+        //
+        // A scope chip (e.g. "@Finder") counts as non-empty even when the
+        // text field itself is blank, so the hover-dismiss monitor doesn't
+        // yank the bar out from under an in-progress scoped search.
         .onChange(of: searchText) { _, newValue in
-            appState.isSearchTextEmpty = newValue.isEmpty
+            appState.isSearchTextEmpty = newValue.isEmpty && scopeChips.isEmpty
+        }
+        .onChange(of: scopeChips) { _, newValue in
+            appState.isSearchTextEmpty = searchText.isEmpty && newValue.isEmpty
         }
         .onChange(of: revealTrigger.token) { _, _ in
             playRevealAnimation()

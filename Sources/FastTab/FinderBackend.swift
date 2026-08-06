@@ -131,12 +131,15 @@ struct FinderBackend: BrowserBackend {
                 return true
             }
         } else {
-            let q = trimmed.lowercased()
+            // Same word-by-word, accent-insensitive rule as tab/bookmark search
+            // so file results don't behave differently from browser results.
             matches = snapshot.filter {
                 if let since, $0.lastVisit < since { return false }
                 if let before, $0.lastVisit >= before { return false }
-                return $0.basename.lowercased().contains(q)
-                    || $0.path.lowercased().contains(q)
+                return foldedKeys(
+                    [foldForMatching($0.basename), foldForMatching($0.path)],
+                    containAllWordsOf: trimmed
+                )
             }
         }
         return matches

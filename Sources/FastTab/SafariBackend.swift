@@ -315,7 +315,8 @@ struct SafariBackend: BrowserBackend {
         let historyPath = ("~/Library/Safari/History.db" as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: historyPath) else { return [] }
 
-        let escaped = query.replacingOccurrences(of: "'", with: "''")
+        // Word-by-word, accent-insensitive — see `historySearchSQLPredicate`.
+        let textPredicate = historySearchSQLPredicate(query: query, urlColumn: "hi.url", titleColumn: "hv.title")
         // Safari `visit_time` is seconds since 2001-01-01 (Cocoa epoch).
         func safariSeconds(from date: Date) -> Double {
             date.timeIntervalSinceReferenceDate
@@ -333,7 +334,7 @@ struct SafariBackend: BrowserBackend {
         SELECT hi.url, COALESCE(hv.title, hi.url) as title, MAX(hv.visit_time) as last_visit
         FROM history_items hi
         JOIN history_visits hv ON hv.history_item = hi.id
-        WHERE (hi.url LIKE '%\(escaped)%' OR hv.title LIKE '%\(escaped)%')
+        WHERE \(textPredicate)
           AND hi.url IS NOT NULL AND hi.url != ''\(timePredicate)
         GROUP BY hi.id
         ORDER BY last_visit DESC

@@ -300,7 +300,10 @@ struct ChromiumBackend: BrowserBackend {
         timeoutSeconds: TimeInterval
     ) -> [BrowserSearchResult] {
         let logger = self.logger
-        let escaped = query.replacingOccurrences(of: "'", with: "''")
+        // Word-by-word, accent-insensitive. A single `LIKE '%<whole query>%'`
+        // required the typed phrase to appear verbatim, so "real time bi hub"
+        // never matched the title "Realtime e-commerce order | Bi Hub".
+        let textPredicate = historySearchSQLPredicate(query: query, urlColumn: "url", titleColumn: "title")
         var dedupedByURL: [String: BrowserSearchResult] = [:]
         let deadline = Date().addingTimeInterval(timeoutSeconds)
 
@@ -327,7 +330,7 @@ struct ChromiumBackend: BrowserBackend {
             let sql = """
             SELECT title, url, last_visit_time
             FROM urls
-            WHERE (url LIKE '%\(escaped)%' OR title LIKE '%\(escaped)%')
+            WHERE \(textPredicate)
               AND url IS NOT NULL AND url != ''\(timePredicate)
             ORDER BY last_visit_time DESC
             LIMIT \(limit);

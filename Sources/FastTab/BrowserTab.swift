@@ -51,9 +51,10 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
     let isCurrentFlowActiveTab: Bool
     let hasMediaIndicator: Bool
 
-    /// Punctuation-stripped match keys, computed once at construction. Per-keystroke
-    /// filtering (`matches(query:)`) reuses these instead of re-stripping `title`
-    /// and `url` for every result on every keystroke. Derived purely from
+    /// Folded match keys (lowercased, accent-stripped, punctuation-stripped),
+    /// computed once at construction. Per-keystroke filtering (`matches(query:)`)
+    /// reuses these instead of re-folding `title` and `url` for every result on
+    /// every keystroke. Derived purely from
     /// `title`/`url`, so excluded from `Codable` — the encoded shape stays identical
     /// to the un-derived fields (forward/backward compatible if this type is ever
     /// persisted); recomputed on decode.
@@ -96,8 +97,8 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         self.folderPath = folderPath
         self.isCurrentFlowActiveTab = isCurrentFlowActiveTab
         self.hasMediaIndicator = hasMediaIndicator
-        self.normalizedTitleKey = stripPunctuation(resolvedTitle)
-        self.normalizedURLKey = stripPunctuation(url)
+        self.normalizedTitleKey = foldForMatching(resolvedTitle)
+        self.normalizedURLKey = foldForMatching(url)
     }
 
     /// Custom decode that recomputes the derived match keys. Routes through the
@@ -174,18 +175,10 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         return (metadata + [secondaryBaseText]).joined(separator: " • ")
     }
 
+    /// Every word of `query` must appear in the title or the URL, in any order,
+    /// ignoring case, accents and punctuation. See `SearchMatching.swift`.
     func matches(query: String) -> Bool {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return true }
-        let tokens = trimmed
-            .components(separatedBy: .whitespaces)
-            .map { stripPunctuation($0) }
-            .filter { !$0.isEmpty }
-        guard !tokens.isEmpty else { return true }
-        return tokens.allSatisfy {
-            normalizedTitleKey.localizedCaseInsensitiveContains($0)
-                || normalizedURLKey.localizedCaseInsensitiveContains($0)
-        }
+        foldedKeys([normalizedTitleKey, normalizedURLKey], containAllWordsOf: query)
     }
 
     /// Short relative-time label ("2m", "3h", "Yest", "3d", "Mar 14") for the
@@ -268,10 +261,6 @@ private let recencyMonthDayFormatter: DateFormatter = {
     formatter.setLocalizedDateFormatFromTemplate("MMM d")
     return formatter
 }()
-
-private func stripPunctuation(_ s: String) -> String {
-    s.components(separatedBy: .punctuationCharacters).joined()
-}
 
 func normalizedBrowserWindowName(_ windowName: String) -> String {
     var normalized = windowName.trimmingCharacters(in: .whitespacesAndNewlines)

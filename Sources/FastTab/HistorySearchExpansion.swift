@@ -122,13 +122,30 @@ enum HistorySearchExpansion {
         }
     }
 
+    /// Dedup key for a history row. Two rows collapse when they are the same
+    /// page *and* carry the same title — query string and `#fragment` are
+    /// ignored, so the same article reached via five different tracking links
+    /// shows once instead of five times.
+    ///
+    /// The title is part of the key on purpose: it is the guard that keeps
+    /// genuinely different pages apart when they share a path, e.g.
+    /// `google.com/search?q=a` vs `?q=b` have distinct titles and both survive.
+    ///
+    /// History only. Open tabs and bookmarks keep exact-URL identity, and the
+    /// `@duplicate` tab filter stays strict — it exists to find tabs that are
+    /// safe to *close*.
+    static func canonicalHistoryKey(for result: BrowserSearchResult) -> String {
+        [
+            result.browserName,
+            result.profileName ?? "",
+            result.normalizedTitleKey,
+            historyPageIdentity(forURL: result.url)
+        ].joined(separator: "|")
+    }
+
     private static func merge(_ results: [BrowserSearchResult], into deduped: inout [String: BrowserSearchResult]) {
         for result in results {
-            let key = [
-                result.browserName,
-                result.profileName ?? "",
-                result.url
-            ].joined(separator: "|")
+            let key = canonicalHistoryKey(for: result)
 
             if let existing = deduped[key], existing.timestamp >= result.timestamp {
                 continue

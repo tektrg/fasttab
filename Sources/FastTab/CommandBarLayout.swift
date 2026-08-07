@@ -288,13 +288,13 @@ enum CommandBarLayout {
     /// heavier. Value is tuned against `shadowBlurRadius` (roughly 1.3x it)
     /// so the near edge fully hides — see the offline render in
     /// scratchpad geomtest/test6.swift used to pick it.
-    static let shadowDirectionalShift: CGFloat = 60
+    static let shadowDirectionalShift: CGFloat = 40
 
     /// Blur radius for the ambient shadow. Kept fairly tight (vs. a wide,
     /// soft cloud) so the shadow reads as a dense contact shadow hugging the
     /// panel's far edge rather than a diffuse haze — paired with
     /// `shadowDirectionalShift` above.
-    static let shadowBlurRadius: CGFloat = 45
+    static let shadowBlurRadius: CGFloat = 30
 
     /// `shadowDirectionalShift` as a vector pointing the way the surface grows
     /// (down for the notch, right/left for the edge anchors).

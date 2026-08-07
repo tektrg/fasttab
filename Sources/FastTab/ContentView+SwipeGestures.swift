@@ -177,11 +177,43 @@ extension ContentView {
         showToastAndDismiss("Link copied")
     }
 
+    /// Choreographed in three overlapping beats: the content keeps sliding
+    /// in the swipe's direction (`SwipeableResultRow.contentOffset`), the
+    /// checkmark already on screen follows a beat behind and zooms/fades
+    /// (`RemovalConfirmationIcon`), and only then does the row actually leave
+    /// the list — starting a little before the checkmark finishes so the
+    /// rows below are already sliding up to close the gap while it's still
+    /// fading, rather than everything happening in strict sequence.
+    ///
+    /// Not resetting the swipe-reveal state (`clearKeyboardSwipe`/
+    /// `resetPointerSwipe`) until this final step is what lets the content's
+    /// offset continue smoothly into the exit slide instead of snapping back
+    /// to rest first. And setting `closingResultID` in its own call — not
+    /// bundled into the same transaction as removing the row from the data
+    /// source — is what gives SwiftUI a real intermediate render to animate
+    /// from; doing both at once would make the outgoing row's transition
+    /// play from a snapshot taken *before* `closingResultID` ever matched
+    /// it, and the confirmation icon would never render.
     private func performRemove(_ result: BrowserSearchResult) {
-        clearKeyboardSwipe()
-        resetPointerSwipe(animated: false)
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            appState.browserService.remove(result)
+        let resultID = result.id
+        closingResultTask?.cancel()
+        closingResultID = resultID
+        closingResultTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                closingResultID = nil
+                clearKeyboardSwipe()
+                resetPointerSwipe(animated: false)
+                // Matches the surface's own resize curve (ContentView's
+                // `.animation(.easeOut(duration: 0.12), value: surfaceSize)`)
+                // so the panel doesn't finish shrinking — clipping the list —
+                // before the rows below the deleted one finish sliding up to
+                // fill the gap.
+                withAnimation(.spring(response: 0.16, dampingFraction: 0.92)) {
+                    appState.browserService.remove(result)
+                }
+            }
         }
     }
 

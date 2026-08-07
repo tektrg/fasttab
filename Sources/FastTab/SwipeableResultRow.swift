@@ -14,7 +14,7 @@ enum ResultSwipeAction: Equatable {
 
     var tint: Color {
         switch self {
-        case .delete: return .red
+        case .delete: return .green
         case .copy: return .accentColor
         }
     }
@@ -32,6 +32,13 @@ enum ResultSwipeMetrics {
     static let confirmDistance: CGFloat = 138
     static let maximumOffset: CGFloat = 158
     static let actionIconInset: CGFloat = 8
+
+    /// How far the row's content keeps sliding once removal is confirmed —
+    /// well past `maximumOffset`, so the row visibly continues its swipe
+    /// motion off to the side rather than snapping back before it collapses.
+    /// Clipped by the row's own `clipShape`, so it doesn't need to match the
+    /// row's actual width.
+    static let removalExitDistance: CGFloat = 260
 
     /// Minimal rows are much shorter than Full rows — a full-size 30pt action
     /// icon would overflow the row height, so it scales down with the style.
@@ -66,6 +73,7 @@ struct SwipeableResultRow: View {
     let pointerAction: ResultSwipeAction?
     let pointerOffset: CGFloat
     let keyboardAction: ResultSwipeAction?
+    let isConfirmingRemoval: Bool
     let onHoverChange: (Bool) -> Void
 
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
@@ -96,6 +104,13 @@ struct SwipeableResultRow: View {
         return min(1, max(0, Double(progress)))
     }
 
+    /// Once removal is confirmed, the content keeps sliding in the same
+    /// direction it was already swiping — continuing the gesture instead of
+    /// snapping back to rest before the row collapses.
+    private var contentOffset: CGFloat {
+        isConfirmingRemoval ? -ResultSwipeMetrics.removalExitDistance : visibleOffset
+    }
+
     var body: some View {
         ZStack {
             ResultRowView(
@@ -105,19 +120,31 @@ struct SwipeableResultRow: View {
                 showWindowName: showWindowName,
                 showProfileName: showProfileName
             )
-            .offset(x: visibleOffset)
+            .offset(x: contentOffset)
             .animation(.spring(response: 0.24, dampingFraction: 0.88), value: keyboardAction)
             .animation(.spring(response: 0.24, dampingFraction: 0.88), value: pointerAction)
+            .animation(.easeOut(duration: 0.22), value: isConfirmingRemoval)
 
             if let visibleAction {
-                TailSwipeActionIcon(action: visibleAction, size: ResultSwipeMetrics.actionIconSize(for: rowStyle))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: visibleAction.tailAlignment)
-                    .padding(.horizontal, ResultSwipeMetrics.actionIconInset)
-                    .opacity(tailIconOpacity)
-                    .scaleEffect(0.86 + (0.14 * CGFloat(tailIconOpacity)))
-                    .allowsHitTesting(false)
-                    .animation(.spring(response: 0.24, dampingFraction: 0.88), value: keyboardAction)
-                    .animation(.spring(response: 0.24, dampingFraction: 0.88), value: pointerAction)
+                // While confirming, the checkmark already on screen from the
+                // swipe reveal takes over the flourish in place — swapping to
+                // a *different* icon view here would be an invisible no-op at
+                // the handoff instant (both render as the same green
+                // checkmark circle), so there's no pop, just a continuation.
+                Group {
+                    if isConfirmingRemoval {
+                        RemovalConfirmationIcon(size: ResultSwipeMetrics.actionIconSize(for: rowStyle))
+                    } else {
+                        TailSwipeActionIcon(action: visibleAction, size: ResultSwipeMetrics.actionIconSize(for: rowStyle))
+                            .opacity(tailIconOpacity)
+                            .scaleEffect(0.86 + (0.14 * CGFloat(tailIconOpacity)))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: visibleAction.tailAlignment)
+                .padding(.horizontal, ResultSwipeMetrics.actionIconInset)
+                .allowsHitTesting(false)
+                .animation(.spring(response: 0.24, dampingFraction: 0.88), value: keyboardAction)
+                .animation(.spring(response: 0.24, dampingFraction: 0.88), value: pointerAction)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -154,6 +181,42 @@ private struct TailSwipeActionIcon: View {
                     .fill(action.tint)
                     .shadow(color: action.tint.opacity(0.28), radius: 8, y: 3)
             )
+    }
+}
+
+/// One-shot "removed" flourish: takes over from the resting swipe-reveal
+/// checkmark (same size/color, so the handoff is invisible), briefly follows
+/// the row's exit slide, then zooms in a touch and fades. Purely decorative
+/// (no hit testing) — starts at the tail icon's own resting scale/opacity so
+/// there's no pop at the moment it takes over.
+private struct RemovalConfirmationIcon: View {
+    let size: CGFloat
+
+    @State private var scale: CGFloat = 1
+    @State private var opacity: Double = 1
+
+    var body: some View {
+        Circle()
+            .fill(Color.green)
+            .frame(width: size, height: size)
+            .overlay(
+                Image(systemName: "checkmark")
+                    .font(.system(size: size * 0.5, weight: .bold))
+                    .foregroundStyle(.white)
+            )
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .onAppear {
+                // Delayed slightly so the checkmark reads as "following" the
+                // content's exit slide rather than firing the instant it's
+                // confirmed.
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.62).delay(0.08)) {
+                    scale = 1.3
+                }
+                withAnimation(.easeOut(duration: 0.22).delay(0.14)) {
+                    opacity = 0
+                }
+            }
     }
 }
 

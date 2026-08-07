@@ -51,6 +51,7 @@ extension ContentView {
                                     pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
                                     pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
                                     keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
+                                    isConfirmingRemoval: closingResultID == result.id,
                                     onHoverChange: { isHovering in
                                         if isHovering {
                                             hoveredResultID = result.id
@@ -61,6 +62,7 @@ extension ContentView {
                                 )
                                 .contentShape(Rectangle())
                                 .padding(.horizontal, 8)
+                                .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .center)))
                                 .onTapGesture {
                                     activateAndHide(result)
                                 }

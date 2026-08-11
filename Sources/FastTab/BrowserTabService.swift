@@ -1003,11 +1003,7 @@ class BrowserTabService: ObservableObject {
                 }
             }
         case .bookmark, .history:
-            if let backend = backend(for: result) {
-                Task.detached(priority: .userInitiated) {
-                    backend.openURL(result)
-                }
-            }
+            openViaWebAppRoutingOrNormally(result)
         }
     }
 
@@ -1129,11 +1125,13 @@ class BrowserTabService: ObservableObject {
         return "\(browserName)|\(url)"
     }
 
-    private func backend(for result: BrowserSearchResult) -> (any BrowserBackend)? {
+    func backend(for result: BrowserSearchResult) -> (any BrowserBackend)? {
         backends.first(where: { $0.appName == result.browserName })
     }
 
     private func refreshCachesIfNeeded(force: Bool) {
+        InstalledWebAppCatalog.shared.rescanIfNeeded()
+
         if !force,
            let cacheLastUpdatedAt,
            Date().timeIntervalSince(cacheLastUpdatedAt) < cacheRefreshInterval {

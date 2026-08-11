@@ -604,20 +604,10 @@ struct ChromiumBackend: BrowserBackend {
         // Profile-aware open via executable launch.
         if let profileName = result.profileName,
            let executableURL = browserExecutableURL() {
-            let executablePath = executableURL.path
-            let shellScript = "nohup \(shellQuoted(executablePath)) --profile-directory=\(shellQuoted(profileName)) \(shellQuoted(result.url)) > /dev/null 2>&1 &"
-            let task = Process()
-            task.launchPath = "/bin/bash"
-            task.arguments = ["-c", shellScript]
-            do {
-                try task.run()
-                task.waitUntilExit()
-                if task.terminationStatus == 0 {
-                    logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) profile=\(profileName, privacy: .public) url='\(result.url, privacy: .public)'")
-                    return
-                }
-            } catch {
-                logger.error("openURL profile-aware failed: \(String(describing: error), privacy: .public)")
+            let shellScript = "nohup \(shellQuoted(executableURL.path)) --profile-directory=\(shellQuoted(profileName)) \(shellQuoted(result.url)) > /dev/null 2>&1 &"
+            if runDetachedShellCommand(shellScript) {
+                logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) profile=\(profileName, privacy: .public) url='\(result.url, privacy: .public)'")
+                return
             }
         }
 
@@ -632,6 +622,135 @@ struct ChromiumBackend: BrowserBackend {
 
         logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) url='\(result.url, privacy: .public)' (fallback)")
         runAppleScript(script, logger: logger, action: "openURL")
+    }
+
+    /// Opens `result` inside `app`'s installed chromeless window.
+    ///
+    /// Two-step by necessity: launching the app bundle with a URL argument
+    /// silently ignores it (lands on the app's home page), and launching the
+    /// browser with an `--app=<url>` flag hits the target page but produces a
+    /// throwaway window our fingerprint below can't recognise later — every
+    /// click would spawn another window. So: find or launch the real app
+    /// window first, then steer it.
+    func openInInstalledWebApp(_ result: BrowserSearchResult, app: InstalledWebApp) {
+        if let existingIndex = findExistingAppWindowIndex(for: app) {
+            logger.info("openInInstalledWebApp: reusing window. app='\(app.name, privacy: .public)' index=\(existingIndex)")
+            steerAppWindow(index: existingIndex, to: result.url)
+            return
+        }
+
+        guard launchInstalledAppBundle(app) else {
+            logger.error("openInInstalledWebApp: launch failed, falling back to normal tab. app='\(app.name, privacy: .public)'")
+            openURL(result)
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(4)
+        var newIndex: Int?
+        while newIndex == nil && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.2)
+            newIndex = findExistingAppWindowIndex(for: app)
+        }
+
+        guard let newIndex else {
+            logger.error("openInInstalledWebApp: app window never appeared after launch, falling back to normal tab. app='\(app.name, privacy: .public)'")
+            openURL(result)
+            return
+        }
+
+        let alreadyOnTargetPage = result.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            == app.homeURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !alreadyOnTargetPage {
+            steerAppWindow(index: newIndex, to: result.url)
+        }
+    }
+
+    /// Real installed-app windows are the only windows this browser ever
+    /// reports as not closeable, not resizable, not zoomable, not
+    /// minimizable, with a blank title and exactly one tab — verified live
+    /// against multiple installed apps; every normal window reports the
+    /// opposite on all four booleans.
+    private func fingerprintedAppWindows() -> [(index: Int, url: String)] {
+        let script = """
+        tell application "\(appName)"
+            if it is not running then return ""
+            set fieldSep to (ASCII character 31)
+            set rowSep to (ASCII character 28)
+            set outData to ""
+            try
+                repeat with w from 1 to (count of windows)
+                    try
+                        set isAppWindow to (not (closeable of window w)) and (not (resizable of window w)) and (not (zoomable of window w)) and (not (minimizable of window w)) and ((name of window w) is "") and ((count of tabs of window w) is 1)
+                        if isAppWindow then
+                            set rowData to (w as string) & fieldSep & (URL of tab 1 of window w)
+                            if outData is "" then
+                                set outData to rowData
+                            else
+                                set outData to outData & rowSep & rowData
+                            end if
+                        end if
+                    end try
+                end repeat
+            end try
+            return outData
+        end tell
+        """
+
+        guard let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]), !output.isEmpty else {
+            return []
+        }
+
+        return output.components(separatedBy: kRowSep).compactMap { row in
+            let parts = row.components(separatedBy: kFieldSep)
+            guard parts.count >= 2, let index = Int(parts[0]) else { return nil }
+            return (index, parts[1])
+        }
+    }
+
+    /// Finds a currently open window belonging to `app` by comparing site
+    /// identity (scheme+host+port), not exact URL — the window may already
+    /// have been steered to a different page of the same site. When two
+    /// installed apps share a route key (e.g. Docs and Sheets both on
+    /// `docs.google.com`) and both have a window open, `selectWindow`
+    /// disambiguates by path segment so this never steers the wrong app's
+    /// window; if that's still ambiguous, returns nil rather than guessing.
+    private func findExistingAppWindowIndex(for app: InstalledWebApp) -> Int? {
+        selectWindow(for: app, among: fingerprintedAppWindows(), urlOf: \.url)?.index
+    }
+
+    private func steerAppWindow(index: Int, to url: String) {
+        let safeURL = appleScriptQuoted(url)
+        let script = """
+        tell application "\(appName)"
+            activate
+            try
+                set URL of tab 1 of window \(index) to "\(safeURL)"
+                set index of window \(index) to 1
+            end try
+        end tell
+        """
+        runAppleScript(script, logger: logger, action: "steerAppWindow")
+    }
+
+    private func launchInstalledAppBundle(_ app: InstalledWebApp) -> Bool {
+        runDetachedShellCommand("nohup /usr/bin/open -b \(shellQuoted(app.appBundleIdentifier)) > /dev/null 2>&1 &")
+    }
+
+    /// Shared by `openURL`'s profile-aware launch and
+    /// `launchInstalledAppBundle` — both fire a detached shell command and
+    /// only care whether the launch itself succeeded.
+    private func runDetachedShellCommand(_ command: String) -> Bool {
+        let task = Process()
+        task.launchPath = "/bin/bash"
+        task.arguments = ["-c", command]
+        do {
+            try task.run()
+            task.waitUntilExit()
+            return task.terminationStatus == 0
+        } catch {
+            logger.error("runDetachedShellCommand failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 
     func deleteBookmark(_ result: BrowserSearchResult) {

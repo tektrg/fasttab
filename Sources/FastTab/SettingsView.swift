@@ -8,6 +8,8 @@ struct SettingsView: View {
     @ObservedObject private var shortcutStore = ShortcutStore.shared
     @ObservedObject private var sourceSelection = SourceSelectionStore.shared
     @ObservedObject private var edgeReveal = EdgeRevealStore.shared
+    @ObservedObject private var webAppCatalog = InstalledWebAppCatalog.shared
+    @ObservedObject private var webAppRouting = WebAppRoutingStore.shared
 
     @AppStorage("FastTab.safari.includeFDAData") private var includeSafariFDAData: Bool = false
     @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = false
@@ -156,6 +158,40 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Open as App") {
+                if webAppCatalog.apps.isEmpty {
+                    Text("No installed web apps found. Use a browser's \"Install as app\" option to see it here.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(webAppCatalog.apps) { app in
+                        let routeKey = webAppRouteKeyString(for: app.homeURL)
+                        let dormant = isWebAppDormant(app)
+
+                        Toggle(app.name, isOn: Binding(
+                            get: { routeKey.map { webAppRouting.decision(for: $0) == .enabled } ?? false },
+                            set: { newValue in
+                                guard let routeKey else { return }
+                                webAppRouting.setDecision(newValue ? .enabled : .declined, for: routeKey)
+                            }
+                        ))
+                        .disabled(dormant)
+
+                        if dormant {
+                            Text("\(app.browserAppName) isn't an enabled source above, so links can never route here.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+
+                    Text("Enabled sites reopen from history or bookmarks in the app's own window instead of a new tab.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Section("License") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(licenseStatusTitle)
@@ -298,6 +334,7 @@ struct SettingsView: View {
         .onAppear {
             fdaInitiallyGranted = appState.browserService.canReadSafariProtectedData()
             fdaGrantedNow = fdaInitiallyGranted
+            webAppCatalog.rescanIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             fdaGrantedNow = appState.browserService.canReadSafariProtectedData()
@@ -311,6 +348,10 @@ struct SettingsView: View {
             return "\(short) (\(build))"
         }
         return short
+    }
+
+    private func isWebAppDormant(_ app: InstalledWebApp) -> Bool {
+        !SearchSource.allCases.contains { $0.displayName == app.browserAppName && sourceSelection.isEnabled($0) }
     }
 
     private func openFullDiskAccessSettings() {

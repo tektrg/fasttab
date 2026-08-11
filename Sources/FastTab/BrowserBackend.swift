@@ -78,6 +78,10 @@ protocol BrowserBackend: Sendable {
     func activateTab(_ result: BrowserSearchResult)
     func closeTab(_ result: BrowserSearchResult)
     func openURL(_ result: BrowserSearchResult)
+    /// Opens `result` inside `app`'s installed-web-app window, reusing it if
+    /// already open. Only meaningful for Chromium-family backends — other
+    /// backends fall back to `openURL` via the default implementation below.
+    func openInInstalledWebApp(_ result: BrowserSearchResult, app: InstalledWebApp)
     func deleteBookmark(_ result: BrowserSearchResult)
     func deleteHistoryItem(_ result: BrowserSearchResult)
 }
@@ -113,6 +117,10 @@ extension BrowserBackend {
             }
         }
         return out
+    }
+
+    func openInInstalledWebApp(_ result: BrowserSearchResult, app: InstalledWebApp) {
+        openURL(result)
     }
 }
 

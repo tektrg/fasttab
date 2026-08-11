@@ -174,11 +174,16 @@ struct ContentView: View {
 
     /// Minimal rows hide type/recency/window/URL to stay one line, so the
     /// footer surfaces that same metadata (in place of the tab-count text)
-    /// while the user hovers a row. Full rows already show it inline, so this
-    /// only applies in Minimal.
+    /// while the user hovers a row, or — absent a hover — for whichever row
+    /// is keyboard-selected. Full rows already show it inline, so this only
+    /// applies in Minimal.
     var hoveredResultFooterMetadata: BrowserSearchResult? {
-        guard rowStyle == .minimal, let hoveredResultID else { return nil }
-        return displayedResults.first { $0.id == hoveredResultID }
+        guard rowStyle == .minimal else { return nil }
+        if let hoveredResultID, let hovered = displayedResults.first(where: { $0.id == hoveredResultID }) {
+            return hovered
+        }
+        guard displayedItems.indices.contains(appState.selectedIndex) else { return nil }
+        return displayedItems[appState.selectedIndex].result
     }
 
     /// Hidden once `@duplicate` is already the active filter — tapping the

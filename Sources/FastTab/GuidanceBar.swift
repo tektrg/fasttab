@@ -93,28 +93,38 @@ private struct HoveredResultMetadataRow: View {
     let showProfileName: Bool
 
     var body: some View {
-        WrappingHStack(horizontalSpacing: 5, verticalSpacing: 3) {
+        HStack(spacing: 5) {
             Image(systemName: result.type.symbolName)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
+                .layoutPriority(1)
 
             if let recency = result.relativeRecencyLabel {
                 Text(recency)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
             }
 
             ForEach(result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName), id: \.self) { metadata in
                 Text(metadata)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
             }
 
+            // Truncates instead of wrapping to a second line — the row that
+            // hosts this is a single fixed-height footer line, so a long URL
+            // has to give up its own tail rather than growing the footer.
             Text(result.secondaryBaseText)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
+                .truncationMode(.tail)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

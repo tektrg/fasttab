@@ -251,7 +251,7 @@ private struct ResultRowView: View {
         }
         .opacity(result.type.dimmingOpacity)
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(isSelected ? Color.accentColor.opacity(0.17) : Color.clear)

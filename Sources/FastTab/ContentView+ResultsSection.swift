@@ -38,7 +38,7 @@ extension ContentView {
                 .background(CommandBarSurfaceBackground(cornerRadius: 16))
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 6) {
+                    LazyVStack(spacing: 0) {
                         ForEach(indexedDisplayItems, id: \.element.id) { index, item in
                             switch item {
                             case .result(let result):

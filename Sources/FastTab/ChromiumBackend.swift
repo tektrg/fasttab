@@ -635,7 +635,7 @@ struct ChromiumBackend: BrowserBackend {
     func openInInstalledWebApp(_ result: BrowserSearchResult, app: InstalledWebApp) {
         if let existingIndex = findExistingAppWindowIndex(for: app) {
             logger.info("openInInstalledWebApp: reusing window. app='\(app.name, privacy: .public)' index=\(existingIndex)")
-            steerAppWindow(index: existingIndex, to: result.url)
+            steerAppWindow(index: existingIndex, to: result.url, app: app)
             return
         }
 
@@ -660,8 +660,10 @@ struct ChromiumBackend: BrowserBackend {
 
         let alreadyOnTargetPage = result.url.trimmingCharacters(in: .whitespacesAndNewlines)
             == app.homeURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !alreadyOnTargetPage {
-            steerAppWindow(index: newIndex, to: result.url)
+        if alreadyOnTargetPage {
+            activateRunningApp(bundleIdentifier: app.appBundleIdentifier)
+        } else {
+            steerAppWindow(index: newIndex, to: result.url, app: app)
         }
     }
 
@@ -718,11 +720,19 @@ struct ChromiumBackend: BrowserBackend {
         selectWindow(for: app, among: fingerprintedAppWindows(), urlOf: \.url)?.index
     }
 
-    private func steerAppWindow(index: Int, to url: String) {
+    /// Installed web apps run as their own Dock/Cmd-Tab entity even though
+    /// AppleScript reaches their window through the parent browser's `tell
+    /// application "\(appName)"` (see `fingerprintedAppWindows()`). Telling
+    /// the browser to `activate` only raises whichever of *its own* windows
+    /// last had focus — usually the regular browser window, not this app's.
+    /// Activating the app's own running process first is what actually
+    /// switches the user to it.
+    private func steerAppWindow(index: Int, to url: String, app: InstalledWebApp) {
+        activateRunningApp(bundleIdentifier: app.appBundleIdentifier)
+
         let safeURL = appleScriptQuoted(url)
         let script = """
         tell application "\(appName)"
-            activate
             try
                 set URL of tab 1 of window \(index) to "\(safeURL)"
                 set index of window \(index) to 1
@@ -730,6 +740,13 @@ struct ChromiumBackend: BrowserBackend {
         end tell
         """
         runAppleScript(script, logger: logger, action: "steerAppWindow")
+    }
+
+    private func activateRunningApp(bundleIdentifier: String) {
+        guard let runningApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }) else {
+            return
+        }
+        runningApp.activate()
     }
 
     private func launchInstalledAppBundle(_ app: InstalledWebApp) -> Bool {

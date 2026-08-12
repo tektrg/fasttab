@@ -73,6 +73,17 @@ extension ContentView {
                                     .onTapGesture {
                                         expandAllOpenTabs()
                                     }
+                            case .searchTheWeb(let query):
+                                SearchTheWebRow(
+                                    query: query,
+                                    browserName: appState.browserService.webSearchTargetBrowserName,
+                                    isSelected: appState.selectedIndex == index
+                                )
+                                .contentShape(Rectangle())
+                                .padding(.horizontal, 8)
+                                .onTapGesture {
+                                    activateSearchTheWeb(query: query)
+                                }
                             }
                         }
                     }
@@ -134,6 +145,54 @@ private struct ShowAllTabsRow: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 22, height: 22)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.17) : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : .clear, lineWidth: 1)
+                )
+        )
+        .scaleEffect(isSelected ? 1.01 : 1)
+        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
+    }
+}
+
+private struct SearchTheWebRow: View {
+    let query: String
+    let browserName: String?
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 16, height: 16)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Search \u{201c}\(query)\u{201d}")
+                    .font(.system(size: 13, weight: .semibold, design: .default))
+                    .lineLimit(1)
+
+                if let browserName {
+                    HStack(spacing: 5) {
+                        Image(systemName: "globe")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+
+                        Text("Opens a new tab in \(browserName)")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)

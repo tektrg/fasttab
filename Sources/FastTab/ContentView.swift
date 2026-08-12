@@ -11,6 +11,7 @@ private struct SearchHeaderFrameKey: PreferenceKey {
 enum CommandBarDisplayItem: Identifiable {
     case result(BrowserSearchResult)
     case showAllTabs(count: Int)
+    case searchTheWeb(query: String)
 
     var id: String {
         switch self {
@@ -18,6 +19,8 @@ enum CommandBarDisplayItem: Identifiable {
             return result.id
         case .showAllTabs:
             return "command-bar-show-all-tabs"
+        case .searchTheWeb:
+            return "command-bar-search-the-web"
         }
     }
 
@@ -120,6 +123,9 @@ struct ContentView: View {
         var items = displayedResults.map(CommandBarDisplayItem.result)
         if searchText.isEmpty, quickOpenState.includesShowAllTabsItem {
             items.append(.showAllTabs(count: filteredResults.count))
+        }
+        if !searchText.isEmpty, filteredResults.isEmpty {
+            items.append(.searchTheWeb(query: searchText))
         }
         return items
     }

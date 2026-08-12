@@ -1129,6 +1129,44 @@ class BrowserTabService: ObservableObject {
         backends.first(where: { $0.appName == result.browserName })
     }
 
+    /// Browser a "Search the web" fallback should open in: whichever browser
+    /// the user invoked FastTab from, or the first enabled browser if that
+    /// browser isn't one of the backends (e.g. FastTab was opened from a
+    /// non-browser app). Finder is excluded — it's a backend for local file
+    /// search, not a real browser a web search can open in.
+    private func resolvedWebSearchBackend() -> (any BrowserBackend)? {
+        let realBrowsers = backends.filter { $0.appName != "Finder" }
+        return realBrowsers.first(where: { $0.bundleIdentifier == currentFlowSourceAppBundleIdentifier })
+            ?? realBrowsers.first
+    }
+
+    /// Name of the browser `openWebSearch` would currently target, for display
+    /// in the fallback row before the user commits to it.
+    var webSearchTargetBrowserName: String? {
+        resolvedWebSearchBackend()?.appName
+    }
+
+    /// Opens a Google search for `query` in a new tab — the fallback offered
+    /// when a typed query matches no tab, bookmark, or history item.
+    func openWebSearch(query: String) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let targetBackend = resolvedWebSearchBackend() else { return }
+
+        let searchURL = "https://www.google.com/search?q=\(webSearchQueryEncoded(trimmed))"
+        let result = BrowserSearchResult(
+            title: trimmed,
+            url: searchURL,
+            browserName: targetBackend.appName,
+            type: .history,
+            timestamp: Date()
+        )
+
+        logger.info("openWebSearch: browser=\(targetBackend.appName, privacy: .public) query='\(trimmed, privacy: .public)'")
+        Task.detached(priority: .userInitiated) {
+            targetBackend.openURL(result)
+        }
+    }
+
     private func refreshCachesIfNeeded(force: Bool) {
         InstalledWebAppCatalog.shared.rescanIfNeeded()
 

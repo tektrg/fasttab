@@ -23,6 +23,16 @@ func shellQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
+/// Percent-encodes a value for use as a single query-string parameter (e.g.
+/// the `q=` in a search URL). `.urlQueryAllowed` alone isn't safe here — it
+/// leaves structural characters like `&`, `+`, and `=` unescaped, so a query
+/// containing one of those would be truncated or split into extra params by
+/// the receiving server. Only RFC 3986 "unreserved" characters pass through.
+func webSearchQueryEncoded(_ value: String) -> String {
+    let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+    return value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? value
+}
+
 /// Percent-encodes an absolute filesystem path for embedding in a SQLite
 /// `file:` URI (e.g. `file:<encoded>?mode=ro`). `?` and `#` must be encoded
 /// because SQLite splits the URI on them; spaces and other path characters are

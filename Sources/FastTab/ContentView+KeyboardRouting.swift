@@ -19,15 +19,35 @@ extension ContentView {
         appState.hideCommandBar()
     }
 
+    func activateSearchTheWeb(query: String) {
+        clearKeyboardSwipe()
+        clearPointerSwipeSuppression()
+        resetPointerSwipe(animated: false)
+        appState.browserService.openWebSearch(query: query)
+        appState.hideCommandBar()
+    }
+
     private func activateSelectedDisplayItem() {
         let items = displayedItems
-        guard items.indices.contains(appState.selectedIndex) else { return }
+        guard items.indices.contains(appState.selectedIndex) else {
+            // No selection to activate — typically because the fetch for this
+            // query is still in flight (results stay empty/stale until it
+            // resolves), which would otherwise force the user to wait out the
+            // debounce before Enter did anything. If there's nothing to show
+            // yet, don't make them wait: search immediately.
+            if !searchText.isEmpty, displayedResults.isEmpty {
+                activateSearchTheWeb(query: searchText)
+            }
+            return
+        }
 
         switch items[appState.selectedIndex] {
         case .result(let result):
             activateAndHide(result)
         case .showAllTabs:
             expandAllOpenTabs()
+        case .searchTheWeb(let query):
+            activateSearchTheWeb(query: query)
         }
     }
 

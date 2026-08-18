@@ -414,6 +414,76 @@ private func sortByTimestampTier(_ items: [BrowserSearchResult]) -> [BrowserSear
     }
 }
 
+/// Key identifying "the same page" for cross-type duplicate collapsing: same
+/// browser and profile (a page open in a work profile is worth surfacing
+/// separately from the personal-profile copy), same coarse page identity
+/// (host + path, ignoring query/fragment — see `historyPageIdentity`), and
+/// the same title once a live count badge (`"(2) "`) is stripped. Title stays
+/// part of the key on purpose, mirroring `HistorySearchExpansion.canonicalHistoryKey`:
+/// it's the guard that keeps genuinely different pages (e.g. two distinct
+/// search-result pages sharing a path) from collapsing into one.
+func duplicatePageDedupeKey(for result: BrowserSearchResult) -> String {
+    [
+        result.browserName,
+        result.profileName ?? "",
+        foldForMatching(strippingLeadingCountBadge(result.title)),
+        historyPageIdentity(forURL: result.url)
+    ].joined(separator: "|")
+}
+
+/// Collapses duplicate pages across tabs, bookmarks, and history in one pass —
+/// the mixed, unscoped search list otherwise shows the same page once per
+/// result type plus once per stale history row (e.g. a pinned Notion tab
+/// re-indexed into history at several different unread-count badges).
+///
+/// Within a duplicate group, a live tab always wins: switching to an
+/// already-open tab is a cheaper, different action than reopening the page
+/// from a bookmark or history row, so it should surface even if a history
+/// row happens to have a newer timestamp. Among non-tab duplicates, the
+/// higher-frecency result wins; frecency is only recorded for pages opened
+/// through this app, so most groups will have no score on either side and
+/// fall through to the most recent timestamp.
+func deduplicatingSamePages(
+    _ results: [BrowserSearchResult],
+    frecencyScore: (BrowserSearchResult) -> Double
+) -> [BrowserSearchResult] {
+    guard results.count > 1 else { return results }
+
+    var winners: [String: BrowserSearchResult] = [:]
+    winners.reserveCapacity(results.count)
+
+    for candidate in results {
+        let key = duplicatePageDedupeKey(for: candidate)
+        guard let current = winners[key] else {
+            winners[key] = candidate
+            continue
+        }
+        if isPreferredDuplicate(candidate, over: current, frecencyScore: frecencyScore) {
+            winners[key] = candidate
+        }
+    }
+
+    return Array(winners.values)
+}
+
+private func isPreferredDuplicate(
+    _ candidate: BrowserSearchResult,
+    over current: BrowserSearchResult,
+    frecencyScore: (BrowserSearchResult) -> Double
+) -> Bool {
+    if candidate.type != current.type {
+        return candidate.type == .tab
+    }
+
+    let candidateScore = frecencyScore(candidate)
+    let currentScore = frecencyScore(current)
+    if candidateScore != currentScore {
+        return candidateScore > currentScore
+    }
+
+    return candidate.timestamp > current.timestamp
+}
+
 func quickOpenVisibleTabs(from results: [BrowserSearchResult], limit: Int) -> [BrowserSearchResult] {
     Array(results.lazy.filter { !$0.isCurrentFlowActiveTab }.prefix(max(0, limit)))
 }

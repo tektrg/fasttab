@@ -130,6 +130,8 @@ enum HistorySearchExpansion {
     /// The title is part of the key on purpose: it is the guard that keeps
     /// genuinely different pages apart when they share a path, e.g.
     /// `google.com/search?q=a` vs `?q=b` have distinct titles and both survive.
+    /// A leading count badge (`"(2) "`) is stripped before folding, so the
+    /// same page polled at different unread counts still collapses to one key.
     ///
     /// History only. Open tabs and bookmarks keep exact-URL identity, and the
     /// `@duplicate` tab filter stays strict — it exists to find tabs that are
@@ -138,7 +140,7 @@ enum HistorySearchExpansion {
         [
             result.browserName,
             result.profileName ?? "",
-            result.normalizedTitleKey,
+            foldForMatching(strippingLeadingCountBadge(result.title)),
             historyPageIdentity(forURL: result.url)
         ].joined(separator: "|")
     }

@@ -246,3 +246,21 @@ private func titlesMatchingInSQLite(query: String, rows: [(title: String, url: S
     #expect(HistorySearchExpansion.canonicalHistoryKey(for: chrome)
         != HistorySearchExpansion.canonicalHistoryKey(for: safari))
 }
+
+@Test func historyDedupCollapsesAcrossLiveCountBadge() async throws {
+    let badged = makeResult(title: "(2) Delivery Run - SpeechToDo | Notion", url: "https://notion.so/delivery-run")
+    let unbadged = makeResult(title: "Delivery Run - SpeechToDo | Notion", url: "https://notion.so/delivery-run")
+
+    #expect(HistorySearchExpansion.canonicalHistoryKey(for: badged)
+        == HistorySearchExpansion.canonicalHistoryKey(for: unbadged))
+}
+
+@Test func strippingLeadingCountBadgeRemovesDigitPrefix() async throws {
+    #expect(strippingLeadingCountBadge("(2) Delivery Run") == "Delivery Run")
+    #expect(strippingLeadingCountBadge("(12) Inbox") == "Inbox")
+}
+
+@Test func strippingLeadingCountBadgeLeavesOtherTitlesUnchanged() async throws {
+    #expect(strippingLeadingCountBadge("Delivery Run") == "Delivery Run")
+    #expect(strippingLeadingCountBadge("(draft) Delivery Run") == "(draft) Delivery Run")
+}

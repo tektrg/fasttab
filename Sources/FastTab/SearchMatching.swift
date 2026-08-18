@@ -242,3 +242,24 @@ func historyPageIdentity(forURL rawURL: String) -> String {
 
     return normalizedHost + path
 }
+
+// MARK: - Duplicate-page title normalization
+
+/// Matches a leading unread/notification-count badge like `"(2) "` or
+/// `"(12) "`. Gmail, Slack, Notion and similar sites prefix the *live* tab
+/// title with a count that changes between visits or polling ticks but
+/// doesn't reflect a different page — left in place, it defeats title-based
+/// duplicate detection by making every poll look like a new title.
+private let leadingCountBadgePattern = try! NSRegularExpression(pattern: "^\\(\\d+\\)\\s*")
+
+/// Strips a leading count badge (see `leadingCountBadgePattern`) from `title`,
+/// if present. Used only for duplicate-page detection — the badge is kept in
+/// `BrowserSearchResult.title` itself so the row UI still shows it.
+func strippingLeadingCountBadge(_ title: String) -> String {
+    let range = NSRange(title.startIndex..<title.endIndex, in: title)
+    guard let match = leadingCountBadgePattern.firstMatch(in: title, range: range),
+          let matchRange = Range(match.range, in: title) else {
+        return title
+    }
+    return String(title[matchRange.upperBound...])
+}

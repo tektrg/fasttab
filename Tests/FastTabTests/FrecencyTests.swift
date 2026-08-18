@@ -197,3 +197,98 @@ import Testing
     let sorted = sortBrowserSearchResults([hotBookmark, coldTab], frecencyScore: scoreLookup)
     #expect(sorted.first?.type == .tab)
 }
+
+// MARK: - Cross-type duplicate-page collapsing
+
+@Test func deduplicatingSamePagesPrefersLiveTabOverHistoryAndBookmark() async throws {
+    let now = Date()
+    let tab = BrowserSearchResult(
+        title: "Delivery Run - SpeechToDo | Notion",
+        url: "https://notion.so/delivery-run",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: now.addingTimeInterval(-3_600)
+    )
+    let history = BrowserSearchResult(
+        title: "(2) Delivery Run - SpeechToDo | Notion",
+        url: "https://notion.so/delivery-run",
+        browserName: "Google Chrome",
+        type: .history,
+        timestamp: now
+    )
+    let bookmark = BrowserSearchResult(
+        title: "Delivery Run - SpeechToDo | Notion",
+        url: "https://notion.so/delivery-run",
+        browserName: "Google Chrome",
+        type: .bookmark,
+        timestamp: now.addingTimeInterval(-7_200)
+    )
+
+    let deduped = deduplicatingSamePages([history, bookmark, tab]) { _ in 0 }
+    #expect(deduped.count == 1)
+    #expect(deduped.first?.type == .tab)
+}
+
+@Test func deduplicatingSamePagesPrefersHigherFrecencyAmongHistoryDuplicates() async throws {
+    let now = Date()
+    let coldButRecent = BrowserSearchResult(
+        title: "Delivery Run", url: "https://notion.so/delivery-run",
+        browserName: "Google Chrome", type: .history, timestamp: now
+    )
+    let hotButOlder = BrowserSearchResult(
+        title: "Delivery Run", url: "https://notion.so/delivery-run",
+        browserName: "Google Chrome", type: .history, timestamp: now.addingTimeInterval(-86_400)
+    )
+
+    let scoreLookup: (BrowserSearchResult) -> Double = { result in
+        result.timestamp == hotButOlder.timestamp ? 100.0 : 0.5
+    }
+    let deduped = deduplicatingSamePages([coldButRecent, hotButOlder], frecencyScore: scoreLookup)
+    #expect(deduped.count == 1)
+    #expect(deduped.first?.timestamp == hotButOlder.timestamp)
+}
+
+@Test func deduplicatingSamePagesFallsBackToRecencyWhenFrecencyTied() async throws {
+    let now = Date()
+    let older = BrowserSearchResult(
+        title: "Delivery Run", url: "https://notion.so/delivery-run",
+        browserName: "Google Chrome", type: .history, timestamp: now.addingTimeInterval(-86_400)
+    )
+    let newer = BrowserSearchResult(
+        title: "Delivery Run", url: "https://notion.so/delivery-run",
+        browserName: "Google Chrome", type: .history, timestamp: now
+    )
+
+    let deduped = deduplicatingSamePages([older, newer]) { _ in 0 }
+    #expect(deduped.count == 1)
+    #expect(deduped.first?.timestamp == newer.timestamp)
+}
+
+@Test func deduplicatingSamePagesKeepsDifferentProfilesApart() async throws {
+    let now = Date()
+    let personal = BrowserSearchResult(
+        title: "Delivery Run", url: "https://notion.so/delivery-run",
+        browserName: "Google Chrome", type: .history, timestamp: now, profileName: "Personal"
+    )
+    let work = BrowserSearchResult(
+        title: "Delivery Run", url: "https://notion.so/delivery-run",
+        browserName: "Google Chrome", type: .history, timestamp: now, profileName: "Work"
+    )
+
+    let deduped = deduplicatingSamePages([personal, work]) { _ in 0 }
+    #expect(deduped.count == 2)
+}
+
+@Test func deduplicatingSamePagesKeepsDifferentPagesApartWhenTitlesDiffer() async throws {
+    let first = BrowserSearchResult(
+        title: "cats - Google Search", url: "https://google.com/search?q=cats",
+        browserName: "Google Chrome", type: .history, timestamp: Date()
+    )
+    let second = BrowserSearchResult(
+        title: "dogs - Google Search", url: "https://google.com/search?q=dogs",
+        browserName: "Google Chrome", type: .history, timestamp: Date()
+    )
+
+    let deduped = deduplicatingSamePages([first, second]) { _ in 0 }
+    #expect(deduped.count == 2)
+}

@@ -699,13 +699,10 @@ class BrowserTabService: ObservableObject {
                         since: nil,
                         before: nil
                     )
-                    // De-dup: suppress a history row whose URL is currently
-                    // open as a live tab in the same source — design call,
-                    // avoids the user seeing the same path twice when they
-                    // pin to Finder.
-                    let liveURLs = Set(liveTabs.map { $0.url })
-                    let dedupedHistory = history.filter { !liveURLs.contains($0.url) }
-                    let merged = liveTabs + dedupedHistory
+                    // De-dup: collapse a history row that's the same page as a
+                    // currently-open live tab in the same source — avoids the
+                    // user seeing the same page twice when they pin to Finder.
+                    let merged = deduplicatingSamePages(liveTabs + history, frecencyScore: frecencyLookup)
                     produced = sortBrowserSearchResults(merged, frecencyScore: frecencyLookup)
                         .filter { filter.matches($0) }
                 } else {
@@ -849,7 +846,8 @@ class BrowserTabService: ObservableObject {
             let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(query: normalizedQuery) }
 
             // Phase 1: publish tabs + bookmarks immediately so UI isn't blocked by history DB I/O
-            let phase1Results = sortBrowserSearchResults(tabMatches + bookmarkMatches, frecencyScore: frecencyLookup)
+            let phase1Deduped = deduplicatingSamePages(tabMatches + bookmarkMatches, frecencyScore: frecencyLookup)
+            let phase1Results = sortBrowserSearchResults(phase1Deduped, frecencyScore: frecencyLookup)
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
                 let filteredLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
@@ -890,7 +888,8 @@ class BrowserTabService: ObservableObject {
                 before: nil
             )
 
-            let mergedResults = sortBrowserSearchResults(tabMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
+            let mergedDeduped = deduplicatingSamePages(tabMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
+            let mergedResults = sortBrowserSearchResults(mergedDeduped, frecencyScore: frecencyLookup)
 
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }

@@ -32,6 +32,10 @@ class BrowserTabService: ObservableObject {
     /// counts as a visit, not every tick on the same tab.
     private var lastPolledFrontFrecencyKey: [String: String] = [:]
     private var currentFlowSourceAppBundleIdentifier: String?
+    /// Last time each tab was seen audible. Drives the sticky-pinned-to-top
+    /// grace window in `annotatingPinnedAudibleTabs`. In-memory only — a ~15s
+    /// window doesn't need to survive an app restart.
+    private var lastAudibleSeenAt: [String: Date] = [:]
 
     private var fetchTask: Task<Void, Never>?
     private var cacheRefreshTask: Task<Void, Never>?
@@ -93,28 +97,15 @@ class BrowserTabService: ObservableObject {
         let enabled = SourceSelectionStore.shared.enabled
         var backends: [any BrowserBackend] = []
 
-        if enabled.contains(.chrome) {
-            backends.append(ChromiumBackend(
-                appName: "Google Chrome",
-                bundleIdentifier: "com.google.Chrome",
-                supportDirectory: "~/Library/Application Support/Google/Chrome"
-            ))
-        }
-        if enabled.contains(.edge) {
-            backends.append(ChromiumBackend(
-                appName: "Microsoft Edge",
-                bundleIdentifier: "com.microsoft.edgemac",
-                supportDirectory: "~/Library/Application Support/Microsoft Edge"
-            ))
-        }
-        if enabled.contains(.brave) {
-            backends.append(ChromiumBackend(
-                // appName must match Brave's AppleScript target and `.app`
-                // bundle name ("Brave Browser"), not the colloquial "Brave".
-                appName: "Brave Browser",
-                bundleIdentifier: "com.brave.Browser",
-                supportDirectory: "~/Library/Application Support/BraveSoftware/Brave-Browser"
-            ))
+        for spec in ChromiumBrowserSpec.all where enabled.contains(spec.source) && Self.isInstalled(bundleIdentifier: spec.bundleIdentifier) {
+            let chromium = ChromiumBackend(
+                appName: spec.appName,
+                bundleIdentifier: spec.bundleIdentifier,
+                supportDirectory: spec.supportDirectory
+            )
+            // Enrichment decorator: serves tabs from the extension when the
+            // beta is on and connected; otherwise byte-identical to ChromiumBackend.
+            backends.append(ExtensionBackedBackend(inner: chromium, bridge: ExtensionBridge.shared))
         }
         if enabled.contains(.safari), Self.isSafariInstalled() {
             backends.append(SafariBackend())
@@ -137,6 +128,38 @@ class BrowserTabService: ObservableObject {
             : .notInstalled
         logger.info("BrowserTabService init. backends=\(backendAppNames.joined(separator: ","), privacy: .public) safariAutomation=\(self.safariAutomationStatus.rawValue, privacy: .public) frecencyEntries=\(self.frecency.count)")
         startActiveTabPoll()
+        observeExtensionTabActivations()
+    }
+
+    /// Wires the extension's real-time tab-activation events into frecency
+    /// ranking. The 10s front-tab poll only ever sees the front window and
+    /// samples on a fixed interval; the extension pushes every activation
+    /// the instant it happens, in any window, with its exact timestamp — so
+    /// ranking reflects a tab switch immediately instead of catching up on
+    /// the next tick. Shares `lastPolledFrontFrecencyKey` with the poll and
+    /// with `activate()`'s manual path so the same real switch is never
+    /// recorded as two visits, whichever path observes it first.
+    private func observeExtensionTabActivations() {
+        ExtensionBridge.shared.onTabActivated = { [weak self] appName, url, at in
+            Task { @MainActor in
+                guard let self else { return }
+                // The bridge always listens regardless of the beta toggle
+                // (so flipping it on connects instantly) — but ranking must
+                // stay untouched by the extension until the user opts in.
+                guard ExtensionBetaPreference.isEnabled else {
+                    self.logger.info("instant-rank skipped (beta off). app=\(appName, privacy: .public)")
+                    return
+                }
+                let frecencyKey = Frecency.key(browser: appName, profile: nil, url: url)
+                guard self.lastPolledFrontFrecencyKey[appName] != frecencyKey else {
+                    self.logger.info("instant-rank skipped (already-recorded key, likely poll got there first). app=\(appName, privacy: .public)")
+                    return
+                }
+                self.logger.info("instant-rank applied. app=\(appName, privacy: .public) url=\(url, privacy: .public)")
+                self.lastPolledFrontFrecencyKey[appName] = frecencyKey
+                self.recordVisit(frecencyKey: frecencyKey, now: at)
+            }
+        }
     }
 
     // MARK: - Active-tab poll
@@ -231,6 +254,14 @@ class BrowserTabService: ObservableObject {
 
     private static func isSafariInstalled() -> Bool {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") != nil
+    }
+
+    /// Skips building a Chromium backend for a browser that isn't on this
+    /// Mac at all (e.g. Brave enabled as a source but never installed) —
+    /// otherwise every poll tick and search fires an AppleScript call that
+    /// can only ever fail, for a browser that will never have tabs.
+    private static func isInstalled(bundleIdentifier: String) -> Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
     }
 
     private static func probeSafariAutomation() -> SafariAutomationStatus {
@@ -464,56 +495,61 @@ class BrowserTabService: ObservableObject {
         fetchStart: Date,
         baseline: [String: Date],
         activeTimes: inout [String: Date],
-        currentFlowSourceAppBundleIdentifier: String?
+        currentFlowSourceAppBundleIdentifier: String?,
+        lastAudibleSeenAt: inout [String: Date]
     ) async -> [BrowserSearchResult] {
         if backends.isEmpty { return [] }
+
+        let liveTabs: [BrowserSearchResult]
         if backends.count == 1 {
-            return backends[0].fetchLiveTabs(
+            liveTabs = backends[0].fetchLiveTabs(
                 fetchStart: fetchStart,
                 activeTimes: &activeTimes,
                 currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
             )
-        }
-
-        let collected = await withTaskGroup(
-            of: (tabs: [BrowserSearchResult], updates: [String: Date]).self
-        ) { group in
-            for backend in backends {
-                group.addTask {
-                    if Task.isCancelled { return ([], [:]) }
-                    var local = baseline
-                    let tabs = backend.fetchLiveTabs(
-                        fetchStart: fetchStart,
-                        activeTimes: &local,
-                        currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
-                    )
-                    // Diff vs baseline so we don't ship the whole dict across
-                    // task boundaries. In practice updates is 0-1 entries per
-                    // backend (only the current-flow front tab is rewritten).
-                    var updates: [String: Date] = [:]
-                    for (key, value) in local where baseline[key] != value {
-                        updates[key] = value
+        } else {
+            let collected = await withTaskGroup(
+                of: (tabs: [BrowserSearchResult], updates: [String: Date]).self
+            ) { group in
+                for backend in backends {
+                    group.addTask {
+                        if Task.isCancelled { return ([], [:]) }
+                        var local = baseline
+                        let tabs = backend.fetchLiveTabs(
+                            fetchStart: fetchStart,
+                            activeTimes: &local,
+                            currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+                        )
+                        // Diff vs baseline so we don't ship the whole dict across
+                        // task boundaries. In practice updates is 0-1 entries per
+                        // backend (only the current-flow front tab is rewritten).
+                        var updates: [String: Date] = [:]
+                        for (key, value) in local where baseline[key] != value {
+                            updates[key] = value
+                        }
+                        return (tabs, updates)
                     }
-                    return (tabs, updates)
+                }
+                var all: [(tabs: [BrowserSearchResult], updates: [String: Date])] = []
+                for await item in group { all.append(item) }
+                return all
+            }
+
+            var collectedTabs: [BrowserSearchResult] = []
+            for entry in collected {
+                collectedTabs.append(contentsOf: entry.tabs)
+                for (key, value) in entry.updates {
+                    if let existing = activeTimes[key] {
+                        if value > existing { activeTimes[key] = value }
+                    } else {
+                        activeTimes[key] = value
+                    }
                 }
             }
-            var all: [(tabs: [BrowserSearchResult], updates: [String: Date])] = []
-            for await item in group { all.append(item) }
-            return all
+            liveTabs = collectedTabs
         }
 
-        var liveTabs: [BrowserSearchResult] = []
-        for entry in collected {
-            liveTabs.append(contentsOf: entry.tabs)
-            for (key, value) in entry.updates {
-                if let existing = activeTimes[key] {
-                    if value > existing { activeTimes[key] = value }
-                } else {
-                    activeTimes[key] = value
-                }
-            }
-        }
-        return liveTabs
+        return annotatingPinnedAudibleTabs(liveTabs, lastAudibleSeenAt: &lastAudibleSeenAt, now: fetchStart)
     }
 
     private nonisolated static func computeHasMultipleWindows(_ tabs: [BrowserSearchResult]) -> Bool {
@@ -526,10 +562,11 @@ class BrowserTabService: ObservableObject {
     }
 
     private nonisolated static func typeBreakdown(_ results: [BrowserSearchResult]) -> String {
+        let sent = results.filter { $0.type == .sent }.count
         let tabs = results.filter { $0.type == .tab }.count
         let bookmarks = results.filter { $0.type == .bookmark }.count
         let history = results.filter { $0.type == .history }.count
-        return "total=\(results.count) tabs=\(tabs) bookmarks=\(bookmarks) history=\(history)"
+        return "total=\(results.count) sent=\(sent) tabs=\(tabs) bookmarks=\(bookmarks) history=\(history)"
     }
 
     func prewarmCaches() {
@@ -619,6 +656,7 @@ class BrowserTabService: ObservableObject {
         let pinnedSource = filter.source
         let frecencyLookup = makeFrecencyScoreLookup()
         let historySearchPerBackendLimit = self.historySearchPerBackendLimit
+        let cachedAudibleSeenAt = self.lastAudibleSeenAt
 
         // Source-pinned scope: only the matching backend runs. Saves us from
         // polling Chrome via AppleScript and reading the Safari history DB
@@ -633,9 +671,14 @@ class BrowserTabService: ObservableObject {
 
         fetchTask = Task.detached(priority: .userInitiated) { [weak self] in
             var updatedTimes = cachedTimes
+            var updatedAudibleSeenAt = cachedAudibleSeenAt
             var produced: [BrowserSearchResult] = []
 
             switch requiredType {
+            case .sent:
+                let sentLinks = await MainActor.run { SentLinkInbox.shared.asSearchResults() }
+                produced = sentLinks.filter { filter.matches($0) }
+
             case .tab:
                 // Live tabs (always fresh — scope-aware fetches don't reuse cache).
                 var liveTabs = await Self.fetchLiveTabsParallel(
@@ -643,7 +686,8 @@ class BrowserTabService: ObservableObject {
                     fetchStart: Date(),
                     baseline: cachedTimes,
                     activeTimes: &updatedTimes,
-                    currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+                    currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
+                    lastAudibleSeenAt: &updatedAudibleSeenAt
                 )
                 liveTabs = sortBrowserSearchResults(liveTabs, frecencyScore: frecencyLookup)
                 if filter.duplicateOnly {
@@ -679,7 +723,8 @@ class BrowserTabService: ObservableObject {
                         fetchStart: Date(),
                         baseline: cachedTimes,
                         activeTimes: &updatedTimes,
-                        currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+                        currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
+                        lastAudibleSeenAt: &updatedAudibleSeenAt
                     )
                     // Publish tabs immediately so they're never blocked by the
                     // history DB read below — mirrors the phase-1/phase-2 split
@@ -711,13 +756,16 @@ class BrowserTabService: ObservableObject {
             }
 
             // Apply free-text filter (history is already query-filtered at SQL).
+            // A pinned-audible tab always survives the filter, even if it
+            // doesn't match what's typed — it stays pinned regardless of query.
             if !normalizedQuery.isEmpty, requiredType != .history {
-                produced = produced.filter { $0.matches(query: normalizedQuery) }
+                produced = produced.filter { $0.matches(query: normalizedQuery) || $0.isPinnedAudibleTab }
             }
 
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
                 self.lastActiveTimes = updatedTimes
+                self.lastAudibleSeenAt = updatedAudibleSeenAt
                 self.persistActiveTimes()
                 // Refresh live-tabs cache if we just fetched fresh ones.
                 if requiredType == .tab {
@@ -766,11 +814,13 @@ class BrowserTabService: ObservableObject {
         let typedQueryLiveTabsReuseWindow = self.typedQueryLiveTabsReuseWindow
         let frecencyLookup = makeFrecencyScoreLookup()
         let historySearchPerBackendLimit = self.historySearchPerBackendLimit
+        let cachedAudibleSeenAt = self.lastAudibleSeenAt
 
         logger.info("fetchResults start. generation=\(generation) query='\(normalizedQuery, privacy: .public)' bookmarkSnapshot=\(bookmarkSnapshot.count) historySnapshot=\(historySnapshot.count)")
 
         fetchTask = Task.detached(priority: .userInitiated) { [weak self] in
             var updatedTimes = cachedTimes
+            var updatedAudibleSeenAt = cachedAudibleSeenAt
             let fetchStart = Date()
             var liveTabs: [BrowserSearchResult] = []
             var usedCachedLiveTabs = false
@@ -786,7 +836,8 @@ class BrowserTabService: ObservableObject {
                     fetchStart: fetchStart,
                     baseline: cachedTimes,
                     activeTimes: &updatedTimes,
-                    currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+                    currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
+                    lastAudibleSeenAt: &updatedAudibleSeenAt
                 )
             }
 
@@ -824,10 +875,13 @@ class BrowserTabService: ObservableObject {
                     guard let self, generation == self.fetchGeneration else { return }
                     let filteredLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
                     let filteredPrioritized = self.filteringRecentlyClosed(prioritizedTabs)
+                    let sentLinks = SentLinkInbox.shared.asSearchResults()
+                    let combinedQuickOpen = sentLinks + filteredPrioritized
                     self.lastActiveTimes = updatedTimes
+                    self.lastAudibleSeenAt = updatedAudibleSeenAt
                     self.persistActiveTimes()
-                    self.results = filteredPrioritized
-                    self.cachedQuickOpenResults = filteredPrioritized
+                    self.results = combinedQuickOpen
+                    self.cachedQuickOpenResults = combinedQuickOpen
                     self.cachedQuickOpenSourceAppBundleIdentifier = currentFlowSourceAppBundleIdentifier
                     self.cachedLiveTabs = filteredLiveTabs
                     self.lastLiveTabsRefreshAt = Date()
@@ -836,23 +890,31 @@ class BrowserTabService: ObservableObject {
                     self.duplicateTabCount = Self.duplicateTabCount(in: filteredLiveTabs)
                     self.hasFetchedOpenTabCount = true
                     self.isLoading = false
-                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) quickOpenTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
+                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) sentLinks=\(sentLinks.count) quickOpenTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
+                    SyncService.shared.updateLiveTabs(filteredLiveTabs)
                     self.refreshCachesIfNeeded(force: false)
                 }
                 return
             }
 
-            let tabMatches = sortedLiveTabs.filter { $0.matches(query: normalizedQuery) }
+            let sentMatches = await MainActor.run {
+                SentLinkInbox.shared.asSearchResults().filter { $0.matches(query: normalizedQuery) }
+            }
+
+            // A pinned-audible tab always survives the filter, even if it
+            // doesn't match what's typed — it stays pinned regardless of query.
+            let tabMatches = sortedLiveTabs.filter { $0.matches(query: normalizedQuery) || $0.isPinnedAudibleTab }
             let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(query: normalizedQuery) }
 
-            // Phase 1: publish tabs + bookmarks immediately so UI isn't blocked by history DB I/O
-            let phase1Deduped = deduplicatingSamePages(tabMatches + bookmarkMatches, frecencyScore: frecencyLookup)
+            // Phase 1: publish sent links + tabs + bookmarks immediately so UI isn't blocked by history DB I/O
+            let phase1Deduped = deduplicatingSamePages(sentMatches + tabMatches + bookmarkMatches, frecencyScore: frecencyLookup)
             let phase1Results = sortBrowserSearchResults(phase1Deduped, frecencyScore: frecencyLookup)
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
                 let filteredLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
                 let filteredPhase1 = self.filteringRecentlyClosed(phase1Results)
                 self.lastActiveTimes = updatedTimes
+                self.lastAudibleSeenAt = updatedAudibleSeenAt
                 self.persistActiveTimes()
                 if !usedCachedLiveTabs {
                     self.cachedLiveTabs = filteredLiveTabs
@@ -861,6 +923,7 @@ class BrowserTabService: ObservableObject {
                     self.openTabCount = filteredLiveTabs.count
                     self.duplicateTabCount = Self.duplicateTabCount(in: filteredLiveTabs)
                     self.hasFetchedOpenTabCount = true
+                    SyncService.shared.updateLiveTabs(filteredLiveTabs)
                 } else {
                     // Slide the reuse window: the user is mid typing-burst, so
                     // keep trusting the cached snapshot instead of rescanning.
@@ -888,7 +951,7 @@ class BrowserTabService: ObservableObject {
                 before: nil
             )
 
-            let mergedDeduped = deduplicatingSamePages(tabMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
+            let mergedDeduped = deduplicatingSamePages(sentMatches + tabMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
             let mergedResults = sortBrowserSearchResults(mergedDeduped, frecencyScore: frecencyLookup)
 
             await MainActor.run {
@@ -972,6 +1035,14 @@ class BrowserTabService: ObservableObject {
 
     func activate(_ result: BrowserSearchResult) {
         switch result.type {
+        case .sent:
+            if let commandID = result.bookmarkID {
+                let completedCmd = SentLinkInbox.shared.markOpened(commandID: commandID)
+                if let completedCmd {
+                    SyncService.shared.pushCommandResult(completedCmd)
+                }
+            }
+            openViaWebAppRoutingOrNormally(result)
         case .tab:
             let now = Date()
             if let key = result.tabRecencyKey {
@@ -1018,16 +1089,27 @@ class BrowserTabService: ObservableObject {
         // seconds on first-run TCC prompts or sleeping remote volumes).
         // Dispatch off @MainActor so the UI stays responsive; the snapshot
         // removal + re-fetch below give immediate visual feedback regardless.
-        if let backend = backend(for: result) {
-            switch result.type {
-            case .tab:
+        switch result.type {
+        case .sent:
+            if let commandID = result.bookmarkID {
+                let dismissedCmd = SentLinkInbox.shared.dismiss(commandID: commandID)
+                if let dismissedCmd {
+                    SyncService.shared.pushCommandResult(dismissedCmd)
+                }
+            }
+        case .tab:
+            if let backend = backend(for: result) {
                 Task.detached(priority: .userInitiated) { backend.closeTab(result) }
                 recentlyClosedTabs.append(
                     ClosedTabTombstone(browserName: result.browserName, url: result.url, timestamp: Date())
                 )
-            case .bookmark:
+            }
+        case .bookmark:
+            if let backend = backend(for: result) {
                 Task.detached(priority: .userInitiated) { backend.deleteBookmark(result) }
-            case .history:
+            }
+        case .history:
+            if let backend = backend(for: result) {
                 Task.detached(priority: .userInitiated) { backend.deleteHistoryItem(result) }
             }
         }
@@ -1036,9 +1118,35 @@ class BrowserTabService: ObservableObject {
         fetchResults(matching: lastIssuedQuery, filter: lastIssuedFilter)
     }
 
+    /// Mutes (or unmutes) a tab from the "Playing now" strip. Dispatches the
+    /// extension command in the background and updates local snapshots
+    /// immediately so the row reflects the new state (and, once muted, drops
+    /// out of the audible strip) without waiting on the next poll.
+    func toggleMute(_ result: BrowserSearchResult) {
+        guard result.type == .tab else { return }
+        let newMuted = !result.isMuted
+        logger.info("toggleMute tapped. title='\(result.title, privacy: .public)' browser=\(result.browserName, privacy: .public) tabID=\(result.tabID ?? -1) newMuted=\(newMuted)")
+        if let backend = backend(for: result) {
+            Task.detached(priority: .userInitiated) { backend.toggleMuteTab(result, muted: newMuted) }
+        } else {
+            logger.error("toggleMute: no backend found for browser=\(result.browserName, privacy: .public)")
+        }
+        if newMuted, let key = result.tabRecencyKey {
+            // Otherwise the sticky-audible grace window (annotatingPinnedAudibleTabs)
+            // would re-pin this tab on the next fetch, since it was genuinely
+            // heard within the last 15s — even though the user just silenced
+            // it on purpose.
+            lastAudibleSeenAt.removeValue(forKey: key)
+        }
+        applyMutedOptimistically(newMuted, to: result)
+    }
+
     private func removeResultFromLocalSnapshots(matching result: BrowserSearchResult) {
         let resultID = result.id
         switch result.type {
+        case .sent:
+            results.removeAll { $0.id == resultID }
+            cachedQuickOpenResults.removeAll { $0.id == resultID }
         case .tab:
             // Indices can shift after a close, so match tabs by (browser, url) with
             // "consume one" semantics — only the first matching tab in each list is removed,
@@ -1060,6 +1168,17 @@ class BrowserTabService: ObservableObject {
         if let idx = list.firstIndex(where: { $0.type == .tab && $0.browserName == browserName && $0.url == url }) {
             list.remove(at: idx)
         }
+    }
+
+    private func applyMutedOptimistically(_ muted: Bool, to result: BrowserSearchResult) {
+        applyMuted(muted, to: result.id, in: &results)
+        applyMuted(muted, to: result.id, in: &cachedQuickOpenResults)
+        applyMuted(muted, to: result.id, in: &cachedLiveTabs)
+    }
+
+    private func applyMuted(_ muted: Bool, to resultID: String, in list: inout [BrowserSearchResult]) {
+        guard let idx = list.firstIndex(where: { $0.id == resultID }) else { return }
+        list[idx] = list[idx].settingMuted(muted)
     }
 
     private func pruneClosedTabTombstones() {
@@ -1124,8 +1243,16 @@ class BrowserTabService: ObservableObject {
         return "\(browserName)|\(url)"
     }
 
+    /// Convenience accessor for code that needs to reach the service without a
+    /// reference to `AppState` — e.g. `SyncService` and `PendingApprovalStore`.
+    @MainActor static var shared: BrowserTabService { AppState.shared.browserService }
+
     func backend(for result: BrowserSearchResult) -> (any BrowserBackend)? {
         backends.first(where: { $0.appName == result.browserName })
+    }
+
+    func backend(for browserName: String) -> (any BrowserBackend)? {
+        backends.first(where: { $0.appName == browserName })
     }
 
     /// Browser a "Search the web" fallback should open in: whichever browser
@@ -1226,7 +1353,26 @@ class BrowserTabService: ObservableObject {
             cachedBookmarks = cachePayload.bookmarks
             cachedHistory = cachePayload.history
             cacheLastUpdatedAt = Date()
+            SyncService.shared.updateBookmarks(cachePayload.bookmarks)
+            SyncService.shared.updateHistory(cachePayload.history)
             logger.info("Search cache refreshed. bookmarks={\(Self.typeBreakdown(cachePayload.bookmarks), privacy: .public)} history={\(Self.typeBreakdown(cachePayload.history), privacy: .public)} perBrowser='\(cachePayload.diagnostics.joined(separator: "; "), privacy: .public)'")
+
+            // Proactively fetch and sync live tabs so the iOS app always shows
+            // current open tabs — not just after the user opens the command bar.
+            var dummyActiveTimes = self.lastActiveTimes
+            var dummyAudibleSeenAt = self.lastAudibleSeenAt
+            let liveTabs = await Self.fetchLiveTabsParallel(
+                backends: backends,
+                fetchStart: Date(),
+                baseline: dummyActiveTimes,
+                activeTimes: &dummyActiveTimes,
+                currentFlowSourceAppBundleIdentifier: nil,
+                lastAudibleSeenAt: &dummyAudibleSeenAt
+            )
+            if !Task.isCancelled {
+                SyncService.shared.updateLiveTabs(liveTabs)
+                logger.info("Background tab sync: pushed \(liveTabs.count) tabs to CloudKit")
+            }
 
             if lastIssuedQuery.isEmpty {
                 logger.info("Search cache refresh applied without UI refetch (empty query).")

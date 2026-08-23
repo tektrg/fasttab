@@ -1,0 +1,25 @@
+import SwiftUI
+import SafariServices
+
+public struct InAppBrowserView: UIViewControllerRepresentable {
+    public let url: URL
+    public var entersReaderIfAvailable: Bool = true
+
+    public init(url: URL, entersReaderIfAvailable: Bool = true) {
+        self.url = url
+        self.entersReaderIfAvailable = entersReaderIfAvailable
+    }
+
+    public func makeUIViewController(context: Context) -> SFSafariViewController {
+        let configuration = SFSafariViewController.Configuration()
+        configuration.entersReaderIfAvailable = entersReaderIfAvailable
+        configuration.barCollapsingEnabled = true
+
+        let safariVC = SFSafariViewController(url: url, configuration: configuration)
+        safariVC.dismissButtonStyle = .close
+        safariVC.preferredControlTintColor = .systemBlue
+        return safariVC
+    }
+
+    public func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
+}

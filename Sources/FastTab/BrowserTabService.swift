@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import OSLog
 import ApplicationServices
+import FastTabSync
 
 enum SafariAutomationStatus: String, Sendable {
     case notInstalled
@@ -39,6 +40,7 @@ class BrowserTabService: ObservableObject {
 
     private var fetchTask: Task<Void, Never>?
     private var cacheRefreshTask: Task<Void, Never>?
+    private var authoritativeLiveTabsRefreshTask: Task<Void, Never>?
 
     private var fetchGeneration = 0
     private var lastIssuedQuery: String = ""
@@ -50,6 +52,7 @@ class BrowserTabService: ObservableObject {
     private var cachedQuickOpenResults: [BrowserSearchResult] = []
     private var cachedQuickOpenSourceAppBundleIdentifier: String?
     private(set) var cachedLiveTabs: [BrowserSearchResult] = []
+    private(set) var authoritativeLiveTabSnapshot = AuthoritativeLiveTabSnapshot()
     private var lastLiveTabsRefreshAt: Date = .distantPast
 
     private struct ClosedTabTombstone {
@@ -631,6 +634,14 @@ class BrowserTabService: ObservableObject {
         fetchScopedResults(matching: query, filter: filter)
     }
 
+    /// Re-runs whatever the user last searched for. Use this for triggers that
+    /// aren't about a new keystroke (a sent-link arriving, a background sync
+    /// completing) — calling `fetchResults()` with its empty-query default
+    /// would stomp an in-progress typed search back to the unfiltered list.
+    func refetchCurrent() {
+        fetchResults(matching: lastIssuedQuery, filter: lastIssuedFilter)
+    }
+
     private func fetchScopedResults(matching query: String, filter: ScopeFilter) {
         fetchGeneration += 1
         let generation = fetchGeneration
@@ -759,7 +770,8 @@ class BrowserTabService: ObservableObject {
             // A pinned-audible tab always survives the filter, even if it
             // doesn't match what's typed — it stays pinned regardless of query.
             if !normalizedQuery.isEmpty, requiredType != .history {
-                produced = produced.filter { $0.matches(query: normalizedQuery) || $0.isPinnedAudibleTab }
+                let queryWords = searchWords(in: normalizedQuery)
+                produced = produced.filter { $0.matches(words: queryWords) || $0.isPinnedAudibleTab }
             }
 
             await MainActor.run {
@@ -897,14 +909,20 @@ class BrowserTabService: ObservableObject {
                 return
             }
 
+            // Fold the typed query once and reuse it across every candidate
+            // below — sent links, live tabs, and bookmarks can together number
+            // in the hundreds, and re-folding the same query per candidate
+            // (Unicode case/accent/width folding) was measurable per keystroke.
+            let queryWords = searchWords(in: normalizedQuery)
+
             let sentMatches = await MainActor.run {
-                SentLinkInbox.shared.asSearchResults().filter { $0.matches(query: normalizedQuery) }
+                SentLinkInbox.shared.asSearchResults().filter { $0.matches(words: queryWords) }
             }
 
             // A pinned-audible tab always survives the filter, even if it
             // doesn't match what's typed — it stays pinned regardless of query.
-            let tabMatches = sortedLiveTabs.filter { $0.matches(query: normalizedQuery) || $0.isPinnedAudibleTab }
-            let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(query: normalizedQuery) }
+            let tabMatches = sortedLiveTabs.filter { $0.matches(words: queryWords) || $0.isPinnedAudibleTab }
+            let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(words: queryWords) }
 
             // Phase 1: publish sent links + tabs + bookmarks immediately so UI isn't blocked by history DB I/O
             let phase1Deduped = deduplicatingSamePages(sentMatches + tabMatches + bookmarkMatches, frecencyScore: frecencyLookup)
@@ -1164,11 +1182,78 @@ class BrowserTabService: ObservableObject {
         duplicateTabCount = Self.duplicateTabCount(in: cachedLiveTabs)
     }
 
-    private func removeFirstTab(in list: inout [BrowserSearchResult], browserName: String, url: String) {
+    private func removeFirstTab(in list: inout [BrowserSearchResult], browserName: String, url: String, tabID: Int? = nil) {
+        if let tabID, let idx = list.firstIndex(where: { $0.type == .tab && $0.browserName == browserName && $0.tabID == tabID }) {
+            list.remove(at: idx)
+            return
+        }
         if let idx = list.firstIndex(where: { $0.type == .tab && $0.browserName == browserName && $0.url == url }) {
             list.remove(at: idx)
         }
     }
+
+    /// Called by `SyncService` when a tab was closed remotely (e.g. from iOS).
+    /// Records a tombstone so subsequent poll cycles don't resurrect the tab,
+    /// removes the tab from in-memory snapshots, and notifies CloudKit of the updated tab list.
+    @discardableResult
+    func recordClosedTabFromRemote(browserName: String, url: String, tabID: Int? = nil) -> Bool {
+        recentlyClosedTabs.append(
+            ClosedTabTombstone(browserName: browserName, url: url, timestamp: Date())
+        )
+        removeFirstTab(in: &results, browserName: browserName, url: url, tabID: tabID)
+        removeFirstTab(in: &cachedQuickOpenResults, browserName: browserName, url: url, tabID: tabID)
+        removeFirstTab(in: &cachedLiveTabs, browserName: browserName, url: url, tabID: tabID)
+        openTabCount = cachedLiveTabs.count
+        duplicateTabCount = Self.duplicateTabCount(in: cachedLiveTabs)
+        refreshAuthoritativeLiveTabsAndPublish()
+        return true
+    }
+
+    func refreshAuthoritativeLiveTabsAndPublish() {
+        authoritativeLiveTabsRefreshTask?.cancel()
+        // Supersede any still-pending debounced UI publish: its snapshot is
+        // older than the one we are about to fetch, and publishing it after
+        // us would re-add a tab that has since closed.
+        SyncService.shared.cancelPendingLiveTabsPublish()
+        let backends = self.backends
+        let cachedTimes = self.lastActiveTimes
+        let cachedAudibleSeenAt = self.lastAudibleSeenAt
+        let sourceAppBundleIdentifier = self.currentFlowSourceAppBundleIdentifier
+
+        authoritativeLiveTabsRefreshTask = Task.detached(priority: .utility) { [weak self] in
+            var updatedTimes = cachedTimes
+            var updatedAudibleSeenAt = cachedAudibleSeenAt
+            let fetchedTabs = await Self.fetchLiveTabsParallel(
+                backends: backends,
+                fetchStart: Date(),
+                baseline: cachedTimes,
+                activeTimes: &updatedTimes,
+                currentFlowSourceAppBundleIdentifier: sourceAppBundleIdentifier,
+                lastAudibleSeenAt: &updatedAudibleSeenAt
+            )
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard let self else { return }
+                let authoritativeTabs = self.filteringRecentlyClosed(fetchedTabs)
+                self.authoritativeLiveTabSnapshot.applyAllBackends(authoritativeTabs)
+                self.lastActiveTimes = updatedTimes
+                self.lastAudibleSeenAt = updatedAudibleSeenAt
+                SyncService.shared.requestLiveTabsPublish(authoritativeTabs)
+                self.logger.info("Authoritative all-browser tab sync published. tabCount=\(authoritativeTabs.count)")
+            }
+        }
+    }
+
+    #if DEBUG
+    func setTestLiveTabsState(tabs: [BrowserSearchResult], isHydrated: Bool = true) {
+        self.results = tabs
+        self.cachedQuickOpenResults = tabs
+        self.cachedLiveTabs = tabs
+        self.openTabCount = tabs.count
+        self.hasFetchedOpenTabCount = isHydrated
+    }
+    #endif
 
     private func applyMutedOptimistically(_ muted: Bool, to result: BrowserSearchResult) {
         applyMuted(muted, to: result.id, in: &results)
@@ -1244,7 +1329,7 @@ class BrowserTabService: ObservableObject {
     }
 
     /// Convenience accessor for code that needs to reach the service without a
-    /// reference to `AppState` — e.g. `SyncService` and `PendingApprovalStore`.
+    /// reference to `AppState` — e.g. `SyncService`.
     @MainActor static var shared: BrowserTabService { AppState.shared.browserService }
 
     func backend(for result: BrowserSearchResult) -> (any BrowserBackend)? {
@@ -1253,6 +1338,29 @@ class BrowserTabService: ObservableObject {
 
     func backend(for browserName: String) -> (any BrowserBackend)? {
         backends.first(where: { $0.appName == browserName })
+    }
+
+    func remoteCloseTargetExists(_ payload: CloseTabPayload) -> Bool {
+        guard let backend = backend(for: payload.browserName) else { return false }
+        var activeTimes = lastActiveTimes
+        let tabs = backend.fetchLiveTabs(
+            fetchStart: Date(),
+            activeTimes: &activeTimes,
+            currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+        )
+        if let tabID = payload.tabID {
+            return tabs.contains { $0.tabID == tabID }
+        }
+        return tabs.contains { tab in
+            guard tab.url == payload.url else { return false }
+            if let windowIndex = payload.windowIndex, tab.windowIndex != windowIndex {
+                return false
+            }
+            if let tabIndex = payload.tabIndex, tab.tabIndex != tabIndex {
+                return false
+            }
+            return true
+        }
     }
 
     /// Browser a "Search the web" fallback should open in: whichever browser
@@ -1357,21 +1465,10 @@ class BrowserTabService: ObservableObject {
             SyncService.shared.updateHistory(cachePayload.history)
             logger.info("Search cache refreshed. bookmarks={\(Self.typeBreakdown(cachePayload.bookmarks), privacy: .public)} history={\(Self.typeBreakdown(cachePayload.history), privacy: .public)} perBrowser='\(cachePayload.diagnostics.joined(separator: "; "), privacy: .public)'")
 
-            // Proactively fetch and sync live tabs so the iOS app always shows
-            // current open tabs — not just after the user opens the command bar.
-            var dummyActiveTimes = self.lastActiveTimes
-            var dummyAudibleSeenAt = self.lastAudibleSeenAt
-            let liveTabs = await Self.fetchLiveTabsParallel(
-                backends: backends,
-                fetchStart: Date(),
-                baseline: dummyActiveTimes,
-                activeTimes: &dummyActiveTimes,
-                currentFlowSourceAppBundleIdentifier: nil,
-                lastAudibleSeenAt: &dummyAudibleSeenAt
-            )
+            // UI fetches can be browser-scoped, so only an all-backend refresh
+            // is authoritative enough to reconcile CloudKit deletions.
             if !Task.isCancelled {
-                SyncService.shared.updateLiveTabs(liveTabs)
-                logger.info("Background tab sync: pushed \(liveTabs.count) tabs to CloudKit")
+                self.refreshAuthoritativeLiveTabsAndPublish()
             }
 
             if lastIssuedQuery.isEmpty {

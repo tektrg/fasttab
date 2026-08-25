@@ -120,7 +120,7 @@ public struct HistoryListView: View {
             }
         }
         .searchable(text: $searchText, prompt: "Search history")
-        .sheet(item: $selectedURLForReader) { url in
+        .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
         }

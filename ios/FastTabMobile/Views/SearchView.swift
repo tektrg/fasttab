@@ -210,7 +210,7 @@ public struct SearchView: View {
             }
         }
         .searchable(text: $query, prompt: "Search tabs, bookmarks & history")
-        .sheet(item: $selectedURLForReader) { url in
+        .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
         }

@@ -176,7 +176,7 @@ public struct BookmarkBrowserView: View {
             }
         }
         .searchable(text: $searchText, prompt: "Search bookmarks")
-        .sheet(item: $selectedURLForReader) { url in
+        .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
         }

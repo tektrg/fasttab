@@ -1,12 +1,50 @@
 import SwiftUI
 
 extension ContentView {
+    /// All currently-audible tabs, independent of the active search text — the
+    /// "Playing now" strip must stay visible even when a query filters the
+    /// tab out of the main results (`cachedLiveTabs` isn't query-filtered like
+    /// `displayedResults` is).
+    var audibleSectionTabs: [BrowserSearchResult] {
+        appState.browserService.cachedLiveTabs.filter(\.isPinnedAudibleTab)
+    }
+
+    @ViewBuilder
+    private func audibleTabsStrip(_ tabs: [BrowserSearchResult]) -> some View {
+        if !tabs.isEmpty {
+            VStack(spacing: 4) {
+                HStack {
+                    Text("PLAYING NOW")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .tracking(0.5)
+                    Spacer()
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+
+                ForEach(tabs, id: \.id) { tab in
+                    AudibleTabRow(
+                        result: tab,
+                        faviconImage: appState.browserService.faviconImage(for: tab),
+                        onSelect: { activateAndHide(tab) },
+                        onMute: { appState.browserService.toggleMute(tab) }
+                    )
+                    .padding(.horizontal, 8)
+                }
+
+                Divider().padding(.horizontal, 8).padding(.top, 2)
+            }
+        }
+    }
+
     @ViewBuilder
     func resultsSection(proxy: ScrollViewProxy) -> some View {
         // Compute once here — not inside the List closure, which runs per row.
         let showWindowName = shouldShowWindowName
         let showProfileName = shouldShowProfileName
         let resultsHeight = CommandBarLayout.resultsHeight(for: commandBarAnchor, rowStyle: rowStyle, rowCount: resultsSizingRowCount)
+        let audibleTabs = audibleSectionTabs
         Group {
             if appState.browserService.isLoading && displayedResults.isEmpty {
                 VStack(spacing: 10) {
@@ -22,6 +60,7 @@ extension ContentView {
                 .frame(height: resultsHeight)
             } else if displayedItems.isEmpty {
                 VStack(spacing: 8) {
+                    audibleTabsStrip(audibleTabs)
                     Spacer()
                     Image(systemName: "rectangle.stack.badge.magnifyingglass")
                         .font(.title2)
@@ -39,6 +78,7 @@ extension ContentView {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
+                        audibleTabsStrip(audibleTabs)
                         ForEach(indexedDisplayItems, id: \.element.id) { index, item in
                             switch item {
                             case .result(let result):
@@ -108,6 +148,75 @@ extension ContentView {
         let items = displayedItems
         guard items.indices.contains(appState.selectedIndex) else { return }
         proxy.scrollTo(items[appState.selectedIndex].id, anchor: .center)
+    }
+}
+
+private struct AudibleTabRow: View {
+    let result: BrowserSearchResult
+    let faviconImage: NSImage?
+    let onSelect: () -> Void
+    let onMute: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        // The select button and the mute button are SIBLINGS in this outer
+        // HStack, not one nested inside the other — a `Button` nested inside
+        // a tappable parent (either another `Button` or a parent carrying
+        // `.onTapGesture`) is ambiguous to hit-test on macOS, and lost to the
+        // mute button in practice: clicking it fired the parent's
+        // activate-and-hide instead. Two non-overlapping sibling controls
+        // have no such ambiguity.
+        HStack(spacing: 4) {
+            Button(action: onSelect) {
+                HStack(spacing: 8) {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 14)
+
+                    if let faviconImage {
+                        Image(nsImage: faviconImage)
+                            .resizable()
+                            .frame(width: 14, height: 14)
+                    }
+
+                    Text(result.title)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 4)
+
+                    Text(result.browserName)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isHovering {
+                Button(action: onMute) {
+                    Image(systemName: "speaker.slash.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Mute tab")
+                .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accentColor.opacity(0.08))
+        )
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
     }
 }
 

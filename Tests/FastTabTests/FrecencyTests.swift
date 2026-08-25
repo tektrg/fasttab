@@ -176,6 +176,33 @@ import Testing
     #expect(sorted.first?.url == "https://random.example.com/x")
 }
 
+@Test func sortPinsAudibleTabAboveMoreRecentTabsWithNoFrecencyProvided() async throws {
+    // The empty-query / quick-open view (what you see the instant the bar
+    // opens, before typing) passes no frecency lookup — this exercises the
+    // same no-frecency fallback as sortFallsBackToRecencyWhenNoFrecencyProvided,
+    // but with an audible tab in the mix: it must still win over a more
+    // recently-used tab, exactly like the frecency path does.
+    let now = Date()
+    let audibleTab = BrowserSearchResult(
+        title: "Now playing",
+        url: "https://open.spotify.com/track/abc",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: now.addingTimeInterval(-3_600),
+        isPinnedAudibleTab: true
+    )
+    let justUsed = BrowserSearchResult(
+        title: "Just-opened",
+        url: "https://random.example.com/x",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: now
+    )
+
+    let sorted = sortBrowserSearchResults([justUsed, audibleTab])
+    #expect(sorted.first?.url == "https://open.spotify.com/track/abc")
+}
+
 @Test func sortKeepsTabsAboveBookmarksEvenWithFrecency() async throws {
     let now = Date()
     let coldTab = BrowserSearchResult(
@@ -196,6 +223,56 @@ import Testing
     let scoreLookup: (BrowserSearchResult) -> Double = { _ in 0 }
     let sorted = sortBrowserSearchResults([hotBookmark, coldTab], frecencyScore: scoreLookup)
     #expect(sorted.first?.type == .tab)
+}
+
+@Test func sortPinsAudibleTabAboveHigherFrecencyTabs() async throws {
+    let now = Date()
+    let audibleTab = BrowserSearchResult(
+        title: "Now playing",
+        url: "https://open.spotify.com/track/abc",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: now.addingTimeInterval(-3_600),
+        isPinnedAudibleTab: true
+    )
+    let dailyDriver = BrowserSearchResult(
+        title: "Daily-driver",
+        url: "https://gmail.com/inbox",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: now
+    )
+
+    let scoreLookup: (BrowserSearchResult) -> Double = { result in
+        result.url == "https://gmail.com/inbox" ? 100.0 : 0.5
+    }
+
+    let sorted = sortBrowserSearchResults([dailyDriver, audibleTab], frecencyScore: scoreLookup)
+    #expect(sorted.first?.url == "https://open.spotify.com/track/abc")
+}
+
+// MARK: - Mute toggle
+
+@Test func settingMutedDropsPinnedAudibleFlagWhenMuted() async throws {
+    let playing = BrowserSearchResult(
+        title: "Now playing",
+        url: "https://open.spotify.com/track/abc",
+        browserName: "Google Chrome",
+        type: .tab,
+        timestamp: Date(),
+        isAudible: true,
+        isMuted: false,
+        isPinnedAudibleTab: true
+    )
+
+    let muted = playing.settingMuted(true)
+    #expect(muted.isMuted == true)
+    #expect(muted.isPinnedAudibleTab == false)
+    #expect(muted.isAudible == true) // Chrome keeps playing — only silenced, not stopped
+
+    let unmuted = muted.settingMuted(false)
+    #expect(unmuted.isMuted == false)
+    #expect(unmuted.isPinnedAudibleTab == true)
 }
 
 // MARK: - Cross-type duplicate-page collapsing

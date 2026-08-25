@@ -177,6 +177,17 @@ BIN="$(swift build -c release --show-bin-path)/FastTab"
 [[ "${DRY_RUN}" == "true" ]] || [[ -f "${BIN}" ]] || die "built binary not found at ${BIN}"
 run cp "${BIN}" "${APP}/Contents/MacOS/FastTab"
 
+# Second executable: the native-messaging host relay Chrome launches. Without
+# this copy the release shipped whatever stale host binary happened to be left
+# in dist/FastTab.app by an earlier local build — source changes to the relay
+# never reached users.
+HOST_BIN_BUILT="$(swift build -c release --show-bin-path)/FastTabNativeHost"
+if [[ "${DRY_RUN}" == "true" ]] || [[ -f "${HOST_BIN_BUILT}" ]]; then
+  run cp "${HOST_BIN_BUILT}" "${APP}/Contents/MacOS/FastTabNativeHost"
+else
+  die "native host binary not found at ${HOST_BIN_BUILT}"
+fi
+
 # Ensure Sparkle rpath is set (idempotent)
 if ! otool -l "${APP}/Contents/MacOS/FastTab" | grep -q "@executable_path/../Frameworks"; then
   run install_name_tool -add_rpath "@executable_path/../Frameworks" "${APP}/Contents/MacOS/FastTab"
@@ -201,10 +212,45 @@ fi
 
 run codesign --force --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${FRAMEWORKS}"
 
+# Second Mach-O: the native-messaging host relay. Signed here, inside-out,
+# because the bundle sign below is deliberately NOT --deep.
+#
+# Deliberately NO --entitlements: Chrome launches this relay directly by
+# absolute path, so the bundle's provisioning profile does not cover it, and its
+# signing identifier (FastTabNativeHost) can never match the profile's app ID.
+# Giving it the app's profile-restricted entitlements (com.apple.application-
+# identifier, com.apple.developer.icloud-*) makes AMFI SIGKILL it on exec, which
+# Chrome surfaces as "Native host has exited". The relay is a pure stdio<->Unix-
+# socket byte pump and needs none. --options runtime stays: notarization needs it.
+HOST_BIN="${APP}/Contents/MacOS/FastTabNativeHost"
+if [[ -e "${HOST_BIN}" ]]; then
+  run codesign --force --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${HOST_BIN}"
+fi
+
+# aps-environment (CloudKit push, i.e. realtime sync) is profile-restricted:
+# AMFI SIGKILLs a bundle that claims it without an embedded provisioning profile
+# granting it. This script embeds no profile, so shipping it unconditionally
+# would brick the app for every user on update. Strip it unless a profile is
+# present and actually grants push — a Developer ID profile with the Push
+# Notifications capability, embedded at Contents/embedded.provisionprofile.
+SIGNING_ENTITLEMENTS="${ENTITLEMENTS}"
+if [[ -f "${APP}/Contents/embedded.provisionprofile" ]] && \
+   security cms -D -i "${APP}/Contents/embedded.provisionprofile" 2>/dev/null \
+     | grep -q "aps-environment"; then
+  echo "  Profile grants push; keeping aps-environment (realtime sync enabled)."
+else
+  echo "  No push-enabled profile embedded; signing without aps-environment."
+  echo "  Sync still works on its poll; realtime needs a push-capable Developer ID profile."
+  SIGNING_ENTITLEMENTS="$(mktemp -t FastTabEntitlements).plist"
+  cp "${ENTITLEMENTS}" "${SIGNING_ENTITLEMENTS}"
+  /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.aps-environment" \
+    "${SIGNING_ENTITLEMENTS}" >/dev/null 2>&1 || true
+fi
+
 run codesign \
   --force \
   --options runtime \
-  --entitlements "${ENTITLEMENTS}" \
+  --entitlements "${SIGNING_ENTITLEMENTS}" \
   --sign "${SIGN_IDENTITY}" \
   --timestamp \
   "${APP}"

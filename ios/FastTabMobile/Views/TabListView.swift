@@ -23,6 +23,10 @@ public struct TabListView: View {
     @State private var pendingCloses: [PendingTabClose] = []
     @State private var toastMessage: String?
     @State private var showToast: Bool = false
+    /// The tab awaiting a "save as bookmark" destination. Drives the same
+    /// `BookmarkMovePicker` the bookmarks tree uses; on confirm the tab's URL
+    /// is saved into the picked folder on the tab's own Mac.
+    @State private var tabSaveRequest: TabSaveRequest?
 
     public init(device: SyncedDevice? = nil) {
         self.device = device
@@ -123,6 +127,13 @@ public struct TabListView: View {
         return results
     }
 
+    /// A tab awaiting a "save as bookmark" destination. Wraps the tab so the
+    /// destination picker can be presented as an `Identifiable` sheet item.
+    private struct TabSaveRequest: Identifiable {
+        let tab: SyncedTab
+        var id: String { tab.id }
+    }
+
     // Grouping for Windows mode
     private struct WindowTabGroup: Identifiable {
         let id: String
@@ -187,9 +198,14 @@ public struct TabListView: View {
         .onChange(of: localCache.state.tabs.count) {
             pruneFinishedCloses()
         }
-        .sheet(item: $selectedURLForReader) { url in
+        .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
+        }
+        .sheet(item: $tabSaveRequest) { request in
+            BookmarkMovePicker(sourceDeviceID: request.tab.deviceID, title: "Save to…") { destination in
+                saveTabAsBookmark(request.tab, to: destination)
+            }
         }
         .overlay(alignment: .bottom) {
             if showToast, let toastMessage {
@@ -458,6 +474,13 @@ public struct TabListView: View {
         }
         .swipeActions(edge: .leading) {
             Button {
+                tabSaveRequest = TabSaveRequest(tab: tab)
+            } label: {
+                Label("Save to Folder", systemImage: "folder")
+            }
+            .tint(.blue)
+
+            Button {
                 UIPasteboard.general.string = tab.url
                 showToastHUD(message: "URL Copied")
             } label: {
@@ -482,6 +505,12 @@ public struct TabListView: View {
                     showToastHUD(message: "URL Copied")
                 } label: {
                     Label("Copy URL", systemImage: "doc.on.doc")
+                }
+
+                Button {
+                    tabSaveRequest = TabSaveRequest(tab: tab)
+                } label: {
+                    Label("Save to Folder", systemImage: "folder")
                 }
 
                 Divider()
@@ -530,6 +559,30 @@ public struct TabListView: View {
             return "Saved on this iPhone — sync is off, so your Mac hasn't been told"
         }
         return "Close queued for \(activeDevice?.name ?? "your Mac")"
+    }
+
+    /// Asks the tab's Mac to save the tab's URL as a new bookmark into the
+    /// picked folder. Unlike the bookmark-tree Move (which relocates an existing
+    /// bookmark), there is no source node to remove — the tab stays open and a
+    /// new bookmark is inserted. Runs immediately on the Mac, no approval step.
+    private func saveTabAsBookmark(_ tab: SyncedTab, to destination: BookmarkMoveDestination) {
+        SyncConsumer.shared.sendAddBookmark(
+            title: Self.displayTitle(for: tab),
+            url: tab.url,
+            destinationBrowserName: destination.browserName,
+            destinationProfileName: destination.profileName,
+            destinationFolderPath: destination.folderPath,
+            targetDeviceID: tab.deviceID
+        )
+        showToastHUD(message: saveAcknowledgement(for: tab))
+    }
+
+    private func saveAcknowledgement(for tab: SyncedTab) -> String {
+        if SyncConsumer.shared.syncHealth.isBlocked {
+            return "Saved on this iPhone — sync is off, so your Mac hasn't been told"
+        }
+        let deviceName = localCache.state.devices.first { $0.id == tab.deviceID }?.name ?? "your Mac"
+        return "Save queued for \(deviceName)"
     }
 
     private static func displayTitle(for tab: SyncedTab) -> String {

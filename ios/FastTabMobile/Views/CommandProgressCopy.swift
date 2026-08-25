@@ -131,6 +131,8 @@ struct CommandProgress: Equatable {
         case .closeTab: return "Closed on your Mac"
         case .deleteBookmark: return "Bookmark deleted on your Mac"
         case .deleteHistoryItem: return "History entry deleted on your Mac"
+        case .moveBookmark: return "Bookmark moved on your Mac"
+        case .addBookmark: return "Bookmark saved on your Mac"
         }
     }
 
@@ -140,6 +142,8 @@ struct CommandProgress: Equatable {
         case .closeTab: return "Your Mac couldn't find that tab"
         case .deleteBookmark: return "Your Mac couldn't find that bookmark"
         case .deleteHistoryItem: return "Your Mac couldn't find that history entry"
+        case .moveBookmark: return "Your Mac couldn't find that bookmark"
+        case .addBookmark: return "Your Mac couldn't save that bookmark"
         }
     }
 }

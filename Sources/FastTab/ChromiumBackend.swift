@@ -323,6 +323,10 @@ struct ChromiumBackend: BrowserBackend {
         let timePredicate = timeClauses.isEmpty ? "" : " AND " + timeClauses.joined(separator: " AND ")
 
         for profile in profiles() {
+            // A superseded search (the user kept typing) has already stopped
+            // caring about this result — stop launching another `sqlite3`
+            // subprocess per remaining profile once cancelled.
+            if Task.isCancelled { break }
             let remainingSeconds = deadline.timeIntervalSinceNow
             guard remainingSeconds > 0 else { break }
             guard FileManager.default.fileExists(atPath: profile.historyURL.path) else { continue }
@@ -566,38 +570,86 @@ struct ChromiumBackend: BrowserBackend {
     }
 
     func closeTab(_ result: BrowserSearchResult) {
+        _ = closeTabWithResult(result, allowPositionalFallback: true)
+    }
+
+    func closeTabWithResult(_ result: BrowserSearchResult, allowPositionalFallback: Bool) -> TabCloseResult {
         let safeURL = appleScriptQuoted(result.url)
         let fallbackWindow = max(1, result.windowIndex ?? 1)
         let fallbackTab = max(1, result.tabIndex ?? 1)
 
-        let script = """
-        tell application "\(result.browserName)"
-            if it is not running then return
-            set targetURL to "\(safeURL)"
-            set didClose to false
-            try
-                repeat with w in windows
-                    set tabURLs to URL of every tab of w
-                    repeat with i from 1 to count of tabURLs
-                        if (item i of tabURLs) is equal to targetURL then
-                            close tab i of w
-                            set didClose to true
-                            exit repeat
-                        end if
+        let script: String
+        if allowPositionalFallback {
+            script = """
+            tell application "\(result.browserName)"
+                if it is not running then return "not_found"
+                set targetURL to "\(safeURL)"
+                try
+                    repeat with w in windows
+                        set tabURLs to URL of every tab of w
+                        repeat with i from 1 to count of tabURLs
+                            if (item i of tabURLs) is equal to targetURL then
+                                close tab i of w
+                                return "closed"
+                            end if
+                        end repeat
                     end repeat
-                    if didClose then exit repeat
-                end repeat
-            end try
-            if didClose is false then
+                end try
                 try
                     close tab \(fallbackTab) of window \(fallbackWindow)
+                    return "closed"
                 end try
-            end if
-        end tell
-        """
+                return "not_found"
+            end tell
+            """
+        } else {
+            script = """
+            tell application "\(result.browserName)"
+                if it is not running then return "not_found"
+                set targetURL to "\(safeURL)"
+                set matchCount to 0
+                set targetWin to 0
+                set targetTab to 0
+                try
+                    repeat with wIdx from 1 to count of windows
+                        set w to window wIdx
+                        set tabURLs to URL of every tab of w
+                        repeat with i from 1 to count of tabURLs
+                            if (item i of tabURLs) is equal to targetURL then
+                                set matchCount to matchCount + 1
+                                set targetWin to wIdx
+                                set targetTab to i
+                            end if
+                        end repeat
+                    end repeat
+                end try
+                if matchCount is equal to 0 then
+                    return "not_found"
+                else if matchCount is greater than 1 then
+                    return "refused:ambiguous"
+                else
+                    try
+                        close tab targetTab of window targetWin
+                        return "closed"
+                    end try
+                    return "not_found"
+                end if
+            end tell
+            """
+        }
 
-        logger.info("closeTab: app=\(result.browserName, privacy: .public) title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
-        runAppleScript(script, logger: logger, action: "closeTab")
+        logger.info("closeTabWithResult: app=\(result.browserName, privacy: .public) allowPositional=\(allowPositionalFallback) title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
+        let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script], timeoutSeconds: 8)
+        switch output {
+        case "closed":
+            return .closed
+        case "refused:ambiguous":
+            return .refused("Ambiguous tab URL: multiple tabs open with identical URL")
+        case "not_found":
+            return .notFound
+        default:
+            return .notFound
+        }
     }
 
     func openURL(_ result: BrowserSearchResult) {
@@ -812,6 +864,249 @@ struct ChromiumBackend: BrowserBackend {
         }
     }
 
+    // MARK: - Move support
+
+    /// Removes a bookmark the same way `deleteBookmark` does, but also walks
+    /// the folder trail on the way down (mirrors `collectBookmarks`) so the
+    /// caller can recreate the node elsewhere, or restore it to exactly where
+    /// it came from if the destination write fails.
+    func removeBookmarkForMove(_ result: BrowserSearchResult) -> RemovedBookmarkNode? {
+        guard let bookmarkID = result.bookmarkID else {
+            logger.error("removeBookmarkForMove: missing bookmarkID for url='\(result.url, privacy: .public)'")
+            return nil
+        }
+
+        guard let profile = profile(for: result) else {
+            logger.error("removeBookmarkForMove: profile not found for browser=\(result.browserName, privacy: .public) profile=\(result.profileName ?? "", privacy: .public)")
+            return nil
+        }
+
+        do {
+            let data = try Data(contentsOf: profile.bookmarksURL)
+            guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  var roots = root["roots"] as? [String: Any] else {
+                logger.error("removeBookmarkForMove: invalid bookmark JSON at path=\(profile.bookmarksURL.path, privacy: .public)")
+                return nil
+            }
+
+            var removed: RemovedBookmarkNode?
+            for (key, value) in roots {
+                guard var node = value as? [String: Any] else { continue }
+                let rootName = (node["name"] as? String) ?? ""
+                let rootTrail = rootName.isEmpty ? [] : [rootName]
+                if let found = Self.extractBookmarkNode(withID: bookmarkID, from: &node, folderTrail: rootTrail) {
+                    removed = found
+                    roots[key] = node
+                    break
+                }
+            }
+
+            guard let removed else {
+                logger.error("removeBookmarkForMove: bookmark id=\(bookmarkID, privacy: .public) not found")
+                return nil
+            }
+
+            root["roots"] = roots
+            let updatedData = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            try updatedData.write(to: profile.bookmarksURL, options: .atomic)
+            logger.info("removeBookmarkForMove: removed bookmark id=\(bookmarkID, privacy: .public) from profile=\(profile.name, privacy: .public)")
+            return removed
+        } catch {
+            logger.error("removeBookmarkForMove: failed for profile=\(profile.name, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Writes a brand-new bookmark node into `profileName` at `folderPath` (an
+    /// ordered list of folder *display* names, matching how `folderPath` is
+    /// derived in `collectBookmarks`). An empty path resolves to this
+    /// browser's "other" root by JSON key — Chromium's own catch-all folder,
+    /// matched by key rather than display name since the key is stable across
+    /// locales and there's no path segment to match against for "top level".
+    func insertBookmark(title: String, url: String, dateAdded: Date?, profileName: String, folderPath: [String]) -> Bool {
+        guard let profile = profiles().first(where: { $0.name == profileName }) else {
+            logger.error("insertBookmark: profile not found name=\(profileName, privacy: .public)")
+            return false
+        }
+
+        do {
+            let data = try Data(contentsOf: profile.bookmarksURL)
+            guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  var roots = root["roots"] as? [String: Any] else {
+                logger.error("insertBookmark: invalid bookmark JSON at path=\(profile.bookmarksURL.path, privacy: .public)")
+                return false
+            }
+
+            var nextID = Self.highestBookmarkID(in: roots) + 1
+            let newNode: [String: Any] = [
+                "type": "url",
+                "name": title,
+                "url": url,
+                "id": String(nextID),
+                "date_added": Self.chromiumDateString(from: dateAdded ?? Date())
+            ]
+            // The URL node took `nextID`; ids after this go to any folder nodes
+            // `insertIntoFolder` has to create along the destination trail.
+            nextID += 1
+
+            var inserted = false
+            for (key, value) in roots {
+                guard var node = value as? [String: Any] else { continue }
+                let rootName = (node["name"] as? String) ?? ""
+                let matchesTopLevel = folderPath.isEmpty && key == "other"
+                let matchesNamedPath = !folderPath.isEmpty && rootName == folderPath[0]
+                guard matchesTopLevel || matchesNamedPath else { continue }
+
+                let remaining = folderPath.isEmpty ? [] : Array(folderPath.dropFirst())
+                if Self.insertIntoFolder(&node, remainingPath: remaining, newNode: newNode, nextID: &nextID) {
+                    roots[key] = node
+                    inserted = true
+                    break
+                }
+            }
+
+            // A destination path whose first segment isn't a top-level root gets
+            // created under Chromium's catch-all "other" root — the same place an
+            // empty (top-level) destination lands, just nested. This is what lets
+            // a whole-folder move re-create its folder at the destination even
+            // when nothing there matches its name yet; a single-bookmark move
+            // always targets an existing folder, so it only reaches here on a
+            // stale destination.
+            if !inserted, !folderPath.isEmpty {
+                guard var otherNode = roots["other"] as? [String: Any] else {
+                    logger.error("insertBookmark: no 'other' root to create destination folder under path='\(folderPath.joined(separator: " / "), privacy: .public)'")
+                    return false
+                }
+                if Self.insertIntoFolder(&otherNode, remainingPath: folderPath, newNode: newNode, nextID: &nextID) {
+                    roots["other"] = otherNode
+                    inserted = true
+                }
+            }
+
+            guard inserted else {
+                logger.error("insertBookmark: destination folder not found path='\(folderPath.joined(separator: " / "), privacy: .public)'")
+                return false
+            }
+
+            root["roots"] = roots
+            let updatedData = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            try updatedData.write(to: profile.bookmarksURL, options: .atomic)
+            logger.info("insertBookmark: added '\(title, privacy: .public)' to profile=\(profile.name, privacy: .public) path='\(folderPath.joined(separator: " / "), privacy: .public)'")
+            return true
+        } catch {
+            logger.error("insertBookmark: failed for profile=\(profile.name, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    private static func extractBookmarkNode(
+        withID bookmarkID: String,
+        from node: inout [String: Any],
+        folderTrail: [String]
+    ) -> RemovedBookmarkNode? {
+        guard let children = node["children"] as? [[String: Any]] else { return nil }
+
+        var extracted: RemovedBookmarkNode?
+        var nextChildren: [[String: Any]] = []
+        nextChildren.reserveCapacity(children.count)
+
+        for var child in children {
+            if extracted == nil, (child["id"] as? String) == bookmarkID {
+                extracted = RemovedBookmarkNode(
+                    title: (child["name"] as? String) ?? "",
+                    url: (child["url"] as? String) ?? "",
+                    dateAdded: chromiumDate(from: child["date_added"] as? String),
+                    originalFolderPath: folderTrail
+                )
+                continue
+            }
+
+            if extracted == nil {
+                let childName = (child["name"] as? String) ?? ""
+                let childIsFolder = (child["type"] as? String) == "folder"
+                let childTrail = childIsFolder && !childName.isEmpty ? folderTrail + [childName] : folderTrail
+                if let found = extractBookmarkNode(withID: bookmarkID, from: &child, folderTrail: childTrail) {
+                    extracted = found
+                }
+            }
+
+            nextChildren.append(child)
+        }
+
+        if extracted != nil {
+            node["children"] = nextChildren
+        }
+        return extracted
+    }
+
+    private static func insertIntoFolder(
+        _ node: inout [String: Any],
+        remainingPath: [String],
+        newNode: [String: Any],
+        nextID: inout Int
+    ) -> Bool {
+        guard var children = node["children"] as? [[String: Any]] else { return false }
+
+        if remainingPath.isEmpty {
+            children.append(newNode)
+            node["children"] = children
+            return true
+        }
+
+        let next = remainingPath[0]
+        let rest = Array(remainingPath.dropFirst())
+        for i in children.indices {
+            guard (children[i]["type"] as? String) == "folder",
+                  (children[i]["name"] as? String) == next else { continue }
+            var child = children[i]
+            if insertIntoFolder(&child, remainingPath: rest, newNode: newNode, nextID: &nextID) {
+                children[i] = child
+                node["children"] = children
+                return true
+            }
+        }
+
+        // `next` isn't on this trail yet. A whole-folder move lands leaves in a
+        // destination path whose own folder isn't there (moving "Work" into
+        // "Archive" writes into "Archive/Work"), so create the missing folder
+        // and keep descending. A single-bookmark move always targets an
+        // existing folder, so this branch never fires for it.
+        var created: [String: Any] = [
+            "type": "folder",
+            "name": next,
+            "id": String(nextID),
+            "date_added": Self.chromiumDateString(from: Date()),
+            "children": [] as [[String: Any]]
+        ]
+        nextID += 1
+        // Descending into a folder we just created can't fail — the rest of the
+        // trail is created recursively, and the fresh folder has a children array.
+        if insertIntoFolder(&created, remainingPath: rest, newNode: newNode, nextID: &nextID) {
+            children.append(created)
+            node["children"] = children
+            return true
+        }
+        return false
+    }
+
+    private static func highestBookmarkID(in roots: [String: Any]) -> Int {
+        var maxID = 0
+        func walk(_ node: [String: Any]) {
+            if let idString = node["id"] as? String, let idValue = Int(idString) {
+                maxID = max(maxID, idValue)
+            }
+            if let children = node["children"] as? [[String: Any]] {
+                children.forEach(walk)
+            }
+        }
+        for value in roots.values {
+            if let node = value as? [String: Any] {
+                walk(node)
+            }
+        }
+        return maxID
+    }
+
     func deleteHistoryItem(_ result: BrowserSearchResult) {
         guard let profile = profile(for: result) else {
             logger.error("deleteHistoryItem: profile not found for browser=\(result.browserName, privacy: .public) profile=\(result.profileName ?? "", privacy: .public)")
@@ -912,6 +1207,52 @@ struct ChromiumBackend: BrowserBackend {
         return all.first
     }
 
+    /// Profile directory names the browser currently has open, detected via
+    /// its running process's open file handles (no Automation permission
+    /// needed — this is process inspection, not Apple Events). `profiles()`
+    /// counts every profile folder ever created, including long-abandoned
+    /// ones (an unused "Guest Profile", a profile from years ago); the
+    /// extension-completeness check needs to know which profiles are
+    /// actually live right now, or it can never be satisfied. Returns nil
+    /// when this can't be determined (browser not running, `lsof` missing) —
+    /// callers should fall back to the full disk count rather than
+    /// under-count and risk treating a partial extension snapshot as complete.
+    func livingProfileNames() -> Set<String>? {
+        let knownNames = Set(profiles().map(\.name))
+        guard !knownNames.isEmpty else { return nil }
+
+        let pids = NSWorkspace.shared.runningApplications
+            .filter { $0.bundleIdentifier == bundleIdentifier }
+            .map(\.processIdentifier)
+        guard !pids.isEmpty else { return nil }
+
+        var living = Set<String>()
+        for pid in pids {
+            guard let output = Self.runLSOF(pid: pid) else { return nil }
+            for name in knownNames where output.contains("/\(name)/") {
+                living.insert(name)
+            }
+        }
+        return living
+    }
+
+    private static func runLSOF(pid: Int32) -> String? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        task.arguments = ["-p", String(pid)]
+        let outPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = Pipe()
+        do {
+            try task.run()
+        } catch {
+            return nil
+        }
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
+        return String(data: data, encoding: .utf8)
+    }
+
     private func browserExecutableURL() -> URL? {
         guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
             return nil
@@ -934,5 +1275,12 @@ struct ChromiumBackend: BrowserBackend {
     private static func chromiumDate(fromSQLiteValue rawValue: String) -> Date? {
         guard let microseconds = Double(rawValue) else { return nil }
         return Date(timeIntervalSince1970: (microseconds / 1_000_000) - 11_644_473_600)
+    }
+
+    /// Inverse of `chromiumDate(from:)` — encodes a `Date` back into
+    /// Chromium's own `date_added` format (microseconds since 1601-01-01 UTC).
+    private static func chromiumDateString(from date: Date) -> String {
+        let microseconds = (date.timeIntervalSince1970 + 11_644_473_600) * 1_000_000
+        return String(Int64(microseconds))
     }
 }

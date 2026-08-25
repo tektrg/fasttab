@@ -133,12 +133,15 @@ struct FinderBackend: BrowserBackend {
         } else {
             // Same word-by-word, accent-insensitive rule as tab/bookmark search
             // so file results don't behave differently from browser results.
+            // Fold the query once rather than per snapshot entry — this runs
+            // over the whole Finder history on every keystroke.
+            let queryWords = searchWords(in: trimmed)
             matches = snapshot.filter {
                 if let since, $0.lastVisit < since { return false }
                 if let before, $0.lastVisit >= before { return false }
                 return foldedKeys(
                     [foldForMatching($0.basename), foldForMatching($0.path)],
-                    containAllWordsOf: trimmed
+                    containAllWordsOf: queryWords
                 )
             }
         }
@@ -173,9 +176,13 @@ struct FinderBackend: BrowserBackend {
                 try
                     set index of window \(windowIndex) to 1
                 on error
-                    repeat with w in (every Finder window)
+                    set theWindows to every Finder window
+                    set winCount to count of theWindows
+                    repeat with i from 1 to winCount
                         try
-                            if POSIX path of (target of w as alias) is "\(path)" then
+                            set w to item i of theWindows
+                            set t to target of w
+                            if POSIX path of (t as alias) is "\(path)" then
                                 set index of w to 1
                                 exit repeat
                             end if
@@ -188,9 +195,13 @@ struct FinderBackend: BrowserBackend {
             script = """
             tell application "Finder"
                 activate
-                repeat with w in (every Finder window)
+                set theWindows to every Finder window
+                set winCount to count of theWindows
+                repeat with i from 1 to winCount
                     try
-                        if POSIX path of (target of w as alias) is "\(path)" then
+                        set w to item i of theWindows
+                        set t to target of w
+                        if POSIX path of (t as alias) is "\(path)" then
                             set index of w to 1
                             exit repeat
                         end if
@@ -203,34 +214,100 @@ struct FinderBackend: BrowserBackend {
     }
 
     func closeTab(_ result: BrowserSearchResult) {
-        // Close by window index when available — avoids `target of w as alias`,
-        // which can stall on sleeping NAS / unmounted shares. Fall back to a
-        // path scan only if no index was captured.
+        _ = closeTabWithResult(result, allowPositionalFallback: true)
+    }
+
+    /// Mirrors ChromiumBackend/SafariBackend's contract: `allowPositionalFallback:
+    /// true` (local swipe-to-close) trusts the last-known window index and avoids
+    /// `target of w as alias`, which can stall on sleeping NAS / unmounted shares.
+    /// `false` (remote close from iOS, via `SyncService+CommandDelivery`) instead
+    /// verifies by path across every window and refuses an ambiguous match —
+    /// without this override, remote Finder-window closes silently no-op through
+    /// the `BrowserBackend` protocol's default `closeTabWithResult`, which always
+    /// returns `.notFound` and never runs any AppleScript at all.
+    func closeTabWithResult(_ result: BrowserSearchResult, allowPositionalFallback: Bool) -> TabCloseResult {
         let path = appleScriptQuoted(result.url)
         let script: String
-        if let windowIndex = result.windowIndex, windowIndex >= 1 {
-            script = """
-            tell application "Finder"
-                try
-                    close window \(windowIndex)
-                end try
-            end tell
-            """
+        if allowPositionalFallback {
+            if let windowIndex = result.windowIndex, windowIndex >= 1 {
+                script = """
+                tell application "Finder"
+                    if not running then return "not_found"
+                    try
+                        close window \(windowIndex)
+                        return "closed"
+                    end try
+                    return "not_found"
+                end tell
+                """
+            } else {
+                script = """
+                tell application "Finder"
+                    if not running then return "not_found"
+                    set targetPath to "\(path)"
+                    try
+                        set theWindows to every Finder window
+                        set winCount to count of theWindows
+                        repeat with i from 1 to winCount
+                            try
+                                set w to item i of theWindows
+                                set t to target of w
+                                if POSIX path of (t as alias) is targetPath then
+                                    close w
+                                    return "closed"
+                                end if
+                            end try
+                        end repeat
+                    end try
+                    return "not_found"
+                end tell
+                """
+            }
         } else {
             script = """
             tell application "Finder"
-                repeat with w in (every Finder window)
+                if not running then return "not_found"
+                set targetPath to "\(path)"
+                set matchCount to 0
+                try
+                    set theWindows to every Finder window
+                    set winCount to count of theWindows
+                    repeat with i from 1 to winCount
+                        try
+                            set w to item i of theWindows
+                            set t to target of w
+                            if POSIX path of (t as alias) is targetPath then
+                                set matchCount to matchCount + 1
+                                set matchedWindow to w
+                            end if
+                        end try
+                    end repeat
+                end try
+                if matchCount is equal to 0 then
+                    return "not_found"
+                else if matchCount is greater than 1 then
+                    return "refused:ambiguous"
+                else
                     try
-                        if POSIX path of (target of w as alias) is "\(path)" then
-                            close w
-                            exit repeat
-                        end if
+                        close matchedWindow
+                        return "closed"
                     end try
-                end repeat
+                    return "not_found"
+                end if
             end tell
             """
         }
-        runAppleScript(script, logger: Self.logger, action: "closeTab")
+
+        Self.logger.info("closeTabWithResult: allowPositional=\(allowPositionalFallback) title='\(result.title, privacy: .public)' path='\(result.url, privacy: .public)'")
+        let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script], timeoutSeconds: 8)
+        switch output {
+        case "closed":
+            return .closed
+        case "refused:ambiguous":
+            return .refused("Ambiguous window path: multiple Finder windows open on the same folder")
+        default:
+            return .notFound
+        }
     }
 
     func openURL(_ result: BrowserSearchResult) {

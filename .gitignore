@@ -38,5 +38,7 @@ extension-key.pem
 /ios/FastTabMobile.xcodeproj/
 # Xcode derived data for the iOS target (DERIVED_DATA="build" in build-ios.sh).
 /ios/build/
+# Xcode derived data for iOS Simulator builds.
+/ios/build-sim/
 # Design mockup — working reference, not versioned source.
 /ios/FastTabMobile_Redesign_Mockup.html

@@ -87,10 +87,16 @@ func searchWords(in query: String) -> [String] {
         .filter { !$0.isEmpty }
 }
 
-/// True when every word of `query` appears in at least one of `keys`.
-/// `keys` must already be folded via `foldForMatching`.
-func foldedKeys(_ keys: [String], containAllWordsOf query: String) -> Bool {
-    let words = searchWords(in: query)
+/// True when every one of `words` appears in at least one of `keys`.
+/// `keys` must already be folded via `foldForMatching`; `words` must already
+/// be folded via `searchWords(in:)`.
+///
+/// Callers matching many candidates against the same typed query (searching
+/// hundreds of tabs/bookmarks/history rows per keystroke) must fold the query
+/// into `words` once up front and reuse it — re-running `searchWords(in:)`
+/// per candidate repeats the same Unicode case/accent/width folding on
+/// identical input hundreds of times over.
+func foldedKeys(_ keys: [String], containAllWordsOf words: [String]) -> Bool {
     guard !words.isEmpty else { return true }
     return words.allSatisfy { word in
         keys.contains { $0.contains(word) }

@@ -1,15 +1,14 @@
 import Foundation
 import Security
 
-@MainActor
-protocol LicenseStorage {
-    func loadTrial() throws -> TrialRecord?
-    func saveTrial(_ trial: TrialRecord) throws
-    func loadLicense() throws -> StoredLicense?
-    func saveLicense(_ license: StoredLicense) throws
-    func deleteLicense() throws
-    func loadDeviceIdentity() throws -> DeviceActivationIdentity?
-    func saveDeviceIdentity(_ identity: DeviceActivationIdentity) throws
+protocol LicenseStorage: Sendable {
+    func loadTrial() async throws -> TrialRecord?
+    func saveTrial(_ trial: TrialRecord) async throws
+    func loadLicense() async throws -> StoredLicense?
+    func saveLicense(_ license: StoredLicense) async throws
+    func deleteLicense() async throws
+    func loadDeviceIdentity() async throws -> DeviceActivationIdentity?
+    func saveDeviceIdentity(_ identity: DeviceActivationIdentity) async throws
 }
 
 enum LicenseStorageError: Error, LocalizedError {
@@ -23,11 +22,11 @@ enum LicenseStorageError: Error, LocalizedError {
     }
 }
 
-@MainActor
-final class KeychainLicenseStorage: LicenseStorage {
+final class KeychainLicenseStorage: LicenseStorage, @unchecked Sendable {
     static let shared = KeychainLicenseStorage()
 
     private let service = "com.trungluong.FastTab.payment"
+    private let queue = DispatchQueue(label: "com.trungluong.FastTab.license-keychain")
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -36,32 +35,40 @@ final class KeychainLicenseStorage: LicenseStorage {
         decoder.dateDecodingStrategy = .iso8601
     }
 
-    func loadTrial() throws -> TrialRecord? {
-        try load(TrialRecord.self, account: "trial")
+    func loadTrial() async throws -> TrialRecord? {
+        try await perform { try self.load(TrialRecord.self, account: "trial") }
     }
 
-    func saveTrial(_ trial: TrialRecord) throws {
-        try save(trial, account: "trial")
+    func saveTrial(_ trial: TrialRecord) async throws {
+        try await perform { try self.save(trial, account: "trial") }
     }
 
-    func loadLicense() throws -> StoredLicense? {
-        try load(StoredLicense.self, account: "license")
+    func loadLicense() async throws -> StoredLicense? {
+        try await perform { try self.load(StoredLicense.self, account: "license") }
     }
 
-    func saveLicense(_ license: StoredLicense) throws {
-        try save(license, account: "license")
+    func saveLicense(_ license: StoredLicense) async throws {
+        try await perform { try self.save(license, account: "license") }
     }
 
-    func deleteLicense() throws {
-        try delete(account: "license")
+    func deleteLicense() async throws {
+        try await perform { try self.delete(account: "license") }
     }
 
-    func loadDeviceIdentity() throws -> DeviceActivationIdentity? {
-        try load(DeviceActivationIdentity.self, account: "device")
+    func loadDeviceIdentity() async throws -> DeviceActivationIdentity? {
+        try await perform { try self.load(DeviceActivationIdentity.self, account: "device") }
     }
 
-    func saveDeviceIdentity(_ identity: DeviceActivationIdentity) throws {
-        try save(identity, account: "device")
+    func saveDeviceIdentity(_ identity: DeviceActivationIdentity) async throws {
+        try await perform { try self.save(identity, account: "device") }
+    }
+
+    private func perform<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result { try operation() })
+            }
+        }
     }
 
     private func load<T: Decodable>(_ type: T.Type, account: String) throws -> T? {

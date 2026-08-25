@@ -15,39 +15,78 @@ final class LicenseService: ObservableObject {
 
     private let configuration: PaymentConfiguration
     private let storage: LicenseStorage
+    private let licenseMutations: OrderedLicenseMutationCoordinator
     private let client: PolarLicenseClient
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "LicenseService")
     private let lastValidationVersionKey = "FastTab.license.lastValidationVersion"
+    private let initialLoadTimeout: Duration
     private var pendingLaunchValidationVersion: String?
+    private var launchValidationRequestedWhileLoading = false
+    private var stateRevision: UInt = 0
+    private var cachedStateLoadTask: Task<Void, Never>?
+    private var cachedStateTimeoutTask: Task<Void, Never>?
 
     init(
         configuration: PaymentConfiguration,
         storage: LicenseStorage,
-        client: PolarLicenseClient
+        client: PolarLicenseClient,
+        initialLoadTimeout: Duration = .seconds(3)
     ) {
         self.configuration = configuration
         self.storage = storage
+        self.licenseMutations = OrderedLicenseMutationCoordinator(storage: storage)
         self.client = client
+        self.initialLoadTimeout = initialLoadTimeout
         refreshCachedState()
     }
 
     func refreshCachedState(now: Date = Date()) {
+        cachedStateLoadTask?.cancel()
+        cachedStateTimeoutTask?.cancel()
+        let revision = beginStateOperation()
+
+        cachedStateLoadTask = Task { [weak self] in
+            await self?.loadCachedState(now: now, revision: revision)
+        }
+        let loadTimeout = initialLoadTimeout
+        cachedStateTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: loadTimeout)
+            } catch {
+                return
+            }
+            guard let self, revision == self.stateRevision else { return }
+            self.setStorageUnavailable(revision: revision)
+        }
+    }
+
+    private func loadCachedState(now: Date, revision: UInt) async {
         do {
-            var trial = try storage.loadTrial()
+            var trial = try await storage.loadTrial()
+            try Task.checkCancellation()
+            let license = try await storage.loadLicense()
+            try Task.checkCancellation()
+            guard revision == stateRevision else { return }
+            cachedStateTimeoutTask?.cancel()
+
             if trial == nil {
                 trial = TrialRecord(startedAt: now)
-                try storage.saveTrial(trial!)
+                try await storage.saveTrial(trial!)
+                try Task.checkCancellation()
             }
 
-            if let license = try storage.loadLicense() {
+            guard revision == stateRevision else { return }
+            if let license {
                 let access = LicenseEntitlementPolicy.access(
                     for: license,
                     currentMajorVersion: configuration.currentMajorVersion
                 )
                 snapshot = EntitlementSnapshot(access: access, trial: trial, license: license, lastErrorMessage: nil)
+                replayLatchedLaunchValidationIfNeeded()
                 return
             }
 
+            launchValidationRequestedWhileLoading = false
             snapshot = EntitlementSnapshot(
                 access: TrialPolicy.access(for: trial!, now: now),
                 trial: trial,
@@ -55,13 +94,9 @@ final class LicenseService: ObservableObject {
                 lastErrorMessage: nil
             )
         } catch {
+            guard !(error is CancellationError), revision == stateRevision else { return }
             logger.error("Failed to refresh license state: \(error.localizedDescription, privacy: .public)")
-            snapshot = EntitlementSnapshot(
-                access: .expiredTrial,
-                trial: nil,
-                license: nil,
-                lastErrorMessage: "License storage is unavailable."
-            )
+            setStorageUnavailable(revision: revision)
         }
     }
 
@@ -69,6 +104,7 @@ final class LicenseService: ObservableObject {
         guard snapshot.license == nil, let trial = snapshot.trial else { return }
         let nextAccess = TrialPolicy.access(for: trial, now: now)
         guard nextAccess != snapshot.access else { return }
+        _ = beginStateOperation()
         snapshot = EntitlementSnapshot(
             access: nextAccess,
             trial: trial,
@@ -89,6 +125,11 @@ final class LicenseService: ObservableObject {
     }
 
     func validateForLaunch() {
+        guard snapshot != .starting else {
+            launchValidationRequestedWhileLoading = true
+            return
+        }
+
         let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         let previousVersion = UserDefaults.standard.string(forKey: lastValidationVersionKey)
         let shouldForceValidation = !currentVersion.isEmpty && previousVersion != currentVersion
@@ -105,6 +146,12 @@ final class LicenseService: ObservableObject {
         }
     }
 
+    private func replayLatchedLaunchValidationIfNeeded() {
+        guard launchValidationRequestedWhileLoading else { return }
+        launchValidationRequestedWhileLoading = false
+        validateForLaunch()
+    }
+
     func activateLicense(key rawKey: String) async {
         let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
@@ -118,9 +165,11 @@ final class LicenseService: ObservableObject {
 
         isActivating = true
         defer { isActivating = false }
+        let revision = beginStateOperation()
+        await licenseMutations.registerIntent(revision)
 
         do {
-            let device = try ensureDeviceIdentity()
+            let device = try await ensureDeviceIdentity()
             let conditions = licenseConditions
             let activation = try await client.activate(
                 key: key,
@@ -143,28 +192,38 @@ final class LicenseService: ObservableObject {
                 device: device,
                 validatedAt: Date()
             )
-            try storage.saveLicense(stored)
+            guard try await licenseMutations.save(stored, revision: revision) else { return }
+            let trial = try await storage.loadTrial()
+            guard revision == stateRevision else { return }
             snapshot = EntitlementSnapshot(
                 access: LicenseEntitlementPolicy.access(
                     for: stored,
                     currentMajorVersion: configuration.currentMajorVersion
                 ),
-                trial: try storage.loadTrial(),
+                trial: trial,
                 license: stored,
                 lastErrorMessage: nil
             )
         } catch {
+            guard revision == stateRevision else { return }
             logger.error("License activation failed: \(error.localizedDescription, privacy: .public)")
             setError(error.localizedDescription)
         }
     }
 
     func clearLicense() {
-        do {
-            try storage.deleteLicense()
-            refreshCachedState()
-        } catch {
-            setError("Could not remove the saved license.")
+        let revision = beginStateOperation()
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                await self.licenseMutations.registerIntent(revision)
+                guard try await self.licenseMutations.delete(revision: revision) else { return }
+                guard revision == self.stateRevision else { return }
+                self.refreshCachedState()
+            } catch {
+                guard revision == self.stateRevision else { return }
+                self.setError("Could not remove the saved license.")
+            }
         }
     }
 
@@ -231,16 +290,18 @@ final class LicenseService: ObservableObject {
         ["major_version": configuration.currentMajorVersion]
     }
 
-    private func ensureDeviceIdentity() throws -> DeviceActivationIdentity {
-        if let existing = try storage.loadDeviceIdentity() {
+    private func ensureDeviceIdentity() async throws -> DeviceActivationIdentity {
+        if let existing = try await storage.loadDeviceIdentity() {
             return existing
         }
         let identity = DeviceActivationIdentity.current()
-        try storage.saveDeviceIdentity(identity)
+        try await storage.saveDeviceIdentity(identity)
         return identity
     }
 
     private func revalidateCachedLicense(_ license: StoredLicense) async -> Bool {
+        let revision = beginStateOperation()
+        await licenseMutations.registerIntent(revision)
         do {
             let validated = try await client.validate(
                 key: license.key,
@@ -256,7 +317,8 @@ final class LicenseService: ObservableObject {
                 device: license.device,
                 validatedAt: Date()
             )
-            try storage.saveLicense(updated)
+            guard try await licenseMutations.save(updated, revision: revision) else { return false }
+            guard revision == stateRevision else { return false }
             snapshot = EntitlementSnapshot(
                 access: LicenseEntitlementPolicy.access(
                     for: updated,
@@ -268,6 +330,7 @@ final class LicenseService: ObservableObject {
             )
             return true
         } catch {
+            guard revision == stateRevision else { return false }
             logger.error("License validation failed: \(error.localizedDescription, privacy: .public)")
             // In sandbox/local dev builds, production license keys will always fail
             // to validate against the sandbox Polar API. Suppress the user-facing
@@ -318,12 +381,67 @@ final class LicenseService: ObservableObject {
     }
 
     private func setError(_ message: String) {
+        _ = beginStateOperation()
         snapshot = EntitlementSnapshot(
             access: snapshot.access,
             trial: snapshot.trial,
             license: snapshot.license,
             lastErrorMessage: message
         )
+    }
+
+    @discardableResult
+    private func beginStateOperation() -> UInt {
+        stateRevision &+= 1
+        return stateRevision
+    }
+
+    private func setStorageUnavailable(revision: UInt) {
+        guard revision == stateRevision else { return }
+        snapshot = EntitlementSnapshot(
+            access: .expiredTrial,
+            trial: nil,
+            license: nil,
+            lastErrorMessage: "License storage is unavailable."
+        )
+    }
+}
+
+private actor OrderedLicenseMutationCoordinator {
+    private let storage: LicenseStorage
+    private var latestIntentRevision: UInt = 0
+    private var mutationTail: Task<Void, Never>?
+
+    init(storage: LicenseStorage) {
+        self.storage = storage
+    }
+
+    func registerIntent(_ revision: UInt) {
+        latestIntentRevision = max(latestIntentRevision, revision)
+    }
+
+    func save(_ license: StoredLicense, revision: UInt) async throws -> Bool {
+        guard revision == latestIntentRevision else { return false }
+        let predecessor = mutationTail
+        let operation = Task {
+            await predecessor?.value
+            try await storage.saveLicense(license)
+        }
+        mutationTail = Task { try? await operation.value }
+        try await operation.value
+        return revision == latestIntentRevision
+    }
+
+    func delete(revision: UInt) async throws -> Bool {
+        guard revision == latestIntentRevision else { return false }
+        let predecessor = mutationTail
+        let operation = Task {
+            await predecessor?.value
+            try await storage.deleteLicense()
+        }
+        mutationTail = Task { try? await operation.value }
+        try await operation.value
+        return revision == latestIntentRevision
     }
 }
 

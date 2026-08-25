@@ -77,6 +77,11 @@ struct ContentView: View {
     @State var suppressPointerSwipeUntilGestureEnds = false
     @State var pointerSwipeSuppressionTask: Task<Void, Never>?
     @State var isShowingAllOpenTabs = false
+    /// True for the lifetime of one open when the bar was revealed by hovering
+    /// the notch/edge (not the keyboard shortcut or menu bar icon). Hover
+    /// reveals skip the preview and show all open tabs immediately; the
+    /// "Show all tabs..." affordance is a shortcut-open-only feature.
+    @State var wasOpenedByHover = false
     @AppStorage("guidance.hasDiscoveredSwipe") var hasDiscoveredSwipe: Bool = false
     @State var lastInteractionKey: LastInteractionKey = .none
     /// Measured frame of the SearchHeader in the command-bar coordinate space.
@@ -121,7 +126,7 @@ struct ContentView: View {
 
     var displayedItems: [CommandBarDisplayItem] {
         var items = displayedResults.map(CommandBarDisplayItem.result)
-        if searchText.isEmpty, quickOpenState.includesShowAllTabsItem {
+        if searchText.isEmpty, quickOpenState.includesShowAllTabsItem, !wasOpenedByHover {
             items.append(.showAllTabs(count: filteredResults.count))
         }
         if !searchText.isEmpty, filteredResults.isEmpty {
@@ -149,14 +154,13 @@ struct ContentView: View {
         return false
     }
 
-    /// Row count the panel sizes itself around: shrinks to fit the actual
-    /// visible rows, in both row styles, so a short result list doesn't leave
-    /// dead space below it. Zero results keeps the full row budget instead —
-    /// including for Minimal — so the loading/empty placeholder isn't squashed
-    /// into a single row's worth of height.
+    /// Row count the panel sizes itself around: always the full row budget
+    /// (`resultsMaxRows`), so the panel holds a constant height — matching its
+    /// default, 5-item size — as the result count changes while typing. A
+    /// shorter result list leaves dead space below it rather than resizing
+    /// (and repositioning) the window on every keystroke.
     var resultsSizingRowCount: Int {
-        guard !displayedItems.isEmpty else { return Int.max }
-        return max(displayedItems.count, 1)
+        Int.max
     }
 
     /// Ceiling `resultsSizingRowCount` clamps against: once "Show all tabs" is
@@ -209,6 +213,79 @@ struct ContentView: View {
         CommandBarLayout.isCompact(anchor)
     }
 
+    /// Extracted out of the `.onChange(of: appState.selectedIndex)` modifier
+    /// chain — inlining this closure there overwhelmed the type-checker
+    /// ("unable to type-check this expression in reasonable time"), and the
+    /// same applies to `handleSearchTextChange`/`handleAppDidBecomeActive`
+    /// below: the combined chain of adjacent modifier closures was too much
+    /// for the checker even after any single one shrank.
+    private func handleSelectedIndexChange(proxy: ScrollViewProxy) {
+        guard !isSearchFocused else { return }
+        withAnimation(.easeInOut(duration: 0.14)) {
+            scrollSelectedResultIntoView(proxy)
+        }
+    }
+
+    private func handleSearchTextChange(proxy: ScrollViewProxy) {
+        if suppressNextSearchChange {
+            suppressNextSearchChange = false
+            return
+        }
+
+        isShowingAllOpenTabs = wasOpenedByHover && searchText.isEmpty
+        if searchText.isEmpty {
+            appState.selectedIndex = -1
+        } else {
+            appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
+        }
+        recomputeScopeSuggestionMode()
+        // Typing into the field returns control to the input — drop any chip focus.
+        if !searchText.isEmpty {
+            focusedChipID = nil
+        }
+        lastInteractionKey = .none
+        clearKeyboardSwipe()
+        resetPointerSwipe(animated: false)
+        isSearchFocused = true
+        if searchText.count <= 1 {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                scrollResultsToTop(proxy)
+            }
+        } else {
+            scrollResultsToTop(proxy)
+        }
+        scheduleSearchFetch()
+    }
+
+    private func handleCommandBarVisibilityChange(_ visible: Bool, proxy: ScrollViewProxy) {
+        if visible {
+            resetForCommandBarOpen()
+            isShowingAllOpenTabs = wasOpenedByHover
+            triggerFetch()
+            DispatchQueue.main.async {
+                isSearchFocused = true
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
+                    scrollResultsToTop(proxy)
+                }
+            }
+        } else {
+            wasOpenedByHover = false
+        }
+    }
+
+    private func handleAppDidBecomeActive(proxy: ScrollViewProxy) {
+        guard appState.isVisible else { return }
+
+        let now = Date()
+        guard now.timeIntervalSince(lastActiveRefreshAt) > 1.2 else { return }
+        lastActiveRefreshAt = now
+
+        triggerFetch()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            scrollResultsToTop(proxy)
+        }
+    }
+
     var body: some View {
         let anchor = commandBarAnchor
 
@@ -221,7 +298,13 @@ struct ContentView: View {
         // anchor hugs — never by measuring the canvas. See
         // `CommandBarLayout.surfaceAlignment` for why measuring cannot be flush
         // on the first rendered frame.
-        return Color.clear
+        //
+        // Bound to `beforeActivationSheet` (rather than an immediate `return`)
+        // and picked back up below, right before `.sheet(...)` — stacking the
+        // whole tail (sheet/onReceive/onDisappear/onChange) onto one giant
+        // expression overwhelmed the type-checker ("unable to type-check this
+        // expression in reasonable time").
+        let sizedSurface = Color.clear
             .contentShape(Rectangle())
             .onTapGesture {
                 dismissCommandBar()
@@ -236,7 +319,13 @@ struct ContentView: View {
             }
             .overlay(alignment: alignment) {
                 CommandBarSurface(anchor: anchor) {
-                    VStack(spacing: 10) {
+                    // The VStack's content is split from its long modifier
+                    // tail below (padding/frame/opacity/background/etc.) —
+                    // stacked directly on one expression, this whole surface
+                    // overwhelmed the type-checker ("unable to type-check
+                    // this expression in reasonable time"); AnyView gives
+                    // each segment a hard type boundary.
+                    let mainContent = VStack(spacing: 10) {
                         if let globalShortcutRegistrationIssue = appState.globalShortcutRegistrationIssue {
                             PermissionBanner(
                                 icon: "bolt.slash.fill",
@@ -281,7 +370,10 @@ struct ContentView: View {
                                 )
                             }
 
-                            SearchHeader(
+                            // Split from its modifiers below — the combined
+                            // expression (call + trailing closures + background
+                            // GeometryReader) overwhelmed the type-checker.
+                            let searchHeader = SearchHeader(
                                 searchText: $searchText,
                                 isSearchFocused: $isSearchFocused,
                                 isSelected: appState.selectedIndex == -1,
@@ -316,15 +408,16 @@ struct ContentView: View {
                                     lastInteractionKey = .upDown
                                 }
                             )
-                            .background(
-                                GeometryReader { geo in
-                                    Color.clear.preference(
-                                        key: SearchHeaderFrameKey.self,
-                                        value: geo.frame(in: .named("commandBar"))
-                                    )
-                                }
-                            )
-                            .zIndex(50)
+                            searchHeader
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear.preference(
+                                            key: SearchHeaderFrameKey.self,
+                                            value: geo.frame(in: .named("commandBar"))
+                                        )
+                                    }
+                                )
+                                .zIndex(50)
 
                             // Zero-height layer that hosts the floating scope
                             // dropdown. `frame(height: 0)` keeps it out of the
@@ -354,67 +447,35 @@ struct ContentView: View {
                                 .allowsHitTesting(isScopeDropdownVisible)
 
                             ScrollViewReader { proxy in
-                                resultsSection(proxy: proxy)
-                                    .onChange(of: appState.isVisible) { _, visible in
-                                        if visible {
-                                            resetForCommandBarOpen()
-                                            triggerFetch()
-                                            DispatchQueue.main.async {
-                                                isSearchFocused = true
-                                                withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
-                                                    scrollResultsToTop(proxy)
-                                                }
-                                            }
+                                // Each modifier is erased to AnyView and split
+                                // into its own statement — stacking all four on
+                                // one expression (even a plain, unannotated
+                                // `let`) overwhelmed the type-checker ("unable
+                                // to type-check this expression in reasonable
+                                // time"); AnyView gives each statement a hard
+                                // type boundary so inference doesn't have to
+                                // carry the whole opaque chain forward.
+                                let withVisibilityChange: AnyView = AnyView(
+                                    resultsSection(proxy: proxy)
+                                        .onChange(of: appState.isVisible) { _, visible in
+                                            handleCommandBarVisibilityChange(visible, proxy: proxy)
                                         }
-                                    }
-                                    .onChange(of: searchText) {
-                                        if suppressNextSearchChange {
-                                            suppressNextSearchChange = false
-                                            return
+                                )
+                                let withSearchTextChange: AnyView = AnyView(
+                                    withVisibilityChange
+                                        .onChange(of: searchText) {
+                                            handleSearchTextChange(proxy: proxy)
                                         }
-
-                                        isShowingAllOpenTabs = false
-                                        if searchText.isEmpty {
-                                            appState.selectedIndex = -1
-                                        } else {
-                                            appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
+                                )
+                                let withAppActiveReceive: AnyView = AnyView(
+                                    withSearchTextChange
+                                        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                                            handleAppDidBecomeActive(proxy: proxy)
                                         }
-                                        recomputeScopeSuggestionMode()
-                                        // Typing into the field returns control
-                                        // to the input — drop any chip focus.
-                                        if !searchText.isEmpty {
-                                            focusedChipID = nil
-                                        }
-                                        lastInteractionKey = .none
-                                        clearKeyboardSwipe()
-                                        resetPointerSwipe(animated: false)
-                                        isSearchFocused = true
-                                        if searchText.count <= 1 {
-                                            withAnimation(.easeInOut(duration: 0.18)) {
-                                                scrollResultsToTop(proxy)
-                                            }
-                                        } else {
-                                            scrollResultsToTop(proxy)
-                                        }
-                                        scheduleSearchFetch()
-                                    }
-                                    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                                        guard appState.isVisible else { return }
-
-                                        let now = Date()
-                                        guard now.timeIntervalSince(lastActiveRefreshAt) > 1.2 else { return }
-                                        lastActiveRefreshAt = now
-
-                                        triggerFetch()
-                                        withAnimation(.easeInOut(duration: 0.18)) {
-                                            scrollResultsToTop(proxy)
-                                        }
-                                    }
+                                )
+                                withAppActiveReceive
                                     .onChange(of: appState.selectedIndex) { _, _ in
-                                        guard !isSearchFocused else { return }
-                                        withAnimation(.easeInOut(duration: 0.14)) {
-                                            scrollSelectedResultIntoView(proxy)
-                                        }
+                                        handleSelectedIndexChange(proxy: proxy)
                                     }
                             }
 
@@ -464,17 +525,20 @@ struct ContentView: View {
                             )
                         }
                     }
-                    .padding(12)
-                    // Clears the physical notch / menu bar, which the surface
-                    // now reaches under so it can sit flush against the very
-                    // top of the display.
-                    .padding(.top, CommandBarLayout.surfaceTopInset(for: anchor))
-                    // Sized *inside* the surface, not outside it: the panel's
-                    // background wraps whatever it is handed, so framing it from
-                    // the outside made the background hug the (shorter) content
-                    // and centered it, leaving an empty band above and below.
-                    .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
-                    .animation(.easeOut(duration: 0.12), value: surfaceSize)
+                    let sizedContent: AnyView = AnyView(
+                        mainContent
+                            .padding(12)
+                            // Clears the physical notch / menu bar, which the surface
+                            // now reaches under so it can sit flush against the very
+                            // top of the display.
+                            .padding(.top, CommandBarLayout.surfaceTopInset(for: anchor))
+                            // Sized *inside* the surface, not outside it: the panel's
+                            // background wraps whatever it is handed, so framing it from
+                            // the outside made the background hug the (shorter) content
+                            // and centered it, leaving an empty band above and below.
+                            .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
+                            .animation(.easeOut(duration: 0.12), value: surfaceSize)
+                    )
                     // Deliberately *inside* the notch connector background added
                     // below, so the connector stays opaque while the content
                     // fades — it stands in for the notch itself and has to keep
@@ -484,10 +548,13 @@ struct ContentView: View {
                     // own animation: it then can't drift out of step with the
                     // growth, and the dismiss animation gets the matching
                     // fade-out for free.
-                    .opacity(CommandBarLayout.revealContentOpacity(
-                        depthProgress: revealDepthProgress,
-                        spreadProgress: revealSpreadProgress
-                    ))
+                    let fadedContent: AnyView = AnyView(
+                        sizedContent
+                            .opacity(CommandBarLayout.revealContentOpacity(
+                                depthProgress: revealDepthProgress,
+                                spreadProgress: revealSpreadProgress
+                            ))
+                    )
                     // Fills the notch-clearance inset above with a small
                     // notch-width (not panel-width) black connector instead of
                     // leaving it transparent: without this, the reveal
@@ -497,24 +564,25 @@ struct ContentView: View {
                     // and the first opaque pixel. Kept exactly notch-width so
                     // it reads as the notch extending down a little, not a
                     // bar spanning the whole panel.
-                    .background(alignment: .top) {
-                        UnevenRoundedRectangle(
-                            topLeadingRadius: 0,
-                            bottomLeadingRadius: 10,
-                            bottomTrailingRadius: 10,
-                            topTrailingRadius: 0,
-                            style: .continuous
-                        )
-                        .fill(Color.black)
-                        .frame(
-                            width: CommandBarLayout.notchConnectorWidth(for: anchor),
-                            height: CommandBarLayout.surfaceTopInset(for: anchor)
-                        )
-                    }
-                    .coordinateSpace(name: "commandBar")
-                    .onPreferenceChange(SearchHeaderFrameKey.self) { newValue in
-                        searchHeaderFrame = newValue
-                    }
+                    fadedContent
+                        .background(alignment: .top) {
+                            UnevenRoundedRectangle(
+                                topLeadingRadius: 0,
+                                bottomLeadingRadius: 10,
+                                bottomTrailingRadius: 10,
+                                topTrailingRadius: 0,
+                                style: .continuous
+                            )
+                            .fill(Color.black)
+                            .frame(
+                                width: CommandBarLayout.notchConnectorWidth(for: anchor),
+                                height: CommandBarLayout.surfaceTopInset(for: anchor)
+                            )
+                        }
+                        .coordinateSpace(name: "commandBar")
+                        .onPreferenceChange(SearchHeaderFrameKey.self) { newValue in
+                            searchHeaderFrame = newValue
+                        }
                 }
                 .environment(\.isCompactCommandBar, isCompact(anchor))
                 .scaleEffect(
@@ -537,12 +605,17 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            isSearchFocused = true
-            setupLocalMonitor()
-            licenseService.validateCachedLicenseIfNeeded()
-            appState.isSearchTextEmpty = searchText.isEmpty && scopeChips.isEmpty
-        }
+
+        let afterAppear: AnyView = AnyView(
+            sizedSurface
+                .onAppear {
+                    isSearchFocused = true
+                    setupLocalMonitor()
+                    licenseService.validateCachedLicenseIfNeeded()
+                    appState.isSearchTextEmpty = searchText.isEmpty && scopeChips.isEmpty
+                }
+        )
+
         // Separate from the other `searchText` observer above: that one is
         // gated by `suppressNextSearchChange` and skips the clear that
         // `resetForCommandBarOpen` does on every open, which would leave
@@ -553,22 +626,50 @@ struct ContentView: View {
         // A scope chip (e.g. "@Finder") counts as non-empty even when the
         // text field itself is blank, so the hover-dismiss monitor doesn't
         // yank the bar out from under an in-progress scoped search.
-        .onChange(of: searchText) { _, newValue in
-            appState.isSearchTextEmpty = newValue.isEmpty && scopeChips.isEmpty
-        }
-        .onChange(of: scopeChips) { _, newValue in
-            appState.isSearchTextEmpty = searchText.isEmpty && newValue.isEmpty
-        }
-        .onChange(of: revealTrigger.token) { _, _ in
-            playRevealAnimation()
-        }
-        .onChange(of: dismissTrigger.token) { _, _ in
-            playDismissAnimation()
-        }
-        .sheet(isPresented: $isActivationPresented) {
-            LicenseActivationSheet()
-                .environmentObject(licenseService)
-        }
+        let afterFieldObservers: AnyView = AnyView(
+            afterAppear
+                .onChange(of: searchText) { _, newValue in
+                    appState.isSearchTextEmpty = newValue.isEmpty && scopeChips.isEmpty
+                }
+                .onChange(of: scopeChips) { _, newValue in
+                    appState.isSearchTextEmpty = searchText.isEmpty && newValue.isEmpty
+                }
+                // Same mirror for the "show all tabs" expansion: the hover-dismiss
+                // monitor sizes its outside-box from this (`AppState.isShowingAllOpenTabs`)
+                // so a hover reveal's taller, all-tabs panel isn't mistaken for a
+                // quick-open one — see `CommandBarPanelController.isCursorOutsideSurface`.
+                .onChange(of: isShowingAllOpenTabs) { _, newValue in
+                    appState.isShowingAllOpenTabs = newValue
+                }
+        )
+
+        let beforeActivationSheet: AnyView = AnyView(
+            afterFieldObservers
+                .onChange(of: revealTrigger.token) { _, _ in
+                    // The reveal trigger only fires for notch/edge hover opens (see
+                    // `AppState.showCommandBar(revealStyle:)`), so this is the one
+                    // reliable signal that the bar was opened by hover. Record it for
+                    // the session and jump straight to all tabs — the `isShowingAllOpenTabs`
+                    // set here also covers the case where this observer runs after the
+                    // `isVisible` handler's reset on the same open.
+                    wasOpenedByHover = true
+                    isShowingAllOpenTabs = true
+                    playRevealAnimation()
+                }
+                .onChange(of: dismissTrigger.token) { _, _ in
+                    playDismissAnimation()
+                }
+        )
+
+        let withActivationSheet: AnyView = AnyView(
+            beforeActivationSheet
+                .sheet(isPresented: $isActivationPresented) {
+                    LicenseActivationSheet()
+                        .environmentObject(licenseService)
+                }
+        )
+
+        return withActivationSheet
         .onReceive(NotificationCenter.default.publisher(for: fastTabCycleShortcutNotification)) { _ in
             guard appState.isVisible else { return }
             cycleShortcutSelectionForward()

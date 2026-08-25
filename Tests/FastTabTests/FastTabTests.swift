@@ -381,6 +381,47 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     #expect(rightFrame.minX > canvasFrame.minX)
 }
 
+@Test func expandedAllTabsSurfaceCoversHeaderAndFooterThatQuickOpenBoxMissed() async throws {
+    // Regression: hover-dismiss used to bound the cursor against a box sized
+    // for the quick-open list even when a hover reveal had expanded the panel
+    // to show all tabs. On an edge anchor the taller expanded panel is
+    // vertically centred, so its search header (top) and helper bar (bottom)
+    // stuck out past that box — moving the cursor into either collapsed the
+    // bar. A hover reveal always expands, so the box must be the expanded one.
+    let displayFrame = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+    let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
+
+    let expandedMaxRows = CommandBarLayout.expandedAllTabsMaxRows(for: .leftEdge, rowStyle: .minimal, showFooter: true)
+    let quickOpenMaxRows = CommandBarLayout.minQuickOpenItemLimit
+
+    #expect(expandedMaxRows > quickOpenMaxRows)
+
+    let expanded = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .leftEdge, rowStyle: .minimal, maxRows: expandedMaxRows, showFooter: true)
+    let quickOpen = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .leftEdge, rowStyle: .minimal, maxRows: quickOpenMaxRows, showFooter: true)
+
+    #expect(expanded.height > quickOpen.height)
+
+    // Search header: top strip of the expanded panel.
+    let headerPoint = CGPoint(x: expanded.midX, y: expanded.maxY - 8)
+    #expect(expanded.contains(headerPoint))
+    #expect(!quickOpen.contains(headerPoint))
+
+    // Helper bar: bottom strip of the expanded panel.
+    let footerPoint = CGPoint(x: expanded.midX, y: expanded.minY + 8)
+    #expect(expanded.contains(footerPoint))
+    #expect(!quickOpen.contains(footerPoint))
+
+    // Notch anchor: both boxes are top-flush, so it's the helper bar at the
+    // bottom that the taller expanded panel pushes past the quick-open box.
+    let expandedNotch = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .notch, rowStyle: .minimal, maxRows: expandedMaxRows, showFooter: true)
+    let quickOpenNotch = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .notch, rowStyle: .minimal, maxRows: quickOpenMaxRows, showFooter: true)
+    #expect(expandedNotch.height > quickOpenNotch.height)
+    #expect(expandedNotch.maxY == quickOpenNotch.maxY) // both flush to the top
+    let notchFooterPoint = CGPoint(x: expandedNotch.midX, y: expandedNotch.minY + 8)
+    #expect(expandedNotch.contains(notchFooterPoint))
+    #expect(!quickOpenNotch.contains(notchFooterPoint))
+}
+
 @Test func commandBarAnchorFallsBackToNotchWhenOff() async throws {
     let displayFrame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
     let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
@@ -776,124 +817,214 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     #expect(try decoder.decode(PolarLicenseKey.self, from: fractionalJSON).lastValidatedAt != nil)
     #expect(try decoder.decode(PolarLicenseKey.self, from: standardJSON).lastValidatedAt != nil)
 }
-
 @MainActor
 @Test func licenseServiceRefreshesTrialExpiryWithoutStorageRead() async throws {
     let start = Date(timeIntervalSince1970: 1_800_000_000)
     let storage = InMemoryLicenseStorage(trial: TrialRecord(startedAt: start))
+    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient())
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(service.snapshot.access == .trial(daysRemaining: 7))
+    service.refreshTimeSensitiveState(now: start.addingTimeInterval(7 * 24 * 60 * 60))
+    #expect(service.snapshot.access == .expiredTrial)
+    #expect(await storage.loadTrialCount == 1)
+}
+
+@MainActor
+@Test func licenseServiceDoesNotBlockStartupWhenStorageStalls() async throws {
+    let storage = InMemoryLicenseStorage(loadDelay: .milliseconds(200))
+    let clock = ContinuousClock()
+    let startedAt = clock.now
+    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient(), initialLoadTimeout: .milliseconds(20))
+    #expect(clock.now - startedAt < .milliseconds(100))
+    try await Task.sleep(for: .milliseconds(60))
+    #expect(service.snapshot.lastErrorMessage == "License storage is unavailable.")
+    #expect(await storage.saveTrialCount == 0)
+}
+
+@MainActor
+@Test func licenseServiceRecoversWhenInitialStorageLoadFinishesAfterTimeout() async throws {
+    let trial = TrialRecord(startedAt: Date(timeIntervalSince1970: 1_800_000_000))
+    let storedLicense = makeStoredLicense(
+        tier: .personal,
+        status: .granted,
+        licensedMajorVersion: 1
+    )
+    let storage = InMemoryLicenseStorage(
+        trial: trial,
+        license: storedLicense,
+        loadDelay: .milliseconds(150)
+    )
     let service = LicenseService(
         configuration: testPaymentConfiguration(),
         storage: storage,
-        client: NoopPolarLicenseClient()
+        client: TestPolarLicenseClient(),
+        initialLoadTimeout: .milliseconds(20)
     )
 
-    #expect(service.snapshot.access == .trial(daysRemaining: 7))
+    try await Task.sleep(for: .milliseconds(60))
+    #expect(service.snapshot.lastErrorMessage == "License storage is unavailable.")
 
-    service.refreshTimeSensitiveState(now: start.addingTimeInterval(7 * 24 * 60 * 60))
-
-    #expect(service.snapshot.access == .expiredTrial)
-    #expect(storage.loadTrialCount == 1)
+    try await Task.sleep(for: .milliseconds(140))
+    #expect(service.snapshot.access == .licensed(.personal))
+    #expect(service.snapshot.trial == trial)
+    #expect(service.snapshot.license == storedLicense)
+    #expect(service.snapshot.lastErrorMessage == nil)
 }
 
-private func makeStoredLicense(
-    tier: FastTabLicenseTier,
-    status: PolarLicenseStatus,
-    licensedMajorVersion: Int
-) -> StoredLicense {
+@MainActor
+@Test func staleInitialLoadCannotReplaceNewerLicenseState() async throws {
+    let polarLicense = makePolarLicense()
+    let storage = InMemoryLicenseStorage(loadDelay: .milliseconds(80))
+    let client = TestPolarLicenseClient(
+        validatedLicense: polarLicense,
+        activationResponse: PolarActivationResponse(id: "activation-id", licenseKeyID: "license-id", label: "Test Mac", licenseKey: polarLicense)
+    )
+    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: client, initialLoadTimeout: .seconds(1))
+    await service.activateLicense(key: "new-license-key")
+    try await Task.sleep(for: .milliseconds(120))
+    #expect(service.snapshot.license?.key == "new-license-key")
+    #expect(await storage.saveTrialCount == 0)
+}
+@MainActor
+@Test func failedStorageReadDoesNotCreateTrial() async throws {
+    let storage = InMemoryLicenseStorage(loadFails: true)
+    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient())
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(service.snapshot.lastErrorMessage == "License storage is unavailable.")
+    #expect(await storage.saveTrialCount == 0)
+}
+@MainActor
+@Test func launchValidationReplaysOnceAfterDelayedLicenseLoad() async throws {
+    let storedLicense = makeStoredLicense(tier: .personal, status: .granted, licensedMajorVersion: 1, lastValidatedAt: .distantPast)
+    let storage = InMemoryLicenseStorage(license: storedLicense, loadDelay: .milliseconds(80))
+    let client = TestPolarLicenseClient(validatedLicense: makePolarLicense())
+    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: client)
+    service.validateForLaunch()
+    service.validateForLaunch()
+    try await Task.sleep(for: .milliseconds(150))
+    #expect(client.validationCount == 1)
+}
+@MainActor
+@Test func clearedLicenseCannotBeRecreatedByLateRevalidation() async throws {
+    let stored = makeStoredLicense(tier: .personal, status: .granted, licensedMajorVersion: 1, lastValidatedAt: .distantPast)
+    let validated = PolarLicenseKey(id: "license-id", benefitID: "personal-benefit", displayKey: "****-KEY", status: .granted, limitActivations: 5, usage: 1, lastValidatedAt: Date())
+    let storage = InMemoryLicenseStorage(license: stored)
+    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient(validatedLicense: validated, validationDelay: .milliseconds(80)))
+    try await Task.sleep(for: .milliseconds(20))
+    service.validateCachedLicenseIfNeeded(force: true)
+    try await Task.sleep(for: .milliseconds(10))
+    service.clearLicense()
+    try await Task.sleep(for: .milliseconds(120))
+    #expect(await storage.license == nil)
+}
+@MainActor
+@Test func lateClearCannotDeleteNewerActivatedLicense() async throws {
+    let polar = PolarLicenseKey(id: "new-id", benefitID: "personal-benefit", displayKey: "****-NEW", status: .granted, limitActivations: 5, usage: 1, lastValidatedAt: Date())
+    let response = PolarActivationResponse(id: "new-activation", licenseKeyID: "new-id", label: "Test Mac", licenseKey: polar)
+    let storage = InMemoryLicenseStorage(license: makeStoredLicense(tier: .personal, status: .granted, licensedMajorVersion: 1), deleteDelay: .milliseconds(80))
+    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient(validatedLicense: polar, activationResponse: response))
+    try await Task.sleep(for: .milliseconds(20))
+    service.clearLicense()
+    try await Task.sleep(for: .milliseconds(10))
+    await service.activateLicense(key: "new-key")
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(await storage.license?.key == "new-key")
+}
+@MainActor
+@Test func ordinaryActivationPersistsLicense() async throws {
+    let polar = makePolarLicense()
+    let storage = InMemoryLicenseStorage()
+    let client = TestPolarLicenseClient(validatedLicense: polar, activationResponse: PolarActivationResponse(id: "activation", licenseKeyID: polar.id, label: "Mac", licenseKey: polar))
+    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: client)
+    await service.activateLicense(key: "ordinary-key")
+    #expect(await storage.license?.key == "ordinary-key")
+}
+@MainActor
+@Test func ordinaryRevalidationPersistsUpdatedLicense() async throws {
+    let stored = makeStoredLicense(tier: .personal, status: .granted, licensedMajorVersion: 1, lastValidatedAt: .distantPast)
+    let storage = InMemoryLicenseStorage(license: stored)
+    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient(validatedLicense: makePolarLicense()))
+    try await Task.sleep(for: .milliseconds(20))
+    service.validateCachedLicenseIfNeeded(force: true)
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(await storage.license?.lastValidatedAt != .distantPast)
+}
+private func makePolarLicense() -> PolarLicenseKey {
+    PolarLicenseKey(id: "license-id", benefitID: "personal-benefit", displayKey: "****-KEY", status: .granted, limitActivations: 5, usage: 1, lastValidatedAt: Date())
+}
+private func makeStoredLicense(tier: FastTabLicenseTier, status: PolarLicenseStatus, licensedMajorVersion: Int, lastValidatedAt: Date = Date(timeIntervalSince1970: 1_800_000_000)) -> StoredLicense {
     StoredLicense(
-        key: "license-key",
-        activationID: "activation-id",
-        licenseKeyID: "license-id",
-        displayKey: "****-KEY",
-        benefitID: "benefit-id",
-        tier: tier,
-        status: status,
-        activationLimit: 5,
-        activationUsage: 1,
-        licensedMajorVersion: licensedMajorVersion,
-        lastValidatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+        key: "license-key", activationID: "activation-id", licenseKeyID: "license-id",
+        displayKey: "****-KEY", benefitID: "benefit-id", tier: tier, status: status,
+        activationLimit: 5, activationUsage: 1, licensedMajorVersion: licensedMajorVersion,
+        lastValidatedAt: lastValidatedAt,
         device: DeviceActivationIdentity(installID: "install-id", label: "Test Mac")
     )
 }
-
 private func testPaymentConfiguration() -> PaymentConfiguration {
     PaymentConfiguration(
-        organizationID: "org",
-        personalBenefitID: "personal-benefit",
-        lifetimeBenefitID: "lifetime-benefit",
-        teamBenefitID: "team-benefit",
-        personalCheckoutURL: nil,
-        lifetimeCheckoutURL: nil,
-        teamCheckoutURL: nil,
-        pricingURL: nil,
-        manageLicenseURL: nil,
-        supportURL: nil,
-        currentMajorVersion: 1,
-        personalLicensedMajorVersion: 1,
+        organizationID: "org", personalBenefitID: "personal-benefit",
+        lifetimeBenefitID: "lifetime-benefit", teamBenefitID: "team-benefit",
+        personalCheckoutURL: nil, lifetimeCheckoutURL: nil, teamCheckoutURL: nil,
+        pricingURL: nil, manageLicenseURL: nil, supportURL: nil,
+        currentMajorVersion: 1, personalLicensedMajorVersion: 1,
         apiBaseURL: URL(string: "https://api.polar.sh")!
     )
 }
 
-@MainActor
-private final class InMemoryLicenseStorage: LicenseStorage {
+private actor InMemoryLicenseStorage: LicenseStorage {
     var trial: TrialRecord?
     var license: StoredLicense?
     var device: DeviceActivationIdentity?
     var loadTrialCount = 0
-
-    init(trial: TrialRecord? = nil, license: StoredLicense? = nil) {
+    var saveTrialCount = 0
+    let loadDelay: Duration?
+    let loadFails: Bool
+    let deleteDelay: Duration?
+    init(trial: TrialRecord? = nil, license: StoredLicense? = nil, loadDelay: Duration? = nil, loadFails: Bool = false, deleteDelay: Duration? = nil) {
         self.trial = trial
         self.license = license
+        self.loadDelay = loadDelay
+        self.loadFails = loadFails
+        self.deleteDelay = deleteDelay
     }
-
     func loadTrial() throws -> TrialRecord? {
         loadTrialCount += 1
+        if loadFails { throw PolarLicenseClientError.invalidResponse }
+        if let loadDelay {
+            Thread.sleep(forTimeInterval: TimeInterval(loadDelay.components.seconds) + Double(loadDelay.components.attoseconds) / 1e18)
+        }
         return trial
     }
-
-    func saveTrial(_ trial: TrialRecord) throws {
-        self.trial = trial
-    }
-
-    func loadLicense() throws -> StoredLicense? {
-        license
-    }
-
-    func saveLicense(_ license: StoredLicense) throws {
-        self.license = license
-    }
-
-    func deleteLicense() throws {
+    func saveTrial(_ trial: TrialRecord) throws { saveTrialCount += 1; self.trial = trial }
+    func loadLicense() throws -> StoredLicense? { license }
+    func saveLicense(_ license: StoredLicense) throws { self.license = license }
+    func deleteLicense() async throws {
+        if let deleteDelay { try await Task.sleep(for: deleteDelay) }
         license = nil
     }
-
-    func loadDeviceIdentity() throws -> DeviceActivationIdentity? {
-        device
-    }
-
-    func saveDeviceIdentity(_ identity: DeviceActivationIdentity) throws {
-        device = identity
-    }
+    func loadDeviceIdentity() throws -> DeviceActivationIdentity? { device }
+    func saveDeviceIdentity(_ identity: DeviceActivationIdentity) throws { device = identity }
 }
-
 @MainActor
-private struct NoopPolarLicenseClient: PolarLicenseClient {
-    func activate(
-        key: String,
-        organizationID: String,
-        label: String,
-        conditions: [String: Int],
-        meta: [String: String]
-    ) async throws -> PolarActivationResponse {
-        throw PolarLicenseClientError.invalidResponse
+private final class TestPolarLicenseClient: PolarLicenseClient {
+    private let validatedLicense: PolarLicenseKey?
+    private let activationResponse: PolarActivationResponse?
+    private let validationDelay: Duration?
+    private(set) var validationCount = 0
+    init(validatedLicense: PolarLicenseKey? = nil, activationResponse: PolarActivationResponse? = nil, validationDelay: Duration? = nil) {
+        self.validatedLicense = validatedLicense
+        self.activationResponse = activationResponse
+        self.validationDelay = validationDelay
     }
-
-    func validate(
-        key: String,
-        organizationID: String,
-        activationID: String,
-        conditions: [String: Int]
-    ) async throws -> PolarLicenseKey {
-        throw PolarLicenseClientError.invalidResponse
+    func activate(key: String, organizationID: String, label: String, conditions: [String: Int], meta: [String: String]) async throws -> PolarActivationResponse {
+        guard let activationResponse else { throw PolarLicenseClientError.invalidResponse }
+        return activationResponse
+    }
+    func validate(key: String, organizationID: String, activationID: String, conditions: [String: Int]) async throws -> PolarLicenseKey {
+        validationCount += 1
+        if let validationDelay { try await Task.sleep(for: validationDelay) }
+        guard let validatedLicense else { throw PolarLicenseClientError.invalidResponse }
+        return validatedLicense
     }
 }

@@ -3,6 +3,7 @@ import FastTabSync
 
 @main
 public struct FastTabMobileApp: App {
+    @UIApplicationDelegateAdaptor(PushNotificationAppDelegate.self) private var pushDelegate
     @StateObject private var syncConsumer = SyncConsumer.shared
     @StateObject private var localCache = LocalCache.shared
     @Environment(\.scenePhase) private var scenePhase

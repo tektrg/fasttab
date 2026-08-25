@@ -254,6 +254,22 @@ public final class SyncConsumer: NSObject, ObservableObject {
         await performFetch(visibility: .silent)
     }
 
+    // MARK: - Push-Driven Sync
+
+    /// CloudKit's silent push, forwarded by `PushNotificationAppDelegate`. The
+    /// only trigger here that isn't a timer.
+    ///
+    /// Silent by design even though the app may be on screen: the user did not
+    /// ask for this pull, so it should not raise the "Syncing…" indicator.
+    ///
+    /// A backgrounded iPhone gets these on iOS's terms, not ours — the system
+    /// decides how many silent pushes an app is worth — and a force-quit app
+    /// gets none at all. So this makes sync feel instant while the phone is in
+    /// hand; the foreground poll remains the guarantee.
+    public func handleRemoteNotification() async -> Bool {
+        await performFetch(visibility: .silent)
+    }
+
     // MARK: - Fetch & Send
 
     /// Fire-and-forget refresh for non-async callers.
@@ -287,17 +303,23 @@ public final class SyncConsumer: NSObject, ObservableObject {
         }
     }
 
-    private func performFetch(visibility: TransferVisibility) async {
-        guard let syncEngine else { return }
+    /// Returns whether the pull actually completed. Callers that owe iOS a
+    /// `UIBackgroundFetchResult` need the truth — an app that keeps claiming it
+    /// did work it did not do gets its silent pushes throttled.
+    @discardableResult
+    private func performFetch(visibility: TransferVisibility) async -> Bool {
+        guard let syncEngine else { return false }
         beginTransfer(visibility)
         do {
             try await syncEngine.fetchChanges()
             endTransfer(visibility)
             markSyncSucceeded()
             logger.info("Fetched CloudKit changes on iOS")
+            return true
         } catch {
             endTransfer(visibility)
             markSyncFailed(error, whileDoing: "fetching changes")
+            return false
         }
     }
 
@@ -379,6 +401,66 @@ public final class SyncConsumer: NSObject, ObservableObject {
 
         queueCommand(SyncCommand(
             kind: .deleteBookmark,
+            targetDeviceID: targetDeviceID,
+            sourceDeviceName: deviceName,
+            payloadJSON: payloadJSON
+        ))
+    }
+
+    /// Moves a bookmark to a different folder — same Mac only (`targetDeviceID`
+    /// is the source device; the destination browser/profile must live on
+    /// that same device). Runs immediately on the Mac, no approval step.
+    public func sendMoveBookmark(
+        bookmark: SyncedBookmarkItem,
+        sourceBrowserName: String,
+        sourceProfileName: String,
+        destinationBrowserName: String,
+        destinationProfileName: String,
+        destinationFolderPath: [String],
+        targetDeviceID: String
+    ) {
+        let payload = MoveBookmarkPayload(
+            sourceBrowserName: sourceBrowserName,
+            sourceProfileName: sourceProfileName,
+            bookmarkID: bookmark.id,
+            url: bookmark.url,
+            destinationBrowserName: destinationBrowserName,
+            destinationProfileName: destinationProfileName,
+            destinationFolderPath: destinationFolderPath
+        )
+        guard let payloadJSON = Self.encodedPayload(payload) else { return }
+
+        queueCommand(SyncCommand(
+            kind: .moveBookmark,
+            targetDeviceID: targetDeviceID,
+            sourceDeviceName: deviceName,
+            payloadJSON: payloadJSON
+        ))
+    }
+
+    /// Saves a brand-new bookmark (from an open tab, etc.) into a chosen folder
+    /// on a Mac. Same device scoping as `sendMoveBookmark` — the destination
+    /// browser/profile must live on `targetDeviceID`. Runs immediately on the
+    /// Mac, no approval step.
+    public func sendAddBookmark(
+        title: String,
+        url: String,
+        destinationBrowserName: String,
+        destinationProfileName: String,
+        destinationFolderPath: [String],
+        targetDeviceID: String
+    ) {
+        let payload = AddBookmarkPayload(
+            browserName: destinationBrowserName,
+            profileName: destinationProfileName,
+            title: title,
+            url: url,
+            folderPath: destinationFolderPath
+        )
+        guard let payloadJSON = Self.encodedPayload(payload) else { return }
+
+        queueCommand(SyncCommand(
+            kind: .addBookmark,
             targetDeviceID: targetDeviceID,
             sourceDeviceName: deviceName,
             payloadJSON: payloadJSON

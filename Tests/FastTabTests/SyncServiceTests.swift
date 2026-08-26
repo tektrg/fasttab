@@ -265,6 +265,90 @@ struct SyncServiceTests {
             windowName: "Main Window"
         )
         #expect(SyncService.isIncognitoTab(normalTabWithPrivateWord) == false)
+
+        // Normal tab in a window whose active tab has words containing "tor" or "private"
+        // (Chrome Web Store, History, Code Editor, GitHub Private Repo, Tutorial, Vector)
+        let tabInStoreWindow = BrowserSearchResult(
+            title: "FastTab Extension",
+            url: "https://chromewebstore.google.com/detail/123",
+            browserName: "Google Chrome",
+            type: .tab,
+            timestamp: Date(),
+            windowName: "Chrome Web Store"
+        )
+        #expect(SyncService.isIncognitoTab(tabInStoreWindow) == false)
+
+        let tabInHistoryWindow = BrowserSearchResult(
+            title: "Swift Evolution",
+            url: "https://github.com/swiftlang/swift-evolution",
+            browserName: "Google Chrome",
+            type: .tab,
+            timestamp: Date(),
+            windowName: "History of macOS - Wikipedia"
+        )
+        #expect(SyncService.isIncognitoTab(tabInHistoryWindow) == false)
+
+        let tabInPrivateRepoWindow = BrowserSearchResult(
+            title: "README.md",
+            url: "https://github.com/myorg/private-repo",
+            browserName: "Google Chrome",
+            type: .tab,
+            timestamp: Date(),
+            windowName: "myorg/private-repo: Main backend"
+        )
+        #expect(SyncService.isIncognitoTab(tabInPrivateRepoWindow) == false)
+
+        let tabInEditorWindow = BrowserSearchResult(
+            title: "FastTab Workspace",
+            url: "https://github.com/fasttab",
+            browserName: "Safari",
+            type: .tab,
+            timestamp: Date(),
+            windowName: "VS Code Editor - main.swift"
+        )
+        #expect(SyncService.isIncognitoTab(tabInEditorWindow) == false)
+
+        // Trimming and whitespace edge cases
+        let tabWithWhitespaceIncognito = BrowserSearchResult(
+            title: "Private",
+            url: "https://duckduckgo.com",
+            browserName: "Safari",
+            type: .tab,
+            timestamp: Date(),
+            windowName: "  Private Browsing  \n"
+        )
+        #expect(SyncService.isIncognitoTab(tabWithWhitespaceIncognito) == true)
+
+        let tabWithWhitespaceProfile = BrowserSearchResult(
+            title: "Private",
+            url: "https://duckduckgo.com",
+            browserName: "Google Chrome",
+            type: .tab,
+            timestamp: Date(),
+            profileName: "  Incognito 2  "
+        )
+        #expect(SyncService.isIncognitoTab(tabWithWhitespaceProfile) == true)
+
+        let tabWithNilNames = BrowserSearchResult(
+            title: "Regular Page",
+            url: "https://example.com",
+            browserName: "Safari",
+            type: .tab,
+            timestamp: Date(),
+            windowName: nil,
+            profileName: nil
+        )
+        #expect(SyncService.isIncognitoTab(tabWithNilNames) == false)
+
+        let tabInTorontoWindow = BrowserSearchResult(
+            title: "Weather",
+            url: "https://weather.com/toronto",
+            browserName: "Safari",
+            type: .tab,
+            timestamp: Date(),
+            windowName: "Toronto Weather - Forecast"
+        )
+        #expect(SyncService.isIncognitoTab(tabInTorontoWindow) == false)
     }
 
     @Test("SentLinkInbox recovers gracefully from corrupted inbox.json")
@@ -407,6 +491,70 @@ struct SyncServiceTests {
         )
         let ids = SyncService.tabRecordIDs(from: [tab], deviceID: "mac1")
         #expect(ids == Set([CKRecord.ID(recordName: "mac1_Google_Chrome_tab_42", zoneID: SyncConstants.stateZoneID)]))
+    }
+
+    @Test("SyncService multi-window tabRecordIDs produces collision-free CloudKit IDs across windows")
+    func multiWindowTabRecordIDsCollisionFree() {
+        // Simulating the user scenario: 77 tabs across 2 windows (18 tabs in Window 1, 59 tabs in Window 2)
+        // 1. Extension path (with tabIDs)
+        var extensionTabs: [BrowserSearchResult] = []
+        for i in 1...18 {
+            extensionTabs.append(BrowserSearchResult(
+                title: "Window 1 Tab \(i)",
+                url: "https://example.com/w1/t\(i)",
+                browserName: "Google Chrome",
+                type: .tab,
+                timestamp: Date(),
+                windowIndex: 1,
+                tabIndex: i,
+                tabID: 1000 + i
+            ))
+        }
+        for i in 1...59 {
+            extensionTabs.append(BrowserSearchResult(
+                title: "Window 2 Tab \(i)",
+                url: "https://example.com/w2/t\(i)",
+                browserName: "Google Chrome",
+                type: .tab,
+                timestamp: Date(),
+                windowIndex: 2,
+                tabIndex: i,
+                tabID: 2000 + i
+            ))
+        }
+        #expect(extensionTabs.count == 77)
+        let extensionRecordIDs = SyncService.tabRecordIDs(from: extensionTabs, deviceID: "mac_pro")
+        #expect(extensionRecordIDs.count == 77)
+
+        // 2. Fallback path (without tabIDs, using windowIndex and tabIndex)
+        var fallbackTabs: [BrowserSearchResult] = []
+        for i in 1...18 {
+            fallbackTabs.append(BrowserSearchResult(
+                title: "Window 1 Tab \(i)",
+                url: "https://example.com/w1/t\(i)",
+                browserName: "Google Chrome",
+                type: .tab,
+                timestamp: Date(),
+                windowIndex: 1,
+                tabIndex: i,
+                tabID: nil
+            ))
+        }
+        for i in 1...59 {
+            fallbackTabs.append(BrowserSearchResult(
+                title: "Window 2 Tab \(i)",
+                url: "https://example.com/w2/t\(i)",
+                browserName: "Google Chrome",
+                type: .tab,
+                timestamp: Date(),
+                windowIndex: 2,
+                tabIndex: i,
+                tabID: nil
+            ))
+        }
+        #expect(fallbackTabs.count == 77)
+        let fallbackRecordIDs = SyncService.tabRecordIDs(from: fallbackTabs, deviceID: "mac_pro")
+        #expect(fallbackRecordIDs.count == 77)
     }
 
     @Test("SyncService tabContentFingerprint detects positional moves on the fallback path but not the extension path")

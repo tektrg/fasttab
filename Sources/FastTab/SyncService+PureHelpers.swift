@@ -17,17 +17,30 @@ extension SyncService {
     nonisolated private static let deviceHeartbeatInterval: TimeInterval = 3 * 60
 
     nonisolated static func isIncognitoTab(_ tab: BrowserSearchResult) -> Bool {
-        let lowerWindow = (tab.windowName ?? "").lowercased()
-        if lowerWindow.contains("incognito") ||
-           lowerWindow.contains("private") ||
-           lowerWindow.contains("inprivate") ||
-           lowerWindow.contains("tor") {
+        let lowerProfile = (tab.profileName ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if lowerProfile == "incognito" || lowerProfile == "private" || lowerProfile.hasPrefix("incognito ") || lowerProfile.hasPrefix("private ") {
             return true
         }
-        let lowerProfile = (tab.profileName ?? "").lowercased()
-        if lowerProfile.contains("incognito") || lowerProfile.contains("private") {
+
+        let lowerWindow = (tab.windowName ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only match recognized browser private/incognito window identifiers (exact names or specific phrases).
+        // NEVER match arbitrary loose substrings like "tor" or "private" which match regular webpage titles
+        // (e.g. "Chrome Web Store", "History of macOS", "Private Repo", "VS Code Editor", "Tutorial", "Vector").
+        let knownPrivateWindowNames: Set<String> = [
+            "incognito",
+            "incognito window",
+            "private browsing",
+            "inprivate",
+            "inprivate browsing",
+            "inprivate window",
+            "private window",
+            "private with tor",
+            "private window with tor"
+        ]
+        if knownPrivateWindowNames.contains(lowerWindow) {
             return true
         }
+
         return false
     }
 

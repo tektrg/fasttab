@@ -64,7 +64,7 @@ function getBrowserId() {
 // -- Snapshot / delta building --------------------------------------------------
 
 function buildTabRecord(tab) {
-  if (!tab || !tab.url) return null;
+  if (!tab || !tab.url || tab.incognito) return null;
   const winIdx = state.windows.findIndex((w) => w.id === tab.windowId);
   if (winIdx < 0) return null;
   const activeTitle = state.tabs.get(activeTabByWindow.get(tab.windowId))?.title || '';

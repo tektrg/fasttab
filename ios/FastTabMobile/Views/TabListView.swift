@@ -23,6 +23,7 @@ public struct TabListView: View {
     @State private var pendingCloses: [PendingTabClose] = []
     @State private var toastMessage: String?
     @State private var showToast: Bool = false
+    @State private var showDeckSwitcher: Bool = false
     /// The tab awaiting a "save as bookmark" destination. Drives the same
     /// `BookmarkMovePicker` the bookmarks tree uses; on confirm the tab's URL
     /// is saved into the picked folder on the tab's own Mac.
@@ -195,8 +196,24 @@ public struct TabListView: View {
             }
         }
         .searchable(text: $searchText, prompt: "Search tabs, bookmarks, history…")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showDeckSwitcher = true
+                } label: {
+                    Image(systemName: "rectangle.stack.fill")
+                        .foregroundStyle(Color.accentColor)
+                }
+                .accessibilityLabel("App Switcher Deck")
+            }
+        }
         .onChange(of: localCache.state.tabs.count) {
             pruneFinishedCloses()
+        }
+        .fullScreenCover(isPresented: $showDeckSwitcher) {
+            TabSwitcherDeckView(device: activeDevice, pendingCloses: $pendingCloses) {
+                showDeckSwitcher = false
+            }
         }
         .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)

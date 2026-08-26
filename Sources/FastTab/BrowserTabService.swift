@@ -1387,14 +1387,29 @@ class BrowserTabService: ObservableObject {
         }
     }
 
-    /// Browser a "Search the web" fallback should open in: whichever browser
-    /// the user invoked FastTab from, or the first enabled browser if that
-    /// browser isn't one of the backends (e.g. FastTab was opened from a
-    /// non-browser app). Finder is excluded — it's a backend for local file
-    /// search, not a real browser a web search can open in.
+    /// Bundle identifier of the user's actual macOS default browser (System
+    /// Settings ▸ Desktop & Dock ▸ Default web browser). Used as a fallback
+    /// signal below, since FastTab otherwise has no way to know it and would
+    /// silently default to whichever tracked browser happens to be first.
+    private var systemDefaultBrowserBundleIdentifier: String? {
+        guard let httpsURL = URL(string: "https://"),
+              let appURL = NSWorkspace.shared.urlForApplication(toOpen: httpsURL) else { return nil }
+        return Bundle(url: appURL)?.bundleIdentifier
+    }
+
+    /// Browser a "Search the web" fallback (and a `.sent` iPhone-shared link
+    /// with no explicit `preferBrowser`) should open in, in priority order:
+    /// 1. Whichever browser the user invoked FastTab from — preserves intent
+    ///    when FastTab was opened directly from a browser window.
+    /// 2. The user's actual macOS default browser, if FastTab tracks it.
+    /// 3. The first enabled/tracked browser, as a last resort (e.g. the real
+    ///    default is a browser FastTab doesn't track, like Arc or Firefox).
+    /// Finder is excluded — it's a backend for local file search, not a real
+    /// browser a web search can open in.
     func resolvedWebSearchBackend() -> (any BrowserBackend)? {
         let realBrowsers = backends.filter { $0.appName != "Finder" }
         return realBrowsers.first(where: { $0.bundleIdentifier == currentFlowSourceAppBundleIdentifier })
+            ?? realBrowsers.first(where: { $0.bundleIdentifier == systemDefaultBrowserBundleIdentifier })
             ?? realBrowsers.first
     }
 

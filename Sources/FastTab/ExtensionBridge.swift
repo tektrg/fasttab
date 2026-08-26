@@ -281,11 +281,42 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
     static func dedupedTabs(from tabsByConnection: [[ExtensionTabRecord]]) -> [ExtensionTabRecord] {
         var merged: [String: ExtensionTabRecord] = [:]
         for tabs in tabsByConnection {
-            for tab in tabs {
+            for tab in collapsingSameSlotTabs(tabs) {
                 merged["\(tab.tabID)|\(tab.url)"] = tab
             }
         }
         return Array(merged.values)
+    }
+
+    /// Collapses records from one profile that claim the same window slot — same
+    /// `windowIndex` *and* `tabIndex` — while showing the same URL. A window
+    /// holds exactly one tab per position, so two such records can never be two
+    /// real tabs; they are one physical tab reported under two IDs, which is what
+    /// Chromium's `tabs.onReplaced` produces when it swaps a tab's ID (waking a
+    /// discarded "sleeping" tab, prerender activation) and the extension's mirror
+    /// keeps the pre-swap ID. Left in, the stale twin shows up as a duplicate tab
+    /// the user does not have. The URL has to match too: a stale record whose
+    /// slot is now occupied by a *different* page is a different tab, and
+    /// dropping it would hide a real one. The live record wins over the discarded
+    /// one, since it carries current title/audio state.
+    ///
+    /// Scoped to a single connection on purpose — `windowIndex` is numbered per
+    /// profile, so the same slot in two profiles is two different windows.
+    static func collapsingSameSlotTabs(_ tabs: [ExtensionTabRecord]) -> [ExtensionTabRecord] {
+        var keptBySlot: [String: ExtensionTabRecord] = [:]
+        var slotOrder: [String] = []
+        for tab in tabs {
+            let slot = "\(tab.windowIndex)|\(tab.tabIndex)|\(tab.url)"
+            guard let kept = keptBySlot[slot] else {
+                keptBySlot[slot] = tab
+                slotOrder.append(slot)
+                continue
+            }
+            if kept.isDiscarded, !tab.isDiscarded {
+                keptBySlot[slot] = tab
+            }
+        }
+        return slotOrder.compactMap { keptBySlot[$0] }
     }
 
     /// Caps `connections` to the `limit` most recently contacted, when there

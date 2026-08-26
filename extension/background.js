@@ -85,8 +85,19 @@ function buildTabRecord(tab) {
   };
 }
 
-function sendFullSnapshot() {
+// A "full snapshot" has to be authoritative, so it re-reads the browser's own
+// tab list instead of serializing this worker's mirror. Any event class the
+// mirror misses (see `chrome.tabs.onReplaced` below) would otherwise be re-sent
+// as truth on every snapshot and never heal: the keepalive alarm deliberately
+// keeps this worker — and its mirror — alive for the whole browser session, so
+// a worker restart can no longer be relied on to rebuild it.
+async function sendFullSnapshot() {
   if (!port) return;
+  try {
+    await syncTabsFromBrowser();
+  } catch (e) {
+    lastError = 'tab requery failed: ' + e;
+  }
   const tabs = [];
   for (const tab of state.tabs.values()) {
     const record = buildTabRecord(tab);
@@ -99,6 +110,19 @@ function sendTabDelta(tabId) {
   if (!port) return;
   const record = buildTabRecord(state.tabs.get(tabId));
   if (record) sendMessage('tabUpdated', { tab: record });
+}
+
+// Rebuilds the tab mirror from the browser's own list, discarding whatever it
+// held. The single source of truth for `state.tabs` — every full snapshot goes
+// through here, so a stale entry can never outlive one snapshot.
+async function syncTabsFromBrowser() {
+  const tabs = await chrome.tabs.query({});
+  state.tabs = new Map(tabs.map((t) => [t.id, t]));
+
+  activeTabByWindow = new Map();
+  for (const t of tabs) {
+    if (t.active) activeTabByWindow.set(t.windowId, t.id);
+  }
 }
 
 async function refreshAll() {
@@ -115,13 +139,7 @@ async function refreshAll() {
   const groups = await chrome.tabGroups.query({});
   state.groups = new Map(groups.map((g) => [g.id, g]));
 
-  const tabs = await chrome.tabs.query({});
-  state.tabs = new Map(tabs.map((t) => [t.id, t]));
-
-  activeTabByWindow = new Map();
-  for (const t of tabs) {
-    if (t.active) activeTabByWindow.set(t.windowId, t.id);
-  }
+  await syncTabsFromBrowser();
 }
 
 // Window ordering changed (created/removed/focused) → windowIndex remaps, so a
@@ -138,7 +156,7 @@ async function refreshWindows() {
     return a.id - b.id;
   });
   state.windows = windows;
-  sendFullSnapshot();
+  await sendFullSnapshot();
 }
 
 // -- Keepalive ---------------------------------------------------------------
@@ -371,6 +389,27 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     activeTabByWindow.delete(removeInfo.windowId);
   }
   sendMessage('tabRemoved', { tabId, windowId: removeInfo.windowId });
+});
+
+// Chromium swaps a tab's ID out from under the extension whenever the tab's
+// underlying page is replaced rather than navigated: prerender activation, and
+// waking a discarded ("sleeping") tab. No `onRemoved` fires for the pre-swap
+// ID, so without this the mirror ends up holding two IDs for one physical tab
+// — the app then sees the same URL twice and reports a duplicate tab the user
+// does not actually have.
+chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+  const removedTab = state.tabs.get(removedTabId);
+  const windowId = removedTab ? removedTab.windowId : undefined;
+  state.tabs.delete(removedTabId);
+  if (windowId !== undefined && activeTabByWindow.get(windowId) === removedTabId) {
+    activeTabByWindow.set(windowId, addedTabId);
+  }
+  sendMessage('tabRemoved', { tabId: removedTabId, windowId });
+  chrome.tabs.get(addedTabId, (tab) => {
+    if (chrome.runtime.lastError || !tab) return;
+    state.tabs.set(addedTabId, tab);
+    sendTabDelta(addedTabId);
+  });
 });
 
 chrome.tabs.onMoved.addListener((tabId, moveInfo) => {

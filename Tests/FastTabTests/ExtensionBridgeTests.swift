@@ -50,7 +50,7 @@ import Testing
         func deleteHistoryItem(_ result: BrowserSearchResult) {}
     }
 
-    private func makeTab(id: Int, windowIndex: Int, tabIndex: Int, title: String, url: String, active: Bool = false, audible: Bool = false, groupTitle: String? = nil) -> ExtensionTabRecord {
+    private func makeTab(id: Int, windowIndex: Int, tabIndex: Int, title: String, url: String, active: Bool = false, audible: Bool = false, discarded: Bool = false, groupTitle: String? = nil) -> ExtensionTabRecord {
         ExtensionTabRecord(
             tabID: id,
             windowIndex: windowIndex,
@@ -62,7 +62,7 @@ import Testing
             isAudible: audible,
             isMuted: false,
             isPinned: false,
-            isDiscarded: false,
+            isDiscarded: discarded,
             groupTitle: groupTitle
         )
     }
@@ -203,6 +203,55 @@ import Testing
         let tabFromProfileB = makeTab(id: 1, windowIndex: 1, tabIndex: 1, title: "B", url: "https://b.com")
 
         let tabs = ExtensionBridge.dedupedTabs(from: [[tabFromProfileA], [tabFromProfileB]])
+
+        #expect(tabs.count == 2)
+    }
+
+    @Test func dedupedTabsCollapsesOneTabReportedUnderTwoIDsAfterATabIDSwap() {
+        // Reproduces the false `@duplicate` hit: Chromium swapped this tab's ID
+        // (waking a sleeping tab / prerender activation), the extension's mirror
+        // kept the pre-swap ID, so one physical tab arrives twice — same window
+        // slot, same URL, different IDs, the stale copy still marked discarded.
+        let staleAfterIDSwap = makeTab(id: 41, windowIndex: 1, tabIndex: 3, title: "Roadmap", url: "https://notion.so/x", discarded: true)
+        let live = makeTab(id: 88, windowIndex: 1, tabIndex: 3, title: "(9+) Roadmap", url: "https://notion.so/x")
+
+        let tabs = ExtensionBridge.dedupedTabs(from: [[staleAfterIDSwap, live]])
+
+        #expect(tabs.count == 1)
+        #expect(tabs.first?.tabID == 88)
+        #expect(tabs.first?.isDiscarded == false)
+    }
+
+    @Test func dedupedTabsKeepsTwoRealTabsShowingTheSamePageInDifferentSlots() {
+        // The user really does have the same page open twice — different window
+        // slots, so both are real and `@duplicate` should report them.
+        let first = makeTab(id: 1, windowIndex: 1, tabIndex: 3, title: "Roadmap", url: "https://notion.so/x")
+        let second = makeTab(id: 2, windowIndex: 1, tabIndex: 9, title: "Roadmap", url: "https://notion.so/x")
+
+        let tabs = ExtensionBridge.dedupedTabs(from: [[first, second]])
+
+        #expect(tabs.count == 2)
+    }
+
+    @Test func dedupedTabsKeepsSameSlotTabsFromDifferentProfiles() {
+        // `windowIndex` is numbered per profile, so slot 1/1 in two profiles is
+        // two different windows — collapsing them would hide a real tab.
+        let profileA = makeTab(id: 1, windowIndex: 1, tabIndex: 1, title: "Inbox", url: "https://mail.example.com")
+        let profileB = makeTab(id: 2, windowIndex: 1, tabIndex: 1, title: "Inbox", url: "https://mail.example.com")
+
+        let tabs = ExtensionBridge.dedupedTabs(from: [[profileA], [profileB]])
+
+        #expect(tabs.count == 2)
+    }
+
+    @Test func dedupedTabsKeepsStaleRecordWhoseSlotNowHoldsADifferentPage() {
+        // Same slot, different URL: the second record is a different tab (or the
+        // same slot after a real navigation), so neither may be dropped —
+        // dropping one here would hide a tab from the user.
+        let earlier = makeTab(id: 1, windowIndex: 1, tabIndex: 2, title: "Docs", url: "https://a.example.com")
+        let later = makeTab(id: 2, windowIndex: 1, tabIndex: 2, title: "Mail", url: "https://b.example.com")
+
+        let tabs = ExtensionBridge.dedupedTabs(from: [[earlier, later]])
 
         #expect(tabs.count == 2)
     }

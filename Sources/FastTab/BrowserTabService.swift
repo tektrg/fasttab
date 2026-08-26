@@ -81,7 +81,10 @@ class BrowserTabService: ObservableObject {
     // while the user is typing into the bar.
     private let typedQueryLiveTabsReuseWindow: TimeInterval = 5.0
 
-    private let backends: [any BrowserBackend]
+    /// Non-private so the search-alias extension in
+    /// `BrowserTabService+SearchAlias.swift` can resolve an alias's owning
+    /// browser. Still internal to the module.
+    let backends: [any BrowserBackend]
 
     private static let activeTimesDefaultsKey = "FastTab.lastActiveTimes"
     private static let frecencyDefaultsKey = "FastTab.frecencyV1"
@@ -1439,6 +1442,8 @@ class BrowserTabService: ObservableObject {
         }
 
         self.logger.info("refreshCachesIfNeeded start. force=\(force, privacy: .public) query='\(self.lastIssuedQuery, privacy: .public)'")
+
+        refreshSearchAliases()
 
         let backends = self.backends
         let historyLimit = self.historyCachePerBrowserLimit

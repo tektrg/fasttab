@@ -3,15 +3,24 @@ import OSLog
 
 private let extensionBackedBackendLogger = Logger(subsystem: "com.trungluong.FastTab", category: "ExtensionBackedBackend")
 
-/// How many profiles a Chromium browser has on disk. The decorator serves the
-/// extension snapshot only when every profile is connected, so a partial
-/// profile set can never hide tabs. Extracted as a protocol so tests can mock
-/// the inner backend.
-protocol ChromiumProfileCounting: Sendable {
+/// Access to a Chromium browser's on-disk profiles.
+///
+/// `profileCount()` gates the decorator: it serves the extension snapshot only
+/// when every profile is connected, so a partial profile set can never hide
+/// tabs. `chromiumProfiles()` exposes the profiles themselves for the readers
+/// that work off profile files directly (search-engine import).
+///
+/// Extracted as a protocol so tests can mock the inner backend — and so callers
+/// go through the decorator instead of casting to `ChromiumBackend`, which
+/// silently matches nothing now that every Chromium backend is wrapped.
+protocol ChromiumProfileAccess: Sendable {
     func profileCount() -> Int
+    func chromiumProfiles() -> [ChromiumProfile]
 }
 
-extension ChromiumBackend: ChromiumProfileCounting {
+extension ChromiumBackend: ChromiumProfileAccess {
+    func chromiumProfiles() -> [ChromiumProfile] { profiles() }
+
     /// Prefers the count of profiles the browser currently has open
     /// (`livingProfileNames`) over every profile folder ever created on
     /// disk — the latter overcounts so badly (abandoned Guest Profile,
@@ -35,12 +44,19 @@ extension ChromiumBackend: ChromiumProfileCounting {
 /// every call when the beta gate is off or the bridge isn't servable, falls
 /// through to the wrapped backend unchanged. The extension can never make
 /// FastTab slower or less complete than today.
-struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileCounting>: BrowserBackend {
+struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileAccess>: BrowserBackend, ChromiumProfileAccess {
     let inner: Inner
     let bridge: any ExtensionBridgeServing
 
     var appName: String { inner.appName }
     var bundleIdentifier: String { inner.bundleIdentifier }
+
+    // Profile access is pure disk state the extension has no view of, so the
+    // decorator always forwards it. Conforming (rather than leaving callers to
+    // cast at the concrete inner type) is what keeps profile-backed features
+    // working once a backend is wrapped.
+    func profileCount() -> Int { inner.profileCount() }
+    func chromiumProfiles() -> [ChromiumProfile] { inner.chromiumProfiles() }
 
     private var isBetaEnabled: Bool { ExtensionBetaPreference.isEnabled }
 

@@ -23,7 +23,7 @@ import Testing
         }
     }
 
-    private final class RecordingBackend: BrowserBackend, ChromiumProfileCounting, @unchecked Sendable {
+    private final class RecordingBackend: BrowserBackend, ChromiumProfileAccess, @unchecked Sendable {
         var activateCalls = 0
         var closeCalls = 0
         var fetchLiveTabsCalls = 0
@@ -32,6 +32,7 @@ import Testing
         var appName: String { "Google Chrome" }
         var bundleIdentifier: String { "com.google.Chrome" }
         func profileCount() -> Int { 0 }
+        func chromiumProfiles() -> [ChromiumProfile] { [] }
 
         func fetchLiveTabs(fetchStart: Date, activeTimes: inout [String: Date], currentFlowSourceAppBundleIdentifier: String?) -> [BrowserSearchResult] {
             fetchLiveTabsCalls += 1

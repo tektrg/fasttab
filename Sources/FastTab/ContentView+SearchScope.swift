@@ -248,6 +248,9 @@ extension ContentView {
     func activateDuplicateFilterFromTag() {
         searchText = ""
         scopeChips = []
+        activeSearchAlias = nil
+        consumedAliasKeyword = ""
+        rejectedAliasKeyword = nil
         focusedChipID = nil
         commitScopeSuggestion(.root(.duplicate))
     }

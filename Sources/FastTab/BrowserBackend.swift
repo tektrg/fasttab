@@ -62,6 +62,31 @@ struct RemovedBookmarkNode: Sendable, Equatable {
     let originalFolderPath: [String]
 }
 
+/// Builds `sqlite3` arguments for a read-only query against a *live* Chromium
+/// profile database (History, Web Data, ...), using SQLite's `immutable=1` URI
+/// flag.
+///
+/// Chromium opens these with `PRAGMA locking_mode=EXCLUSIVE`, so a plain
+/// `-readonly` open is rejected with `SQLITE_BUSY (database is locked)` even
+/// though the file is on disk. `immutable=1` tells SQLite to assume the file
+/// won't change and skip all locking, which lets us read the latest
+/// checkpointed state while the browser keeps writing. We never open for
+/// write, so there's no risk of corrupting the browser's DB.
+///
+/// Earlier attempts that did not work: (a) byte-level `copyItem` + query —
+/// captured stale pages because the `-journal` sidecar wasn't copied
+/// alongside, and (b) `-readonly` direct open — failed with `SQLITE_BUSY`
+/// against Chromium's exclusive lock. `immutable=1` is the approach Chrome's
+/// own history-export tooling uses.
+func immutableReadSQLiteArgs(dbPath: String, sql: String) -> [String] {
+    [
+        "-cmd", ".timeout \(kSQLiteLiveReadBusyTimeoutMs)",
+        "-separator", kFieldSep,
+        "file:\(sqliteFileURIPath(dbPath))?immutable=1",
+        sql
+    ]
+}
+
 /// Protocol implemented by each browser backend (Chromium, Safari, ...).
 ///
 /// Conformers must be `Sendable` and have only value semantics / nonisolated

@@ -227,6 +227,11 @@ struct SearchHeader: View {
     @FocusState.Binding var isSearchFocused: Bool
     let isSelected: Bool
     let scopeChips: [ScopeChip]
+    /// Non-nil while alias mode is active — rendered as a badge between the
+    /// scope chips and the caret, the way a browser address bar shows the
+    /// search engine you tabbed into.
+    let activeAlias: SearchAlias?
+    let onRemoveAlias: () -> Void
     let focusedChipID: UUID?
     let onRemoveChip: (ScopeChip) -> Void
     let onFocusChip: (ScopeChip) -> Void
@@ -247,8 +252,12 @@ struct SearchHeader: View {
                 onFocusChip: onFocusChip
             )
 
+            if let activeAlias {
+                SearchAliasBadge(alias: activeAlias, onRemove: onRemoveAlias)
+            }
+
             TextField(
-                scopeChips.isEmpty ? "Search tabs, bookmarks, history…" : "",
+                searchFieldPlaceholder,
                 text: $searchText
             )
                 .textFieldStyle(.plain)
@@ -286,6 +295,44 @@ struct SearchHeader: View {
             )
         )
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
+    }
+
+    /// In alias mode the placeholder names the destination, so an empty input
+    /// still says where Enter would take you.
+    private var searchFieldPlaceholder: String {
+        if let activeAlias { return "Search \(activeAlias.displayName)…" }
+        return scopeChips.isEmpty ? "Search tabs, bookmarks, history…" : ""
+    }
+}
+
+private struct SearchAliasBadge: View {
+    let alias: SearchAlias
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(alias.displayName)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Leave \(alias.displayName) search")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule().fill(Color.accentColor.opacity(0.18))
+        )
+        .overlay(
+            Capsule().strokeBorder(Color.accentColor.opacity(0.32), lineWidth: 1)
+        )
+        .fixedSize()
     }
 }
 

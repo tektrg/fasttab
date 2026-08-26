@@ -10,6 +10,9 @@ struct ChromiumProfile: Sendable {
     var bookmarksURL: URL { directoryURL.appendingPathComponent("Bookmarks") }
     var historyURL: URL { directoryURL.appendingPathComponent("History") }
     var faviconsURL: URL { directoryURL.appendingPathComponent("Favicons") }
+    /// Holds the `keywords` table — the browser's own address-bar search
+    /// engines, which FastTab imports as search aliases.
+    var webDataURL: URL { directoryURL.appendingPathComponent("Web Data") }
 }
 
 struct ChromiumBackend: BrowserBackend {
@@ -243,7 +246,7 @@ struct ChromiumBackend: BrowserBackend {
 
             guard let output = runProcess(
                 launchPath: "/usr/bin/sqlite3",
-                arguments: Self.readonlySQLiteArgs(dbPath: profile.historyURL.path, sql: sql),
+                arguments: immutableReadSQLiteArgs(dbPath: profile.historyURL.path, sql: sql),
                 timeoutSeconds: 15
             ) else {
                 logger.error("history profile query failed. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)'")
@@ -342,7 +345,7 @@ struct ChromiumBackend: BrowserBackend {
 
             guard let output = runProcess(
                 launchPath: "/usr/bin/sqlite3",
-                arguments: Self.readonlySQLiteArgs(dbPath: profile.historyURL.path, sql: sql),
+                arguments: immutableReadSQLiteArgs(dbPath: profile.historyURL.path, sql: sql),
                 timeoutSeconds: max(0.05, remainingSeconds)
             ) else {
                 logger.error("searchHistory query failed. app='\(appName, privacy: .public)' profile='\(profile.name, privacy: .public)'")
@@ -379,37 +382,6 @@ struct ChromiumBackend: BrowserBackend {
             .sorted { $0.timestamp > $1.timestamp }
             .prefix(limit)
             .map { $0 }
-    }
-
-    // MARK: - Read-only live-DB access
-
-    /// Reads `History` directly from the live profile via SQLite's `immutable=1`
-    /// URI flag. Chromium opens History with `PRAGMA locking_mode=EXCLUSIVE`, so
-    /// a plain `-readonly` open is rejected with `SQLITE_BUSY (database is
-    /// locked)` even though the file is on disk. `immutable=1` tells SQLite to
-    /// assume the file won't change and skip all locking, which lets us read
-    /// the latest checkpointed state while the browser keeps writing. We never
-    /// open for write, so there's no risk of corrupting the browser's DB.
-    ///
-    /// We previously tried (a) byte-level `copyItem` + query — captured stale
-    /// pages because the `-journal` sidecar wasn't copied alongside, and
-    /// (b) `-readonly` direct open — failed with `SQLITE_BUSY` against
-    /// Chromium's exclusive lock. `immutable=1` is the approach Chrome's own
-    /// history-export tooling uses.
-    private static func readonlySQLiteArgs(dbPath: String, sql: String) -> [String] {
-        let uri = immutableSQLiteURI(dbPath: dbPath)
-        return [
-            "-cmd", ".timeout \(kSQLiteLiveReadBusyTimeoutMs)",
-            "-separator", kFieldSep,
-            uri,
-            sql
-        ]
-    }
-
-    /// Builds a `file:` URI with `immutable=1` for the given absolute DB path.
-    /// Path components must be percent-encoded so SQLite parses the URI cleanly.
-    private static func immutableSQLiteURI(dbPath: String) -> String {
-        "file:\(sqliteFileURIPath(dbPath))?immutable=1"
     }
 
     // MARK: - Favicons

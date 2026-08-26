@@ -12,6 +12,13 @@ enum CommandBarDisplayItem: Identifiable {
     case result(BrowserSearchResult)
     case showAllTabs(count: Int)
     case searchTheWeb(query: String)
+    /// Offered when the typed text exactly names a search alias but the user
+    /// hasn't committed to it yet — the discoverable half of "type a keyword,
+    /// press Tab". Selecting it commits the alias, it does not open anything.
+    case searchAliasHint(SearchAlias)
+    /// Shown while alias mode is active: the row that actually opens the
+    /// alias's site with whatever has been typed since.
+    case searchAliasQuery(alias: SearchAlias, query: String)
 
     var id: String {
         switch self {
@@ -21,6 +28,10 @@ enum CommandBarDisplayItem: Identifiable {
             return "command-bar-show-all-tabs"
         case .searchTheWeb:
             return "command-bar-search-the-web"
+        case .searchAliasHint:
+            return "command-bar-search-alias-hint"
+        case .searchAliasQuery:
+            return "command-bar-search-alias-query"
         }
     }
 
@@ -46,6 +57,16 @@ struct ContentView: View {
     @State var revealSpreadProgress: Double = 1
     @State var searchText = ""
     @State var scopeChips: [ScopeChip] = []
+    /// Non-nil while the command bar is in alias mode: the keyword has been
+    /// consumed, `searchText` now holds the query destined for that alias.
+    @State var activeSearchAlias: SearchAlias? = nil
+    /// The text consumed when entering alias mode, restored if the user backs
+    /// out. Without this, a mistaken Space costs them the whole keyword.
+    @State var consumedAliasKeyword: String = ""
+    /// A keyword the user just backed out of. Suppresses re-committing the same
+    /// one so backing out and continuing to type can't loop.
+    @State var rejectedAliasKeyword: String? = nil
+    @ObservedObject var searchAliasStore = SearchAliasStore.shared
     @State var scopeSuggestionMode: ScopeSuggestionMode = .hidden
     @State var scopeDropdownSelectedIndex: Int = 0
     /// When set, the named chip is keyboard-focused; the next backspace removes
@@ -129,10 +150,29 @@ struct ContentView: View {
         if searchText.isEmpty, quickOpenState.includesShowAllTabsItem, !wasOpenedByHover {
             items.append(.showAllTabs(count: filteredResults.count))
         }
-        if !searchText.isEmpty, filteredResults.isEmpty {
+        if !searchText.isEmpty, filteredResults.isEmpty, activeSearchAlias == nil {
             items.append(.searchTheWeb(query: searchText))
         }
+        if let activeSearchAlias {
+            // Top of the list, so it is the default Enter target: the user
+            // explicitly committed to this alias, and anything typed since is
+            // meant for it rather than for the local index.
+            items.insert(.searchAliasQuery(alias: activeSearchAlias, query: searchText), at: 0)
+        } else if let hintedAlias = searchAliasHint {
+            // Bottom, and never auto-selected — a plain search for a word that
+            // happens to be a keyword must not be hijacked.
+            items.append(.searchAliasHint(hintedAlias))
+        }
         return items
+    }
+
+    /// The alias the current text would commit to on Tab/Space, when alias mode
+    /// is not already active.
+    var searchAliasHint: SearchAlias? {
+        guard activeSearchAlias == nil, !searchText.isEmpty else { return nil }
+        guard !searchAliasStore.triggerKeys.isEmpty else { return nil }
+        guard searchText.lowercased() != rejectedAliasKeyword else { return nil }
+        return searchAliasStore.alias(committedBy: searchText)
     }
 
     var indexedDisplayItems: [(offset: Int, element: CommandBarDisplayItem)] {
@@ -234,6 +274,9 @@ struct ContentView: View {
 
         isShowingAllOpenTabs = wasOpenedByHover && searchText.isEmpty
         if searchText.isEmpty {
+            // Clearing the field is a fresh start — the earlier rejection of a
+            // keyword no longer applies.
+            rejectedAliasKeyword = nil
             appState.selectedIndex = -1
         } else {
             appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
@@ -378,6 +421,10 @@ struct ContentView: View {
                                 isSearchFocused: $isSearchFocused,
                                 isSelected: appState.selectedIndex == -1,
                                 scopeChips: scopeChips,
+                                activeAlias: activeSearchAlias,
+                                onRemoveAlias: {
+                                    exitSearchAliasMode()
+                                },
                                 focusedChipID: focusedChipID,
                                 onRemoveChip: { chip in
                                     removeChip(id: chip.id)

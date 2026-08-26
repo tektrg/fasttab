@@ -4,6 +4,7 @@ import AppKit
 private let kSpaceKeyCode: UInt16 = 49
 private let kEnterKeyCode: UInt16 = 36
 private let kDeleteKeyCode: UInt16 = 51
+private let kTabKeyCode: UInt16 = 48
 private let kEscapeKeyCode: UInt16 = 53
 private let kLeftArrowKeyCode: UInt16 = 123
 private let kRightArrowKeyCode: UInt16 = 124
@@ -35,7 +36,12 @@ extension ContentView {
             // resolves), which would otherwise force the user to wait out the
             // debounce before Enter did anything. If there's nothing to show
             // yet, don't make them wait: search immediately.
-            if !searchText.isEmpty, displayedResults.isEmpty {
+            // Alias mode is an explicit commitment, so Enter belongs to it even
+            // before anything is typed (opens the site's search page) and even
+            // when no row is highlighted.
+            if let activeSearchAlias {
+                activateSearchAlias(alias: activeSearchAlias, query: searchText)
+            } else if !searchText.isEmpty, displayedResults.isEmpty {
                 activateSearchTheWeb(query: searchText)
             }
             return
@@ -48,7 +54,77 @@ extension ContentView {
             expandAllOpenTabs()
         case .searchTheWeb(let query):
             activateSearchTheWeb(query: query)
+        case .searchAliasHint(let alias):
+            commitSearchAlias(alias)
+        case .searchAliasQuery(let alias, let query):
+            activateSearchAlias(alias: alias, query: query)
         }
+    }
+
+    // MARK: - Search aliases
+
+    /// Enters alias mode: the keyword is consumed out of the input and shown as
+    /// a badge, mirroring how a browser's address bar turns a matched keyword
+    /// into a search-engine chip.
+    func commitSearchAlias(_ alias: SearchAlias) {
+        activeSearchAlias = alias
+        consumedAliasKeyword = searchText
+        rejectedAliasKeyword = nil
+        // Clearing the text re-runs `handleSearchTextChange`, which puts the
+        // selection back on the search field — correct here, since the user is
+        // about to type the query. Enter still reaches the alias: the Enter
+        // handler checks alias mode before it needs a highlighted row.
+        searchText = ""
+        isSearchFocused = true
+    }
+
+    /// Leaves alias mode and puts the consumed keyword back in the field.
+    ///
+    /// Restoring matters because entering alias mode is easy to do by accident:
+    /// any ordinary search whose first word happens to be a keyword commits the
+    /// alias the moment Space is pressed. Without the restore, that mistake
+    /// costs the user the whole word they had typed.
+    ///
+    /// The keyword is also remembered as rejected, so pressing Space again on
+    /// the restored text types a space instead of re-entering the mode the user
+    /// just left — otherwise backing out and continuing to type is a loop.
+    func exitSearchAliasMode() {
+        guard activeSearchAlias != nil else { return }
+        activeSearchAlias = nil
+        if !consumedAliasKeyword.isEmpty {
+            rejectedAliasKeyword = consumedAliasKeyword.lowercased()
+            // Deliberately *not* suppressed: restoring the text must re-run the
+            // normal search-text handling so results reflect the keyword again
+            // rather than whatever the alias-mode query last fetched.
+            searchText = consumedAliasKeyword
+            consumedAliasKeyword = ""
+        }
+        appState.selectedIndex = -1
+        isSearchFocused = true
+    }
+
+    func activateSearchAlias(alias: SearchAlias, query: String) {
+        clearKeyboardSwipe()
+        resetPointerSwipe(animated: false)
+        appState.browserService.openSearchAlias(alias, query: query)
+        activeSearchAlias = nil
+        appState.hideCommandBar()
+    }
+
+    /// True when `keyCode` is a trigger the user has left enabled and the
+    /// current text exactly names an alias.
+    private func aliasCommittableBy(keyCode: UInt16) -> SearchAlias? {
+        let store = SearchAliasStore.shared
+        let triggerKey: SearchAliasTriggerKey
+        switch keyCode {
+        case kTabKeyCode: triggerKey = .tab
+        case kSpaceKeyCode: triggerKey = .space
+        default: return nil
+        }
+        guard store.isTriggerEnabled(triggerKey) else { return nil }
+        // Don't re-grab a keyword the user just backed out of.
+        guard searchText.lowercased() != rejectedAliasKeyword else { return nil }
+        return store.alias(committedBy: searchText)
     }
 
     func expandAllOpenTabs() {
@@ -159,12 +235,37 @@ extension ContentView {
                 // then delete on the next press. Routed here (not via SwiftUI
                 // `.onKeyPress(.delete)`) because that hook is unreliable when
                 // the TextField is empty.
+                // Alias badge sits closest to the caret, so it is what an
+                // empty-input backspace removes first — before the chip strip.
+                if noModifiers,
+                   event.keyCode == kDeleteKeyCode,
+                   appState.isVisible,
+                   searchText.isEmpty,
+                   activeSearchAlias != nil {
+                    exitSearchAliasMode()
+                    return nil
+                }
+
                 if noModifiers,
                    event.keyCode == kDeleteKeyCode,
                    appState.isVisible,
                    searchText.isEmpty,
                    !scopeChips.isEmpty {
                     handleBackspaceAtEmptyInput()
+                    return nil
+                }
+
+                // Tab/Space commit a typed keyword into alias mode. Space only
+                // ever reaches here with non-empty text, so it cannot collide
+                // with the empty-input "space moves the selection" binding
+                // handled further down.
+                if noModifiers,
+                   appState.isVisible,
+                   !isScopeDropdownVisible,
+                   activeSearchAlias == nil,
+                   !searchText.isEmpty,
+                   let alias = aliasCommittableBy(keyCode: event.keyCode) {
+                    commitSearchAlias(alias)
                     return nil
                 }
 

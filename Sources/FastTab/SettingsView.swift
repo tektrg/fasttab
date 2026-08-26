@@ -3,7 +3,7 @@ import SwiftUI
 /// One entry in the Settings sidebar. Each case's content lives in its own
 /// `*SettingsView` file — this file only owns the sidebar and routing.
 enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
-    case general, appearance, shortcuts, sources, sync, advanced, license, about
+    case general, appearance, shortcuts, sources, sync, searchAliases, advanced, license, about
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .shortcuts: return "Shortcuts"
         case .sources: return "Sources"
         case .sync: return "Sync"
+        case .searchAliases: return "Search Aliases"
         case .advanced: return "Advanced"
         case .license: return "License"
         case .about: return "About"
@@ -27,6 +28,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .shortcuts: return "keyboard"
         case .sources: return "list.bullet.rectangle"
         case .sync: return "icloud"
+        case .searchAliases: return "magnifyingglass"
         case .advanced: return "wrench.and.screwdriver"
         case .license: return "key"
         case .about: return "info.circle"
@@ -37,7 +39,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
     static let primaryTabs: [SettingsTab] = [.general, .appearance, .shortcuts, .sources, .sync]
 
     /// Rows under the sidebar's "Advanced" header.
-    static let advancedTabs: [SettingsTab] = [.advanced, .license]
+    static let advancedTabs: [SettingsTab] = [.searchAliases, .advanced, .license]
 }
 
 /// Settings window: a sidebar of tabs (mirrors the macOS System Settings
@@ -101,6 +103,9 @@ struct SettingsView: View {
             SourcesSettingsView()
         case .sync:
             Form { SyncSettingsSection() }
+                .formStyle(.grouped)
+        case .searchAliases:
+            Form { SearchAliasSettingsSection() }
                 .formStyle(.grouped)
         case .advanced:
             AdvancedSettingsView()

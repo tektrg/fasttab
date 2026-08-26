@@ -4,7 +4,7 @@ import FastTabSync
 /// Which browser/profile/Mac a bookmark leaf came from, before its blob's
 /// bookmarks were merged into the shared folder tree. Needed to send a delete
 /// command back to the right place — the tree itself has no other memory of it.
-public struct BookmarkSource: Sendable, Equatable {
+public struct BookmarkSource: Sendable, Hashable {
     public let deviceID: String
     public let browserName: String
     public let profileName: String

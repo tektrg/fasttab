@@ -36,6 +36,13 @@ public struct FastTabMobileApp: App {
                 .tabItem {
                     Label("Bookmarks", systemImage: "bookmark")
                 }
+
+                NavigationStack {
+                    RandomLinksView()
+                }
+                .tabItem {
+                    Label("Random", systemImage: "shuffle")
+                }
             }
             .onAppear {
                 syncConsumer.start()

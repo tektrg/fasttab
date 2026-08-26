@@ -1060,7 +1060,7 @@ class BrowserTabService: ObservableObject {
                     SyncService.shared.pushCommandResult(completedCmd)
                 }
             }
-            openViaWebAppRoutingOrNormally(result)
+            openSentLink(result)
         case .tab:
             let now = Date()
             if let key = result.tabRecencyKey {
@@ -1336,6 +1336,27 @@ class BrowserTabService: ObservableObject {
         backends.first(where: { $0.appName == result.browserName })
     }
 
+    /// Opens a `.sent` (iPhone-shared) link. Unlike bookmarks/history,
+    /// `result.browserName` holds the *source device* label ("iPhone") for
+    /// display, not a real backend name — so `backend(for:)` never matches.
+    /// The target browser instead comes from the sender's choice on iOS
+    /// (`result.profileName`, threaded through from `preferBrowser`), falling
+    /// back to the same default the "search the web" flow uses.
+    func openSentLink(_ result: BrowserSearchResult) {
+        guard let backend = result.profileName.flatMap({ backend(for: $0) }) ?? resolvedWebSearchBackend() else { return }
+        // `result.profileName` here is the iOS-chosen *browser name*, not a
+        // Chromium profile directory — rebuild the result with it cleared so
+        // `ChromiumBackend.openURL` doesn't try `--profile-directory="Safari"`.
+        let openable = BrowserSearchResult(
+            title: result.title,
+            url: result.url,
+            browserName: backend.appName,
+            type: result.type,
+            timestamp: result.timestamp
+        )
+        Task.detached(priority: .userInitiated) { backend.openURL(openable) }
+    }
+
     func backend(for browserName: String) -> (any BrowserBackend)? {
         backends.first(where: { $0.appName == browserName })
     }
@@ -1368,7 +1389,7 @@ class BrowserTabService: ObservableObject {
     /// browser isn't one of the backends (e.g. FastTab was opened from a
     /// non-browser app). Finder is excluded — it's a backend for local file
     /// search, not a real browser a web search can open in.
-    private func resolvedWebSearchBackend() -> (any BrowserBackend)? {
+    func resolvedWebSearchBackend() -> (any BrowserBackend)? {
         let realBrowsers = backends.filter { $0.appName != "Finder" }
         return realBrowsers.first(where: { $0.bundleIdentifier == currentFlowSourceAppBundleIdentifier })
             ?? realBrowsers.first

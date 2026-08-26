@@ -508,6 +508,13 @@ public struct TabListView: View {
                 }
 
                 Button {
+                    SyncConsumer.shared.sendOpenOnMac(url: tab.url, title: tab.title.isEmpty ? nil : tab.title)
+                    showToastHUD(message: "Sent to Mac")
+                } label: {
+                    Label("Open on Mac", systemImage: "laptopcomputer")
+                }
+
+                Button {
                     tabSaveRequest = TabSaveRequest(tab: tab)
                 } label: {
                     Label("Save to Folder", systemImage: "folder")

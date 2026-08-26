@@ -19,7 +19,15 @@ public struct LinkPreview: Sendable {
 public final class LinkPreviewLoader {
     public static let shared = LinkPreviewLoader()
 
+    /// Maximum cached previews before the oldest entry is evicted.
+    /// Each preview can hold a UIImage of several MB, so this bounds
+    /// total memory to a reasonable ceiling (~50 images).
+    private static let maxCacheEntries = 50
+
     private var cache: [String: LinkPreview] = [:]
+    /// Insertion-order keys for LRU eviction. Newest entries are appended;
+    /// oldest entries are removed from the front when the cap is exceeded.
+    private var cacheOrder: [String] = []
     private var inFlight: [String: Task<LinkPreview, Never>] = [:]
 
     public init() {}
@@ -27,6 +35,11 @@ public final class LinkPreviewLoader {
     public func preview(for url: URL) async -> LinkPreview {
         let key = url.absoluteString
         if let cached = cache[key] {
+            // Promote to most-recently-used
+            if let idx = cacheOrder.firstIndex(of: key) {
+                cacheOrder.remove(at: idx)
+                cacheOrder.append(key)
+            }
             return cached
         }
         if let existing = inFlight[key] {
@@ -42,9 +55,23 @@ public final class LinkPreviewLoader {
         inFlight[key] = task
 
         let result = await task.value
-        cache[key] = result
+        insertIntoCache(key: key, preview: result)
         inFlight[key] = nil
         return result
+    }
+
+    private func insertIntoCache(key: String, preview: LinkPreview) {
+        cache[key] = preview
+        // Remove any existing entry to prevent duplicate keys in the order
+        // array, which would desynchronize eviction from the dictionary.
+        if let idx = cacheOrder.firstIndex(of: key) {
+            cacheOrder.remove(at: idx)
+        }
+        cacheOrder.append(key)
+        while cacheOrder.count > Self.maxCacheEntries {
+            let evicted = cacheOrder.removeFirst()
+            cache.removeValue(forKey: evicted)
+        }
     }
 
     private static func loadImage(from itemProvider: NSItemProvider?) async -> UIImage? {

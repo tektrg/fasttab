@@ -35,7 +35,7 @@ struct RandomCardItem: Identifiable, Hashable {
 }
 
 enum RandomCardDecision {
-    case open
+    case moveTo
     case skip
 }
 
@@ -59,6 +59,8 @@ public struct RandomLinksView: View {
     @State private var moveRequest: RandomCardItem?
     @State private var toastMessage: String?
     @State private var showToast = false
+    @State private var expandingItemID: String?
+    @State private var isExpanding = false
 
     private static let maxDeckSize = 40
     private static let visibleCardCount = 3
@@ -95,16 +97,29 @@ public struct RandomLinksView: View {
                 .ignoresSafeArea()
         }
         .sheet(item: $moveRequest) { item in
-            if case .bookmark(let bookmark, let source) = item.source {
+            switch item.source {
+            case .bookmark(let bookmark, let source):
                 BookmarkMovePicker(
                     sourceDeviceID: source.deviceID,
-                    folderMoveExclusion: FolderMoveExclusion(
+                    folderMoveExclusion: item.source.isWritableBookmark ? FolderMoveExclusion(
                         path: BookmarkTreeBuilder.splitPath(bookmark.folderPath ?? ""),
                         profileKeys: ["\(source.browserName)|\(source.profileName)"],
                         includeSubpaths: false
-                    )
+                    ) : nil,
+                    title: item.source.isWritableBookmark ? "Move to…" : "Save to…"
                 ) { destination in
-                    performMove(item, bookmark: bookmark, source: source, to: destination)
+                    if item.source.isWritableBookmark {
+                        performMove(item, bookmark: bookmark, source: source, to: destination)
+                    } else {
+                        performSave(item, title: bookmark.title, url: bookmark.url, deviceID: source.deviceID, to: destination)
+                    }
+                }
+            case .openTab(let tab):
+                BookmarkMovePicker(
+                    sourceDeviceID: tab.deviceID,
+                    title: "Save to…"
+                ) { destination in
+                    performSave(item, title: tab.title, url: tab.url, deviceID: tab.deviceID, to: destination)
                 }
             }
         }
@@ -126,19 +141,59 @@ public struct RandomLinksView: View {
     private var deckStack: some View {
         GeometryReader { geometry in
             let cardSize = Self.cardSize(fitting: geometry.size)
+            let deckWidth = geometry.size.width
+            let deckHeight = geometry.size.height
             ZStack {
                 ForEach(Array(deck.prefix(Self.visibleCardCount).enumerated()).reversed(), id: \.element.id) { index, item in
-                    RandomCardView(item: item, isTop: index == 0, cardSize: cardSize, onDecision: { decision in
-                        handle(decision, for: item)
-                    }, onMenuAction: { action in
-                        handleMenuAction(action, for: item)
-                    })
-                    .scaleEffect(1 - CGFloat(index) * 0.04)
-                    .offset(y: CGFloat(index) * 10)
-                    .allowsHitTesting(index == 0)
+                    let isTarget = expandingItemID == item.id
+                    let isTop = index == 0
+                    let scaleTarget = (isTarget && isExpanding)
+                        ? max(deckWidth / cardSize.width, deckHeight / cardSize.height)
+                        : (1 - CGFloat(index) * 0.04)
+                    let yTarget = (isTarget && isExpanding) ? 0 : CGFloat(index) * 10
+                    let opacityTarget: Double = isExpanding
+                        ? (isTarget ? 1.0 : 0.0)
+                        : 1.0
+
+                    RandomCardView(
+                        item: item,
+                        isTop: isTop,
+                        cardSize: cardSize,
+                        isExpanding: isTarget && isExpanding,
+                        onTap: {
+                            animateCardOpen(item)
+                        },
+                        onDecision: { decision in
+                            handle(decision, for: item)
+                        },
+                        onMenuAction: { action in
+                            handleMenuAction(action, for: item)
+                        }
+                    )
+                    .scaleEffect(scaleTarget)
+                    .offset(y: yTarget)
+                    .opacity(opacityTarget)
+                    .zIndex(isTarget ? 999 : Double(Self.visibleCardCount - index))
+                    .allowsHitTesting(isTop && !isExpanding)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+
+    private func animateCardOpen(_ item: RandomCardItem) {
+        guard !isExpanding else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        expandingItemID = item.id
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+            isExpanding = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
+            selectedURLForReader = item.url
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                isExpanding = false
+                expandingItemID = nil
+            }
         }
     }
 
@@ -192,12 +247,12 @@ public struct RandomLinksView: View {
 
     private func handle(_ decision: RandomCardDecision, for item: RandomCardItem) {
         switch decision {
-        case .open:
-            selectedURLForReader = item.url
+        case .moveTo:
+            moveRequest = item
         case .skip:
             skipStore.skip(item.id)
+            deck.removeAll { $0.id == item.id }
         }
-        deck.removeAll { $0.id == item.id }
     }
 
     /// Delete/close are fire-and-forget from this view's perspective: the
@@ -250,6 +305,27 @@ public struct RandomLinksView: View {
             targetDeviceID: source.deviceID
         )
         presentToast("Queued move — confirm on your Mac")
+        deck.removeAll { $0.id == item.id }
+    }
+
+    private func performSave(
+        _ item: RandomCardItem,
+        title: String,
+        url: String,
+        deviceID: String,
+        to destination: BookmarkMoveDestination
+    ) {
+        let finalTitle = title.isEmpty ? (URL(string: url)?.host ?? url) : title
+        SyncConsumer.shared.sendAddBookmark(
+            title: finalTitle,
+            url: url,
+            destinationBrowserName: destination.browserName,
+            destinationProfileName: destination.profileName,
+            destinationFolderPath: destination.folderPath,
+            targetDeviceID: deviceID
+        )
+        let deviceName = localCache.state.devices.first { $0.id == deviceID }?.name ?? "your Mac"
+        presentToast("Save queued for \(deviceName)")
         deck.removeAll { $0.id == item.id }
     }
 
@@ -311,6 +387,8 @@ private struct RandomCardView: View {
     let item: RandomCardItem
     let isTop: Bool
     let cardSize: CGSize
+    let isExpanding: Bool
+    let onTap: () -> Void
     let onDecision: (RandomCardDecision) -> Void
     let onMenuAction: (RandomCardMenuAction) -> Void
 
@@ -322,7 +400,7 @@ private struct RandomCardView: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 24)
+            RoundedRectangle(cornerRadius: isExpanding ? 0 : 24)
                 .fill(Color(uiColor: .secondarySystemBackground))
 
             if let image = preview?.image {
@@ -360,16 +438,19 @@ private struct RandomCardView: View {
                     .lineLimit(1)
             }
             .padding(20)
+            .opacity(isExpanding ? 0 : 1)
 
-            stampOverlay
+            if !isExpanding {
+                stampOverlay
+            }
         }
         .frame(width: cardSize.width, height: cardSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .rotationEffect(.degrees(isTop ? Double(dragOffset.width / 20) : 0))
-        .offset(isTop ? dragOffset : .zero)
-        .gesture(isTop ? dragGesture : nil)
+        .clipShape(RoundedRectangle(cornerRadius: isExpanding ? 0 : 24))
+        .rotationEffect(.degrees((isTop && !isExpanding) ? Double(dragOffset.width / 20) : 0))
+        .offset((isTop && !isExpanding) ? dragOffset : .zero)
+        .gesture((isTop && !isExpanding) ? dragGesture : nil)
         .contextMenu {
-            if isTop {
+            if isTop && !isExpanding {
                 menuContent
             }
         }
@@ -383,6 +464,10 @@ private struct RandomCardView: View {
     /// leaving its own swipe actions off a read-only row.
     @ViewBuilder
     private var menuContent: some View {
+        ShareLink(item: item.url) {
+            Label("Share Link", systemImage: "square.and.arrow.up")
+        }
+
         switch item.source {
         case .bookmark:
             if item.source.isWritableBookmark {
@@ -399,6 +484,11 @@ private struct RandomCardView: View {
             }
         case .openTab:
             Button {
+                onMenuAction(.moveBookmark)
+            } label: {
+                Label("Save to Folder", systemImage: "folder")
+            }
+            Button {
                 onMenuAction(.openOnMac)
             } label: {
                 Label("Open on Mac", systemImage: "laptopcomputer")
@@ -412,13 +502,24 @@ private struct RandomCardView: View {
     }
 
     private var dragGesture: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 0)
             .onChanged { value in
+                guard !isExpanding else { return }
                 dragOffset = value.translation
             }
             .onEnded { value in
+                guard !isExpanding else { return }
+                let totalTranslation = hypot(value.translation.width, value.translation.height)
+                if totalTranslation < 10 {
+                    onTap()
+                    withAnimation(.spring()) {
+                        dragOffset = .zero
+                    }
+                    return
+                }
+
                 if value.translation.width > Self.swipeThreshold {
-                    animateOff(direction: 1, decision: .open)
+                    animateOff(direction: 1, decision: .moveTo)
                 } else if value.translation.width < -Self.swipeThreshold {
                     animateOff(direction: -1, decision: .skip)
                 } else {
@@ -436,13 +537,17 @@ private struct RandomCardView: View {
         Task {
             try? await Task.sleep(for: .milliseconds(200))
             onDecision(decision)
+            if case .moveTo = decision {
+                try? await Task.sleep(for: .milliseconds(200))
+                dragOffset = .zero
+            }
         }
     }
 
     @ViewBuilder
     private var stampOverlay: some View {
         if dragOffset.width > 40 {
-            stampLabel("OPEN", color: .green)
+            stampLabel("MOVE TO", color: .blue)
                 .opacity(min(1, (dragOffset.width - 40) / Self.stampFadeDistance))
                 .rotationEffect(.degrees(-15))
                 .padding(24)

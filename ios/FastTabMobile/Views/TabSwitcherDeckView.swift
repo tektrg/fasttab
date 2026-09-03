@@ -27,6 +27,8 @@ struct TabSwitcherDeckView: View {
     @State private var tabSaveRequest: TabSaveRequest?
     @State private var toastMessage: String?
     @State private var showToast: Bool = false
+    @State private var expandingTabID: String?
+    @State private var isExpanding: Bool = false
     /// Cached copy of the filtered tabs list. Recomputed only when the
     /// underlying data changes, not on every body evaluation (drag frames).
     @State private var cachedVisibleTabs: [SyncedTab] = []
@@ -108,6 +110,7 @@ struct TabSwitcherDeckView: View {
                 VStack(spacing: 0) {
                     // Top Bar Header
                     topHeaderBar
+                        .opacity(isExpanding ? 0 : 1)
                         .padding(.top, geometry.safeAreaInsets.top > 0 ? geometry.safeAreaInsets.top : 20)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 8)
@@ -115,6 +118,7 @@ struct TabSwitcherDeckView: View {
                     PendingTabCloseStrip(tracked: trackedCloses) { close in
                         pendingCloses.removeAll { $0.tabID == close.tabID }
                     }
+                    .opacity(isExpanding ? 0 : 1)
                     .animation(.easeInOut(duration: 0.2), value: trackedCloses)
 
                     if cachedVisibleTabs.isEmpty {
@@ -283,20 +287,32 @@ struct TabSwitcherDeckView: View {
 
             ZStack {
                 ForEach(windowedTabs, id: \.tab.id) { index, tab in
+                    let isTarget = expandingTabID == tab.id
                     let d = CGFloat(index) - effectiveActiveIndex
                     let isNearActive = abs(CGFloat(index) - round(activeIndex)) <= 1
                     let transform = cardTransform(distance: d, cardWidth: cardWidth)
                     let verticalOffset = verticalCardOffsets[tab.id] ?? 0
 
-                    if !transform.isHidden {
+                    let scaleTarget = (isTarget && isExpanding)
+                        ? max(deckWidth / cardWidth, deckHeight / cardHeight)
+                        : transform.scale
+
+                    let xTarget = (isTarget && isExpanding) ? 0 : transform.xOffset
+                    let yTarget = (isTarget && isExpanding) ? 0 : verticalOffset
+                    let opacityTarget = isExpanding
+                        ? (isTarget ? 1.0 : 0.0)
+                        : transform.opacity
+
+                    if !transform.isHidden || isTarget {
                         TabSwitcherViewCard(
                             tab: tab,
                             cardSize: cardSize,
                             isNearActive: isNearActive,
                             shouldLoadPreview: true,
-                            dragOffsetY: verticalOffset,
+                            isExpanding: isTarget && isExpanding,
+                            dragOffsetY: isExpanding ? 0 : verticalOffset,
                             onSelect: {
-                                openTab(tab)
+                                animateCardOpen(tab)
                             },
                             onClose: {
                                 dismissCard(tab, cardHeight: cardHeight)
@@ -316,16 +332,32 @@ struct TabSwitcherDeckView: View {
                                 showToastHUD(message: "URL Copied")
                             }
                         )
-                        .scaleEffect(transform.scale)
-                        .opacity(transform.opacity)
-                        .offset(x: transform.xOffset)
-                        .zIndex(Double(index))
+                        .scaleEffect(scaleTarget)
+                        .opacity(opacityTarget)
+                        .offset(x: xTarget, y: yTarget)
+                        .zIndex(isTarget ? 999 : Double(index))
                     }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(unifiedDeckGesture(deckGeo: deckGeo, cardWidth: cardWidth, cardHeight: cardHeight))
+        }
+    }
+
+    private func animateCardOpen(_ tab: SyncedTab) {
+        guard !isExpanding else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        expandingTabID = tab.id
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+            isExpanding = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
+            openTab(tab)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                isExpanding = false
+                expandingTabID = nil
+            }
         }
     }
 
@@ -379,6 +411,7 @@ struct TabSwitcherDeckView: View {
     private func unifiedDeckGesture(deckGeo: GeometryProxy, cardWidth: CGFloat, cardHeight: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 10)
             .onChanged { value in
+                guard !isExpanding else { return }
                 switch dragMode {
                 case .none:
                     if abs(value.translation.height) > abs(value.translation.width) && value.translation.height < -10 {
@@ -403,6 +436,7 @@ struct TabSwitcherDeckView: View {
                 }
             }
             .onEnded { value in
+                guard !isExpanding else { return }
                 let totalTranslation = hypot(value.translation.width, value.translation.height)
 
                 // If movement was small (< 16pt) or no drag mode active, resolve as a tap
@@ -501,7 +535,7 @@ struct TabSwitcherDeckView: View {
                 if hitClose {
                     dismissCard(tab, cardHeight: cardHeight)
                 } else {
-                    openTab(tab)
+                    animateCardOpen(tab)
                 }
                 return
             }

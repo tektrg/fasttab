@@ -21,16 +21,33 @@ struct TabWebPreviewView: UIViewRepresentable {
         preferences.preferredContentMode = .mobile
         configuration.defaultWebpagePreferences = preferences
 
+        // Inject dark color-scheme preference so initial document canvas renders dark
+        let darkStyleScript = """
+        var meta = document.createElement('meta');
+        meta.name = 'color-scheme';
+        meta.content = 'dark light';
+        if (document.head) {
+            document.head.appendChild(meta);
+        } else {
+            document.addEventListener('DOMContentLoaded', function() {
+                document.head.appendChild(meta);
+            });
+        }
+        """
+        let userScript = WKUserScript(source: darkStyleScript, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        configuration.userContentController.addUserScript(userScript)
+
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.overrideUserInterfaceStyle = .dark
         webView.isUserInteractionEnabled = false
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.bounces = false
         webView.allowsBackForwardNavigationGestures = false
         webView.navigationDelegate = context.coordinator
         webView.alpha = 0
-        webView.backgroundColor = .clear
         webView.isOpaque = false
-        webView.scrollView.backgroundColor = .clear
+        webView.backgroundColor = UIColor(red: 0.08, green: 0.10, blue: 0.15, alpha: 1.0)
+        webView.scrollView.backgroundColor = UIColor(red: 0.08, green: 0.10, blue: 0.15, alpha: 1.0)
 
         context.coordinator.webView = webView
 

@@ -19,6 +19,7 @@ struct TabSwitcherViewCard: View {
     /// fetching its OpenGraph preview image. Cards far off-screen skip the
     /// network round-trip entirely and show only the fallback card.
     let shouldLoadPreview: Bool
+    let isExpanding: Bool
     let dragOffsetY: CGFloat
     let onSelect: () -> Void
     let onClose: () -> Void
@@ -33,6 +34,7 @@ struct TabSwitcherViewCard: View {
         cardSize: CGSize,
         isNearActive: Bool = true,
         shouldLoadPreview: Bool = true,
+        isExpanding: Bool = false,
         dragOffsetY: CGFloat = 0,
         onSelect: @escaping () -> Void,
         onClose: @escaping () -> Void,
@@ -44,6 +46,7 @@ struct TabSwitcherViewCard: View {
         self.cardSize = cardSize
         self.isNearActive = isNearActive
         self.shouldLoadPreview = shouldLoadPreview
+        self.isExpanding = isExpanding
         self.dragOffsetY = dragOffsetY
         self.onSelect = onSelect
         self.onClose = onClose
@@ -67,11 +70,12 @@ struct TabSwitcherViewCard: View {
             // Floating Header (App Icon + Title + Close Button)
             cardHeader
                 .frame(width: cardSize.width)
+                .opacity(isExpanding ? 0 : 1)
 
             // Main Card Body
             cardBody
                 .frame(width: cardSize.width, height: cardSize.height)
-                .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: isExpanding ? 0 : 28, style: .continuous))
                 .onTapGesture {
                     onSelect()
                 }
@@ -179,18 +183,19 @@ struct TabSwitcherViewCard: View {
 
             // 4. Bottom Gradient & Metadata Overlay
             bottomGradientOverlay
+                .opacity(isExpanding ? 0 : 1)
 
             // 5. Swipe Up Close Stamp / Indicator
-            if dragOffsetY < -20 {
+            if dragOffsetY < -20 && !isExpanding {
                 closeSwipeIndicator
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: isExpanding ? 0 : 28, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(cornerRadius: isExpanding ? 0 : 28, style: .continuous)
+                .strokeBorder(isExpanding ? Color.clear : Color.white.opacity(0.14), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.35), radius: 18, x: 0, y: 8)
+        .shadow(color: isExpanding ? Color.clear : Color.black.opacity(0.35), radius: isExpanding ? 0 : 18, x: 0, y: isExpanding ? 0 : 8)
     }
 
     // MARK: - Fallback Content
@@ -201,15 +206,15 @@ struct TabSwitcherViewCard: View {
             HStack(spacing: 6) {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.75))
                 Text(domainHost)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(.ultraThinMaterial)
+            .background(Color.white.opacity(0.10))
             .clipShape(Capsule())
             .padding(.top, 16)
 
@@ -219,7 +224,7 @@ struct TabSwitcherViewCard: View {
             let (iconName, tintColor) = browserIconData(for: tab.browserName)
             ZStack {
                 Circle()
-                    .fill(tintColor.opacity(0.15))
+                    .fill(tintColor.opacity(0.18))
                     .frame(width: 72, height: 72)
 
                 Image(systemName: iconName)
@@ -229,7 +234,7 @@ struct TabSwitcherViewCard: View {
 
             Text(displayTitle)
                 .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary)
+                .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
                 .padding(.horizontal, 20)
@@ -240,8 +245,9 @@ struct TabSwitcherViewCard: View {
         .background(
             LinearGradient(
                 colors: [
-                    Color(uiColor: .tertiarySystemBackground),
-                    Color(uiColor: .secondarySystemBackground)
+                    Color(red: 0.12, green: 0.14, blue: 0.20),
+                    Color(red: 0.08, green: 0.10, blue: 0.15),
+                    Color(red: 0.05, green: 0.07, blue: 0.10)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -337,6 +343,10 @@ struct TabSwitcherViewCard: View {
         if let url = URL(string: tab.url) {
             Link(destination: url) {
                 Label("Open in Safari", systemImage: "safari")
+            }
+
+            ShareLink(item: url) {
+                Label("Share Link", systemImage: "square.and.arrow.up")
             }
         }
 

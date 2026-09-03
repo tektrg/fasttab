@@ -230,6 +230,40 @@ struct FastTabSyncTests {
         #expect(decoded?.status == .pending)
     }
 
+    @Test("createFolder SyncCommand serializes through CloudKit record")
+    func testCreateFolderCommandRecordConversion() {
+        let zoneID = CKRecordZone.ID(zoneName: "CommandsZone", ownerName: CKCurrentUserDefaultName)
+        let payload = CreateFolderPayload(
+            browserName: "Google Chrome",
+            profileName: "Default",
+            folderName: "Projects",
+            parentFolderPath: ["Work"]
+        )
+        let payloadData = try! JSONEncoder().encode(payload)
+        let payloadJSON = String(data: payloadData, encoding: .utf8)!
+
+        let command = SyncCommand(
+            kind: .createFolder,
+            targetDeviceID: "mac-1",
+            sourceDeviceName: "Trung's iPhone",
+            payloadJSON: payloadJSON,
+            status: .pending
+        )
+
+        let record = command.toRecord(zoneID: zoneID)
+        let decoded = SyncCommand(from: record)
+
+        #expect(decoded != nil)
+        #expect(decoded?.kind == .createFolder)
+        #expect(decoded?.targetDeviceID == "mac-1")
+        #expect(decoded?.sourceDeviceName == "Trung's iPhone")
+        #expect(decoded?.status == .pending)
+
+        let decodedPayload = try? JSONDecoder().decode(CreateFolderPayload.self, from: (decoded?.payloadJSON.data(using: .utf8))!)
+        #expect(decodedPayload?.folderName == "Projects")
+        #expect(decodedPayload?.parentFolderPath == ["Work"])
+    }
+
     @Test("Completing a fetched command preserves its CloudKit record metadata")
     func completingFetchedCommandPreservesRecord() {
         let zoneID = CKRecordZone.ID(zoneName: "CommandsZone", ownerName: CKCurrentUserDefaultName)

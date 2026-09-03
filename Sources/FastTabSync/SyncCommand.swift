@@ -8,6 +8,7 @@ public enum SyncCommandKind: String, Codable, Hashable, Sendable {
     case deleteHistoryItem
     case moveBookmark
     case addBookmark
+    case createFolder
 }
 
 public enum SyncCommandStatus: String, Codable, Hashable, Sendable {
@@ -181,6 +182,28 @@ public struct AddBookmarkPayload: Codable, Hashable, Sendable {
         self.title = title
         self.url = url
         self.folderPath = folderPath
+    }
+}
+
+/// Creates a new bookmark folder or subfolder on a Mac.
+/// `parentFolderPath` is an ordered list of parent folder display names;
+/// an empty array means top level (e.g. Chromium's "Other Bookmarks").
+public struct CreateFolderPayload: Codable, Hashable, Sendable {
+    public let browserName: String
+    public let profileName: String
+    public let folderName: String
+    public let parentFolderPath: [String]
+
+    public init(
+        browserName: String,
+        profileName: String,
+        folderName: String,
+        parentFolderPath: [String] = []
+    ) {
+        self.browserName = browserName
+        self.profileName = profileName
+        self.folderName = folderName
+        self.parentFolderPath = parentFolderPath
     }
 }
 

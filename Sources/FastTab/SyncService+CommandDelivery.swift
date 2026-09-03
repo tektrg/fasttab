@@ -77,6 +77,10 @@ extension SyncService {
             // folder. No source node to remove, so it is insert-only and runs
             // immediately like move — no approval step.
             handleAddBookmarkCommand(command)
+        case .createFolder:
+            // Creates a brand-new bookmark folder or subfolder. Runs immediately
+            // with no approval step.
+            handleCreateFolderCommand(command)
         }
     }
 
@@ -287,6 +291,49 @@ extension SyncService {
         responseCmd.status = .refused
         responseCmd.statusReason = "Couldn't save bookmark — check the destination folder on your Mac"
         logger.error("addBookmark: insert failed title=\(payload.title, privacy: .public)")
+        pushCommandResult(responseCmd)
+    }
+
+    /// Executes a create-folder request synchronously and immediately:
+    /// creates a folder (or nested subfolders) in the requested browser profile.
+    private func handleCreateFolderCommand(_ command: SyncCommand) {
+        guard let data = command.payloadJSON.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(CreateFolderPayload.self, from: data) else {
+            var failedCmd = command
+            failedCmd.status = .refused
+            failedCmd.statusReason = "Invalid create folder payload"
+            failedCmd.completedAt = Date()
+            pushCommandResult(failedCmd)
+            return
+        }
+
+        var responseCmd = command
+        responseCmd.completedAt = Date()
+
+        guard let backend = BrowserTabService.shared.backend(for: payload.browserName) else {
+            responseCmd.status = .notFound
+            responseCmd.statusReason = "Browser \(payload.browserName) is not available"
+            pushCommandResult(responseCmd)
+            return
+        }
+
+        let created = backend.createBookmarkFolder(
+            name: payload.folderName,
+            parentPath: payload.parentFolderPath,
+            profileName: payload.profileName
+        )
+
+        if created {
+            responseCmd.status = .done
+            responseCmd.statusReason = "Folder created"
+            logger.info("createFolder: created '\(payload.folderName, privacy: .public)' in browser=\(payload.browserName, privacy: .public) profile=\(payload.profileName, privacy: .public)")
+            pushCommandResult(responseCmd)
+            return
+        }
+
+        responseCmd.status = .refused
+        responseCmd.statusReason = "Couldn't create folder — check permissions or destination on your Mac"
+        logger.error("createFolder: failed folder=\(payload.folderName, privacy: .public)")
         pushCommandResult(responseCmd)
     }
 

@@ -214,6 +214,24 @@ struct ChromiumBackend: BrowserBackend {
 
         let nextTrail = type == "folder" && !nodeName.isEmpty ? folderTrail + [nodeName] : folderTrail
         guard let children = node["children"] as? [[String: Any]] else { return }
+
+        // If this is an empty folder with a valid trail, emit a placeholder item
+        // so CloudKit sync and iOS tree views know this folder exists.
+        if type == "folder", children.isEmpty, !nextTrail.isEmpty {
+            results.append(
+                BrowserSearchResult(
+                    title: nodeName,
+                    url: "",
+                    browserName: browserName,
+                    type: .bookmark,
+                    timestamp: chromiumDate(from: node["date_added"] as? String) ?? Date(timeIntervalSince1970: 0),
+                    bookmarkID: node["id"] as? String,
+                    profileName: profileName,
+                    folderPath: nextTrail.joined(separator: " / ")
+                )
+            )
+        }
+
         for child in children {
             collectBookmarks(
                 from: child,
@@ -969,6 +987,127 @@ struct ChromiumBackend: BrowserBackend {
             logger.error("insertBookmark: failed for profile=\(profile.name, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return false
         }
+    }
+
+    /// Creates a brand-new folder node into `profileName` at `parentPath`.
+    /// If a folder with `name` already exists at that path, it returns true (idempotent).
+    func createBookmarkFolder(name: String, parentPath: [String], profileName: String) -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return false }
+
+        guard let profile = profiles().first(where: { $0.name == profileName }) else {
+            logger.error("createBookmarkFolder: profile not found name=\(profileName, privacy: .public)")
+            return false
+        }
+
+        do {
+            let data = try Data(contentsOf: profile.bookmarksURL)
+            guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  var roots = root["roots"] as? [String: Any] else {
+                logger.error("createBookmarkFolder: invalid bookmark JSON at path=\(profile.bookmarksURL.path, privacy: .public)")
+                return false
+            }
+
+            var nextID = Self.highestBookmarkID(in: roots) + 1
+            let newFolderNode: [String: Any] = [
+                "type": "folder",
+                "name": trimmedName,
+                "id": String(nextID),
+                "date_added": Self.chromiumDateString(from: Date()),
+                "children": [] as [[String: Any]]
+            ]
+            nextID += 1
+
+            var created = false
+            for (key, value) in roots {
+                guard var node = value as? [String: Any] else { continue }
+                let rootName = (node["name"] as? String) ?? ""
+                let matchesTopLevel = parentPath.isEmpty && key == "other"
+                let matchesNamedPath = !parentPath.isEmpty && rootName == parentPath[0]
+                guard matchesTopLevel || matchesNamedPath else { continue }
+
+                let remaining = parentPath.isEmpty ? [] : Array(parentPath.dropFirst())
+                if Self.insertFolderUnderPath(&node, remainingPath: remaining, newFolderNode: newFolderNode, nextID: &nextID) {
+                    roots[key] = node
+                    created = true
+                    break
+                }
+            }
+
+            if !created, !parentPath.isEmpty {
+                guard var otherNode = roots["other"] as? [String: Any] else {
+                    logger.error("createBookmarkFolder: no 'other' root to create folder under path='\(parentPath.joined(separator: " / "), privacy: .public)'")
+                    return false
+                }
+                if Self.insertFolderUnderPath(&otherNode, remainingPath: parentPath, newFolderNode: newFolderNode, nextID: &nextID) {
+                    roots["other"] = otherNode
+                    created = true
+                }
+            }
+
+            guard created else {
+                logger.error("createBookmarkFolder: destination folder not found path='\(parentPath.joined(separator: " / "), privacy: .public)'")
+                return false
+            }
+
+            root["roots"] = roots
+            let updatedData = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            try updatedData.write(to: profile.bookmarksURL, options: .atomic)
+            logger.info("createBookmarkFolder: created '\(trimmedName, privacy: .public)' in profile=\(profile.name, privacy: .public) under path='\(parentPath.joined(separator: " / "), privacy: .public)'")
+            return true
+        } catch {
+            logger.error("createBookmarkFolder: failed for profile=\(profile.name, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    private static func insertFolderUnderPath(
+        _ node: inout [String: Any],
+        remainingPath: [String],
+        newFolderNode: [String: Any],
+        nextID: inout Int
+    ) -> Bool {
+        guard var children = node["children"] as? [[String: Any]] else { return false }
+
+        if remainingPath.isEmpty {
+            let targetName = (newFolderNode["name"] as? String) ?? ""
+            // Idempotency: if folder already exists with this name, consider it done
+            if children.contains(where: { ($0["type"] as? String) == "folder" && ($0["name"] as? String) == targetName }) {
+                return true
+            }
+            children.append(newFolderNode)
+            node["children"] = children
+            return true
+        }
+
+        let next = remainingPath[0]
+        let rest = Array(remainingPath.dropFirst())
+        for i in children.indices {
+            guard (children[i]["type"] as? String) == "folder",
+                  (children[i]["name"] as? String) == next else { continue }
+            var child = children[i]
+            if insertFolderUnderPath(&child, remainingPath: rest, newFolderNode: newFolderNode, nextID: &nextID) {
+                children[i] = child
+                node["children"] = children
+                return true
+            }
+        }
+
+        // `next` isn't on this trail yet; create intermediate folder
+        var createdFolder: [String: Any] = [
+            "type": "folder",
+            "name": next,
+            "id": String(nextID),
+            "date_added": Self.chromiumDateString(from: Date()),
+            "children": [] as [[String: Any]]
+        ]
+        nextID += 1
+        if insertFolderUnderPath(&createdFolder, remainingPath: rest, newFolderNode: newFolderNode, nextID: &nextID) {
+            children.append(createdFolder)
+            node["children"] = children
+            return true
+        }
+        return false
     }
 
     private static func extractBookmarkNode(

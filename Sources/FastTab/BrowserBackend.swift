@@ -150,6 +150,9 @@ protocol BrowserBackend: Sendable {
     /// `RemovedBookmarkNode.originalFolderPath` for the path convention).
     /// Returns whether it actually landed.
     func insertBookmark(title: String, url: String, dateAdded: Date?, profileName: String, folderPath: [String]) -> Bool
+    /// Creates a new bookmark folder or subfolder in `profileName` under `parentPath`.
+    /// Returns whether the folder was successfully created.
+    func createBookmarkFolder(name: String, parentPath: [String], profileName: String) -> Bool
 }
 
 extension BrowserBackend {
@@ -201,6 +204,7 @@ extension BrowserBackend {
 
     func removeBookmarkForMove(_ result: BrowserSearchResult) -> RemovedBookmarkNode? { nil }
     func insertBookmark(title: String, url: String, dateAdded: Date?, profileName: String, folderPath: [String]) -> Bool { false }
+    func createBookmarkFolder(name: String, parentPath: [String], profileName: String) -> Bool { false }
 }
 
 // MARK: - Shared helpers

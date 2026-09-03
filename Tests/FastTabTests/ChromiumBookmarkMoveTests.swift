@@ -236,4 +236,39 @@ struct ChromiumBookmarkMoveTests {
         #expect(String(data: sourceData, encoding: .utf8)?.contains("Move Me") == false)
         #expect(String(data: destData, encoding: .utf8)?.contains("Move Me") == true)
     }
+
+    @Test func createBookmarkFolderTopLevelAndNested() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let profileDir = try makeProfile(named: "Default", in: base)
+        let backend = makeBackend(supportDirectory: base)
+
+        // 1. Create top-level folder
+        let topCreated = backend.createBookmarkFolder(name: "My Projects", parentPath: [], profileName: "Default")
+        #expect(topCreated)
+
+        // Idempotency: creating same folder again returns true
+        let topCreatedAgain = backend.createBookmarkFolder(name: "My Projects", parentPath: [], profileName: "Default")
+        #expect(topCreatedAgain)
+
+        // 2. Create nested subfolder
+        let subCreated = backend.createBookmarkFolder(name: "FastTab", parentPath: ["My Projects"], profileName: "Default")
+        #expect(subCreated)
+
+        // 3. Verify on disk
+        let data = try Data(contentsOf: profileDir.appendingPathComponent("Bookmarks"))
+        let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let roots = root?["roots"] as? [String: Any]
+        let other = roots?["other"] as? [String: Any]
+        let otherChildren = other?["children"] as? [[String: Any]]
+
+        let projectsFolder = otherChildren?.first { ($0["name"] as? String) == "My Projects" }
+        #expect(projectsFolder != nil)
+        #expect(projectsFolder?["type"] as? String == "folder")
+
+        let projectsChildren = projectsFolder?["children"] as? [[String: Any]]
+        let fastTabFolder = projectsChildren?.first { ($0["name"] as? String) == "FastTab" }
+        #expect(fastTabFolder != nil)
+        #expect(fastTabFolder?["type"] as? String == "folder")
+    }
 }

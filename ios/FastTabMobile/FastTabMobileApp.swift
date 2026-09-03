@@ -43,7 +43,15 @@ public struct FastTabMobileApp: App {
                 .tabItem {
                     Label("Random", systemImage: "shuffle")
                 }
+
+                NavigationStack {
+                    IntelligenceView()
+                }
+                .tabItem {
+                    Label("Intelligence", systemImage: "sparkles")
+                }
             }
+
             .onAppear {
                 syncConsumer.start()
             }

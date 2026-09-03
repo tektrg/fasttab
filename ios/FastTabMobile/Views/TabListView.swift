@@ -181,21 +181,21 @@ public struct TabListView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            DataFreshnessBanner(device: activeDevice, lastSyncedAt: localCache.state.lastSyncedAt)
-
-            PendingTabCloseStrip(tracked: trackedCloses) { close in
-                pendingCloses.removeAll { $0.tabID == close.tabID }
-            }
-            .animation(.easeInOut(duration: 0.2), value: trackedCloses)
-
+        Group {
             if !searchText.isEmpty {
                 combinedSearchResultsView
             } else {
                 tabListMainView
             }
         }
-        .searchable(text: $searchText, prompt: "Search tabs, bookmarks, history…")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search tabs, bookmarks, history…")
+        .safeAreaInset(edge: .bottom) {
+            if searchText.isEmpty && !visibleTabs.isEmpty {
+                FloatingTabSortBar(sortMode: $sortMode)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -237,7 +237,7 @@ public struct TabListView: View {
                     .clipShape(Capsule())
                     .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
                     .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
+                    .padding(.bottom, 72)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -245,73 +245,89 @@ public struct TabListView: View {
 
     @ViewBuilder
     private var tabListMainView: some View {
-        VStack(spacing: 0) {
-            Picker("Sort", selection: $sortMode) {
-                ForEach(TabSortMode.allCases) { mode in
-                    Text(mode.rawValue).tag(mode)
+        if visibleTabs.isEmpty {
+            ScrollView {
+                VStack(spacing: 24) {
+                    DataFreshnessBanner(device: activeDevice, lastSyncedAt: localCache.state.lastSyncedAt)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+
+                    VStack(spacing: 12) {
+                        Image(systemName: "macwindow.on.rectangle")
+                            .font(.system(size: 40))
+                            .foregroundStyle(.secondary)
+                        Text("No Open Tabs")
+                            .font(.headline)
+                        Text("Open tabs on your Mac browsers will sync here automatically.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                    }
+                    .padding(.top, 40)
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .refreshable {
+                await SyncConsumer.shared.refreshNow()
+            }
+        } else {
+            List {
+                Section {
+                    VStack(spacing: 8) {
+                        DataFreshnessBanner(device: activeDevice, lastSyncedAt: localCache.state.lastSyncedAt)
 
-            if visibleTabs.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "macwindow.on.rectangle")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary)
-                    Text("No Open Tabs")
-                        .font(.headline)
-                    Text("Open tabs on your Mac browsers will sync here automatically.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    switch sortMode {
-                    case .recent:
-                        ForEach(visibleTabs) { tab in
-                            tabRow(tab)
-                        }
-                    case .domain:
-                        ForEach(tabsByDomain) { group in
-                            Section(header: HStack {
-                                Text(group.domain)
-                                    .font(.subheadline.weight(.semibold))
-                                Spacer()
-                                Text("\(group.tabs.count)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }) {
-                                ForEach(group.tabs) { tab in
-                                    tabRow(tab)
-                                }
+                        if !trackedCloses.isEmpty {
+                            PendingTabCloseStrip(tracked: trackedCloses) { close in
+                                pendingCloses.removeAll { $0.tabID == close.tabID }
                             }
                         }
-                    case .windows:
-                        ForEach(tabsByBrowserAndWindow) { group in
-                            Section(header: HStack {
-                                Text(group.browser)
-                                    .font(.subheadline.weight(.semibold))
-                                Spacer()
-                                Text(group.window)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }) {
-                                ForEach(group.tabs) { tab in
-                                    tabRow(tab)
-                                }
+                    }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+
+                switch sortMode {
+                case .recent:
+                    ForEach(visibleTabs) { tab in
+                        tabRow(tab)
+                    }
+                case .domain:
+                    ForEach(tabsByDomain) { group in
+                        Section(header: HStack {
+                            Text(group.domain)
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text("\(group.tabs.count)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }) {
+                            ForEach(group.tabs) { tab in
+                                tabRow(tab)
+                            }
+                        }
+                    }
+                case .windows:
+                    ForEach(tabsByBrowserAndWindow) { group in
+                        Section(header: HStack {
+                            Text(group.browser)
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text(group.window)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }) {
+                            ForEach(group.tabs) { tab in
+                                tabRow(tab)
                             }
                         }
                     }
                 }
-                .listStyle(.insetGrouped)
-                .refreshable {
-                    await SyncConsumer.shared.refreshNow()
-                }
+            }
+            .listStyle(.insetGrouped)
+            .refreshable {
+                await SyncConsumer.shared.refreshNow()
             }
         }
     }
@@ -517,6 +533,10 @@ public struct TabListView: View {
                     Label("Open in Safari", systemImage: "safari")
                 }
 
+                ShareLink(item: url) {
+                    Label("Share Link", systemImage: "square.and.arrow.up")
+                }
+
                 Button {
                     UIPasteboard.general.string = tab.url
                     showToastHUD(message: "URL Copied")
@@ -626,3 +646,27 @@ public struct TabListView: View {
         }
     }
 }
+
+public struct FloatingTabSortBar: View {
+    @Binding var sortMode: TabSortMode
+
+    public init(sortMode: Binding<TabSortMode>) {
+        self._sortMode = sortMode
+    }
+
+    public var body: some View {
+        FloatingSubTabBar(
+            selection: $sortMode,
+            iconProvider: { mode in
+                switch mode {
+                case .recent: return "clock"
+                case .domain: return "globe"
+                case .windows: return "macwindow.on.rectangle"
+                }
+            },
+            titleProvider: { $0.rawValue }
+        )
+    }
+}
+
+

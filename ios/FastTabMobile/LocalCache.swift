@@ -169,6 +169,57 @@ public final class LocalCache: ObservableObject {
         scheduleSave()
     }
 
+    /// Optimistically records a newly created bookmarks folder/subfolder into
+    /// the corresponding local bookmark blob so it is immediately visible in
+    /// folder pickers and tree views before full CloudKit roundtrips.
+    public func registerCreatedFolder(
+        browserName: String,
+        profileName: String,
+        folderPath: [String],
+        deviceID: String
+    ) {
+        guard !folderPath.isEmpty else { return }
+        let pathString = folderPath.joined(separator: " / ")
+        let targetBlobID = "\(deviceID)|\(browserName)|\(profileName)"
+        let placeholderItem = SyncedBookmarkItem(
+            id: "folder_marker_\(UUID().uuidString)",
+            title: folderPath.last ?? "",
+            url: "",
+            folderPath: pathString,
+            dateAdded: Date()
+        )
+
+        if let idx = state.bookmarkBlobs.firstIndex(where: { $0.id == targetBlobID }) {
+            var updatedBookmarks = state.bookmarkBlobs[idx].bookmarks
+            let pathExists = updatedBookmarks.contains {
+                let p = BookmarkTreeBuilder.splitPath($0.folderPath ?? "")
+                return p == folderPath
+            }
+            if !pathExists {
+                updatedBookmarks.append(placeholderItem)
+                let existing = state.bookmarkBlobs[idx]
+                state.bookmarkBlobs[idx] = SyncedBookmarkBlob(
+                    id: existing.id,
+                    deviceID: existing.deviceID,
+                    browserName: existing.browserName,
+                    profileName: existing.profileName,
+                    contentHash: existing.contentHash,
+                    updatedAt: Date(),
+                    bookmarks: updatedBookmarks
+                )
+            }
+        } else {
+            let newBlob = SyncedBookmarkBlob(
+                deviceID: deviceID,
+                browserName: browserName,
+                profileName: profileName,
+                bookmarks: [placeholderItem]
+            )
+            state.bookmarkBlobs.append(newBlob)
+        }
+        scheduleSave()
+    }
+
     public func updateHistorySlice(_ slice: SyncedHistorySlice) {
         if let idx = state.historySlices.firstIndex(where: { $0.id == slice.id }) {
             state.historySlices[idx] = slice

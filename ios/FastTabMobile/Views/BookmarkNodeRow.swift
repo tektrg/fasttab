@@ -20,6 +20,7 @@ struct BookmarkNodeRow: View {
     let onMove: (BookmarkTreeNode) -> Void
     let onDeleteFolder: (BookmarkTreeNode) -> Void
     let onMoveFolder: (BookmarkTreeNode) -> Void
+    let onNewSubfolder: (BookmarkTreeNode) -> Void
 
     /// Every bookmark leaf in this node's subtree — the rows a folder
     /// delete/move actually sends a command for, since the tree has no
@@ -60,6 +61,16 @@ struct BookmarkNodeRow: View {
     /// refuses writes, so offering the swipe would look like it worked).
     private var isBookmarkWritable: Bool {
         !(node.source?.browserName.lowercased().contains("safari") ?? false)
+    }
+
+    private var canCreateSubfolder: Bool {
+        guard node.isFolder else { return false }
+        guard !node.id.contains("$synthetic") else { return false }
+        let path = BookmarkTreeBuilder.folderPathComponents(of: node)
+        guard !path.isEmpty else { return false }
+        let leaves = leafBookmarks
+        if leaves.isEmpty { return true }
+        return leaves.contains { !($0.source?.browserName.lowercased().contains("safari") ?? false) }
     }
 
     private var canDelete: Bool {
@@ -139,6 +150,14 @@ struct BookmarkNodeRow: View {
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            if canCreateSubfolder {
+                Button {
+                    onNewSubfolder(node)
+                } label: {
+                    Label("Subfolder", systemImage: "folder.badge.plus")
+                }
+                .tint(.purple)
+            }
             if canMove {
                 Button {
                     if node.isFolder {
@@ -153,9 +172,32 @@ struct BookmarkNodeRow: View {
             }
         }
         .contextMenu {
-            // Bookmark long-press menu only — folders get their actions from
-            // the swipe, as before.
-            if !node.isFolder, let urlStr = node.url, let url = URL(string: urlStr) {
+            if node.isFolder {
+                if canCreateSubfolder {
+                    Button {
+                        onNewSubfolder(node)
+                    } label: {
+                        Label("New Subfolder…", systemImage: "folder.badge.plus")
+                    }
+                }
+
+                if canMoveFolder {
+                    Button {
+                        onMoveFolder(node)
+                    } label: {
+                        Label("Move Folder", systemImage: "folder")
+                    }
+                }
+
+                if canDelete {
+                    Divider()
+                    Button(role: .destructive) {
+                        onDeleteFolder(node)
+                    } label: {
+                        Label("Delete Folder", systemImage: "trash")
+                    }
+                }
+            } else if let urlStr = node.url, let url = URL(string: urlStr) {
                 Button {
                     onSelectBookmark(url)
                 } label: {
@@ -164,6 +206,10 @@ struct BookmarkNodeRow: View {
 
                 Link(destination: url) {
                     Label("Open in Safari", systemImage: "safari")
+                }
+
+                ShareLink(item: url) {
+                    Label("Share Link", systemImage: "square.and.arrow.up")
                 }
 
                 Button {

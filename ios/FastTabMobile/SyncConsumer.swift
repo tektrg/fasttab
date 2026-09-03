@@ -467,6 +467,31 @@ public final class SyncConsumer: NSObject, ObservableObject {
         ))
     }
 
+    /// Creates a brand-new bookmark folder or subfolder in a chosen browser/profile
+    /// on a Mac. Runs immediately on the Mac, no approval step.
+    public func sendCreateFolder(
+        name: String,
+        parentFolderPath: [String],
+        browserName: String,
+        profileName: String,
+        targetDeviceID: String
+    ) {
+        let payload = CreateFolderPayload(
+            browserName: browserName,
+            profileName: profileName,
+            folderName: name,
+            parentFolderPath: parentFolderPath
+        )
+        guard let payloadJSON = Self.encodedPayload(payload) else { return }
+
+        queueCommand(SyncCommand(
+            kind: .createFolder,
+            targetDeviceID: targetDeviceID,
+            sourceDeviceName: deviceName,
+            payloadJSON: payloadJSON
+        ))
+    }
+
     public func sendDeleteHistoryItem(entry: SyncedHistoryEntry, browserName: String, targetDeviceID: String) {
         let payload = DeleteHistoryItemPayload(browserName: browserName, url: entry.url)
         guard let payloadJSON = Self.encodedPayload(payload) else { return }

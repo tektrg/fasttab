@@ -60,7 +60,10 @@ public enum BookmarkTreeBuilder {
 
         func insert(pathComponents: [String], source: BookmarkSource, bookmark: SyncedBookmarkItem) {
             if pathComponents.isEmpty {
-                bookmarks.append((source, bookmark))
+                // Empty URL indicates a folder marker rather than a real bookmark leaf
+                if !bookmark.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    bookmarks.append((source, bookmark))
+                }
             } else {
                 let first = pathComponents[0]
                 let rest = Array(pathComponents.dropFirst())
@@ -128,12 +131,17 @@ public enum BookmarkTreeBuilder {
             let source = BookmarkSource(deviceID: blob.deviceID, browserName: blob.browserName, profileName: blob.profileName)
             for bm in blob.bookmarks {
                 let rawPath = bm.folderPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let hasValidURL = !bm.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if rawPath.isEmpty {
-                    unfiledItems.append((source, bm))
+                    if hasValidURL {
+                        unfiledItems.append((source, bm))
+                    }
                 } else {
                     let components = splitPath(rawPath)
                     if components.isEmpty {
-                        unfiledItems.append((source, bm))
+                        if hasValidURL {
+                            unfiledItems.append((source, bm))
+                        }
                     } else {
                         root.insert(pathComponents: components, source: source, bookmark: bm)
                     }

@@ -7,6 +7,10 @@ struct BookmarkMoveDestination: Equatable {
     let browserName: String
     let profileName: String
     let folderPath: [String]
+
+    var folderDisplayName: String {
+        folderPath.isEmpty ? "Top Level" : folderPath.joined(separator: " / ")
+    }
 }
 
 /// Which destinations the move picker should hide: the folder/bookmark's
@@ -52,6 +56,13 @@ struct BookmarkMovePicker: View {
     let onConfirm: (BookmarkMoveDestination) -> Void
 
     @State private var searchText: String = ""
+    @State private var newFolderContext: NewFolderContext? = nil
+
+    private struct NewFolderContext: Identifiable {
+        let id = UUID()
+        var profileKey: String? = nil
+        var parentPath: [String] = []
+    }
 
     private static let pinnedShortcutCount = 3
 
@@ -99,7 +110,9 @@ struct BookmarkMovePicker: View {
             for bookmark in blob.bookmarks {
                 let path = BookmarkTreeBuilder.splitPath(bookmark.folderPath ?? "")
                 if !path.isEmpty {
-                    entry.paths.insert(path)
+                    for i in 1...path.count {
+                        entry.paths.insert(Array(path.prefix(i)))
+                    }
                 }
             }
             pathsByProfile[key] = entry
@@ -203,9 +216,24 @@ struct BookmarkMovePicker: View {
                         }
                     }
                     ForEach(profileGroups) { group in
-                        Section(group.profileDisplayName) {
+                        Section {
                             ForEach(group.folders) { option in
                                 folderRow(option, showsProfile: false)
+                            }
+                        } header: {
+                            HStack {
+                                Text(group.profileDisplayName)
+                                Spacer()
+                                Button {
+                                    let profileKey = group.folders.first.map { "\($0.browserName)|\($0.profileName)" }
+                                    newFolderContext = NewFolderContext(profileKey: profileKey, parentPath: [])
+                                } label: {
+                                    Label("New Folder", systemImage: "folder.badge.plus")
+                                        .labelStyle(.iconOnly)
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.blue)
                             }
                         }
                     }
@@ -229,6 +257,36 @@ struct BookmarkMovePicker: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        newFolderContext = NewFolderContext()
+                    } label: {
+                        Label("New Folder", systemImage: "folder.badge.plus")
+                    }
+                }
+            }
+            .sheet(item: $newFolderContext) { context in
+                NewBookmarkFolderSheet(
+                    sourceDeviceID: sourceDeviceID,
+                    initialProfileKey: context.profileKey,
+                    initialParentPath: context.parentPath
+                ) { browserName, profileName, folderName, parentFolderPath in
+                    let fullPath = parentFolderPath + [folderName]
+                    LocalCache.shared.registerCreatedFolder(
+                        browserName: browserName,
+                        profileName: profileName,
+                        folderPath: fullPath,
+                        deviceID: sourceDeviceID
+                    )
+                    SyncConsumer.shared.sendCreateFolder(
+                        name: folderName,
+                        parentFolderPath: parentFolderPath,
+                        browserName: browserName,
+                        profileName: profileName,
+                        targetDeviceID: sourceDeviceID
+                    )
+                    confirm(FolderOption(browserName: browserName, profileName: profileName, folderPath: fullPath))
+                }
             }
         }
     }
@@ -250,6 +308,28 @@ struct BookmarkMovePicker: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                Spacer()
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                newFolderContext = NewFolderContext(
+                    profileKey: "\(option.browserName)|\(option.profileName)",
+                    parentPath: option.folderPath
+                )
+            } label: {
+                Label("Add Subfolder", systemImage: "folder.badge.plus")
+            }
+            .tint(.blue)
+        }
+        .contextMenu {
+            Button {
+                newFolderContext = NewFolderContext(
+                    profileKey: "\(option.browserName)|\(option.profileName)",
+                    parentPath: option.folderPath
+                )
+            } label: {
+                Label("Add Subfolder…", systemImage: "folder.badge.plus")
             }
         }
     }

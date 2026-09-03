@@ -31,7 +31,9 @@ public struct BookmarkBrowserView: View {
         var results: [BookmarkRowItem] = []
         for blob in blobs {
             for bm in blob.bookmarks {
-                results.append(BookmarkRowItem(browser: blob.browserName, profile: blob.profileName, item: bm))
+                if !bm.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    results.append(BookmarkRowItem(browser: blob.browserName, profile: blob.profileName, item: bm))
+                }
             }
         }
         return results

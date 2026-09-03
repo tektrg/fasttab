@@ -26,6 +26,14 @@ public struct BookmarkTreeView: View {
     /// removes every bookmark inside it at once, so unlike a single-bookmark
     /// delete it asks first.
     @State private var pendingDeleteFolder: BookmarkTreeNode?
+    @State private var newFolderContext: TreeNewFolderContext?
+
+    private struct TreeNewFolderContext: Identifiable {
+        let id = UUID()
+        var profileKey: String? = nil
+        var parentPath: [String] = []
+        var deviceID: String = ""
+    }
 
     public init(device: SyncedDevice?) {
         self.device = device
@@ -269,6 +277,14 @@ public struct BookmarkTreeView: View {
                             },
                             onMoveFolder: { node in
                                 moveRequest = .folder(node)
+                            },
+                            onNewSubfolder: { node in
+                                let path = BookmarkTreeBuilder.folderPathComponents(of: node)
+                                let leaves = BookmarkTreeBuilder.collectLeaves(from: node)
+                                let leafSource = leaves.first?.source
+                                let devID = leafSource?.deviceID ?? device?.id ?? localCache.state.devices.first?.id ?? ""
+                                let profKey = leafSource.map { "\($0.browserName)|\($0.profileName)" }
+                                newFolderContext = TreeNewFolderContext(profileKey: profKey, parentPath: path, deviceID: devID)
                             }
                         )
                     }
@@ -285,20 +301,59 @@ public struct BookmarkTreeView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                if !allFolderIDs.isEmpty {
+                HStack(spacing: 12) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            if expandedFolderIDs.isEmpty {
-                                expandedFolderIDs = allFolderIDs
-                            } else {
-                                expandedFolderIDs.removeAll()
-                            }
-                        }
+                        let targetDevID = device?.id ?? localCache.state.devices.first?.id ?? ""
+                        newFolderContext = TreeNewFolderContext(deviceID: targetDevID)
                     } label: {
-                        Text(expandedFolderIDs.isEmpty ? "Expand All" : "Collapse All")
-                            .font(.caption.weight(.medium))
+                        Label("New Folder", systemImage: "folder.badge.plus")
+                    }
+
+                    if !allFolderIDs.isEmpty {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                if expandedFolderIDs.isEmpty {
+                                    expandedFolderIDs = allFolderIDs
+                                } else {
+                                    expandedFolderIDs.removeAll()
+                                }
+                            }
+                        } label: {
+                            Text(expandedFolderIDs.isEmpty ? "Expand All" : "Collapse All")
+                                .font(.caption.weight(.medium))
+                        }
                     }
                 }
+            }
+        }
+        .sheet(item: $newFolderContext) { context in
+            NewBookmarkFolderSheet(
+                sourceDeviceID: context.deviceID,
+                initialProfileKey: context.profileKey,
+                initialParentPath: context.parentPath
+            ) { browserName, profileName, folderName, parentFolderPath in
+                let fullPath = parentFolderPath + [folderName]
+                LocalCache.shared.registerCreatedFolder(
+                    browserName: browserName,
+                    profileName: profileName,
+                    folderPath: fullPath,
+                    deviceID: context.deviceID
+                )
+                SyncConsumer.shared.sendCreateFolder(
+                    name: folderName,
+                    parentFolderPath: parentFolderPath,
+                    browserName: browserName,
+                    profileName: profileName,
+                    targetDeviceID: context.deviceID
+                )
+                // Expand parent folder and new folder so it becomes visible
+                let newFolderID = "folder_\(fullPath.joined(separator: "/"))"
+                expandedFolderIDs.insert(newFolderID)
+                if !parentFolderPath.isEmpty {
+                    let parentID = "folder_\(parentFolderPath.joined(separator: "/"))"
+                    expandedFolderIDs.insert(parentID)
+                }
+                showToast(message: "Created folder '\(folderName)'")
             }
         }
         .onAppear {

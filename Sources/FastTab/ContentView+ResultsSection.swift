@@ -48,6 +48,7 @@ extension ContentView {
         Group {
             if appState.browserService.isLoading && displayedResults.isEmpty {
                 VStack(spacing: 10) {
+                    audibleTabsStrip(audibleTabs)
                     Spacer()
                     ProgressView()
                         .controlSize(.regular)
@@ -76,82 +77,85 @@ extension ContentView {
                 .frame(height: resultsHeight)
                 .background(CommandBarSurfaceBackground(cornerRadius: 16))
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        audibleTabsStrip(audibleTabs)
-                        ForEach(indexedDisplayItems, id: \.element.id) { index, item in
-                            switch item {
-                            case .result(let result):
-                                SwipeableResultRow(
-                                    result: result,
-                                    isSelected: appState.selectedIndex == index,
-                                    faviconImage: appState.browserService.faviconImage(for: result),
-                                    showWindowName: showWindowName,
-                                    showProfileName: showProfileName,
-                                    pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
-                                    pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
-                                    keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
-                                    isConfirmingRemoval: closingResultID == result.id,
-                                    onHoverChange: { isHovering in
-                                        if isHovering {
-                                            hoveredResultID = result.id
-                                        } else if hoveredResultID == result.id {
-                                            hoveredResultID = nil
+                VStack(spacing: 0) {
+                    audibleTabsStrip(audibleTabs)
+
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(indexedDisplayItems, id: \.element.id) { index, item in
+                                switch item {
+                                case .result(let result):
+                                    SwipeableResultRow(
+                                        result: result,
+                                        isSelected: appState.selectedIndex == index,
+                                        faviconImage: appState.browserService.faviconImage(for: result),
+                                        showWindowName: showWindowName,
+                                        showProfileName: showProfileName,
+                                        pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
+                                        pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
+                                        keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
+                                        isConfirmingRemoval: closingResultID == result.id,
+                                        onHoverChange: { isHovering in
+                                            if isHovering {
+                                                hoveredResultID = result.id
+                                            } else if hoveredResultID == result.id {
+                                                hoveredResultID = nil
+                                            }
                                         }
+                                    )
+                                    .contentShape(Rectangle())
+                                    .padding(.horizontal, 8)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .center)))
+                                    .onTapGesture {
+                                        activateAndHide(result)
                                     }
-                                )
-                                .contentShape(Rectangle())
-                                .padding(.horizontal, 8)
-                                .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .center)))
-                                .onTapGesture {
-                                    activateAndHide(result)
-                                }
-                            case .showAllTabs(let count):
-                                ShowAllTabsRow(count: count, isSelected: appState.selectedIndex == index)
+                                case .showAllTabs(let count):
+                                    ShowAllTabsRow(count: count, isSelected: appState.selectedIndex == index)
+                                        .contentShape(Rectangle())
+                                        .padding(.horizontal, 8)
+                                        .onTapGesture {
+                                            expandAllOpenTabs()
+                                        }
+                                case .searchTheWeb(let query):
+                                    SearchTheWebRow(
+                                        query: query,
+                                        browserName: appState.browserService.webSearchTargetBrowserName,
+                                        isSelected: appState.selectedIndex == index
+                                    )
                                     .contentShape(Rectangle())
                                     .padding(.horizontal, 8)
                                     .onTapGesture {
-                                        expandAllOpenTabs()
+                                        activateSearchTheWeb(query: query)
                                     }
-                            case .searchTheWeb(let query):
-                                SearchTheWebRow(
-                                    query: query,
-                                    browserName: appState.browserService.webSearchTargetBrowserName,
-                                    isSelected: appState.selectedIndex == index
-                                )
-                                .contentShape(Rectangle())
-                                .padding(.horizontal, 8)
-                                .onTapGesture {
-                                    activateSearchTheWeb(query: query)
-                                }
-                            case .searchAliasHint(let alias):
-                                SearchAliasHintRow(
-                                    alias: alias,
-                                    triggerKeys: searchAliasStore.triggerKeys,
-                                    isSelected: appState.selectedIndex == index
-                                )
-                                .contentShape(Rectangle())
-                                .padding(.horizontal, 8)
-                                .onTapGesture {
-                                    commitSearchAlias(alias)
-                                }
-                            case .searchAliasQuery(let alias, let query):
-                                SearchAliasQueryRow(
-                                    alias: alias,
-                                    query: query,
-                                    isSelected: appState.selectedIndex == index
-                                )
-                                .contentShape(Rectangle())
-                                .padding(.horizontal, 8)
-                                .onTapGesture {
-                                    activateSearchAlias(alias: alias, query: query)
+                                case .searchAliasHint(let alias):
+                                    SearchAliasHintRow(
+                                        alias: alias,
+                                        triggerKeys: searchAliasStore.triggerKeys,
+                                        isSelected: appState.selectedIndex == index
+                                    )
+                                    .contentShape(Rectangle())
+                                    .padding(.horizontal, 8)
+                                    .onTapGesture {
+                                        commitSearchAlias(alias)
+                                    }
+                                case .searchAliasQuery(let alias, let query):
+                                    SearchAliasQueryRow(
+                                        alias: alias,
+                                        query: query,
+                                        isSelected: appState.selectedIndex == index
+                                    )
+                                    .contentShape(Rectangle())
+                                    .padding(.horizontal, 8)
+                                    .onTapGesture {
+                                        activateSearchAlias(alias: alias, query: query)
+                                    }
                                 }
                             }
                         }
+                        .padding(.vertical, 3)
                     }
-                    .padding(.vertical, 3)
+                    .background(Color.clear)
                 }
-                .background(Color.clear)
             }
         }
         // `resultsHeight` is what the surface is sized around, but the chrome
@@ -189,53 +193,53 @@ private struct AudibleTabRow: View {
         // mute button in practice: clicking it fired the parent's
         // activate-and-hide instead. Two non-overlapping sibling controls
         // have no such ambiguity.
-        HStack(spacing: 4) {
+        HStack(spacing: 8) {
             Button(action: onSelect) {
-                HStack(spacing: 8) {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 14)
+                HStack(spacing: 10) {
+                    LeadingIconColumn(
+                        browserName: result.browserName,
+                        fallbackSymbol: result.type.symbolName,
+                        faviconImage: faviconImage
+                    )
 
-                    if let faviconImage {
-                        Image(nsImage: faviconImage)
-                            .resizable()
-                            .frame(width: 14, height: 14)
+                    HStack(spacing: 5) {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+
+                        Text(result.title)
+                            .font(.system(size: 13, weight: .semibold, design: .default))
+                            .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
+                            .lineLimit(1)
                     }
 
-                    Text(result.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-
                     Spacer(minLength: 4)
-
-                    Text(result.browserName)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            if isHovering {
-                Button(action: onMute) {
-                    Image(systemName: "speaker.slash.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Mute tab")
-                .transition(.opacity)
+            Button(action: onMute) {
+                Image(systemName: "speaker.slash.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(Color.primary.opacity(0.06))
+                    )
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help("Mute tab")
+            .opacity(isHovering ? 1 : 0)
+            .allowsHitTesting(isHovering)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.accentColor.opacity(0.08))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.accentColor.opacity(isHovering ? 0.12 : 0.08))
         )
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovering)

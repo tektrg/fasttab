@@ -422,7 +422,7 @@ private struct MetadataPill: View {
 /// badge overlapping its bottom-right corner, so the two icons don't get
 /// confused for one another. When there's no favicon (e.g. Finder results),
 /// only the single fallback icon is shown, with no badge.
-private struct LeadingIconColumn: View {
+struct LeadingIconColumn: View {
     static let iconSize: CGFloat = 16
     static let badgeHaloSize: CGFloat = 13
     static let badgeOffset: CGFloat = 4
@@ -445,7 +445,7 @@ private struct LeadingIconColumn: View {
     }
 }
 
-private struct BrowserBadge: View {
+struct BrowserBadge: View {
     let browserName: String
     var size: CGFloat = 14
 
@@ -465,7 +465,7 @@ private struct BrowserBadge: View {
     }
 }
 
-private struct LeadingResultIcon: View {
+struct LeadingResultIcon: View {
     let browserName: String
     let fallbackSymbol: String
     let faviconImage: NSImage?
@@ -489,7 +489,7 @@ private struct LeadingResultIcon: View {
 }
 
 @MainActor
-private enum BrowserIconCache {
+enum BrowserIconCache {
     private static let appPathByName: [String: String] = [
         "Google Chrome": "/Applications/Google Chrome.app",
         "Microsoft Edge": "/Applications/Microsoft Edge.app",

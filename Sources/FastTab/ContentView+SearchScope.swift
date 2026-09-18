@@ -352,7 +352,7 @@ extension ContentView {
         scopeDropdownSelectedIndex = 0
         focusedChipID = nil
         appState.selectedIndex = -1
-        hasCycled = false
+        cycleSession.reset()
         lastInteractionKey = .none
         if appState.wasOpenedByHover || wasOpenedByHover {
             viewStore.resetForHoverOpen()
@@ -369,7 +369,7 @@ extension ContentView {
         let store = ShortcutStore.shared
         let shortcutMods = store.modifiers.intersection(.deviceIndependentFlagsMask)
         let currentMods = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        isShortcutModifierHeld = !currentMods.intersection(shortcutMods).isEmpty
+        cycleSession.isModifierHeld = !currentMods.intersection(shortcutMods).isEmpty
         clearKeyboardSwipe()
         clearPointerSwipeSuppression()
         resetPointerSwipe(animated: false)

@@ -12,7 +12,7 @@ extension ContentView {
             && displayedItems[selectedIndex].isShowAllTabs
 
         // 0: Shortcut modifier still held on fresh open — search bar focused, no cycling yet
-        if isShortcutModifierHeld && !hasCycled && isSearchFocused {
+        if cycleSession.isModifierHeld && !cycleSession.hasCycled && isSearchFocused {
             return GuidanceHint(tokens: [
                 .init(glyph: store.keyDisplayName, label: "next"),
                 .init(glyph: "Esc", label: "cancel")
@@ -48,7 +48,7 @@ extension ContentView {
         }
 
         // 7: Modifier cycling mode — user is holding modifier and cycling with shortcut key
-        if hasCycled {
+        if cycleSession.hasCycled {
             return GuidanceHint(tokens: [
                 .init(glyph: store.modifierSymbols, label: isShowAllTabsFocused ? "release to show" : "release to open"),
                 .init(glyph: store.keyDisplayName, label: "next"),

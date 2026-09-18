@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CommandBarKit
 
 private struct SearchHeaderFrameKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
@@ -44,10 +45,8 @@ struct ContentView: View {
     @State private var isActivationPresented = false
     @FocusState var isSearchFocused: Bool
     @State var localMonitor: Any?
-    /// True once the user has cycled to a tab via the shortcut; reset when the bar opens.
-    @State var hasCycled = false
-    /// True while the shortcut modifier keys are still held after opening the bar.
-    @State var isShortcutModifierHeld = false
+    /// Hold-modifier cycling state (`hasCycled`, `isModifierHeld`); reset when the bar opens.
+    @ObservedObject var cycleSession = AppState.shared.cycleSession
     @State var searchDebounceTask: Task<Void, Never>?
     @State var faviconPrefetchDebounceTask: Task<Void, Never>?
     @State var suppressNextSearchChange = false
@@ -770,10 +769,6 @@ struct ContentView: View {
         )
 
         return withActivationSheet
-        .onReceive(NotificationCenter.default.publisher(for: fastTabCycleShortcutNotification)) { _ in
-            guard appState.isVisible else { return }
-            cycleShortcutSelectionForward()
-        }
         .onReceive(NotificationCenter.default.publisher(for: fastTabPresentLicenseActivationNotification)) { _ in
             isActivationPresented = true
         }

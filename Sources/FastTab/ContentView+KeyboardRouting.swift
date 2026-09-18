@@ -177,7 +177,7 @@ extension ContentView {
         clearPointerSwipeSuppression()
         resetPointerSwipe(animated: false)
         appState.hideCommandBar()
-        hasCycled = false
+        cycleSession.reset()
     }
 
     func moveSelectionForward(includeSearchField: Bool) {
@@ -224,9 +224,16 @@ extension ContentView {
         isSearchFocused = includeSearchField && appState.selectedIndex == -1
     }
 
-    func cycleShortcutSelectionForward() {
-        moveSelectionForward(includeSearchField: true)
-        hasCycled = appState.selectedIndex != -1
+    /// Connects the shared cycle session to this view: each hotkey tap moves the
+    /// selection, releasing the modifier activates it.
+    func wireCycleSession() {
+        cycleSession.onAdvance = {
+            moveSelectionForward(includeSearchField: true)
+            return appState.selectedIndex != -1
+        }
+        cycleSession.onCommit = {
+            activateSelectedDisplayItem()
+        }
     }
 
     private func handleEscapeKey() {
@@ -237,7 +244,7 @@ extension ContentView {
 
         if appState.selectedIndex == -1 {
             appState.hideCommandBar()
-            hasCycled = false
+            cycleSession.reset()
             clearKeyboardSwipe()
             resetPointerSwipe(animated: false)
             return
@@ -245,12 +252,13 @@ extension ContentView {
 
         appState.selectedIndex = -1
         isSearchFocused = true
-        hasCycled = false
+        cycleSession.reset()
         clearKeyboardSwipe()
         resetPointerSwipe(animated: true)
     }
 
     func setupLocalMonitor() {
+        wireCycleSession()
         guard localMonitor == nil else { return }
         let monitoredEvents: NSEvent.EventTypeMask = [
             .keyDown,
@@ -502,16 +510,7 @@ extension ContentView {
                     return nil
                 }
             } else if event.type == .flagsChanged && appState.isVisible {
-                let store = ShortcutStore.shared
-                let currentMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                let isHeld = store.isAnyShortcutModifierHeld(in: currentMods)
-                isShortcutModifierHeld = isHeld
-                if !isHeld {
-                    if hasCycled {
-                        activateSelectedDisplayItem()
-                        hasCycled = false
-                    }
-                }
+                cycleSession.handleFlagsChanged(event.modifierFlags)
             }
             return event
         }

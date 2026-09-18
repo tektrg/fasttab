@@ -5,7 +5,6 @@ import Combine
 import CommandBarKit
 
 private let appLogger = Logger(subsystem: "com.trungluong.FastTab", category: "AppDelegate")
-let fastTabCycleShortcutNotification = Notification.Name("FastTabCycleShortcut")
 let fastTabPresentLicenseActivationNotification = Notification.Name("FastTabPresentLicenseActivation")
 
 public enum CommandBarOpenTrigger: Sendable, Equatable {
@@ -61,6 +60,10 @@ class AppState: ObservableObject {
     @Published var pendingInitialView: CommandBarView? = nil
     @Published var globalShortcutRegistrationIssue: String?
     let browserService = BrowserTabService()
+    /// Hold-modifier-and-tap cycling; the hotkey handler advances it, ContentView commits it.
+    let cycleSession = CycleSession(isShortcutModifierHeld: { flags in
+        ShortcutStore.shared.isAnyShortcutModifierHeld(in: flags)
+    })
 
     func recordTypingActivity() {
         CommandBarPanelController.shared.recordTypingActivity()
@@ -395,6 +398,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func advanceCycle() {
+        let appState = AppState.shared
+        guard appState.isVisible else { return }
+        appState.cycleSession.advance()
+    }
+
     private func handleGlobalShortcut(id: UInt32) {
         let appState = AppState.shared
         let viewStore = CommandBarViewStore.shared
@@ -403,13 +412,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case 1:
             let shouldCycle = appState.isCommandWindowFrontAndActive
             if shouldCycle {
-                NotificationCenter.default.post(name: fastTabCycleShortcutNotification, object: nil)
+                advanceCycle()
             } else {
                 appState.showCommandBar(openedBy: .shortcut)
             }
         case 2:
             if appState.isCommandWindowFrontAndActive && viewStore.activeView == .recents {
-                NotificationCenter.default.post(name: fastTabCycleShortcutNotification, object: nil)
+                advanceCycle()
             } else {
                 viewStore.selectView(.recents)
                 if !appState.isVisible {
@@ -418,7 +427,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         case 3:
             if appState.isCommandWindowFrontAndActive && viewStore.activeView == .myOrder {
-                NotificationCenter.default.post(name: fastTabCycleShortcutNotification, object: nil)
+                advanceCycle()
             } else {
                 viewStore.selectView(.myOrder)
                 if !appState.isVisible {
@@ -427,7 +436,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         case 4:
             if appState.isCommandWindowFrontAndActive && viewStore.activeView == .bookmarks {
-                NotificationCenter.default.post(name: fastTabCycleShortcutNotification, object: nil)
+                advanceCycle()
             } else {
                 viewStore.selectView(.bookmarks)
                 if !appState.isVisible {

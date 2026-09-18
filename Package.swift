@@ -11,6 +11,7 @@ let package = Package(
     products: [
         .executable(name: "FastTab", targets: ["FastTab"]),
         .executable(name: "FastTabNativeHost", targets: ["FastTabNativeHost"]),
+        .executable(name: "AgentBar", targets: ["AgentBar"]),
         .library(name: "FastTabSync", targets: ["FastTabSync"])
     ],
     dependencies: [
@@ -41,9 +42,19 @@ let package = Package(
         .executableTarget(
             name: "FastTabNativeHost"
         ),
+        // Read-only agent switcher. Standalone app: no Sparkle, no FastTabSync.
+        .executableTarget(
+            name: "AgentBar",
+            dependencies: ["CommandBarKit"],
+            path: "Sources/AgentBar"
+        ),
         .testTarget(
             name: "FastTabTests",
             dependencies: ["FastTab", "FastTabSync", "CommandBarKit"]
+        ),
+        .testTarget(
+            name: "AgentBarTests",
+            dependencies: ["AgentBar", "CommandBarKit"]
         ),
         .testTarget(
             name: "CommandBarKitTests",

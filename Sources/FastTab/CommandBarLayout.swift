@@ -1,6 +1,7 @@
 import CoreGraphics
 import SwiftUI
 import AppKit
+import CommandBarKit
 
 enum CommandBarLayout {
     static let surfaceWidth: CGFloat = 640

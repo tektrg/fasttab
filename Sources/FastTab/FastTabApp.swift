@@ -569,41 +569,6 @@ struct FastTabApp: App {
     }
 }
 
-final class CommandBarPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-    override var isMovable: Bool {
-        get { false }
-        set { }
-    }
-    override var isMovableByWindowBackground: Bool {
-        get { false }
-        set { }
-    }
-
-    /// AppKit's default behavior pushes any window whose frame reaches into the
-    /// menu bar strip back down below it. That silently shrank the full-screen
-    /// canvas we set in `fitCommandBarCanvasToVisibleScreen`, leaving a
-    /// menu-bar-height gap between the notch-anchored bar and the true top of
-    /// the display. Returning the rect unchanged keeps the canvas flush.
-    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        frameRect
-    }
-
-    override func sendEvent(_ event: NSEvent) {
-        if event.isMouseDownEvent {
-            let screenLocation = convertPoint(toScreen: event.locationInWindow)
-
-            if CommandBarLayout.shouldDismissClick(at: screenLocation, in: frame, anchor: EdgeRevealStyle.commandBarAnchor) {
-                AppState.shared.hideCommandBar()
-                return
-            }
-        }
-
-        super.sendEvent(event)
-    }
-}
-
 @MainActor
 private final class CommandBarPanelController: NSObject {
     static let shared = CommandBarPanelController()
@@ -676,6 +641,15 @@ private final class CommandBarPanelController: NSObject {
             backing: .buffered,
             defer: false
         )
+        panel.shouldDismissClick = { [weak panel] screenLocation in
+            guard let panel else { return false }
+            return CommandBarLayout.shouldDismissClick(
+                at: screenLocation,
+                in: panel.frame,
+                anchor: EdgeRevealStyle.commandBarAnchor
+            )
+        }
+        panel.onDismiss = { AppState.shared.hideCommandBar() }
         panel.identifier = NSUserInterfaceItemIdentifier("command-bar-panel")
         panel.title = "Command Bar"
         panel.contentViewController = NSHostingController(rootView: rootView)
@@ -890,48 +864,12 @@ private final class CommandBarPanelController: NSObject {
     }
 }
 
-private extension NSEvent {
-    var isMouseDownEvent: Bool {
-        type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
-    }
-}
-
 extension NSWindow {
-    func configureCommandBarOverlayBehavior() {
-        styleMask.insert(.nonactivatingPanel)
-        // Above the menu bar (`.mainMenu`), not merely `.floating`: the bar now
-        // sits flush against the true top of the display, so at `.floating` the
-        // menu bar painted over its top strip — invisible with a translucent
-        // menu bar, but an opaque band under Reduce Transparency.
-        level = .statusBar
-
-        var behavior = collectionBehavior
-        behavior.remove(.moveToActiveSpace)
-        behavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary, .stationary])
-        collectionBehavior = behavior
-        isMovable = false
-        isMovableByWindowBackground = false
-    }
-
+    /// FastTab's canvas sizing for the kit's `fitCommandBarCanvasToVisibleScreen`.
     func fitCommandBarCanvasToVisibleScreen(preferMouseScreen: Bool) {
-        // Full screen frame, not `visibleFrame` — `visibleFrame` excludes the
-        // menu bar strip, which left a gap between the notch anchor and the
-        // true top edge of the display instead of sitting flush against it.
-        let displayFrame = preferredCommandBarDisplay(preferMouseScreen: preferMouseScreen)?.frame ?? NSScreen.main?.frame ?? frame
-        let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
-
-        setFrame(canvasFrame, display: true, animate: false)
-    }
-
-    private func preferredCommandBarDisplay(preferMouseScreen: Bool) -> NSScreen? {
-        if preferMouseScreen {
-            let mouseLocation = NSEvent.mouseLocation
-
-            if let mouseScreen = NSScreen.containing(mouseLocation) {
-                return mouseScreen
-            }
-        }
-
-        return screen ?? NSScreen.main
+        fitCommandBarCanvasToVisibleScreen(
+            preferMouseScreen: preferMouseScreen,
+            canvasFrame: CommandBarLayout.canvasFrame(for:)
+        )
     }
 }

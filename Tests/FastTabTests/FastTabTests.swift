@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import FastTab
+import CommandBarKit
 
 @Test func searchResultsSortByTypePriorityBeforeRecency() async throws {
     let now = Date()

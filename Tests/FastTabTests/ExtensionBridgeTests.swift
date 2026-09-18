@@ -47,7 +47,7 @@ import Testing
         func closeTab(_ result: BrowserSearchResult) { closeCalls += 1 }
         func closeTabWithResult(_ result: BrowserSearchResult, allowPositionalFallback: Bool) -> TabCloseResult { closeCalls += 1; return .closed }
         func openURL(_ result: BrowserSearchResult) {}
-        func deleteBookmark(_ result: BrowserSearchResult) {}
+        func deleteBookmark(_ result: BrowserSearchResult) -> Bool { false }
         func deleteHistoryItem(_ result: BrowserSearchResult) {}
     }
 
@@ -473,7 +473,7 @@ import Testing
         let keys = backend.pollActiveTabKeys()
 
         #expect(recording.pollCalls == 0)
-        #expect(keys == ["Google Chrome|1|2|https://front.com"])
+        #expect(keys == ["Google Chrome|1|2|https://front.com", "Google Chrome|https://front.com"])
     }
 
     // MARK: - Tab actions
@@ -596,6 +596,45 @@ import Testing
         #expect(bridge.lastCommand == nil)
     }
 
+    @Test func togglePinTabSendsSetPinnedCommandWhenServable() {
+        ExtensionBetaPreference.setEnabled(true)
+        defer { ExtensionBetaPreference.setEnabled(false) }
+
+        let bridge = MockBridge()
+        bridge.commandResult = true
+        let recording = RecordingBackend()
+        let backend = ExtensionBackedBackend(inner: recording, bridge: bridge)
+
+        let result = BrowserSearchResult(
+            title: "GitHub", url: "https://github.com",
+            browserName: "Google Chrome", type: .tab, timestamp: Date(), tabID: 77
+        )
+        backend.togglePinTab(result, pinned: true)
+
+        let cmd = bridge.lastCommand
+        #expect(cmd?.app == "Google Chrome")
+        #expect(cmd?.type == "setPinned")
+        #expect(cmd?.tabID == 77)
+        #expect(cmd?.extraPayload["pinned"] == true)
+    }
+
+    @Test func togglePinTabNoOpsWithNoTabIDOrBetaOff() {
+        ExtensionBetaPreference.setEnabled(false)
+        defer { ExtensionBetaPreference.setEnabled(false) }
+
+        let bridge = MockBridge()
+        let recording = RecordingBackend()
+        let backend = ExtensionBackedBackend(inner: recording, bridge: bridge)
+
+        let result = BrowserSearchResult(
+            title: "GitHub", url: "https://github.com",
+            browserName: "Google Chrome", type: .tab, timestamp: Date(), tabID: 77
+        )
+        backend.togglePinTab(result, pinned: true)
+
+        #expect(bridge.lastCommand == nil)
+    }
+
     // MARK: - Native-host manifest
 
     @Test func installerManifestPinsOriginAndHostPath() throws {
@@ -606,5 +645,28 @@ import Testing
         #expect(json["type"] as? String == "stdio")
         #expect(json["path"] as? String == "/Applications/FastTab.app/Contents/MacOS/FastTabNativeHost")
         #expect(json["allowed_origins"] as? [String] == ["chrome-extension://\(FastTabExtensionIdentity.id)/"])
+    }
+
+    @Test func dedupedTabsCollapsesWakingTabWithDifferentIDAndTabIndex() {
+        let sleepingTab = makeTab(
+            id: 484803551,
+            windowIndex: 1,
+            tabIndex: 34,
+            title: "send my youtube tabs to feed — OpenClaw",
+            url: "http://127.0.0.1:18789/chat/main/b07ae87c",
+            discarded: true
+        )
+        let wakingTab = makeTab(
+            id: 484804868,
+            windowIndex: 1,
+            tabIndex: 28,
+            title: "send my youtube tabs to feed — OpenClaw",
+            url: "http://127.0.0.1:18789/chat/main/b07ae87c",
+            discarded: false
+        )
+
+        let deduped = ExtensionBridge.dedupedTabs(from: [[sleepingTab, wakingTab]])
+        #expect(deduped.count == 1, "Sleeping tab and waking tab for same URL in same window must collapse even if tabID and tabIndex differ")
+        #expect(deduped.first?.tabID == 484804868, "Waking/active tab should win over discarded tab")
     }
 }

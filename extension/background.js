@@ -126,7 +126,7 @@ async function syncTabsFromBrowser() {
 }
 
 async function refreshAll() {
-  const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+  const windows = await chrome.windows.getAll({ windowTypes: ['normal', 'app', 'popup'] });
   const focused = await chrome.windows.getLastFocused({});
   state.focusedWindowId = focused.id;
   windows.sort((a, b) => {
@@ -146,7 +146,7 @@ async function refreshAll() {
 // full snapshot is the simplest correct fix. Focus changes are frequent, but
 // the snapshot is small (tab records only).
 async function refreshWindows() {
-  const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+  const windows = await chrome.windows.getAll({ windowTypes: ['normal', 'app', 'popup'] });
   const focused = state.focusedWindowId;
   windows.sort((a, b) => {
     if (focused != null && focused !== -1) {
@@ -233,8 +233,26 @@ function onNativeMessage(msg) {
     case 'setMuted':
       handleSetMuted(p.requestID, p.tabId, !!p.muted);
       break;
+    case 'setPinned':
+      handleSetPinned(p.requestID, p.tabId, !!p.pinned);
+      break;
     case 'deleteBookmark':
       handleDeleteBookmark(p.requestID, p.bookmarkId, p.url);
+      break;
+    case 'moveBookmark':
+      handleMoveBookmark(p.requestID, p.id, p.parentId, p.index);
+      break;
+    case 'createFolder':
+      handleCreateFolder(p.requestID, p.parentId, p.title, p.index);
+      break;
+    case 'createBookmark':
+      handleCreateBookmark(p.requestID, p.parentId, p.title, p.url, p.index);
+      break;
+    case 'updateBookmark':
+      handleUpdateBookmark(p.requestID, p.id, p.title, p.url);
+      break;
+    case 'removeBookmark':
+      handleDeleteBookmark(p.requestID, p.id || p.bookmarkId, p.url);
       break;
     case 'deleteHistoryItem':
       handleDeleteHistoryItem(p.requestID, p.url);
@@ -279,6 +297,21 @@ async function handleSetMuted(requestID, tabId, muted) {
   }
 }
 
+async function handleSetPinned(requestID, tabId, pinned) {
+  try {
+    if (pinned) {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab && tab.groupId !== undefined && tab.groupId > -1) {
+        await chrome.tabs.ungroup(tabId);
+      }
+    }
+    await chrome.tabs.update(tabId, { pinned });
+    sendResponse('commandResult', { requestID, ok: true });
+  } catch (e) {
+    sendResponse('commandResult', { requestID, ok: false, error: String(e) });
+  }
+}
+
 async function handleDeleteBookmark(requestID, bookmarkId, url) {
   try {
     if (bookmarkId) {
@@ -295,6 +328,54 @@ async function handleDeleteBookmark(requestID, bookmarkId, url) {
       return;
     }
     sendResponse('commandResult', { requestID, ok: false, error: 'No bookmarkId or url provided' });
+  } catch (e) {
+    sendResponse('commandResult', { requestID, ok: false, error: String(e) });
+  }
+}
+
+async function handleMoveBookmark(requestID, id, parentId, index) {
+  try {
+    const destination = {};
+    if (parentId !== undefined && parentId !== null) destination.parentId = String(parentId);
+    if (index !== undefined && index !== null) destination.index = Number(index);
+    const moved = await chrome.bookmarks.move(String(id), destination);
+    sendResponse('commandResult', { requestID, ok: true, bookmark: moved });
+  } catch (e) {
+    sendResponse('commandResult', { requestID, ok: false, error: String(e) });
+  }
+}
+
+async function handleCreateFolder(requestID, parentId, title, index) {
+  try {
+    const details = { title: title || 'New Folder' };
+    if (parentId !== undefined && parentId !== null) details.parentId = String(parentId);
+    if (index !== undefined && index !== null) details.index = Number(index);
+    const folder = await chrome.bookmarks.create(details);
+    sendResponse('commandResult', { requestID, ok: true, folder });
+  } catch (e) {
+    sendResponse('commandResult', { requestID, ok: false, error: String(e) });
+  }
+}
+
+async function handleCreateBookmark(requestID, parentId, title, url, index) {
+  try {
+    const details = { title: title || url, url };
+    if (parentId !== undefined && parentId !== null) details.parentId = String(parentId);
+    if (index !== undefined && index !== null) details.index = Number(index);
+    const bm = await chrome.bookmarks.create(details);
+    sendResponse('commandResult', { requestID, ok: true, bookmark: bm });
+  } catch (e) {
+    sendResponse('commandResult', { requestID, ok: false, error: String(e) });
+  }
+}
+
+async function handleUpdateBookmark(requestID, id, title, url) {
+  try {
+    const changes = {};
+    if (title !== undefined && title !== null) changes.title = title;
+    if (url !== undefined && url !== null) changes.url = url;
+    const updated = await chrome.bookmarks.update(String(id), changes);
+    sendResponse('commandResult', { requestID, ok: true, bookmark: updated });
   } catch (e) {
     sendResponse('commandResult', { requestID, ok: false, error: String(e) });
   }

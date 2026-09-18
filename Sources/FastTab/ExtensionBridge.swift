@@ -61,6 +61,7 @@ protocol ExtensionBridgeServing: Sendable {
     func isConnected(appName: String) -> Bool
     func sendCommand(appName: String, type: String, tabID: Int, extraPayload: [String: Any], timeout: TimeInterval) -> Bool
     func sendBrowserCommand(appName: String, type: String, payload: [String: Any], timeout: TimeInterval) -> Bool
+    func deleteBookmark(appName: String, id: String?, url: String?) -> Bool
 }
 
 extension ExtensionBridgeServing {
@@ -79,6 +80,16 @@ extension ExtensionBridgeServing {
 
     func sendBrowserCommand(appName: String, type: String, payload: [String: Any], timeout: TimeInterval) -> Bool {
         return false
+    }
+
+    func deleteBookmark(appName: String, id: String?, url: String?) -> Bool {
+        var payload: [String: Any] = [:]
+        if let id {
+            payload["bookmarkId"] = id
+            payload["id"] = id
+        }
+        if let url { payload["url"] = url }
+        return sendBrowserCommand(appName: appName, type: "deleteBookmark", payload: payload, timeout: 2.0)
     }
 }
 
@@ -131,6 +142,8 @@ struct ConnectionState {
 private struct PendingCommand {
     let ownerFD: Int32
     let waiter: CommandWaiter
+    let commandType: String
+    let tabID: Int?
 }
 
 private struct BridgeRegistry {
@@ -159,6 +172,9 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
     /// (set by `BrowserTabService`) is responsible for hopping to the main
     /// actor before touching UI-facing state.
     var onTabActivated: (@Sendable (String, String, Date) -> Void)?
+    var onTabRemoved: (@Sendable (String, Int, String?) -> Void)?
+    var onTabUpserted: (@Sendable (String, ExtensionTabRecord) -> Void)?
+    var onSnapshotReceived: (@Sendable (String, [ExtensionTabRecord]) -> Void)?
 
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "ExtensionBridge")
     private let lock = OSAllocatedUnfairLock(initialState: BridgeRegistry())
@@ -282,7 +298,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         var merged: [String: ExtensionTabRecord] = [:]
         for tabs in tabsByConnection {
             for tab in collapsingSameSlotTabs(tabs) {
-                merged["\(tab.tabID)|\(tab.url)"] = tab
+                merged["\(tab.tabID)|\(MyOrderReconciler.canonicalURL(tab.url))"] = tab
             }
         }
         return Array(merged.values)
@@ -300,24 +316,68 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
     /// dropping it would hide a real one. The live record wins over the discarded
     /// one, since it carries current title/audio state.
     ///
+    /// Also collapses discarded (sleeping) tabs within the same window when an active
+    /// counterpart exists for the same canonical URL, even if their `tabIndex` shifted
+    /// while the tab was asleep.
+    ///
     /// Scoped to a single connection on purpose — `windowIndex` is numbered per
     /// profile, so the same slot in two profiles is two different windows.
     static func collapsingSameSlotTabs(_ tabs: [ExtensionTabRecord]) -> [ExtensionTabRecord] {
         var keptBySlot: [String: ExtensionTabRecord] = [:]
         var slotOrder: [String] = []
+
+        // Pass 1: Collapse exact slot matches (same window, same tab index, same canonical URL)
         for tab in tabs {
-            let slot = "\(tab.windowIndex)|\(tab.tabIndex)|\(tab.url)"
+            let canonical = MyOrderReconciler.canonicalURL(tab.url)
+            let slot = "\(tab.windowIndex)|\(tab.tabIndex)|\(canonical)"
             guard let kept = keptBySlot[slot] else {
                 keptBySlot[slot] = tab
                 slotOrder.append(slot)
                 continue
             }
-            if kept.isDiscarded, !tab.isDiscarded {
+            if kept.isDiscarded && !tab.isDiscarded {
+                keptBySlot[slot] = tab
+            } else if kept.isDiscarded == tab.isDiscarded && tab.tabID > kept.tabID {
                 keptBySlot[slot] = tab
             }
         }
-        return slotOrder.compactMap { keptBySlot[$0] }
+        let slotCollapsed = slotOrder.compactMap { keptBySlot[$0] }
+
+        // Pass 2: Within each window and canonical URL:
+        // A discarded (sleeping) tab cannot coexist with an active tab for the same URL in the same window.
+        // If an active tab exists, drop any discarded twin for that canonical URL.
+        // If multiple discarded tabs exist for the same canonical URL in the same window, keep only the newest tabID.
+        let activeKeys = Set(slotCollapsed.filter { !$0.isDiscarded }.map {
+            "\($0.windowIndex)|\(MyOrderReconciler.canonicalURL($0.url))"
+        })
+
+        var seenDiscardedKeys = Set<String>()
+        var finalTabs: [ExtensionTabRecord] = []
+        let sortedForDiscarded = slotCollapsed.sorted { $0.tabID > $1.tabID }
+
+        for tab in sortedForDiscarded {
+            let windowCanonical = "\(tab.windowIndex)|\(MyOrderReconciler.canonicalURL(tab.url))"
+            if !tab.isDiscarded {
+                finalTabs.append(tab)
+            } else {
+                if activeKeys.contains(windowCanonical) {
+                    continue
+                }
+                if !seenDiscardedKeys.insert(windowCanonical).inserted {
+                    continue
+                }
+                finalTabs.append(tab)
+            }
+        }
+
+        return finalTabs.sorted {
+            if $0.windowIndex != $1.windowIndex {
+                return $0.windowIndex < $1.windowIndex
+            }
+            return $0.tabIndex < $1.tabIndex
+        }
     }
+
 
     /// Caps `connections` to the `limit` most recently contacted, when there
     /// are more than `limit`. A browser's real profile count bounds how many
@@ -394,7 +454,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             }
             registry.nextRequestID += 1
             let requestID = registry.nextRequestID
-            registry.pendingCommands[requestID] = PendingCommand(ownerFD: fd, waiter: waiter)
+            registry.pendingCommands[requestID] = PendingCommand(ownerFD: fd, waiter: waiter, commandType: type, tabID: tabID)
             var payload: [String: Any] = ["requestID": requestID, "tabId": tabID]
             for (key, value) in extraPayload { payload[key] = value }
             let frame = Self.encode([
@@ -407,6 +467,12 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
                 connection.outboundQueue.append(frame)
                 connection.outboundSignal.signal()
                 registry.connections[fd] = connection
+            }
+            if type == "closeTab" {
+                for key in registry.connections.keys {
+                    registry.connections[key]?.tabs.removeValue(forKey: tabID)
+                    registry.connections[key]?.activationTimes.removeValue(forKey: tabID)
+                }
             }
             return requestID
         }
@@ -426,7 +492,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             }
             registry.nextRequestID += 1
             let requestID = registry.nextRequestID
-            registry.pendingCommands[requestID] = PendingCommand(ownerFD: fd, waiter: waiter)
+            registry.pendingCommands[requestID] = PendingCommand(ownerFD: fd, waiter: waiter, commandType: type, tabID: nil)
             var fullPayload: [String: Any] = ["requestID": requestID]
             for (key, value) in payload { fullPayload[key] = value }
             let frame = Self.encode([
@@ -446,6 +512,37 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         let result = waiter.wait(timeout: timeout)
         _ = lock.withLock { registry in registry.pendingCommands.removeValue(forKey: requestID) }
         return result
+    }
+
+    func moveBookmark(appName: String, id: String, parentId: String?, index: Int?) -> Bool {
+        var payload: [String: Any] = ["id": id]
+        if let parentId { payload["parentId"] = parentId }
+        if let index { payload["index"] = index }
+        return sendBrowserCommand(appName: appName, type: "moveBookmark", payload: payload)
+    }
+
+    func createBookmarkFolder(appName: String, parentId: String?, title: String, index: Int?) -> Bool {
+        var payload: [String: Any] = ["title": title]
+        if let parentId { payload["parentId"] = parentId }
+        if let index { payload["index"] = index }
+        return sendBrowserCommand(appName: appName, type: "createFolder", payload: payload)
+    }
+
+    func updateBookmark(appName: String, id: String, title: String?, url: String?) -> Bool {
+        var payload: [String: Any] = ["id": id]
+        if let title { payload["title"] = title }
+        if let url { payload["url"] = url }
+        return sendBrowserCommand(appName: appName, type: "updateBookmark", payload: payload)
+    }
+
+    func deleteBookmark(appName: String, id: String?, url: String?) -> Bool {
+        var payload: [String: Any] = [:]
+        if let id {
+            payload["bookmarkId"] = id
+            payload["id"] = id
+        }
+        if let url { payload["url"] = url }
+        return sendBrowserCommand(appName: appName, type: "deleteBookmark", payload: payload)
     }
 
     // MARK: - Socket plumbing
@@ -541,10 +638,24 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         // Resolve command replies first, in their own lock scope. The decoded
         // message below also carries the command result, but the switch treats
         // it as a no-op — resolution happens here.
-        if type == "commandResult", let requestID = payload["requestID"] as? UInt64 {
+        let parsedRequestID = (payload["requestID"] as? NSNumber)?.uint64Value ?? (payload["requestID"] as? UInt64) ?? (payload["requestID"] as? Int).map(UInt64.init)
+        if type == "commandResult", let requestID = parsedRequestID {
             let ok = payload["ok"] as? Bool ?? false
+            let errorMsg = payload["error"] as? String ?? ""
             lock.withLock { registry in
-                _ = registry.pendingCommands.removeValue(forKey: requestID)?.waiter.fulfill(ok)
+                if let cmd = registry.pendingCommands.removeValue(forKey: requestID) {
+                    cmd.waiter.fulfill(ok)
+                    if let tabID = cmd.tabID {
+                        let isNoTab = !ok && (errorMsg.contains("No tab with id") || errorMsg.contains("not found"))
+                        let isClose = cmd.commandType == "closeTab"
+                        if isClose || isNoTab {
+                            for key in registry.connections.keys {
+                                registry.connections[key]?.tabs.removeValue(forKey: tabID)
+                                registry.connections[key]?.activationTimes.removeValue(forKey: tabID)
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -552,8 +663,9 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         // body is @Sendable and cannot capture non-Sendable [String: Any].
         let message = Self.decodeInboundMessage(type: type, payload: payload, now: now)
 
-        let (connectionChanged, activation) = lock.withLock { registry -> (Bool, (appName: String, url: String, at: Date)?) in
-            guard var connection = registry.connections[fd] else { return (false, nil) }
+        let (connectionChanged, activation, removed, upserted, snapshot) = lock.withLock { registry -> (Bool, (appName: String, url: String, at: Date)?, (appName: String, tabID: Int, url: String?)?, (appName: String, tab: ExtensionTabRecord)?, (appName: String, tabs: [ExtensionTabRecord])?) in
+            guard var connection = registry.connections[fd] else { return (false, nil, nil, nil, nil) }
+
             connection.lastContactAt = now
 
             if versionMismatch {
@@ -569,6 +681,9 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
 
             var connectionAddedOrNamed = false
             var activationEvent: (appName: String, url: String, at: Date)?
+            var removedEvent: (appName: String, tabID: Int, url: String?)?
+            var upsertedEvent: (appName: String, tab: ExtensionTabRecord)?
+            var snapshotEvent: (appName: String, tabs: [ExtensionTabRecord])?
             switch message {
             case .hello(let appName, let extensionVersion):
                 connection.appName = appName
@@ -578,13 +693,28 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
 
             case .snapshot(let tabs):
                 Self.applySnapshot(&connection, tabs: tabs)
+                snapshotEvent = (appName: connection.appName, tabs: tabs)
 
             case .tabUpsert(let tab):
+                // Evict any stale predecessor in the same window sharing the canonical URL
+                // if the existing tab is discarded or this is a newer/active tab
+                let canonical = MyOrderReconciler.canonicalURL(tab.url)
+                for (oldID, oldTab) in connection.tabs {
+                    if oldID != tab.tabID && oldTab.windowIndex == tab.windowIndex && MyOrderReconciler.canonicalURL(oldTab.url) == canonical {
+                        if oldTab.isDiscarded || (!tab.isDiscarded && oldID < tab.tabID) {
+                            connection.tabs.removeValue(forKey: oldID)
+                            connection.activationTimes.removeValue(forKey: oldID)
+                        }
+                    }
+                }
                 connection.tabs[tab.tabID] = tab
+                upsertedEvent = (appName: connection.appName, tab: tab)
 
             case .tabRemoved(let tabID):
+                let removedURL = connection.tabs[tabID]?.url
                 connection.tabs.removeValue(forKey: tabID)
                 connection.activationTimes.removeValue(forKey: tabID)
+                removedEvent = (appName: connection.appName, tabID: tabID, url: removedURL)
 
             case .tabActivated(let tabID, let at):
                 connection.activationTimes[tabID] = at
@@ -595,7 +725,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             }
 
             registry.connections[fd] = connection
-            return (connectionAddedOrNamed, activationEvent)
+            return (connectionAddedOrNamed, activationEvent, removedEvent, upsertedEvent, snapshotEvent)
         }
 
         if connectionChanged {
@@ -604,7 +734,17 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         if let activation, let onTabActivated {
             onTabActivated(activation.appName, activation.url, activation.at)
         }
+        if let removed, let onTabRemoved {
+            onTabRemoved(removed.appName, removed.tabID, removed.url)
+        }
+        if let upserted, let onTabUpserted {
+            onTabUpserted(upserted.appName, upserted.tab)
+        }
+        if let snapshot, let onSnapshotReceived {
+            onSnapshotReceived(snapshot.appName, snapshot.tabs)
+        }
     }
+
 
     /// Decoded form of an inbound message; all fields Sendable so it can cross
     /// into the bridge lock. Parsing happens outside the lock.
@@ -666,7 +806,8 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             return .ignore
 
         case "commandResult":
-            if let requestID = payload["requestID"] as? UInt64 {
+            let parsedRequestID = (payload["requestID"] as? NSNumber)?.uint64Value ?? (payload["requestID"] as? UInt64) ?? (payload["requestID"] as? Int).map(UInt64.init)
+            if let requestID = parsedRequestID {
                 return .commandResult(requestID: requestID, ok: payload["ok"] as? Bool ?? false)
             }
             return .ignore

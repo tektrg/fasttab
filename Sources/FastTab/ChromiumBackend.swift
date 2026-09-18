@@ -20,6 +20,8 @@ struct ChromiumBackend: BrowserBackend {
     let bundleIdentifier: String
     let supportDirectory: String
 
+    private static let bookmarkFileLock = NSLock()
+
     private var logger: Logger {
         Logger(subsystem: "com.trungluong.FastTab", category: "ChromiumBackend")
     }
@@ -82,24 +84,31 @@ struct ChromiumBackend: BrowserBackend {
             let windowName = parts[6]
             let hasMediaIndicator = browserWindowMediaIndicatorBelongsToTab(tabTitle: title, windowName: windowName)
             let key = makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
-            // Only the active tab of the FRONT window (winIdx == 1) of the
+            let urlKey = makeTabURLRecencyKey(browserName: appName, url: url)
+            // The active tab of the FRONT window (winIdx == 1) of the
             // source browser is treated as "the tab the user is on" and
-            // excluded from quick-open. Other windows' active tabs are fair
-            // game for the recency-ordered top 5.
+            // stamped as "now" (fetchStart). Other windows' active tabs are
+            // stamped just behind it.
             // The tab is "currently being viewed" only when it is the active
             // tab of the front window AND its app is the frontmost app the
-            // user activated FastTab from. Only then do we treat it as "now".
+            // user activated FastTab from.
             let isFrontActive = isActive && winIdx == 1 && bundleIdentifier == currentFlowSourceAppBundleIdentifier
             let isCurrentFlowActiveTab = isFrontActive
-            let storedTime = activeTimes[key]
+            let storedTime = activeTimes[key] ?? activeTimes[urlKey]
             let timestamp: Date = {
                 if isFrontActive { return fetchStart }
+                if isActive { return fetchStart.addingTimeInterval(-1) }
                 return storedTime ?? Date(timeIntervalSince1970: 0)
             }()
             logger.info("recency-sort tab. browser='\(appName, privacy: .public)' win=\(winIdx) tab=\(tabIdx) isActive=\(isActive, privacy: .public) isFrontActive=\(isFrontActive, privacy: .public) hadStoredTime=\(storedTime != nil, privacy: .public) storedEpoch=\(storedTime?.timeIntervalSince1970 ?? -1) chosenEpoch=\(timestamp.timeIntervalSince1970) key='\(key, privacy: .public)' title='\(title, privacy: .public)'")
 
             if isFrontActive {
                 activeTimes[key] = fetchStart
+                activeTimes[urlKey] = fetchStart
+            } else if isActive {
+                let windowActiveTime = fetchStart.addingTimeInterval(-1)
+                activeTimes[key] = windowActiveTime
+                activeTimes[urlKey] = windowActiveTime
             }
 
             newResults.append(
@@ -152,7 +161,10 @@ struct ChromiumBackend: BrowserBackend {
         let tabIdx = Int(parts[1]) ?? 1
         let url = parts[2]
         guard !url.isEmpty else { return [] }
-        return [makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)]
+        return [
+            makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url),
+            makeTabURLRecencyKey(browserName: appName, url: url)
+        ]
     }
 
     // MARK: - Bookmarks
@@ -181,6 +193,103 @@ struct ChromiumBackend: BrowserBackend {
         }
 
         return results
+    }
+
+    func fetchBookmarkTree() -> [BookmarkFolder] {
+        let profiles = profiles()
+        var folders: [BookmarkFolder] = []
+        let standardOrder = ["bookmark_bar", "other", "synced"]
+
+        for profile in profiles {
+            guard let data = try? Data(contentsOf: profile.bookmarksURL),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let roots = root["roots"] as? [String: Any] else {
+                continue
+            }
+
+            let extraKeys = roots.keys.filter { !standardOrder.contains($0) }.sorted()
+            let orderedKeys = standardOrder.filter { roots.keys.contains($0) } + extraKeys
+
+            var profileFolders: [BookmarkFolder] = []
+            for rootKey in orderedKeys {
+                guard let node = roots[rootKey] as? [String: Any] else { continue }
+                if let folder = Self.parseBookmarkFolder(
+                    from: node,
+                    defaultName: rootKey.replacingOccurrences(of: "_", with: " ").capitalized,
+                    browserName: appName,
+                    profileName: profile.name,
+                    parentTrail: []
+                ) {
+                    if folder.childCount > 0 || rootKey == "bookmark_bar" {
+                        profileFolders.append(folder)
+                    }
+                }
+            }
+
+            let totalBookmarks = profileFolders.reduce(0) { $0 + $1.childCount }
+            if totalBookmarks > 0 {
+                folders.append(contentsOf: profileFolders)
+            }
+        }
+
+        return folders
+    }
+
+    private static func parseBookmarkFolder(
+        from node: [String: Any],
+        defaultName: String,
+        browserName: String,
+        profileName: String,
+        parentTrail: [String]
+    ) -> BookmarkFolder? {
+        let nodeName = (node["name"] as? String) ?? defaultName
+        let rawID = (node["id"] as? String) ?? UUID().uuidString
+        let id = "\(browserName)|\(profileName)|\(rawID)"
+        let currentTrail = parentTrail + [nodeName]
+
+        guard let childrenNodes = node["children"] as? [[String: Any]] else {
+            return nil
+        }
+
+        var children: [BookmarkTreeNode] = []
+        for child in childrenNodes {
+            let childType = child["type"] as? String
+            let childName = (child["name"] as? String) ?? ""
+            let childID = (child["id"] as? String) ?? UUID().uuidString
+
+            if childType == "url" {
+                let url = (child["url"] as? String) ?? ""
+                guard !url.isEmpty else { continue }
+                let item = BookmarkItem(
+                    id: childID,
+                    title: childName.isEmpty ? url : childName,
+                    url: url,
+                    browserName: browserName,
+                    profileName: profileName,
+                    dateAdded: chromiumDate(from: child["date_added"] as? String),
+                    folderPath: currentTrail.joined(separator: " / ")
+                )
+                children.append(.item(item))
+            } else if childType == "folder" {
+                if let subFolder = parseBookmarkFolder(
+                    from: child,
+                    defaultName: childName,
+                    browserName: browserName,
+                    profileName: profileName,
+                    parentTrail: currentTrail
+                ) {
+                    children.append(.folder(subFolder))
+                }
+            }
+        }
+
+        return BookmarkFolder(
+            id: id,
+            name: nodeName,
+            browserName: browserName,
+            profileName: profileName,
+            children: children
+        )
     }
 
     private static func collectBookmarks(
@@ -559,74 +668,85 @@ struct ChromiumBackend: BrowserBackend {
         runAppleScript(script, logger: logger, action: "activateTab")
     }
 
+    static func buildCloseTabScript(
+        appName: String,
+        url: String,
+        fallbackWindow: Int,
+        fallbackTab: Int,
+        allowPositionalFallback: Bool
+    ) -> String {
+        let safeURL = appleScriptQuoted(url)
+        return """
+        tell application "\(appName)"
+            if it is not running then return "not_found"
+            set targetURL to "\(safeURL)"
+            try
+                set winCount to count of windows
+                if winCount >= \(fallbackWindow) then
+                    set w to window \(fallbackWindow)
+                    set tabURLs to URL of every tab of w
+                    if (count of tabURLs) >= \(fallbackTab) then
+                        if (item \(fallbackTab) of tabURLs) is equal to targetURL then
+                            close tab \(fallbackTab) of w
+                            return "closed"
+                        end if
+                    end if
+                end if
+            end try
+            set matchCount to 0
+            set targetWin to 0
+            set targetTab to 0
+            try
+                repeat with wIdx from 1 to count of windows
+                    set w to window wIdx
+                    set tabURLs to URL of every tab of w
+                    repeat with i from 1 to count of tabURLs
+                        if (item i of tabURLs) is equal to targetURL then
+                            set matchCount to matchCount + 1
+                            set targetWin to wIdx
+                            set targetTab to i
+                        end if
+                    end repeat
+                end repeat
+            end try
+            if matchCount is equal to 0 then
+                return "not_found"
+            \(allowPositionalFallback ? """
+            else
+                try
+                    close tab targetTab of window targetWin
+                    return "closed"
+                end try
+                return "not_found"
+            """ : """
+            else if matchCount is greater than 1 then
+                return "refused:ambiguous"
+            else
+                try
+                    close tab targetTab of window targetWin
+                    return "closed"
+                end try
+                return "not_found"
+            """)
+            end if
+        end tell
+        """
+    }
+
     func closeTab(_ result: BrowserSearchResult) {
         _ = closeTabWithResult(result, allowPositionalFallback: true)
     }
 
     func closeTabWithResult(_ result: BrowserSearchResult, allowPositionalFallback: Bool) -> TabCloseResult {
-        let safeURL = appleScriptQuoted(result.url)
         let fallbackWindow = max(1, result.windowIndex ?? 1)
         let fallbackTab = max(1, result.tabIndex ?? 1)
-
-        let script: String
-        if allowPositionalFallback {
-            script = """
-            tell application "\(result.browserName)"
-                if it is not running then return "not_found"
-                set targetURL to "\(safeURL)"
-                try
-                    repeat with w in windows
-                        set tabURLs to URL of every tab of w
-                        repeat with i from 1 to count of tabURLs
-                            if (item i of tabURLs) is equal to targetURL then
-                                close tab i of w
-                                return "closed"
-                            end if
-                        end repeat
-                    end repeat
-                end try
-                try
-                    close tab \(fallbackTab) of window \(fallbackWindow)
-                    return "closed"
-                end try
-                return "not_found"
-            end tell
-            """
-        } else {
-            script = """
-            tell application "\(result.browserName)"
-                if it is not running then return "not_found"
-                set targetURL to "\(safeURL)"
-                set matchCount to 0
-                set targetWin to 0
-                set targetTab to 0
-                try
-                    repeat with wIdx from 1 to count of windows
-                        set w to window wIdx
-                        set tabURLs to URL of every tab of w
-                        repeat with i from 1 to count of tabURLs
-                            if (item i of tabURLs) is equal to targetURL then
-                                set matchCount to matchCount + 1
-                                set targetWin to wIdx
-                                set targetTab to i
-                            end if
-                        end repeat
-                    end repeat
-                end try
-                if matchCount is equal to 0 then
-                    return "not_found"
-                else if matchCount is greater than 1 then
-                    return "refused:ambiguous"
-                else
-                    try
-                        close tab targetTab of window targetWin
-                        return "closed"
-                    end try
-                    return "not_found"
-                end if
-            end tell
-            """
-        }
+        let script = Self.buildCloseTabScript(
+            appName: result.browserName,
+            url: result.url,
+            fallbackWindow: fallbackWindow,
+            fallbackTab: fallbackTab,
+            allowPositionalFallback: allowPositionalFallback
+        )
 
         logger.info("closeTabWithResult: app=\(result.browserName, privacy: .public) allowPositional=\(allowPositionalFallback) title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
         let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script], timeoutSeconds: 8)
@@ -812,23 +932,27 @@ struct ChromiumBackend: BrowserBackend {
         }
     }
 
-    func deleteBookmark(_ result: BrowserSearchResult) {
+    @discardableResult
+    func deleteBookmark(_ result: BrowserSearchResult) -> Bool {
         guard let bookmarkID = result.bookmarkID else {
             logger.error("deleteBookmark: missing bookmarkID for url='\(result.url, privacy: .public)'")
-            return
+            return false
         }
 
         guard let profile = profile(for: result) else {
             logger.error("deleteBookmark: profile not found for browser=\(result.browserName, privacy: .public) profile=\(result.profileName ?? "", privacy: .public)")
-            return
+            return false
         }
+
+        Self.bookmarkFileLock.lock()
+        defer { Self.bookmarkFileLock.unlock() }
 
         do {
             let data = try Data(contentsOf: profile.bookmarksURL)
             guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   var roots = root["roots"] as? [String: Any] else {
                 logger.error("deleteBookmark: invalid bookmark JSON at path=\(profile.bookmarksURL.path, privacy: .public)")
-                return
+                return false
             }
 
             var deleted = false
@@ -842,15 +966,17 @@ struct ChromiumBackend: BrowserBackend {
 
             guard deleted else {
                 logger.error("deleteBookmark: bookmark id=\(bookmarkID, privacy: .public) not found")
-                return
+                return false
             }
 
             root["roots"] = roots
             let updatedData = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
             try updatedData.write(to: profile.bookmarksURL, options: .atomic)
             logger.info("deleteBookmark: removed bookmark id=\(bookmarkID, privacy: .public) from profile=\(profile.name, privacy: .public)")
+            return true
         } catch {
             logger.error("deleteBookmark: failed for profile=\(profile.name, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return false
         }
     }
 

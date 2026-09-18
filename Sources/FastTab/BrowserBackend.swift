@@ -108,6 +108,7 @@ protocol BrowserBackend: Sendable {
     func pollActiveTabKeys() -> [String]
 
     func fetchAllBookmarks() -> [BrowserSearchResult]
+    func fetchBookmarkTree() -> [BookmarkFolder]
     func fetchRecentHistory(perBrowserLimit: Int) -> [BrowserSearchResult]
     func searchHistory(query: String, limit: Int) -> [BrowserSearchResult]
     /// Same as `searchHistory(query:limit:)` but bounded by `[since, before)`
@@ -135,12 +136,16 @@ protocol BrowserBackend: Sendable {
     /// this (Chrome exposes no scriptable mute via AppleScript); every other
     /// backend keeps the default no-op below.
     func toggleMuteTab(_ result: BrowserSearchResult, muted: Bool)
+    /// Sets the tab's pinned state in the browser. Only `ExtensionBackedBackend` can act on
+    /// this via native messaging; other backends keep the default no-op.
+    func togglePinTab(_ result: BrowserSearchResult, pinned: Bool)
     func openURL(_ result: BrowserSearchResult)
     /// Opens `result` inside `app`'s installed-web-app window, reusing it if
     /// already open. Only meaningful for Chromium-family backends — other
     /// backends fall back to `openURL` via the default implementation below.
     func openInInstalledWebApp(_ result: BrowserSearchResult, app: InstalledWebApp)
-    func deleteBookmark(_ result: BrowserSearchResult)
+    @discardableResult
+    func deleteBookmark(_ result: BrowserSearchResult) -> Bool
     func deleteHistoryItem(_ result: BrowserSearchResult)
     /// Removes a bookmark and hands back what it takes to recreate it
     /// elsewhere. Only `ChromiumBackend` can actually write bookmarks — every
@@ -201,10 +206,42 @@ extension BrowserBackend {
     }
 
     func toggleMuteTab(_ result: BrowserSearchResult, muted: Bool) {}
+    func togglePinTab(_ result: BrowserSearchResult, pinned: Bool) {}
 
+    func deleteBookmark(_ result: BrowserSearchResult) -> Bool { false }
     func removeBookmarkForMove(_ result: BrowserSearchResult) -> RemovedBookmarkNode? { nil }
     func insertBookmark(title: String, url: String, dateAdded: Date?, profileName: String, folderPath: [String]) -> Bool { false }
     func createBookmarkFolder(name: String, parentPath: [String], profileName: String) -> Bool { false }
+    func moveBookmark(id: String, parentId: String?, index: Int?) -> Bool { false }
+    func updateBookmark(id: String, title: String?, url: String?) -> Bool { false }
+
+    func fetchBookmarkTree() -> [BookmarkFolder] {
+        let bookmarks = fetchAllBookmarks()
+        var foldersByName: [String: [BookmarkItem]] = [:]
+        for b in bookmarks {
+            let item = BookmarkItem(
+                id: b.bookmarkID ?? UUID().uuidString,
+                title: b.title,
+                url: b.url,
+                browserName: b.browserName,
+                profileName: b.profileName ?? "Default",
+                dateAdded: b.timestamp,
+                folderPath: b.folderPath ?? ""
+            )
+            let folderKey = b.folderPath?.isEmpty == false ? b.folderPath! : "Bookmarks"
+            foldersByName[folderKey, default: []].append(item)
+        }
+
+        return foldersByName.map { name, items in
+            BookmarkFolder(
+                id: "\(appName)_\(name)",
+                name: name,
+                browserName: appName,
+                profileName: items.first?.profileName ?? "Default",
+                children: items.map { .item($0) }
+            )
+        }
+    }
 }
 
 // MARK: - Shared helpers

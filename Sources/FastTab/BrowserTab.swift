@@ -70,6 +70,9 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
     /// it's on. Extension-sourced tabs only; AppleScript-backend tabs never
     /// set this. Drives the sticky-to-top behavior in `sortTabsTier`.
     let isPinnedAudibleTab: Bool
+    /// True when this result represents a closed (ghost) pinned tab that
+    /// remains persistent in FastTab's My Order slots.
+    let isGhost: Bool
 
     /// Folded match keys (lowercased, accent-stripped, punctuation-stripped),
     /// computed once at construction. Per-keystroke filtering (`matches(query:)`)
@@ -93,6 +96,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         case isCurrentFlowActiveTab, hasMediaIndicator
         case tabID, isAudible, isMuted, isPinned, isDiscarded, tabGroupTitle
         case isPinnedAudibleTab
+        case isGhost
     }
 
     init(
@@ -115,7 +119,8 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         isPinned: Bool = false,
         isDiscarded: Bool = false,
         tabGroupTitle: String? = nil,
-        isPinnedAudibleTab: Bool = false
+        isPinnedAudibleTab: Bool = false,
+        isGhost: Bool = false
     ) {
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTitle = normalizedTitle.isEmpty ? url : normalizedTitle
@@ -139,8 +144,9 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         self.isDiscarded = isDiscarded
         self.tabGroupTitle = tabGroupTitle
         self.isPinnedAudibleTab = isPinnedAudibleTab
+        self.isGhost = isGhost
         self.normalizedTitleKey = foldForMatching(resolvedTitle)
-        self.normalizedURLKey = foldForMatching(url)
+        self.normalizedURLKey = foldURLForMatching(url)
         self.duplicateDedupeKey = [
             browserName,
             profileName ?? "",
@@ -173,7 +179,8 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             isPinned: try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false,
             isDiscarded: try c.decodeIfPresent(Bool.self, forKey: .isDiscarded) ?? false,
             tabGroupTitle: try c.decodeIfPresent(String.self, forKey: .tabGroupTitle),
-            isPinnedAudibleTab: try c.decodeIfPresent(Bool.self, forKey: .isPinnedAudibleTab) ?? false
+            isPinnedAudibleTab: try c.decodeIfPresent(Bool.self, forKey: .isPinnedAudibleTab) ?? false,
+            isGhost: try c.decodeIfPresent(Bool.self, forKey: .isGhost) ?? false
         )
     }
 
@@ -202,7 +209,8 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             isPinned: isPinned,
             isDiscarded: isDiscarded,
             tabGroupTitle: tabGroupTitle,
-            isPinnedAudibleTab: value
+            isPinnedAudibleTab: value,
+            isGhost: isGhost
         )
     }
 
@@ -233,7 +241,62 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             isPinned: isPinned,
             isDiscarded: isDiscarded,
             tabGroupTitle: tabGroupTitle,
-            isPinnedAudibleTab: isAudible && !value
+            isPinnedAudibleTab: isAudible && !value,
+            isGhost: isGhost
+        )
+    }
+
+    func settingPinned(_ value: Bool) -> BrowserSearchResult {
+        guard value != isPinned else { return self }
+        return BrowserSearchResult(
+            title: title,
+            url: url,
+            browserName: browserName,
+            type: type,
+            timestamp: timestamp,
+            windowIndex: windowIndex,
+            tabIndex: tabIndex,
+            windowName: windowName,
+            bookmarkID: bookmarkID,
+            profileName: profileName,
+            folderPath: folderPath,
+            isCurrentFlowActiveTab: isCurrentFlowActiveTab,
+            hasMediaIndicator: hasMediaIndicator,
+            tabID: tabID,
+            isAudible: isAudible,
+            isMuted: isMuted,
+            isPinned: value,
+            isDiscarded: isDiscarded,
+            tabGroupTitle: tabGroupTitle,
+            isPinnedAudibleTab: isPinnedAudibleTab,
+            isGhost: isGhost
+        )
+    }
+
+    func settingTimestamp(_ value: Date) -> BrowserSearchResult {
+        guard value != timestamp else { return self }
+        return BrowserSearchResult(
+            title: title,
+            url: url,
+            browserName: browserName,
+            type: type,
+            timestamp: value,
+            windowIndex: windowIndex,
+            tabIndex: tabIndex,
+            windowName: windowName,
+            bookmarkID: bookmarkID,
+            profileName: profileName,
+            folderPath: folderPath,
+            isCurrentFlowActiveTab: isCurrentFlowActiveTab,
+            hasMediaIndicator: hasMediaIndicator,
+            tabID: tabID,
+            isAudible: isAudible,
+            isMuted: isMuted,
+            isPinned: isPinned,
+            isDiscarded: isDiscarded,
+            tabGroupTitle: tabGroupTitle,
+            isPinnedAudibleTab: isPinnedAudibleTab,
+            isGhost: isGhost
         )
     }
 
@@ -242,6 +305,9 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         case .sent:
             return [browserName, type.rawValue, bookmarkID ?? url, String(timestamp.timeIntervalSince1970)].joined(separator: "|")
         case .tab:
+            if isGhost {
+                return [browserName, profileName ?? "", type.rawValue, "ghost", url].joined(separator: "|")
+            }
             if let tabID {
                 return [browserName, type.rawValue, "id", String(tabID), url].joined(separator: "|")
             }
@@ -339,6 +405,11 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             tabIndex: tabIndex,
             url: url
         )
+    }
+
+    var tabURLRecencyKey: String? {
+        guard type == .tab else { return nil }
+        return makeTabURLRecencyKey(browserName: browserName, url: url)
     }
 
     /// Last non-empty path segment of `url` (e.g. "https://notion.so/roadmap"
@@ -457,6 +528,10 @@ func makeTabRecencyKey(browserName: String, windowIndex: Int?, tabIndex: Int?, u
     [browserName, String(windowIndex ?? 0), String(tabIndex ?? 0), url].joined(separator: "|")
 }
 
+func makeTabURLRecencyKey(browserName: String, url: String) -> String {
+    [browserName, url].joined(separator: "|")
+}
+
 /// Applies the sticky-audible grace window on top of each tab's raw
 /// (this-instant) `isPinnedAudibleTab` value: once a tab is heard, it stays
 /// flagged for `graceWindow` seconds past the last time it was heard, so a
@@ -512,31 +587,40 @@ func sortBrowserSearchResults(
 ) -> [BrowserSearchResult] {
     if results.isEmpty { return results }
 
+    var pinnedTabs: [BrowserSearchResult] = []
     var sent: [BrowserSearchResult] = []
-    var tabs: [BrowserSearchResult] = []
+    var unpinnedTabs: [BrowserSearchResult] = []
     var bookmarks: [BrowserSearchResult] = []
     var history: [BrowserSearchResult] = []
     sent.reserveCapacity(results.count)
-    tabs.reserveCapacity(results.count)
+    pinnedTabs.reserveCapacity(results.count)
+    unpinnedTabs.reserveCapacity(results.count)
     for r in results {
         switch r.type {
         case .sent: sent.append(r)
-        case .tab: tabs.append(r)
+        case .tab:
+            if r.isPinned {
+                pinnedTabs.append(r)
+            } else {
+                unpinnedTabs.append(r)
+            }
         case .bookmark: bookmarks.append(r)
         case .history: history.append(r)
         }
     }
 
+    let sortedPinnedTabs = sortTabsTier(pinnedTabs, frecencyScore: frecencyScore)
     let sortedSent = sortByTimestampTier(sent)
-    let sortedTabs = sortTabsTier(tabs, frecencyScore: frecencyScore)
+    let sortedUnpinnedTabs = sortTabsTier(unpinnedTabs, frecencyScore: frecencyScore)
     let sortedBookmarks = sortByTimestampTier(bookmarks)
     let sortedHistory = sortByTimestampTier(history)
 
-    // Concatenate in tier order — sent(-1) < tab(0) < bookmark(1) < history(2).
+    // Concatenate in priority order — pinned tabs (top priority!) < sent(-1) < unpinned tabs(0) < bookmark(1) < history(2).
     var out: [BrowserSearchResult] = []
-    out.reserveCapacity(sortedSent.count + sortedTabs.count + sortedBookmarks.count + sortedHistory.count)
+    out.reserveCapacity(sortedPinnedTabs.count + sortedSent.count + sortedUnpinnedTabs.count + sortedBookmarks.count + sortedHistory.count)
+    out.append(contentsOf: sortedPinnedTabs)
     out.append(contentsOf: sortedSent)
-    out.append(contentsOf: sortedTabs)
+    out.append(contentsOf: sortedUnpinnedTabs)
     out.append(contentsOf: sortedBookmarks)
     out.append(contentsOf: sortedHistory)
     return out
@@ -545,9 +629,9 @@ func sortBrowserSearchResults(
 /// Sort the tabs tier. When `frecencyScore` is provided, precomputes the
 /// score for each tab once and sorts the decorated array. Tabs with equal
 /// scores fall through to timestamp / browserName / title for a stable feel.
-/// Audible tabs (`isPinnedAudibleTab`) always sort ahead of the rest of the
-/// tier regardless of frecency, so a live call or a playing music/video tab
-/// stays pinned to the top.
+/// Pinned tabs (`isPinned`) always have top priority, followed by audible
+/// tabs (`isPinnedAudibleTab`) ahead of the rest of the tier regardless of
+/// frecency.
 private func sortTabsTier(
     _ tabs: [BrowserSearchResult],
     frecencyScore: ((BrowserSearchResult) -> Double)?
@@ -560,6 +644,12 @@ private func sortTabsTier(
     let decorated: [(score: Double, result: BrowserSearchResult)] =
         tabs.map { (frecencyScore($0), $0) }
     let sorted = decorated.sorted { lhs, rhs in
+        if lhs.result.isPinned != rhs.result.isPinned {
+            return lhs.result.isPinned
+        }
+        if lhs.result.isGhost != rhs.result.isGhost {
+            return !lhs.result.isGhost
+        }
         if lhs.result.isPinnedAudibleTab != rhs.result.isPinnedAudibleTab {
             return lhs.result.isPinnedAudibleTab
         }
@@ -577,13 +667,19 @@ private func sortTabsTier(
 
 /// Sort bookmarks/history (or tabs without frecency) by timestamp desc,
 /// browserName asc, title asc. Bookmarks/history never set
-/// `isPinnedAudibleTab`, so the pin check is a no-op for them — but this is
-/// also the quick-open (empty-query) path's sort for tabs, which never gets
-/// a frecency score, so it needs the same pin-to-top check `sortTabsTier`'s
-/// frecency branch has.
+/// `isPinned` or `isPinnedAudibleTab`, so the pin check is a no-op for them —
+/// but this is also the quick-open (empty-query) path's sort for tabs, which
+/// never gets a frecency score, so it needs the same pin-to-top checks
+/// `sortTabsTier`'s frecency branch has.
 private func sortByTimestampTier(_ items: [BrowserSearchResult]) -> [BrowserSearchResult] {
     if items.count <= 1 { return items }
     return items.sorted { lhs, rhs in
+        if lhs.isPinned != rhs.isPinned {
+            return lhs.isPinned
+        }
+        if lhs.isGhost != rhs.isGhost {
+            return !lhs.isGhost
+        }
         if lhs.isPinnedAudibleTab != rhs.isPinnedAudibleTab {
             return lhs.isPinnedAudibleTab
         }
@@ -649,6 +745,14 @@ private func isPreferredDuplicate(
     over current: BrowserSearchResult,
     frecencyScore: (BrowserSearchResult) -> Double
 ) -> Bool {
+    if candidate.isPinned != current.isPinned {
+        return candidate.isPinned
+    }
+
+    if candidate.isGhost != current.isGhost {
+        return !candidate.isGhost
+    }
+
     if candidate.type != current.type {
         return candidate.type.sortPriority < current.type.sortPriority
     }
@@ -663,11 +767,11 @@ private func isPreferredDuplicate(
 }
 
 func quickOpenVisibleTabs(from results: [BrowserSearchResult], limit: Int) -> [BrowserSearchResult] {
-    Array(results.lazy.filter { !$0.isCurrentFlowActiveTab }.prefix(max(0, limit)))
+    Array(results.prefix(max(0, limit)))
 }
 
 func allQuickOpenTabs(from results: [BrowserSearchResult]) -> [BrowserSearchResult] {
-    sortBrowserSearchResults(results.filter { !$0.isCurrentFlowActiveTab })
+    sortBrowserSearchResults(results)
 }
 
 struct QuickOpenDisplayState: Equatable {

@@ -98,19 +98,22 @@ struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileAccess>: Br
             // Only the active tab of the front window of the source browser is
             // "the tab the user is on" — mirrors the AppleScript path's rule.
             let isFrontActive = tab.isActive && tab.windowIndex == 1 && isSourceFrontmost
+            let key = makeTabRecencyKey(browserName: appName, windowIndex: tab.windowIndex, tabIndex: tab.tabIndex, url: tab.url)
+            let urlKey = makeTabURLRecencyKey(browserName: appName, url: tab.url)
+            let storedTime = activeTimes[key] ?? activeTimes[urlKey]
             let timestamp: Date
             if isFrontActive {
                 timestamp = fetchStart
             } else if let activation = view.activationTimes[tab.tabID] {
                 timestamp = activation
             } else {
-                timestamp = Date(timeIntervalSince1970: 0)
+                timestamp = storedTime ?? Date(timeIntervalSince1970: 0)
             }
 
             // Exact activation times flow into the app's recency store so
             // quick-open and frecency ranking use truth, not a poll guess.
-            let key = makeTabRecencyKey(browserName: appName, windowIndex: tab.windowIndex, tabIndex: tab.tabIndex, url: tab.url)
             activeTimes[key] = timestamp
+            activeTimes[urlKey] = timestamp
 
             let isAudibleToUser = tab.isAudible && !tab.isMuted
 
@@ -146,7 +149,10 @@ struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileAccess>: Br
     func pollActiveTabKeys() -> [String] {
         guard let view = servableView() else { return inner.pollActiveTabKeys() }
         guard let front = view.tabs.first(where: { $0.windowIndex == 1 && $0.isActive }) else { return [] }
-        return [makeTabRecencyKey(browserName: appName, windowIndex: front.windowIndex, tabIndex: front.tabIndex, url: front.url)]
+        return [
+            makeTabRecencyKey(browserName: appName, windowIndex: front.windowIndex, tabIndex: front.tabIndex, url: front.url),
+            makeTabURLRecencyKey(browserName: appName, url: front.url)
+        ]
     }
 
     // MARK: - Tab actions (stable tab ID when present, AppleScript fallback)
@@ -189,9 +195,19 @@ struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileAccess>: Br
         extensionBackedBackendLogger.info("toggleMuteTab sent. app=\(self.appName, privacy: .public) tabID=\(tabID) muted=\(muted) ok=\(ok)")
     }
 
+    func togglePinTab(_ result: BrowserSearchResult, pinned: Bool) {
+        guard let tabID = result.tabID, isBetaEnabled else {
+            extensionBackedBackendLogger.error("togglePinTab: no-op. app=\(self.appName, privacy: .public) hasTabID=\(result.tabID != nil) betaEnabled=\(self.isBetaEnabled)")
+            return
+        }
+        let ok = bridge.sendCommand(appName: appName, type: "setPinned", tabID: tabID, extraPayload: ["pinned": pinned], timeout: 1.5)
+        extensionBackedBackendLogger.info("togglePinTab sent. app=\(self.appName, privacy: .public) tabID=\(tabID) pinned=\(pinned) ok=\(ok)")
+    }
+
     // MARK: - Everything else delegates unconditionally in v1
 
     func fetchAllBookmarks() -> [BrowserSearchResult] { inner.fetchAllBookmarks() }
+    func fetchBookmarkTree() -> [BookmarkFolder] { inner.fetchBookmarkTree() }
     func fetchRecentHistory(perBrowserLimit: Int) -> [BrowserSearchResult] { inner.fetchRecentHistory(perBrowserLimit: perBrowserLimit) }
     func searchHistory(query: String, limit: Int) -> [BrowserSearchResult] { inner.searchHistory(query: query, limit: limit) }
     func searchHistory(query: String, limit: Int, since: Date?, before: Date?) -> [BrowserSearchResult] {
@@ -204,6 +220,29 @@ struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileAccess>: Br
     func fetchFaviconsBatch(pageURLs: [String]) -> [String: Data] { inner.fetchFaviconsBatch(pageURLs: pageURLs) }
     func openURL(_ result: BrowserSearchResult) { inner.openURL(result) }
     func openInInstalledWebApp(_ result: BrowserSearchResult, app: InstalledWebApp) { inner.openInInstalledWebApp(result, app: app) }
-    func deleteBookmark(_ result: BrowserSearchResult) { inner.deleteBookmark(result) }
+    @discardableResult
+    func deleteBookmark(_ result: BrowserSearchResult) -> Bool {
+        if bridge.deleteBookmark(appName: appName, id: result.bookmarkID, url: result.url) {
+            extensionBackedBackendLogger.info("deleteBookmark via extension succeeded for app=\(self.appName, privacy: .public)")
+            _ = inner.deleteBookmark(result)
+            return true
+        }
+        return inner.deleteBookmark(result)
+    }
     func deleteHistoryItem(_ result: BrowserSearchResult) { inner.deleteHistoryItem(result) }
+    func removeBookmarkForMove(_ result: BrowserSearchResult) -> RemovedBookmarkNode? {
+        inner.removeBookmarkForMove(result)
+    }
+    func insertBookmark(title: String, url: String, dateAdded: Date?, profileName: String, folderPath: [String]) -> Bool {
+        inner.insertBookmark(title: title, url: url, dateAdded: dateAdded, profileName: profileName, folderPath: folderPath)
+    }
+    func createBookmarkFolder(name: String, parentPath: [String], profileName: String) -> Bool {
+        inner.createBookmarkFolder(name: name, parentPath: parentPath, profileName: profileName)
+    }
+    func moveBookmark(id: String, parentId: String?, index: Int?) -> Bool {
+        ExtensionBridge.shared.moveBookmark(appName: appName, id: id, parentId: parentId, index: index)
+    }
+    func updateBookmark(id: String, title: String?, url: String?) -> Bool {
+        ExtensionBridge.shared.updateBookmark(appName: appName, id: id, title: title, url: url)
+    }
 }

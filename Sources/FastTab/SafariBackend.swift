@@ -97,17 +97,24 @@ struct SafariBackend: BrowserBackend {
             let windowName = parts[6]
             let hasMediaIndicator = browserWindowMediaIndicatorBelongsToTab(tabTitle: title, windowName: windowName)
             let key = makeTabRecencyKey(browserName: browserName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
+            let urlKey = makeTabURLRecencyKey(browserName: browserName, url: url)
             let isFrontActive = isActive && winIdx == 1 && bundleIdentifier == currentFlowSourceAppBundleIdentifier
             let isCurrentFlowActiveTab = isFrontActive
-            let storedTime = activeTimes[key]
+            let storedTime = activeTimes[key] ?? activeTimes[urlKey]
             let timestamp: Date = {
                 if isFrontActive { return fetchStart }
+                if isActive { return fetchStart.addingTimeInterval(-1) }
                 return storedTime ?? Date(timeIntervalSince1970: 0)
             }()
             logger.info("recency-sort tab. browser='\(browserName, privacy: .public)' win=\(winIdx) tab=\(tabIdx) isActive=\(isActive, privacy: .public) isFrontActive=\(isFrontActive, privacy: .public) hadStoredTime=\(storedTime != nil, privacy: .public) storedEpoch=\(storedTime?.timeIntervalSince1970 ?? -1) chosenEpoch=\(timestamp.timeIntervalSince1970) key='\(key, privacy: .public)' title='\(title, privacy: .public)'")
 
             if isFrontActive {
                 activeTimes[key] = fetchStart
+                activeTimes[urlKey] = fetchStart
+            } else if isActive {
+                let windowActiveTime = fetchStart.addingTimeInterval(-1)
+                activeTimes[key] = windowActiveTime
+                activeTimes[urlKey] = windowActiveTime
             }
 
             newResults.append(
@@ -160,7 +167,10 @@ struct SafariBackend: BrowserBackend {
         let tabIdx = Int(parts[1]) ?? 1
         let url = parts[2]
         guard !url.isEmpty else { return [] }
-        return [makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)]
+        return [
+            makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url),
+            makeTabURLRecencyKey(browserName: appName, url: url)
+        ]
     }
 
     // MARK: - Bookmarks
@@ -687,81 +697,89 @@ struct SafariBackend: BrowserBackend {
         runAppleScript(script, logger: logger, action: "activateTab")
     }
 
+    static func buildCloseTabScript(
+        appName: String = "Safari",
+        url: String,
+        fallbackWindow: Int,
+        fallbackTab: Int,
+        allowPositionalFallback: Bool
+    ) -> String {
+        let safeURL = appleScriptQuoted(url)
+        return """
+        tell application "Safari"
+            if it is not running then return "not_found"
+            set targetURL to "\(safeURL)"
+            try
+                set winCount to count of windows
+                if winCount >= \(fallbackWindow) then
+                    set w to window \(fallbackWindow)
+                    set tabList to tabs of w
+                    if (count of tabList) >= \(fallbackTab) then
+                        set thisURL to URL of item \(fallbackTab) of tabList
+                        if thisURL is equal to targetURL then
+                            close tab \(fallbackTab) of w
+                            return "closed"
+                        end if
+                    end if
+                end if
+            end try
+            set matchCount to 0
+            set targetWin to 0
+            set targetTab to 0
+            try
+                set winCount to count of windows
+                repeat with w from 1 to winCount
+                    set tabList to tabs of window w
+                    repeat with i from 1 to count of tabList
+                        try
+                            set thisURL to URL of item i of tabList
+                            if thisURL is equal to targetURL then
+                                set matchCount to matchCount + 1
+                                set targetWin to w
+                                set targetTab to i
+                            end if
+                        end try
+                    end repeat
+                end repeat
+            end try
+            if matchCount is equal to 0 then
+                return "not_found"
+            \(allowPositionalFallback ? """
+            else
+                try
+                    close tab targetTab of window targetWin
+                    return "closed"
+                end try
+                return "not_found"
+            """ : """
+            else if matchCount is greater than 1 then
+                return "refused:ambiguous"
+            else
+                try
+                    close tab targetTab of window targetWin
+                    return "closed"
+                end try
+                return "not_found"
+            """)
+            end if
+        end tell
+        """
+    }
+
     func closeTab(_ result: BrowserSearchResult) {
         _ = closeTabWithResult(result, allowPositionalFallback: true)
     }
 
     func closeTabWithResult(_ result: BrowserSearchResult, allowPositionalFallback: Bool) -> TabCloseResult {
-        let safeURL = appleScriptQuoted(result.url)
         let fallbackWindow = max(1, result.windowIndex ?? 1)
         let fallbackTab = max(1, result.tabIndex ?? 1)
-
-        let script: String
-        if allowPositionalFallback {
-            script = """
-            tell application "Safari"
-                if it is not running then return "not_found"
-                set targetURL to "\(safeURL)"
-                try
-                    set winCount to count of windows
-                    repeat with w from 1 to winCount
-                        set tabList to tabs of window w
-                        repeat with i from 1 to count of tabList
-                            try
-                                set thisURL to URL of item i of tabList
-                                if thisURL is equal to targetURL then
-                                    close tab i of window w
-                                    return "closed"
-                                end if
-                            end try
-                        end repeat
-                    end repeat
-                end try
-                try
-                    close tab \(fallbackTab) of window \(fallbackWindow)
-                    return "closed"
-                end try
-                return "not_found"
-            end tell
-            """
-        } else {
-            script = """
-            tell application "Safari"
-                if it is not running then return "not_found"
-                set targetURL to "\(safeURL)"
-                set matchCount to 0
-                set targetWin to 0
-                set targetTab to 0
-                try
-                    set winCount to count of windows
-                    repeat with w from 1 to winCount
-                        set tabList to tabs of window w
-                        repeat with i from 1 to count of tabList
-                            try
-                                set thisURL to URL of item i of tabList
-                                if thisURL is equal to targetURL then
-                                    set matchCount to matchCount + 1
-                                    set targetWin to w
-                                    set targetTab to i
-                                end if
-                            end try
-                        end repeat
-                    end repeat
-                end try
-                if matchCount is equal to 0 then
-                    return "not_found"
-                else if matchCount is greater than 1 then
-                    return "refused:ambiguous"
-                else
-                    try
-                        close tab targetTab of window targetWin
-                        return "closed"
-                    end try
-                    return "not_found"
-                end if
-            end tell
-            """
-        }
+        let script = Self.buildCloseTabScript(
+            appName: "Safari",
+            url: result.url,
+            fallbackWindow: fallbackWindow,
+            fallbackTab: fallbackTab,
+            allowPositionalFallback: allowPositionalFallback
+        )
 
         logger.info("closeTabWithResult: app=Safari allowPositional=\(allowPositionalFallback) title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
         let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script], timeoutSeconds: 8)
@@ -790,8 +808,10 @@ struct SafariBackend: BrowserBackend {
         runAppleScript(script, logger: logger, action: "openURL")
     }
 
-    func deleteBookmark(_ result: BrowserSearchResult) {
+    @discardableResult
+    func deleteBookmark(_ result: BrowserSearchResult) -> Bool {
         logger.info("deleteBookmark: Safari is read-only, no-op for url='\(result.url, privacy: .public)'")
+        return false
     }
 
     func deleteHistoryItem(_ result: BrowserSearchResult) {

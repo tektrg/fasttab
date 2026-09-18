@@ -126,6 +126,6 @@ private final class SlowEmptyHistoryBackend: BrowserBackend, @unchecked Sendable
     func activateTab(_ result: BrowserSearchResult) {}
     func closeTab(_ result: BrowserSearchResult) {}
     func openURL(_ result: BrowserSearchResult) {}
-    func deleteBookmark(_ result: BrowserSearchResult) {}
+    func deleteBookmark(_ result: BrowserSearchResult) -> Bool { false }
     func deleteHistoryItem(_ result: BrowserSearchResult) {}
 }

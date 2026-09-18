@@ -122,6 +122,7 @@ let stdoutFD = FileHandle.standardOutput.fileDescriptor
 /// unsolicited frame (anything not in direct response to the extension). The
 /// bridge's keepalive pings are app<->bridge protocol, not for Chrome — if the
 /// host forwards them to stdout, Chrome kills the connection. Filter them out.
+@Sendable
 private func isPingOrPong(_ frame: Data) -> Bool {
     // Length-prefixed frame: 4 bytes LE length + JSON payload. The JSON
     // "type" field is always near the start. Checking for "ping" or "pong"
@@ -129,6 +130,13 @@ private func isPingOrPong(_ frame: Data) -> Bool {
     let payload = frame.dropFirst(4)
     guard let json = String(data: payload, encoding: .utf8) else { return false }
     return json.contains("\"type\":\"ping\"") || json.contains("\"type\":\"pong\"")
+}
+
+@Sendable
+private func isPing(_ frame: Data) -> Bool {
+    let payload = frame.dropFirst(4)
+    guard let json = String(data: payload, encoding: .utf8) else { return false }
+    return json.contains("\"type\":\"ping\"")
 }
 
 // Pump stdin → socket. EOF on stdin means Chrome closed the port (extension
@@ -142,8 +150,19 @@ Thread.detachNewThread {
 
 // Pump socket → stdout. Filter out ping/pong — Chrome sees an unsolicited
 // frame from the host and closes the port, which kills the connection.
+// For keepalive pings from the app's bridge, reply directly back with pong
+// on the socket so the app knows the host is alive and doesn't mark it stale.
 Thread.detachNewThread {
     while let frame = readFrame(fd: socketFD) {
+        if isPing(frame) {
+            let pongPayload = "{\"v\":1,\"type\":\"pong\",\"seq\":0,\"payload\":{}}".data(using: .utf8)!
+            var pongFrame = Data()
+            var len = UInt32(pongPayload.count).littleEndian
+            pongFrame.append(Data(bytes: &len, count: 4))
+            pongFrame.append(pongPayload)
+            if !writeAll(fd: socketFD, pongFrame) { exit(0) }
+            continue
+        }
         if isPingOrPong(frame) { continue }
         if !writeAll(fd: stdoutFD, frame) { exit(0) }
     }

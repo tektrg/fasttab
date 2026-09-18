@@ -38,7 +38,8 @@ struct FinderBackend: BrowserBackend {
                     set t to target of w
                     set p to POSIX path of (t as alias)
                     set n to name of w
-                    set output to output & (i as text) & "\(kFieldSep)" & p & "\(kFieldSep)" & n & "\(kRowSep)"
+                    set winID to id of w
+                    set output to output & (i as text) & "\(kFieldSep)" & p & "\(kFieldSep)" & n & "\(kFieldSep)" & (winID as text) & "\(kRowSep)"
                 end try
             end repeat
             return output
@@ -58,6 +59,7 @@ struct FinderBackend: BrowserBackend {
                   let windowIndex = Int(fields[0]) else { continue }
             let path = String(fields[1])
             let windowName = String(fields[2])
+            let tabID = fields.count >= 4 ? Int(fields[3]) : nil
             guard !path.isEmpty else { continue }
 
             let title = (path as NSString).lastPathComponent
@@ -67,6 +69,7 @@ struct FinderBackend: BrowserBackend {
                 tabIndex: 0,
                 url: path
             )
+            let urlKey = makeTabURLRecencyKey(browserName: appName, url: path)
             // Mark the front-most Finder window as the current flow's active tab
             // when FastTab was opened from Finder, mirroring the browser behavior
             // (filtered out of empty-query top-K so it doesn't eat a slot).
@@ -76,13 +79,14 @@ struct FinderBackend: BrowserBackend {
             // stored active time, or epoch when never used. Defaulting to
             // fetchStart here makes every Finder window dominate the empty-query
             // top-K, which is the bug we're fixing.
-            let storedTime = activeTimes[recencyKey]
+            let storedTime = activeTimes[recencyKey] ?? activeTimes[urlKey]
             let timestamp: Date = {
                 if isFrontActive { return fetchStart }
                 return storedTime ?? Date(timeIntervalSince1970: 0)
             }()
             if isFrontActive {
                 activeTimes[recencyKey] = fetchStart
+                activeTimes[urlKey] = fetchStart
             }
 
             results.append(BrowserSearchResult(
@@ -94,7 +98,8 @@ struct FinderBackend: BrowserBackend {
                 windowIndex: windowIndex,
                 tabIndex: 0,
                 windowName: windowName,
-                isCurrentFlowActiveTab: isFrontActive
+                isCurrentFlowActiveTab: isFrontActive,
+                tabID: tabID
             ))
 
             // Save every observed path into Finder-history. The store throttles
@@ -164,12 +169,37 @@ struct FinderBackend: BrowserBackend {
     func fetchFaviconData(pageURL: String) -> Data? { nil }
 
     func activateTab(_ result: BrowserSearchResult) {
-        // Prefer window-index addressing (O(1), no alias resolution). If the
-        // index is stale, fall back to path matching so we still do something
-        // useful instead of failing silently.
+        // Prefer window ID addressing (O(1), immune to z-order shift and alias
+        // resolution). If missing or stale, fall back to window-index addressing,
+        // and finally to path matching.
         let path = appleScriptQuoted(result.url)
+        let tabID = result.tabID
+        let windowIndex = result.windowIndex
         let script: String
-        if let windowIndex = result.windowIndex, windowIndex >= 1 {
+        if let tabID {
+            script = """
+            tell application "Finder"
+                activate
+                try
+                    set index of Finder window id \(tabID) to 1
+                    return
+                end try
+                \(windowIndex.map { "try\nset index of window \($0) to 1\nreturn\nend try" } ?? "")
+                set theWindows to every Finder window
+                set winCount to count of theWindows
+                repeat with i from 1 to winCount
+                    try
+                        set w to item i of theWindows
+                        set p to POSIX path of ((target of w) as alias)
+                        if (p is equal to "\(path)") or ((p & "/") is equal to "\(path)") or (p is equal to ("\(path)" & "/")) then
+                            set index of w to 1
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+            end tell
+            """
+        } else if let windowIndex, windowIndex >= 1 {
             script = """
             tell application "Finder"
                 activate
@@ -181,8 +211,8 @@ struct FinderBackend: BrowserBackend {
                     repeat with i from 1 to winCount
                         try
                             set w to item i of theWindows
-                            set t to target of w
-                            if POSIX path of (t as alias) is "\(path)" then
+                            set p to POSIX path of ((target of w) as alias)
+                            if (p is equal to "\(path)") or ((p & "/") is equal to "\(path)") or (p is equal to ("\(path)" & "/")) then
                                 set index of w to 1
                                 exit repeat
                             end if
@@ -200,8 +230,8 @@ struct FinderBackend: BrowserBackend {
                 repeat with i from 1 to winCount
                     try
                         set w to item i of theWindows
-                        set t to target of w
-                        if POSIX path of (t as alias) is "\(path)" then
+                        set p to POSIX path of ((target of w) as alias)
+                        if (p is equal to "\(path)") or ((p & "/") is equal to "\(path)") or (p is equal to ("\(path)" & "/")) then
                             set index of w to 1
                             exit repeat
                         end if
@@ -217,6 +247,95 @@ struct FinderBackend: BrowserBackend {
         _ = closeTabWithResult(result, allowPositionalFallback: true)
     }
 
+    static func buildCloseTabScript(
+        path: String,
+        targetTabID: Int? = nil,
+        fallbackWindow: Int? = nil,
+        allowPositionalFallback: Bool
+    ) -> String {
+        let safePath = appleScriptQuoted(path)
+        let tabIDSnippet: String
+        if let targetTabID {
+            tabIDSnippet = """
+                try
+                    close Finder window id \(targetTabID)
+                    return "closed"
+                end try
+            """
+        } else {
+            tabIDSnippet = ""
+        }
+
+        let fallbackSnippet: String
+        if let fallbackWindow, fallbackWindow >= 1 {
+            fallbackSnippet = """
+                try
+                    set theWindows to every Finder window
+                    if (count of theWindows) >= \(fallbackWindow) then
+                        set w to item \(fallbackWindow) of theWindows
+                        set p to POSIX path of ((target of w) as alias)
+                        if (p is equal to targetPath) or ((p & "/") is equal to targetPath) or (p is equal to (targetPath & "/")) then
+                            close w
+                            return "closed"
+                        end if
+                    end if
+                end try
+            """
+        } else {
+            fallbackSnippet = ""
+        }
+
+        return """
+        tell application "Finder"
+            if not running then return "not_found"
+            set targetPath to "\(safePath)"
+        \(tabIDSnippet)
+        \(fallbackSnippet)
+            set matchCount to 0
+            set matchedWin to 0
+            try
+                set theWindows to every Finder window
+                set winCount to count of theWindows
+                repeat with i from 1 to winCount
+                    try
+                        set w to item i of theWindows
+                        set p to POSIX path of ((target of w) as alias)
+                        if (p is equal to targetPath) or ((p & "/") is equal to targetPath) or (p is equal to (targetPath & "/")) then
+                            set matchCount to matchCount + 1
+                            if matchedWin is 0 then
+                                set matchedWin to i
+                            end if
+                        end if
+                    end try
+                end repeat
+            end try
+            if matchCount is equal to 0 then
+                return "not_found"
+            \(allowPositionalFallback ? """
+            else
+                try
+                    set theWindows to every Finder window
+                    close item matchedWin of theWindows
+                    return "closed"
+                end try
+                return "not_found"
+            end if
+            """ : """
+            else if matchCount is greater than 1 then
+                return "refused:ambiguous"
+            else
+                try
+                    set theWindows to every Finder window
+                    close item matchedWin of theWindows
+                    return "closed"
+                end try
+                return "not_found"
+            end if
+            """)
+        end tell
+        """
+    }
+
     /// Mirrors ChromiumBackend/SafariBackend's contract: `allowPositionalFallback:
     /// true` (local swipe-to-close) trusts the last-known window index and avoids
     /// `target of w as alias`, which can stall on sleeping NAS / unmounted shares.
@@ -226,79 +345,14 @@ struct FinderBackend: BrowserBackend {
     /// the `BrowserBackend` protocol's default `closeTabWithResult`, which always
     /// returns `.notFound` and never runs any AppleScript at all.
     func closeTabWithResult(_ result: BrowserSearchResult, allowPositionalFallback: Bool) -> TabCloseResult {
-        let path = appleScriptQuoted(result.url)
-        let script: String
-        if allowPositionalFallback {
-            if let windowIndex = result.windowIndex, windowIndex >= 1 {
-                script = """
-                tell application "Finder"
-                    if not running then return "not_found"
-                    try
-                        close window \(windowIndex)
-                        return "closed"
-                    end try
-                    return "not_found"
-                end tell
-                """
-            } else {
-                script = """
-                tell application "Finder"
-                    if not running then return "not_found"
-                    set targetPath to "\(path)"
-                    try
-                        set theWindows to every Finder window
-                        set winCount to count of theWindows
-                        repeat with i from 1 to winCount
-                            try
-                                set w to item i of theWindows
-                                set t to target of w
-                                if POSIX path of (t as alias) is targetPath then
-                                    close w
-                                    return "closed"
-                                end if
-                            end try
-                        end repeat
-                    end try
-                    return "not_found"
-                end tell
-                """
-            }
-        } else {
-            script = """
-            tell application "Finder"
-                if not running then return "not_found"
-                set targetPath to "\(path)"
-                set matchCount to 0
-                try
-                    set theWindows to every Finder window
-                    set winCount to count of theWindows
-                    repeat with i from 1 to winCount
-                        try
-                            set w to item i of theWindows
-                            set t to target of w
-                            if POSIX path of (t as alias) is targetPath then
-                                set matchCount to matchCount + 1
-                                set matchedWindow to w
-                            end if
-                        end try
-                    end repeat
-                end try
-                if matchCount is equal to 0 then
-                    return "not_found"
-                else if matchCount is greater than 1 then
-                    return "refused:ambiguous"
-                else
-                    try
-                        close matchedWindow
-                        return "closed"
-                    end try
-                    return "not_found"
-                end if
-            end tell
-            """
-        }
+        let script = Self.buildCloseTabScript(
+            path: result.url,
+            targetTabID: result.tabID,
+            fallbackWindow: result.windowIndex,
+            allowPositionalFallback: allowPositionalFallback
+        )
 
-        Self.logger.info("closeTabWithResult: allowPositional=\(allowPositionalFallback) title='\(result.title, privacy: .public)' path='\(result.url, privacy: .public)'")
+        Self.logger.info("closeTabWithResult: allowPositional=\(allowPositionalFallback) tabID=\(result.tabID.map(String.init) ?? "nil", privacy: .public) title='\(result.title, privacy: .public)' path='\(result.url, privacy: .public)'")
         let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script], timeoutSeconds: 8)
         switch output {
         case "closed":
@@ -323,7 +377,8 @@ struct FinderBackend: BrowserBackend {
         activateTab(result)
     }
 
-    func deleteBookmark(_ result: BrowserSearchResult) {}
+    @discardableResult
+    func deleteBookmark(_ result: BrowserSearchResult) -> Bool { false }
 
     func deleteHistoryItem(_ result: BrowserSearchResult) {
         historyStore.remove(path: result.url)

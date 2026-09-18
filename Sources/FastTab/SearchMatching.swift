@@ -1,78 +1,17 @@
+import CommandBarKit
 import Foundation
 
-/// Single source of truth for "does what the user typed match this text".
+/// App-side search helpers built on the kit's folding (`foldForMatching`,
+/// `searchWords(in:)`, `foldedKeys`): URL match keys, the history SQL predicate,
+/// and history page identity.
 ///
 /// Three consumers, all of which must agree or search feels inconsistent
 /// depending on where a result came from:
 ///   1. `BrowserSearchResult.matches(query:)` — open tabs and bookmarks, filtered in memory.
 ///   2. `ChromiumBackend` / `SafariBackend` history SQL — filtered inside SQLite.
 ///   3. `FinderBackend` history search — filtered in memory over the local store.
-///
-/// Two rules define the behaviour:
-///   - **Every word must appear somewhere** (title or URL), in any order. So
-///     "real time bi hub" matches "Realtime e-commerce order | Bi Hub".
-///   - **Accents and case are optional.** "don hang" matches "Đơn hàng".
 
-// MARK: - Folding
-
-/// Characters that split a typed query into words, and that are removed from
-/// stored match keys. Punctuation and symbols are both included so that `|`
-/// (a *symbol*, not punctuation) behaves like `-` (punctuation) — and so that
-/// glob metacharacters (`*`, `?`, `[`, `]`, `^`) can never survive into a
-/// generated SQL pattern. Whitespace splits queries but is preserved in keys.
-private let searchWordSeparators: CharacterSet = {
-    var separators = CharacterSet.punctuationCharacters
-    separators.formUnion(.symbols)
-    return separators
-}()
-
-private let searchWordSeparatorsWithWhitespace: CharacterSet = {
-    var separators = searchWordSeparators
-    separators.formUnion(.whitespacesAndNewlines)
-    return separators
-}()
-
-/// Fixed locale so case folding never depends on the user's region (Turkish
-/// locales fold `I` to `ı`, which would silently break matching).
-private let searchFoldingLocale = Locale(identifier: "en_US_POSIX")
-
-/// Letters whose diacritic is a *stroke* rather than a combining mark.
-/// `.diacriticInsensitive` folding leaves these untouched — Unicode considers
-/// `đ` a distinct letter, not `d` + accent — so Vietnamese "Đơn hàng" would
-/// stay unreachable from "don hang" without this explicit step.
-private let strokeLetterBaseForms: [(stroke: String, base: String)] = [
-    ("đ", "d"), ("Đ", "d"),
-    ("ø", "o"), ("Ø", "o"),
-    ("ł", "l"), ("Ł", "l")
-]
-
-/// Lowercases and removes accents. Punctuation is left in place — callers
-/// decide whether to strip it (match keys) or split on it (query words).
-private func foldCaseAndAccents(_ text: String) -> String {
-    guard !text.isEmpty else { return "" }
-
-    var folded = text
-    for (stroke, base) in strokeLetterBaseForms where folded.contains(stroke) {
-        folded = folded.replacingOccurrences(of: stroke, with: base)
-    }
-    return folded.folding(
-        options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive],
-        locale: searchFoldingLocale
-    )
-}
-
-/// Builds a stored match key: lowercased, accent-free, and with punctuation and
-/// symbols removed so "e-commerce" and "ecommerce" reduce to the same text.
-/// Whitespace is preserved so words in the key stay separated.
-///
-/// Called once per result at construction (see `BrowserSearchResult`'s
-/// `normalizedTitleKey`), never per keystroke — the typing path only folds the
-/// short query string and then does plain substring checks.
-func foldForMatching(_ text: String) -> String {
-    foldCaseAndAccents(text)
-        .components(separatedBy: searchWordSeparators)
-        .joined()
-}
+// MARK: - URL match keys
 
 /// Builds a stored match key for a URL: lowercased, accent-free, punctuation/symbols
 /// removed, with loopback host synonyms (localhost, 127.0.0.1, 0.0.0.0, [::1]) indexed
@@ -103,42 +42,12 @@ func foldURLForMatching(_ url: String) -> String {
     return base
 }
 
-
-/// Splits a typed query into the words that must *all* be found.
-///
-/// Splits on punctuation as well as whitespace, so typing a URL fragment works:
-/// "sevensystem.vn" becomes ["sevensystem", "vn"] and matches a page on that
-/// host whether or not the stored URL has "www." in front of it. Splitting
-/// rather than stripping also keeps the SQL side honest — history columns are
-/// matched as stored, so a word must never span a punctuation boundary.
-func searchWords(in query: String) -> [String] {
-    foldCaseAndAccents(query)
-        .components(separatedBy: searchWordSeparatorsWithWhitespace)
-        .filter { !$0.isEmpty }
-}
-
-/// True when every one of `words` appears in at least one of `keys`.
-/// `keys` must already be folded via `foldForMatching`; `words` must already
-/// be folded via `searchWords(in:)`.
-///
-/// Callers matching many candidates against the same typed query (searching
-/// hundreds of tabs/bookmarks/history rows per keystroke) must fold the query
-/// into `words` once up front and reuse it — re-running `searchWords(in:)`
-/// per candidate repeats the same Unicode case/accent/width folding on
-/// identical input hundreds of times over.
-func foldedKeys(_ keys: [String], containAllWordsOf words: [String]) -> Bool {
-    guard !words.isEmpty else { return true }
-    return words.allSatisfy { word in
-        keys.contains { $0.contains(word) }
-    }
-}
-
 // MARK: - SQLite predicate
 
 /// Accent variants for each folded base letter, e.g. `"a"` maps to
 /// `["à","À","á","Á",…]`. Derived from `accentedSearchCharacters` rather than
 /// hand-listed per letter so the table can't drift out of sync with the folding
-/// rules above.
+/// rules (CommandBarKit `SearchFolding.swift`).
 private let accentVariantsByBaseLetter: [Character: [Character]] = {
     // Full Vietnamese vowel set plus common European Latin letters.
     let accentedSearchCharacters =

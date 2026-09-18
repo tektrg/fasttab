@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CommandBarKit
 
 struct ShortcutRecorderView: View {
     var displayString: String
@@ -104,8 +105,8 @@ struct ShortcutRecorderView: View {
                 return nil
             }
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard ShortcutStore.isValid(modifiers: mods) else { return nil }
-            onRecord(event.keyCode, mods, ShortcutStore.keyName(for: event))
+            guard ViewShortcut.isValid(modifiers: mods) else { return nil }
+            onRecord(event.keyCode, mods, ViewShortcut.keyName(for: event))
             stopRecording()
             return nil
         }

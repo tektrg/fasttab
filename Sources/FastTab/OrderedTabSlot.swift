@@ -1,4 +1,5 @@
 import Foundation
+import CommandBarKit
 
 enum SlotState: String, Codable, Sendable {
     case live

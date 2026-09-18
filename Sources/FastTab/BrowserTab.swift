@@ -1,4 +1,5 @@
 import Foundation
+import CommandBarKit
 
 enum BrowserResultType: String, Codable, Hashable, Sendable {
     case sent

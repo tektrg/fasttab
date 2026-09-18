@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import OSLog
+import CommandBarKit
 
 @MainActor
 final class MyOrderStore: ObservableObject {

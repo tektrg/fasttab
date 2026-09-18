@@ -1,29 +1,6 @@
 import AppKit
 import Combine
-
-struct ViewShortcut: Equatable, Codable {
-    var keyCode: UInt16
-    var modifiers: UInt
-    var keyName: String
-
-    var modifierFlags: NSEvent.ModifierFlags {
-        NSEvent.ModifierFlags(rawValue: modifiers)
-    }
-
-    var modifierSymbols: String {
-        var result = ""
-        let flags = modifierFlags
-        if flags.contains(.control) { result += "⌃" }
-        if flags.contains(.option)  { result += "⌥" }
-        if flags.contains(.shift)   { result += "⇧" }
-        if flags.contains(.command) { result += "⌘" }
-        return result
-    }
-
-    var displayString: String {
-        modifierSymbols + keyName
-    }
-}
+import CommandBarKit
 
 @MainActor
 class ShortcutStore: ObservableObject {
@@ -122,40 +99,11 @@ class ShortcutStore: ObservableObject {
     }
 
     var modifierSymbols: String {
-        var result = ""
-        if modifiers.contains(.control) { result += "⌃" }
-        if modifiers.contains(.option)  { result += "⌥" }
-        if modifiers.contains(.shift)   { result += "⇧" }
-        if modifiers.contains(.command) { result += "⌘" }
-        return result
+        ViewShortcut.modifierSymbols(for: modifiers)
     }
 
     var displayString: String {
         modifierSymbols + keyDisplayName
-    }
-
-    static func isValid(modifiers: NSEvent.ModifierFlags) -> Bool {
-        !modifiers.intersection([.command, .shift, .option, .control]).isEmpty
-    }
-
-    static func keyName(for event: NSEvent) -> String {
-        switch event.keyCode {
-        case 49:  return "Space"
-        case 36:  return "↩"
-        case 51:  return "⌫"
-        case 117: return "⌦"
-        case 48:  return "⇥"
-        case 53:  return "⎋"
-        case 126: return "↑"
-        case 125: return "↓"
-        case 123: return "←"
-        case 124: return "→"
-        case 115: return "Home"
-        case 119: return "End"
-        case 116: return "PgUp"
-        case 121: return "PgDn"
-        default:  return (event.charactersIgnoringModifiers ?? "?").uppercased()
-        }
     }
 
     private static func loadViewShortcut(prefix: String, from defaults: UserDefaults) -> ViewShortcut? {

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CommandBarKit
 @testable import FastTab
 
 @Suite("Tab Search Repro Tests")

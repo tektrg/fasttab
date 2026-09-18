@@ -3,6 +3,7 @@ import AppKit
 import OSLog
 import ApplicationServices
 import FastTabSync
+import CommandBarKit
 
 enum SafariAutomationStatus: String, Sendable {
     case notInstalled

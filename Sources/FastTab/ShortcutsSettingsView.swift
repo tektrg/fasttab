@@ -1,4 +1,5 @@
 import SwiftUI
+import CommandBarKit
 
 /// "Shortcuts" tab of Settings: global keyboard shortcuts that open FastTab.
 struct ShortcutsSettingsView: View {

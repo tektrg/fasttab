@@ -1,4 +1,5 @@
 import Foundation
+import CommandBarKit
 
 struct PendingSlotClose: Codable, Equatable, Sendable {
     let slotID: UUID

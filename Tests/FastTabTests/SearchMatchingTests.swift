@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CommandBarKit
 @testable import FastTab
 
 private func makeResult(
@@ -59,13 +60,6 @@ private func makeResult(
     #expect(result.matches(query: ""))
     #expect(result.matches(query: "   "))
     #expect(result.matches(query: "--- ..."))
-}
-
-@Test func searchWordsSplitOnPunctuationAndFoldAccents() async throws {
-    #expect(searchWords(in: "sevensystem.vn") == ["sevensystem", "vn"])
-    #expect(searchWords(in: "e-commerce") == ["e", "commerce"])
-    #expect(searchWords(in: "  Đơn   hàng ") == ["don", "hang"])
-    #expect(searchWords(in: "|||").isEmpty)
 }
 
 // MARK: - SQL predicate

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import AppKit
+import CommandBarKit
 @testable import FastTab
 
 struct ShortcutStoreTests {

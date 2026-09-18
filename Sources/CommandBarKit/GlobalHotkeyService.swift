@@ -2,33 +2,46 @@ import AppKit
 import Carbon.HIToolbox
 import OSLog
 
-private let hotkeyLogger = Logger(subsystem: "com.trungluong.FastTab", category: "GlobalHotkey")
+public struct HotkeyRegistrationResult: Sendable {
+    public let status: OSStatus
 
-struct HotkeyRegistrationResult {
-    let status: OSStatus
+    public init(status: OSStatus) {
+        self.status = status
+    }
 
-    var isSuccess: Bool { status == noErr }
+    public var isSuccess: Bool { status == noErr }
 
-    var userMessage: String? {
+    /// Plain-English failure reason, or nil on success. `appName` names the
+    /// host app in the "already registered" message.
+    public func userMessage(appName: String) -> String? {
         guard status != noErr else { return nil }
 
         switch status {
         case OSStatus(eventHotKeyExistsErr):
-            return "Shortcut already registered by FastTab or another app."
+            return "Shortcut already registered by \(appName) or another app."
         default:
             return "Shortcut is unavailable. It may be reserved by macOS or another app. (OSStatus \(status))"
         }
     }
 }
 
-final class GlobalHotkeyService {
-    var onHotKeyPressed: ((UInt32) -> Void)?
+/// System-wide hotkeys via Carbon `RegisterEventHotKey`. Each app passes its own
+/// four-char `signature` (only events carrying it are delivered) and log identity.
+@MainActor
+public final class GlobalHotkeyService {
+    public var onHotKeyPressed: (@MainActor @Sendable (UInt32) -> Void)?
 
     private var eventHandlerRef: EventHandlerRef?
     private var registeredHotKeys: [UInt32: EventHotKeyRef] = [:]
-    private let signature: OSType = 0x43424152 // 'CBAR'
+    private let signature: OSType
+    private let logger: Logger
 
-    deinit {
+    public init(signature: OSType, logSubsystem: String, logCategory: String) {
+        self.signature = signature
+        self.logger = Logger(subsystem: logSubsystem, category: logCategory)
+    }
+
+    isolated deinit {
         unregisterAll()
 
         if let eventHandlerRef {
@@ -36,8 +49,14 @@ final class GlobalHotkeyService {
         }
     }
 
+    /// Packs a four-character ASCII code (e.g. "CBAR") into an `OSType`.
+    public nonisolated static func fourCharCode(_ code: String) -> OSType {
+        precondition(code.utf8.count == 4, "four-char code must be 4 ASCII bytes")
+        return code.utf8.reduce(0) { ($0 << 8) | OSType($1) }
+    }
+
     @discardableResult
-    func registerShortcut(id: UInt32 = 1, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> HotkeyRegistrationResult {
+    public func registerShortcut(id: UInt32 = 1, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> HotkeyRegistrationResult {
         installEventHandlerIfNeeded()
         unregisterShortcut(id: id)
 
@@ -53,28 +72,28 @@ final class GlobalHotkeyService {
         )
 
         guard status == noErr, let registeredRef else {
-            hotkeyLogger.error("Failed to register global hotkey id=\(id). status=\(status)")
+            logger.error("Failed to register global hotkey id=\(id). status=\(status)")
             return HotkeyRegistrationResult(status: status)
         }
 
         registeredHotKeys[id] = registeredRef
-        hotkeyLogger.info("Registered global hotkey id=\(id). keyCode=\(Int(keyCode)) modifiers=\(modifiers.rawValue)")
+        logger.info("Registered global hotkey id=\(id). keyCode=\(Int(keyCode)) modifiers=\(modifiers.rawValue)")
         return HotkeyRegistrationResult(status: status)
     }
 
-    func unregisterShortcut(id: UInt32 = 1) {
+    public func unregisterShortcut(id: UInt32 = 1) {
         guard let ref = registeredHotKeys.removeValue(forKey: id) else { return }
         let status = UnregisterEventHotKey(ref)
         if status != noErr {
-            hotkeyLogger.error("Failed to unregister global hotkey id=\(id). status=\(status)")
+            logger.error("Failed to unregister global hotkey id=\(id). status=\(status)")
         }
     }
 
-    func unregisterAll() {
+    public func unregisterAll() {
         for (id, ref) in registeredHotKeys {
             let status = UnregisterEventHotKey(ref)
             if status != noErr {
-                hotkeyLogger.error("Failed to unregister global hotkey id=\(id). status=\(status)")
+                logger.error("Failed to unregister global hotkey id=\(id). status=\(status)")
             }
         }
         registeredHotKeys.removeAll()
@@ -93,10 +112,13 @@ final class GlobalHotkeyService {
             { _, eventRef, userData in
                 guard let eventRef, let userData else { return noErr }
 
-                let service = Unmanaged<GlobalHotkeyService>
-                    .fromOpaque(userData)
-                    .takeUnretainedValue()
-                service.handleHotKeyPressed(eventRef)
+                // Carbon delivers application-target events on the main thread.
+                MainActor.assumeIsolated {
+                    let service = Unmanaged<GlobalHotkeyService>
+                        .fromOpaque(userData)
+                        .takeUnretainedValue()
+                    service.handleHotKeyPressed(eventRef)
+                }
                 return noErr
             },
             1,
@@ -106,7 +128,7 @@ final class GlobalHotkeyService {
         )
 
         if status != noErr {
-            hotkeyLogger.error("Failed to install Carbon hotkey event handler. status=\(status)")
+            logger.error("Failed to install Carbon hotkey event handler. status=\(status)")
         }
     }
 
@@ -123,7 +145,7 @@ final class GlobalHotkeyService {
         )
 
         guard status == noErr else {
-            hotkeyLogger.error("Failed to extract hotkey id from event. status=\(status)")
+            logger.error("Failed to extract hotkey id from event. status=\(status)")
             return
         }
 
@@ -134,7 +156,7 @@ final class GlobalHotkeyService {
         onHotKeyPressed?(incomingHotKeyID.id)
     }
 
-    private static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
+    nonisolated static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
         let masked = flags.intersection(.deviceIndependentFlagsMask)
         var result: UInt32 = 0
 

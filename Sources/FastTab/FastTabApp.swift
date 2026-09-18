@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import OSLog
 import Combine
+import CommandBarKit
 
 private let appLogger = Logger(subsystem: "com.trungluong.FastTab", category: "AppDelegate")
 let fastTabCycleShortcutNotification = Notification.Name("FastTabCycleShortcut")
@@ -253,7 +254,11 @@ class AppState: ObservableObject {
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    private let hotkeyService = GlobalHotkeyService()
+    private let hotkeyService = GlobalHotkeyService(
+        signature: GlobalHotkeyService.fourCharCode("CBAR"),
+        logSubsystem: "com.trungluong.FastTab",
+        logCategory: "GlobalHotkey"
+    )
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -362,8 +367,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // ID 1: Primary shortcut
         let result = hotkeyService.registerShortcut(id: 1, keyCode: store.keyCode, modifiers: store.modifiers)
-        AppState.shared.globalShortcutRegistrationIssue = result.userMessage
-        if let message = result.userMessage {
+        let issue = result.userMessage(appName: "FastTab")
+        AppState.shared.globalShortcutRegistrationIssue = issue
+        if let message = issue {
             appLogger.error("Primary global hotkey registration issue: \(message, privacy: .public)")
         }
 

@@ -5,6 +5,7 @@ import FastTabSync
 public struct CachedSyncState: Codable, Sendable {
     public var devices: [SyncedDevice] = []
     public var tabs: [SyncedTab] = []
+    public var tabOrders: [SyncedTabOrder] = []
     public var bookmarkBlobs: [SyncedBookmarkBlob] = []
     public var historySlices: [SyncedHistorySlice] = []
     public var sentCommands: [SyncCommand] = []
@@ -19,6 +20,7 @@ public struct CachedSyncState: Codable, Sendable {
     public init(
         devices: [SyncedDevice] = [],
         tabs: [SyncedTab] = [],
+        tabOrders: [SyncedTabOrder] = [],
         bookmarkBlobs: [SyncedBookmarkBlob] = [],
         historySlices: [SyncedHistorySlice] = [],
         sentCommands: [SyncCommand] = [],
@@ -27,6 +29,7 @@ public struct CachedSyncState: Codable, Sendable {
     ) {
         self.devices = devices
         self.tabs = tabs
+        self.tabOrders = tabOrders
         self.bookmarkBlobs = bookmarkBlobs
         self.historySlices = historySlices
         self.sentCommands = sentCommands
@@ -42,6 +45,7 @@ public struct CachedSyncState: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.devices = try container.decodeIfPresent([SyncedDevice].self, forKey: .devices) ?? []
         self.tabs = try container.decodeIfPresent([SyncedTab].self, forKey: .tabs) ?? []
+        self.tabOrders = try container.decodeIfPresent([SyncedTabOrder].self, forKey: .tabOrders) ?? []
         self.bookmarkBlobs = try container.decodeIfPresent([SyncedBookmarkBlob].self, forKey: .bookmarkBlobs) ?? []
         self.historySlices = try container.decodeIfPresent([SyncedHistorySlice].self, forKey: .historySlices) ?? []
         self.sentCommands = try container.decodeIfPresent([SyncCommand].self, forKey: .sentCommands) ?? []
@@ -154,6 +158,21 @@ public final class LocalCache: ObservableObject {
         scheduleSave()
     }
 
+    public func updateTabOrder(_ tabOrder: SyncedTabOrder) {
+        if let idx = state.tabOrders.firstIndex(where: { $0.id == tabOrder.id }) {
+            state.tabOrders[idx] = tabOrder
+        } else {
+            state.tabOrders.append(tabOrder)
+        }
+        state.lastSyncedAt = Date()
+        scheduleSave()
+    }
+
+    public func removeTabOrder(id: String) {
+        state.tabOrders.removeAll { $0.id == id }
+        scheduleSave()
+    }
+
     public func updateBookmarkBlob(_ blob: SyncedBookmarkBlob) {
         if let idx = state.bookmarkBlobs.firstIndex(where: { $0.id == blob.id }) {
             state.bookmarkBlobs[idx] = blob
@@ -167,6 +186,60 @@ public final class LocalCache: ObservableObject {
     public func removeBookmarkBlob(id: String) {
         state.bookmarkBlobs.removeAll { $0.id == id }
         scheduleSave()
+    }
+
+    public func removeBookmark(id: String) {
+        var modified = false
+        for (idx, blob) in state.bookmarkBlobs.enumerated() {
+            if blob.bookmarks.contains(where: { $0.id == id }) {
+                var updatedBookmarks = blob.bookmarks
+                updatedBookmarks.removeAll { $0.id == id }
+                state.bookmarkBlobs[idx] = SyncedBookmarkBlob(
+                    id: blob.id,
+                    deviceID: blob.deviceID,
+                    browserName: blob.browserName,
+                    profileName: blob.profileName,
+                    contentHash: blob.contentHash,
+                    updatedAt: Date(),
+                    bookmarks: updatedBookmarks
+                )
+                modified = true
+            }
+        }
+        if modified {
+            scheduleSave()
+        }
+    }
+
+    public func findBookmark(url: URL) -> (bookmark: SyncedBookmarkItem, browserName: String, profileName: String?, deviceID: String)? {
+        let targetNorm = Self.normalizeURL(url)
+        for blob in state.bookmarkBlobs {
+            for bm in blob.bookmarks {
+                if let u = URL(string: bm.url), Self.normalizeURL(u) == targetNorm {
+                    return (bm, blob.browserName, blob.profileName, blob.deviceID)
+                }
+            }
+        }
+        return nil
+    }
+
+    public func findTab(url: URL) -> SyncedTab? {
+        let targetNorm = Self.normalizeURL(url)
+        return state.tabs.first { tab in
+            guard let u = URL(string: tab.url) else { return false }
+            return Self.normalizeURL(u) == targetNorm
+        }
+    }
+
+    private static func normalizeURL(_ url: URL) -> String {
+        let host = (url.host() ?? "").lowercased()
+        let path = url.path().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let query = (url.query() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            return "\(host)/\(path)".lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        } else {
+            return "\(host)/\(path)?\(query)".lowercased()
+        }
     }
 
     /// Optimistically records a newly created bookmarks folder/subfolder into

@@ -43,6 +43,10 @@ extension SyncConsumer: CKSyncEngineDelegate {
                         if let tab = SyncedTab(from: record) {
                             LocalCache.shared.updateTab(tab)
                         }
+                    case SyncedTabOrder.recordType:
+                        if let tabOrder = SyncedTabOrder(from: record) {
+                            LocalCache.shared.updateTabOrder(tabOrder)
+                        }
                     case SyncedBookmarkBlob.recordType:
                         if let blob = SyncedBookmarkBlob(from: record) {
                             LocalCache.shared.updateBookmarkBlob(blob)
@@ -70,6 +74,7 @@ extension SyncConsumer: CKSyncEngineDelegate {
                     let zoneID = deletion.recordID.zoneID
                     if zoneID == SyncConstants.stateZoneID {
                         LocalCache.shared.removeTab(id: recordName)
+                        LocalCache.shared.removeTabOrder(id: recordName)
                         LocalCache.shared.removeDevice(id: recordName)
                         LocalCache.shared.removeBookmarkBlob(id: recordName)
                         LocalCache.shared.removeHistorySlice(id: recordName)

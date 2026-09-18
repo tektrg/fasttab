@@ -14,27 +14,18 @@ public struct FastTabMobileApp: App {
         WindowGroup {
             TabView {
                 NavigationStack {
+                    ReadingFeedView()
+                }
+                .tabItem {
+                    Label("Read", systemImage: "newspaper")
+                }
+
+                NavigationStack {
                     TabListView()
                         .navigationTitle("Tabs")
                 }
                 .tabItem {
                     Label("Tabs", systemImage: "macwindow.on.rectangle")
-                }
-
-                NavigationStack {
-                    DeskQueueView()
-                        .navigationTitle("Desk Queue")
-                }
-                .tabItem {
-                    Label("Desk Queue", systemImage: "paperplane")
-                }
-
-                NavigationStack {
-                    BookmarkTreeView(device: nil)
-                        .navigationTitle("Bookmarks")
-                }
-                .tabItem {
-                    Label("Bookmarks", systemImage: "bookmark")
                 }
 
                 NavigationStack {
@@ -45,31 +36,33 @@ public struct FastTabMobileApp: App {
                 }
 
                 NavigationStack {
-                    IntelligenceView()
+                    MoreView()
                 }
                 .tabItem {
-                    Label("Intelligence", systemImage: "sparkles")
+                    Label("More", systemImage: "ellipsis.circle")
                 }
             }
 
             .onAppear {
                 syncConsumer.start()
+                RecentAddedProvider.shared.drainPendingShares()
+                RecentAddedProvider.shared.refresh()
+                EmergingContentProvider.shared.refresh()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
                 case .active:
-                    // A full refresh, not just a fetch: coming back to the app
-                    // is also the moment to re-try anything the outbox still
-                    // holds from the last time the phone was offline.
+                    RecentAddedProvider.shared.drainPendingShares()
+                    RecentAddedProvider.shared.refresh()
+                    EmergingContentProvider.shared.refresh()
+                    LastOpenedStore.shared.loadFromDisk()
+
                     Task { await syncConsumer.refreshNow() }
                     syncConsumer.startForegroundRefresh()
                 case .background:
                     syncConsumer.stopForegroundRefresh()
                     localCache.flushPendingSave()
                 default:
-                    // Off screen (app switcher, Control Center, a call): stop
-                    // polling. Nothing is being looked at, so a pull can only
-                    // cost battery.
                     syncConsumer.stopForegroundRefresh()
                 }
             }

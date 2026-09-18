@@ -14,11 +14,14 @@ enum AgentPanelMetrics {
     static let maxListHeight: CGFloat = 520
     static let noteHeight: CGFloat = 30
     static let messageHeight: CGFloat = 170
+    /// The footer notice strip (failed switch / shortcut problem).
+    static let footerHeight: CGFloat = 30
 
     /// Total window height for what is being shown.
-    static func height(for presentation: AgentListPresentation) -> CGFloat {
+    static func height(for presentation: AgentListPresentation, hasFooterNotice: Bool = false) -> CGFloat {
         let note = presentation.showsBoardNote ? noteHeight : 0
-        return searchFieldHeight + dividerHeight + bodyHeight(for: presentation) + note
+        let footer = hasFooterNotice ? footerHeight : 0
+        return searchFieldHeight + dividerHeight + bodyHeight(for: presentation) + note + footer
     }
 
     static func bodyHeight(for presentation: AgentListPresentation) -> CGFloat {

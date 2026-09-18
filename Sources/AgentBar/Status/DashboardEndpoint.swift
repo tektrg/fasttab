@@ -26,6 +26,12 @@ struct DashboardEndpoint: Sendable {
         return DashboardEndpoint(baseURL: url)
     }
 
+    /// "host:port" for messages, e.g. "127.0.0.1:4711".
+    var displayAddress: String {
+        let host = baseURL.host ?? baseURL.absoluteString
+        return baseURL.port.map { "\(host):\($0)" } ?? host
+    }
+
     var stateRequest: URLRequest { request(path: "/api/state") }
 
     /// The stream is idle-timed by URLSession: the dashboard pushes every ~2s,

@@ -3,6 +3,8 @@ import SwiftUI
 /// Full-panel message for every state that is not a list.
 struct StatusMessageView: View {
     let state: AgentListState
+    /// Where the dashboard is expected, e.g. "127.0.0.1:4711" (it can be overridden).
+    let dashboardAddress: String
 
     var body: some View {
         VStack(spacing: 6) {
@@ -30,7 +32,7 @@ struct StatusMessageView: View {
         case .connecting:
             ("Connecting…", "Waiting for the first status update.", nil, false)
         case .feedDown(let reason):
-            ("Status feed down", reason, "Is the chief dashboard running at 127.0.0.1:4711?", true)
+            ("Status feed down", reason, "Is the chief dashboard running at \(dashboardAddress)?", true)
         case .noAgents:
             ("No agents running", nil, nil, false)
         case .noMatches:

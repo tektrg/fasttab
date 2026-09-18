@@ -16,19 +16,22 @@ final class AgentPanelController {
     private var outsideClickMonitor: Any?
     private var sizeSubscription: AnyCancellable?
 
-    init(model: AgentPanelModel) {
+    /// Fires with true after the panel is shown and false after it is hidden,
+    /// however that happened (Esc, outside click, a switch).
+    var onVisibilityChange: ((Bool) -> Void)?
+
+    init(model: AgentPanelModel, dashboardAddress: String) {
         self.model = model
         self.panel = Self.makePanel()
-        model.onActivate = { [weak self] _ in
-            // Slice 4 focuses the agent here; for now activating just closes.
-            self?.hide()
-        }
-        let host = NSHostingController(rootView: AgentPanelView(model: model, onClose: { [weak self] in self?.hide() }))
+        let view = AgentPanelView(model: model, dashboardAddress: dashboardAddress, onClose: { [weak self] in self?.hide() })
+        let host = NSHostingController(rootView: view)
         host.sizingOptions = []   // the window frame is ours, not the content's
         panel.contentViewController = host
-        sizeSubscription = model.$presentation.sink { [weak self] presentation in
-            self?.applySize(for: presentation)
-        }
+        sizeSubscription = model.$presentation
+            .combineLatest(model.$footerNotice)
+            .sink { [weak self] presentation, notice in
+                self?.applySize(for: presentation, hasFooterNotice: notice != nil)
+            }
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -36,18 +39,22 @@ final class AgentPanelController {
     func show() {
         model.resetForShow()
         placementFrame = (NSScreen.containing(NSEvent.mouseLocation) ?? NSScreen.main)?.visibleFrame ?? placementFrame
-        applySize(for: model.presentation)
+        applySize(for: model.presentation, hasFooterNotice: model.footerNotice != nil)
         panel.makeKeyAndOrderFront(nil)
         startOutsideClickMonitor()
+        onVisibilityChange?(true)
     }
 
     func hide() {
+        let wasVisible = panel.isVisible
         stopOutsideClickMonitor()
         panel.orderOut(nil)
+        if wasVisible { onVisibilityChange?(false) }
     }
 
-    private func applySize(for presentation: AgentListPresentation) {
-        let size = CGSize(width: AgentPanelMetrics.width, height: AgentPanelMetrics.height(for: presentation))
+    private func applySize(for presentation: AgentListPresentation, hasFooterNotice: Bool) {
+        let height = AgentPanelMetrics.height(for: presentation, hasFooterNotice: hasFooterNotice)
+        let size = CGSize(width: AgentPanelMetrics.width, height: height)
         panel.setFrame(AgentPanelPlacement.frame(size: size, in: placementFrame), display: panel.isVisible, animate: false)
     }
 

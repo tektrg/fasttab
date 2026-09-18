@@ -8,35 +8,21 @@ enum AgentBarIdentity {
 
 @MainActor
 final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
-    private let statusSource = DashboardStatusSource()
-    private var panelController: AgentPanelController?
-    private var feedTask: Task<Void, Never>?
+    private var coordinator: AgentBarCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu-bar-less background app: no dock icon, no menu bar.
         NSApp.setActivationPolicy(.accessory)
 
-        let controller = AgentPanelController(model: AgentPanelModel())
-        panelController = controller
-        startStatusFeed(into: controller.model)
-        controller.show()
+        let coordinator = AgentBarCoordinator()
+        self.coordinator = coordinator
+        coordinator.start()
     }
 
     /// Launching the app again (e.g. `open AgentBar.app`) summons the panel.
-    /// Slice 4 adds the global hotkey for the same.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        panelController?.show()
+        coordinator?.showPanel()
         return false
-    }
-
-    private func startStatusFeed(into model: AgentPanelModel) {
-        let source = statusSource
-        Task { await source.start() }
-        feedTask = Task { @MainActor in
-            for await snapshot in source.updates {
-                model.receive(snapshot)
-            }
-        }
     }
 }
 

@@ -21,16 +21,29 @@ final class AgentPanelModel: ObservableObject {
         }
     }
 
-    /// Called after the user activates a row (Enter or click), once frecency is
-    /// recorded. The host closes the panel and (slice 4) focuses the agent.
+    /// Strip at the bottom of the panel: a failed switch, else a shortcut problem.
+    @Published private(set) var footerNotice: PanelFooterNotice?
+
+    /// Called when the user activates a row (Enter, click, or release after
+    /// cycling). The host closes the panel and switches to the agent; frecency
+    /// is recorded later, by `recordSwitch`, once the switch worked.
     var onActivate: (AgentSnapshot) -> Void = { _ in }
 
     private let store: FrecencyStore
     private let now: () -> Date
+    private let switchErrorSeconds: TimeInterval
     private var frecency: [String: FrecencyEntry]
+    private var switchError: String?
+    private var hotkeyIssue: String?
+    private var switchErrorClearTask: Task<Void, Never>?
 
-    init(store: FrecencyStore = FrecencyStore(), now: @escaping () -> Date = { Date() }) {
+    init(
+        store: FrecencyStore = FrecencyStore(),
+        switchErrorSeconds: TimeInterval = 6,
+        now: @escaping () -> Date = { Date() }
+    ) {
         self.store = store
+        self.switchErrorSeconds = switchErrorSeconds
         self.now = now
         self.frecency = store.load(now: now())
     }
@@ -43,6 +56,7 @@ final class AgentPanelModel: ObservableObject {
 
     /// Fresh start for each summon: empty search, first row selected.
     func resetForShow() {
+        clearSwitchError()
         query = ""
         rebuild()
         selectedAgentID = presentation.selectableAgentIDs.first
@@ -68,10 +82,46 @@ final class AgentPanelModel: ObservableObject {
         guard presentation.selectableAgentIDs.contains(agentID),
               let agent = presentation.agents.first(where: { $0.id == agentID })
         else { return }
-        frecency = FrecencyStore.recordingVisit(to: agent.id, in: frecency, now: now())
+        onActivate(agent)
+    }
+
+    /// A switch worked: count it toward the agent's ranking.
+    func recordSwitch(to agentID: String) {
+        frecency = FrecencyStore.recordingVisit(to: agentID, in: frecency, now: now())
         store.save(frecency)
         rebuild()
-        onActivate(agent)
+    }
+
+    /// A switch failed: show why, in the panel, for a few seconds. Not counted
+    /// toward ranking (a dead pane must not float to the top).
+    func reportSwitchFailure(_ message: String) {
+        switchError = message
+        refreshFooterNotice()
+        switchErrorClearTask?.cancel()
+        let seconds = switchErrorSeconds
+        switchErrorClearTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.clearSwitchError()
+        }
+    }
+
+    /// The global shortcut could not be registered; shown until the app quits.
+    func reportHotkeyIssue(_ message: String?) {
+        hotkeyIssue = message
+        refreshFooterNotice()
+    }
+
+    private func clearSwitchError() {
+        switchErrorClearTask?.cancel()
+        switchErrorClearTask = nil
+        guard switchError != nil else { return }
+        switchError = nil
+        refreshFooterNotice()
+    }
+
+    private func refreshFooterNotice() {
+        footerNotice = PanelFooterNotice.resolve(switchError: switchError, hotkeyIssue: hotkeyIssue)
     }
 
     private func rebuild() {

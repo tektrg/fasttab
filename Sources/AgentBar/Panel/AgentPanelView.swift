@@ -4,6 +4,7 @@ import SwiftUI
 /// optional stale-board note. Total height is dictated by `AgentPanelMetrics`.
 struct AgentPanelView: View {
     @ObservedObject var model: AgentPanelModel
+    let dashboardAddress: String
     let onClose: () -> Void
 
     var body: some View {
@@ -13,6 +14,9 @@ struct AgentPanelView: View {
             bodyContent
             if model.presentation.showsBoardNote {
                 BoardNoteView()
+            }
+            if let notice = model.footerNotice {
+                FooterNoticeView(notice: notice)
             }
         }
         .frame(width: AgentPanelMetrics.width)
@@ -31,7 +35,7 @@ struct AgentPanelView: View {
                 fetchedAt: model.snapshot?.fetchedAt ?? Date()
             )
         } else {
-            StatusMessageView(state: model.presentation.state)
+            StatusMessageView(state: model.presentation.state, dashboardAddress: dashboardAddress)
         }
     }
 }

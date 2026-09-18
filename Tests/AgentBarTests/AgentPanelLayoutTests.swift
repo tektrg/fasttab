@@ -34,6 +34,12 @@ struct AgentPanelLayoutTests {
         #expect(AgentPanelMetrics.height(for: stale) - AgentPanelMetrics.height(for: plain) == AgentPanelMetrics.noteHeight)
     }
 
+    @Test func footerNoticeAddsItsHeight() {
+        let plain = F.presentation(F.snapshot([F.agent("a")]))
+        let withNotice = AgentPanelMetrics.height(for: plain, hasFooterNotice: true)
+        #expect(withNotice - AgentPanelMetrics.height(for: plain) == AgentPanelMetrics.footerHeight)
+    }
+
     @Test func placementCentresHorizontallyAndKeepsTheTopFixed() {
         let screen = CGRect(x: 100, y: 0, width: 1_000, height: 800)
         let short = AgentPanelPlacement.frame(size: CGSize(width: 400, height: 200), in: screen)

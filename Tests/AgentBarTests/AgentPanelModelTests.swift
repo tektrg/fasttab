@@ -75,7 +75,7 @@ struct AgentPanelModelTests {
         #expect(model.selectedAgentID == "n1")
     }
 
-    @Test func activatingRecordsFrecencyAndReRanksNextTime() {
+    @Test func activatingAsksTheHostToSwitchButDoesNotRankYet() {
         let model = makeModel()
         var activated: [String] = []
         model.onActivate = { activated.append($0.id) }
@@ -83,7 +83,41 @@ struct AgentPanelModelTests {
         model.select(agentID: "w2")
         model.activateSelected()
         #expect(activated == ["w2"])
+        #expect(model.presentation.agents.map(\.id) == ["n1", "w1", "w2", "e1"])
+    }
+
+    @Test func recordingASwitchReRanksNextTime() {
+        let model = makeModel()
+        model.receive(snapshot)
+        model.recordSwitch(to: "w2")
         #expect(model.presentation.agents.map(\.id) == ["n1", "w2", "w1", "e1"])
+    }
+
+    @Test func aSwitchFailureShowsAFooterNoticeThatClearsItself() async throws {
+        let suite = "AgentBarTests.\(UUID().uuidString)"
+        let model = AgentPanelModel(store: FrecencyStore(defaults: UserDefaults(suiteName: suite)!),
+                                    switchErrorSeconds: 0.05, now: { F.now })
+        model.reportSwitchFailure("nope")
+        #expect(model.footerNotice == .switchFailed("nope"))
+        try await Task.sleep(for: .seconds(0.4))
+        #expect(model.footerNotice == nil)
+    }
+
+    @Test func showingThePanelClearsAStaleSwitchFailure() {
+        let model = makeModel()
+        model.reportSwitchFailure("nope")
+        model.resetForShow()
+        #expect(model.footerNotice == nil)
+    }
+
+    @Test func aSwitchFailureOutranksAShortcutProblemWhichReturnsAfterwards() {
+        let model = makeModel()
+        model.reportHotkeyIssue("⌥Tab: taken.")
+        #expect(model.footerNotice == .hotkeyUnavailable("⌥Tab: taken."))
+        model.reportSwitchFailure("nope")
+        #expect(model.footerNotice == .switchFailed("nope"))
+        model.resetForShow()
+        #expect(model.footerNotice == .hotkeyUnavailable("⌥Tab: taken."))
     }
 
     @Test func endedRowCannotBeActivated() {

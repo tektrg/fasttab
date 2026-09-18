@@ -14,6 +14,12 @@ struct DashboardEndpointTests {
         #expect(DashboardEndpoint.configured(defaults: makeDefaults()).baseURL.absoluteString == "http://127.0.0.1:4711")
     }
 
+    @Test func displayAddressFollowsTheConfiguredEndpoint() {
+        #expect(DashboardEndpoint(baseURL: DashboardEndpoint.defaultBaseURL).displayAddress == "127.0.0.1:4711")
+        #expect(DashboardEndpoint(baseURL: URL(string: "http://10.0.0.5:9000")!).displayAddress == "10.0.0.5:9000")
+        #expect(DashboardEndpoint(baseURL: URL(string: "https://dash.local")!).displayAddress == "dash.local")
+    }
+
     @Test func honoursAConfiguredURL() {
         let defaults = makeDefaults()
         defaults.set(" http://10.0.0.5:9000 ", forKey: DashboardEndpoint.baseURLDefaultsKey)

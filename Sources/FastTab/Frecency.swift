@@ -87,7 +87,11 @@ enum Frecency {
         if host.isEmpty, path.isEmpty {
             return trimmed
         }
-        return "\(scheme)://\(host)\(path)"
+        var authority = host
+        if let port = comps.port, port != 80, port != 443 {
+            authority += ":\(port)"
+        }
+        return "\(scheme)://\(authority)\(path)"
     }
 
     /// `browser|profile|normalizedURL`. When profile is nil/empty, collapses

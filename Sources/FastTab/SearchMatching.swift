@@ -74,6 +74,36 @@ func foldForMatching(_ text: String) -> String {
         .joined()
 }
 
+/// Builds a stored match key for a URL: lowercased, accent-free, punctuation/symbols
+/// removed, with loopback host synonyms (localhost, 127.0.0.1, 0.0.0.0, [::1]) indexed
+/// so local development servers can be searched interchangeably by name or IP.
+func foldURLForMatching(_ url: String) -> String {
+    let base = foldForMatching(url)
+    let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let host = URLComponents(string: trimmed)?.host?.lowercased() else {
+        if url.contains("127.0.0.1") {
+            return base + " localhost 0.0.0.0 0000"
+        } else if url.contains("localhost") {
+            return base + " 127.0.0.1 127001 0.0.0.0 0000"
+        } else if url.contains("0.0.0.0") {
+            return base + " localhost 127.0.0.1 127001"
+        }
+        return base
+    }
+
+    if host == "127.0.0.1" {
+        return base + " localhost 0.0.0.0 0000"
+    } else if host == "localhost" {
+        return base + " 127.0.0.1 127001 0.0.0.0 0000"
+    } else if host == "0.0.0.0" {
+        return base + " localhost 127.0.0.1 127001"
+    } else if host == "::1" || host == "[::1]" {
+        return base + " localhost 127.0.0.1 127001 0.0.0.0 0000"
+    }
+    return base
+}
+
+
 /// Splits a typed query into the words that must *all* be found.
 ///
 /// Splits on punctuation as well as whitespace, so typing a URL fragment works:
@@ -213,8 +243,17 @@ func historySearchSQLPredicate(query: String, urlColumn: String, titleColumn: St
     let words = searchWords(in: query)
     guard !words.isEmpty else { return "1" }
 
+    let is127Query = query.contains("127.0.0.1")
+
     return words.map { word in
         let pattern = sqlStringExpression(for: historySearchGlobPattern(for: word))
+        if word == "localhost" {
+            let ipPattern = sqlStringExpression(for: historySearchGlobPattern(for: "127.0.0.1"))
+            return "(\(urlColumn) GLOB \(pattern) OR \(urlColumn) GLOB \(ipPattern) OR \(titleColumn) GLOB \(pattern))"
+        } else if is127Query && (word == "127" || word == "0" || word == "1") {
+            let localhostPattern = sqlStringExpression(for: historySearchGlobPattern(for: "localhost"))
+            return "(\(urlColumn) GLOB \(pattern) OR \(urlColumn) GLOB \(localhostPattern) OR \(titleColumn) GLOB \(pattern))"
+        }
         return "(\(urlColumn) GLOB \(pattern) OR \(titleColumn) GLOB \(pattern))"
     }.joined(separator: " AND ")
 }
@@ -223,6 +262,8 @@ func historySearchSQLPredicate(query: String, urlColumn: String, titleColumn: St
 
 /// Identity of a *page* for history dedup: scheme-less host + path, with the
 /// query string and fragment dropped, `www.` and a trailing slash removed.
+/// Non-default ports (anything other than standard 80/443) are preserved so
+/// separate local services on distinct ports are never collapsed.
 ///
 /// Deliberately coarse — two history rows only collapse when this *and* their
 /// folded title match (see `HistorySearchExpansion.merge`), so distinct pages
@@ -241,6 +282,10 @@ func historyPageIdentity(forURL rawURL: String) -> String {
         normalizedHost.removeFirst(4)
     }
 
+    if let port = components.port, port != 80, port != 443 {
+        normalizedHost += ":\(port)"
+    }
+
     var path = components.percentEncodedPath
     while path.count > 1 && path.hasSuffix("/") {
         path.removeLast()
@@ -249,14 +294,16 @@ func historyPageIdentity(forURL rawURL: String) -> String {
     return normalizedHost + path
 }
 
-// MARK: - Duplicate-page title normalization
 
-/// Matches a leading unread/notification-count badge like `"(2) "` or
-/// `"(12) "`. Gmail, Slack, Notion and similar sites prefix the *live* tab
+/// Matches a leading unread/notification-count badge like `"(2) "`,
+/// `"(9+) "`, `"[3] "`, or `"• "`. Gmail, Slack, Notion and similar sites prefix the *live* tab
 /// title with a count that changes between visits or polling ticks but
 /// doesn't reflect a different page — left in place, it defeats title-based
 /// duplicate detection by making every poll look like a new title.
-private let leadingCountBadgePattern = try! NSRegularExpression(pattern: "^\\(\\d+\\)\\s*")
+private let leadingCountBadgePattern = try! NSRegularExpression(
+    pattern: #"^(\([0-9]{1,3}\+?\)|\[[0-9]{1,3}\+?\]|[•*]|\([•*]\))\s*"#
+)
+
 
 /// Strips a leading count badge (see `leadingCountBadgePattern`) from `title`,
 /// if present. Used only for duplicate-page detection — the badge is kept in

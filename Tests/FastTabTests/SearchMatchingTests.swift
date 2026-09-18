@@ -127,7 +127,7 @@ private func makeResult(
 /// rewrites arguments to Unicode NFD, which would seed the table with
 /// decomposed titles — unlike the precomposed text browsers actually store, so
 /// the test would be measuring the wrong thing.
-private func titlesMatchingInSQLite(query: String, rows: [(title: String, url: String)]) throws -> [String] {
+func titlesMatchingInSQLite(query: String, rows: [(title: String, url: String)]) throws -> [String] {
     let scratchDirectory = NSTemporaryDirectory() + "fasttab-glob-\(UUID().uuidString)/"
     try FileManager.default.createDirectory(atPath: scratchDirectory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(atPath: scratchDirectory) }
@@ -258,9 +258,16 @@ private func titlesMatchingInSQLite(query: String, rows: [(title: String, url: S
 @Test func strippingLeadingCountBadgeRemovesDigitPrefix() async throws {
     #expect(strippingLeadingCountBadge("(2) Delivery Run") == "Delivery Run")
     #expect(strippingLeadingCountBadge("(12) Inbox") == "Inbox")
+    #expect(strippingLeadingCountBadge("(9+) Engineering AI Adoption Framework") == "Engineering AI Adoption Framework")
+    #expect(strippingLeadingCountBadge("(99+) Notion") == "Notion")
+    #expect(strippingLeadingCountBadge("[3] Slack") == "Slack")
+    #expect(strippingLeadingCountBadge("• Unread document") == "Unread document")
+    #expect(strippingLeadingCountBadge("* Unsaved file") == "Unsaved file")
 }
 
 @Test func strippingLeadingCountBadgeLeavesOtherTitlesUnchanged() async throws {
     #expect(strippingLeadingCountBadge("Delivery Run") == "Delivery Run")
     #expect(strippingLeadingCountBadge("(draft) Delivery Run") == "(draft) Delivery Run")
+    #expect(strippingLeadingCountBadge("(2026) Strategy Plan") == "(2026) Strategy Plan")
 }
+

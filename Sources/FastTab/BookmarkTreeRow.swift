@@ -1,4 +1,5 @@
 import SwiftUI
+import CommandBarKit
 
 struct BookmarkTreeRow: View {
     let row: BookmarkDisplayRow

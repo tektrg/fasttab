@@ -1,4 +1,5 @@
 import SwiftUI
+import CommandBarKit
 
 /// "General" tab of Settings: how the app starts and how it's triggered.
 struct GeneralSettingsView: View {

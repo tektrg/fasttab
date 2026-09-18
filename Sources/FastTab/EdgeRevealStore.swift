@@ -1,26 +1,11 @@
 import Foundation
 import AppKit
 import Combine
+import CommandBarKit
 
-/// Where hovering reveals the FastTab peek pill. `rawValue` is the persisted
-/// key in UserDefaults — do not rename without a migration.
-enum EdgeRevealStyle: String, CaseIterable, Identifiable {
-    case off
-    case notch
-    case leftEdge
-    case rightEdge
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .off:       return "Off"
-        case .notch:     return "Notch"
-        case .leftEdge:  return "Left Edge"
-        case .rightEdge: return "Right Edge"
-        }
-    }
-
+/// `EdgeRevealStyle` itself lives in CommandBarKit; its `rawValue` is the
+/// persisted `FastTab.edgeReveal.style` value — do not rename without a migration.
+extension EdgeRevealStyle {
     /// Which screen edge the command bar's shape/position hugs — always
     /// matches the configured hover-trigger spot, even when the bar was
     /// opened another way (keyboard shortcut, menu bar). Falls back to

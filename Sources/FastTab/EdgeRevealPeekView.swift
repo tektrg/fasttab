@@ -1,4 +1,5 @@
 import SwiftUI
+import CommandBarKit
 
 /// Illustrates the notch/edge trigger during onboarding — shaped like a
 /// half-capsule flush against the screen edge it hugs (modeled on the

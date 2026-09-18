@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CommandBarKit
 
 struct OrderedTabSlotRow: View {
     let slot: OrderedTabSlot

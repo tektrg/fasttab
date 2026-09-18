@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import FastTab
+@testable import CommandBarKit
 
 private let screenFrame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
 

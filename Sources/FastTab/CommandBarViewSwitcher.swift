@@ -1,4 +1,5 @@
 import SwiftUI
+import CommandBarKit
 
 struct CommandBarViewSwitcher: View {
     @ObservedObject var viewStore: CommandBarViewStore

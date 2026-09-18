@@ -83,6 +83,9 @@ struct ContentView: View {
 
     @AppStorage(CommandBarAppearance.resultRowStyleKey) var rowStyle: ResultRowStyle = .minimal
     @AppStorage(CommandBarAppearance.helperPanelVisibleKey) var showHelperPanel: Bool = true
+    /// The "Background" appearance setting — handed to `CommandBarSurface`,
+    /// which passes it down to every section background inside it.
+    @AppStorage(CommandBarAppearance.outerPanelKey) var outerPanelEnabled: Bool = true
     /// User's preferred quick-open ("recent tabs") item count. Read through
     /// `effectiveQuickOpenLimit`, never used directly — it may exceed what the
     /// current screen can actually fit.
@@ -396,7 +399,7 @@ struct ContentView: View {
                     .opacity(revealSurfaceOpacity)
             }
             .overlay(alignment: alignment) {
-                CommandBarSurface(anchor: anchor) {
+                CommandBarSurface(anchor: anchor, outerPanelEnabled: outerPanelEnabled) {
                     // The VStack's content is split from its long modifier
                     // tail below (padding/frame/opacity/background/etc.) —
                     // stacked directly on one expression, this whole surface

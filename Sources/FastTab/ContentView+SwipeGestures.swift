@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CommandBarKit
 
 extension ContentView {
     func clearKeyboardSwipe() {

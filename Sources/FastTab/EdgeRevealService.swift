@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CommandBarKit
 
 /// Drives the notch/edge hover-reveal trigger. Entering the trigger zone opens
 /// the command bar after a short dwell (`dwellDelay`) — long enough that a

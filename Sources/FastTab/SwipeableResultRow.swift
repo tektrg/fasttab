@@ -1,68 +1,6 @@
 import SwiftUI
 import AppKit
-
-enum ResultSwipeAction: Equatable {
-    case delete
-    case copy
-
-    var iconName: String {
-        switch self {
-        case .delete: return "checkmark"
-        case .copy: return "link"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .delete: return .green
-        case .copy: return .accentColor
-        }
-    }
-
-    var sign: CGFloat {
-        switch self {
-        case .delete: return -1
-        case .copy: return 1
-        }
-    }
-}
-
-enum ResultSwipeMetrics {
-    static let revealDistance: CGFloat = 74
-    static let confirmDistance: CGFloat = 138
-    static let maximumOffset: CGFloat = 158
-    static let actionIconInset: CGFloat = 8
-
-    /// How far the row's content keeps sliding once removal is confirmed —
-    /// well past `maximumOffset`, so the row visibly continues its swipe
-    /// motion off to the side rather than snapping back before it collapses.
-    /// Clipped by the row's own `clipShape`, so it doesn't need to match the
-    /// row's actual width.
-    static let removalExitDistance: CGFloat = 260
-
-    /// Minimal rows are much shorter than Full rows — a full-size 30pt action
-    /// icon would overflow the row height, so it scales down with the style.
-    static func actionIconSize(for rowStyle: ResultRowStyle) -> CGFloat {
-        rowStyle == .minimal ? 22 : 30
-    }
-}
-
-/// Result row display density, set in Settings. Full shows every metadata cue
-/// (type glyph, recency, pills, URL/path); Minimal shows only the leading
-/// icon and title, for fast scanning.
-enum ResultRowStyle: String, CaseIterable, Identifiable {
-    case full
-    case minimal
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .full: return "Full"
-        case .minimal: return "Minimal"
-        }
-    }
-}
+import CommandBarKit
 
 struct SwipeableResultRow: View {
     let result: BrowserSearchResult

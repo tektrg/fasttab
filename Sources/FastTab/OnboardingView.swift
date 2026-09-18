@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CommandBarKit
 
 private let onboardingCompletedKey = "onboarding.v1.completed"
 

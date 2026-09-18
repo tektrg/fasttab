@@ -1,4 +1,5 @@
 import SwiftUI
+import CommandBarKit
 
 extension ContentView {
     var guidanceHint: GuidanceHint {

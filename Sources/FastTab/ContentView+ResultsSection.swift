@@ -1,4 +1,5 @@
 import SwiftUI
+import CommandBarKit
 
 extension ContentView {
     /// All currently-audible tabs, independent of the active search text — the

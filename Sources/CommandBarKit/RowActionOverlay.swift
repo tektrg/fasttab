@@ -7,7 +7,7 @@ import AppKit
 /// truncated by static action cluster sizing. When hovering or selected, this
 /// overlay smoothly fades in with a solid background that cleanly masks any
 /// title text running underneath.
-struct RowActionOverlay<Content: View>: View {
+public struct RowActionOverlay<Content: View>: View {
     let isSelected: Bool
     let isHovering: Bool
     var isVisible: Bool = true
@@ -16,7 +16,25 @@ struct RowActionOverlay<Content: View>: View {
     var trailingPadding: CGFloat = 10
     @ViewBuilder var content: Content
 
-    var body: some View {
+    public init(
+        isSelected: Bool,
+        isHovering: Bool,
+        isVisible: Bool = true,
+        accentTint: Color? = nil,
+        leadingFadeWidth: CGFloat = 18,
+        trailingPadding: CGFloat = 10,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.isSelected = isSelected
+        self.isHovering = isHovering
+        self.isVisible = isVisible
+        self.accentTint = accentTint
+        self.leadingFadeWidth = leadingFadeWidth
+        self.trailingPadding = trailingPadding
+        self.content = content()
+    }
+
+    public var body: some View {
         HStack(spacing: 0) {
             Color.clear
                 .frame(width: leadingFadeWidth)
@@ -54,7 +72,7 @@ struct RowActionOverlay<Content: View>: View {
 
     /// Opaque base layered to match the command bar surface and row states.
     @ViewBuilder
-    static func solidBackground(isSelected: Bool, isHovering: Bool, accentTint: Color? = nil) -> some View {
+    public static func solidBackground(isSelected: Bool, isHovering: Bool, accentTint: Color? = nil) -> some View {
         ZStack {
             Color.black
             Color.primary.opacity(0.05)

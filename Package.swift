@@ -21,11 +21,19 @@ let package = Package(
             name: "FastTabSync",
             dependencies: []
         ),
+        // Reusable command-bar building blocks shared with future apps.
+        // No dependencies and no resources on purpose: it links statically into
+        // the app binary, so `build-app.sh` keeps copying a single executable.
+        .target(
+            name: "CommandBarKit",
+            dependencies: []
+        ),
         .executableTarget(
             name: "FastTab",
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle"),
-                "FastTabSync"
+                "FastTabSync",
+                "CommandBarKit"
             ]
         ),
         // Pure stdio<->socket relay launched by Chrome's native messaging.
@@ -35,7 +43,11 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync"]
+            dependencies: ["FastTab", "FastTabSync", "CommandBarKit"]
+        ),
+        .testTarget(
+            name: "CommandBarKitTests",
+            dependencies: ["CommandBarKit"]
         )
     ]
 )

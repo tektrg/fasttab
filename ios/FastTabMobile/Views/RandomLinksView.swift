@@ -47,6 +47,8 @@ enum RandomCardMenuAction {
     case moveBookmark
     case closeTab
     case openOnMac
+    case openInReader
+    case copyURL
 }
 
 public struct RandomLinksView: View {
@@ -55,7 +57,7 @@ public struct RandomLinksView: View {
 
     @State private var deck: [RandomCardItem] = []
     @State private var hasBuiltInitialDeck = false
-    @State private var selectedURLForReader: URL?
+    @State private var readerItem: ReaderNavigationItem?
     @State private var moveRequest: RandomCardItem?
     @State private var toastMessage: String?
     @State private var showToast = false
@@ -92,9 +94,8 @@ public struct RandomLinksView: View {
             hasBuiltInitialDeck = true
             reshuffle()
         }
-        .fullScreenCover(item: $selectedURLForReader) { url in
-            InAppBrowserView(url: url)
-                .ignoresSafeArea()
+        .fullScreenCover(item: $readerItem) { item in
+            ReaderView(url: item.url, title: item.title)
         }
         .sheet(item: $moveRequest) { item in
             switch item.source {
@@ -189,7 +190,7 @@ public struct RandomLinksView: View {
             isExpanding = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
-            selectedURLForReader = item.url
+            readerItem = ReaderNavigationItem(url: item.url, title: item.title)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 isExpanding = false
                 expandingItemID = nil
@@ -286,6 +287,11 @@ public struct RandomLinksView: View {
             presentToast("Sent to Mac")
         case .moveBookmark:
             moveRequest = item
+        case .openInReader:
+            readerItem = ReaderNavigationItem(url: item.url, title: item.title)
+        case .copyURL:
+            UIPasteboard.general.string = item.url.absoluteString
+            presentToast("URL Copied")
         }
     }
 
@@ -401,7 +407,11 @@ private struct RandomCardView: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             RoundedRectangle(cornerRadius: isExpanding ? 0 : 24)
-                .fill(Color(uiColor: .secondarySystemBackground))
+                .fill(
+                    (preview?.isTweet == true && preview?.image == nil)
+                        ? Color(red: 0.08, green: 0.09, blue: 0.12)
+                        : Color(uiColor: .secondarySystemBackground)
+                )
 
             if let image = preview?.image {
                 Image(uiImage: image)
@@ -409,6 +419,36 @@ private struct RandomCardView: View {
                     .scaledToFill()
                     .frame(width: cardSize.width, height: cardSize.height)
                     .clipped()
+            } else if let preview, preview.isTweet, let snippet = preview.snippetText, !snippet.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Text("𝕏")
+                            .font(.system(size: 20, weight: .black))
+                            .foregroundStyle(.white)
+                        VStack(alignment: .leading, spacing: 1) {
+                            if let name = preview.authorName, !name.isEmpty {
+                                Text(name)
+                                    .font(.subheadline.weight(.bold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                            }
+                            if let handle = preview.authorHandle {
+                                Text(handle)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.white.opacity(0.75))
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    Text(snippet)
+                        .font(.body)
+                        .foregroundStyle(.white.opacity(0.95))
+                        .lineLimit(5)
+                        .multilineTextAlignment(.leading)
+                    Spacer()
+                }
+                .padding(24)
+                .frame(width: cardSize.width, height: cardSize.height, alignment: .topLeading)
             } else {
                 Image(systemName: "link")
                     .font(.system(size: 40))
@@ -464,8 +504,24 @@ private struct RandomCardView: View {
     /// leaving its own swipe actions off a read-only row.
     @ViewBuilder
     private var menuContent: some View {
+        Button {
+            onMenuAction(.openInReader)
+        } label: {
+            Label("Open in Reader", systemImage: "doc.plaintext")
+        }
+
+        Link(destination: item.url) {
+            Label("Open in Safari", systemImage: "safari")
+        }
+
         ShareLink(item: item.url) {
             Label("Share Link", systemImage: "square.and.arrow.up")
+        }
+
+        Button {
+            onMenuAction(.copyURL)
+        } label: {
+            Label("Copy URL", systemImage: "doc.on.doc")
         }
 
         switch item.source {

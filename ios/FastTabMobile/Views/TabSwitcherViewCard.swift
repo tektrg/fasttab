@@ -22,6 +22,7 @@ struct TabSwitcherViewCard: View {
     let isExpanding: Bool
     let dragOffsetY: CGFloat
     let onSelect: () -> Void
+    let onOpenInReader: () -> Void
     let onClose: () -> Void
     let onOpenOnMac: () -> Void
     let onSaveBookmark: () -> Void
@@ -37,6 +38,7 @@ struct TabSwitcherViewCard: View {
         isExpanding: Bool = false,
         dragOffsetY: CGFloat = 0,
         onSelect: @escaping () -> Void,
+        onOpenInReader: @escaping () -> Void,
         onClose: @escaping () -> Void,
         onOpenOnMac: @escaping () -> Void,
         onSaveBookmark: @escaping () -> Void,
@@ -49,6 +51,7 @@ struct TabSwitcherViewCard: View {
         self.isExpanding = isExpanding
         self.dragOffsetY = dragOffsetY
         self.onSelect = onSelect
+        self.onOpenInReader = onOpenInReader
         self.onClose = onClose
         self.onOpenOnMac = onOpenOnMac
         self.onSaveBookmark = onSaveBookmark
@@ -175,7 +178,7 @@ struct TabSwitcherViewCard: View {
             //    within ±1 of the active index. Each WKWebView spins up a
             //    separate WebContent process (~20-50 MB), so this caps the
             //    total to 3 instances instead of one per HTTP tab.
-            if isNearActive, let url = URL(string: tab.url), url.scheme?.hasPrefix("http") == true {
+            if isNearActive, !(preview?.isTweet == true), let url = URL(string: tab.url), url.scheme?.hasPrefix("http") == true {
                 TabWebPreviewView(url: url, isVisible: true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
@@ -201,6 +204,70 @@ struct TabSwitcherViewCard: View {
     // MARK: - Fallback Content
 
     private var fallbackCardContent: some View {
+        Group {
+            if let preview, preview.isTweet, let snippet = preview.snippetText, !snippet.isEmpty {
+                tweetCardContent(preview: preview, snippet: snippet)
+            } else {
+                standardFallbackCardContent
+            }
+        }
+    }
+
+    private func tweetCardContent(preview: LinkPreview, snippet: String) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.12))
+                        .frame(width: 32, height: 32)
+                    Text("𝕏")
+                        .font(.system(size: 16, weight: .black))
+                        .foregroundStyle(.white)
+                }
+
+                VStack(alignment: .leading, spacing: 1) {
+                    if let name = preview.authorName {
+                        Text(name)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
+                    if let handle = preview.authorHandle {
+                        Text(handle)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 20)
+
+            Text(snippet)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.white.opacity(0.95))
+                .lineSpacing(4)
+                .lineLimit(6)
+                .padding(.horizontal, 16)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(red: 0.08, green: 0.09, blue: 0.12),
+                    Color(red: 0.04, green: 0.05, blue: 0.07)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+
+    private var standardFallbackCardContent: some View {
         VStack(spacing: 16) {
             // Simulated Address Bar
             HStack(spacing: 6) {
@@ -335,7 +402,7 @@ struct TabSwitcherViewCard: View {
     @ViewBuilder
     private var contextMenuContent: some View {
         Button {
-            onSelect()
+            onOpenInReader()
         } label: {
             Label("Open in Reader", systemImage: "doc.plaintext")
         }

@@ -134,8 +134,13 @@ extension SyncService {
         // out before record names are derived, so `expected` must match what
         // the publish would actually save.
         let publicSnapshotTabs = snapshot.tabs.filter { !Self.isIncognitoTab($0) }
-        let expectedRecordIDs = Self.tabRecordIDs(from: publicSnapshotTabs, deviceID: deviceID)
-        let expectedByBrowser = Dictionary(grouping: publicSnapshotTabs, by: \.browserName)
+        var expectedTabs = publicSnapshotTabs
+        let ghostTabs = MyOrderStore.shared.slots
+            .filter { $0.state == .ghost }
+            .map(\.asSearchResult)
+        expectedTabs.append(contentsOf: ghostTabs)
+        let expectedRecordIDs = Self.tabRecordIDs(from: expectedTabs, deviceID: deviceID)
+        let expectedByBrowser = Dictionary(grouping: expectedTabs, by: \.browserName)
 
         let myTabRecords = allStateRecords.filter {
             $0.recordType == SyncedTab.recordType

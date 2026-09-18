@@ -37,6 +37,7 @@ final class SyncService: NSObject, ObservableObject {
     private var lastPublishedTabContentHash: String = ""
     private var lastPublishedBookmarkHashes: [String: String] = [:]
     private var lastPublishedHistoryHashes: [String: String] = [:]
+    private var lastPublishedTabOrderHash: String = ""
 
     private var tabDebounceTask: Task<Void, Never>?
     private var syncPollTimer: Timer?
@@ -470,6 +471,40 @@ final class SyncService: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Tab Order Publishing
+
+    func updateTabOrder(_ slots: [OrderedTabSlot]) {
+        guard let syncEngine else { return }
+
+        let syncedSlots = slots.map { slot in
+            SyncedOrderedSlot(
+                slotID: slot.slotID,
+                matchKey: slot.matchKey,
+                title: slot.title,
+                url: slot.url,
+                browserName: slot.browserName,
+                profileName: slot.profileName,
+                state: slot.state.rawValue,
+                ghostedAt: slot.ghostedAt,
+                isPinned: slot.isPinned
+            )
+        }
+
+        let tabOrder = SyncedTabOrder(deviceID: deviceID, slots: syncedSlots)
+        guard tabOrder.contentHash != lastPublishedTabOrderHash else {
+            return
+        }
+
+        let recordID = CKRecord.ID(recordName: tabOrder.id, zoneID: SyncConstants.stateZoneID)
+        let record = tabOrder.toRecord(zoneID: SyncConstants.stateZoneID)
+
+        pendingRecordsToSave[recordID] = record
+        syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+        lastPublishedTabOrderHash = tabOrder.contentHash
+        logger.info("Tab order sync queued: \(syncedSlots.count) slots (hash: \(tabOrder.contentHash.prefix(8), privacy: .public))")
+        sendPendingChanges()
+    }
+
     // MARK: - Command Response Publishing
 
     func pushCommandResult(_ command: SyncCommand) {
@@ -810,6 +845,7 @@ final class SyncService: NSObject, ObservableObject {
         lastPublishedTabContentHash = ""
         lastPublishedBookmarkHashes.removeAll()
         lastPublishedHistoryHashes.removeAll()
+        lastPublishedTabOrderHash = ""
         pendingRecordsToSave.removeAll()
         serverRecordsByID.removeAll()
     }

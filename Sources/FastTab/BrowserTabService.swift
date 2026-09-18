@@ -127,14 +127,19 @@ class BrowserTabService: ObservableObject {
             seedFromLegacy: self.lastActiveTimes,
             backendAppNames: backendAppNames
         )
-        // Skip the TCC-touching probe when the user has not opted into Safari
-        // — there's no point asking macOS about Automation we won't use.
-        self.safariAutomationStatus = enabled.contains(.safari)
-            ? Self.probeSafariAutomation()
-            : .notInstalled
-        logger.info("BrowserTabService init. backends=\(backendAppNames.joined(separator: ","), privacy: .public) safariAutomation=\(self.safariAutomationStatus.rawValue, privacy: .public) frecencyEntries=\(self.frecency.count)")
+        self.safariAutomationStatus = enabled.contains(.safari) ? .notDetermined : .notInstalled
+        if enabled.contains(.safari), Self.isSafariInstalled() {
+            Task.detached(priority: .utility) { [weak self] in
+                let status = Self.probeSafariAutomationPrivileged()
+                await MainActor.run {
+                    self?.safariAutomationStatus = status
+                    self?.logger.info("async safariAutomation probed: \(status.rawValue, privacy: .public)")
+                }
+            }
+        }
+        logger.info("BrowserTabService init. backends=\(backendAppNames.joined(separator: ","), privacy: .public) frecencyEntries=\(self.frecency.count)")
         startActiveTabPoll()
-        observeExtensionTabActivations()
+        observeExtensionTabEvents()
     }
 
     /// Wires the extension's real-time tab-activation events into frecency
@@ -145,28 +150,58 @@ class BrowserTabService: ObservableObject {
     /// the next tick. Shares `lastPolledFrontFrecencyKey` with the poll and
     /// with `activate()`'s manual path so the same real switch is never
     /// recorded as two visits, whichever path observes it first.
-    private func observeExtensionTabActivations() {
+    private func observeExtensionTabEvents() {
         ExtensionBridge.shared.onTabActivated = { [weak self] appName, url, at in
             Task { @MainActor in
                 guard let self else { return }
-                // The bridge always listens regardless of the beta toggle
-                // (so flipping it on connects instantly) — but ranking must
-                // stay untouched by the extension until the user opts in.
                 guard ExtensionBetaPreference.isEnabled else {
                     self.logger.info("instant-rank skipped (beta off). app=\(appName, privacy: .public)")
                     return
                 }
                 let frecencyKey = Frecency.key(browser: appName, profile: nil, url: url)
-                guard self.lastPolledFrontFrecencyKey[appName] != frecencyKey else {
-                    self.logger.info("instant-rank skipped (already-recorded key, likely poll got there first). app=\(appName, privacy: .public)")
-                    return
+                if self.lastPolledFrontFrecencyKey[appName] != frecencyKey {
+                    self.lastPolledFrontFrecencyKey[appName] = frecencyKey
+                    self.recordVisit(frecencyKey: frecencyKey, now: at)
                 }
+                let urlKey = makeTabURLRecencyKey(browserName: appName, url: url)
+                self.lastActiveTimes[urlKey] = at
                 self.logger.info("instant-rank applied. app=\(appName, privacy: .public) url=\(url, privacy: .public)")
-                self.lastPolledFrontFrecencyKey[appName] = frecencyKey
-                self.recordVisit(frecencyKey: frecencyKey, now: at)
+            }
+        }
+
+        ExtensionBridge.shared.onTabRemoved = { [weak self] appName, tabID, url in
+            Task { @MainActor in
+                guard let self else { return }
+                guard ExtensionBetaPreference.isEnabled else { return }
+                let safeURL = url ?? ""
+                self.logger.info("extension tabRemoved. app=\(appName, privacy: .public) tabID=\(tabID) url=\(safeURL, privacy: .public)")
+                self.removeFirstTab(in: &self.results, browserName: appName, url: safeURL, tabID: tabID)
+                self.removeFirstTab(in: &self.cachedQuickOpenResults, browserName: appName, url: safeURL, tabID: tabID)
+                self.removeFirstTab(in: &self.cachedLiveTabs, browserName: appName, url: safeURL, tabID: tabID)
+                self.openTabCount = self.cachedLiveTabs.count
+                self.duplicateTabCount = Self.duplicateTabCount(in: self.cachedLiveTabs)
+                MyOrderStore.shared.reconcile(liveTabs: self.cachedLiveTabs)
+            }
+        }
+
+        ExtensionBridge.shared.onTabUpserted = { [weak self] appName, tabRecord in
+            Task { @MainActor in
+                guard let self else { return }
+                guard ExtensionBetaPreference.isEnabled else { return }
+                self.logger.info("extension tabUpserted. app=\(appName, privacy: .public) tabID=\(tabRecord.tabID) pinned=\(tabRecord.isPinned)")
+                self.applyTabRecordUpdate(appName: appName, tabRecord: tabRecord)
+            }
+        }
+
+        ExtensionBridge.shared.onSnapshotReceived = { [weak self] appName, tabs in
+            Task { @MainActor in
+                guard let self else { return }
+                guard ExtensionBetaPreference.isEnabled else { return }
+                self.applySnapshotUpdate(appName: appName, extensionTabs: tabs)
             }
         }
     }
+
 
     // MARK: - Active-tab poll
 
@@ -272,7 +307,10 @@ class BrowserTabService: ObservableObject {
 
     private static func probeSafariAutomation() -> SafariAutomationStatus {
         guard isSafariInstalled() else { return .notInstalled }
+        return probeSafariAutomationPrivileged()
+    }
 
+    private nonisolated static func probeSafariAutomationPrivileged() -> SafariAutomationStatus {
         var addrDesc = AEAddressDesc()
         let bundleID = "com.apple.Safari"
         let createStatus: OSErr = bundleID.withCString { cstr in
@@ -577,6 +615,7 @@ class BrowserTabService: ObservableObject {
 
     func prewarmCaches() {
         refreshCachesIfNeeded(force: true)
+        refreshAuthoritativeLiveTabsAndPublish()
     }
 
     func updateCurrentFlowSourceApp(bundleIdentifier: String?) {
@@ -671,6 +710,7 @@ class BrowserTabService: ObservableObject {
         let frecencyLookup = makeFrecencyScoreLookup()
         let historySearchPerBackendLimit = self.historySearchPerBackendLimit
         let cachedAudibleSeenAt = self.lastAudibleSeenAt
+        let slotSnapshot = MyOrderStore.shared.slots
 
         // Source-pinned scope: only the matching backend runs. Saves us from
         // polling Chrome via AppleScript and reading the Safari history DB
@@ -687,6 +727,7 @@ class BrowserTabService: ObservableObject {
             var updatedTimes = cachedTimes
             var updatedAudibleSeenAt = cachedAudibleSeenAt
             var produced: [BrowserSearchResult] = []
+            var fetchedUnfilteredLiveTabs: [BrowserSearchResult]? = nil
 
             switch requiredType {
             case .sent:
@@ -695,7 +736,7 @@ class BrowserTabService: ObservableObject {
 
             case .tab:
                 // Live tabs (always fresh — scope-aware fetches don't reuse cache).
-                var liveTabs = await Self.fetchLiveTabsParallel(
+                let rawFetchedTabs = await Self.fetchLiveTabsParallel(
                     backends: backends,
                     fetchStart: Date(),
                     baseline: cachedTimes,
@@ -703,15 +744,26 @@ class BrowserTabService: ObservableObject {
                     currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
                     lastAudibleSeenAt: &updatedAudibleSeenAt
                 )
-                liveTabs = sortBrowserSearchResults(liveTabs, frecencyScore: frecencyLookup)
+                if normalizedQuery.isEmpty && pinnedSource == nil && !filter.duplicateOnly && filter.window == nil {
+                    fetchedUnfilteredLiveTabs = rawFetchedTabs
+                }
+                let liveTabs = MyOrderStore.overlayPinStatus(on: rawFetchedTabs, using: slotSnapshot)
+                let ghostPinnedTabs = slotSnapshot.compactMap { slot -> BrowserSearchResult? in
+                    guard slot.isPinned, slot.state == .ghost else { return nil }
+                    return slot.asSearchResult
+                }
+                let candidateTabs = liveTabs + ghostPinnedTabs
+                let allTabs = filter.duplicateOnly ? candidateTabs : deduplicatingSamePages(candidateTabs, frecencyScore: frecencyLookup)
+                var sortedTabs = sortBrowserSearchResults(allTabs, frecencyScore: frecencyLookup)
+
                 if filter.duplicateOnly {
                     // Duplicates are scoped per-browser: same URL open in Chrome
                     // and Safari is not surprising and shouldn't be flagged.
                     // URLs must match exactly (see normalizeDuplicateURL).
-                    let groupCounts = Self.duplicateGroupCounts(in: liveTabs)
-                    liveTabs = liveTabs.filter { groupCounts[$0.browserName + "|" + Self.normalizeDuplicateURL($0.url)] != nil }
+                    let groupCounts = Self.duplicateGroupCounts(in: sortedTabs)
+                    sortedTabs = sortedTabs.filter { groupCounts[$0.browserName + "|" + Self.normalizeDuplicateURL($0.url)] != nil }
                 }
-                produced = liveTabs.filter { filter.matches($0) }
+                produced = sortedTabs.filter { filter.matches($0) }
 
             case .bookmark:
                 produced = bookmarkSnapshot.filter { filter.matches($0) }
@@ -740,12 +792,22 @@ class BrowserTabService: ObservableObject {
                         currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
                         lastAudibleSeenAt: &updatedAudibleSeenAt
                     )
+                    let overlaidLive = MyOrderStore.overlayPinStatus(on: liveTabs, using: slotSnapshot)
+                    let ghostPinnedTabs = slotSnapshot.compactMap { slot -> BrowserSearchResult? in
+                        guard slot.isPinned, slot.state == .ghost, slot.browserName == pinnedSource else { return nil }
+                        return slot.asSearchResult
+                    }
+                    let candidateTabs = deduplicatingSamePages(overlaidLive + ghostPinnedTabs, frecencyScore: frecencyLookup)
                     // Publish tabs immediately so they're never blocked by the
                     // history DB read below — mirrors the phase-1/phase-2 split
                     // in fetchResultsUnscoped. History merges in at the shared
                     // publish at the end of this task.
-                    let earlyTabs = sortBrowserSearchResults(liveTabs, frecencyScore: frecencyLookup)
+                    var earlyTabs = sortBrowserSearchResults(candidateTabs, frecencyScore: frecencyLookup)
                         .filter { filter.matches($0) }
+                    if !normalizedQuery.isEmpty {
+                        let queryWords = searchWords(in: normalizedQuery)
+                        earlyTabs = earlyTabs.filter { $0.matches(words: queryWords) || $0.isPinnedAudibleTab }
+                    }
                     await MainActor.run {
                         guard let self, generation == self.fetchGeneration else { return }
                         self.results = self.filteringRecentlyClosed(earlyTabs)
@@ -761,7 +823,7 @@ class BrowserTabService: ObservableObject {
                     // De-dup: collapse a history row that's the same page as a
                     // currently-open live tab in the same source — avoids the
                     // user seeing the same page twice when they pin to Finder.
-                    let merged = deduplicatingSamePages(liveTabs + history, frecencyScore: frecencyLookup)
+                    let merged = deduplicatingSamePages(candidateTabs + history, frecencyScore: frecencyLookup)
                     produced = sortBrowserSearchResults(merged, frecencyScore: frecencyLookup)
                         .filter { filter.matches($0) }
                 } else {
@@ -782,20 +844,20 @@ class BrowserTabService: ObservableObject {
                 self.lastActiveTimes = updatedTimes
                 self.lastAudibleSeenAt = updatedAudibleSeenAt
                 self.persistActiveTimes()
-                // Refresh live-tabs cache if we just fetched fresh ones.
-                if requiredType == .tab {
-                    let freshLive = sortBrowserSearchResults(produced.filter { $0.type == .tab }, frecencyScore: frecencyLookup)
-                    // Only refresh cache when not duplicate-only (which is a filtered subset).
-                    if !filter.duplicateOnly && filter.window == nil {
-                        self.cachedLiveTabs = freshLive
-                        self.lastLiveTabsRefreshAt = Date()
-                        self.hasMultipleWindows = Self.computeHasMultipleWindows(freshLive)
-                        self.openTabCount = freshLive.count
-                        self.duplicateTabCount = Self.duplicateTabCount(in: freshLive)
-                        self.hasFetchedOpenTabCount = true
-                    }
+                // Refresh live-tabs cache if we just fetched fresh, unfiltered ones.
+                if let rawLiveTabs = fetchedUnfilteredLiveTabs {
+                    let rawLive = self.filteringRecentlyClosed(rawLiveTabs.filter { $0.type == .tab && !$0.isGhost })
+                    MyOrderStore.shared.reconcile(liveTabs: rawLive)
+                    let freshLive = sortBrowserSearchResults(MyOrderStore.shared.overlayPinStatus(on: rawLive), frecencyScore: frecencyLookup)
+                    self.cachedLiveTabs = freshLive
+                    self.lastLiveTabsRefreshAt = Date()
+                    self.hasMultipleWindows = Self.computeHasMultipleWindows(freshLive)
+                    self.openTabCount = freshLive.count
+                    self.duplicateTabCount = Self.duplicateTabCount(in: freshLive)
+                    self.hasFetchedOpenTabCount = true
                 }
-                self.results = self.filteringRecentlyClosed(produced)
+                let overlaidResults = MyOrderStore.shared.overlayPinStatus(on: self.filteringRecentlyClosed(produced))
+                self.results = sortBrowserSearchResults(overlaidResults, frecencyScore: frecencyLookup)
                 self.isLoading = false
                 self.logger.info("fetchScopedResults applied. generation=\(generation) type=\(String(describing: requiredType), privacy: .public) query='\(normalizedQuery, privacy: .public)' count=\(produced.count)")
                 // Bookmarks scope: if cache empty, force a refresh so the next call has data.
@@ -814,7 +876,7 @@ class BrowserTabService: ObservableObject {
         let currentFlowSourceAppBundleIdentifier = self.currentFlowSourceAppBundleIdentifier
         if normalizedQuery.isEmpty, !cachedQuickOpenResults.isEmpty,
            cachedQuickOpenSourceAppBundleIdentifier == currentFlowSourceAppBundleIdentifier {
-            results = cachedQuickOpenResults
+            results = filteringRecentlyClosed(cachedQuickOpenResults)
         }
         isLoading = true
 
@@ -830,6 +892,7 @@ class BrowserTabService: ObservableObject {
         let frecencyLookup = makeFrecencyScoreLookup()
         let historySearchPerBackendLimit = self.historySearchPerBackendLimit
         let cachedAudibleSeenAt = self.lastAudibleSeenAt
+        let slotSnapshot = MyOrderStore.shared.slots
 
         logger.info("fetchResults start. generation=\(generation) query='\(normalizedQuery, privacy: .public)' bookmarkSnapshot=\(bookmarkSnapshot.count) historySnapshot=\(historySnapshot.count)")
 
@@ -854,7 +917,23 @@ class BrowserTabService: ObservableObject {
                     currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
                     lastAudibleSeenAt: &updatedAudibleSeenAt
                 )
+
+                if !cachedLiveTabsSnapshot.isEmpty {
+                    let knownURLs = Set(cachedLiveTabsSnapshot.map(\.url))
+                    liveTabs = liveTabs.map { tab in
+                        if tab.timestamp == Date(timeIntervalSince1970: 0) && !knownURLs.contains(tab.url) {
+                            let newTime = fetchStart.addingTimeInterval(-2)
+                            if let urlKey = tab.tabURLRecencyKey {
+                                updatedTimes[urlKey] = newTime
+                            }
+                            return tab.settingTimestamp(newTime)
+                        }
+                        return tab
+                    }
+                }
             }
+
+            liveTabs = MyOrderStore.overlayPinStatus(on: liveTabs, using: slotSnapshot)
 
             guard !Task.isCancelled else {
                 await MainActor.run {
@@ -884,14 +963,17 @@ class BrowserTabService: ObservableObject {
             Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService").info("recency-sort post-sort top10. generation=\(generation) usedCachedLiveTabs=\(usedCachedLiveTabs, privacy: .public) liveTabsCount=\(sortedLiveTabs.count) top='\(recencyTopPreview, privacy: .public)'")
 
             if normalizedQuery.isEmpty {
-                let prioritizedTabs = quickOpenTabs ?? []
-
                 await MainActor.run {
                     guard let self, generation == self.fetchGeneration else { return }
-                    let filteredLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
+                    let rawLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
+                    MyOrderStore.shared.reconcile(liveTabs: rawLiveTabs)
+                    let filteredLiveTabs = MyOrderStore.shared.overlayPinStatus(on: rawLiveTabs)
+                    let prioritizedTabs = allQuickOpenTabs(from: filteredLiveTabs)
                     let filteredPrioritized = self.filteringRecentlyClosed(prioritizedTabs)
+                    let dedupedPrioritized = deduplicatingSamePages(filteredPrioritized, frecencyScore: { _ in 0 })
                     let sentLinks = SentLinkInbox.shared.asSearchResults()
-                    let combinedQuickOpen = sentLinks + filteredPrioritized
+                    let combinedQuickOpen = sortBrowserSearchResults(sentLinks + dedupedPrioritized)
+
                     self.lastActiveTimes = updatedTimes
                     self.lastAudibleSeenAt = updatedAudibleSeenAt
                     self.persistActiveTimes()
@@ -922,18 +1004,31 @@ class BrowserTabService: ObservableObject {
                 SentLinkInbox.shared.asSearchResults().filter { $0.matches(words: queryWords) }
             }
 
+            let ghostPinnedTabs = slotSnapshot.compactMap { slot -> BrowserSearchResult? in
+                guard slot.isPinned, slot.state == .ghost else { return nil }
+                return slot.asSearchResult
+            }
+            let ghostPinnedMatches = ghostPinnedTabs.filter { $0.matches(words: queryWords) }
+
             // A pinned-audible tab always survives the filter, even if it
             // doesn't match what's typed — it stays pinned regardless of query.
             let tabMatches = sortedLiveTabs.filter { $0.matches(words: queryWords) || $0.isPinnedAudibleTab }
             let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(words: queryWords) }
 
-            // Phase 1: publish sent links + tabs + bookmarks immediately so UI isn't blocked by history DB I/O
-            let phase1Deduped = deduplicatingSamePages(sentMatches + tabMatches + bookmarkMatches, frecencyScore: frecencyLookup)
+            // Phase 1: publish sent links + tabs + ghost pinned tabs + bookmarks immediately so UI isn't blocked by history DB I/O
+            let phase1Deduped = deduplicatingSamePages(sentMatches + tabMatches + ghostPinnedMatches + bookmarkMatches, frecencyScore: frecencyLookup)
             let phase1Results = sortBrowserSearchResults(phase1Deduped, frecencyScore: frecencyLookup)
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
-                let filteredLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
-                let filteredPhase1 = self.filteringRecentlyClosed(phase1Results)
+                let rawLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
+                if !usedCachedLiveTabs {
+                    MyOrderStore.shared.reconcile(liveTabs: rawLiveTabs)
+                }
+                let filteredLiveTabs = MyOrderStore.shared.overlayPinStatus(on: rawLiveTabs)
+                let filteredPhase1 = sortBrowserSearchResults(
+                    MyOrderStore.shared.overlayPinStatus(on: self.filteringRecentlyClosed(phase1Results)),
+                    frecencyScore: frecencyLookup
+                )
                 self.lastActiveTimes = updatedTimes
                 self.lastAudibleSeenAt = updatedAudibleSeenAt
                 self.persistActiveTimes()
@@ -972,12 +1067,15 @@ class BrowserTabService: ObservableObject {
                 before: nil
             )
 
-            let mergedDeduped = deduplicatingSamePages(sentMatches + tabMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
+            let mergedDeduped = deduplicatingSamePages(sentMatches + tabMatches + ghostPinnedMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
             let mergedResults = sortBrowserSearchResults(mergedDeduped, frecencyScore: frecencyLookup)
 
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
-                let filteredFinal = self.filteringRecentlyClosed(mergedResults)
+                let filteredFinal = sortBrowserSearchResults(
+                    MyOrderStore.shared.overlayPinStatus(on: self.filteringRecentlyClosed(mergedResults)),
+                    frecencyScore: frecencyLookup
+                )
                 self.results = filteredFinal
                 self.isLoading = false
                 self.logger.info("fetchResults phase2 applied. generation=\(generation) query='\(normalizedQuery, privacy: .public)' history=\(historyMatches.count) final={\(Self.typeBreakdown(filteredFinal), privacy: .public)}")
@@ -1068,11 +1166,12 @@ class BrowserTabService: ObservableObject {
             let now = Date()
             if let key = result.tabRecencyKey {
                 lastActiveTimes[key] = now
-                persistActiveTimes()
-                logger.info("recency-sort activate persisted. key='\(key, privacy: .public)' epoch=\(now.timeIntervalSince1970) totalKeys=\(self.lastActiveTimes.count) title='\(result.title, privacy: .public)'")
-            } else {
-                logger.info("recency-sort activate skipped (no recency key). title='\(result.title, privacy: .public)' type=\(String(describing: result.type), privacy: .public)")
             }
+            if let urlKey = result.tabURLRecencyKey {
+                lastActiveTimes[urlKey] = now
+            }
+            persistActiveTimes()
+            logger.info("recency-sort activate persisted. key='\(result.tabRecencyKey ?? "", privacy: .public)' epoch=\(now.timeIntervalSince1970) totalKeys=\(self.lastActiveTimes.count) title='\(result.title, privacy: .public)'")
             // Frecency: every user-driven activation is a full-weight visit.
             let frecencyKey = Frecency.key(
                 browser: result.browserName,
@@ -1088,7 +1187,9 @@ class BrowserTabService: ObservableObject {
             // alias resolution, modal save dialog). Blocking @MainActor here
             // would freeze the UI for the duration. See "close finder item
             // hangs the app" root-cause investigation.
-            if let backend = backend(for: result) {
+            if result.isGhost {
+                MyOrderStore.shared.reopenSlot(matching: result)
+            } else if let backend = backend(for: result) {
                 Task.detached(priority: .userInitiated) {
                     backend.activateTab(result)
                 }
@@ -1119,7 +1220,9 @@ class BrowserTabService: ObservableObject {
                 }
             }
         case .tab:
-            if let backend = backend(for: result) {
+            if result.isGhost {
+                MyOrderStore.shared.deleteGhostSlot(matching: result)
+            } else if let backend = backend(for: result) {
                 Task.detached(priority: .userInitiated) { backend.closeTab(result) }
                 recentlyClosedTabs.append(
                     ClosedTabTombstone(browserName: result.browserName, url: result.url, timestamp: Date())
@@ -1136,7 +1239,31 @@ class BrowserTabService: ObservableObject {
         }
 
         removeResultFromLocalSnapshots(matching: result)
+        if result.type == .tab {
+            MyOrderStore.shared.reconcile(liveTabs: cachedLiveTabs)
+        }
         fetchResults(matching: lastIssuedQuery, filter: lastIssuedFilter)
+    }
+
+    /// Asynchronously deletes a bookmark via the appropriate backend/extension,
+    /// returning whether the deletion succeeded. On success, updates local snapshots
+    /// and tree store immediately so the UI reflects the deletion.
+    @discardableResult
+    func deleteBookmarkAsync(_ result: BrowserSearchResult) async -> Bool {
+        guard result.type == .bookmark else { return false }
+        guard let backend = backend(for: result) else {
+            logger.warning("deleteBookmarkAsync: no backend found for browser=\(result.browserName, privacy: .public)")
+            return false
+        }
+        let success = await Task.detached(priority: .userInitiated) {
+            backend.deleteBookmark(result)
+        }.value
+
+        if success {
+            removeResultFromLocalSnapshots(matching: result, updateTreeStore: false)
+            fetchResults(matching: lastIssuedQuery, filter: lastIssuedFilter)
+        }
+        return success
     }
 
     /// Mutes (or unmutes) a tab from the "Playing now" strip. Dispatches the
@@ -1162,7 +1289,25 @@ class BrowserTabService: ObservableObject {
         applyMutedOptimistically(newMuted, to: result)
     }
 
-    private func removeResultFromLocalSnapshots(matching result: BrowserSearchResult) {
+    /// Pins (or unpins) a tab in the browser and updates local snapshots immediately.
+    func togglePin(_ result: BrowserSearchResult, pinned: Bool? = nil) {
+        guard result.type == .tab else { return }
+        if result.isGhost {
+            MyOrderStore.shared.deleteGhostSlot(matching: result)
+            removeResultFromLocalSnapshots(matching: result)
+            return
+        }
+        let targetPinned = pinned ?? !result.isPinned
+        logger.info("togglePin tapped. title='\(result.title, privacy: .public)' browser=\(result.browserName, privacy: .public) tabID=\(result.tabID ?? -1) targetPinned=\(targetPinned)")
+        if let backend = backend(for: result) {
+            Task.detached(priority: .userInitiated) { backend.togglePinTab(result, pinned: targetPinned) }
+        } else {
+            logger.error("togglePin: no backend found for browser=\(result.browserName, privacy: .public)")
+        }
+        applyPinnedOptimistically(targetPinned, to: result)
+    }
+
+    private func removeResultFromLocalSnapshots(matching result: BrowserSearchResult, updateTreeStore: Bool = true) {
         let resultID = result.id
         switch result.type {
         case .sent:
@@ -1172,14 +1317,17 @@ class BrowserTabService: ObservableObject {
             // Indices can shift after a close, so match tabs by (browser, url) with
             // "consume one" semantics — only the first matching tab in each list is removed,
             // preserving duplicates that may legitimately exist in other windows.
-            removeFirstTab(in: &results, browserName: result.browserName, url: result.url)
-            removeFirstTab(in: &cachedQuickOpenResults, browserName: result.browserName, url: result.url)
-            removeFirstTab(in: &cachedLiveTabs, browserName: result.browserName, url: result.url)
+            removeFirstTab(in: &results, browserName: result.browserName, url: result.url, tabID: result.tabID)
+            removeFirstTab(in: &cachedQuickOpenResults, browserName: result.browserName, url: result.url, tabID: result.tabID)
+            removeFirstTab(in: &cachedLiveTabs, browserName: result.browserName, url: result.url, tabID: result.tabID)
         case .bookmark, .history:
             results.removeAll { $0.id == resultID }
             cachedQuickOpenResults.removeAll { $0.id == resultID }
             cachedBookmarks.removeAll { $0.id == resultID }
             cachedHistory.removeAll { $0.id == resultID }
+            if updateTreeStore, result.type == .bookmark, let bmID = result.bookmarkID {
+                BookmarkTreeStore.shared.removeBookmark(id: bmID)
+            }
         }
         openTabCount = cachedLiveTabs.count
         duplicateTabCount = Self.duplicateTabCount(in: cachedLiveTabs)
@@ -1190,7 +1338,7 @@ class BrowserTabService: ObservableObject {
             list.remove(at: idx)
             return
         }
-        if let idx = list.firstIndex(where: { $0.type == .tab && $0.browserName == browserName && $0.url == url }) {
+        if !url.isEmpty, let idx = list.firstIndex(where: { $0.type == .tab && $0.browserName == browserName && $0.url == url }) {
             list.remove(at: idx)
         }
     }
@@ -1238,7 +1386,29 @@ class BrowserTabService: ObservableObject {
 
             await MainActor.run {
                 guard let self else { return }
-                let authoritativeTabs = self.filteringRecentlyClosed(fetchedTabs)
+                let rawAuthoritativeTabs = self.filteringRecentlyClosed(fetchedTabs)
+                MyOrderStore.shared.reconcile(liveTabs: rawAuthoritativeTabs)
+                let authoritativeTabs = MyOrderStore.shared.overlayPinStatus(on: rawAuthoritativeTabs)
+                self.cachedLiveTabs = authoritativeTabs
+                self.openTabCount = authoritativeTabs.count
+                self.duplicateTabCount = Self.duplicateTabCount(in: authoritativeTabs)
+                self.hasFetchedOpenTabCount = true
+                self.hasMultipleWindows = Self.computeHasMultipleWindows(authoritativeTabs)
+                self.lastLiveTabsRefreshAt = Date()
+
+                let prioritizedTabs = allQuickOpenTabs(from: authoritativeTabs)
+                let dedupedPrioritized = deduplicatingSamePages(prioritizedTabs, frecencyScore: { _ in 0 })
+                let sentLinks = SentLinkInbox.shared.asSearchResults()
+                let combined = sortBrowserSearchResults(sentLinks + dedupedPrioritized, frecencyScore: nil)
+
+                self.cachedQuickOpenResults = combined
+                if self.results.isEmpty {
+                    self.results = combined
+                } else {
+                    let frecencyLookup = self.makeFrecencyScoreLookup()
+                    self.results = sortBrowserSearchResults(MyOrderStore.shared.overlayPinStatus(on: self.results), frecencyScore: frecencyLookup)
+                }
+
                 self.authoritativeLiveTabSnapshot.applyAllBackends(authoritativeTabs)
                 self.lastActiveTimes = updatedTimes
                 self.lastAudibleSeenAt = updatedAudibleSeenAt
@@ -1269,9 +1439,200 @@ class BrowserTabService: ObservableObject {
         list[idx] = list[idx].settingMuted(muted)
     }
 
+    private func applyPinnedOptimistically(_ pinned: Bool, to result: BrowserSearchResult) {
+        applyPinned(pinned, to: result.id, tabID: result.tabID, browserName: result.browserName, in: &results)
+        applyPinned(pinned, to: result.id, tabID: result.tabID, browserName: result.browserName, in: &cachedQuickOpenResults)
+        applyPinned(pinned, to: result.id, tabID: result.tabID, browserName: result.browserName, in: &cachedLiveTabs)
+        MyOrderStore.shared.setSlotPinned(
+            browserName: result.browserName,
+            url: result.url,
+            tabID: result.tabID,
+            isPinned: pinned
+        )
+        let frecencyLookup = lastIssuedQuery.isEmpty ? nil : makeFrecencyScoreLookup()
+        results = sortBrowserSearchResults(results, frecencyScore: frecencyLookup)
+        cachedQuickOpenResults = sortBrowserSearchResults(cachedQuickOpenResults, frecencyScore: nil)
+    }
+
+    private func applyPinned(
+        _ pinned: Bool,
+        to resultID: String,
+        fallbackID: String? = nil,
+        tabID: Int? = nil,
+        browserName: String? = nil,
+        in list: inout [BrowserSearchResult]
+    ) {
+        if let tabID, let browserName, let idx = list.firstIndex(where: { $0.type == .tab && $0.browserName == browserName && $0.tabID == tabID }) {
+            list[idx] = list[idx].settingPinned(pinned)
+            return
+        }
+        guard let idx = list.firstIndex(where: { $0.id == resultID || (fallbackID != nil && $0.id == fallbackID) }) else { return }
+        list[idx] = list[idx].settingPinned(pinned)
+    }
+
+    private func applyTabRecordUpdate(appName: String, tabRecord: ExtensionTabRecord) {
+        let isAudibleToUser = tabRecord.isAudible && !tabRecord.isMuted
+        if let idx = cachedLiveTabs.firstIndex(where: { $0.browserName == appName && $0.tabID == tabRecord.tabID }) {
+            let existing = cachedLiveTabs[idx]
+            let updated = BrowserSearchResult(
+                title: tabRecord.title,
+                url: tabRecord.url,
+                browserName: appName,
+                type: .tab,
+                timestamp: existing.timestamp,
+                windowIndex: tabRecord.windowIndex,
+                tabIndex: tabRecord.tabIndex,
+                windowName: tabRecord.windowName,
+                profileName: existing.profileName,
+                isCurrentFlowActiveTab: existing.isCurrentFlowActiveTab,
+                hasMediaIndicator: isAudibleToUser,
+                tabID: tabRecord.tabID,
+                isAudible: tabRecord.isAudible,
+                isMuted: tabRecord.isMuted,
+                isPinned: tabRecord.isPinned,
+                isDiscarded: tabRecord.isDiscarded,
+                tabGroupTitle: tabRecord.groupTitle,
+                isPinnedAudibleTab: isAudibleToUser
+            )
+            cachedLiveTabs[idx] = updated
+            if tabRecord.isPinned {
+                MyOrderStore.shared.setSlotPinned(
+                    browserName: appName,
+                    url: tabRecord.url,
+                    tabID: tabRecord.tabID,
+                    isPinned: true
+                )
+            }
+            MyOrderStore.shared.reconcile(liveTabs: cachedLiveTabs)
+            let effectivePinned = tabRecord.isPinned || MyOrderStore.shared.isSlotPinned(browserName: appName, url: tabRecord.url, tabID: tabRecord.tabID)
+            cachedLiveTabs[idx] = cachedLiveTabs[idx].settingPinned(effectivePinned)
+            if lastIssuedQuery.isEmpty {
+                rebuildQuickOpenResults()
+            } else {
+                applyPinned(effectivePinned, to: existing.id, fallbackID: updated.id, tabID: tabRecord.tabID, browserName: appName, in: &results)
+                applyPinned(effectivePinned, to: existing.id, fallbackID: updated.id, tabID: tabRecord.tabID, browserName: appName, in: &cachedQuickOpenResults)
+                let frecencyLookup = makeFrecencyScoreLookup()
+                results = sortBrowserSearchResults(results, frecencyScore: frecencyLookup)
+                cachedQuickOpenResults = sortBrowserSearchResults(cachedQuickOpenResults, frecencyScore: nil)
+            }
+        } else {
+            // If this is a replaced/woken tab ID for an existing tab in the same window,
+            // remove the stale predecessor so it doesn't linger as a duplicate.
+            let canonical = MyOrderReconciler.canonicalURL(tabRecord.url)
+            cachedLiveTabs.removeAll {
+                $0.browserName == appName &&
+                $0.tabID != tabRecord.tabID &&
+                ($0.windowIndex ?? 1) == tabRecord.windowIndex &&
+                MyOrderReconciler.canonicalURL($0.url) == canonical
+            }
+
+            let newTab = BrowserSearchResult(
+                title: tabRecord.title,
+                url: tabRecord.url,
+                browserName: appName,
+                type: .tab,
+                timestamp: Date(),
+                windowIndex: tabRecord.windowIndex,
+                tabIndex: tabRecord.tabIndex,
+                windowName: tabRecord.windowName,
+                profileName: nil,
+                isCurrentFlowActiveTab: tabRecord.isActive,
+                hasMediaIndicator: isAudibleToUser,
+                tabID: tabRecord.tabID,
+                isAudible: tabRecord.isAudible,
+                isMuted: tabRecord.isMuted,
+                isPinned: tabRecord.isPinned,
+                isDiscarded: tabRecord.isDiscarded,
+                tabGroupTitle: tabRecord.groupTitle,
+                isPinnedAudibleTab: isAudibleToUser
+            )
+            cachedLiveTabs.append(newTab)
+            openTabCount = cachedLiveTabs.count
+            duplicateTabCount = Self.duplicateTabCount(in: cachedLiveTabs)
+            MyOrderStore.shared.reconcile(liveTabs: cachedLiveTabs)
+            let effectivePinned = tabRecord.isPinned || MyOrderStore.shared.isSlotPinned(browserName: appName, url: tabRecord.url, tabID: tabRecord.tabID)
+            if let lastIdx = cachedLiveTabs.indices.last {
+                cachedLiveTabs[lastIdx] = cachedLiveTabs[lastIdx].settingPinned(effectivePinned)
+            }
+            if effectivePinned {
+                MyOrderStore.shared.setSlotPinned(
+                    browserName: appName,
+                    url: tabRecord.url,
+                    tabID: tabRecord.tabID,
+                    isPinned: true
+                )
+            }
+            if lastIssuedQuery.isEmpty {
+                rebuildQuickOpenResults()
+            }
+        }
+    }
+
+    private func rebuildQuickOpenResults() {
+        let filteredLiveTabs = MyOrderStore.shared.overlayPinStatus(on: cachedLiveTabs)
+        let prioritizedTabs = allQuickOpenTabs(from: filteredLiveTabs)
+        let filteredPrioritized = filteringRecentlyClosed(prioritizedTabs)
+        let dedupedPrioritized = deduplicatingSamePages(filteredPrioritized, frecencyScore: { _ in 0 })
+        let sentLinks = SentLinkInbox.shared.asSearchResults()
+        let combinedQuickOpen = sortBrowserSearchResults(sentLinks + dedupedPrioritized)
+        results = combinedQuickOpen
+        cachedQuickOpenResults = combinedQuickOpen
+    }
+
+    private func applySnapshotUpdate(appName: String, extensionTabs: [ExtensionTabRecord]) {
+        guard !extensionTabs.isEmpty else { return }
+        logger.info("extension snapshot received. app=\(appName, privacy: .public) tabs=\(extensionTabs.count)")
+
+        let freshTabs = extensionTabs.map { tabRecord -> BrowserSearchResult in
+            let isAudibleToUser = tabRecord.isAudible && !tabRecord.isMuted
+            return BrowserSearchResult(
+                title: tabRecord.title,
+                url: tabRecord.url,
+                browserName: appName,
+                type: .tab,
+                timestamp: Date(),
+                windowIndex: tabRecord.windowIndex,
+                tabIndex: tabRecord.tabIndex,
+                windowName: tabRecord.windowName,
+                profileName: nil,
+                isCurrentFlowActiveTab: tabRecord.isActive,
+                hasMediaIndicator: isAudibleToUser,
+                tabID: tabRecord.tabID,
+                isAudible: tabRecord.isAudible,
+                isMuted: tabRecord.isMuted,
+                isPinned: tabRecord.isPinned,
+                isDiscarded: tabRecord.isDiscarded,
+                tabGroupTitle: tabRecord.groupTitle,
+                isPinnedAudibleTab: isAudibleToUser
+            )
+        }
+
+        var updatedTabs = cachedLiveTabs.filter { $0.browserName != appName }
+        updatedTabs.append(contentsOf: freshTabs)
+
+        cachedLiveTabs = updatedTabs
+        openTabCount = cachedLiveTabs.count
+        duplicateTabCount = Self.duplicateTabCount(in: cachedLiveTabs)
+        MyOrderStore.shared.reconcile(liveTabs: cachedLiveTabs)
+
+        if lastIssuedQuery.isEmpty {
+            rebuildQuickOpenResults()
+        }
+    }
+
+
     private func pruneClosedTabTombstones() {
         let cutoff = Date().addingTimeInterval(-closedTabTombstoneTTL)
         recentlyClosedTabs.removeAll { $0.timestamp < cutoff }
+    }
+
+    /// Cancels any recently-closed suppression entry for a given browser and URL.
+    /// Used when reopening a closed or ghost slot so the 3-second tombstone does
+    /// not filter out the tab if a poll happens immediately after reopen.
+    func cancelRecentlyClosedTombstone(browserName: String, url: String) {
+        if let idx = recentlyClosedTabs.firstIndex(where: { $0.browserName == browserName && $0.url == url }) {
+            recentlyClosedTabs.remove(at: idx)
+        }
     }
 
     /// Filters out tabs that were recently closed by the user but may still appear in a fresh
@@ -1284,7 +1645,7 @@ class BrowserTabService: ObservableObject {
         var out: [BrowserSearchResult] = []
         out.reserveCapacity(tabs.count)
         for tab in tabs {
-            if tab.type == .tab,
+            if tab.type == .tab, !tab.isGhost,
                let idx = remaining.firstIndex(where: { $0.browserName == tab.browserName && $0.url == tab.url }) {
                 remaining.remove(at: idx)
                 continue
@@ -1472,15 +1833,17 @@ class BrowserTabService: ObservableObject {
                 let diagnosticLogger = Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService")
                 var bookmarkResults: [BrowserSearchResult] = []
                 var historyResults: [BrowserSearchResult] = []
+                var treeFolders: [BookmarkFolder] = []
                 var diagnostics: [String] = []
 
                 for backend in backends {
                     if Task.isCancelled {
-                        return (bookmarks: [BrowserSearchResult](), history: [BrowserSearchResult](), diagnostics: [String]())
+                        return (bookmarks: [BrowserSearchResult](), history: [BrowserSearchResult](), treeFolders: [BookmarkFolder](), diagnostics: [String]())
                     }
 
                     diagnosticLogger.info("cache-refresh browser start app='\(backend.appName, privacy: .public)'")
                     let browserBookmarks = backend.fetchAllBookmarks()
+                    let browserTree = backend.fetchBookmarkTree()
                     diagnosticLogger.info("cache-refresh bookmarks app='\(backend.appName, privacy: .public)' count=\(browserBookmarks.count)")
                     let browserHistory = backend.fetchRecentHistory(perBrowserLimit: historyLimit)
                     diagnosticLogger.info("cache-refresh history app='\(backend.appName, privacy: .public)' count=\(browserHistory.count)")
@@ -1488,11 +1851,13 @@ class BrowserTabService: ObservableObject {
                     diagnostics.append("\(backend.appName):bookmarks=\(browserBookmarks.count),history=\(browserHistory.count)")
                     bookmarkResults.append(contentsOf: browserBookmarks)
                     historyResults.append(contentsOf: browserHistory)
+                    treeFolders.append(contentsOf: browserTree)
                 }
 
                 return (
                     bookmarks: sortBrowserSearchResults(bookmarkResults),
                     history: sortBrowserSearchResults(historyResults),
+                    treeFolders: treeFolders,
                     diagnostics: diagnostics
                 )
             }.value
@@ -1502,6 +1867,7 @@ class BrowserTabService: ObservableObject {
             cachedBookmarks = cachePayload.bookmarks
             cachedHistory = cachePayload.history
             cacheLastUpdatedAt = Date()
+            BookmarkTreeStore.shared.setRootFolders(cachePayload.treeFolders)
             SyncService.shared.updateBookmarks(cachePayload.bookmarks)
             SyncService.shared.updateHistory(cachePayload.history)
             logger.info("Search cache refreshed. bookmarks={\(Self.typeBreakdown(cachePayload.bookmarks), privacy: .public)} history={\(Self.typeBreakdown(cachePayload.history), privacy: .public)} perBrowser='\(cachePayload.diagnostics.joined(separator: "; "), privacy: .public)'")

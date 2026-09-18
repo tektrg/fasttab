@@ -150,6 +150,7 @@ extension SyncService {
             responseCmd.statusReason = "Tab closed on Mac"
             logger.info("Successfully closed tab remotely: url=\(payload.url, privacy: .public)")
             BrowserTabService.shared.recordClosedTabFromRemote(browserName: payload.browserName, url: payload.url, tabID: payload.tabID)
+            MyOrderStore.shared.recordRemoteClose(browserName: payload.browserName, url: payload.url, tabID: payload.tabID)
         case .notFound:
             responseCmd.status = .notFound
             responseCmd.statusReason = "Tab not found or browser not running"

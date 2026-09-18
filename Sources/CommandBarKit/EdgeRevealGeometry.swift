@@ -138,7 +138,7 @@ public enum EdgeRevealGeometry {
     /// Gap between the pill and the screen boundary/notch it hugs.
     public static let pillGap: CGFloat = 2
 
-    /// Size of the onboarding preview pill (see `EdgeRevealPeekView`). Notch
+    /// Size of the hover-reveal preview pill. Notch
     /// pills read left-to-right; edge pills read top-to-bottom, since they
     /// hug the side of the screen rather than the top.
     public static func pillSize(for style: EdgeRevealStyle) -> CGSize {

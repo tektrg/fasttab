@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CommandBarKit
 
-/// Apps persist `ViewShortcut` as JSON; the field names are a storage contract.
+/// Hosts storing `ViewShortcut` whole rely on these field names staying stable.
 @Test func viewShortcutCodableShapeIsStable() async throws {
     let shortcut = ViewShortcut(keyCode: 19, modifiers: NSEvent.ModifierFlags.option.rawValue, keyName: "2")
     let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(shortcut)) as? [String: Any]

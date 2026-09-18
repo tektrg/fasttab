@@ -1,8 +1,9 @@
 import AppKit
 
 /// A recorded keyboard shortcut: key code, raw modifier flags, and the key's
-/// display name. Codable shape (`keyCode`, `modifiers`, `keyName`) is persisted
-/// by apps — do not rename fields.
+/// display name. Hosts own persistence (FastTab's `ShortcutStore` stores each
+/// field under its own UserDefaults key); `Codable` is a convenience for hosts
+/// that prefer to store the value whole.
 public struct ViewShortcut: Equatable, Codable, Sendable {
     public var keyCode: UInt16
     public var modifiers: UInt

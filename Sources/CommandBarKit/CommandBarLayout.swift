@@ -58,7 +58,7 @@ public enum CommandBarLayout {
     }
 
     /// Width of the real physical notch, for the small black connector drawn
-    /// in the clearance inset above (see `ContentView`) — kept notch-width,
+    /// in the clearance inset above the surface — kept notch-width,
     /// not the full (much wider) panel width, so it reads as the notch
     /// extending down a little rather than a wide black bar across the top.
     /// Zero under the same conditions as `surfaceTopInset` (nothing to draw).
@@ -71,7 +71,7 @@ public enum CommandBarLayout {
     }
 
     /// The display the notch-anchored bar will open on — the one under the
-    /// pointer, matching `preferredCommandBarDisplay(preferMouseScreen:)`. Using
+    /// pointer, matching `NSWindow.fitCommandBarCanvasToVisibleScreen`. Using
     /// `NSScreen.main` alone reserved (or skipped) notch clearance based on
     /// whichever display had keyboard focus, which is the wrong one whenever the
     /// bar opens on the other display of a two-display setup.
@@ -88,8 +88,7 @@ public enum CommandBarLayout {
     /// the blur spread escapes past the flush/anchor edge, while the far
     /// edge gets the full spread plus this shift, reading as noticeably
     /// heavier. Value is tuned against `shadowBlurRadius` (roughly 1.3x it)
-    /// so the near edge fully hides — see the offline render in
-    /// scratchpad geomtest/test6.swift used to pick it.
+    /// so the near edge fully hides.
     public static let shadowDirectionalShift: CGFloat = 40
 
     /// Blur radius for the ambient shadow. Kept fairly tight (vs. a wide,
@@ -152,8 +151,7 @@ public enum CommandBarLayout {
 
     /// One axis of the reveal: `progress` 0 leaves the axis at its pre-reveal
     /// sliver fraction, 1 lands it at full size, past 1 overshoots. Each axis
-    /// gets its own spring, so each gets its own progress (see
-    /// `ContentView.playRevealAnimation`).
+    /// gets its own spring, so each gets its own progress.
     public static func revealAxis(from start: CGFloat, progress: Double) -> CGFloat {
         start + (1 - start) * progress
     }
@@ -230,12 +228,10 @@ public enum CommandBarLayout {
     /// wider than the notch and hanging below it.
     ///
     /// `surfaceSize` must be the *live* size the panel is actually rendered at.
-    /// Deriving it from `surfaceSize(for:)`'s defaults instead (full row style,
-    /// footer shown, five rows) made the ratio wrong by however much the user's
-    /// real settings differ — with Minimal rows and the helper panel off the
-    /// notch reveal started ~1.5x smaller than the notch in both axes, and any
-    /// taller-than-default panel would have started *larger* than the notch,
-    /// hanging visibly below it before the animation began.
+    /// Deriving it from default settings instead made the ratio wrong by however
+    /// much the user's real settings differ — the reveal could start ~1.5x
+    /// smaller than the notch, or *larger* and hang visibly below it before the
+    /// animation began.
     public static func revealInitialScale(for anchor: EdgeRevealStyle, surfaceSize: CGSize) -> CGSize {
         switch anchor {
         case .off, .notch:

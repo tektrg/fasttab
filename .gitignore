@@ -40,5 +40,9 @@ extension-key.pem
 /ios/build/
 # Xcode derived data for iOS Simulator builds.
 /ios/build-sim/
+# Xcode derived data for ad-hoc build checks.
+/ios/build-check/
+# xcodebuild / simulator run logs.
+/ios/*.log
 # Design mockup — working reference, not versioned source.
 /ios/FastTabMobile_Redesign_Mockup.html

@@ -48,6 +48,9 @@ public struct SearchView: View {
     @State private var query: String = ""
     @State private var scope: SearchScope = .all
     @State private var selectedURLForReader: URL?
+    @State private var readerItem: ReaderNavigationItem?
+    @State private var toastMessage: String?
+    @State private var showToast: Bool = false
 
     public init() {}
 
@@ -204,6 +207,49 @@ public struct SearchView: View {
                                 selectedURLForReader = url
                             }
                         }
+                        .contextMenu {
+                            if let url = URL(string: item.url) {
+                                Button {
+                                    readerItem = ReaderNavigationItem(url: url, title: item.title)
+                                } label: {
+                                    Label("Open in Reader", systemImage: "doc.plaintext")
+                                }
+
+                                Link(destination: url) {
+                                    Label("Open in Safari", systemImage: "safari")
+                                }
+
+                                ShareLink(item: url) {
+                                    Label("Share Link", systemImage: "square.and.arrow.up")
+                                }
+
+                                Button {
+                                    UIPasteboard.general.string = item.url
+                                    withAnimation {
+                                        toastMessage = "URL Copied"
+                                        showToast = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                        withAnimation { showToast = false }
+                                    }
+                                } label: {
+                                    Label("Copy URL", systemImage: "doc.on.doc")
+                                }
+
+                                Button {
+                                    SyncConsumer.shared.sendOpenOnMac(url: item.url, title: item.title.isEmpty ? nil : item.title)
+                                    withAnimation {
+                                        toastMessage = "Sent to Mac"
+                                        showToast = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                        withAnimation { showToast = false }
+                                    }
+                                } label: {
+                                    Label("Open on Mac", systemImage: "laptopcomputer")
+                                }
+                            }
+                        }
                     }
                 }
                 .listStyle(.insetGrouped)
@@ -213,6 +259,22 @@ public struct SearchView: View {
         .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
+        }
+        .fullScreenCover(item: $readerItem) { item in
+            ReaderView(url: item.url, title: item.title)
+        }
+        .overlay(alignment: .bottom) {
+            if showToast, let toastMessage {
+                Text(toastMessage)
+                    .font(.subheadline)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(20)
+                    .shadow(radius: 4)
+                    .padding(.bottom, 20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
     }
 }

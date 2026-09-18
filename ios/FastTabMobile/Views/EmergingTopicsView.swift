@@ -6,6 +6,7 @@ public struct EmergingTopicsView: View {
     @ObservedObject var localCache = LocalCache.shared
 
     @State private var selectedURLForReader: URL?
+    @State private var readerItem: ReaderNavigationItem?
     @State private var clusterToSave: TopicCluster?
     @State private var showCustomFolderPicker: Bool = false
     @State private var toastMessage: String?
@@ -82,6 +83,9 @@ public struct EmergingTopicsView: View {
                                 onSelectURL: { url in
                                     selectedURLForReader = url
                                 },
+                                onOpenInReader: { url, title in
+                                    readerItem = ReaderNavigationItem(url: url, title: title)
+                                },
                                 onSaveAll: {
                                     clusterToSave = cluster
                                 }
@@ -101,6 +105,9 @@ public struct EmergingTopicsView: View {
         .animation(.easeInOut(duration: 0.25), value: service.isProcessing)
         .sheet(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
+        }
+        .fullScreenCover(item: $readerItem) { item in
+            ReaderView(url: item.url, title: item.title)
         }
         .confirmationDialog(
             "Save Topic to Bookmarks",
@@ -194,6 +201,7 @@ public struct EmergingTopicsView: View {
 struct TopicClusterCard: View {
     let cluster: TopicCluster
     let onSelectURL: (URL) -> Void
+    let onOpenInReader: (URL, String) -> Void
     let onSaveAll: () -> Void
 
     var body: some View {
@@ -278,6 +286,35 @@ struct TopicClusterCard: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        if let url = URL(string: item.url) {
+                            Button {
+                                onOpenInReader(url, item.displayTitle)
+                            } label: {
+                                Label("Open in Reader", systemImage: "doc.plaintext")
+                            }
+
+                            Link(destination: url) {
+                                Label("Open in Safari", systemImage: "safari")
+                            }
+
+                            ShareLink(item: url) {
+                                Label("Share Link", systemImage: "square.and.arrow.up")
+                            }
+
+                            Button {
+                                UIPasteboard.general.string = item.url
+                            } label: {
+                                Label("Copy URL", systemImage: "doc.on.doc")
+                            }
+
+                            Button {
+                                SyncConsumer.shared.sendOpenOnMac(url: item.url, title: item.displayTitle)
+                            } label: {
+                                Label("Open on Mac", systemImage: "laptopcomputer")
+                            }
+                        }
+                    }
                 }
             }
 
@@ -328,6 +365,35 @@ struct TopicClusterCard: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            if let url = URL(string: bm.url) {
+                                Button {
+                                    onOpenInReader(url, bm.displayTitle)
+                                } label: {
+                                    Label("Open in Reader", systemImage: "doc.plaintext")
+                                }
+
+                                Link(destination: url) {
+                                    Label("Open in Safari", systemImage: "safari")
+                                }
+
+                                ShareLink(item: url) {
+                                    Label("Share Link", systemImage: "square.and.arrow.up")
+                                }
+
+                                Button {
+                                    UIPasteboard.general.string = bm.url
+                                } label: {
+                                    Label("Copy URL", systemImage: "doc.on.doc")
+                                }
+
+                                Button {
+                                    SyncConsumer.shared.sendOpenOnMac(url: bm.url, title: bm.displayTitle)
+                                } label: {
+                                    Label("Open on Mac", systemImage: "laptopcomputer")
+                                }
+                            }
+                        }
                     }
                 }
                 .padding(.top, 4)

@@ -13,6 +13,7 @@ public struct HistoryListView: View {
 
     @State private var searchText: String = ""
     @State private var selectedURLForReader: URL?
+    @State private var readerItem: ReaderNavigationItem?
     @State private var toastMessage: String?
     @State private var showToast: Bool = false
 
@@ -52,8 +53,6 @@ public struct HistoryListView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            DataFreshnessBanner(device: device, lastSyncedAt: localCache.state.lastSyncedAt)
-
             if filteredHistory.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "clock.arrow.circlepath")
@@ -105,6 +104,58 @@ public struct HistoryListView: View {
                                 selectedURLForReader = url
                             }
                         }
+                        .contextMenu {
+                            if let url = URL(string: item.entry.url) {
+                                Button {
+                                    readerItem = ReaderNavigationItem(url: url, title: item.entry.title)
+                                } label: {
+                                    Label("Open in Reader", systemImage: "doc.plaintext")
+                                }
+
+                                Link(destination: url) {
+                                    Label("Open in Safari", systemImage: "safari")
+                                }
+
+                                ShareLink(item: url) {
+                                    Label("Share Link", systemImage: "square.and.arrow.up")
+                                }
+
+                                Button {
+                                    UIPasteboard.general.string = item.entry.url
+                                    withAnimation {
+                                        toastMessage = "URL Copied"
+                                        showToast = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                        withAnimation { showToast = false }
+                                    }
+                                } label: {
+                                    Label("Copy URL", systemImage: "doc.on.doc")
+                                }
+
+                                Button {
+                                    SyncConsumer.shared.sendOpenOnMac(url: item.entry.url, title: item.entry.title.isEmpty ? nil : item.entry.title)
+                                    withAnimation {
+                                        toastMessage = "Sent to Mac"
+                                        showToast = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                        withAnimation { showToast = false }
+                                    }
+                                } label: {
+                                    Label("Open on Mac", systemImage: "laptopcomputer")
+                                }
+
+                                if !item.browser.lowercased().contains("safari") {
+                                    Divider()
+                                    Button(role: .destructive) {
+                                        queueDeleteHistory(item)
+                                    } label: {
+                                        Label("Delete History Item", systemImage: "trash")
+                                    }
+                                }
+                            }
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if !item.browser.lowercased().contains("safari") {
                                 Button(role: .destructive) {
@@ -123,6 +174,9 @@ public struct HistoryListView: View {
         .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
+        }
+        .fullScreenCover(item: $readerItem) { item in
+            ReaderView(url: item.url, title: item.title)
         }
         .overlay(alignment: .bottom) {
             if showToast, let toastMessage {

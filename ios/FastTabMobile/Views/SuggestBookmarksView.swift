@@ -5,7 +5,8 @@ public struct SuggestBookmarksView: View {
     @ObservedObject var service = IntelligenceService.shared
     @ObservedObject var localCache = LocalCache.shared
 
-    @State private var selectedURLForReader: URL?
+    @State private var selectedBrowserURL: URL?
+    @State private var readerItem: ReaderNavigationItem?
     @State private var customPickSuggestion: FolderSuggestion?
     @State private var toastMessage: String?
     @State private var showToast: Bool = false
@@ -61,7 +62,10 @@ public struct SuggestBookmarksView: View {
                             FolderSuggestionCard(
                                 suggestion: suggestion,
                                 onSelectURL: { url in
-                                    selectedURLForReader = url
+                                    selectedBrowserURL = url
+                                },
+                                onOpenInReader: { url, title in
+                                    readerItem = ReaderNavigationItem(url: url, title: title)
                                 },
                                 onAccept: {
                                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -93,8 +97,11 @@ public struct SuggestBookmarksView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: service.folderSuggestions.isEmpty)
         .animation(.easeInOut(duration: 0.25), value: service.isProcessing)
-        .sheet(item: $selectedURLForReader) { url in
+        .sheet(item: $selectedBrowserURL) { url in
             InAppBrowserView(url: url)
+        }
+        .fullScreenCover(item: $readerItem) { item in
+            ReaderView(url: item.url, title: item.title)
         }
         .sheet(item: $customPickSuggestion) { suggestion in
             BookmarkMovePicker(
@@ -149,6 +156,7 @@ public struct SuggestBookmarksView: View {
 struct FolderSuggestionCard: View {
     let suggestion: FolderSuggestion
     let onSelectURL: (URL) -> Void
+    let onOpenInReader: (URL, String) -> Void
     let onAccept: () -> Void
     let onPickOther: () -> Void
     let onDismiss: () -> Void
@@ -166,33 +174,62 @@ struct FolderSuggestionCard: View {
         VStack(alignment: .leading, spacing: 12) {
             // Top Tab Info + Dismiss Button
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Button {
-                        if let url = URL(string: suggestion.tab.url) {
-                            onSelectURL(url)
-                        }
-                    } label: {
+                Button {
+                    if let url = URL(string: suggestion.tab.url) {
+                        onSelectURL(url)
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(tabDisplayTitle)
                             .font(.headline)
                             .foregroundStyle(.primary)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
+
+                        HStack(spacing: 6) {
+                            Text(suggestion.tab.browserName)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.blue)
+
+                            Text("•")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+
+                            Text(host)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
-                    .buttonStyle(.plain)
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    if let url = URL(string: suggestion.tab.url) {
+                        Button {
+                            onOpenInReader(url, tabDisplayTitle)
+                        } label: {
+                            Label("Open in Reader", systemImage: "doc.plaintext")
+                        }
 
-                    HStack(spacing: 6) {
-                        Text(suggestion.tab.browserName)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.blue)
+                        Link(destination: url) {
+                            Label("Open in Safari", systemImage: "safari")
+                        }
 
-                        Text("•")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        ShareLink(item: url) {
+                            Label("Share Link", systemImage: "square.and.arrow.up")
+                        }
 
-                        Text(host)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        Button {
+                            UIPasteboard.general.string = suggestion.tab.url
+                        } label: {
+                            Label("Copy URL", systemImage: "doc.on.doc")
+                        }
+
+                        Button {
+                            SyncConsumer.shared.sendOpenOnMac(url: suggestion.tab.url, title: tabDisplayTitle)
+                        } label: {
+                            Label("Open on Mac", systemImage: "laptopcomputer")
+                        }
                     }
                 }
 

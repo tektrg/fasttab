@@ -19,6 +19,8 @@ targets:
       - path: FastTabMobile
     dependencies:
       - target: FastTabShare
+        embed: true
+        codeSign: true
       - package: FastTabPackage
         product: FastTabSync
     settings:
@@ -35,6 +37,7 @@ targets:
       INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
       SWIFT_VERSION: "5.9"
       ENABLE_USER_SCRIPT_SANDBOXING: NO
+      OTHER_CODE_SIGN_FLAGS: "--deep -i app.theindie.FastTabMobile"
     # A real plist, not an `INFOPLIST_KEY_...` setting: there is no such setting
     # for UIBackgroundModes, and Xcode drops unrecognised INFOPLIST_KEY_* keys
     # without a word. `GENERATE_INFOPLIST_FILE` stays on above — Xcode merges
@@ -94,3 +97,17 @@ targets:
         com.apple.developer.icloud-container-environment: Development
         com.apple.security.application-groups:
           - group.app.theindie.FastTab
+
+  FastTabMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: FastTabMobileTests
+    dependencies:
+      - target: FastTabMobile
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobileTests
+      GENERATE_INFOPLIST_FILE: YES
+      SWIFT_VERSION: "5.9"
+

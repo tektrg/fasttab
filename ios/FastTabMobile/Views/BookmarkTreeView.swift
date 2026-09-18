@@ -8,6 +8,7 @@ public struct BookmarkTreeView: View {
 
     @State private var filterText: String = ""
     @State private var selectedURLForReader: URL?
+    @State private var readerItem: ReaderNavigationItem?
     @State private var expandedFolderIDs: Set<String> = []
     @State private var hasInitializedExpansion: Bool = false
     @State private var toastMessage: String?
@@ -223,8 +224,6 @@ public struct BookmarkTreeView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            DataFreshnessBanner(device: device, lastSyncedAt: localCache.state.lastSyncedAt)
-
             PendingBookmarkActionStrip(tracked: trackedActions) { action in
                 pendingActions.removeAll { $0.id == action.id }
             }
@@ -262,6 +261,9 @@ public struct BookmarkTreeView: View {
                             },
                             onSelectBookmark: { url in
                                 selectedURLForReader = url
+                            },
+                            onOpenInReader: { url, title in
+                                readerItem = ReaderNavigationItem(url: url, title: title)
                             },
                             onToast: { msg in
                                 showToast(message: msg)
@@ -366,6 +368,9 @@ public struct BookmarkTreeView: View {
         .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
+        }
+        .fullScreenCover(item: $readerItem) { item in
+            ReaderView(url: item.url, title: item.title)
         }
         .sheet(item: $moveRequest) { request in
             BookmarkMovePicker(

@@ -8,6 +8,7 @@ public struct DeskQueueView: View {
     @State private var inputTitle: String = ""
     @State private var selectedBrowser: String = "Default"
     @State private var isSending: Bool = false
+    @State private var readerItem: ReaderNavigationItem?
     @State private var toastMessage: String?
     @State private var showToast: Bool = false
 
@@ -67,16 +68,7 @@ public struct DeskQueueView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            // This is the screen where "nothing is happening" is most likely to
-            // be mistaken for "it worked", so sync health belongs here too.
-            DataFreshnessBanner(
-                device: localCache.state.devices.first,
-                lastSyncedAt: localCache.state.lastSyncedAt
-            )
-
-            queueList
-        }
+        queueList
         .overlay(alignment: .bottom) {
             if showToast, let toastMessage {
                 Text(toastMessage)
@@ -163,7 +155,13 @@ public struct DeskQueueView: View {
                         .padding(.vertical, 8)
                 } else {
                     ForEach(sentCommands) { cmd in
-                        DeskQueueRowView(command: cmd, progress: progress(for: cmd))
+                        DeskQueueRowView(
+                            command: cmd,
+                            progress: progress(for: cmd),
+                            onOpenInReader: { url, title in
+                                readerItem = ReaderNavigationItem(url: url, title: title)
+                            }
+                        )
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     stopOrRemove(cmd)
@@ -192,6 +190,9 @@ public struct DeskQueueView: View {
         .listStyle(.insetGrouped)
         .refreshable {
             await SyncConsumer.shared.refreshNow()
+        }
+        .fullScreenCover(item: $readerItem) { item in
+            ReaderView(url: item.url, title: item.title)
         }
     }
 
@@ -247,6 +248,7 @@ private struct DeskQueueRowView: View {
     /// Where the request actually is, upload step included — not just what the
     /// Mac last said about it.
     let progress: CommandProgress
+    let onOpenInReader: (URL, String) -> Void
 
     private var payload: OpenOnMacPayload? {
         guard let data = command.payloadJSON.data(using: .utf8) else { return nil }
@@ -311,5 +313,28 @@ private struct DeskQueueRowView: View {
             Spacer()
         }
         .padding(.vertical, 2)
+        .contextMenu {
+            if let payload, let url = URL(string: payload.url) {
+                Button {
+                    onOpenInReader(url, payload.title ?? payload.url)
+                } label: {
+                    Label("Open in Reader", systemImage: "doc.plaintext")
+                }
+
+                Link(destination: url) {
+                    Label("Open in Safari", systemImage: "safari")
+                }
+
+                ShareLink(item: url) {
+                    Label("Share Link", systemImage: "square.and.arrow.up")
+                }
+
+                Button {
+                    UIPasteboard.general.string = payload.url
+                } label: {
+                    Label("Copy URL", systemImage: "doc.on.doc")
+                }
+            }
+        }
     }
 }

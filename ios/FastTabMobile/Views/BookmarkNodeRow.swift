@@ -15,6 +15,7 @@ struct BookmarkNodeRow: View {
     let isExpanded: Bool
     let onToggleExpand: (BookmarkTreeNode) -> Void
     let onSelectBookmark: (URL) -> Void
+    let onOpenInReader: (URL, String) -> Void
     let onToast: (String) -> Void
     let onDelete: (BookmarkTreeNode) -> Void
     let onMove: (BookmarkTreeNode) -> Void
@@ -199,7 +200,7 @@ struct BookmarkNodeRow: View {
                 }
             } else if let urlStr = node.url, let url = URL(string: urlStr) {
                 Button {
-                    onSelectBookmark(url)
+                    onOpenInReader(url, node.title)
                 } label: {
                     Label("Open in Reader", systemImage: "doc.plaintext")
                 }

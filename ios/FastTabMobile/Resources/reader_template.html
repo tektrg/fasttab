@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Reader</title>
+
+<!-- BOOTSTRAP -->
+
+<style>
+  /* ── Design tokens ──────────────────────────────────────── */
+  :root {
+    --reader-font-size: 18px;
+    --reader-line-height: 1.75;
+    --reader-max-width: 680px;
+    --reader-font-body: -apple-system, "SF Pro Text", Georgia, serif;
+    --reader-font-title: -apple-system, "SF Pro Display", sans-serif;
+
+    /* Light mode */
+    --bg: #FAFAF8;
+    --fg: #1A1A1A;
+    --fg-muted: #6B6B6B;
+    --fg-meta: #999;
+    --link: #0071E3;
+    --divider: rgba(0,0,0,0.08);
+    --img-radius: 10px;
+    --code-bg: rgba(0,0,0,0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141414;
+      --fg: #F0F0EC;
+      --fg-muted: #9A9A9A;
+      --fg-meta: #666;
+      --link: #4EA8E8;
+      --divider: rgba(255,255,255,0.08);
+      --code-bg: rgba(255,255,255,0.07);
+    }
+  }
+
+  /* ── Reset ──────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--reader-font-body);
+    font-size: var(--reader-font-size);
+    line-height: var(--reader-line-height);
+    padding: env(safe-area-inset-top, 12px) 0 env(safe-area-inset-bottom, 24px);
+    transition: font-size 0.18s ease;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Layout ─────────────────────────────────────────────── */
+  #reader-container {
+    max-width: var(--reader-max-width);
+    margin: 0 auto;
+    padding: 20px 20px 60px;
+  }
+
+  /* ── Header ─────────────────────────────────────────────── */
+  #reader-header {
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--divider);
+    padding-bottom: 20px;
+  }
+
+  #reader-site {
+    font-family: var(--reader-font-title);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fg-meta);
+    margin-bottom: 10px;
+  }
+
+  #reader-site:empty, #reader-byline:empty {
+    display: none;
+  }
+
+  #reader-title {
+    font-family: var(--reader-font-title);
+    font-size: calc(var(--reader-font-size) * 1.55);
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--fg);
+    margin-bottom: 10px;
+  }
+
+  #reader-byline {
+    font-size: calc(var(--reader-font-size) * 0.8);
+    color: var(--fg-muted);
+  }
+
+  /* ── Article Body ───────────────────────────────────────── */
+  #reader-body p {
+    margin: 0 0 1.2em;
+  }
+
+  #reader-body h1, #reader-body h2, #reader-body h3,
+  #reader-body h4, #reader-body h5, #reader-body h6 {
+    font-family: var(--reader-font-title);
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--fg);
+    margin: 1.6em 0 0.5em;
+  }
+
+  #reader-body h1 { font-size: calc(var(--reader-font-size) * 1.5); }
+  #reader-body h2 { font-size: calc(var(--reader-font-size) * 1.3); }
+  #reader-body h3 { font-size: calc(var(--reader-font-size) * 1.15); }
+  #reader-body h4, #reader-body h5, #reader-body h6 { font-size: var(--reader-font-size); }
+
+  #reader-body a {
+    color: var(--link);
+    text-decoration: none;
+  }
+  #reader-body a:hover { text-decoration: underline; }
+
+  #reader-body img, #reader-body video {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--img-radius);
+    margin: 1em 0;
+    display: block;
+  }
+
+  #reader-body figure {
+    margin: 1.2em 0;
+  }
+
+  #reader-body figcaption {
+    font-size: calc(var(--reader-font-size) * 0.78);
+    color: var(--fg-muted);
+    text-align: center;
+    margin-top: 6px;
+  }
+
+  #reader-body blockquote {
+    border-left: 3px solid var(--link);
+    margin: 1.4em 0;
+    padding: 4px 0 4px 18px;
+    color: var(--fg-muted);
+    font-style: italic;
+  }
+
+  #reader-body code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 2px 5px;
+    font-family: "SF Mono", ui-monospace, monospace;
+    font-size: 0.88em;
+  }
+
+  #reader-body pre {
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 1.2em 0;
+  }
+
+  #reader-body pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.85em;
+  }
+
+  #reader-body ul, #reader-body ol {
+    padding-left: 1.6em;
+    margin: 0 0 1.2em;
+  }
+
+  #reader-body li { margin-bottom: 0.4em; }
+
+  #reader-body hr {
+    border: none;
+    border-top: 1px solid var(--divider);
+    margin: 2em 0;
+  }
+
+  #reader-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2em 0;
+    font-size: 0.9em;
+    overflow-x: auto;
+    display: block;
+  }
+
+  #reader-body th, #reader-body td {
+    border: 1px solid var(--divider);
+    padding: 8px 12px;
+    text-align: left;
+  }
+
+  #reader-body th {
+    background: var(--code-bg);
+    font-weight: 600;
+  }
+
+  /* ── Highlights ─────────────────────────────────────────── */
+  .reader-highlight {
+    border-radius: 3px;
+    cursor: pointer;
+    transition: filter 0.15s;
+  }
+  .reader-highlight:hover {
+    filter: brightness(0.9);
+  }
+
+  /* ── Progress bar (top fixed) ───────────────────────────── */
+  #progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: var(--link);
+    transform: scaleX(0);
+    transform-origin: left;
+    will-change: transform;
+    z-index: 100;
+    border-radius: 0 2px 2px 0;
+  }
+
+  /* ── Selection ──────────────────────────────────────────── */
+  ::selection {
+    background: rgba(0, 113, 227, 0.25);
+  }
+</style>
+</head>
+<body>
+
+<div id="progress-bar"></div>
+
+<div id="reader-container">
+  <header id="reader-header">
+    <div id="reader-site"></div>
+    <h1 id="reader-title"></h1>
+    <div id="reader-byline"></div>
+  </header>
+  <div id="reader-body"></div>
+</div>
+
+<script>
+// ── Bootstrap ──────────────────────────────────────────────────
+var article = window.__ARTICLE__ || {};
+try {
+  var dataEl = document.getElementById('fasttab-article-data');
+  if (dataEl && dataEl.textContent && dataEl.textContent.trim().length > 0) {
+    article = JSON.parse(dataEl.textContent);
+  }
+} catch(e) {
+  console.warn('Failed to parse article data JSON:', e);
+}
+if (!article) article = {};
+
+document.title = article.title || '';
+document.getElementById('reader-title').textContent  = article.title || '';
+document.getElementById('reader-byline').textContent = article.byline || '';
+document.getElementById('reader-site').textContent   = article.siteName || '';
+document.getElementById('reader-body').innerHTML     = article.content || '';
+
+// Font size from ViewModel
+if (article.fontSize) {
+  document.documentElement.style.setProperty('--reader-font-size', article.fontSize + 'px');
+}
+
+// ── Progress bar & scroll tracking ────────────────────────────
+var progressBar = document.getElementById('progress-bar');
+var latestProgress = 0;
+var userHasScrolled = false;
+var isRestoringScroll = false;
+var progressDebounceTimer = null;
+var scrollRafPending = false;
+
+function postProgressToSwift(immediate) {
+  if (!userHasScrolled) return;
+  try {
+    window.webkit.messageHandlers.scrollProgress.postMessage({
+      progress: latestProgress,
+      immediate: !!immediate
+    });
+  } catch(e) {}
+}
+
+function updateProgress() {
+  var scrollTop  = window.scrollY || document.documentElement.scrollTop;
+  var docHeight  = document.documentElement.scrollHeight - window.innerHeight;
+  latestProgress = docHeight > 0 ? Math.min(1, Math.max(0, scrollTop / docHeight)) : 0;
+
+  // Update visual progress bar on GPU composite thread via requestAnimationFrame
+  if (!scrollRafPending) {
+    scrollRafPending = true;
+    requestAnimationFrame(function() {
+      progressBar.style.transform = 'scaleX(' + latestProgress + ')';
+      scrollRafPending = false;
+    });
+  }
+
+  // Only report progress updates back to Swift once the user has actually scrolled
+  if (!userHasScrolled) return;
+
+  // Debounce Swift message so active fling / drag is never interrupted by IPC and SwiftUI churn
+  if (progressDebounceTimer) {
+    clearTimeout(progressDebounceTimer);
+  }
+  progressDebounceTimer = setTimeout(function() {
+    postProgressToSwift();
+    progressDebounceTimer = null;
+  }, 350);
+}
+
+window.addEventListener('scroll', function() {
+  if (!isRestoringScroll) {
+    userHasScrolled = true;
+  }
+  updateProgress();
+}, { passive: true });
+
+// Flush progress immediately on pagehide / visibilitychange
+window.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') {
+    postProgressToSwift(true);
+  }
+});
+window.addEventListener('pagehide', function() {
+  postProgressToSwift(true);
+});
+window.addEventListener('scrollend', function() {
+  postProgressToSwift(true);
+}, { passive: true });
+
+// Restore initial scroll position
+function restoreScroll() {
+  var progress = article.initialProgress || 0;
+  if (progress > 0.005) {
+    var docHeight = document.documentElement.scrollHeight - window.innerHeight;
+    if (docHeight > 0) {
+      isRestoringScroll = true;
+      window.scrollTo(0, docHeight * progress);
+      setTimeout(function() { isRestoringScroll = false; }, 100);
+    }
+  }
+  latestProgress = progress;
+  progressBar.style.transform = 'scaleX(' + progress + ')';
+}
+
+// ── Text selection → highlight bar ────────────────────────────
+function serializeRange(range) {
+  var bodyEl = document.getElementById('reader-body');
+  if (!bodyEl) return JSON.stringify({ text: range.toString(), start: 0, len: range.toString().length });
+
+  // Calculate exact character offset from start of reader-body to range.startContainer
+  try {
+    var preRange = document.createRange();
+    preRange.selectNodeContents(bodyEl);
+    preRange.setEnd(range.startContainer, range.startOffset);
+    var startIdx = preRange.toString().length;
+    var selectedText = range.toString();
+    return JSON.stringify({ text: selectedText, start: startIdx, len: selectedText.length });
+  } catch(e) {
+    var selectedText = range.toString();
+    var bodyText = bodyEl.textContent || '';
+    var startIdx = bodyText.indexOf(selectedText);
+    return JSON.stringify({ text: selectedText, start: startIdx, len: selectedText.length });
+  }
+}
+
+document.addEventListener('selectionchange', function() {
+  var sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.toString().trim().length === 0) {
+    try {
+      window.webkit.messageHandlers.textDeselected.postMessage({});
+    } catch(e) {}
+    return;
+  }
+  var text  = sel.toString().trim();
+  var range = sel.getRangeAt(0);
+  var serialized = serializeRange(range);
+  try {
+    window.webkit.messageHandlers.textSelected.postMessage({ text: text, range: serialized });
+  } catch(e) {}
+});
+
+// ── Apply highlight from Swift ─────────────────────────────────
+function applyHighlightPayload(payload) {
+  if (!payload || !payload.id || !payload.range || !payload.color) return;
+  applyHighlight(payload.id, payload.range, payload.color);
+}
+
+function applyHighlight(id, serializedRange, color) {
+  try {
+    var desc = JSON.parse(serializedRange);
+    if (!desc || typeof desc.start === 'undefined') return;
+
+    var bodyEl    = document.getElementById('reader-body');
+    var bodyText  = bodyEl.textContent || '';
+    var startIdx  = desc.start;
+    var len       = desc.len;
+
+    if (startIdx < 0 || startIdx + len > bodyText.length) return;
+
+    // Walk text nodes to find and wrap the target range
+    highlightTextRange(bodyEl, startIdx, len, id, color);
+
+    // Clear native selection so highlight is cleanly visible
+    if (window.getSelection) {
+      window.getSelection().removeAllRanges();
+    }
+  } catch(e) {
+    console.warn('applyHighlight error:', e);
+  }
+}
+
+function highlightTextRange(root, startIdx, len, id, color) {
+  var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+  var nodesToHighlight = [];
+  var offset = 0;
+  var node;
+
+  while ((node = walker.nextNode()) !== null) {
+    var nodeLen = node.nodeValue.length;
+    var nodeEnd = offset + nodeLen;
+    // Check if this text node overlaps [startIdx, startIdx + len]
+    if (nodeEnd > startIdx && offset < startIdx + len) {
+      var s = Math.max(0, startIdx - offset);
+      var e = Math.min(nodeLen, (startIdx + len) - offset);
+      nodesToHighlight.push({ node: node, start: s, end: e });
+    }
+    offset = nodeEnd;
+  }
+
+  for (var i = 0; i < nodesToHighlight.length; i++) {
+    var item = nodesToHighlight[i];
+    var target = item.node;
+    if (item.start >= item.end) continue;
+
+    if (item.end < target.nodeValue.length) {
+      target.splitText(item.end);
+    }
+    if (item.start > 0) {
+      target = target.splitText(item.start);
+    }
+
+    var span = document.createElement('mark');
+    span.className = 'reader-highlight';
+    span.dataset.highlightId = id;
+    span.style.backgroundColor = color;
+    span.addEventListener('click', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      try {
+        window.webkit.messageHandlers.highlightTapped.postMessage({ id: this.dataset.highlightId });
+      } catch(err) {}
+    });
+
+    target.parentNode.insertBefore(span, target);
+    span.appendChild(target);
+  }
+}
+
+// ── Highlight Removal from Swift ──────────────────────────────
+function removeHighlight(id) {
+  var marks = document.querySelectorAll('mark[data-highlight-id="' + id + '"]');
+  marks.forEach(function(mark) {
+    var parent = mark.parentNode;
+    while (mark.firstChild) {
+      parent.insertBefore(mark.firstChild, mark);
+    }
+    parent.removeChild(mark);
+    parent.normalize();
+  });
+}
+
+function removeAllHighlights() {
+  var marks = document.querySelectorAll('mark.reader-highlight');
+  marks.forEach(function(mark) {
+    var parent = mark.parentNode;
+    while (mark.firstChild) {
+      parent.insertBefore(mark.firstChild, mark);
+    }
+    parent.removeChild(mark);
+    parent.normalize();
+  });
+}
+
+// ── Restore saved highlights ───────────────────────────────────
+function restoreHighlights() {
+  var highlights = article.highlights || [];
+  highlights.forEach(function(h) {
+    applyHighlight(h.id, h.range, h.color);
+  });
+}
+
+// ── Init sequence ──────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', function() {
+  restoreHighlights();
+  // Give layout a tick before restoring scroll
+  setTimeout(restoreScroll, 50);
+  try {
+    window.webkit.messageHandlers.ready.postMessage({});
+  } catch(e) {}
+});
+
+// Re-adjust scroll after images finish loading if user hasn't started manual scroll
+window.addEventListener('load', function() {
+  if (!userHasScrolled) {
+    restoreScroll();
+  }
+});
+</script>
+</body>
+</html>

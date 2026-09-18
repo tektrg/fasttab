@@ -15,6 +15,7 @@ public struct BookmarkBrowserView: View {
     @State private var searchText: String = ""
     @State private var selectedFolder: String? = nil
     @State private var selectedURLForReader: URL?
+    @State private var readerItem: ReaderNavigationItem?
     @State private var toastMessage: String?
     @State private var showToast: Bool = false
 
@@ -70,8 +71,6 @@ public struct BookmarkBrowserView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            DataFreshnessBanner(device: device, lastSyncedAt: localCache.state.lastSyncedAt)
-
             if !folders.isEmpty && searchText.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -162,6 +161,58 @@ public struct BookmarkBrowserView: View {
                                 selectedURLForReader = url
                             }
                         }
+                        .contextMenu {
+                            if let url = URL(string: entry.item.url) {
+                                Button {
+                                    readerItem = ReaderNavigationItem(url: url, title: entry.item.title)
+                                } label: {
+                                    Label("Open in Reader", systemImage: "doc.plaintext")
+                                }
+
+                                Link(destination: url) {
+                                    Label("Open in Safari", systemImage: "safari")
+                                }
+
+                                ShareLink(item: url) {
+                                    Label("Share Link", systemImage: "square.and.arrow.up")
+                                }
+
+                                Button {
+                                    UIPasteboard.general.string = entry.item.url
+                                    withAnimation {
+                                        toastMessage = "URL Copied"
+                                        showToast = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                        withAnimation { showToast = false }
+                                    }
+                                } label: {
+                                    Label("Copy URL", systemImage: "doc.on.doc")
+                                }
+
+                                Button {
+                                    SyncConsumer.shared.sendOpenOnMac(url: entry.item.url, title: entry.item.title.isEmpty ? nil : entry.item.title)
+                                    withAnimation {
+                                        toastMessage = "Sent to Mac"
+                                        showToast = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                        withAnimation { showToast = false }
+                                    }
+                                } label: {
+                                    Label("Open on Mac", systemImage: "laptopcomputer")
+                                }
+
+                                if !entry.browser.lowercased().contains("safari") {
+                                    Divider()
+                                    Button(role: .destructive) {
+                                        queueDeleteBookmark(entry)
+                                    } label: {
+                                        Label("Delete Bookmark", systemImage: "trash")
+                                    }
+                                }
+                            }
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             // Safari doesn't support deletes
                             if !entry.browser.lowercased().contains("safari") {
@@ -181,6 +232,9 @@ public struct BookmarkBrowserView: View {
         .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
+        }
+        .fullScreenCover(item: $readerItem) { item in
+            ReaderView(url: item.url, title: item.title)
         }
         .overlay(alignment: .bottom) {
             if showToast, let toastMessage {

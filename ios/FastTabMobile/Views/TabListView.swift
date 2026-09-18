@@ -15,7 +15,8 @@ public struct TabListView: View {
 
     @State private var searchText: String = ""
     @State private var sortMode: TabSortMode = .recent
-    @State private var selectedURLForReader: URL?
+    @State private var selectedBrowserURL: URL?
+    @State private var readerItem: ReaderNavigationItem?
     /// Tabs the user asked to close, each tied to the command that carries the
     /// request. View-local because the association is view-local; every *outcome*
     /// is read back from `LocalCache` so a row is only ever hidden while the
@@ -215,9 +216,12 @@ public struct TabListView: View {
                 showDeckSwitcher = false
             }
         }
-        .fullScreenCover(item: $selectedURLForReader) { url in
+        .fullScreenCover(item: $selectedBrowserURL) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
+        }
+        .fullScreenCover(item: $readerItem) { item in
+            ReaderView(url: item.url, title: item.title)
         }
         .sheet(item: $tabSaveRequest) { request in
             BookmarkMovePicker(sourceDeviceID: request.tab.deviceID, title: "Save to…") { destination in
@@ -247,45 +251,34 @@ public struct TabListView: View {
     private var tabListMainView: some View {
         if visibleTabs.isEmpty {
             ScrollView {
-                VStack(spacing: 24) {
-                    DataFreshnessBanner(device: activeDevice, lastSyncedAt: localCache.state.lastSyncedAt)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-
-                    VStack(spacing: 12) {
-                        Image(systemName: "macwindow.on.rectangle")
-                            .font(.system(size: 40))
-                            .foregroundStyle(.secondary)
-                        Text("No Open Tabs")
-                            .font(.headline)
-                        Text("Open tabs on your Mac browsers will sync here automatically.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                    }
-                    .padding(.top, 40)
+                VStack(spacing: 12) {
+                    Image(systemName: "macwindow.on.rectangle")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.secondary)
+                    Text("No Open Tabs")
+                        .font(.headline)
+                    Text("Open tabs on your Mac browsers will sync here automatically.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
                 }
+                .padding(.top, 60)
             }
             .refreshable {
                 await SyncConsumer.shared.refreshNow()
             }
         } else {
             List {
-                Section {
-                    VStack(spacing: 8) {
-                        DataFreshnessBanner(device: activeDevice, lastSyncedAt: localCache.state.lastSyncedAt)
-
-                        if !trackedCloses.isEmpty {
-                            PendingTabCloseStrip(tracked: trackedCloses) { close in
-                                pendingCloses.removeAll { $0.tabID == close.tabID }
-                            }
+                if !trackedCloses.isEmpty {
+                    Section {
+                        PendingTabCloseStrip(tracked: trackedCloses) { close in
+                            pendingCloses.removeAll { $0.tabID == close.tabID }
                         }
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
                 }
 
                 switch sortMode {
@@ -400,7 +393,38 @@ public struct TabListView: View {
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 if let url = URL(string: entry.item.url) {
-                                    selectedURLForReader = url
+                                    selectedBrowserURL = url
+                                }
+                            }
+                            .contextMenu {
+                                if let url = URL(string: entry.item.url) {
+                                    Button {
+                                        readerItem = ReaderNavigationItem(url: url, title: entry.item.title)
+                                    } label: {
+                                        Label("Open in Reader", systemImage: "doc.plaintext")
+                                    }
+
+                                    Link(destination: url) {
+                                        Label("Open in Safari", systemImage: "safari")
+                                    }
+
+                                    ShareLink(item: url) {
+                                        Label("Share Link", systemImage: "square.and.arrow.up")
+                                    }
+
+                                    Button {
+                                        UIPasteboard.general.string = entry.item.url
+                                        showToastHUD(message: "URL Copied")
+                                    } label: {
+                                        Label("Copy URL", systemImage: "doc.on.doc")
+                                    }
+
+                                    Button {
+                                        SyncConsumer.shared.sendOpenOnMac(url: entry.item.url, title: entry.item.title.isEmpty ? nil : entry.item.title)
+                                        showToastHUD(message: "Sent to Mac")
+                                    } label: {
+                                        Label("Open on Mac", systemImage: "laptopcomputer")
+                                    }
                                 }
                             }
                         }
@@ -437,7 +461,38 @@ public struct TabListView: View {
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 if let url = URL(string: item.entry.url) {
-                                    selectedURLForReader = url
+                                    selectedBrowserURL = url
+                                }
+                            }
+                            .contextMenu {
+                                if let url = URL(string: item.entry.url) {
+                                    Button {
+                                        readerItem = ReaderNavigationItem(url: url, title: item.entry.title)
+                                    } label: {
+                                        Label("Open in Reader", systemImage: "doc.plaintext")
+                                    }
+
+                                    Link(destination: url) {
+                                        Label("Open in Safari", systemImage: "safari")
+                                    }
+
+                                    ShareLink(item: url) {
+                                        Label("Share Link", systemImage: "square.and.arrow.up")
+                                    }
+
+                                    Button {
+                                        UIPasteboard.general.string = item.entry.url
+                                        showToastHUD(message: "URL Copied")
+                                    } label: {
+                                        Label("Copy URL", systemImage: "doc.on.doc")
+                                    }
+
+                                    Button {
+                                        SyncConsumer.shared.sendOpenOnMac(url: item.entry.url, title: item.entry.title.isEmpty ? nil : item.entry.title)
+                                        showToastHUD(message: "Sent to Mac")
+                                    } label: {
+                                        Label("Open on Mac", systemImage: "laptopcomputer")
+                                    }
                                 }
                             }
                         }
@@ -495,7 +550,7 @@ public struct TabListView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if let url = URL(string: tab.url) {
-                selectedURLForReader = url
+                selectedBrowserURL = url
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -524,7 +579,7 @@ public struct TabListView: View {
         .contextMenu {
             if let url = URL(string: tab.url) {
                 Button {
-                    selectedURLForReader = url
+                    readerItem = ReaderNavigationItem(url: url, title: tab.title)
                 } label: {
                     Label("Open in Reader", systemImage: "doc.plaintext")
                 }

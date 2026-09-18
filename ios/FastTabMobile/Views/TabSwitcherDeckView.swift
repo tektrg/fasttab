@@ -24,6 +24,7 @@ struct TabSwitcherDeckView: View {
     @State private var verticalCardOffsets: [String: CGFloat] = [:]
     @State private var dragMode: DragMode = .none
     @State private var selectedURLForReader: URL?
+    @State private var readerItem: ReaderNavigationItem?
     @State private var tabSaveRequest: TabSaveRequest?
     @State private var toastMessage: String?
     @State private var showToast: Bool = false
@@ -167,6 +168,9 @@ struct TabSwitcherDeckView: View {
         .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
+        }
+        .fullScreenCover(item: $readerItem) { item in
+            ReaderView(url: item.url, title: item.title)
         }
         .sheet(item: $tabSaveRequest) { request in
             BookmarkMovePicker(sourceDeviceID: request.tab.deviceID, title: "Save to…") { destination in
@@ -313,6 +317,15 @@ struct TabSwitcherDeckView: View {
                             dragOffsetY: isExpanding ? 0 : verticalOffset,
                             onSelect: {
                                 animateCardOpen(tab)
+                            },
+                            onOpenInReader: {
+                                var urlString = tab.url.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !urlString.lowercased().hasPrefix("http://") && !urlString.lowercased().hasPrefix("https://") {
+                                    urlString = "https://" + urlString
+                                }
+                                if let url = URL(string: urlString) {
+                                    readerItem = ReaderNavigationItem(url: url, title: tab.title)
+                                }
                             },
                             onClose: {
                                 dismissCard(tab, cardHeight: cardHeight)

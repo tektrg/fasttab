@@ -1,0 +1,39 @@
+import Foundation
+import Testing
+@testable import AgentBar
+
+struct DashboardEndpointTests {
+    private func makeDefaults() -> UserDefaults {
+        let suiteName = "test.agentbar.endpoint.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    @Test func defaultsToLocalDashboard() {
+        #expect(DashboardEndpoint.configured(defaults: makeDefaults()).baseURL.absoluteString == "http://127.0.0.1:4711")
+    }
+
+    @Test func honoursAConfiguredURL() {
+        let defaults = makeDefaults()
+        defaults.set(" http://10.0.0.5:9000 ", forKey: DashboardEndpoint.baseURLDefaultsKey)
+        #expect(DashboardEndpoint.configured(defaults: defaults).baseURL.absoluteString == "http://10.0.0.5:9000")
+    }
+
+    @Test func ignoresAnInvalidConfiguredURL() {
+        for bad in ["", "not a url", "ftp://host", "file:///tmp/x", "http://"] {
+            let defaults = makeDefaults()
+            defaults.set(bad, forKey: DashboardEndpoint.baseURLDefaultsKey)
+            #expect(DashboardEndpoint.configured(defaults: defaults).baseURL == DashboardEndpoint.defaultBaseURL, "\(bad)")
+        }
+    }
+
+    @Test func buildsTheDashboardPaths() {
+        let endpoint = DashboardEndpoint(baseURL: DashboardEndpoint.defaultBaseURL)
+        #expect(endpoint.stateRequest.url?.path == "/api/state")
+        #expect(endpoint.eventsRequest.url?.path == "/api/events")
+        #expect(endpoint.eventsRequest.value(forHTTPHeaderField: "Accept") == "text/event-stream")
+        #expect(endpoint.paneScreenRequest(paneId: "w1:p3").url?.absoluteString
+                == "http://127.0.0.1:4711/api/pane/screen?paneId=w1:p3&lines=80")
+    }
+}

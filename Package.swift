@@ -54,7 +54,8 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentBarTests",
-            dependencies: ["AgentBar", "CommandBarKit"]
+            dependencies: ["AgentBar", "CommandBarKit"],
+            resources: [.copy("Fixtures")]
         ),
         .testTarget(
             name: "CommandBarKitTests",

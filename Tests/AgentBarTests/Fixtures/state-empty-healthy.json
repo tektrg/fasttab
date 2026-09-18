@@ -1,0 +1,122 @@
+{
+  "serverTimeTs": 1789744498.0,
+  "feeds": {
+    "hookCache": {
+      "name": "hookCache",
+      "refreshIntervalSec": 2,
+      "warming": false,
+      "lastSuccessTs": 1789744497.671078,
+      "lastAttemptTs": 1789744497.671078,
+      "lastDurationSec": 0.13288497924804688,
+      "ageSec": 0.3289220333099365,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "herdr": {
+      "name": "herdr",
+      "refreshIntervalSec": 5,
+      "warming": false,
+      "lastSuccessTs": 1789744496.53042,
+      "lastAttemptTs": 1789744496.53042,
+      "lastDurationSec": 0.5355100631713867,
+      "ageSec": 1.4695799350738525,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "paneTick": {
+      "name": "paneTick",
+      "refreshIntervalSec": 90,
+      "warming": false,
+      "lastSuccessTs": 1789744489.775684,
+      "lastAttemptTs": 1789744489.775684,
+      "lastDurationSec": 0.004652261734008789,
+      "ageSec": 8.224315881729126,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "gitHealth": {
+      "name": "gitHealth",
+      "refreshIntervalSec": 300,
+      "warming": false,
+      "lastSuccessTs": 1789744085.942057,
+      "lastAttemptTs": 1789744085.942057,
+      "lastDurationSec": 57.575355052948,
+      "ageSec": 412.05794310569763,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "board": {
+      "name": "board",
+      "refreshIntervalSec": 150,
+      "warming": false,
+      "lastSuccessTs": 1789744470.604928,
+      "lastAttemptTs": 1789744470.604928,
+      "lastDurationSec": 81.91383695602417,
+      "ageSec": 27.395071983337402,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "paneScreen": {
+      "name": "paneScreen",
+      "refreshIntervalSec": 15,
+      "warming": false,
+      "lastSuccessTs": 1789744497.746012,
+      "lastAttemptTs": 1789744497.746012,
+      "lastDurationSec": 0.5443449020385742,
+      "ageSec": 0.25398802757263184,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "workItems": {
+      "name": "workItems",
+      "refreshIntervalSec": 60,
+      "warming": false,
+      "lastSuccessTs": 1789744483.749996,
+      "lastAttemptTs": 1789744483.749996,
+      "lastDurationSec": 0.0872199535369873,
+      "ageSec": 14.250004053115845,
+      "broken": false,
+      "error": null,
+      "data": {}
+    }
+  },
+  "computed": {
+    "agents": [],
+    "residueCount": 0,
+    "disagreementCount": 0,
+    "needsYou": [],
+    "git": {}
+  },
+  "board": {
+    "rowKind": "session",
+    "properties": [
+      {
+        "id": "derived:state",
+        "rowKind": "session",
+        "name": "STATE",
+        "type": "text",
+        "source": "derived",
+        "editable": false,
+        "position": 0,
+        "width": 90
+      },
+      {
+        "id": "derived:screen",
+        "rowKind": "session",
+        "name": "SCREEN",
+        "type": "text",
+        "source": "derived",
+        "editable": false,
+        "position": 1,
+        "width": 110
+      }
+    ],
+    "rows": []
+  }
+}

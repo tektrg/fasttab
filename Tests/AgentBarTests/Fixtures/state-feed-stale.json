@@ -1,0 +1,1891 @@
+{
+  "serverTimeTs": 1789744498.0,
+  "feeds": {
+    "hookCache": {
+      "name": "hookCache",
+      "refreshIntervalSec": 2,
+      "warming": false,
+      "lastSuccessTs": 1789744497.671078,
+      "lastAttemptTs": 1789744497.671078,
+      "lastDurationSec": 0.13288497924804688,
+      "ageSec": 40.0,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "herdr": {
+      "name": "herdr",
+      "refreshIntervalSec": 5,
+      "warming": false,
+      "lastSuccessTs": 1789744496.53042,
+      "lastAttemptTs": 1789744496.53042,
+      "lastDurationSec": 0.5355100631713867,
+      "ageSec": 1.4695799350738525,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "paneTick": {
+      "name": "paneTick",
+      "refreshIntervalSec": 90,
+      "warming": false,
+      "lastSuccessTs": 1789744489.775684,
+      "lastAttemptTs": 1789744489.775684,
+      "lastDurationSec": 0.004652261734008789,
+      "ageSec": 8.224315881729126,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "gitHealth": {
+      "name": "gitHealth",
+      "refreshIntervalSec": 300,
+      "warming": false,
+      "lastSuccessTs": 1789744085.942057,
+      "lastAttemptTs": 1789744085.942057,
+      "lastDurationSec": 57.575355052948,
+      "ageSec": 412.05794310569763,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "board": {
+      "name": "board",
+      "refreshIntervalSec": 150,
+      "warming": false,
+      "lastSuccessTs": 1789744470.604928,
+      "lastAttemptTs": 1789744470.604928,
+      "lastDurationSec": 81.91383695602417,
+      "ageSec": 27.395071983337402,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "paneScreen": {
+      "name": "paneScreen",
+      "refreshIntervalSec": 15,
+      "warming": false,
+      "lastSuccessTs": 1789744497.746012,
+      "lastAttemptTs": 1789744497.746012,
+      "lastDurationSec": 0.5443449020385742,
+      "ageSec": 0.25398802757263184,
+      "broken": false,
+      "error": null,
+      "data": {}
+    },
+    "workItems": {
+      "name": "workItems",
+      "refreshIntervalSec": 60,
+      "warming": false,
+      "lastSuccessTs": 1789744483.749996,
+      "lastAttemptTs": 1789744483.749996,
+      "lastDurationSec": 0.0872199535369873,
+      "ageSec": 14.250004053115845,
+      "broken": false,
+      "error": null,
+      "data": {}
+    }
+  },
+  "computed": {
+    "agents": [
+      {
+        "paneId": "w1:p1",
+        "tabId": "w1:t1",
+        "workspaceId": "w1",
+        "label": "agent-one",
+        "cwd": "/Users/dev/Projects/sample-app",
+        "focused": false,
+        "hookState": "blocked",
+        "hookSinceSec": 4179.3,
+        "herdrStatus": "idle",
+        "disagree": false,
+        "hasHookData": true,
+        "residue": false,
+        "agentSession": "00000000-0000-4000-8000-000000000001",
+        "hookReason": "Claude needs your permission",
+        "screenState": "NEEDS_HUMAN",
+        "screenSignal": "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        "screenQuestion": {
+          "title": "Storage choice",
+          "question": "│ Should the sample setting persist to disk per workspace, or stay session-only and reset │ each time the app reopens?",
+          "multi": false,
+          "options": [
+            {
+              "index": 1,
+              "label": "Keep it saved (Recommended)",
+              "desc": "Remembered across restarts.",
+              "checked": false,
+              "other": false
+            },
+            {
+              "index": 2,
+              "label": "Forget on quit",
+              "desc": "Resets on every launch.",
+              "checked": false,
+              "other": false
+            },
+            {
+              "index": 3,
+              "label": "Type something.",
+              "desc": "",
+              "checked": false,
+              "other": true
+            }
+          ],
+          "cursorIndex": 1,
+          "otherIndex": 3,
+          "hasSubmit": false,
+          "context": "Sample context line."
+        },
+        "hookQuestion": null,
+        "rowId": "00000000-0000-4000-8000-000000000001",
+        "memoryBytes": 50000001,
+        "contextPct": null,
+        "autocompactPct": null,
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "paneId": "w1:p2",
+        "tabId": "w1:t2",
+        "workspaceId": "w1",
+        "label": "agent-two",
+        "cwd": "/Users/dev/Projects/sample-app/.claude/worktrees/feature-x",
+        "focused": false,
+        "hookState": "blocked",
+        "hookSinceSec": 312.7,
+        "herdrStatus": "idle",
+        "disagree": false,
+        "hasHookData": true,
+        "residue": false,
+        "agentSession": "00000000-0000-4000-8000-000000000002",
+        "hookReason": "Claude needs your permission to use Bash",
+        "screenState": "NEEDS_HUMAN",
+        "screenSignal": "Do you want to proceed?",
+        "screenQuestion": null,
+        "hookQuestion": null,
+        "rowId": "00000000-0000-4000-8000-000000000002",
+        "memoryBytes": 50000002,
+        "contextPct": null,
+        "autocompactPct": null,
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "paneId": "w1:p3",
+        "tabId": "w1:t3",
+        "workspaceId": "w1",
+        "label": "agent-three",
+        "cwd": "/Users/dev/Projects/other-tool",
+        "focused": false,
+        "hookState": "working",
+        "hookSinceSec": 107.4,
+        "herdrStatus": "idle",
+        "disagree": false,
+        "hasHookData": true,
+        "residue": false,
+        "agentSession": "00000000-0000-4000-8000-000000000003",
+        "hookReason": null,
+        "screenState": "ACTIVE",
+        "screenSignal": "✶ Working… (1m 47s · ↓ 1.8k tokens)",
+        "screenQuestion": null,
+        "hookQuestion": null,
+        "rowId": "00000000-0000-4000-8000-000000000003",
+        "memoryBytes": 50000003,
+        "contextPct": null,
+        "autocompactPct": null,
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "paneId": "w1:p4",
+        "tabId": "w1:t4",
+        "workspaceId": "w1",
+        "label": "agent-four",
+        "cwd": "/Users/dev/Projects/sample-app/.claude/worktrees/feature-y/src",
+        "focused": false,
+        "hookState": "idle",
+        "hookSinceSec": 37546.2,
+        "herdrStatus": "idle",
+        "disagree": false,
+        "hasHookData": true,
+        "residue": false,
+        "agentSession": "00000000-0000-4000-8000-000000000004",
+        "hookReason": null,
+        "screenState": "WAITING",
+        "screenSignal": "※ recap: Finished the sample task and committed it.",
+        "screenQuestion": null,
+        "hookQuestion": null,
+        "rowId": "00000000-0000-4000-8000-000000000004",
+        "memoryBytes": 50000004,
+        "contextPct": null,
+        "autocompactPct": null,
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "paneId": "w1:p5",
+        "tabId": "w1:t5",
+        "workspaceId": "w1",
+        "label": "agent-five",
+        "cwd": "/Users/dev/Projects/third-project",
+        "focused": false,
+        "hookState": "blocked",
+        "hookSinceSec": 2141.9,
+        "herdrStatus": "idle",
+        "disagree": false,
+        "hasHookData": true,
+        "residue": false,
+        "agentSession": "00000000-0000-4000-8000-000000000005",
+        "hookReason": "Claude is waiting for your input",
+        "screenState": "WAITING",
+        "screenSignal": "❯ ",
+        "screenQuestion": null,
+        "hookQuestion": null,
+        "rowId": "00000000-0000-4000-8000-000000000005",
+        "memoryBytes": 50000005,
+        "contextPct": null,
+        "autocompactPct": null,
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "paneId": "w1:p6",
+        "tabId": "w1:t6",
+        "workspaceId": "w1",
+        "label": "agent-six",
+        "cwd": "/Users/dev/Projects/third-project",
+        "focused": false,
+        "hookState": "idle",
+        "hookSinceSec": 71.0,
+        "herdrStatus": "idle",
+        "disagree": false,
+        "hasHookData": true,
+        "residue": false,
+        "agentSession": "00000000-0000-4000-8000-000000000006",
+        "hookReason": null,
+        "screenState": "ACTIVE",
+        "screenSignal": "· Thinking… (12s)",
+        "screenQuestion": null,
+        "hookQuestion": null,
+        "rowId": "00000000-0000-4000-8000-000000000006",
+        "memoryBytes": 50000006,
+        "contextPct": null,
+        "autocompactPct": null,
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "paneId": "w1:p7",
+        "tabId": "w1:t7",
+        "workspaceId": "w1",
+        "label": "agent-seven",
+        "cwd": "/Users/dev/Projects/other-tool",
+        "focused": false,
+        "hookState": "working",
+        "hookSinceSec": 15.5,
+        "herdrStatus": "idle",
+        "disagree": false,
+        "hasHookData": true,
+        "residue": false,
+        "agentSession": "00000000-0000-4000-8000-000000000007",
+        "hookReason": null,
+        "screenState": "UNKNOWN",
+        "screenSignal": null,
+        "screenQuestion": null,
+        "hookQuestion": null,
+        "rowId": "00000000-0000-4000-8000-000000000007",
+        "memoryBytes": 50000007,
+        "contextPct": null,
+        "autocompactPct": null,
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "paneId": "w1:p8",
+        "tabId": "w1:t8",
+        "workspaceId": "w1",
+        "label": "shell-one",
+        "cwd": "/Users/dev/Projects/sample-app",
+        "focused": false,
+        "hookState": null,
+        "hookSinceSec": null,
+        "herdrStatus": "idle",
+        "disagree": false,
+        "hasHookData": false,
+        "residue": false,
+        "agentSession": null,
+        "hookReason": null,
+        "screenState": "UNKNOWN",
+        "screenSignal": "~/Projects/sample-app %",
+        "screenQuestion": null,
+        "hookQuestion": null,
+        "rowId": "pane:w1-p8",
+        "memoryBytes": 50000008,
+        "contextPct": null,
+        "autocompactPct": null,
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "paneId": null,
+        "tabId": "w1:t9",
+        "workspaceId": "w1",
+        "label": "(no matching herdr pane)",
+        "cwd": null,
+        "focused": false,
+        "hookState": "idle",
+        "hookSinceSec": 90000.0,
+        "herdrStatus": "idle",
+        "disagree": false,
+        "hasHookData": true,
+        "residue": true,
+        "agentSession": null,
+        "hookReason": null,
+        "screenState": null,
+        "screenSignal": null,
+        "screenQuestion": null,
+        "hookQuestion": null,
+        "rowId": "pane:w1-p9",
+        "memoryBytes": 50000009,
+        "contextPct": null,
+        "autocompactPct": null,
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        },
+        "orphanHook": true,
+        "paneIdSanitized": "w1-p9"
+      }
+    ],
+    "residueCount": 1,
+    "disagreementCount": 0,
+    "needsYou": [
+      {
+        "kind": "question",
+        "urgency": 1,
+        "label": "agent-one",
+        "paneId": "w1:p1",
+        "detail": "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+        "sinceSec": 4179.3,
+        "identity": null,
+        "question": {
+          "title": "Storage choice",
+          "question": "│ Should the sample setting persist to disk per workspace, or stay session-only and reset │ each time the app reopens?",
+          "multi": false,
+          "options": [
+            {
+              "index": 1,
+              "label": "Keep it saved (Recommended)",
+              "desc": "Remembered across restarts.",
+              "checked": false,
+              "other": false
+            },
+            {
+              "index": 2,
+              "label": "Forget on quit",
+              "desc": "Resets on every launch.",
+              "checked": false,
+              "other": false
+            },
+            {
+              "index": 3,
+              "label": "Type something.",
+              "desc": "",
+              "checked": false,
+              "other": true
+            }
+          ],
+          "cursorIndex": 1,
+          "otherIndex": 3,
+          "hasSubmit": false,
+          "context": "Sample context line."
+        }
+      },
+      {
+        "kind": "blocked",
+        "urgency": 1,
+        "label": "agent-two",
+        "paneId": "w1:p2",
+        "detail": "Do you want to proceed?",
+        "sinceSec": 312.7,
+        "identity": null,
+        "question": null
+      }
+    ],
+    "git": {}
+  },
+  "board": {
+    "rowKind": "session",
+    "properties": [
+      {
+        "id": "derived:state",
+        "rowKind": "session",
+        "name": "STATE",
+        "type": "text",
+        "source": "derived",
+        "editable": false,
+        "position": 0,
+        "width": 90
+      },
+      {
+        "id": "derived:screen",
+        "rowKind": "session",
+        "name": "SCREEN",
+        "type": "text",
+        "source": "derived",
+        "editable": false,
+        "position": 1,
+        "width": 110
+      }
+    ],
+    "rows": [
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000001",
+        "status": "live",
+        "archived": false,
+        "derived": {
+          "label": "agent-one",
+          "paneId": "w1:p1",
+          "tabId": "w1:t1",
+          "workspaceId": "w1",
+          "cwd": "/Users/dev/Projects/sample-app",
+          "rowId": "00000000-0000-4000-8000-000000000001",
+          "ended": false
+        },
+        "values": {
+          "derived:state": "blocked",
+          "derived:screen": "NEEDS_HUMAN",
+          "derived:label": "agent-one",
+          "derived:pane": "w1:p1",
+          "derived:cwd": "/Users/dev/Projects/sample-app",
+          "derived:push": "",
+          "status": "live",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        },
+        "memoryBytes": 87277568
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000002",
+        "status": "live",
+        "archived": false,
+        "derived": {
+          "label": "agent-two",
+          "paneId": "w1:p2",
+          "tabId": "w1:t2",
+          "workspaceId": "w1",
+          "cwd": "/Users/dev/Projects/sample-app/.claude/worktrees/feature-x",
+          "rowId": "00000000-0000-4000-8000-000000000002",
+          "ended": false
+        },
+        "values": {
+          "derived:state": "blocked",
+          "derived:screen": "NEEDS_HUMAN",
+          "derived:label": "agent-two",
+          "derived:pane": "w1:p2",
+          "derived:cwd": "/Users/dev/Projects/sample-app/.claude/worktrees/feature-x",
+          "derived:push": "",
+          "status": "live",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        },
+        "memoryBytes": 87277568
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000003",
+        "status": "live",
+        "archived": false,
+        "derived": {
+          "label": "agent-three",
+          "paneId": "w1:p3",
+          "tabId": "w1:t3",
+          "workspaceId": "w1",
+          "cwd": "/Users/dev/Projects/other-tool",
+          "rowId": "00000000-0000-4000-8000-000000000003",
+          "ended": false
+        },
+        "values": {
+          "derived:state": "working",
+          "derived:screen": "ACTIVE",
+          "derived:label": "agent-three",
+          "derived:pane": "w1:p3",
+          "derived:cwd": "/Users/dev/Projects/other-tool",
+          "derived:push": "2 ahead — not pushed",
+          "status": "live",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        },
+        "memoryBytes": 87277568
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000004",
+        "status": "live",
+        "archived": false,
+        "derived": {
+          "label": "agent-four",
+          "paneId": "w1:p4",
+          "tabId": "w1:t4",
+          "workspaceId": "w1",
+          "cwd": "/Users/dev/Projects/sample-app/.claude/worktrees/feature-y/src",
+          "rowId": "00000000-0000-4000-8000-000000000004",
+          "ended": false
+        },
+        "values": {
+          "derived:state": "idle",
+          "derived:screen": "WAITING",
+          "derived:label": "agent-four",
+          "derived:pane": "w1:p4",
+          "derived:cwd": "/Users/dev/Projects/sample-app/.claude/worktrees/feature-y/src",
+          "derived:push": "no upstream — never pushed",
+          "status": "live",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        },
+        "memoryBytes": 87277568
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000005",
+        "status": "live",
+        "archived": false,
+        "derived": {
+          "label": "agent-five",
+          "paneId": "w1:p5",
+          "tabId": "w1:t5",
+          "workspaceId": "w1",
+          "cwd": "/Users/dev/Projects/third-project",
+          "rowId": "00000000-0000-4000-8000-000000000005",
+          "ended": false
+        },
+        "values": {
+          "derived:state": "blocked",
+          "derived:screen": "WAITING",
+          "derived:label": "agent-five",
+          "derived:pane": "w1:p5",
+          "derived:cwd": "/Users/dev/Projects/third-project",
+          "derived:push": "",
+          "status": "live",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        },
+        "memoryBytes": 87277568
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000006",
+        "status": "live",
+        "archived": false,
+        "derived": {
+          "label": "agent-six",
+          "paneId": "w1:p6",
+          "tabId": "w1:t6",
+          "workspaceId": "w1",
+          "cwd": "/Users/dev/Projects/third-project",
+          "rowId": "00000000-0000-4000-8000-000000000006",
+          "ended": false
+        },
+        "values": {
+          "derived:state": "idle",
+          "derived:screen": "ACTIVE",
+          "derived:label": "agent-six",
+          "derived:pane": "w1:p6",
+          "derived:cwd": "/Users/dev/Projects/third-project",
+          "derived:push": "",
+          "status": "live",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        },
+        "memoryBytes": 87277568
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000007",
+        "status": "live",
+        "archived": false,
+        "derived": {
+          "label": "agent-seven",
+          "paneId": "w1:p7",
+          "tabId": "w1:t7",
+          "workspaceId": "w1",
+          "cwd": "/Users/dev/Projects/other-tool",
+          "rowId": "00000000-0000-4000-8000-000000000007",
+          "ended": false
+        },
+        "values": {
+          "derived:state": "working",
+          "derived:screen": "UNKNOWN",
+          "derived:label": "agent-seven",
+          "derived:pane": "w1:p7",
+          "derived:cwd": "/Users/dev/Projects/other-tool",
+          "derived:push": "",
+          "status": "live",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        },
+        "memoryBytes": 87277568
+      },
+      {
+        "rowKind": "session",
+        "rowId": "pane:w1-p8",
+        "status": "live",
+        "archived": false,
+        "derived": {
+          "label": "shell-one",
+          "paneId": "w1:p8",
+          "tabId": "w1:t8",
+          "workspaceId": "w1",
+          "cwd": "/Users/dev/Projects/sample-app",
+          "rowId": "pane:w1-p8",
+          "ended": false
+        },
+        "values": {
+          "derived:state": "no data",
+          "derived:screen": "UNKNOWN",
+          "derived:label": "shell-one",
+          "derived:pane": "w1:p8",
+          "derived:cwd": "/Users/dev/Projects/sample-app",
+          "derived:push": "",
+          "status": "live",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "close": {
+            "enabled": true,
+            "needsConfirm": true,
+            "reason": "blocked · 3 uncommitted files · 10.0 MB"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — stop this pane first"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        },
+        "memoryBytes": 87277568
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000101",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789739098.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-agent-1",
+          "paneId": "w2:p1",
+          "rowId": "00000000-0000-4000-8000-000000000101",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-agent-1",
+          "derived:pane": "w2:p1",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000102",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789744198.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-agent-2",
+          "paneId": "w2:p2",
+          "rowId": "00000000-0000-4000-8000-000000000102",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-agent-2",
+          "derived:pane": "w2:p2",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000103",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789703498.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-agent-3",
+          "paneId": "w2:p3",
+          "rowId": "00000000-0000-4000-8000-000000000103",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-agent-3",
+          "derived:pane": "w2:p3",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000104",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789742698.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-agent-4",
+          "paneId": "w2:p4",
+          "rowId": "00000000-0000-4000-8000-000000000104",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-agent-4",
+          "derived:pane": "w2:p4",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000105",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789658498.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-agent-5",
+          "paneId": "w2:p5",
+          "rowId": "00000000-0000-4000-8000-000000000105",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-agent-5",
+          "derived:pane": "w2:p5",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000106",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789737298.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-agent-6",
+          "paneId": "w2:p6",
+          "rowId": "00000000-0000-4000-8000-000000000106",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-agent-6",
+          "derived:pane": "w2:p6",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000107",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789743898.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-agent-7",
+          "paneId": "w2:p7",
+          "rowId": "00000000-0000-4000-8000-000000000107",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-agent-7",
+          "derived:pane": "w2:p7",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000108",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789684498.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-agent-8",
+          "paneId": "w2:p8",
+          "rowId": "00000000-0000-4000-8000-000000000108",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-agent-8",
+          "derived:pane": "w2:p8",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000109",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789740898.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-agent-9",
+          "paneId": "w2:p9",
+          "rowId": "00000000-0000-4000-8000-000000000109",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-agent-9",
+          "derived:pane": "w2:p9",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000110",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789732498.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-agent-10",
+          "paneId": "w2:p10",
+          "rowId": "00000000-0000-4000-8000-000000000110",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-agent-10",
+          "derived:pane": "w2:p10",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000120",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789636498.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-too-old",
+          "paneId": "w2:p20",
+          "rowId": "00000000-0000-4000-8000-000000000120",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-too-old",
+          "derived:pane": "w2:p20",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000121",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789528498.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-way-too-old",
+          "paneId": "w2:p21",
+          "rowId": "00000000-0000-4000-8000-000000000121",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-way-too-old",
+          "derived:pane": "w2:p21",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000122",
+        "status": "ended",
+        "archived": true,
+        "endedTs": 1789743598.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "ended-archived",
+          "paneId": "w2:p22",
+          "rowId": "00000000-0000-4000-8000-000000000122",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "ended-archived",
+          "derived:pane": "w2:p22",
+          "status": "ended",
+          "archived": true
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "pane:w2-p23",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789743798.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "(no matching herdr pane)",
+          "paneId": "w2-p23",
+          "rowId": "pane:w2-p23",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "(no matching herdr pane)",
+          "derived:pane": "w2-p23",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "pane:w2-p24",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789743798.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "pane:w2-p24",
+          "paneId": "w2:p24",
+          "rowId": "pane:w2-p24",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "pane:w2-p24",
+          "derived:pane": "w2:p24",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "pane:w1-p3",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789744378.0,
+        "endedNote": "ended",
+        "derived": {
+          "label": "agent-three",
+          "paneId": "w1:p3",
+          "rowId": "pane:w1-p3",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "agent-three",
+          "derived:pane": "w1:p3",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      },
+      {
+        "rowKind": "session",
+        "rowId": "00000000-0000-4000-8000-000000000003",
+        "status": "ended",
+        "archived": false,
+        "endedTs": 1789743698.0,
+        "endedNote": "ended · session closed",
+        "derived": {
+          "label": "agent-three-earlier",
+          "paneId": "w2:p26",
+          "rowId": "00000000-0000-4000-8000-000000000003",
+          "ended": true
+        },
+        "values": {
+          "derived:label": "agent-three-earlier",
+          "derived:pane": "w2:p26",
+          "status": "ended",
+          "archived": false
+        },
+        "actions": {
+          "stop": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is gone — nothing to stop"
+          },
+          "close": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: pane is already gone"
+          },
+          "relaunch": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "refused: relaunch is the undo for Stop — pane is gone"
+          },
+          "archive": {
+            "enabled": true,
+            "needsConfirm": false,
+            "reason": "board-only: hides the row, frees nothing, touches no process"
+          },
+          "unarchive": {
+            "enabled": false,
+            "needsConfirm": false,
+            "reason": "not archived — nothing to restore"
+          }
+        }
+      }
+    ]
+  }
+}

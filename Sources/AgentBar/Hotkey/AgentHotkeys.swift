@@ -28,9 +28,15 @@ final class AgentHotkeys {
     )
     private let logger = Logger(subsystem: AgentHotkeys.logSubsystem, category: "GlobalHotkey")
 
-    /// Registers the shortcuts. Returns a plain-English problem when the main
-    /// one could not be taken (the panel then stays reachable by re-launching
-    /// the app); nil on success. A missing backward shortcut is only logged.
+    /// Turns both shortcuts off until the next `register`.
+    func suspend() {
+        service.unregisterAll()
+    }
+
+    /// Registers the shortcuts, replacing any registered before (so it doubles
+    /// as "change shortcut"). Returns a plain-English problem when the main one
+    /// could not be taken (the panel then stays reachable by re-launching the
+    /// app); nil on success. A missing backward shortcut is only logged.
     func register(_ config: AgentHotkeyConfig) -> String? {
         service.onHotKeyPressed = { [weak self] id in
             let direction: CycleDirection = id == Self.backwardHotkeyID ? .backward : .forward
@@ -38,9 +44,9 @@ final class AgentHotkeys {
         }
 
         let forward = service.registerShortcut(id: Self.forwardHotkeyID, keyCode: config.keyCode, modifiers: config.modifiers)
-        let issue = forward.userMessage(appName: "AgentBar").map { "\(config.displayName): \($0)" }
+        let issue = forward.userMessage(appName: "AgentBar")
         if let issue {
-            logger.error("Summon hotkey unavailable: \(issue, privacy: .public). Re-open AgentBar.app to show the panel.")
+            logger.error("Summon hotkey \(config.displayName, privacy: .public) unavailable: \(issue, privacy: .public)")
         }
 
         if let backwardModifiers = config.backwardModifiers {
@@ -49,6 +55,8 @@ final class AgentHotkeys {
                 logger.error("Backward-cycle hotkey unavailable: \(message, privacy: .public)")
             }
         } else {
+            // A previous shortcut's backward twin must not stay live.
+            service.unregisterShortcut(id: Self.backwardHotkeyID)
             logger.info("Backward-cycle hotkey skipped: the main shortcut already includes ⇧")
         }
         return issue

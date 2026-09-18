@@ -34,23 +34,39 @@ struct AgentPanelLayoutTests {
         #expect(AgentPanelMetrics.height(for: stale) - AgentPanelMetrics.height(for: plain) == AgentPanelMetrics.noteHeight)
     }
 
-    @Test func footerNoticeAddsItsHeight() {
+    @Test func theFooterIsAlwaysCountedInTheHeight() {
         let plain = F.presentation(F.snapshot([F.agent("a")]))
-        let withNotice = AgentPanelMetrics.height(for: plain, hasFooterNotice: true)
-        #expect(withNotice - AgentPanelMetrics.height(for: plain) == AgentPanelMetrics.footerHeight)
+        let body = AgentPanelMetrics.searchFieldHeight + AgentPanelMetrics.dividerHeight + AgentPanelMetrics.bodyHeight(for: plain)
+        #expect(AgentPanelMetrics.height(for: plain) == body + AgentPanelMetrics.footerHeight)
     }
 
-    @Test func placementCentresHorizontallyAndKeepsTheTopFixed() {
-        let screen = CGRect(x: 100, y: 0, width: 1_000, height: 800)
+    @Test func rowsBeforeScrollingSetTheListHeightLimit() {
+        let many = F.presentation(F.snapshot((0..<40).map { F.agent("id\($0)") }))
+        let six = AgentPanelMetrics.maxListHeight(visibleRows: 6)
+        let sixteen = AgentPanelMetrics.maxListHeight(visibleRows: 16)
+        #expect(six < AgentPanelMetrics.maxListHeight && AgentPanelMetrics.maxListHeight < sixteen)
+        #expect(AgentPanelMetrics.bodyHeight(for: many, maxListHeight: six) == six)
+        #expect(AgentPanelMetrics.height(for: many, maxListHeight: sixteen) > AgentPanelMetrics.height(for: many, maxListHeight: six))
+    }
+
+    @Test func theDefaultRowsBeforeScrollingKeepTheOriginalListHeight() {
+        #expect(AgentPanelMetrics.maxListHeight == 520)
+        #expect(AgentListSettings.standard.maxVisibleRows == AgentPanelMetrics.defaultMaxVisibleRows)
+    }
+
+    @Test func placementSitsInTheBottomRightAndKeepsTheBottomFixed() {
+        let screen = CGRect(x: 100, y: 50, width: 1_000, height: 800)
         let short = AgentPanelPlacement.frame(size: CGSize(width: 400, height: 200), in: screen)
         let tall = AgentPanelPlacement.frame(size: CGSize(width: 400, height: 500), in: screen)
-        #expect(short.midX == screen.midX)
-        #expect(short.maxY == tall.maxY)
+        #expect(short.maxX == screen.maxX - AgentPanelPlacement.edgeMargin)
+        #expect(short.minY == screen.minY + AgentPanelPlacement.edgeMargin)
+        #expect(short.minY == tall.minY)
     }
 
     @Test func placementNeverExceedsTheScreen() {
         let screen = CGRect(x: 0, y: 0, width: 1_000, height: 500)
         let frame = AgentPanelPlacement.frame(size: CGSize(width: 400, height: 5_000), in: screen)
+        #expect(frame.maxY <= screen.maxY - AgentPanelPlacement.edgeMargin)
         #expect(frame.minY >= screen.minY)
     }
 }

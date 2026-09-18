@@ -118,16 +118,29 @@ struct StatusSnapshotBuilderTests {
 
     private var endedIds: [String] { healthy.agents(in: .ended).map(\.id) }
 
-    @Test func endedRowsAreNewestFirstAndCappedAtEight() {
+    /// What the list shows out of the box: the snapshot's ended rows narrowed to 24h / 8.
+    private var endedIdsWithStandardSettings: [String] {
+        AgentListSettings.standard.applying(to: healthy.agents).filter { $0.section == .ended }.map(\.id)
+    }
+
+    @Test func endedRowsAreNewestFirstAndCappedAtEightByDefault() {
         // Ten rows ended within 24h; the two oldest (by end time) fall off the cap.
         let expected = [2, 7, 4, 9, 1, 6, 10, 3].map { StatusFixtures.sessionId(100 + $0) }
-        #expect(endedIds == expected)
+        #expect(endedIdsWithStandardSettings == expected)
         #expect(EndedAgentMapper.maxEndedCount == 8)
     }
 
-    @Test func endedRowsOutsideTheWindowAreDropped() {
-        #expect(!endedIds.contains(StatusFixtures.sessionId(120)))   // ended 30h ago
-        #expect(!endedIds.contains(StatusFixtures.sessionId(121)))   // ended 60h ago
+    @Test func snapshotCarriesTheDashboardsWholeEndedWindowForTheListToNarrow() {
+        // 30h and 60h old rows are outside the default 24h but inside the 72h the dashboard keeps.
+        #expect(endedIds.contains(StatusFixtures.sessionId(120)))
+        #expect(endedIds.contains(StatusFixtures.sessionId(121)))
+        #expect(endedIds.count == 12)
+        #expect(EndedAgentMapper.Limits.widest.windowSeconds == 72 * 60 * 60)
+    }
+
+    @Test func endedRowsOutsideTheDefaultWindowAreDropped() {
+        #expect(!endedIdsWithStandardSettings.contains(StatusFixtures.sessionId(120)))   // ended 30h ago
+        #expect(!endedIdsWithStandardSettings.contains(StatusFixtures.sessionId(121)))   // ended 60h ago
         #expect(EndedAgentMapper.endedWindowSeconds == 24 * 60 * 60)
     }
 

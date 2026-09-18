@@ -26,7 +26,8 @@ enum StatusSnapshotBuilder {
             rows: boardRows,
             liveAgents: liveAgents,
             liveRowIds: Set(payload.agents.compactMap(\.rowId)),
-            serverNow: serverNow
+            serverNow: serverNow,
+            limits: .widest   // the list narrows it to the user's window and count
         )
         return StatusSnapshot(
             agents: liveAgents + ended,

@@ -18,9 +18,7 @@ struct DashboardEndpoint: Sendable {
     /// Pass `.standard` in the app: that is the `com.trungluong.AgentBar` domain.
     static func configured(defaults: UserDefaults = .standard) -> DashboardEndpoint {
         guard let text = defaults.string(forKey: baseURLDefaultsKey),
-              let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              url.host != nil else {
+              case .valid(let url) = DashboardAddress.validate(text) else {
             return DashboardEndpoint(baseURL: defaultBaseURL)
         }
         return DashboardEndpoint(baseURL: url)

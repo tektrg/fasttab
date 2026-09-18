@@ -20,17 +20,28 @@ final class AgentPanelController {
     /// however that happened (Esc, outside click, a switch).
     var onVisibilityChange: ((Bool) -> Void)?
 
-    init(model: AgentPanelModel, dashboardAddress: String) {
+    /// The gear / ⌘, was used; called after the panel has closed itself.
+    var onOpenSettings: (() -> Void)?
+
+    init(model: AgentPanelModel) {
         self.model = model
         self.panel = Self.makePanel()
-        let view = AgentPanelView(model: model, dashboardAddress: dashboardAddress, onClose: { [weak self] in self?.hide() })
+        let view = AgentPanelView(
+            model: model,
+            onClose: { [weak self] in self?.hide() },
+            onOpenSettings: { [weak self] in
+                self?.hide()
+                self?.onOpenSettings?()
+            }
+        )
         let host = NSHostingController(rootView: view)
         host.sizingOptions = []   // the window frame is ours, not the content's
         panel.contentViewController = host
+        // Publishers emit before the property changes, so use the emitted values.
         sizeSubscription = model.$presentation
-            .combineLatest(model.$footerNotice)
-            .sink { [weak self] presentation, notice in
-                self?.applySize(for: presentation, hasFooterNotice: notice != nil)
+            .combineLatest(model.$listSettings)
+            .sink { [weak self] presentation, listSettings in
+                self?.applySize(for: presentation, listSettings: listSettings)
             }
     }
 
@@ -39,7 +50,7 @@ final class AgentPanelController {
     func show() {
         model.resetForShow()
         placementFrame = (NSScreen.containing(NSEvent.mouseLocation) ?? NSScreen.main)?.visibleFrame ?? placementFrame
-        applySize(for: model.presentation, hasFooterNotice: model.footerNotice != nil)
+        applySize(for: model.presentation, listSettings: model.listSettings)
         panel.makeKeyAndOrderFront(nil)
         startOutsideClickMonitor()
         onVisibilityChange?(true)
@@ -52,8 +63,9 @@ final class AgentPanelController {
         if wasVisible { onVisibilityChange?(false) }
     }
 
-    private func applySize(for presentation: AgentListPresentation, hasFooterNotice: Bool) {
-        let height = AgentPanelMetrics.height(for: presentation, hasFooterNotice: hasFooterNotice)
+    private func applySize(for presentation: AgentListPresentation, listSettings: AgentListSettings) {
+        let maxListHeight = AgentPanelMetrics.maxListHeight(visibleRows: listSettings.maxVisibleRows)
+        let height = AgentPanelMetrics.height(for: presentation, maxListHeight: maxListHeight)
         let size = CGSize(width: AgentPanelMetrics.width, height: height)
         panel.setFrame(AgentPanelPlacement.frame(size: size, in: placementFrame), display: panel.isVisible, animate: false)
     }

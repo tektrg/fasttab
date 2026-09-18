@@ -8,6 +8,19 @@ enum EndedAgentMapper {
     /// At most this many ended rows, newest first.
     static let maxEndedCount = 8
 
+    /// Which ended rows to keep: how recent, and how many.
+    struct Limits: Equatable, Sendable {
+        var windowSeconds: TimeInterval
+        var maxCount: Int
+
+        /// The out-of-the-box list (24h, 8 rows).
+        static let standard = Limits(windowSeconds: endedWindowSeconds, maxCount: maxEndedCount)
+        /// Everything the Settings choices can ask for: the dashboard keeps 72h,
+        /// and the largest "how many" choice is 16. The status snapshot carries
+        /// this much; the list narrows it to the user's choice at display time.
+        static let widest = Limits(windowSeconds: 72 * 60 * 60, maxCount: 16)
+    }
+
     /// Board label for a row whose pane and session name are both gone.
     private static let unnamedRowLabel = "(no matching herdr pane)"
     private static let paneKeyedRowIdPrefix = "pane:"
@@ -16,20 +29,21 @@ enum EndedAgentMapper {
         rows: [DashboardBoardRow],
         liveAgents: [AgentSnapshot],
         liveRowIds: Set<String>,
-        serverNow: TimeInterval
+        serverNow: TimeInterval,
+        limits: Limits = .standard
     ) -> [AgentSnapshot] {
         let livePaneIds = Set(liveAgents.compactMap(\.paneId))
         return rows
             .filter { $0.status == "ended" && $0.archived != true }
             .compactMap { row -> (endedTs: TimeInterval, snapshot: AgentSnapshot)? in
-                guard let endedTs = row.endedTs, serverNow - endedTs <= endedWindowSeconds,
+                guard let endedTs = row.endedTs, serverNow - endedTs <= limits.windowSeconds,
                       let rowId = row.rowId, !liveRowIds.contains(rowId),
                       row.paneId.map({ !livePaneIds.contains($0) }) ?? true,
                       let label = usableLabel(row.label) else { return nil }
                 return (endedTs, snapshot(row: row, rowId: rowId, label: label, endedTs: endedTs, serverNow: serverNow))
             }
             .sorted { $0.endedTs > $1.endedTs }
-            .prefix(maxEndedCount)
+            .prefix(limits.maxCount)
             .map(\.snapshot)
     }
 

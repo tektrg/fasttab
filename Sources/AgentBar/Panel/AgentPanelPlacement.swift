@@ -2,19 +2,18 @@ import CoreGraphics
 
 /// Where the panel sits on a display. Pure.
 enum AgentPanelPlacement {
-    /// Fraction of the display's height left above the panel's top edge.
-    static let topGapFraction: CGFloat = 0.14
+    /// Gap between the panel and the display's right and bottom edges.
+    static let edgeMargin: CGFloat = 20
 
-    /// Horizontally centred, top edge fixed a bit below the top of
-    /// `visibleFrame` (AppKit coordinates, y up) so the panel grows downward
-    /// as rows appear instead of jumping around.
+    /// Bottom-right corner of `visibleFrame` (AppKit coordinates, y up), with the
+    /// bottom edge fixed so the panel grows upward as rows appear instead of
+    /// jumping around.
     static func frame(size: CGSize, in visibleFrame: CGRect) -> CGRect {
-        let top = visibleFrame.maxY - visibleFrame.height * topGapFraction
-        let maxHeight = max(0, top - visibleFrame.minY - 20)
+        let maxHeight = max(0, visibleFrame.height - edgeMargin * 2)
         let height = min(size.height, maxHeight)
         return CGRect(
-            x: visibleFrame.midX - size.width / 2,
-            y: top - height,
+            x: visibleFrame.maxX - edgeMargin - size.width,
+            y: visibleFrame.minY + edgeMargin,
             width: size.width,
             height: height
         )

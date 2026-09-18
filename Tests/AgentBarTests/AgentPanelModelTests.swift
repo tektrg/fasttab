@@ -137,4 +137,36 @@ struct AgentPanelModelTests {
         #expect(model.query.isEmpty)
         #expect(model.selectedAgentID == "n1")
     }
+
+    @Test func newListSettingsReshapeTheOpenListAndKeepTheSelection() {
+        let model = makeModel()
+        model.receive(F.snapshot([
+            F.agent("w1", section: .working),
+            F.agent("shell", section: .idle, hasHookData: false),
+            F.agent("old", section: .ended, secondsInStatus: 5 * 3_600)
+        ]))
+        model.select(agentID: "shell")
+        #expect(model.presentation.agents.map(\.id) == ["w1", "shell", "old"])
+
+        var settings = AgentListSettings.standard
+        settings.showsNonClaudePanes = false
+        settings.maxEndedRows = 0
+        model.apply(settings)
+        #expect(model.presentation.agents.map(\.id) == ["w1"])
+        #expect(model.selectedAgentID == "w1")   // the hidden row's selection moved on
+
+        model.apply(.standard)
+        #expect(model.presentation.agents.map(\.id) == ["w1", "shell", "old"])
+    }
+
+    @Test func switchingDashboardForgetsTheOldFeedAndAwaitsTheNewOne() {
+        let model = makeModel()
+        model.receive(snapshot)
+        model.useDashboard(address: "10.0.0.5:9000")
+        #expect(model.dashboardAddress == "10.0.0.5:9000")
+        #expect(model.presentation.state == .connecting)
+        #expect(model.selectedAgentID == nil)
+        model.receive(snapshot)
+        #expect(model.selectedAgentID == "n1")
+    }
 }

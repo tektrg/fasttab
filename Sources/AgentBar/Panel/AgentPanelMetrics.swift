@@ -10,21 +10,31 @@ enum AgentPanelMetrics {
     static let rowHeight: CGFloat = 46
     static let headerHeight: CGFloat = 30
     static let listVerticalPadding: CGFloat = 8
-    /// Beyond this the list scrolls (about ten rows with the headers).
-    static let maxListHeight: CGFloat = 520
+    /// Rows shown before the list scrolls, out of the box (a user setting).
+    static let defaultMaxVisibleRows = 9
+    /// Section headers assumed when turning a row count into a height: the
+    /// list has up to four sections, three is the usual busy case.
+    private static let typicalHeaderCount = 3
+    /// Default height beyond which the list scrolls (520pt: nine rows + three headers).
+    static let maxListHeight: CGFloat = maxListHeight(visibleRows: defaultMaxVisibleRows)
     static let noteHeight: CGFloat = 30
     static let messageHeight: CGFloat = 170
-    /// The footer notice strip (failed switch / shortcut problem).
+    /// The always-present footer: hints, any notice (failed switch / shortcut
+    /// problem) and the settings button.
     static let footerHeight: CGFloat = 30
 
-    /// Total window height for what is being shown.
-    static func height(for presentation: AgentListPresentation, hasFooterNotice: Bool = false) -> CGFloat {
-        let note = presentation.showsBoardNote ? noteHeight : 0
-        let footer = hasFooterNotice ? footerHeight : 0
-        return searchFieldHeight + dividerHeight + bodyHeight(for: presentation) + note + footer
+    /// The list height beyond which it scrolls, for a "rows before scrolling" choice.
+    static func maxListHeight(visibleRows: Int) -> CGFloat {
+        CGFloat(visibleRows) * rowHeight + CGFloat(typicalHeaderCount) * headerHeight + listVerticalPadding * 2
     }
 
-    static func bodyHeight(for presentation: AgentListPresentation) -> CGFloat {
+    /// Total window height for what is being shown.
+    static func height(for presentation: AgentListPresentation, maxListHeight: CGFloat = maxListHeight) -> CGFloat {
+        let note = presentation.showsBoardNote ? noteHeight : 0
+        return searchFieldHeight + dividerHeight + bodyHeight(for: presentation, maxListHeight: maxListHeight) + note + footerHeight
+    }
+
+    static func bodyHeight(for presentation: AgentListPresentation, maxListHeight: CGFloat = maxListHeight) -> CGFloat {
         switch presentation.state {
         case .list: min(listContentHeight(for: presentation.rows), maxListHeight)
         case .connecting, .feedDown, .noAgents, .noMatches: messageHeight

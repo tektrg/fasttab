@@ -24,6 +24,12 @@ final class AgentPanelModel: ObservableObject {
     /// Strip at the bottom of the panel: a failed switch, else a shortcut problem.
     @Published private(set) var footerNotice: PanelFooterNotice?
 
+    /// What the user chose to show (Settings > List); changes apply at once.
+    @Published private(set) var listSettings: AgentListSettings
+
+    /// Where the status feed is expected, for the "feed down" message.
+    @Published private(set) var dashboardAddress: String
+
     /// Called when the user activates a row (Enter, click, or release after
     /// cycling). The host closes the panel and switches to the agent; frecency
     /// is recorded later, by `recordSwitch`, once the switch worked.
@@ -39,10 +45,14 @@ final class AgentPanelModel: ObservableObject {
 
     init(
         store: FrecencyStore = FrecencyStore(),
+        listSettings: AgentListSettings = .standard,
+        dashboardAddress: String = DashboardEndpoint(baseURL: DashboardEndpoint.defaultBaseURL).displayAddress,
         switchErrorSeconds: TimeInterval = 6,
         now: @escaping () -> Date = { Date() }
     ) {
         self.store = store
+        self.listSettings = listSettings
+        self.dashboardAddress = dashboardAddress
         self.switchErrorSeconds = switchErrorSeconds
         self.now = now
         self.frecency = store.load(now: now())
@@ -52,6 +62,23 @@ final class AgentPanelModel: ObservableObject {
         self.snapshot = snapshot
         rebuild()
         selectedAgentID = AgentSelection.reconciled(selectedAgentID, in: presentation.selectableAgentIDs)
+    }
+
+    /// New list settings: re-derive the list, keeping the selection while it survives.
+    func apply(_ settings: AgentListSettings) {
+        guard settings != listSettings else { return }
+        listSettings = settings
+        rebuild()
+        selectedAgentID = AgentSelection.reconciled(selectedAgentID, in: presentation.selectableAgentIDs)
+    }
+
+    /// The status feed now comes from another dashboard: forget the old feed's
+    /// agents and wait for the new one's first update.
+    func useDashboard(address: String) {
+        dashboardAddress = address
+        snapshot = nil
+        rebuild()
+        selectedAgentID = nil
     }
 
     /// Fresh start for each summon: empty search, first row selected.
@@ -126,7 +153,7 @@ final class AgentPanelModel: ObservableObject {
 
     private func rebuild() {
         presentation = AgentListBuilder.presentation(
-            snapshot: snapshot, query: query, frecency: frecency, now: now()
+            snapshot: snapshot, query: query, frecency: frecency, now: now(), settings: listSettings
         )
     }
 }

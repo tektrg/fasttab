@@ -17,7 +17,8 @@ final class AgentSwitchCoordinator {
     }
 
     private let model: AgentPanelModel
-    private let statusSource: any AgentStatusSource
+    /// Replaced when the user points AgentBar at another dashboard.
+    var statusSource: any AgentStatusSource
     private let panel: PanelControls
 
     init(model: AgentPanelModel, statusSource: any AgentStatusSource, panel: PanelControls) {

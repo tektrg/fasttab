@@ -1,11 +1,12 @@
 import SwiftUI
 
 /// Panel content: search field, then the list or a status message, then the
-/// optional stale-board note. Total height is dictated by `AgentPanelMetrics`.
+/// optional stale-board note and the footer. Total height is dictated by
+/// `AgentPanelMetrics`.
 struct AgentPanelView: View {
     @ObservedObject var model: AgentPanelModel
-    let dashboardAddress: String
     let onClose: () -> Void
+    let onOpenSettings: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,9 +16,7 @@ struct AgentPanelView: View {
             if model.presentation.showsBoardNote {
                 BoardNoteView()
             }
-            if let notice = model.footerNotice {
-                FooterNoticeView(notice: notice)
-            }
+            PanelFooterView(notice: model.footerNotice, onOpenSettings: onOpenSettings)
         }
         .frame(width: AgentPanelMetrics.width)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -35,7 +34,7 @@ struct AgentPanelView: View {
                 fetchedAt: model.snapshot?.fetchedAt ?? Date()
             )
         } else {
-            StatusMessageView(state: model.presentation.state, dashboardAddress: dashboardAddress)
+            StatusMessageView(state: model.presentation.state, dashboardAddress: model.dashboardAddress)
         }
     }
 }

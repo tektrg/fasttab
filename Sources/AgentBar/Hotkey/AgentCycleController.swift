@@ -25,8 +25,8 @@ final class AgentCycleController {
         var commitSelection: @MainActor () -> Void
     }
 
-    private let session: CycleSession
-    private let shortcutModifiers: NSEvent.ModifierFlags
+    private var session: CycleSession
+    private var shortcutModifiers: NSEvent.ModifierFlags
     private let actions: Actions
     private var pendingStep = 1
 
@@ -36,6 +36,20 @@ final class AgentCycleController {
         self.shortcutModifiers = masked
         self.actions = actions
         self.session = CycleSession(isShortcutModifierHeld: { flags in !flags.intersection(masked).isEmpty })
+        attachCallbacks()
+    }
+
+    /// The summon shortcut changed: releasing its (new) modifiers is what commits.
+    /// Drops any cycle in progress, since it belonged to the old shortcut.
+    func updateShortcutModifiers(_ modifiers: NSEvent.ModifierFlags) {
+        let masked = modifiers.intersection(.deviceIndependentFlagsMask)
+        shortcutModifiers = masked
+        session = CycleSession(isShortcutModifierHeld: { flags in !flags.intersection(masked).isEmpty })
+        attachCallbacks()
+    }
+
+    private func attachCallbacks() {
+        let actions = actions
         session.onAdvance = { [unowned self] in actions.moveSelection(pendingStep) }
         session.onCommit = { actions.commitSelection() }
     }

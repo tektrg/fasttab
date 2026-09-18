@@ -13,7 +13,9 @@ enum AgentListFixtures {
         section: AgentSection = .idle,
         statusText: String = "waiting",
         excerpt: String? = nil,
-        canFocus: Bool? = nil
+        canFocus: Bool? = nil,
+        hasHookData: Bool = true,
+        secondsInStatus: TimeInterval? = 120
     ) -> AgentSnapshot {
         AgentSnapshot(
             id: id,
@@ -23,12 +25,12 @@ enum AgentListFixtures {
             paneId: "w1:\(id)",
             section: section,
             statusText: statusText,
-            secondsInStatus: 120,
+            secondsInStatus: secondsInStatus,
             hasUnpushedCommits: false,
             unpushedText: nil,
             promptExcerpt: excerpt,
             canFocus: canFocus ?? (section != .ended),
-            hasHookData: true
+            hasHookData: hasHookData
         )
     }
 
@@ -43,8 +45,9 @@ enum AgentListFixtures {
     static func presentation(
         _ snapshot: StatusSnapshot?,
         query: String = "",
-        frecency: [String: FrecencyEntry] = [:]
+        frecency: [String: FrecencyEntry] = [:],
+        settings: AgentListSettings = .standard
     ) -> AgentListPresentation {
-        AgentListBuilder.presentation(snapshot: snapshot, query: query, frecency: frecency, now: now)
+        AgentListBuilder.presentation(snapshot: snapshot, query: query, frecency: frecency, now: now, settings: settings)
     }
 }

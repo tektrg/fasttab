@@ -131,4 +131,26 @@ struct AgentCycleControllerTests {
         controller.modifiersChanged([.shift])     // ⌥ let go while ⇧ still down
         #expect(panel.commits == [1])
     }
+
+    @Test func aChangedShortcutModifierIsTheOneWhoseReleaseCommits() {
+        let panel = FakePanel()
+        let controller = makeController(panel)      // starts on ⌥
+        controller.updateShortcutModifiers([.control, .command])
+        controller.hotkeyPressed(.forward, currentModifiers: [.control, .command])
+        controller.hotkeyPressed(.forward, currentModifiers: [.control, .command])
+        controller.modifiersChanged([.command])      // ⌃ let go, ⌘ still down: still cycling
+        #expect(panel.commits.isEmpty)
+        controller.modifiersChanged([.option])       // both let go (⌥ is not the shortcut any more)
+        #expect(panel.commits == [1])
+    }
+
+    @Test func changingTheShortcutForgetsAHalfFinishedCycle() {
+        let panel = FakePanel()
+        let controller = makeController(panel)
+        controller.hotkeyPressed(.forward, currentModifiers: held)
+        controller.hotkeyPressed(.forward, currentModifiers: held)
+        controller.updateShortcutModifiers([.command])
+        controller.modifiersChanged(released)
+        #expect(panel.commits.isEmpty)
+    }
 }

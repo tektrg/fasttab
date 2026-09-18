@@ -27,13 +27,21 @@ final class OnboardingWindowController: NSObject {
         controller.view.wantsLayer = true
 
         let win = NSWindow(contentViewController: controller)
+        Self.configureOnboardingWindow(win)
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+        window = win
+    }
+
+    static func configureOnboardingWindow(_ win: NSWindow) {
         win.styleMask = [.titled, .fullSizeContentView]
         win.titleVisibility = .hidden
         win.titlebarAppearsTransparent = true
         win.isOpaque = false
         win.backgroundColor = .clear
         win.hasShadow = true
-        win.isMovableByWindowBackground = true
+        win.isMovable = false
+        win.isMovableByWindowBackground = false
 
         [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].forEach {
             win.standardWindowButton($0)?.isHidden = true
@@ -41,9 +49,6 @@ final class OnboardingWindowController: NSObject {
 
         win.setContentSize(NSSize(width: 440, height: 520))
         win.center()
-        NSApp.activate(ignoringOtherApps: true)
-        win.makeKeyAndOrderFront(nil)
-        window = win
     }
 
     private func dismiss(andOpenBar: Bool) {
@@ -51,7 +56,7 @@ final class OnboardingWindowController: NSObject {
         window = nil
         UserDefaults.standard.set(true, forKey: onboardingCompletedKey)
         if andOpenBar {
-            AppState.shared.showCommandBar()
+            AppState.shared.showCommandBar(openedBy: .mouse)
         }
     }
 }

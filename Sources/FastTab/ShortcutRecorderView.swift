@@ -2,19 +2,39 @@ import SwiftUI
 import AppKit
 
 struct ShortcutRecorderView: View {
-    @ObservedObject var store: ShortcutStore
-    // AppState.isRecordingShortcut is set so the ContentView local monitor
-    // passes all keys through while we're capturing.
-    @EnvironmentObject var appState: AppState
-    /// Shows a gear button that opens the Settings window. Only meaningful
-    /// where this view stands alone in the command bar's helper panel — the
-    /// Settings window itself already has its own way in, so its embedded
-    /// `Section("Shortcut")` call site leaves this off (the default).
+    var displayString: String
+    var onRecord: (UInt16, NSEvent.ModifierFlags, String) -> Void
+    var onClear: (() -> Void)? = nil
     var showsSettingsButton: Bool = false
 
+    @EnvironmentObject var appState: AppState
     @Environment(\.openSettings) private var openSettings
     @State private var isRecording = false
     @State private var monitor: Any?
+
+    init(
+        store: ShortcutStore,
+        showsSettingsButton: Bool = false
+    ) {
+        self.displayString = store.displayString
+        self.onRecord = { keyCode, mods, name in
+            store.update(keyCode: keyCode, modifiers: mods, keyName: name)
+        }
+        self.onClear = nil
+        self.showsSettingsButton = showsSettingsButton
+    }
+
+    init(
+        displayString: String,
+        onRecord: @escaping (UInt16, NSEvent.ModifierFlags, String) -> Void,
+        onClear: (() -> Void)? = nil,
+        showsSettingsButton: Bool = false
+    ) {
+        self.displayString = displayString.isEmpty ? "None" : displayString
+        self.onRecord = onRecord
+        self.onClear = onClear
+        self.showsSettingsButton = showsSettingsButton
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -31,9 +51,9 @@ struct ShortcutRecorderView: View {
             }
 
             Button(action: toggleRecording) {
-                Text(isRecording ? "Press keys…" : store.displayString)
+                Text(isRecording ? "Press keys…" : (displayString.isEmpty ? "None" : displayString))
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(isRecording ? Color.accentColor : Color.primary)
+                    .foregroundStyle(isRecording ? Color.accentColor : (displayString == "None" ? Color.secondary : Color.primary))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
                     .background(
@@ -49,6 +69,16 @@ struct ShortcutRecorderView: View {
                     )
             }
             .buttonStyle(.plain)
+
+            if let onClear, displayString != "None", !isRecording {
+                Button(action: onClear) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear shortcut")
+            }
 
             if isRecording {
                 Text("Esc to cancel")
@@ -75,7 +105,7 @@ struct ShortcutRecorderView: View {
             }
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard ShortcutStore.isValid(modifiers: mods) else { return nil }
-            store.update(keyCode: event.keyCode, modifiers: mods, keyName: ShortcutStore.keyName(for: event))
+            onRecord(event.keyCode, mods, ShortcutStore.keyName(for: event))
             stopRecording()
             return nil
         }

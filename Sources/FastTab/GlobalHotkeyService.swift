@@ -14,7 +14,7 @@ struct HotkeyRegistrationResult {
 
         switch status {
         case OSStatus(eventHotKeyExistsErr):
-            return "Shortcut already registered by FastTab."
+            return "Shortcut already registered by FastTab or another app."
         default:
             return "Shortcut is unavailable. It may be reserved by macOS or another app. (OSStatus \(status))"
         }
@@ -22,18 +22,14 @@ struct HotkeyRegistrationResult {
 }
 
 final class GlobalHotkeyService {
-    var onHotKeyPressed: (() -> Void)?
+    var onHotKeyPressed: ((UInt32) -> Void)?
 
     private var eventHandlerRef: EventHandlerRef?
-    private var hotKeyRef: EventHotKeyRef?
-
-    private let hotKeyID = EventHotKeyID(
-        signature: 0x43424152, // 'CBAR'
-        id: 1
-    )
+    private var registeredHotKeys: [UInt32: EventHotKeyRef] = [:]
+    private let signature: OSType = 0x43424152 // 'CBAR'
 
     deinit {
-        unregisterShortcut()
+        unregisterAll()
 
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
@@ -41,10 +37,11 @@ final class GlobalHotkeyService {
     }
 
     @discardableResult
-    func registerShortcut(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> HotkeyRegistrationResult {
+    func registerShortcut(id: UInt32 = 1, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> HotkeyRegistrationResult {
         installEventHandlerIfNeeded()
-        unregisterShortcut()
+        unregisterShortcut(id: id)
 
+        let hotKeyID = EventHotKeyID(signature: signature, id: id)
         var registeredRef: EventHotKeyRef?
         let status = RegisterEventHotKey(
             UInt32(keyCode),
@@ -56,22 +53,31 @@ final class GlobalHotkeyService {
         )
 
         guard status == noErr, let registeredRef else {
-            hotkeyLogger.error("Failed to register global hotkey. status=\(status)")
+            hotkeyLogger.error("Failed to register global hotkey id=\(id). status=\(status)")
             return HotkeyRegistrationResult(status: status)
         }
 
-        hotKeyRef = registeredRef
-        hotkeyLogger.info("Registered global hotkey. keyCode=\(Int(keyCode)) modifiers=\(modifiers.rawValue)")
+        registeredHotKeys[id] = registeredRef
+        hotkeyLogger.info("Registered global hotkey id=\(id). keyCode=\(Int(keyCode)) modifiers=\(modifiers.rawValue)")
         return HotkeyRegistrationResult(status: status)
     }
 
-    private func unregisterShortcut() {
-        guard let hotKeyRef else { return }
-        let status = UnregisterEventHotKey(hotKeyRef)
+    func unregisterShortcut(id: UInt32 = 1) {
+        guard let ref = registeredHotKeys.removeValue(forKey: id) else { return }
+        let status = UnregisterEventHotKey(ref)
         if status != noErr {
-            hotkeyLogger.error("Failed to unregister previous global hotkey. status=\(status)")
+            hotkeyLogger.error("Failed to unregister global hotkey id=\(id). status=\(status)")
         }
-        self.hotKeyRef = nil
+    }
+
+    func unregisterAll() {
+        for (id, ref) in registeredHotKeys {
+            let status = UnregisterEventHotKey(ref)
+            if status != noErr {
+                hotkeyLogger.error("Failed to unregister global hotkey id=\(id). status=\(status)")
+            }
+        }
+        registeredHotKeys.removeAll()
     }
 
     private func installEventHandlerIfNeeded() {
@@ -121,12 +127,11 @@ final class GlobalHotkeyService {
             return
         }
 
-        guard incomingHotKeyID.signature == hotKeyID.signature,
-              incomingHotKeyID.id == hotKeyID.id else {
+        guard incomingHotKeyID.signature == signature else {
             return
         }
 
-        onHotKeyPressed?()
+        onHotKeyPressed?(incomingHotKeyID.id)
     }
 
     private static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
@@ -134,9 +139,9 @@ final class GlobalHotkeyService {
         var result: UInt32 = 0
 
         if masked.contains(.command) { result |= UInt32(cmdKey) }
-        if masked.contains(.option) { result |= UInt32(optionKey) }
+        if masked.contains(.option)  { result |= UInt32(optionKey) }
         if masked.contains(.control) { result |= UInt32(controlKey) }
-        if masked.contains(.shift) { result |= UInt32(shiftKey) }
+        if masked.contains(.shift)   { result |= UInt32(shiftKey) }
 
         return result
     }

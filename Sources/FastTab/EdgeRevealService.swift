@@ -108,7 +108,7 @@ final class EdgeRevealService: NSObject {
             // Re-check on fire: the dwell only proves the cursor didn't leave,
             // and the bar may have been opened another way meanwhile.
             guard !AppState.shared.isVisible else { return }
-            AppState.shared.showCommandBar(revealStyle: style)
+            AppState.shared.showCommandBar(revealStyle: style, openedBy: .mouse)
         }
         pendingReveal = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.dwellDelay, execute: work)

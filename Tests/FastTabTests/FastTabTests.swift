@@ -110,7 +110,7 @@ import Testing
     #expect(normalizedBrowserWindowName("Shared audio window \u{1F50A}") == "Shared audio window")
 }
 
-@Test func quickOpenVisibleTabsSkipsCurrentFlowActiveTab() async throws {
+@Test func quickOpenVisibleTabsIncludesCurrentFlowActiveTab() async throws {
     let now = Date()
     let activeTab = BrowserSearchResult(
         title: "Active tab",
@@ -137,7 +137,7 @@ import Testing
 
     let visibleTabs = quickOpenVisibleTabs(from: [activeTab, previousTab, olderTab], limit: 2)
 
-    #expect(visibleTabs.map(\.title) == ["Previous tab", "Older tab"])
+    #expect(visibleTabs.map(\.title) == ["Active tab", "Previous tab"])
 }
 
 @Test func quickOpenDisplayStateUsesFifthSlotForShowAllTabs() async throws {
@@ -149,7 +149,7 @@ import Testing
     #expect(state.includesShowAllTabsItem)
 }
 
-@Test func allQuickOpenTabsSortsFullLiveSnapshotByRecencyAndSkipsCurrentFlowTab() async throws {
+@Test func allQuickOpenTabsSortsFullLiveSnapshotByRecencyAndIncludesCurrentFlowTab() async throws {
     let now = Date()
     let activeTab = BrowserSearchResult(
         title: "Current tab",
@@ -176,7 +176,7 @@ import Testing
 
     let tabs = allQuickOpenTabs(from: [activeTab, olderTab, newerTab])
 
-    #expect(tabs.map(\.title) == ["Newer tab", "Older tab"])
+    #expect(tabs.map(\.title) == ["Current tab", "Newer tab", "Older tab"])
 }
 
 @Test func quickOpenDisplayStateShowsAllTabsWhenExpanded() async throws {
@@ -222,6 +222,85 @@ import Testing
 
     #expect(state.results.count == CommandBarLayout.maxQuickOpenItemLimit - 1)
     #expect(state.includesShowAllTabsItem)
+}
+
+@Test func mouseOpenSetsAllTabsWhileShortcutCapsAtQuickOpenLimit() async throws {
+    // Shortcut trigger caps at quick open limit with "Show all tabs..." sentinel
+    let shortcutTrigger = CommandBarOpenTrigger.shortcut
+    #expect(!shortcutTrigger.isMouse)
+    #expect(!shortcutTrigger.shouldExpandAllTabs)
+
+    let tabs = makeQuickOpenTabs(count: 8)
+    let shortcutDisplayState = quickOpenDisplayState(
+        from: tabs,
+        limit: 5,
+        isShowingAllOpenTabs: shortcutTrigger.shouldExpandAllTabs
+    )
+    #expect(shortcutDisplayState.results.count == 4)
+    #expect(shortcutDisplayState.includesShowAllTabsItem)
+
+    // Mouse trigger expands to show all tabs immediately
+    let mouseTrigger = CommandBarOpenTrigger.mouse
+    #expect(mouseTrigger.isMouse)
+    #expect(mouseTrigger.shouldExpandAllTabs)
+
+    let mouseDisplayState = quickOpenDisplayState(
+        from: tabs,
+        limit: 5,
+        isShowingAllOpenTabs: mouseTrigger.shouldExpandAllTabs
+    )
+    #expect(mouseDisplayState.results.count == 8)
+    #expect(!mouseDisplayState.includesShowAllTabsItem)
+}
+
+@Test func openTriggerContextPreservedAcrossViewSwitchAndSearchClear() async throws {
+    let tabs = makeQuickOpenTabs(count: 8)
+
+    // 1. Mouse open flow:
+    // When opened by mouse, wasOpenedByMouse is true, isShowingAllOpenTabs starts true.
+    let mouseWasOpenedByMouse = CommandBarOpenTrigger.mouse.isMouse
+    var mouseIsShowingAllOpenTabs = CommandBarOpenTrigger.mouse.shouldExpandAllTabs
+    #expect(mouseWasOpenedByMouse)
+    #expect(mouseIsShowingAllOpenTabs)
+
+    // Switching views resets isShowingAllOpenTabs to wasOpenedByMouse
+    mouseIsShowingAllOpenTabs = mouseWasOpenedByMouse
+    var displayState = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: mouseIsShowingAllOpenTabs)
+    #expect(displayState.results.count == 8)
+    #expect(!displayState.includesShowAllTabsItem)
+
+    // Typing search sets isShowingAllOpenTabs to false
+    mouseIsShowingAllOpenTabs = false
+    // Clearing search restores isShowingAllOpenTabs = true because wasOpenedByMouse is true
+    if mouseWasOpenedByMouse {
+        mouseIsShowingAllOpenTabs = true
+    }
+    displayState = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: mouseIsShowingAllOpenTabs)
+    #expect(displayState.results.count == 8)
+    #expect(!displayState.includesShowAllTabsItem)
+
+    // 2. Shortcut open flow:
+    // When opened by shortcut, wasOpenedByMouse is false, isShowingAllOpenTabs starts false.
+    let shortcutWasOpenedByMouse = CommandBarOpenTrigger.shortcut.isMouse
+    var shortcutIsShowingAllOpenTabs = CommandBarOpenTrigger.shortcut.shouldExpandAllTabs
+    #expect(!shortcutWasOpenedByMouse)
+    #expect(!shortcutIsShowingAllOpenTabs)
+
+    // Switching views resets isShowingAllOpenTabs to wasOpenedByMouse (false)
+    shortcutIsShowingAllOpenTabs = shortcutWasOpenedByMouse
+    displayState = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: shortcutIsShowingAllOpenTabs)
+    #expect(displayState.results.count == 4)
+    #expect(displayState.includesShowAllTabsItem)
+
+    // Typing search sets isShowingAllOpenTabs to false
+    shortcutIsShowingAllOpenTabs = false
+    // Clearing search keeps isShowingAllOpenTabs = false because wasOpenedByMouse is false
+    if shortcutWasOpenedByMouse {
+        shortcutIsShowingAllOpenTabs = true
+    }
+    displayState = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: shortcutIsShowingAllOpenTabs)
+    #expect(displayState.results.count == 4)
+    #expect(displayState.includesShowAllTabsItem)
 }
 
 @Test func tabRecencyKeyDistinguishesDuplicateURLsByTabSlot() async throws {
@@ -822,7 +901,10 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     let start = Date(timeIntervalSince1970: 1_800_000_000)
     let storage = InMemoryLicenseStorage(trial: TrialRecord(startedAt: start))
     let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient())
-    try await Task.sleep(for: .milliseconds(20))
+    for _ in 0..<50 {
+        if service.snapshot.trial != nil { break }
+        try await Task.sleep(for: .milliseconds(10))
+    }
     #expect(service.snapshot.access == .trial(daysRemaining: 7))
     service.refreshTimeSensitiveState(now: start.addingTimeInterval(7 * 24 * 60 * 60))
     #expect(service.snapshot.access == .expiredTrial)
@@ -836,7 +918,10 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     let startedAt = clock.now
     let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient(), initialLoadTimeout: .milliseconds(20))
     #expect(clock.now - startedAt < .milliseconds(100))
-    try await Task.sleep(for: .milliseconds(60))
+    for _ in 0..<50 {
+        if service.snapshot.lastErrorMessage != nil { break }
+        try await Task.sleep(for: .milliseconds(10))
+    }
     #expect(service.snapshot.lastErrorMessage == "License storage is unavailable.")
     #expect(await storage.saveTrialCount == 0)
 }
@@ -861,10 +946,16 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
         initialLoadTimeout: .milliseconds(20)
     )
 
-    try await Task.sleep(for: .milliseconds(60))
+    for _ in 0..<50 {
+        if service.snapshot.lastErrorMessage != nil { break }
+        try await Task.sleep(for: .milliseconds(10))
+    }
     #expect(service.snapshot.lastErrorMessage == "License storage is unavailable.")
 
-    try await Task.sleep(for: .milliseconds(140))
+    for _ in 0..<50 {
+        if service.snapshot.access == .licensed(.personal) { break }
+        try await Task.sleep(for: .milliseconds(10))
+    }
     #expect(service.snapshot.access == .licensed(.personal))
     #expect(service.snapshot.trial == trial)
     #expect(service.snapshot.license == storedLicense)
@@ -901,7 +992,10 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: client)
     service.validateForLaunch()
     service.validateForLaunch()
-    try await Task.sleep(for: .milliseconds(150))
+    for _ in 0..<50 {
+        if client.validationCount == 1 { break }
+        try await Task.sleep(for: .milliseconds(10))
+    }
     #expect(client.validationCount == 1)
 }
 @MainActor
@@ -944,9 +1038,15 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     let stored = makeStoredLicense(tier: .personal, status: .granted, licensedMajorVersion: 1, lastValidatedAt: .distantPast)
     let storage = InMemoryLicenseStorage(license: stored)
     let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient(validatedLicense: makePolarLicense()))
-    try await Task.sleep(for: .milliseconds(20))
+    for _ in 0..<50 {
+        if service.snapshot.license != nil { break }
+        try await Task.sleep(for: .milliseconds(10))
+    }
     service.validateCachedLicenseIfNeeded(force: true)
-    try await Task.sleep(for: .milliseconds(20))
+    for _ in 0..<50 {
+        if await storage.license?.lastValidatedAt != .distantPast { break }
+        try await Task.sleep(for: .milliseconds(10))
+    }
     #expect(await storage.license?.lastValidatedAt != .distantPast)
 }
 private func makePolarLicense() -> PolarLicenseKey {

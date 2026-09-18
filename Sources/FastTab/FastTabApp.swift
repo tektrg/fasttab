@@ -7,6 +7,14 @@ private let appLogger = Logger(subsystem: "com.trungluong.FastTab", category: "A
 let fastTabCycleShortcutNotification = Notification.Name("FastTabCycleShortcut")
 let fastTabPresentLicenseActivationNotification = Notification.Name("FastTabPresentLicenseActivation")
 
+public enum CommandBarOpenTrigger: Sendable, Equatable {
+    case shortcut
+    case mouse
+
+    public var isMouse: Bool { self == .mouse }
+    public var shouldExpandAllTabs: Bool { self == .mouse }
+}
+
 @MainActor
 class AppState: ObservableObject {
     @Published var isVisible: Bool = false {
@@ -47,8 +55,19 @@ class AppState: ObservableObject {
     }
     @Published var selectedIndex: Int = 0
     @Published var isRecordingShortcut: Bool = false
+    @Published var wasOpenedByHover: Bool = false
+    @Published var wasOpenedByMouse: Bool = false
+    @Published var pendingInitialView: CommandBarView? = nil
     @Published var globalShortcutRegistrationIssue: String?
     let browserService = BrowserTabService()
+
+    func recordTypingActivity() {
+        CommandBarPanelController.shared.recordTypingActivity()
+    }
+
+    func resetTypingActivity() {
+        CommandBarPanelController.shared.resetTypingActivity()
+    }
 
     static let shared = AppState()
     private var cancellables = Set<AnyCancellable>()
@@ -56,6 +75,8 @@ class AppState: ObservableObject {
     private var didHideInitialWindow = false
     private var pendingShowAfterAttach = false
     private var pendingLicenseActivationPresentation = false
+    private var pendingOpenTrigger: CommandBarOpenTrigger = .mouse
+    private var pendingRevealStyle: EdgeRevealStyle?
 
     init() {
         browserService.objectWillChange
@@ -74,6 +95,14 @@ class AppState: ObservableObject {
             .store(in: &cancellables)
 
         browserService.prewarmCaches()
+        MyOrderStore.shared.bindToService(
+            closer: { [weak self] result in self?.browserService.remove(result) },
+            activator: { [weak self] result in self?.browserService.activate(result) },
+            reopener: { [weak self] result in self?.browserService.openViaWebAppRoutingOrNormally(result) },
+            canceller: { [weak self] browser, url in self?.browserService.cancelRecentlyClosedTombstone(browserName: browser, url: url) },
+            tabOrderSyncer: { SyncService.shared.updateTabOrder($0) },
+            pinner: { [weak self] result, pinned in self?.browserService.togglePin(result, pinned: pinned) }
+        )
         SyncService.shared.start()
     }
 
@@ -90,7 +119,12 @@ class AppState: ObservableObject {
 
         if pendingShowAfterAttach {
             pendingShowAfterAttach = false
-            showCommandBar()
+            showCommandBar(
+                revealStyle: pendingRevealStyle,
+                initialView: pendingInitialView,
+                openedBy: pendingOpenTrigger
+            )
+            pendingRevealStyle = nil
         }
     }
 
@@ -113,11 +147,27 @@ class AppState: ObservableObject {
         if next != isVisible { isVisible = next }
     }
 
+    func setOpenTrigger(_ trigger: CommandBarOpenTrigger) {
+        wasOpenedByMouse = trigger.isMouse
+        isShowingAllOpenTabs = trigger.shouldExpandAllTabs
+    }
+
     /// - Parameter revealStyle: non-nil when this open was triggered by the
     ///   notch/edge hover reveal (`EdgeRevealService`), rather than the
     ///   keyboard shortcut or menu-bar icon. Plays a brief grow-from-that-side
     ///   animation instead of appearing instantly.
-    func showCommandBar(revealStyle: EdgeRevealStyle? = nil) {
+    /// - Parameter openedBy: Whether triggered via keyboard shortcut or mouse
+    ///   (hover, menu bar click, dock icon). Mouse opens expand to the full list of tabs;
+    ///   the 5-tab quick-open limit only applies to shortcut opens.
+    func showCommandBar(
+        revealStyle: EdgeRevealStyle? = nil,
+        initialView: CommandBarView? = nil,
+        openedBy: CommandBarOpenTrigger = .mouse
+    ) {
+        pendingInitialView = initialView
+        pendingRevealStyle = revealStyle
+        pendingOpenTrigger = openedBy
+        setOpenTrigger(openedBy)
         LicenseService.shared.refreshTimeSensitiveState()
         SyncService.shared.fetchLatestChanges()
         SentLinkInbox.shared.reloadFromDisk()
@@ -141,9 +191,13 @@ class AppState: ObservableObject {
         // already be in its shrunk presentation state for the first rendered
         // frame, or the bar flashes at full size for a frame before shrinking.
         if let revealStyle {
+            wasOpenedByHover = true
             CommandBarPanelController.shared.playRevealAnimation(from: revealStyle)
         } else {
-            CommandBarPanelController.shared.armShortcutOpenGracePeriod()
+            wasOpenedByHover = false
+            if openedBy == .shortcut {
+                CommandBarPanelController.shared.armShortcutOpenGracePeriod()
+            }
         }
 
         commandWindow.orderFrontRegardless()
@@ -164,19 +218,25 @@ class AppState: ObservableObject {
     func finishHidingAfterDismissAnimation() {
         commandWindow?.orderOut(nil)
         isVisible = false
+        wasOpenedByHover = false
+        wasOpenedByMouse = false
+        isShowingAllOpenTabs = false
+        pendingInitialView = nil
+        pendingRevealStyle = nil
+        pendingOpenTrigger = .mouse
     }
 
-    func toggleCommandBar() {
+    func toggleCommandBar(openedBy: CommandBarOpenTrigger = .mouse) {
         if isVisible {
             hideCommandBar()
         } else {
-            showCommandBar()
+            showCommandBar(openedBy: openedBy)
         }
     }
 
     func requestLicenseActivationPresentation() {
         pendingLicenseActivationPresentation = true
-        showCommandBar()
+        showCommandBar(openedBy: .mouse)
     }
 
     private func presentPendingLicenseActivationIfNeeded() {
@@ -233,6 +293,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        MyOrderStore.shared.flush()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        AppState.shared.showCommandBar(openedBy: .mouse)
+        return true
+    }
+
     // MARK: - CloudKit Push
 
     /// `CKSyncEngine` already registers the CloudKit-side subscription, so
@@ -265,43 +334,102 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupGlobalShortcut() {
         let store = ShortcutStore.shared
 
-        hotkeyService.onHotKeyPressed = { [weak self] in
+        hotkeyService.onHotKeyPressed = { [weak self] hotkeyID in
             Task { @MainActor in
-                self?.handleGlobalShortcut()
+                self?.handleGlobalShortcut(id: hotkeyID)
             }
         }
 
-        applyGlobalShortcut(keyCode: store.keyCode, modifiers: store.modifiers)
+        applyAllShortcuts()
 
-        Publishers.CombineLatest(store.$keyCode, store.$modifiers)
-            .sink { [weak self] keyCode, modifiers in
-                self?.applyGlobalShortcut(keyCode: keyCode, modifiers: modifiers)
+        Publishers.CombineLatest4(store.$keyCode, store.$modifiers, store.$recentsShortcut, store.$myOrderShortcut)
+            .sink { [weak self] _ in
+                self?.applyAllShortcuts()
             }
             .store(in: &cancellables)
 
-        appLogger.info("Global hotkey service registered for shortcut \(store.displayString)")
+        store.$bookmarksShortcut
+            .sink { [weak self] _ in
+                self?.applyAllShortcuts()
+            }
+            .store(in: &cancellables)
+
+        appLogger.info("Global hotkey service registered shortcuts")
     }
 
-    private func applyGlobalShortcut(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
-        let result = hotkeyService.registerShortcut(keyCode: keyCode, modifiers: modifiers)
-        AppState.shared.globalShortcutRegistrationIssue = result.userMessage
+    private func applyAllShortcuts() {
+        let store = ShortcutStore.shared
 
+        // ID 1: Primary shortcut
+        let result = hotkeyService.registerShortcut(id: 1, keyCode: store.keyCode, modifiers: store.modifiers)
+        AppState.shared.globalShortcutRegistrationIssue = result.userMessage
         if let message = result.userMessage {
-            appLogger.error("Global hotkey registration issue: \(message, privacy: .public)")
+            appLogger.error("Primary global hotkey registration issue: \(message, privacy: .public)")
+        }
+
+        // ID 2: Recents
+        if let recents = store.recentsShortcut {
+            hotkeyService.registerShortcut(id: 2, keyCode: recents.keyCode, modifiers: recents.modifierFlags)
+        } else {
+            hotkeyService.unregisterShortcut(id: 2)
+        }
+
+        // ID 3: My Order
+        if let myOrder = store.myOrderShortcut {
+            hotkeyService.registerShortcut(id: 3, keyCode: myOrder.keyCode, modifiers: myOrder.modifierFlags)
+        } else {
+            hotkeyService.unregisterShortcut(id: 3)
+        }
+
+        // ID 4: Bookmarks
+        if let bookmarks = store.bookmarksShortcut {
+            hotkeyService.registerShortcut(id: 4, keyCode: bookmarks.keyCode, modifiers: bookmarks.modifierFlags)
+        } else {
+            hotkeyService.unregisterShortcut(id: 4)
         }
     }
 
-    private func handleGlobalShortcut() {
-        let store = ShortcutStore.shared
+    private func handleGlobalShortcut(id: UInt32) {
         let appState = AppState.shared
-        let shouldCycle = appState.isCommandWindowFrontAndActive
+        let viewStore = CommandBarViewStore.shared
 
-        appLogger.info("Global shortcut \(store.displayString) detected. isVisible=\(appState.isVisible) shouldCycle=\(shouldCycle) state=\(appState.commandWindowDebugState, privacy: .public)")
-
-        if shouldCycle {
-            NotificationCenter.default.post(name: fastTabCycleShortcutNotification, object: nil)
-        } else {
-            appState.showCommandBar()
+        switch id {
+        case 1:
+            let shouldCycle = appState.isCommandWindowFrontAndActive
+            if shouldCycle {
+                NotificationCenter.default.post(name: fastTabCycleShortcutNotification, object: nil)
+            } else {
+                appState.showCommandBar(openedBy: .shortcut)
+            }
+        case 2:
+            if appState.isCommandWindowFrontAndActive && viewStore.activeView == .recents {
+                NotificationCenter.default.post(name: fastTabCycleShortcutNotification, object: nil)
+            } else {
+                viewStore.selectView(.recents)
+                if !appState.isVisible {
+                    appState.showCommandBar(initialView: .recents, openedBy: .shortcut)
+                }
+            }
+        case 3:
+            if appState.isCommandWindowFrontAndActive && viewStore.activeView == .myOrder {
+                NotificationCenter.default.post(name: fastTabCycleShortcutNotification, object: nil)
+            } else {
+                viewStore.selectView(.myOrder)
+                if !appState.isVisible {
+                    appState.showCommandBar(initialView: .myOrder, openedBy: .shortcut)
+                }
+            }
+        case 4:
+            if appState.isCommandWindowFrontAndActive && viewStore.activeView == .bookmarks {
+                NotificationCenter.default.post(name: fastTabCycleShortcutNotification, object: nil)
+            } else {
+                viewStore.selectView(.bookmarks)
+                if !appState.isVisible {
+                    appState.showCommandBar(initialView: .bookmarks, openedBy: .shortcut)
+                }
+            }
+        default:
+            break
         }
     }
 }
@@ -372,7 +500,7 @@ struct FastTabApp: App {
     @ViewBuilder
     private var menuBarContent: some View {
         Button(appState.isVisible ? "Hide FastTab" : "Show FastTab") {
-            appState.toggleCommandBar()
+            appState.toggleCommandBar(openedBy: .mouse)
         }
 
         syncStatusMenuItem
@@ -426,9 +554,17 @@ struct FastTabApp: App {
     }
 }
 
-private final class CommandBarPanel: NSPanel {
+final class CommandBarPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+    override var isMovable: Bool {
+        get { false }
+        set { }
+    }
+    override var isMovableByWindowBackground: Bool {
+        get { false }
+        set { }
+    }
 
     /// AppKit's default behavior pushes any window whose frame reaches into the
     /// menu bar strip back down below it. That silently shrank the full-screen
@@ -463,6 +599,7 @@ private final class CommandBarPanelController: NSObject {
     private var globalMouseMovedMonitor: Any?
     private var localMouseMovedMonitor: Any?
     private var pendingHoverDismiss: DispatchWorkItem?
+    private var lastTypingDate: Date?
     /// Set when the bar opens from the keyboard shortcut/menu-bar icon, i.e.
     /// with no guarantee the cursor is anywhere near the surface. Hover-dismiss
     /// stays fully disarmed until this passes, so a cursor that happens to be
@@ -496,6 +633,21 @@ private final class CommandBarPanelController: NSObject {
         hoverDismissArmDeadline = Date().addingTimeInterval(Self.shortcutOpenGraceDuration)
     }
 
+    func recordTypingActivity() {
+        lastTypingDate = Date()
+        pendingHoverDismiss?.cancel()
+        pendingHoverDismiss = nil
+        if AppState.shared.isVisible, AppState.shared.isSearchTextEmpty {
+            evaluateHoverDismiss()
+        }
+    }
+
+    func resetTypingActivity() {
+        lastTypingDate = nil
+        pendingHoverDismiss?.cancel()
+        pendingHoverDismiss = nil
+    }
+
     private var commandPanel: CommandBarPanel {
         if let panel { return panel }
 
@@ -517,7 +669,8 @@ private final class CommandBarPanelController: NSObject {
         panel.hasShadow = false
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
-        panel.isMovableByWindowBackground = true
+        panel.isMovable = false
+        panel.isMovableByWindowBackground = false
         // AppKit plays its own appear animation for panels (a fade plus a ~2%
         // scale-up about the window's centre). This window is the size of the
         // whole screen, so that 2% is ~12pt of displacement at its edges: the
@@ -642,6 +795,7 @@ private final class CommandBarPanelController: NSObject {
         pendingHoverDismiss?.cancel()
         pendingHoverDismiss = nil
         hoverDismissArmDeadline = nil
+        lastTypingDate = nil
     }
 
     /// Re-checked on every mouse move and every time the search field's
@@ -674,7 +828,8 @@ private final class CommandBarPanelController: NSObject {
             AppState.shared.hideCommandBar()
         }
         pendingHoverDismiss = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverDismissDwell, execute: work)
+        let delay = CommandBarLayout.hoverDismissDelay(lastTypingDate: lastTypingDate)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// Bounds this against the user's *actual* configured row cap
@@ -697,13 +852,16 @@ private final class CommandBarPanelController: NSObject {
         let defaults = UserDefaults.standard
         let rowStyle = ResultRowStyle(rawValue: defaults.string(forKey: CommandBarAppearance.resultRowStyleKey) ?? "") ?? .minimal
         let showFooter = defaults.object(forKey: CommandBarAppearance.helperPanelVisibleKey) as? Bool ?? true
-        let maxRows: Int
-        if AppState.shared.isShowingAllOpenTabs {
-            maxRows = CommandBarLayout.expandedAllTabsMaxRows(for: EdgeRevealStyle.commandBarAnchor, rowStyle: rowStyle, showFooter: showFooter)
-        } else {
-            let limitSetting = defaults.object(forKey: CommandBarAppearance.quickOpenItemLimitKey) as? Int ?? 5
-            maxRows = min(max(limitSetting, CommandBarLayout.minQuickOpenItemLimit), CommandBarLayout.maxQuickOpenItemLimit)
-        }
+        let limitSetting = defaults.object(forKey: CommandBarAppearance.quickOpenItemLimitKey) as? Int ?? 5
+        let maxRows = CommandBarLayout.surfaceMaxRows(
+            view: CommandBarViewStore.shared.activeView,
+            isShowingAllOpenTabs: AppState.shared.isShowingAllOpenTabs,
+            isSearching: false,
+            anchor: EdgeRevealStyle.commandBarAnchor,
+            rowStyle: rowStyle,
+            showFooter: showFooter,
+            quickOpenLimit: limitSetting
+        )
 
         let surface = CommandBarLayout.surfaceFrame(
             in: panel.frame,
@@ -736,6 +894,8 @@ extension NSWindow {
         behavior.remove(.moveToActiveSpace)
         behavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary, .stationary])
         collectionBehavior = behavior
+        isMovable = false
+        isMovableByWindowBackground = false
     }
 
     func fitCommandBarCanvasToVisibleScreen(preferMouseScreen: Bool) {

@@ -5,6 +5,8 @@ struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var launchAtLogin = LaunchAtLoginService.shared
     @ObservedObject private var edgeReveal = EdgeRevealStore.shared
+    @ObservedObject private var myOrderStore = MyOrderStore.shared
+    @ObservedObject private var rowSwipeStore = RowSwipeGestureStore.shared
 
     // The gear icon that opens this window lives in the helper panel, and
     // "Settings…" lives in the menu bar menu — each is the other's fallback.
@@ -68,11 +70,42 @@ struct GeneralSettingsView: View {
                 .pickerStyle(.menu)
 
                 if edgeReveal.style != .off {
-                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab instantly. Runs a background mouse-position listener whenever this isn't Off.")
+                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab directly into My Order. Runs a background mouse-position listener whenever this isn't Off.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+
+            Section("My Order") {
+                Stepper(
+                    value: Binding(
+                        get: { myOrderStore.ghostExpiryDays },
+                        set: { myOrderStore.setGhostExpiryDays($0) }
+                    ),
+                    in: 0...30
+                ) {
+                    HStack {
+                        Text("Ghost expiry")
+                        Spacer()
+                        Text(myOrderStore.ghostExpiryDays == 0 ? "Never" : "\(myOrderStore.ghostExpiryDays) days")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Text("Closed pinned tabs in My Order remain as reopenable ghost rows for this long before being removed. Set to 0 to keep forever.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Gestures") {
+                Toggle("Swipe gestures on rows (Deprecated)", isOn: $rowSwipeStore.isEnabled)
+
+                Text("Swipe left to remove, swipe right to copy link. Deprecated: conflicts with trackpad swipe to switch views. When disabled (default), swiping horizontally anywhere switches tabs.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)

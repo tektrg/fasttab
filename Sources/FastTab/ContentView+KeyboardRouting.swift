@@ -50,6 +50,20 @@ extension ContentView {
         switch items[appState.selectedIndex] {
         case .result(let result):
             activateAndHide(result)
+        case .orderedEntry(let slot):
+            activateOrderedSlot(slot)
+        case .bookmarkRow(let row):
+            switch row {
+            case .folder(let id, _, _, _, _, _):
+                bookmarkTreeStore.toggleFolder(id)
+            case .bookmark(let item, _, let liveTab, _, let isDeleting):
+                guard !isDeleting else { return }
+                if let liveTab {
+                    activateAndHide(liveTab)
+                } else {
+                    activateAndHide(item.asSearchResult)
+                }
+            }
         case .showAllTabs:
             expandAllOpenTabs()
         case .searchTheWeb(let query):
@@ -58,6 +72,21 @@ extension ContentView {
             commitSearchAlias(alias)
         case .searchAliasQuery(let alias, let query):
             activateSearchAlias(alias: alias, query: query)
+        }
+    }
+
+    func activateOrderedSlot(_ slot: OrderedTabSlot) {
+        switch slot.state {
+        case .live:
+            activateAndHide(slot.asSearchResult)
+        case .ghost:
+            dismissCommandBar()
+            myOrderStore.reopenSlot(slot.slotID)
+        case .browserFrozen:
+            if let url = URL(string: slot.url) {
+                NSWorkspace.shared.open(url)
+                dismissCommandBar()
+            }
         }
     }
 
@@ -70,6 +99,9 @@ extension ContentView {
         activeSearchAlias = alias
         consumedAliasKeyword = searchText
         rejectedAliasKeyword = nil
+        // Synchronously notify AppState that search is active so the hover-dismiss
+        // monitor doesn't see a momentary empty-field gap before the view's onChange fires.
+        appState.isSearchTextEmpty = false
         // Clearing the text re-runs `handleSearchTextChange`, which puts the
         // selection back on the search field — correct here, since the user is
         // about to type the query. Enter still reaches the alias: the Enter
@@ -99,6 +131,7 @@ extension ContentView {
             searchText = consumedAliasKeyword
             consumedAliasKeyword = ""
         }
+        appState.isSearchTextEmpty = isSearchEmpty
         appState.selectedIndex = -1
         isSearchFocused = true
     }
@@ -197,6 +230,11 @@ extension ContentView {
     }
 
     private func handleEscapeKey() {
+        if bookmarkTreeStore.armedBookmarkID != nil {
+            bookmarkTreeStore.armedBookmarkID = nil
+            return
+        }
+
         if appState.selectedIndex == -1 {
             appState.hideCommandBar()
             hasCycled = false
@@ -226,10 +264,94 @@ extension ContentView {
             if event.type == .scrollWheel {
                 return handlePointerScrollSwipe(event) ? nil : event
             } else if event.type == .keyDown {
+                if appState.isVisible {
+                    appState.recordTypingActivity()
+                }
                 let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 let userModifiers = flags.intersection([.command, .option, .control, .shift])
 
                 let noModifiers = userModifiers.isEmpty
+
+                // ⌘1/2/3 view switching: must be guarded on isVisible so Settings doesn't swallow them.
+                if appState.isVisible, userModifiers == [.command] {
+                    switch event.keyCode {
+                    case 18:
+                        viewStore.selectView(.recents)
+                        return nil
+                    case 19:
+                        viewStore.selectView(.myOrder)
+                        return nil
+                    case 20:
+                        viewStore.selectView(.bookmarks)
+                        return nil
+                    default:
+                        break
+                    }
+                }
+
+                // ⌘P: toggle pin on selected row (ordered entry or live tab result)
+                if appState.isVisible, userModifiers == [.command], event.keyCode == 35 {
+                    let items = displayedItems
+                    if appState.selectedIndex >= 0, appState.selectedIndex < items.count {
+                        switch items[appState.selectedIndex] {
+                        case .orderedEntry(let slot):
+                            myOrderStore.togglePinSlot(slot.slotID)
+                            return nil
+                        case .result(let result):
+                            if result.type == .tab {
+                                appState.browserService.togglePin(result)
+                                return nil
+                            }
+                        default:
+                            break
+                        }
+                    }
+                }
+
+                // ⌘W: close selected tab (ordered entry, live tab result, or open bookmark tab)
+                if appState.isVisible, userModifiers == [.command], event.keyCode == 13 {
+                    let items = displayedItems
+                    if appState.selectedIndex >= 0, appState.selectedIndex < items.count {
+                        switch items[appState.selectedIndex] {
+                        case .orderedEntry(let slot):
+                            myOrderStore.closeSlot(slot.slotID)
+                            return nil
+                        case .result(let result):
+                            if result.type == .tab {
+                                performRemove(result)
+                                return nil
+                            }
+                        case .bookmarkRow(let row):
+                            if case .bookmark(_, _, let liveTab, _, _) = row, let liveTab {
+                                appState.browserService.remove(liveTab)
+                                return nil
+                            }
+                        default:
+                            break
+                        }
+                    }
+                }
+
+                // ⌥↑/⌥↓: reorder row in My Order
+                if appState.isVisible, userModifiers == [.option], viewStore.activeView == .myOrder, searchText.isEmpty {
+                    if event.keyCode == 126 { // Up arrow
+                        if appState.selectedIndex > 0 {
+                            let fromIdx = appState.selectedIndex
+                            let toIdx = fromIdx - 1
+                            myOrderStore.reorderSlot(from: fromIdx, to: toIdx)
+                            appState.selectedIndex = toIdx
+                            return nil
+                        }
+                    } else if event.keyCode == 125 { // Down arrow
+                        if appState.selectedIndex >= 0, appState.selectedIndex < myOrderStore.slots.count - 1 {
+                            let fromIdx = appState.selectedIndex
+                            let toIdx = fromIdx + 1
+                            myOrderStore.reorderSlot(from: fromIdx, to: toIdx)
+                            appState.selectedIndex = min(toIdx, max(0, myOrderStore.slots.count - 1))
+                            return nil
+                        }
+                    }
+                }
 
                 // Backspace at empty input: step-back into the chip strip,
                 // then delete on the next press. Routed here (not via SwiftUI
@@ -253,6 +375,38 @@ extension ContentView {
                    !scopeChips.isEmpty {
                     handleBackspaceAtEmptyInput()
                     return nil
+                }
+
+                if noModifiers,
+                   event.keyCode == kDeleteKeyCode,
+                   appState.isVisible,
+                   searchText.isEmpty,
+                   appState.selectedIndex >= 0 {
+                    let items = displayedItems
+                    if appState.selectedIndex < items.count {
+                        switch items[appState.selectedIndex] {
+                        case .orderedEntry(let slot):
+                            myOrderStore.closeSlot(slot.slotID)
+                            return nil
+                        case .bookmarkRow(let row):
+                            if case .bookmark(let item, _, _, let isArmed, let isDeleting) = row {
+                                guard !isDeleting else { return nil }
+                                if isArmed {
+                                    deleteBookmarkConfirmed(item)
+                                } else {
+                                    bookmarkTreeStore.armedBookmarkID = item.uniqueKey
+                                }
+                                return nil
+                            }
+                        case .result(let result):
+                            if result.type == .tab {
+                                performRemove(result)
+                                return nil
+                            }
+                        default:
+                            break
+                        }
+                    }
                 }
 
                 // Tab/Space commit a typed keyword into alias mode. Space only
@@ -304,12 +458,26 @@ extension ContentView {
                 }
 
                 if noModifiers && event.keyCode == kLeftArrowKeyCode && appState.selectedIndex >= 0 {
+                    let items = displayedItems
+                    if appState.selectedIndex < items.count, case .bookmarkRow(let row) = items[appState.selectedIndex] {
+                        if case .folder(let id, _, _, let isExpanded, _, _) = row, isExpanded {
+                            bookmarkTreeStore.collapseFolder(id)
+                        }
+                        return nil
+                    }
                     handleKeyboardSwipe(.delete)
                     lastInteractionKey = .leftRight
                     return nil
                 }
 
                 if noModifiers && event.keyCode == kRightArrowKeyCode && appState.selectedIndex >= 0 {
+                    let items = displayedItems
+                    if appState.selectedIndex < items.count, case .bookmarkRow(let row) = items[appState.selectedIndex] {
+                        if case .folder(let id, _, _, let isExpanded, _, _) = row, !isExpanded {
+                            bookmarkTreeStore.expandFolder(id)
+                        }
+                        return nil
+                    }
                     handleKeyboardSwipe(.copy)
                     lastInteractionKey = .leftRight
                     return nil
@@ -335,11 +503,10 @@ extension ContentView {
                 }
             } else if event.type == .flagsChanged && appState.isVisible {
                 let store = ShortcutStore.shared
-                let shortcutMods = store.modifiers.intersection(.deviceIndependentFlagsMask)
                 let currentMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                let modifierReleased = currentMods.intersection(shortcutMods).isEmpty
-                if modifierReleased {
-                    isShortcutModifierHeld = false
+                let isHeld = store.isAnyShortcutModifierHeld(in: currentMods)
+                isShortcutModifierHeld = isHeld
+                if !isHeld {
                     if hasCycled {
                         activateSelectedDisplayItem()
                         hasCycled = false

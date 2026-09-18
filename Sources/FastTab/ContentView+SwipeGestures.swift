@@ -47,6 +47,40 @@ extension ContentView {
 
         let ended = event.phase.contains(.ended) || event.momentumPhase.contains(.ended)
         let cancelled = event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled)
+
+        let canSwipeRow = RowSwipeGestureStore.shared.isEnabled && (hoveredResultID != nil || pointerSwipeResultID != nil)
+
+        if !canSwipeRow {
+            let isMomentum = !event.momentumPhase.isEmpty
+            let deltaX = normalizedHorizontalScrollDelta(from: event)
+            let deltaY = CGFloat(event.scrollingDeltaY)
+            let wasSuppressed = flickDetector.isSuppressed
+
+            if event.phase.contains(.began) {
+                flickDetector.reset()
+            }
+
+            // Only end suppression when momentum has finished or touch ended without momentum
+            let gestureEnded = event.momentumPhase.contains(.ended)
+                || (event.phase.contains(.ended) && !flickDetector.isSuppressed)
+            let gestureCancelled = event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled)
+
+            if let nextView = flickDetector.handleScroll(
+                deltaX: deltaX,
+                deltaY: deltaY,
+                isEnded: gestureEnded || gestureCancelled,
+                isMomentum: isMomentum,
+                currentView: viewStore.activeView
+            ) {
+                viewStore.selectView(nextView)
+                return true
+            }
+            if wasSuppressed || flickDetector.isSuppressed {
+                return true
+            }
+            return false
+        }
+
         if suppressPointerSwipeUntilGestureEnds {
             if ended || cancelled {
                 clearPointerSwipeSuppression()
@@ -172,7 +206,7 @@ extension ContentView {
         isSearchFocused = false
     }
 
-    private func performCopyLink(_ result: BrowserSearchResult) {
+    func performCopyLink(_ result: BrowserSearchResult) {
         appState.browserService.copyLinkToClipboard(result)
         showToastAndDismiss("Link copied")
     }
@@ -194,9 +228,14 @@ extension ContentView {
     /// from; doing both at once would make the outgoing row's transition
     /// play from a snapshot taken *before* `closingResultID` ever matched
     /// it, and the confirmation icon would never render.
-    private func performRemove(_ result: BrowserSearchResult) {
+    func performRemove(_ result: BrowserSearchResult) {
         let resultID = result.id
-        closingResultTask?.cancel()
+        if let pendingID = closingResultID, pendingID != resultID {
+            closingResultTask?.cancel()
+            if let pendingResult = displayedResults.first(where: { $0.id == pendingID }) {
+                appState.browserService.remove(pendingResult)
+            }
+        }
         closingResultID = resultID
         closingResultTask = Task {
             try? await Task.sleep(for: .milliseconds(300))
@@ -217,7 +256,7 @@ extension ContentView {
         }
     }
 
-    private func showToastAndDismiss(_ message: String) {
+    func showToastAndDismiss(_ message: String) {
         toastDismissTask?.cancel()
         withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
             toastMessage = message
@@ -231,6 +270,23 @@ extension ContentView {
                 clearKeyboardSwipe()
                 clearPointerSwipeSuppression()
                 resetPointerSwipe(animated: false)
+                withAnimation(.easeOut(duration: 0.16)) {
+                    toastMessage = nil
+                }
+            }
+        }
+    }
+
+    func showToast(_ message: String, duration: Duration = .milliseconds(1500)) {
+        toastDismissTask?.cancel()
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+            toastMessage = message
+        }
+
+        toastDismissTask = Task {
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
                 withAnimation(.easeOut(duration: 0.16)) {
                     toastMessage = nil
                 }

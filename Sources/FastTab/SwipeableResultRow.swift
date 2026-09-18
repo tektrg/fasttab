@@ -75,6 +75,10 @@ struct SwipeableResultRow: View {
     let keyboardAction: ResultSwipeAction?
     let isConfirmingRemoval: Bool
     let onHoverChange: (Bool) -> Void
+    let onSelect: () -> Void
+    let onCopy: () -> Void
+    let onRemove: () -> Void
+    var onPin: (() -> Void)? = nil
 
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
 
@@ -118,7 +122,12 @@ struct SwipeableResultRow: View {
                 isSelected: isSelected,
                 faviconImage: faviconImage,
                 showWindowName: showWindowName,
-                showProfileName: showProfileName
+                showProfileName: showProfileName,
+                isConfirmingRemoval: isConfirmingRemoval,
+                onSelect: onSelect,
+                onCopy: onCopy,
+                onRemove: onRemove,
+                onPin: onPin
             )
             .offset(x: contentOffset)
             .animation(.spring(response: 0.24, dampingFraction: 0.88), value: keyboardAction)
@@ -226,7 +235,13 @@ private struct ResultRowView: View {
     let faviconImage: NSImage?
     let showWindowName: Bool
     let showProfileName: Bool
+    let isConfirmingRemoval: Bool
+    let onSelect: () -> Void
+    let onCopy: () -> Void
+    let onRemove: () -> Void
+    var onPin: (() -> Void)? = nil
 
+    @State private var isHovering = false
     @Environment(\.isCompactCommandBar) private var isCompact
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
 
@@ -235,33 +250,103 @@ private struct ResultRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            LeadingIconColumn(browserName: result.browserName, fallbackSymbol: result.type.symbolName, faviconImage: faviconImage)
+        Button(action: onSelect) {
+            HStack(spacing: 10) {
+                LeadingIconColumn(
+                    browserName: result.browserName,
+                    fallbackSymbol: result.isGhost ? "clock.arrow.circlepath" : result.type.symbolName,
+                    faviconImage: faviconImage
+                )
                 .frame(maxHeight: .infinity, alignment: .top)
+                .opacity(result.isGhost ? 0.6 : 1.0)
 
-            Group {
-                if rowStyle == .minimal {
-                    minimalContent
-                } else {
-                    fullContent
+                Group {
+                    if rowStyle == .minimal {
+                        minimalContent
+                    } else {
+                        fullContent
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .layoutPriority(1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .padding(.vertical, rowStyle == .minimal ? 8 : 12)
+        .overlay(alignment: .trailing) {
+            RowActionOverlay(
+                isSelected: isSelected,
+                isHovering: isHovering,
+                isVisible: isHovering || isSelected,
+                trailingPadding: 10
+            ) {
+                actionButtonCluster
+            }
         }
         .opacity(result.type.dimmingOpacity)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.17) : Color.clear)
+                .fill(isSelected ? Color.accentColor.opacity(0.17) : (isHovering ? Color.primary.opacity(0.04) : Color.clear))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : .clear, lineWidth: 1)
                 )
         )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .scaleEffect(isSelected ? 1.01 : 1)
         .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
+
+    @ViewBuilder
+    private var actionButtonCluster: some View {
+        HStack(spacing: 4) {
+            if result.type == .tab, let onPin {
+                Button(action: onPin) {
+                    Image(systemName: result.isPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(result.isPinned ? Color.accentColor : .secondary)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(result.isPinned ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+                .help(result.isPinned ? "Unpin tab" : "Pin tab")
+            }
+
+            Button(action: onCopy) {
+                Image(systemName: "link")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(Color.primary.opacity(0.06)))
+            }
+            .buttonStyle(.plain)
+            .help("Copy link")
+
+            Button(action: onRemove) {
+                if isConfirmingRemoval {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.red)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.red.opacity(0.12)))
+                } else {
+                    Image(systemName: "minus")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.primary.opacity(0.06)))
+                }
+            }
+            .buttonStyle(.plain)
+            .help(isConfirmingRemoval ? "Confirm delete" : (result.isGhost ? "Delete ghost tab" : "Remove / close"))
+        }
     }
 
     @ViewBuilder
@@ -284,6 +369,10 @@ private struct ResultRowView: View {
                     .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
                     .lineLimit(isCompact ? 2 : 1)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if result.isGhost {
+                    ghostBadge
+                }
             }
 
             // Wraps at the narrow edge-anchored width, where the type
@@ -387,7 +476,20 @@ private struct ResultRowView: View {
                 .font(.system(size: 13, weight: .semibold, design: .default))
                 .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
                 .lineLimit(1)
+
+            if result.isGhost {
+                ghostBadge
+            }
         }
+    }
+
+    private var ghostBadge: some View {
+        Text("ghost")
+            .font(.system(size: 9, weight: .medium, design: .rounded))
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(Color.secondary.opacity(0.15)))
+            .foregroundStyle(.secondary)
     }
 }
 

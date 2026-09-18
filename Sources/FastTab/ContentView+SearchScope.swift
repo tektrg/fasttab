@@ -341,7 +341,12 @@ extension ContentView {
         searchDebounceTask?.cancel()
         suppressNextSearchChange = true
         searchText = ""
-        isShowingAllOpenTabs = false
+        isShowingAllOpenTabs = appState.wasOpenedByMouse
+        activeSearchAlias = nil
+        consumedAliasKeyword = ""
+        rejectedAliasKeyword = nil
+        appState.isSearchTextEmpty = true
+        appState.resetTypingActivity()
         scopeChips = []
         scopeSuggestionMode = .hidden
         scopeDropdownSelectedIndex = 0
@@ -349,6 +354,18 @@ extension ContentView {
         appState.selectedIndex = -1
         hasCycled = false
         lastInteractionKey = .none
+        if appState.wasOpenedByHover || wasOpenedByHover {
+            viewStore.resetForHoverOpen()
+        } else if let initial = appState.pendingInitialView {
+            viewStore.resetForOpen(to: initial)
+            appState.pendingInitialView = nil
+        } else {
+            viewStore.resetForOpen()
+        }
+        flickDetector.reset()
+        if appState.browserService.hasFetchedOpenTabCount {
+            myOrderStore.reconcile(liveTabs: appState.browserService.cachedLiveTabs)
+        }
         let store = ShortcutStore.shared
         let shortcutMods = store.modifiers.intersection(.deviceIndependentFlagsMask)
         let currentMods = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)

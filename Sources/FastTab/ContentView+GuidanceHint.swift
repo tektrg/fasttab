@@ -9,7 +9,7 @@ extension ContentView {
         let queryEmpty = searchText.isEmpty
         let isShowAllTabsFocused = selectedIndex >= 0
             && displayedItems.indices.contains(selectedIndex)
-            && displayedItems[selectedIndex].result == nil
+            && displayedItems[selectedIndex].isShowAllTabs
 
         // 0: Shortcut modifier still held on fresh open — search bar focused, no cycling yet
         if isShortcutModifierHeld && !hasCycled && isSearchFocused {
@@ -19,30 +19,32 @@ extension ContentView {
             ])
         }
 
-        // 1–2: Pointer swipe past confirm threshold — "release to act"
-        if pointerSwipeResultID != nil, !didConfirmPointerSwipe,
-           abs(pointerSwipeOffset) >= ResultSwipeMetrics.confirmDistance {
-            return pointerSwipeOffset < 0
-                ? GuidanceHint(tokens: [.init(glyph: "←", label: "release to delete")])
-                : GuidanceHint(tokens: [.init(glyph: "→", label: "release to copy link")])
-        }
+        if RowSwipeGestureStore.shared.isEnabled {
+            // 1–2: Pointer swipe past confirm threshold — "release to act"
+            if pointerSwipeResultID != nil, !didConfirmPointerSwipe,
+               abs(pointerSwipeOffset) >= ResultSwipeMetrics.confirmDistance {
+                return pointerSwipeOffset < 0
+                    ? GuidanceHint(tokens: [.init(glyph: "←", label: "release to delete")])
+                    : GuidanceHint(tokens: [.init(glyph: "→", label: "release to copy link")])
+            }
 
-        // 3–4: Pointer swipe resting at reveal distance (gesture ended, not confirmed)
-        if pointerSwipeResultID != nil, pointerSwipeAction != nil,
-           !isPointerSwipeGestureActive, !didConfirmPointerSwipe {
-            return pointerSwipeOffset < 0
-                ? GuidanceHint(tokens: [.init(glyph: "←", label: "swipe more to delete"),
-                                        .init(glyph: "Esc", label: "cancel")])
-                : GuidanceHint(tokens: [.init(glyph: "→", label: "swipe more to copy"),
-                                        .init(glyph: "Esc", label: "cancel")])
-        }
+            // 3–4: Pointer swipe resting at reveal distance (gesture ended, not confirmed)
+            if pointerSwipeResultID != nil, pointerSwipeAction != nil,
+               !isPointerSwipeGestureActive, !didConfirmPointerSwipe {
+                return pointerSwipeOffset < 0
+                    ? GuidanceHint(tokens: [.init(glyph: "←", label: "swipe more to delete"),
+                                            .init(glyph: "Esc", label: "cancel")])
+                    : GuidanceHint(tokens: [.init(glyph: "→", label: "swipe more to copy"),
+                                            .init(glyph: "Esc", label: "cancel")])
+            }
 
-        // 5–6: Pointer swipe in progress, below confirm threshold
-        if pointerSwipeResultID != nil, isPointerSwipeGestureActive,
-           abs(pointerSwipeOffset) > 3 {
-            return pointerSwipeOffset < 0
-                ? GuidanceHint(tokens: [.init(glyph: "←", label: "keep swiping to delete")])
-                : GuidanceHint(tokens: [.init(glyph: "→", label: "keep swiping to copy link")])
+            // 5–6: Pointer swipe in progress, below confirm threshold
+            if pointerSwipeResultID != nil, isPointerSwipeGestureActive,
+               abs(pointerSwipeOffset) > 3 {
+                return pointerSwipeOffset < 0
+                    ? GuidanceHint(tokens: [.init(glyph: "←", label: "keep swiping to delete")])
+                    : GuidanceHint(tokens: [.init(glyph: "→", label: "keep swiping to copy link")])
+            }
         }
 
         // 7: Modifier cycling mode — user is holding modifier and cycling with shortcut key
@@ -107,7 +109,7 @@ extension ContentView {
         }
 
         // 12: Mouse hover over a row, no keyboard result selected
-        if hoveredResultID != nil && !isResultFocused {
+        if hoveredResultID != nil && !isResultFocused && RowSwipeGestureStore.shared.isEnabled {
             return GuidanceHint(tokens: [
                 .init(glyph: "←", label: "swipe to delete"),
                 .init(glyph: "→", label: "swipe to copy")

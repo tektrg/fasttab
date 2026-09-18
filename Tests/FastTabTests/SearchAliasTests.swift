@@ -261,3 +261,60 @@ private func keywordsRow(_ fields: String...) -> String {
     let reloaded = SearchAliasStore(defaults: defaults)
     #expect(reloaded.triggerKeys.isEmpty)
 }
+
+// MARK: - Search Alias Active State & Window Behavior
+
+@Test func searchIsNotEmptyWhenActiveAliasIsSetEvenWithEmptyQuery() {
+    // When a search engine alias (like "jira") is active, the search is NOT empty,
+    // preventing the command bar from auto-dismissing on hover exit while typing.
+    #expect(CommandBarLayout.isSearchActive(searchText: "", hasScopeChips: false, hasActiveAlias: true))
+    #expect(!CommandBarLayout.isSearchEmpty(searchText: "", hasScopeChips: false, hasActiveAlias: true))
+
+    // With query typed
+    #expect(CommandBarLayout.isSearchActive(searchText: "PROJ-123", hasScopeChips: false, hasActiveAlias: true))
+    #expect(!CommandBarLayout.isSearchEmpty(searchText: "PROJ-123", hasScopeChips: false, hasActiveAlias: true))
+
+    // When alias is cleared and text is blank
+    #expect(!CommandBarLayout.isSearchActive(searchText: "", hasScopeChips: false, hasActiveAlias: false))
+    #expect(CommandBarLayout.isSearchEmpty(searchText: "", hasScopeChips: false, hasActiveAlias: false))
+
+    // Scope chips alone keep search active
+    #expect(CommandBarLayout.isSearchActive(searchText: "", hasScopeChips: true, hasActiveAlias: false))
+    #expect(!CommandBarLayout.isSearchEmpty(searchText: "", hasScopeChips: true, hasActiveAlias: false))
+
+    // Regular search text keeps search active
+    #expect(CommandBarLayout.isSearchActive(searchText: "hello", hasScopeChips: false, hasActiveAlias: false))
+    #expect(!CommandBarLayout.isSearchEmpty(searchText: "hello", hasScopeChips: false, hasActiveAlias: false))
+}
+
+@Test func hoverDismissDelayAccountsForRecentTyping() {
+    let now = Date()
+
+    // 1. Untouched bar (no typing at all): quick 0.35s hover dwell
+    let untouchedDelay = CommandBarLayout.hoverDismissDelay(lastTypingDate: nil, now: now)
+    #expect(untouchedDelay == 0.35)
+
+    // 2. Immediate typing (user just pressed a key 0s ago): full 2.0s typing delay
+    let immediateDelay = CommandBarLayout.hoverDismissDelay(lastTypingDate: now, now: now)
+    #expect(immediateDelay == 2.0)
+
+    // 3. Recent typing (0.5s ago): remaining 1.5s delay
+    let halfSecondAgo = now.addingTimeInterval(-0.5)
+    let remainingDelay = CommandBarLayout.hoverDismissDelay(lastTypingDate: halfSecondAgo, now: now)
+    #expect(abs(remainingDelay - 1.5) < 0.001)
+
+    // 4. Stale typing (5s ago, well past 2.0s grace window): falls back to 0.35s dwell
+    let fiveSecondsAgo = now.addingTimeInterval(-5.0)
+    let staleDelay = CommandBarLayout.hoverDismissDelay(lastTypingDate: fiveSecondsAgo, now: now)
+    #expect(staleDelay == 0.35)
+
+    // 5. Typing near expiration (1.9s ago): clamped to at least defaultHoverDismissDwell (0.35s)
+    let nearExpiry = now.addingTimeInterval(-1.9)
+    let clampedDelay = CommandBarLayout.hoverDismissDelay(lastTypingDate: nearExpiry, now: now)
+    #expect(clampedDelay == 0.35)
+
+    // 6. Clock skew (clock moved backwards, lastTypingDate is in the future): clamped via max(0, elapsed) to 2.0s
+    let futureTime = now.addingTimeInterval(5.0)
+    let skewDelay = CommandBarLayout.hoverDismissDelay(lastTypingDate: futureTime, now: now)
+    #expect(skewDelay == 2.0)
+}

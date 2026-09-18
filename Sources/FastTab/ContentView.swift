@@ -7,40 +7,6 @@ private struct SearchHeaderFrameKey: PreferenceKey {
         value = nextValue()
     }
 }
-
-enum CommandBarDisplayItem: Identifiable {
-    case result(BrowserSearchResult)
-    case showAllTabs(count: Int)
-    case searchTheWeb(query: String)
-    /// Offered when the typed text exactly names a search alias but the user
-    /// hasn't committed to it yet — the discoverable half of "type a keyword,
-    /// press Tab". Selecting it commits the alias, it does not open anything.
-    case searchAliasHint(SearchAlias)
-    /// Shown while alias mode is active: the row that actually opens the
-    /// alias's site with whatever has been typed since.
-    case searchAliasQuery(alias: SearchAlias, query: String)
-
-    var id: String {
-        switch self {
-        case .result(let result):
-            return result.id
-        case .showAllTabs:
-            return "command-bar-show-all-tabs"
-        case .searchTheWeb:
-            return "command-bar-search-the-web"
-        case .searchAliasHint:
-            return "command-bar-search-alias-hint"
-        case .searchAliasQuery:
-            return "command-bar-search-alias-query"
-        }
-    }
-
-    var result: BrowserSearchResult? {
-        guard case .result(let result) = self else { return nil }
-        return result
-    }
-}
-
 struct ContentView: View {
     @Environment(\.colorScheme) var colorScheme
     @EnvironmentObject var appState: AppState
@@ -48,6 +14,9 @@ struct ContentView: View {
     @StateObject var updateService = UpdateService.shared
     @ObservedObject var shortcutStore = ShortcutStore.shared
     @ObservedObject var edgeRevealStore = EdgeRevealStore.shared
+    @ObservedObject var viewStore = CommandBarViewStore.shared
+    @ObservedObject var myOrderStore = MyOrderStore.shared
+    @ObservedObject var bookmarkTreeStore = BookmarkTreeStore.shared
     @ObservedObject var revealTrigger = CommandBarRevealTrigger.shared
     @ObservedObject var dismissTrigger = CommandBarDismissTrigger.shared
     /// Reveal progress on the axis growing out of the anchored edge, and on the
@@ -97,12 +66,15 @@ struct ContentView: View {
     @State var isPointerSwipeGestureActive = false
     @State var suppressPointerSwipeUntilGestureEnds = false
     @State var pointerSwipeSuppressionTask: Task<Void, Never>?
+    @State var flickDetector = ViewSwitchFlickDetector()
     @State var isShowingAllOpenTabs = false
     /// True for the lifetime of one open when the bar was revealed by hovering
-    /// the notch/edge (not the keyboard shortcut or menu bar icon). Hover
-    /// reveals skip the preview and show all open tabs immediately; the
-    /// "Show all tabs..." affordance is a shortcut-open-only feature.
+    /// the notch/edge (not the keyboard shortcut or menu bar icon).
     @State var wasOpenedByHover = false
+    /// True for the lifetime of one open when opened via mouse (notch/edge hover,
+    /// menu bar icon, or dock icon). Mouse opens show all open tabs immediately in the switcher
+    /// view; the 5-tab limit and "Show all tabs..." affordance only apply to shortcut opens.
+    @State var wasOpenedByMouse = false
     @AppStorage("guidance.hasDiscoveredSwipe") var hasDiscoveredSwipe: Bool = false
     @State var lastInteractionKey: LastInteractionKey = .none
     /// Measured frame of the SearchHeader in the command-bar coordinate space.
@@ -122,7 +94,7 @@ struct ContentView: View {
     }
 
     var displayedResults: [BrowserSearchResult] {
-        if searchText.isEmpty {
+        if searchText.isEmpty, activeSearchAlias == nil {
             return quickOpenState.results
         }
         return filteredResults
@@ -145,9 +117,19 @@ struct ContentView: View {
         )
     }
 
-    var displayedItems: [CommandBarDisplayItem] {
+    func displayItems(for view: CommandBarView) -> [CommandBarDisplayItem] {
+        if searchText.isEmpty, activeSearchAlias == nil {
+            switch view {
+            case .myOrder:
+                return myOrderStore.slots.map(CommandBarDisplayItem.orderedEntry)
+            case .bookmarks:
+                return bookmarkTreeStore.flattenedRows(liveTabs: appState.browserService.cachedLiveTabs).map(CommandBarDisplayItem.bookmarkRow)
+            case .recents:
+                break
+            }
+        }
         var items = displayedResults.map(CommandBarDisplayItem.result)
-        if searchText.isEmpty, quickOpenState.includesShowAllTabsItem, !wasOpenedByHover {
+        if searchText.isEmpty, activeSearchAlias == nil, quickOpenState.includesShowAllTabsItem {
             items.append(.showAllTabs(count: filteredResults.count))
         }
         if !searchText.isEmpty, filteredResults.isEmpty, activeSearchAlias == nil {
@@ -164,6 +146,10 @@ struct ContentView: View {
             items.append(.searchAliasHint(hintedAlias))
         }
         return items
+    }
+
+    var displayedItems: [CommandBarDisplayItem] {
+        displayItems(for: viewStore.activeView)
     }
 
     /// The alias the current text would commit to on Tab/Space, when alias mode
@@ -203,6 +189,18 @@ struct ContentView: View {
         Int.max
     }
 
+    var isSearchActive: Bool {
+        CommandBarLayout.isSearchActive(
+            searchText: searchText,
+            hasScopeChips: !scopeChips.isEmpty,
+            hasActiveAlias: activeSearchAlias != nil
+        )
+    }
+
+    var isSearchEmpty: Bool {
+        !isSearchActive
+    }
+
     /// Ceiling `resultsSizingRowCount` clamps against: once "Show all tabs" is
     /// expanded, a fixed height ceiling (independent of screen size) so the
     /// panel doesn't grow to fill most of a tall display — see
@@ -210,10 +208,15 @@ struct ContentView: View {
     /// configurable, screen-safe quick-open limit while the search field is
     /// empty, or the fixed live-search row cap.
     var resultsMaxRows: Int {
-        if isShowingAllOpenTabs {
-            return CommandBarLayout.expandedAllTabsMaxRows(for: commandBarAnchor, rowStyle: rowStyle, showFooter: showHelperPanel)
-        }
-        return searchText.isEmpty ? effectiveQuickOpenLimit : Int(CommandBarLayout.visibleResultRows)
+        CommandBarLayout.surfaceMaxRows(
+            view: viewStore.activeView,
+            isShowingAllOpenTabs: isShowingAllOpenTabs,
+            isSearching: isSearchActive,
+            anchor: commandBarAnchor,
+            rowStyle: rowStyle,
+            showFooter: showHelperPanel,
+            quickOpenLimit: effectiveQuickOpenLimit
+        )
     }
 
     var openTabsStatusText: String? {
@@ -259,7 +262,28 @@ struct ContentView: View {
     /// same applies to `handleSearchTextChange`/`handleAppDidBecomeActive`
     /// below: the combined chain of adjacent modifier closures was too much
     /// for the checker even after any single one shrank.
+    private func handleActiveViewChange(proxy: ScrollViewProxy) {
+        isShowingAllOpenTabs = wasOpenedByMouse
+        clearKeyboardSwipe()
+        resetPointerSwipe(animated: false)
+        activeSearchAlias = nil
+        consumedAliasKeyword = ""
+        rejectedAliasKeyword = nil
+        scopeChips = []
+        focusedChipID = nil
+        scopeSuggestionMode = .hidden
+        if !searchText.isEmpty {
+            suppressNextSearchChange = true
+            searchText = ""
+        }
+        appState.selectedIndex = 0
+        scrollResultsToTop(proxy)
+    }
+
     private func handleSelectedIndexChange(proxy: ScrollViewProxy) {
+        if bookmarkTreeStore.armedBookmarkID != nil {
+            bookmarkTreeStore.armedBookmarkID = nil
+        }
         guard !isSearchFocused else { return }
         withAnimation(.easeInOut(duration: 0.14)) {
             scrollSelectedResultIntoView(proxy)
@@ -272,12 +296,17 @@ struct ContentView: View {
             return
         }
 
-        isShowingAllOpenTabs = wasOpenedByHover && searchText.isEmpty
+        if !searchText.isEmpty {
+            isShowingAllOpenTabs = false
+        }
         if searchText.isEmpty {
             // Clearing the field is a fresh start — the earlier rejection of a
             // keyword no longer applies.
             rejectedAliasKeyword = nil
             appState.selectedIndex = -1
+            if wasOpenedByMouse {
+                isShowingAllOpenTabs = true
+            }
         } else {
             appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
         }
@@ -302,8 +331,13 @@ struct ContentView: View {
 
     private func handleCommandBarVisibilityChange(_ visible: Bool, proxy: ScrollViewProxy) {
         if visible {
+            wasOpenedByHover = appState.wasOpenedByHover
+            wasOpenedByMouse = appState.wasOpenedByMouse
             resetForCommandBarOpen()
-            isShowingAllOpenTabs = wasOpenedByHover
+            if wasOpenedByHover {
+                viewStore.resetForHoverOpen()
+            }
+            isShowingAllOpenTabs = wasOpenedByMouse
             triggerFetch()
             DispatchQueue.main.async {
                 isSearchFocused = true
@@ -313,6 +347,8 @@ struct ContentView: View {
             }
         } else {
             wasOpenedByHover = false
+            wasOpenedByMouse = false
+            isShowingAllOpenTabs = false
         }
     }
 
@@ -493,6 +529,9 @@ struct ContentView: View {
                                 .zIndex(100)
                                 .allowsHitTesting(isScopeDropdownVisible)
 
+                            let viewSwitcherSegment: AnyView = AnyView(viewSwitcherSection)
+                            viewSwitcherSegment
+
                             ScrollViewReader { proxy in
                                 // Each modifier is erased to AnyView and split
                                 // into its own statement — stacking all four on
@@ -520,7 +559,13 @@ struct ContentView: View {
                                             handleAppDidBecomeActive(proxy: proxy)
                                         }
                                 )
-                                withAppActiveReceive
+                                let withActiveViewChange: AnyView = AnyView(
+                                    withAppActiveReceive
+                                        .onChange(of: viewStore.activeView) { _, _ in
+                                            handleActiveViewChange(proxy: proxy)
+                                        }
+                                )
+                                withActiveViewChange
                                     .onChange(of: appState.selectedIndex) { _, _ in
                                         handleSelectedIndexChange(proxy: proxy)
                                     }
@@ -659,7 +704,7 @@ struct ContentView: View {
                     isSearchFocused = true
                     setupLocalMonitor()
                     licenseService.validateCachedLicenseIfNeeded()
-                    appState.isSearchTextEmpty = searchText.isEmpty && scopeChips.isEmpty
+                    appState.isSearchTextEmpty = isSearchEmpty
                 }
         )
 
@@ -670,16 +715,21 @@ struct ContentView: View {
         // monitor (an AppKit service with no direct view access — see
         // `CommandBarPanelController.evaluateHoverDismiss`).
         //
-        // A scope chip (e.g. "@Finder") counts as non-empty even when the
-        // text field itself is blank, so the hover-dismiss monitor doesn't
-        // yank the bar out from under an in-progress scoped search.
+        // A scope chip (e.g. "@Finder") or an active search engine alias
+        // (e.g. [Jira]) counts as non-empty even when the text field itself is
+        // blank, so the hover-dismiss monitor doesn't yank the bar out from
+        // under an in-progress scoped search or alias query.
         let afterFieldObservers: AnyView = AnyView(
             afterAppear
-                .onChange(of: searchText) { _, newValue in
-                    appState.isSearchTextEmpty = newValue.isEmpty && scopeChips.isEmpty
+                .onChange(of: searchText) { _, _ in
+                    appState.recordTypingActivity()
+                    appState.isSearchTextEmpty = isSearchEmpty
                 }
-                .onChange(of: scopeChips) { _, newValue in
-                    appState.isSearchTextEmpty = searchText.isEmpty && newValue.isEmpty
+                .onChange(of: scopeChips) { _, _ in
+                    appState.isSearchTextEmpty = isSearchEmpty
+                }
+                .onChange(of: activeSearchAlias) { _, _ in
+                    appState.isSearchTextEmpty = isSearchEmpty
                 }
                 // Same mirror for the "show all tabs" expansion: the hover-dismiss
                 // monitor sizes its outside-box from this (`AppState.isShowingAllOpenTabs`)
@@ -696,11 +746,14 @@ struct ContentView: View {
                     // The reveal trigger only fires for notch/edge hover opens (see
                     // `AppState.showCommandBar(revealStyle:)`), so this is the one
                     // reliable signal that the bar was opened by hover. Record it for
-                    // the session and jump straight to all tabs — the `isShowingAllOpenTabs`
-                    // set here also covers the case where this observer runs after the
-                    // `isVisible` handler's reset on the same open.
+                    // the session, ensure mouse-open full tabs state is active, and
+                    // switch to the hover default view.
                     wasOpenedByHover = true
+                    wasOpenedByMouse = true
                     isShowingAllOpenTabs = true
+                    appState.wasOpenedByMouse = true
+                    appState.isShowingAllOpenTabs = true
+                    viewStore.resetForHoverOpen()
                     playRevealAnimation()
                 }
                 .onChange(of: dismissTrigger.token) { _, _ in
@@ -729,31 +782,47 @@ struct ContentView: View {
             faviconPrefetchDebounceTask?.cancel()
             toastDismissTask?.cancel()
             clearPointerSwipeSuppression()
+            myOrderStore.flush()
             if let monitor = localMonitor {
                 NSEvent.removeMonitor(monitor)
                 localMonitor = nil
             }
         }
         .onChange(of: appState.browserService.results.map(\.id)) {
-            let items = displayedItems
-            if items.isEmpty {
-                appState.selectedIndex = -1
-                isSearchFocused = true
-                clearKeyboardSwipe()
-                resetPointerSwipe(animated: false)
-            } else if searchText.isEmpty {
-                if appState.selectedIndex >= items.count {
-                    appState.selectedIndex = max(0, items.count - 1)
-                    clearKeyboardSwipe()
-                    resetPointerSwipe(animated: false)
-                }
-            } else if appState.selectedIndex < 0 || appState.selectedIndex >= items.count {
-                appState.selectedIndex = 0
+            clampSelectionToDisplayedItems()
+            scheduleFaviconPrefetch(for: displayedResults)
+        }
+        .onChange(of: viewStore.activeView) { _, _ in
+            clampSelectionToDisplayedItems()
+        }
+        .onChange(of: myOrderStore.slots.count) { _, _ in
+            clampSelectionToDisplayedItems()
+        }
+        .onChange(of: bookmarkTreeStore.expandedFolderIDs) { _, _ in
+            clampSelectionToDisplayedItems()
+        }
+        .onChange(of: bookmarkTreeStore.rootFolders) { _, _ in
+            clampSelectionToDisplayedItems()
+        }
+    }
+
+    func clampSelectionToDisplayedItems() {
+        let items = displayedItems
+        if items.isEmpty {
+            appState.selectedIndex = -1
+            isSearchFocused = true
+            clearKeyboardSwipe()
+            resetPointerSwipe(animated: false)
+        } else if searchText.isEmpty {
+            if appState.selectedIndex >= items.count {
+                appState.selectedIndex = max(0, items.count - 1)
                 clearKeyboardSwipe()
                 resetPointerSwipe(animated: false)
             }
-
-            scheduleFaviconPrefetch(for: displayedResults)
+        } else if appState.selectedIndex < 0 || appState.selectedIndex >= items.count {
+            appState.selectedIndex = 0
+            clearKeyboardSwipe()
+            resetPointerSwipe(animated: false)
         }
     }
 
@@ -823,16 +892,6 @@ struct ContentView: View {
         )
     }
 
-    /// How far (as a fraction of the collapsed→full journey) the reveal jumps
-    /// on the very first rendered frame, with no animation at all. Modeled on
-    /// a reference reveal whose panel was already ~40-50% of its final width
-    /// on the very first frame it appeared in — i.e. that first render wasn't
-    /// an eased start, it was a hard cut partway there. A spring alone can't
-    /// reproduce that: even a very stiff one only covers a small fraction of
-    /// the distance in one frame. This constant is that cut point; the springs
-    /// below only have to carry the remaining distance.
-    private static let instantReactionFraction: Double = 0.5
-
     /// Snaps the surface to its shrunk pre-reveal scale, then springs it open
     /// on the next run-loop turn — the window is ordered front synchronously
     /// right after this is armed (`AppState.showCommandBar`), so the first
@@ -842,30 +901,14 @@ struct ContentView: View {
         revealDepthProgress = 0
         revealSpreadProgress = 0
         DispatchQueue.main.async {
-            // Unanimated — must land on its own render pass before the spring
-            // below starts, or SwiftUI coalesces both writes into one commit
-            // and this jump is never actually seen.
-            revealDepthProgress = Self.instantReactionFraction
-            revealSpreadProgress = Self.instantReactionFraction
-            DispatchQueue.main.async {
-                // Two springs, one per axis, carrying the remaining distance
-                // from the instant cut above up to 1. Frame-by-frame, the
-                // reference reveal was visually settled ~380ms after it first
-                // appeared (a last sub-pixel creep landing near 500ms), with a
-                // long decelerating tail and only a hair of overshoot — a
-                // gentle arrival, not a snap-back bounce. `bounce` here is a
-                // touch above the reference so the settle is actually
-                // perceptible rather than mathematically present.
-                //
-                // Depth (out of the edge) settles first; spread (along the
-                // edge) trails it a touch, so the reveal has one shared settle
-                // at the tail rather than both axes landing in lockstep.
-                withAnimation(.spring(duration: 0.38, bounce: 0.15)) {
-                    revealDepthProgress = 1
-                }
-                withAnimation(.spring(duration: 0.44, bounce: 0.12)) {
-                    revealSpreadProgress = 1
-                }
+            // Two springs with damping carry the expansion smoothly from the notch / screen edge to 1:
+            // Depth springs out with a snappy tactile overshoot (~5-7%) and quick damped settle (~260-280ms);
+            // Spread widens along the edge slightly trailing depth so the reveal expands fluidly.
+            withAnimation(CommandBarLayout.revealDepthSpring) {
+                revealDepthProgress = 1
+            }
+            withAnimation(CommandBarLayout.revealSpreadSpring) {
+                revealSpreadProgress = 1
             }
         }
     }

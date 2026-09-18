@@ -22,10 +22,13 @@ enum CommandBarLayout {
     /// the full metadata layout.
     static let minimalWidthFraction: CGFloat = 2.0 / 3.0
 
+    /// Vertical allowance for the view switcher strip (Recents / My Order / Bookmarks).
+    static let viewSwitcherAllowance: CGFloat = 38
+
     /// Everything in the surface other than the results list: search header,
-    /// footer, inter-section spacing, and the surface's own padding. The
-    /// compact (edge) allowance is larger because the footer's hints and status
-    /// text wrap onto extra lines at half width.
+    /// view switcher strip, footer, inter-section spacing, and the surface's
+    /// own padding. The compact (edge) allowance is larger because the footer's
+    /// hints and status text wrap onto extra lines at half width.
     private static let chromeAllowance: CGFloat = 170
     private static let compactChromeAllowance: CGFloat = 200
 
@@ -157,6 +160,74 @@ enum CommandBarLayout {
         let available = expandedAllTabsMaxHeight - allowance - surfaceTopInset(for: anchor)
         let fitting = Int((available / perRow).rounded(.down))
         return max(fitting, minQuickOpenItemLimit)
+    }
+
+    /// Single source of truth for row-cap branching across both SwiftUI view sizing (ContentView)
+    /// and AppKit pointer hit testing (FastTabApp.isCursorOutsideSurface).
+    /// Tall views (My Order & Bookmarks) and the "show all tabs" expansion both resolve to expandedAllTabsMaxRows.
+    static func surfaceMaxRows(
+        view: CommandBarView,
+        isShowingAllOpenTabs: Bool,
+        isSearching: Bool,
+        anchor: EdgeRevealStyle,
+        rowStyle: ResultRowStyle,
+        showFooter: Bool,
+        quickOpenLimit: Int
+    ) -> Int {
+        if view.isTall || isShowingAllOpenTabs {
+            return expandedAllTabsMaxRows(for: anchor, rowStyle: rowStyle, showFooter: showFooter)
+        }
+        if isSearching {
+            return Int(visibleResultRows)
+        }
+        return min(max(quickOpenLimit, minQuickOpenItemLimit), maxQuickOpenItemLimit)
+    }
+
+    /// Single source of truth for whether the command bar has an active search in progress.
+    /// Non-empty when the text field has content, when scope chips (e.g. @Finder) are attached,
+    /// or when a search engine alias (e.g. [Jira]) is active.
+    static func isSearchActive(
+        searchText: String,
+        hasScopeChips: Bool = false,
+        hasActiveAlias: Bool = false
+    ) -> Bool {
+        !searchText.isEmpty || hasScopeChips || hasActiveAlias
+    }
+
+    /// True only when the search field is completely blank, no scope chips exist,
+    /// and no search engine alias is active. Only when empty may the bar auto-collapse on hover exit.
+    static func isSearchEmpty(
+        searchText: String,
+        hasScopeChips: Bool = false,
+        hasActiveAlias: Bool = false
+    ) -> Bool {
+        !isSearchActive(searchText: searchText, hasScopeChips: hasScopeChips, hasActiveAlias: hasActiveAlias)
+    }
+
+    /// Default dwell time before an untouched bar auto-collapses on hover exit.
+    static let defaultHoverDismissDwell: TimeInterval = 0.35
+
+    /// Grace delay before hover-dismiss can collapse the bar after typing activity.
+    /// When the user deletes their query down to empty, gives them time to
+    /// think and type their next query without the bar yanking away mid-thought.
+    static let defaultTypingDismissDelay: TimeInterval = 2.0
+
+    /// Calculates how long to wait before hover-dismiss fires based on recent typing activity.
+    /// If the user was recently typing, extends the delay up to `typingDelay`.
+    /// For an untouched bar (or long-stale typing), returns `hoverDwell`.
+    static func hoverDismissDelay(
+        lastTypingDate: Date?,
+        now: Date = Date(),
+        typingDelay: TimeInterval = defaultTypingDismissDelay,
+        hoverDwell: TimeInterval = defaultHoverDismissDwell
+    ) -> TimeInterval {
+        if let lastTypingDate {
+            let elapsed = max(0, now.timeIntervalSince(lastTypingDate))
+            if elapsed < typingDelay {
+                return max(hoverDwell, typingDelay - elapsed)
+            }
+        }
+        return hoverDwell
     }
 
     static func isCompact(_ anchor: EdgeRevealStyle) -> Bool {
@@ -394,14 +465,17 @@ enum CommandBarLayout {
         start + (1 - start) * progress
     }
 
+    /// Spring kinematics for the reveal animation when emerging from the notch or screen edge.
+    /// Tuned for a fast, responsive entrance with tactile overshoot (~5-7%) and a quick damped settle (~260-280ms).
+    static let revealDepthSpring: Animation = .spring(response: 0.28, dampingFraction: 0.74)
+    static let revealSpreadSpring: Animation = .spring(response: 0.32, dampingFraction: 0.78)
+
     /// Progress at which the content starts fading in, and the one at which it
-    /// is fully opaque. The lower bound is `ContentView.instantReactionFraction`
-    /// — the panel's very first rendered frame lands there, so the content is
-    /// still fully transparent at that instant and the shell arrives on its own.
+    /// is fully opaque.
     /// The upper bound is short of 1 so the fade finishes while the panel is
     /// still growing, leaving the spring's settle to play out on already-solid
     /// content rather than on something still resolving.
-    static let revealContentFadeRange: ClosedRange<Double> = 0.5...0.85
+    static let revealContentFadeRange: ClosedRange<Double> = 0.35...0.85
 
     /// Content opacity for a given reveal progress. Applied to what's *inside*
     /// the surface only, never the surface's own background: fading the whole
@@ -422,12 +496,8 @@ enum CommandBarLayout {
     }
 
     /// Progress below which the surface itself (background included, not just
-    /// its content) starts fading out. Only the collapse ever travels through
-    /// this band: the reveal's first rendered frame lands at
-    /// `ContentView.instantReactionFraction`, well above it, so the panel still
-    /// appears fully opaque and nothing fades *in*. One ramp therefore serves
-    /// both directions without needing to know which one is running.
-    static let revealSurfaceFadeCeiling: Double = 0.35
+    /// its content) starts fading out.
+    static let revealSurfaceFadeCeiling: Double = 0.25
 
     /// Opacity of the whole surface — the shell, not just what's inside it (see
     /// `revealContentOpacity` for that). Exists to soften the end of the

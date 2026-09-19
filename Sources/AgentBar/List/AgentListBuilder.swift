@@ -2,15 +2,16 @@ import Foundation
 import CommandBarKit
 
 /// Turns the latest status snapshot into the list the panel shows: state
-/// selection, the user's list settings, search filtering, section grouping
-/// and ranking. Pure.
+/// selection, parking (`TriageState`), the user's list settings, search
+/// filtering, section grouping and ranking. Pure.
 enum AgentListBuilder {
     static func presentation(
         snapshot: StatusSnapshot?,
         query: String,
         frecency: [String: FrecencyEntry],
         now: Date,
-        settings: AgentListSettings = .standard
+        settings: AgentListSettings = .standard,
+        triage: TriageState = .empty
     ) -> AgentListPresentation {
         guard let snapshot else { return .connecting }
 
@@ -19,7 +20,7 @@ enum AgentListBuilder {
         }
 
         let note = !snapshot.boardIsCurrent
-        let shown = settings.applying(to: snapshot.agents)
+        let shown = settings.applying(to: triage.applying(to: snapshot.agents))
         guard !shown.isEmpty else {
             return AgentListPresentation(state: .noAgents, rows: [], showsBoardNote: note)
         }

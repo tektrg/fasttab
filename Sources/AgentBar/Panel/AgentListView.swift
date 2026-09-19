@@ -29,7 +29,15 @@ struct AgentListView: View {
         case .header(let section):
             SectionHeaderView(section: section)
         case .agent(let agent):
-            AgentRowView(agent: agent, isSelected: model.selectedAgentID == agent.id, fetchedAt: fetchedAt)
+            let isSelected = model.selectedAgentID == agent.id
+            AgentRowView(
+                agent: agent,
+                isSelected: isSelected,
+                fetchedAt: fetchedAt,
+                actionState: model.rowActionStates[agent.id],
+                highlightedButton: isSelected ? model.highlightedButton : nil,
+                onPress: { model.press($0, on: agent.id) }
+            )
                 .onHover { inside in
                     if inside { model.select(agentID: agent.id) }
                 }

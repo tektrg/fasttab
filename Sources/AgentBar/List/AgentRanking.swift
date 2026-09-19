@@ -3,7 +3,7 @@ import CommandBarKit
 
 /// Order of agents inside one section.
 enum AgentRanking {
-    /// - Working / Idle: higher frecency (the user's own past switches, keyed by
+    /// - Working / Parked: higher frecency (the user's own past switches, keyed by
     ///   agent id) first; ties, including every never-visited agent, keep the
     ///   status client's order.
     /// - Needs you: the client's order is urgency, and a snapshot does not
@@ -19,7 +19,7 @@ enum AgentRanking {
         switch section {
         case .needsYou, .ended:
             return agents
-        case .working, .idle:
+        case .working, .parked:
             return agents.enumerated()
                 .map { (index: $0.offset, agent: $0.element, score: score(for: $0.element, frecency, now)) }
                 .sorted { $0.score != $1.score ? $0.score > $1.score : $0.index < $1.index }

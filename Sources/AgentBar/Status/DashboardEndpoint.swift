@@ -11,6 +11,12 @@ struct DashboardEndpoint: Sendable {
     /// The server's own read of a wedged pane gives up at 15s; wait a bit longer.
     static let paneScreenTimeoutSeconds: TimeInterval = 20
     static let requestTimeoutSeconds: TimeInterval = 10
+    /// Stop gives the agent's processes a grace period before killing them.
+    static let sessionActionTimeoutSeconds: TimeInterval = 30
+    /// The dashboard's accident guard: only the product owner's clicks may stop
+    /// or close (`PO_ACTOR` in chief_dashboard_actions.py). AgentBar acts only
+    /// on the user's own click, so it speaks as that actor.
+    static let sessionActionActor = "po"
 
     let baseURL: URL
 
@@ -45,6 +51,19 @@ struct DashboardEndpoint: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["paneId": paneId])
+        return request
+    }
+
+    /// `POST /api/session/stop|close`. `confirmed` is sent only when the user
+    /// pressed the confirm step, and only then (absent means "not confirmed").
+    func sessionActionRequest(_ kind: SessionActionKind, rowId: String, confirmed: Bool) -> URLRequest {
+        var request = request(path: "/api/session/\(kind.rawValue)")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.sessionActionTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["rowId": rowId, "actor": Self.sessionActionActor]
+        if confirmed { body["confirm"] = true }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request
     }
 

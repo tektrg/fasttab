@@ -96,7 +96,7 @@ struct DashboardStatusSourceTests {
         await source.stop()
         #expect(gotSnapshot)
         let snapshot = collector.snapshots.first { $0.health == .ok }
-        #expect(snapshot?.agents(in: .needsYou).count == 2)
+        #expect(snapshot?.agents(in: .needsYou).count == 5)   // two real prompts + three finished
         #expect(snapshot?.agents(in: .ended).count == 12)   // the whole 72h; the list narrows it to the user's choice
     }
 

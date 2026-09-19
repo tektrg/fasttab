@@ -12,7 +12,9 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     let cwd: String?
     /// herdr pane id, e.g. "w6:pX". Nil for ended rows that never had one.
     let paneId: String?
-    let section: AgentSection
+    /// Live agents arrive as `.needsYou` or `.working`; Park moves a needs-you
+    /// row to `.parked` (`TriageState.applying`).
+    private(set) var section: AgentSection
     /// Short, single-line description of what the agent is doing / asking.
     let statusText: String
     /// Seconds the agent has been in its current status, as of the server's
@@ -29,4 +31,17 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// False for non-Claude panes (plain shells, other CLIs): no hook data,
     /// so their section is a best guess.
     let hasHookData: Bool
+    /// The dashboard's row id (the session id): what stop/close are addressed to.
+    /// Nil when the dashboard gave none.
+    var rowId: String? = nil
+    /// Server-resolved Stop/Close availability. On an ended row, Close is
+    /// enabled while the stopped agent's pane is still open.
+    var actions: AgentActions = .none
+
+    /// The same agent shown under another section.
+    func placed(in newSection: AgentSection) -> AgentSnapshot {
+        var copy = self
+        copy.section = newSection
+        return copy
+    }
 }

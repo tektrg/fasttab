@@ -13,6 +13,7 @@ private final class ScreenFakeSource: AgentStatusSource, @unchecked Sendable {
     var pendingCount: Int { lock.withLock { pending.count } }
 
     func focus(paneId: String) async -> FocusResult { .success }
+    func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome { .failed("unused") }
 
     func paneScreen(paneId: String) async -> PaneScreenResult {
         await withCheckedContinuation { continuation in

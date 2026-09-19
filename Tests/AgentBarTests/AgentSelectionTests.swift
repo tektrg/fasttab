@@ -43,4 +43,11 @@ struct AgentSelectionTests {
         #expect(AgentSelection.moved(from: "n1", by: 1, in: selectable) == "w1")
         #expect(AgentSelection.moved(from: "w1", by: 1, in: selectable) == "n1")
     }
+
+    @Test func neighbourIsTheNextRowElseThePreviousElseNothing() {
+        #expect(AgentSelection.neighbour(of: "a", in: ["a", "b", "c"]) == "b")
+        #expect(AgentSelection.neighbour(of: "c", in: ["a", "b", "c"]) == "b")
+        #expect(AgentSelection.neighbour(of: "a", in: ["a"]) == nil)
+        #expect(AgentSelection.neighbour(of: "x", in: ["a", "b"]) == nil)
+    }
 }

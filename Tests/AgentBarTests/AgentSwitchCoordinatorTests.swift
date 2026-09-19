@@ -16,6 +16,7 @@ struct AgentSwitchCoordinatorTests {
             return focusResult
         }
         func paneScreen(paneId: String) async -> PaneScreenResult { .failure("unused") }
+        func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome { .failed("unused") }
     }
 
     @MainActor private final class PanelSpy {
@@ -99,7 +100,7 @@ struct AgentSwitchCoordinatorTests {
     @Test func anAgentWithoutAPaneNeverCallsTheSource() async {
         let rig = makeRig()
         let paneless = AgentSnapshot(
-            id: "x", label: "x", projectName: nil, cwd: nil, paneId: nil, section: .idle, statusText: "",
+            id: "x", label: "x", projectName: nil, cwd: nil, paneId: nil, section: .needsYou, statusText: "",
             secondsInStatus: nil, hasUnpushedCommits: false, unpushedText: nil, promptExcerpt: nil,
             canFocus: true, hasHookData: true)
         await rig.coordinator.switchTo(paneless)

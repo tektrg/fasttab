@@ -10,12 +10,13 @@ enum AgentListFixtures {
         _ id: String,
         label: String? = nil,
         project: String? = nil,
-        section: AgentSection = .idle,
+        section: AgentSection = .needsYou,
         statusText: String = "waiting",
         excerpt: String? = nil,
         canFocus: Bool? = nil,
         hasHookData: Bool = true,
-        secondsInStatus: TimeInterval? = 120
+        secondsInStatus: TimeInterval? = 120,
+        actions: AgentActions = .unknown
     ) -> AgentSnapshot {
         AgentSnapshot(
             id: id,
@@ -30,7 +31,9 @@ enum AgentListFixtures {
             unpushedText: nil,
             promptExcerpt: excerpt,
             canFocus: canFocus ?? (section != .ended),
-            hasHookData: hasHookData
+            hasHookData: hasHookData,
+            rowId: id,
+            actions: section == .working ? .none : actions
         )
     }
 

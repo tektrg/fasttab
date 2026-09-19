@@ -8,7 +8,7 @@ struct AgentListBuilderTests {
     private let mixed = F.snapshot([
         F.agent("a1", section: .needsYou),
         F.agent("a2", section: .working),
-        F.agent("a3", section: .idle),
+        F.agent("a3", section: .parked),
         F.agent("a4", section: .ended)
     ])
 
@@ -96,9 +96,46 @@ struct AgentListBuilderTests {
         let snapshot = F.snapshot([
             F.agent("x1", label: "alpha", section: .needsYou),
             F.agent("x2", label: "beta", section: .working),
-            F.agent("x3", label: "alpha two", section: .idle)
+            F.agent("x3", label: "alpha two", section: .parked)
         ])
         let rows = F.presentation(snapshot, query: "alpha").rows
         #expect(rows.map(\.id) == ["section-0", "agent-x1", "section-2", "agent-x3"])
+    }
+
+    // MARK: - Needs you / Working / Parked / Ended
+
+    @Test func sectionOrderIsNeedsYouWorkingParkedEnded() {
+        let snapshot = F.snapshot([
+            F.agent("e", section: .ended), F.agent("p", section: .parked),
+            F.agent("w", section: .working), F.agent("n", section: .needsYou)
+        ])
+        #expect(F.presentation(snapshot).agents.map(\.id) == ["n", "w", "p", "e"])
+        #expect(F.presentation(snapshot).rows.compactMap { row -> String? in
+            if case .header(let section) = row { return section.title }
+            return nil
+        } == ["Needs you", "Working", "Parked", "Ended"])
+    }
+
+    @Test func parkedAgentsAreAppliedFromTheTriageStateBelowWorking() {
+        var triage = TriageState.empty
+        triage.park("n2")
+        let snapshot = F.snapshot([F.agent("n1", section: .needsYou), F.agent("n2", section: .needsYou), F.agent("w", section: .working)])
+        let presentation = AgentListBuilder.presentation(
+            snapshot: snapshot, query: "", frecency: [:], now: F.now, settings: .standard, triage: triage
+        )
+        #expect(presentation.agents.map(\.id) == ["n1", "w", "n2"])
+        #expect(presentation.agents.last?.section == .parked)
+    }
+
+    @Test func searchReachesParkedAgentsToo() {
+        var triage = TriageState.empty
+        triage.park("p1")
+        let snapshot = F.snapshot([
+            F.agent("p1", label: "billing fix", section: .needsYou), F.agent("n1", label: "docs", section: .needsYou)
+        ])
+        let presentation = AgentListBuilder.presentation(
+            snapshot: snapshot, query: "billing", frecency: [:], now: F.now, settings: .standard, triage: triage
+        )
+        #expect(presentation.rows.map(\.id) == ["section-2", "agent-p1"])
     }
 }

@@ -16,9 +16,10 @@ struct StatusSnapshotBuilderTests {
 
     @Test func liveAgentsLandInTheRightSectionsInDisplayOrder() {
         func labels(_ section: AgentSection) -> [String] { healthy.agents(in: section).map(\.label) }
-        #expect(labels(.needsYou) == ["agent-one", "agent-two"])
+        // Real prompts first, then agents that merely finished, server order kept.
+        #expect(labels(.needsYou) == ["agent-one", "agent-two", "agent-four", "agent-five", "shell-one"])
         #expect(labels(.working) == ["agent-three", "agent-six", "agent-seven"])
-        #expect(labels(.idle) == ["agent-four", "agent-five", "shell-one"])
+        #expect(labels(.parked).isEmpty)   // parking is the user's, never the feed's
         #expect(healthy.agents.map(\.section) == healthy.agents.map(\.section).sorted())
     }
 
@@ -37,7 +38,7 @@ struct StatusSnapshotBuilderTests {
             },
             fetchedAt: StatusFixtures.serverNow
         )
-        #expect(withoutList.agents(in: .needsYou).map(\.label) == ["agent-one", "agent-two"])
+        #expect(withoutList.agents(in: .needsYou).map(\.label).prefix(2) == ["agent-one", "agent-two"])
     }
 
     @Test func dashboardNeedsYouEntryFlagsAnAgentWhoseScreenIsUnreadable() throws {
@@ -58,13 +59,19 @@ struct StatusSnapshotBuilderTests {
         #expect(snapshot.agent(labelled: "agent-five")?.secondsInStatus == 60.0)
     }
 
-    @Test func hookBlockedButScreenWaitingDoesNotNeedYou() {
-        #expect(healthy.agent(labelled: "agent-five")?.section == .idle)
+    @Test func finishedAgentWithoutAPromptIsStillNeedsYouButNotFirst() throws {
+        // hook says blocked, screen says waiting: no real prompt, yet not working either.
+        let finished = try #require(healthy.agent(labelled: "agent-five"))
+        #expect(finished.section == .needsYou)
+        let needsYouLabels = healthy.agents(in: .needsYou).map(\.label)
+        let finishedIndex = try #require(needsYouLabels.firstIndex(of: "agent-five"))
+        let promptIndex = try #require(needsYouLabels.firstIndex(of: "agent-two"))
+        #expect(finishedIndex > promptIndex)
     }
 
-    @Test func nonClaudePaneHasNoHookDataAndIsIdle() throws {
+    @Test func nonClaudePaneHasNoHookDataAndNeedsYou() throws {
         let shell = try #require(healthy.agent(labelled: "shell-one"))
-        #expect(shell.section == .idle)
+        #expect(shell.section == .needsYou)
         #expect(!shell.hasHookData)
         #expect(shell.secondsInStatus == nil)
         #expect(shell.id == "w1:p8")   // no session id: falls back to the pane id
@@ -170,6 +177,7 @@ struct StatusSnapshotBuilderTests {
         #expect(!snapshot.boardIsCurrent)
         #expect(snapshot.agents(in: .ended).isEmpty)
         #expect(snapshot.agents.allSatisfy { !$0.hasUnpushedCommits })
-        #expect(snapshot.agents(in: .needsYou).count == 2)   // live statuses are unaffected
+        #expect(snapshot.agents(in: .needsYou).count == 5)   // live statuses are unaffected
+        #expect(snapshot.agents(in: .working).count == 3)
     }
 }

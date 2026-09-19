@@ -74,7 +74,7 @@ struct AgentListSettingsTests {
     }
 
     @Test func liveAgentsAreNotAffectedByTheEndedChoices() {
-        let live = [F.agent("n", section: .needsYou), F.agent("w", section: .working), F.agent("i", section: .idle)]
+        let live = [F.agent("n", section: .needsYou), F.agent("w", section: .working), F.agent("i", section: .parked)]
         var settings = AgentListSettings.standard
         settings.maxEndedRows = 0
         settings.endedWindowHours = 1

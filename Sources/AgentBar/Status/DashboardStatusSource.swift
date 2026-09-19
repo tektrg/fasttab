@@ -84,6 +84,22 @@ actor DashboardStatusSource: AgentStatusSource {
         }
     }
 
+    func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome {
+        do {
+            let request = endpoint.sessionActionRequest(kind, rowId: rowId, confirmed: confirmed)
+            let (body, _) = try await transport.response(for: request)
+            let reply = try JSONDecoder().decode(DashboardSessionActionResponse.self, from: body)
+            return reply.outcome ?? .failed("The dashboard refused to \(kind.verb) that agent.")
+        } catch is DecodingError {
+            return .failed("The dashboard sent an unreadable reply. Check whether the \(kind.verb) worked.")
+        } catch let error as URLError where error.code == .timedOut {
+            // The request may have gone through: never say it did not.
+            return .failed("The dashboard took too long to answer. Check whether the \(kind.verb) worked.")
+        } catch {
+            return .failed("Can't reach the status dashboard.")
+        }
+    }
+
     // MARK: - Update loop
 
     private func runUntilCancelled() async {

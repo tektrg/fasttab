@@ -1,8 +1,11 @@
 /// The four groups the switcher shows, in display order (top to bottom).
+///
+/// Every live agent that is not working is `needsYou` until the user clears it
+/// with Done (finish it) or Park (set it aside, see `TriageState`).
 enum AgentSection: Int, CaseIterable, Comparable, Sendable {
     case needsYou
     case working
-    case idle
+    case parked
     case ended
 
     static func < (lhs: AgentSection, rhs: AgentSection) -> Bool {
@@ -13,7 +16,7 @@ enum AgentSection: Int, CaseIterable, Comparable, Sendable {
         switch self {
         case .needsYou: "Needs you"
         case .working: "Working"
-        case .idle: "Idle / done"
+        case .parked: "Parked"
         case .ended: "Ended"
         }
     }

@@ -22,4 +22,13 @@ enum AgentSelection {
         if let current, selectable.contains(current) { return current }
         return selectable.first
     }
+
+    /// Where the selection goes when `id` leaves its place (parked, finished):
+    /// the row after it, else the one before, else nothing. Lets the user work
+    /// down the list without re-aiming after each action.
+    static func neighbour(of id: String, in selectable: [String]) -> String? {
+        guard let index = selectable.firstIndex(of: id) else { return nil }
+        if index + 1 < selectable.count { return selectable[index + 1] }
+        return index > 0 ? selectable[index - 1] : nil
+    }
 }

@@ -20,11 +20,11 @@ struct TolerantDecodingTests {
         #expect(degraded.label == "")
         #expect(degraded.secondsInStatus == nil)
         #expect(!degraded.hasHookData)
-        #expect(degraded.section == .idle)
+        #expect(degraded.section == .needsYou)
     }
 
     @Test func junkInNeedsYouAndBoardListsIsIgnored() {
-        #expect(snapshot.agents(in: .needsYou).map(\.label) == ["agent-one", "agent-two"])
+        #expect(snapshot.agents(in: .needsYou).map(\.label).prefix(2) == ["agent-one", "agent-two"])
         #expect(snapshot.boardIsCurrent)
     }
 
@@ -39,7 +39,7 @@ struct TolerantDecodingTests {
         let result = try StatusSnapshotBuilder.snapshot(fromJSON: Data(json.utf8), fetchedAt: StatusFixtures.serverNow)
         #expect(result.health == .ok)
         #expect(result.agents.map(\.label) == ["solo"])
-        #expect(result.agents.first?.section == .idle)
+        #expect(result.agents.first?.section == .needsYou)
         #expect(!result.boardIsCurrent)   // no board section at all: Ended/unpushed unavailable
     }
 

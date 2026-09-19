@@ -16,7 +16,15 @@ struct AgentPanelView: View {
             if model.presentation.showsBoardNote {
                 BoardNoteView()
             }
-            PanelFooterView(notice: model.footerNotice, isPeeking: model.peek != nil, onOpenSettings: onOpenSettings)
+            PanelFooterView(
+                notice: model.footerNotice,
+                hintContext: .init(
+                    isPeeking: model.peek != nil,
+                    hasHighlightedButton: model.highlightedButton != nil,
+                    searchIsEmpty: model.query.isEmpty
+                ),
+                onOpenSettings: onOpenSettings
+            )
         }
         .frame(width: AgentPanelMetrics.width)
         .frame(maxHeight: .infinity, alignment: .top)

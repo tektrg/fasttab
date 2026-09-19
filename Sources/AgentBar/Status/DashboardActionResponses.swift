@@ -14,3 +14,20 @@ struct DashboardPaneScreenResponse: Decodable {
     let readTs: Double?
     let error: String?
 }
+
+/// `POST /api/session/{stop,close}` reply: `{"ok": true, "state": "...", "reason": "..."}`,
+/// `{"ok": false, "needsConfirm": true, "reason": "..."}` (nothing was done) or
+/// `{"ok": false, "error": "..."}`.
+struct DashboardSessionActionResponse: Decodable {
+    let ok: Bool?
+    let needsConfirm: Bool?
+    let reason: String?
+    let error: String?
+
+    /// The outcome the reply amounts to; nil when it says nothing usable.
+    var outcome: SessionActionOutcome? {
+        if ok == true { return .succeeded }
+        if needsConfirm == true { return .needsConfirmation(reason: reason ?? "") }
+        return error.map(SessionActionOutcome.failed)
+    }
+}

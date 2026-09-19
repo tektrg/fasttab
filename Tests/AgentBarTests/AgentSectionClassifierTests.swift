@@ -30,18 +30,23 @@ struct AgentSectionClassifierTests {
         #expect(section(hook: nil, screen: "ACTIVE") == .working)
     }
 
-    @Test func hookBlockedButScreenWaitingIsIdleNotNeedsYou() {
-        // The hook's "blocked" also fires ~60s after a turn ends; the screen decides.
-        #expect(section(hook: "blocked", screen: "WAITING") == .idle)
+    @Test func everyLiveAgentThatIsNotWorkingNeedsYou() {
+        // The hook's "blocked" also fires ~60s after a turn ends; a finished agent
+        // asking in plain text or just done is exactly what the user must see.
+        #expect(section(hook: "blocked", screen: "WAITING") == .needsYou)
+        #expect(section(hook: "idle", screen: "WAITING") == .needsYou)
+        #expect(section(hook: nil, screen: "UNKNOWN") == .needsYou)
+        #expect(section(hook: nil, screen: nil) == .needsYou)
     }
 
-    @Test func everythingElseIsIdle() {
-        #expect(section(hook: "idle", screen: "WAITING") == .idle)
-        #expect(section(hook: nil, screen: "UNKNOWN") == .idle)
-        #expect(section(hook: nil, screen: nil) == .idle)
+    @Test func hardPromptDetectionOnlyDecidesTheRowText() {
+        #expect(AgentSectionClassifier.isAwaitingPrompt(screenState: "NEEDS_HUMAN", paneIsInDashboardNeedsYou: false))
+        #expect(AgentSectionClassifier.isAwaitingPrompt(screenState: nil, paneIsInDashboardNeedsYou: true))
+        #expect(!AgentSectionClassifier.isAwaitingPrompt(screenState: "WAITING", paneIsInDashboardNeedsYou: false))
     }
 
     @Test func sectionsAreOrderedForDisplay() {
-        #expect(AgentSection.allCases.sorted() == [.needsYou, .working, .idle, .ended])
+        #expect(AgentSection.allCases.sorted() == [.needsYou, .working, .parked, .ended])
+        #expect(AgentSection.allCases.map(\.title) == ["Needs you", "Working", "Parked", "Ended"])
     }
 }

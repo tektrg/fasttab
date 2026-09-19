@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// Strip at the bottom of the panel, always present: key hints (or, in their
-/// place, a red failed-switch / orange shortcut-problem notice) and the
-/// settings button. Height is `AgentPanelMetrics.footerHeight`.
+/// place, a red failed-switch/action or orange shortcut-problem notice) and
+/// the settings button. Height is `AgentPanelMetrics.footerHeight`.
 struct PanelFooterView: View {
     let notice: PanelFooterNotice?
-    var isPeeking = false
+    var hintContext = PanelFooterHints.Context()
     let onOpenSettings: () -> Void
 
     var body: some View {
@@ -38,7 +38,7 @@ struct PanelFooterView: View {
                 .truncationMode(.tail)
                 .help(notice.text)
         } else {
-            Text(isPeeking ? "space/esc back   ↩ switch" : "↑↓ select   space peek   ↩ switch   esc close")
+            Text(PanelFooterHints.text(for: hintContext))
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }
@@ -46,7 +46,7 @@ struct PanelFooterView: View {
 
     private var noticeColor: Color? {
         switch notice {
-        case .switchFailed: .red
+        case .switchFailed, .actionFailed: .red
         case .hotkeyUnavailable: .orange
         case nil: nil
         }

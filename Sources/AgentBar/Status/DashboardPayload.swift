@@ -81,10 +81,11 @@ struct DashboardAgent: Decodable {
     let screenSignal: String?
     let screenQuestion: DashboardQuestion?
     let rowId: String?
+    let actions: DashboardActions?
 
     private enum CodingKeys: String, CodingKey {
         case paneId, label, cwd, hookState, hookSinceSec, hasHookData, residue
-        case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId
+        case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
     }
 
     init(from decoder: Decoder) throws {
@@ -102,6 +103,7 @@ struct DashboardAgent: Decodable {
         screenSignal = container.lenient(.screenSignal)
         screenQuestion = container.lenient(.screenQuestion)
         rowId = container.lenient(.rowId)
+        actions = container.lenient(.actions)
     }
 }
 
@@ -135,9 +137,12 @@ struct DashboardBoardRow: Decodable {
     /// `values["derived:push"]`: "" or e.g. "3 ahead — not pushed".
     let pushText: String?
     let cwd: String?
+    /// Server-resolved stop/close availability. On an ended row, `close` is
+    /// enabled while the pane still exists (the agent was stopped, the pane was not).
+    let actions: DashboardActions?
 
     private enum CodingKeys: String, CodingKey {
-        case rowId, status, archived, endedTs, endedNote, derived, values
+        case rowId, status, archived, endedTs, endedNote, derived, values, actions
     }
     private enum DerivedKeys: String, CodingKey { case label, paneId }
     private enum ValueKeys: String, CodingKey {
@@ -152,6 +157,7 @@ struct DashboardBoardRow: Decodable {
         archived = container.lenient(.archived)
         endedTs = container.lenient(.endedTs)
         endedNote = container.lenient(.endedNote)
+        actions = container.lenient(.actions)
         if let derived = try? container.nestedContainer(keyedBy: DerivedKeys.self, forKey: .derived) {
             label = derived.lenient(.label)
             paneId = derived.lenient(.paneId)

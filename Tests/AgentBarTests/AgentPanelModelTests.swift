@@ -142,7 +142,7 @@ struct AgentPanelModelTests {
         let model = makeModel()
         model.receive(F.snapshot([
             F.agent("w1", section: .working),
-            F.agent("shell", section: .idle, hasHookData: false),
+            F.agent("shell", section: .parked, hasHookData: false),
             F.agent("old", section: .ended, secondsInStatus: 5 * 3_600)
         ]))
         model.select(agentID: "shell")

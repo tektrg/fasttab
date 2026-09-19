@@ -20,7 +20,7 @@ enum AgentListBuilder {
         }
 
         let note = !snapshot.boardIsCurrent
-        let shown = settings.applying(to: triage.applying(to: snapshot.agents))
+        let shown = shownAgents(in: snapshot, settings: settings, triage: triage)
         guard !shown.isEmpty else {
             return AgentListPresentation(state: .noAgents, rows: [], showsBoardNote: note)
         }
@@ -35,6 +35,18 @@ enum AgentListBuilder {
             rows: rows(for: matching, frecency: frecency, now: now),
             showsBoardNote: note
         )
+    }
+
+    /// The agents the user can see before searching: parking and list settings applied.
+    static func shownAgents(in snapshot: StatusSnapshot, settings: AgentListSettings, triage: TriageState) -> [AgentSnapshot] {
+        settings.applying(to: triage.applying(to: snapshot.agents))
+    }
+
+    /// What is in the Needs you section, whatever the search says. Nil without a
+    /// trustworthy reading (no snapshot yet, or the feed is down).
+    static func needsYouAgents(snapshot: StatusSnapshot?, settings: AgentListSettings, triage: TriageState) -> [AgentSnapshot]? {
+        guard let snapshot, !snapshot.health.isDown else { return nil }
+        return shownAgents(in: snapshot, settings: settings, triage: triage).filter { $0.section == .needsYou }
     }
 
     /// Every query word must appear in the label, project, prompt excerpt or

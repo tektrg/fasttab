@@ -50,9 +50,12 @@ final class AgentPanelController {
 
     var isVisible: Bool { panel.isVisible }
 
+    /// The panel's frame while it is on screen.
+    var visibleFrame: CGRect? { panel.isVisible ? panel.frame : nil }
+
     func show() {
         model.resetForShow()
-        placementFrame = (NSScreen.containing(NSEvent.mouseLocation) ?? NSScreen.main)?.visibleFrame ?? placementFrame
+        placementFrame = SummonScreen.visibleFrame(fallback: placementFrame)
         applySize(for: model.presentation, listSettings: model.listSettings, isPeeking: model.peek != nil)
         panel.makeKeyAndOrderFront(nil)
         startOutsideClickMonitor()

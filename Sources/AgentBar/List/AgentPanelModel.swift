@@ -52,6 +52,10 @@ final class AgentPanelModel: ObservableObject {
     /// is recorded later, by `recordSwitch`, once the switch worked.
     var onActivate: (AgentSnapshot) -> Void = { _ in }
 
+    /// Called when an agent enters Needs you (see `NeedsYouArrivalDetector`);
+    /// the host shows the corner tab.
+    var onNeedsYouArrival: (CornerTabContent) -> Void = { _ in }
+
     private let store: FrecencyStore
     private let triageStore: TriageStore
     private let now: () -> Date
@@ -63,6 +67,7 @@ final class AgentPanelModel: ObservableObject {
     private var hotkeyIssue: String?
     private var switchErrorClearTask: Task<Void, Never>?
     private let peekLoader = PanePeekLoader()
+    private var arrivalDetector = NeedsYouArrivalDetector()
 
     init(
         store: FrecencyStore = FrecencyStore(),
@@ -89,6 +94,7 @@ final class AgentPanelModel: ObservableObject {
         // A dead feed shows no agents; that must not read as "they all went away".
         if !snapshot.health.isDown, triage.observe(snapshot.agents) { triageStore.save(triage) }
         rebuild()
+        trackNeedsYou()
         selectedAgentID = AgentSelection.reconciled(selectedAgentID, in: presentation.selectableAgentIDs)
         settleRowActions()
         closePeekUnlessStillSelected()
@@ -99,6 +105,8 @@ final class AgentPanelModel: ObservableObject {
         guard settings != listSettings else { return }
         listSettings = settings
         rebuild()
+        // A setting can reveal agents that were always waiting: not arrivals.
+        trackNeedsYou(reportingArrivals: false)
         selectedAgentID = AgentSelection.reconciled(selectedAgentID, in: presentation.selectableAgentIDs)
         closePeekUnlessStillSelected()
     }
@@ -110,6 +118,7 @@ final class AgentPanelModel: ObservableObject {
         snapshot = nil
         rowActionStates = [:]
         rebuild()
+        trackNeedsYou()
         selectedAgentID = nil
         closePeek()
     }
@@ -258,6 +267,7 @@ final class AgentPanelModel: ObservableObject {
         if isParked { triage.park(agentID) } else { triage.unpark(agentID) }
         triageStore.save(triage)
         rebuild()
+        trackNeedsYou()
         // A parked row leaves the top of the list: carry on with the next one.
         // An unparked one stays selected, wherever it lands.
         selectedAgentID = AgentSelection.reconciled(isParked ? following : agentID, in: presentation.selectableAgentIDs)
@@ -377,6 +387,15 @@ final class AgentPanelModel: ObservableObject {
 
     private func refreshFooterNotice() {
         footerNotice = PanelFooterNotice.resolve(transient: transientNotice, hotkeyIssue: hotkeyIssue)
+    }
+
+    /// Compares Needs you with the previous reading and reports newcomers.
+    private func trackNeedsYou(reportingArrivals: Bool = true) {
+        let needsYou = AgentListBuilder.needsYouAgents(snapshot: snapshot, settings: listSettings, triage: triage)
+        let arrivals = arrivalDetector.observe(needsYou)
+        guard reportingArrivals, let needsYou,
+              let content = CornerTabContent.forArrivals(arrivals, among: needsYou) else { return }
+        onNeedsYouArrival(content)
     }
 
     private func rebuild() {

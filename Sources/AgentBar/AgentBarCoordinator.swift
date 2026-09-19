@@ -14,6 +14,7 @@ final class AgentBarCoordinator {
     private let modifierWatcher: ModifierReleaseWatcher
     private let cycleController: AgentCycleController
     private let switchCoordinator: AgentSwitchCoordinator
+    private let cornerTab: CornerTabController
     private var feedTask: Task<Void, Never>?
     private var settingsSubscriptions: Set<AnyCancellable> = []
 
@@ -67,6 +68,14 @@ final class AgentBarCoordinator {
                 isVisible: { panelController.isVisible }
             )
         )
+        cornerTab = CornerTabController(
+            isEnabled: settings.showsCornerTab,
+            panel: .init(
+                open: { panelController.show() },
+                close: { panelController.hide() },
+                visibleFrame: { panelController.visibleFrame }
+            )
+        )
         wire()
         observeSettings()
     }
@@ -94,7 +103,9 @@ final class AgentBarCoordinator {
             Task { await switchCoordinator.switchTo(agent) }
         }
         panelController.onOpenSettings = { [unowned self] in showSettings() }
-        panelController.onVisibilityChange = { [modifierWatcher, cycleController] isVisible in
+        model.onNeedsYouArrival = { [cornerTab] content in cornerTab.arrived(content) }
+        panelController.onVisibilityChange = { [modifierWatcher, cycleController, cornerTab] isVisible in
+            cornerTab.panelVisibilityChanged(isVisible)
             if isVisible {
                 modifierWatcher.start()
             } else {
@@ -118,6 +129,10 @@ final class AgentBarCoordinator {
         settings.$showsMenuBarIcon
             .dropFirst()
             .sink { [weak self] shows in self?.menuBarItem.setVisible(shows) }
+            .store(in: &settingsSubscriptions)
+        settings.$showsCornerTab
+            .dropFirst()
+            .sink { [weak self] shows in self?.cornerTab.setEnabled(shows) }
             .store(in: &settingsSubscriptions)
         settings.$dashboardBaseURL
             .dropFirst()

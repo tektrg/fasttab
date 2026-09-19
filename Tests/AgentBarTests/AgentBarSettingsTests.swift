@@ -8,6 +8,7 @@ struct AgentBarSettingsTests {
         let settings = AgentBarSettings(defaults: makeScratchDefaults())
         #expect(settings.list == .standard)
         #expect(settings.showsMenuBarIcon)
+        #expect(settings.showsCornerTab)
         #expect(settings.hotkey == .standard)
         #expect(settings.dashboardBaseURL == DashboardEndpoint.defaultBaseURL)
     }
@@ -28,6 +29,14 @@ struct AgentBarSettingsTests {
         let defaults = makeScratchDefaults()
         AgentBarSettings(defaults: defaults).setShowsMenuBarIcon(false)
         #expect(!AgentBarSettings(defaults: defaults).showsMenuBarIcon)
+    }
+
+    @Test func cornerTabChoicePersists() {
+        let defaults = makeScratchDefaults()
+        AgentBarSettings(defaults: defaults).setShowsCornerTab(false)
+        #expect(!AgentBarSettings(defaults: defaults).showsCornerTab)
+        AgentBarSettings(defaults: defaults).setShowsCornerTab(true)
+        #expect(AgentBarSettings(defaults: defaults).showsCornerTab)
     }
 
     @Test func committedShortcutPersistsAndResetClearsIt() {

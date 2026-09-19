@@ -40,8 +40,20 @@ protocol AgentStatusSource: Sendable {
     /// landed, and a repeat could answer the next question.
     func answer(paneId: String, choice: AnswerChoice, question: QuestionIdentity) async -> AnswerResult
 
+    /// Sends the user's decision on the permission box open in the pane. `permission` is
+    /// the box exactly as the pane reads now: the dashboard refuses (and presses nothing)
+    /// unless the box in the pane still equals it. Never call twice for one decision.
+    func permission(paneId: String, choice: PermissionChoice, permission: PermissionPrompt) async -> PermissionResult
+
     /// Stops the agent or closes its pane (the dashboard's ladder). Destructive:
     /// call only for an explicit user press. `confirmed` is true only for the
     /// second press after `.needsConfirmation`.
     func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome
+}
+
+extension AgentStatusSource {
+    /// Sources that cannot decide permission boxes refuse, in words.
+    func permission(paneId: String, choice: PermissionChoice, permission: PermissionPrompt) async -> PermissionResult {
+        .unsupported("This status source cannot approve or deny from here.")
+    }
 }

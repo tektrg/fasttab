@@ -42,7 +42,12 @@ final class AgentPanelController {
             model.$presentation,
             model.$listSettings,
             model.$peek.map { $0 != nil }.removeDuplicates(),
-            model.answer.$card.map { $0 != nil }.removeDuplicates()
+            Publishers.CombineLatest(
+                model.answer.$card.map { $0 != nil },
+                model.permission.$card.map { $0 != nil }
+            )
+            .map { $0 || $1 }
+            .removeDuplicates()
         )
         .sink { [weak self] presentation, listSettings, isPeeking, isAnswering in
             self?.applySize(for: presentation, listSettings: listSettings, isPeeking: isPeeking, isAnswering: isAnswering)
@@ -59,7 +64,7 @@ final class AgentPanelController {
         placementFrame = SummonScreen.visibleFrame(fallback: placementFrame)
         applySize(
             for: model.presentation, listSettings: model.listSettings,
-            isPeeking: model.peek != nil, isAnswering: model.answer.isOpen
+            isPeeking: model.peek != nil, isAnswering: model.isCardOpen
         )
         panel.makeKeyAndOrderFront(nil)
         startOutsideClickMonitor()

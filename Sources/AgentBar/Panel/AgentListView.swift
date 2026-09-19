@@ -35,7 +35,7 @@ struct AgentListView: View {
                 isSelected: isSelected,
                 fetchedAt: fetchedAt,
                 actionState: model.rowActionStates[agent.id],
-                isSendingAnswer: model.answer.isAwaiting(agent),
+                sendingLabel: model.sendingLabel(for: agent),
                 highlightedButton: isSelected ? model.highlightedButton : nil,
                 onPress: { model.press($0, on: agent.id) }
             )

@@ -40,6 +40,6 @@ struct DashboardEndpointTests {
         #expect(endpoint.eventsRequest.url?.path == "/api/events")
         #expect(endpoint.eventsRequest.value(forHTTPHeaderField: "Accept") == "text/event-stream")
         #expect(endpoint.paneScreenRequest(paneId: "w1:p3").url?.absoluteString
-                == "http://127.0.0.1:4711/api/pane/screen?paneId=w1:p3&lines=80")
+                == "http://127.0.0.1:4711/api/pane/screen?paneId=w1:p3&lines=100")
     }
 }

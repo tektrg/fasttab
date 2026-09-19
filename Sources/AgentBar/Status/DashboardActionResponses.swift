@@ -49,3 +49,35 @@ struct DashboardAnswerResponse: Decodable {
         }
     }
 }
+
+/// How the dashboard answered a permission request.
+enum PermissionResult: Equatable, Sendable {
+    /// The key landed. `next` is a different permission box open in the pane afterwards, if any.
+    case sent(next: PermissionPrompt?)
+    /// Refused or unreachable, in the dashboard's own words when it gave any. Nothing is retried.
+    case failed(String)
+    /// This dashboard has no such endpoint (it predates it, or needs a restart): the reply, in words.
+    case unsupported(String)
+}
+
+/// `POST /api/permission` reply: `{"ok": true, "next": <permission or null>}` or
+/// `{"ok": false, "error": "..."}`. A dashboard that predates the endpoint answers 404 or 405
+/// (typically `{"error": "not found"}`).
+struct DashboardPermissionResponse: Decodable {
+    let ok: Bool?
+    let error: String?
+    let next: DashboardPermission?
+
+    /// The result a reply amounts to. HTTP 404 / 405 mean the endpoint is missing, whatever the body says.
+    static func result(body: Data, statusCode: Int) -> PermissionResult {
+        let reply = try? JSONDecoder().decode(DashboardPermissionResponse.self, from: body)
+        if statusCode == 404 || statusCode == 405 {
+            return .unsupported(reply?.error ?? "HTTP \(statusCode)")
+        }
+        switch reply?.ok {
+        case true?: return .sent(next: reply?.next?.prompt)
+        case false?: return .failed(reply?.error ?? "The dashboard refused the decision.")
+        case nil: return .failed(reply?.error ?? "The dashboard sent an unreadable reply. Check the agent's terminal.")
+        }
+    }
+}

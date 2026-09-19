@@ -73,14 +73,14 @@ enum LiveAgentMapper {
     }
 
     /// A "question" row is answerable once its parsed picker has arrived (until
-    /// then it is loading); a "blocked" row is a permission box (or unconfirmed prompt).
+    /// then it is loading); a "blocked" row is a permission box (approvable once its parsed box has arrived) or an unconfirmed prompt.
     private static func blocker(for needsYouEntry: DashboardNeedsYou?) -> AgentBlocker? {
         switch needsYouEntry?.kind {
         case "question":
             if needsYouEntry?.question == nil { return .questionLoading(needsYouEntry?.questionPreview?.identity) }
             return AnswerableQuestion(needsYouEntry?.question).map(AgentBlocker.question) ?? .questionNotAnswerable
         case "blocked":
-            return .permission
+            return needsYouEntry?.permission?.prompt.map(AgentBlocker.permissionReview) ?? .permission
         default:
             return nil
         }

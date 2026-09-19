@@ -2,10 +2,12 @@ import Foundation
 
 /// A button on an agent row. Done and Close pane talk to the dashboard
 /// (`sessionAction`); Park and Unpark are local (`TriageState`); Answer opens
-/// the answer card of a blocked question, and Open terminal switches to the
+/// the answer card of a blocked question, Review opens the card of a permission box
+/// (approve or deny), and Open terminal switches to the
 /// agent (the way out for a blocker the panel cannot answer).
 enum RowButton: Equatable, Sendable {
     case answer
+    case review
     case openTerminal
     case done
     case park
@@ -15,6 +17,7 @@ enum RowButton: Equatable, Sendable {
     var title: String {
         switch self {
         case .answer: "Answer"
+        case .review: "Review"
         case .openTerminal: "Open terminal"
         case .done: "Done"
         case .park: "Park"
@@ -26,14 +29,14 @@ enum RowButton: Equatable, Sendable {
     /// The dashboard request behind the button; nil for the local ones.
     /// The way out of a blocked agent: drawn red, the colour of "needs you".
     var isBlockedAction: Bool {
-        self == .answer || self == .openTerminal
+        self == .answer || self == .review || self == .openTerminal
     }
 
     var sessionAction: SessionActionKind? {
         switch self {
         case .done: .stop
         case .closePane: .close
-        case .answer, .openTerminal, .park, .unpark: nil
+        case .answer, .review, .openTerminal, .park, .unpark: nil
         }
     }
 }
@@ -78,6 +81,7 @@ enum RowButtons {
         switch agent.blockedOnYou {
         case .question?: return [RowButtonSpec(button: .answer, disabledReason: nil), park]
         case .questionLoading?: return [RowButtonSpec(button: .answer, disabledReason: readingOptionsReason), park]
+        case .permissionReview?: return [RowButtonSpec(button: .review, disabledReason: nil), park]
         case .questionNotAnswerable?, .permission?: return [RowButtonSpec(button: .openTerminal, disabledReason: nil), park]
         case nil: return [spec(.done, for: agent), park]
         }

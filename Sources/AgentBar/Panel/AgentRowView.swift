@@ -7,8 +7,8 @@ struct AgentRowView: View {
     let isSelected: Bool
     let fetchedAt: Date
     var actionState: RowActionState?
-    /// The agent's answer is on its way: a spinner replaces the buttons.
-    var isSendingAnswer = false
+    /// The agent's answer or decision is on its way: a spinner with these words replaces the buttons.
+    var sendingLabel: String?
     var highlightedButton: RowButton?
     var onPress: (RowButton) -> Void = { _ in }
 
@@ -42,8 +42,8 @@ struct AgentRowView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            if isSendingAnswer {
-                sendingIndicator
+            if let sendingLabel {
+                sendingIndicator(sendingLabel)
             } else if showsButtons {
                 buttonStrip
             } else {
@@ -52,15 +52,15 @@ struct AgentRowView: View {
         }
     }
 
-    private var sendingIndicator: some View {
+    private func sendingIndicator(_ label: String) -> some View {
         HStack(spacing: 6) {
             ProgressView().controlSize(.small)
-            Text("Sending answer…")
+            Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .fixedSize()
-        .accessibilityLabel("Sending answer")
+        .accessibilityLabel(label)
     }
 
     private var buttons: [RowButtonSpec] { RowButtons.available(for: agent) }

@@ -23,6 +23,7 @@ enum RowActionPlan: Equatable {
     case park
     case unpark
     case openAnswer
+    case openReview
     case openTerminal
     case send(SessionActionKind, confirmed: Bool)
 }
@@ -39,6 +40,7 @@ enum RowActionMachine {
         }
         switch button {
         case .answer: return .openAnswer
+        case .review: return .openReview
         case .openTerminal: return .openTerminal
         case .park: return .park
         case .unpark: return .unpark

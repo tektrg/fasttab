@@ -22,7 +22,8 @@ struct AgentPanelView: View {
                     isPeeking: model.peek != nil,
                     hasHighlightedButton: model.highlightedButton != nil,
                     searchIsEmpty: model.query.isEmpty,
-                    answerMode: model.answer.card?.state.hintMode
+                    answerMode: model.answer.card?.state.hintMode,
+                    permissionMode: model.permission.card?.state.hintMode
                 ),
                 onOpenSettings: onOpenSettings
             )
@@ -39,6 +40,13 @@ struct AgentPanelView: View {
         if model.answer.isOpen {
             AnswerCardView(
                 answer: model.answer,
+                bodyHeight: AgentPanelMetrics.fullBodyHeight(
+                    maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
+                )
+            )
+        } else if model.permission.isOpen {
+            PermissionCardView(
+                permission: model.permission,
                 bodyHeight: AgentPanelMetrics.fullBodyHeight(
                     maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
                 )

@@ -96,4 +96,46 @@ struct FeedHealthTests {
         #expect(Set(FeedHealthEvaluator.essentialFeedNames) == ["hookCache", "herdr", "paneScreen"])
         #expect(FeedHealthEvaluator.staleAfterRefreshIntervals == 3)
     }
+
+    // MARK: - Multi-machine dashboards put non-feed entries in `feeds`
+
+    /// The real payload shape since the dashboard went multi-machine: `feeds` also holds
+    /// `"machines": {"air-m1": {...}}` and `"machinesConfigError": null` next to the feeds.
+    @Test func nonFeedEntriesInsideFeedsDoNotMakeAHealthyDashboardReadDown() throws {
+        let snapshot = try StatusFixtures.snapshot("state-multi-machine")
+        #expect(snapshot.health == .ok)
+        #expect(!snapshot.agents.isEmpty)
+    }
+
+    @Test func aNullOrOddFeedEntryCostsOnlyItself() throws {
+        for odd: Any in [NSNull(), "text", 5, [1, 2], ["status": "ok"]] {
+            let data = StatusFixtures.data("state-healthy") { object in
+                var feeds = object["feeds"] as! [String: Any]
+                feeds["machinesConfigError"] = odd
+                feeds["surprise"] = odd
+                object["feeds"] = feeds
+            }
+            #expect(try StatusSnapshotBuilder.snapshot(fromJSON: data, fetchedAt: StatusFixtures.serverNow).health == .ok, "\(odd)")
+        }
+    }
+
+    @Test func anEssentialFeedThatIsGenuinelyAbsentStillReadsAsDownAndSaysSo() throws {
+        let data = StatusFixtures.data("state-multi-machine") { object in
+            var feeds = object["feeds"] as! [String: Any]
+            feeds["hookCache"] = nil
+            object["feeds"] = feeds
+        }
+        let snapshot = try StatusSnapshotBuilder.snapshot(fromJSON: data, fetchedAt: StatusFixtures.serverNow)
+        #expect(snapshot.health == .down(reason: "Status feed down: the hookCache feed is not in the dashboard's reply"))
+    }
+
+    @Test func anEssentialFeedThatIsThereButUnreadableIsDownAndSaysThat() throws {
+        let data = StatusFixtures.data("state-multi-machine") { object in
+            var feeds = object["feeds"] as! [String: Any]
+            feeds["hookCache"] = NSNull()
+            object["feeds"] = feeds
+        }
+        let snapshot = try StatusSnapshotBuilder.snapshot(fromJSON: data, fetchedAt: StatusFixtures.serverNow)
+        #expect(snapshot.health == .down(reason: "Status feed down: the hookCache feed could not be read"))
+    }
 }

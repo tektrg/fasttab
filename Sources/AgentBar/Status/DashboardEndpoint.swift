@@ -7,7 +7,8 @@ struct DashboardEndpoint: Sendable {
     static let baseURLDefaultsKey = "dashboardBaseURL"
 
     /// Peek reads this many trailing screen lines (server clamps to 1...400).
-    static let paneScreenLineCount = 80
+    /// (100 is what the dashboard itself reads before it decides on a permission box or question.)
+    static let paneScreenLineCount = 100
     /// The server's own read of a wedged pane gives up at 15s; wait a bit longer.
     static let paneScreenTimeoutSeconds: TimeInterval = 20
     static let requestTimeoutSeconds: TimeInterval = 10
@@ -16,6 +17,8 @@ struct DashboardEndpoint: Sendable {
     /// An answer types into the pane, then re-reads it several times (up to a
     /// minute for a multi-select with a review step) before it replies.
     static let answerTimeoutSeconds: TimeInterval = 90
+    /// A permission press is one key, then a re-read of the pane (a few seconds).
+    static let permissionTimeoutSeconds: TimeInterval = 45
     /// The dashboard's accident guard: only the product owner's clicks may stop
     /// or close (`PO_ACTOR` in chief_dashboard_actions.py). AgentBar acts only
     /// on the user's own click, so it speaks as that actor.
@@ -69,6 +72,25 @@ struct DashboardEndpoint: Sendable {
             "choice": choice.jsonObject,
             "question": ["title": question.title, "question": question.question],
         ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// `POST /api/permission`. `permission` goes back as the pane was read: the dashboard
+    /// presses nothing unless the box still equals it.
+    func permissionRequest(paneId: String, choice: PermissionChoice, permission: PermissionPrompt) -> URLRequest {
+        var request = request(path: "/api/permission")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.permissionTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var box: [String: Any] = [
+            "tool": permission.tool,
+            "detail": permission.detail,
+            "title": permission.title,
+            "options": permission.options.map { ["index": $0.index, "label": $0.label] as [String: Any] },
+        ]
+        if let cursorIndex = permission.cursorIndex { box["cursorIndex"] = cursorIndex }
+        let body: [String: Any] = ["paneId": paneId, "choice": choice.wireName, "permission": box]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request
     }

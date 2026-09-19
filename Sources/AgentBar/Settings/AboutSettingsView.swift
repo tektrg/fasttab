@@ -10,7 +10,7 @@ struct AboutSettingsView: View {
                 row("Bundle ID", AgentBarIdentity.bundleIdentifier)
             }
             Section {
-                Text("AgentBar shows the agents running in herdr, grouped by what they need from you. Status comes from the chief dashboard running on this Mac; AgentBar switches you to an agent's tab and, only when you press a key or button, finishes an agent (Done) or sends your answer to its open question.")
+                Text("AgentBar shows the agents running in herdr, grouped by what they need from you. Status comes from the chief dashboard running on this Mac; AgentBar switches you to an agent's tab and, only when you press a key or button, finishes an agent (Done), sends your answer to its open question, or approves or denies its permission prompt.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

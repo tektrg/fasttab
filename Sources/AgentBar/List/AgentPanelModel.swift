@@ -37,12 +37,22 @@ final class AgentPanelModel: ObservableObject {
     /// Where a peek reads the pane screen from; set by the host, and replaced
     /// when the user points AgentBar at another dashboard.
     var statusSource: (any AgentStatusSource)? {
-        didSet { answer.statusSource = statusSource }
+        didSet {
+            answer.statusSource = statusSource
+            permission.statusSource = statusSource
+        }
     }
 
     /// Answering a blocked agent's question (replaces the list while open). Its
     /// changes republish through this model, so views need observe only this.
     let answer: AnswerCardModel
+
+    /// Approving or denying a blocked agent's permission box (replaces the list while open).
+    /// Same republishing as `answer`.
+    let permission: PermissionCardModel
+
+    /// A card (answer or permission) is showing in place of the list.
+    var isCardOpen: Bool { answer.isOpen || permission.isOpen }
 
     /// Strip at the bottom of the panel: a failed switch or row action, else a shortcut problem.
     @Published private(set) var footerNotice: PanelFooterNotice?
@@ -77,6 +87,7 @@ final class AgentPanelModel: ObservableObject {
     private var blockerMemory = BlockerMemory()
     private var lastAnswerNotice: (sentence: String, at: Date)?
     private var answerObservation: AnyCancellable?
+    private var permissionObservation: AnyCancellable?
 
     init(
         store: FrecencyStore = FrecencyStore(),
@@ -86,9 +97,11 @@ final class AgentPanelModel: ObservableObject {
         switchErrorSeconds: TimeInterval = 6,
         completedHoldSeconds: TimeInterval = 8,
         answer: AnswerCardModel = AnswerCardModel(),
+        permission: PermissionCardModel = PermissionCardModel(),
         now: @escaping () -> Date = { Date() }
     ) {
         self.answer = answer
+        self.permission = permission
         self.store = store
         self.triageStore = triageStore
         self.triage = triageStore.load()
@@ -99,6 +112,7 @@ final class AgentPanelModel: ObservableObject {
         self.now = now
         self.frecency = store.load(now: now())
         wireAnswerCard()
+        wirePermissionCard()
     }
 
     private func wireAnswerCard() {
@@ -108,8 +122,31 @@ final class AgentPanelModel: ObservableObject {
         answer.onReleaseKeyboard = { [weak self] in self?.focusRequest += 1 }
     }
 
+    private func wirePermissionCard() {
+        permissionObservation = permission.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        permission.onNotice = { [weak self] sentence in self?.showAnswerNotice(sentence) }
+        permission.onDecided = { [weak self] agentID in self?.advanceSelection(pastAnswered: agentID) }
+        permission.onEndpointMissing = { [weak self] in self?.reapplyBlockerRules() }
+        permission.onOpenTerminal = { [weak self] agentID in self?.activate(agentID: agentID) }
+    }
+
+    /// The blockers as the panel shows them: steadied against the dashboard's flapping, and
+    /// with Review turned back into Open terminal while the dashboard cannot take approvals.
+    private func shownBlockers(_ agents: [AgentSnapshot]) -> [AgentSnapshot] {
+        permission.withoutReviewIfEndpointMissing(blockerMemory.steadied(agents, now: now()))
+    }
+
+    /// A row's rules changed under it (the dashboard turned out to lack /api/permission).
+    private func reapplyBlockerRules() {
+        guard let current = snapshot else { return }
+        snapshot = current.replacingAgents(permission.withoutReviewIfEndpointMissing(current.agents))
+        rebuild()
+        selectedAgentID = AgentSelection.reconciled(selectedAgentID, in: presentation.selectableAgentIDs)
+        settleRowActions()
+    }
+
     func receive(_ received: StatusSnapshot) {
-        let snapshot = received.replacingAgents(blockerMemory.steadied(received.agents, now: now()))
+        let snapshot = received.replacingAgents(shownBlockers(received.agents))
         self.snapshot = snapshot
         // A dead feed shows no agents; that must not read as "they all went away".
         if !snapshot.health.isDown, triage.observe(snapshot.agents) { triageStore.save(triage) }
@@ -146,6 +183,7 @@ final class AgentPanelModel: ObservableObject {
         selectedAgentID = nil
         closePeek()
         answer.reset()
+        permission.reset()
     }
 
     /// Fresh start for each summon: empty search, first row selected.
@@ -154,6 +192,7 @@ final class AgentPanelModel: ObservableObject {
         repostRecentAnswerNotice()
         closePeek()
         answer.close()
+        permission.close()
         cancelConfirmations()
         query = ""
         rebuild()
@@ -164,6 +203,7 @@ final class AgentPanelModel: ObservableObject {
     func moveSelection(by step: Int) {
         closePeek()
         answer.close()
+        permission.close()
         selectedAgentID = AgentSelection.moved(from: selectedAgentID, by: step, in: presentation.selectableAgentIDs)
     }
 
@@ -179,6 +219,8 @@ final class AgentPanelModel: ObservableObject {
     func moveSelectionOrAnswerHighlight(by step: Int) {
         if answer.isOpen {
             answer.handle(step < 0 ? .up : .down)
+        } else if permission.isOpen {
+            permission.handle(step < 0 ? .up : .down)
         } else {
             moveSelection(by: step)
         }
@@ -192,6 +234,10 @@ final class AgentPanelModel: ObservableObject {
     func togglePeek() -> Bool {
         if answer.isOpen {
             answer.handle(.space)
+            return true
+        }
+        if permission.isOpen {
+            permission.handle(.other)
             return true
         }
         guard query.isEmpty else { return false }
@@ -239,6 +285,10 @@ final class AgentPanelModel: ObservableObject {
             answer.handle(.enter)
             return
         }
+        if permission.isOpen {
+            permission.handle(.enter)
+            return
+        }
         guard let selectedAgentID else { return }
         if let highlightedButton {
             press(highlightedButton, on: selectedAgentID)
@@ -268,6 +318,10 @@ final class AgentPanelModel: ObservableObject {
     @discardableResult
     func moveButtonHighlight(by step: Int) -> Bool {
         guard query.isEmpty else { return false }
+        if permission.isOpen {
+            permission.handle(.other)   // a stray key never carries a pending "Allow always" over
+            return true
+        }
         guard !answer.isOpen else { return true }
         guard peek == nil, let agent = selectedAgent else { return true }
         let previous = highlightedButton
@@ -282,6 +336,10 @@ final class AgentPanelModel: ObservableObject {
     func backOutOfButtons() -> Bool {
         if answer.isOpen {
             answer.handle(.escape)   // to the list; ignored while an answer is being sent
+            return true
+        }
+        if permission.isOpen {
+            permission.handle(.escape)   // cancels a pending "Allow always", else back to the list
             return true
         }
         guard let selectedAgentID else { return false }
@@ -311,7 +369,14 @@ final class AgentPanelModel: ObservableObject {
         case .openAnswer:
             selectedAgentID = agentID
             closePeek()
+            permission.close()
             answer.open(agent)
+            return nil
+        case .openReview:
+            selectedAgentID = agentID
+            closePeek()
+            answer.close()
+            permission.open(agent)
             return nil
         case .openTerminal:
             onActivate(agent)
@@ -373,6 +438,7 @@ final class AgentPanelModel: ObservableObject {
     private func reconcileAnswerCard() {
         let shown = snapshot.map { AgentListBuilder.shownAgents(in: $0, settings: listSettings, triage: triage) } ?? []
         answer.reconcile(with: shown)
+        permission.reconcile(with: shown)
     }
 
     /// A "completed" row waits for the next status update to show the result;
@@ -431,9 +497,26 @@ final class AgentPanelModel: ObservableObject {
         showTransientNotice(.switchFailed(message))
     }
 
-    /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer is on its way.
+    /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer or decision is on its way.
     private func usableButtons(for agent: AgentSnapshot) -> [RowButton] {
-        answer.isAwaiting(agent) ? [] : RowButtons.usableButtons(for: agent)
+        sendingLabel(for: agent) != nil ? [] : RowButtons.usableButtons(for: agent)
+    }
+
+    /// What the row says in place of its buttons while an answer or decision is on its way; nil when none is.
+    func sendingLabel(for agent: AgentSnapshot) -> String? {
+        if answer.isAwaiting(agent) { return "Sending answer…" }
+        return permission.sendingLabel(for: agent)
+    }
+
+    /// A digit typed while a card is open: picks that option on it (the search box types nothing).
+    func handleCardDigit(_ number: Int) {
+        if answer.isOpen { answer.handle(.digit(number)) }
+        else if permission.isOpen { permission.handle(.digit(number)) }
+    }
+
+    /// Any other character typed while a card is open: dropped (it still cancels a pending "Allow always").
+    func handleCardStrayKey() {
+        if permission.isOpen { permission.handle(.other) }
     }
 
     /// How long an answer's outcome stays in the footer: long enough to read a refusal in full.

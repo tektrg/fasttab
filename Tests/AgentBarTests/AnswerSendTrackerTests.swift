@@ -104,4 +104,34 @@ struct AnswerSendTrackerTests {
         #expect(!tracker.isAwaiting(agentID: "b", showing: nil, now: now))
         #expect(!tracker.hasAnswered(agentID: "a", identity))
     }
+
+    // MARK: - What a row says while it waits (permission decisions)
+
+    @Test func theRowRemembersWhichKindOfDecisionItIsWaitingOn() {
+        var tracker = PermissionSendTracker()
+        let box = PermissionFixtures.bash.identity
+        guard let token = tracker.begin(agentID: "a", tag: "denial", at: now) else {
+            Issue.record("a send should start")
+            return
+        }
+        #expect(tracker.awaitingTag(agentID: "a", showing: box, now: now) == "denial")
+        let taken = tracker.succeeded(agentID: "a", token: token, identity: box, next: nil, at: now)
+        #expect(taken)
+        // The reply is in, the dashboard still shows the box: still waiting, still a denial.
+        #expect(tracker.awaitingTag(agentID: "a", showing: box, now: now + 3) == "denial")
+        #expect(tracker.awaitingTag(agentID: "a", showing: nil, now: now + 3) == nil)
+        #expect(tracker.awaitingTag(agentID: "a", showing: box, now: now + PermissionSendTracker.expirySeconds + 1) == nil)
+    }
+
+    @Test func aBoxNamedAsNextIsNotWaitedOn() {
+        var tracker = PermissionSendTracker()
+        let box = PermissionFixtures.bash.identity
+        guard let token = tracker.begin(agentID: "a", tag: "approval", at: now) else {
+            Issue.record("a send should start")
+            return
+        }
+        _ = tracker.succeeded(agentID: "a", token: token, identity: box, next: PermissionFixtures.oneOff, at: now)
+        #expect(tracker.awaitingTag(agentID: "a", showing: box, now: now) == nil)
+        #expect(tracker.nextQuestion(agentID: "a", after: box) == PermissionFixtures.oneOff)
+    }
 }

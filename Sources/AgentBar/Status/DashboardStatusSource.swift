@@ -100,6 +100,19 @@ actor DashboardStatusSource: AgentStatusSource {
         }
     }
 
+    func permission(paneId: String, choice: PermissionChoice, permission: PermissionPrompt) async -> PermissionResult {
+        do {
+            let request = endpoint.permissionRequest(paneId: paneId, choice: choice, permission: permission)
+            let (body, statusCode) = try await transport.response(for: request)
+            return DashboardPermissionResponse.result(body: body, statusCode: statusCode)
+        } catch let error as URLError where error.code == .timedOut {
+            // The key may have been pressed: never say it was not.
+            return .failed("The dashboard took too long to answer. Check the agent's terminal: the decision may have gone through.")
+        } catch {
+            return .failed("Can't reach the status dashboard.")
+        }
+    }
+
     func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome {
         do {
             let request = endpoint.sessionActionRequest(kind, rowId: rowId, confirmed: confirmed)

@@ -1,19 +1,27 @@
 import Foundation
 
-/// Keeps a blocked agent's answerable question steady while the dashboard's
-/// view of it flaps. One pane's row can be reported three ways within seconds:
+/// Keeps a blocked agent's answerable question (or reviewable permission box) steady
+/// while the dashboard's view of it flaps. One pane's row can be reported three ways within seconds:
 /// the parsed picker (answerable), the hook's early preview with no options yet,
 /// and a plain "blocked" row while its screen sweep has not confirmed the picker.
 /// Read as-is, the Answer button would come and go. Once a question has been
 /// seen answerable it stays that until the agent stops being blocked, or shows
 /// a different question; the dashboard still re-checks the pane before typing.
+/// A permission box flaps the same way (parsed, then a plain "blocked" row while its
+/// screen read has not confirmed it), and is held the same way.
 struct BlockerMemory {
     /// How long a "blocked, screen unconfirmed" report may stand in for a question just seen.
     static let unconfirmedGraceSeconds: TimeInterval = 45
 
     private struct Sighting {
-        let question: AnswerableQuestion
+        /// Only ever `.question` or `.permissionReview`.
+        let blocker: AgentBlocker
         let at: Date
+
+        var question: AnswerableQuestion? {
+            if case .question(let question) = blocker { return question }
+            return nil
+        }
     }
 
     private var sightings: [String: Sighting] = [:]
@@ -25,15 +33,18 @@ struct BlockerMemory {
             guard let blocker = agent.blocker else { return agent }
             switch blocker {
             case .question(let question):
-                remembered[agent.id] = Sighting(question: question, at: now)
+                remembered[agent.id] = Sighting(blocker: blocker, at: now)
+            case .permissionReview:
+                remembered[agent.id] = Sighting(blocker: blocker, at: now)
             case .questionLoading(let previewed):
-                guard let seen = sightings[agent.id], previewed.map(seen.question.identity.isSameQuestion) ?? true else { break }
+                guard let seen = sightings[agent.id], let question = seen.question,
+                      previewed.map(question.identity.isSameQuestion) ?? true else { break }
                 remembered[agent.id] = seen
-                return agent.withBlocker(.question(seen.question))
+                return agent.withBlocker(seen.blocker)
             case .permission:
                 guard let seen = sightings[agent.id], now.timeIntervalSince(seen.at) <= Self.unconfirmedGraceSeconds else { break }
                 remembered[agent.id] = seen
-                return agent.withBlocker(.question(seen.question))
+                return agent.withBlocker(seen.blocker)
             case .questionNotAnswerable:
                 break
             }

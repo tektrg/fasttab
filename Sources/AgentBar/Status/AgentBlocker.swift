@@ -12,6 +12,8 @@ enum AgentBlocker: Equatable, Sendable {
     /// A question whose shape AgentBar will not answer (options already ticked,
     /// an odd layout): terminal only.
     case questionNotAnswerable
-    /// A permission box (or anything else blocking): terminal only.
+    /// A permission box the dashboard has read in full: the panel can approve or deny it.
+    case permissionReview(PermissionPrompt)
+    /// A permission box (or anything else blocking) the dashboard has not read in full: terminal only.
     case permission
 }

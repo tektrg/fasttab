@@ -62,4 +62,48 @@ struct BlockerMemoryTests {
         let steady = blockers(&memory, [agent(.questionLoading(nil), id: "a"), agent(.questionLoading(nil), id: "b")], at: now + 3)
         #expect(steady == [.question(fruit), .questionLoading(nil)])
     }
+
+    // MARK: - Permission boxes flap the same way
+
+    private let box = PermissionFixtures.bash
+
+    @Test func aReviewableBoxSurvivesItsRowFlappingToPlainBlockedForAShortWhileOnly() {
+        var memory = BlockerMemory()
+        _ = memory.steadied([agent(.permissionReview(box))], now: now)
+        #expect(blockers(&memory, [agent(.permission)], at: now + 30) == [.permissionReview(box)])
+        #expect(blockers(&memory, [agent(.permission)], at: now + BlockerMemory.unconfirmedGraceSeconds + 1) == [.permission])
+    }
+
+    @Test func theHoldIsRenewedEveryTimeTheBoxIsSeenParsedAgain() {
+        var memory = BlockerMemory()
+        _ = memory.steadied([agent(.permissionReview(box))], now: now)
+        _ = memory.steadied([agent(.permissionReview(box))], now: now + 40)
+        #expect(blockers(&memory, [agent(.permission)], at: now + 80) == [.permissionReview(box)])
+    }
+
+    @Test func aRowNeverSeenParsedStaysPlain() {
+        var memory = BlockerMemory()
+        #expect(blockers(&memory, [agent(.permission)], at: now) == [.permission])
+        #expect(blockers(&memory, [agent(.permission)], at: now + 5) == [.permission])
+    }
+
+    @Test func aBoxIsNotHeldOnceTheAgentIsNoLongerBlocked() {
+        var memory = BlockerMemory()
+        _ = memory.steadied([agent(.permissionReview(box))], now: now)
+        _ = memory.steadied([agent(nil)], now: now + 2)
+        #expect(blockers(&memory, [agent(.permission)], at: now + 4) == [.permission])
+    }
+
+    @Test func aDifferentBoxReplacesTheRememberedOne() {
+        var memory = BlockerMemory()
+        _ = memory.steadied([agent(.permissionReview(box))], now: now)
+        _ = memory.steadied([agent(.permissionReview(PermissionFixtures.oneOff))], now: now + 2)
+        #expect(blockers(&memory, [agent(.permission)], at: now + 4) == [.permissionReview(PermissionFixtures.oneOff)])
+    }
+
+    @Test func aQuestionPreviewNeverBringsBackABox() {
+        var memory = BlockerMemory()
+        _ = memory.steadied([agent(.permissionReview(box))], now: now)
+        #expect(blockers(&memory, [agent(.questionLoading(nil))], at: now + 2) == [.questionLoading(nil)])
+    }
 }

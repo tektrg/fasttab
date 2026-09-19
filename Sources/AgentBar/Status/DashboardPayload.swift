@@ -7,19 +7,23 @@ import Foundation
 
 struct DashboardPayload: Decodable {
     let serverTimeTs: Double?
+    /// The entries of `feeds` that read as feeds. `feeds` is also where a multi-machine dashboard
+    /// keeps `machines` / `machinesConfigError`: an entry that is not a feed costs only itself.
     let feeds: [String: DashboardFeed]
+    /// Names present in `feeds` whose value could not be read as a feed (null, not an object).
+    let unreadableFeedNames: Set<String>
     let agents: [DashboardAgent]
     let needsYou: [DashboardNeedsYou]
     let boardRows: [DashboardBoardRow]?
 
-    private enum CodingKeys: String, CodingKey { case serverTimeTs, feeds, computed, board }
+    fileprivate enum CodingKeys: String, CodingKey { case serverTimeTs, feeds, computed, board }
     private enum ComputedKeys: String, CodingKey { case agents, needsYou }
     private enum BoardKeys: String, CodingKey { case rows }
 
     init(from decoder: Decoder) throws {
         let root = try decoder.container(keyedBy: CodingKeys.self)
         serverTimeTs = root.lenient(.serverTimeTs)
-        feeds = root.lenient(.feeds) ?? [:]
+        (feeds, unreadableFeedNames) = Self.readFeeds(root)
         if let computed = try? root.nestedContainer(keyedBy: ComputedKeys.self, forKey: .computed) {
             agents = (computed.lenient(.agents) as LenientArray<DashboardAgent>?)?.elements ?? []
             needsYou = (computed.lenient(.needsYou) as LenientArray<DashboardNeedsYou>?)?.elements ?? []
@@ -33,6 +37,31 @@ struct DashboardPayload: Decodable {
             boardRows = nil
         }
     }
+}
+
+extension DashboardPayload {
+    /// Reads `feeds` entry by entry: one odd value (a null, a scalar) never costs the others.
+    fileprivate static func readFeeds(_ root: KeyedDecodingContainer<CodingKeys>) -> ([String: DashboardFeed], Set<String>) {
+        guard let container = try? root.nestedContainer(keyedBy: AnyCodingKey.self, forKey: .feeds) else { return ([:], []) }
+        var feeds: [String: DashboardFeed] = [:]
+        var unreadable: Set<String> = []
+        for key in container.allKeys {
+            if let feed = try? container.decode(DashboardFeed.self, forKey: key) {
+                feeds[key.stringValue] = feed
+            } else {
+                unreadable.insert(key.stringValue)
+            }
+        }
+        return (feeds, unreadable)
+    }
+}
+
+/// A coding key for objects whose keys are data (feed names), not a fixed set.
+struct AnyCodingKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { nil }
 }
 
 struct DashboardFeed: Decodable {
@@ -149,8 +178,11 @@ struct DashboardNeedsYou: Decodable {
     let question: DashboardQuestion?
     /// The hook's early look at a picker (title and question only here), before the sweep has parsed it.
     let questionPreview: DashboardQuestionPreview?
+    /// On a "blocked" row: the plain permission box, once the dashboard has parsed it
+    /// (always sent, null when it has not; absent from an older dashboard).
+    let permission: DashboardPermission?
 
-    private enum CodingKeys: String, CodingKey { case kind, paneId, detail, sinceSec, question, questionPreview }
+    private enum CodingKeys: String, CodingKey { case kind, paneId, detail, sinceSec, question, questionPreview, permission }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -160,6 +192,53 @@ struct DashboardNeedsYou: Decodable {
         sinceSec = container.lenient(.sinceSec)
         question = container.lenient(.question)
         questionPreview = container.lenient(.questionPreview)
+        permission = container.lenient(.permission)
+    }
+}
+
+/// A parsed permission box (`classify_pane.parse_permission_block`). Also the shape of
+/// `next` in a permission reply. Strings are kept exactly as sent: the dashboard compares
+/// them verbatim when a decision comes back.
+struct DashboardPermission: Decodable {
+    let tool: String?
+    let detail: String?
+    let title: String?
+    let options: [Option]
+    let cursorIndex: Int?
+
+    struct Option: Decodable {
+        let index: Int?
+        let label: String?
+
+        private enum CodingKeys: String, CodingKey { case index, label }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            index = container.lenient(.index)
+            label = container.lenient(.label)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey { case tool, detail, title, options, cursorIndex }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tool = container.lenient(.tool)
+        detail = container.lenient(.detail)
+        title = container.lenient(.title)
+        cursorIndex = container.lenient(.cursorIndex)
+        options = (container.lenient(.options) as LenientArray<Option>?)?.elements ?? []
+    }
+
+    /// The prompt this describes; nil unless it is whole (a tool, a detail, a title and two or more numbered options).
+    var prompt: PermissionPrompt? {
+        guard let tool, !tool.isEmpty, let detail, let title, !title.isEmpty else { return nil }
+        let parsed = options.compactMap { option -> PermissionPrompt.Option? in
+            guard let index = option.index, let label = option.label else { return nil }
+            return PermissionPrompt.Option(index: index, label: label)
+        }
+        guard parsed.count == options.count, parsed.count >= 2 else { return nil }
+        return PermissionPrompt(tool: tool, detail: detail, title: title, options: parsed, cursorIndex: cursorIndex)
     }
 }
 

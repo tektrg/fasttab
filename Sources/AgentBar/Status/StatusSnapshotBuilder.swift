@@ -10,7 +10,7 @@ enum StatusSnapshotBuilder {
     }
 
     static func snapshot(from payload: DashboardPayload, fetchedAt: Date) -> StatusSnapshot {
-        if let problem = FeedHealthEvaluator.firstProblem(in: payload.feeds) {
+        if let problem = FeedHealthEvaluator.firstProblem(in: payload.feeds, unreadable: payload.unreadableFeedNames) {
             return .down(reason: "Status feed down: \(problem)", at: fetchedAt)
         }
         let boardIsCurrent = FeedHealthEvaluator.boardIsCurrent(in: payload.feeds)

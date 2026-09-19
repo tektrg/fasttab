@@ -1,0 +1,1994 @@
+[
+ {
+  "name": "basic bash box",
+  "lines": [
+   "⏺ Bash(rm -rf /tmp/aptusfit-maestro-sim.lock)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for rm commands in /tmp",
+   "  3. No, tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "rm -rf /tmp/aptusfit-maestro-sim.lock",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for rm commands in /tmp"
+    },
+    {
+     "index": 3,
+     "label": "No, tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "long command on one line (unwrapped read)",
+  "lines": [
+   "⏺ Read(src/old.py)",
+   "  ⎿  Read 10 lines",
+   "",
+   "⏺ Bash(cd /Users/trungluong/01_Project/AptusFit && find . -name '*.py' -not -path './node_modules/*' | xargs grep -l 'permission' | head -50 && echo done-with-a-very-long-command-line-that-wraps)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "cd /Users/trungluong/01_Project/AptusFit && find . -name '*.py' -not -path './node_modules/*' | xargs grep -l 'permission' | head -50 && echo done-with-a-very-long-command-line-that-wraps",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "long command wrapped over rows (visible read)",
+  "lines": [
+   "⏺ Bash(cd /Users/trungluong/01_Project/AptusFit && find . -name '*.py' -not -",
+   "path './node_modules/*' | xargs grep -l 'permission' | head -50 && ech",
+   "o done-with-a-very-long-command-line-that-wraps)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": null
+ },
+ {
+  "name": "cursor on option 2",
+  "lines": [
+   "⏺ Bash(ls -la)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "  1. Yes",
+   "❯ 2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls -la",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 2
+  }
+ },
+ {
+  "name": "would you like to proceed, Edit tool",
+  "lines": [
+   "⏺ Edit(Sources/App/File.swift)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Would you like to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, allow all edits during this session (shift+tab)",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Edit",
+   "detail": "Sources/App/File.swift",
+   "title": "Would you like to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, allow all edits during this session (shift+tab)"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "nested parentheses in the command",
+  "lines": [
+   "⏺ Bash(echo (a) && (cd /tmp && ls))",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "echo (a) && (cd /tmp && ls)",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "non-ascii detail",
+  "lines": [
+   "⏺ Bash(echo 'xin chào — thế giới ✓')",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "echo 'xin chào — thế giới ✓'",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "trailing spaces and tabs",
+  "lines": [
+   "⏺ Bash(ls)      ",
+   "  ⎿  Running…   ",
+   "   ",
+   "──────────────────────────────────────────────────────────────────────────────────────────   ",
+   " Bash command   ",
+   "   ",
+   "   the thing   ",
+   "   ",
+   "Do you want to proceed?   ",
+   "❯ 1. Yes   ",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong   ",
+   "  3. No, and tell Claude what to do differently (esc)   "
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "two boxes: the newest wins",
+  "lines": [
+   "⏺ Bash(echo old)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "  1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "❯ 3. No, and tell Claude what to do differently (esc)",
+   "  ⎿  done",
+   "",
+   "⏺ Bash(echo new)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "echo new",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "receipt more than 8 lines above the title",
+  "lines": [
+   "⏺ Bash(ls)",
+   "  some output line",
+   "  some output line",
+   "  some output line",
+   "  some output line",
+   "  some output line",
+   "  some output line",
+   "  some output line",
+   "  some output line",
+   "  some output line",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "receipt just outside the lookback",
+  "lines": [
+   "⏺ Bash(ls)",
+   "  x",
+   "  x",
+   "  x",
+   "  x",
+   "  x",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. No"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "receipt just inside the lookback",
+  "lines": [
+   "⏺ Bash(ls)",
+   "  x",
+   "  x",
+   "  x",
+   "  x",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. No"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "tab-indented options and non-breaking space",
+  "lines": [
+   "⏺ Bash(ls)",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "Do you want to proceed?",
+   "\t❯ 1. Yes",
+   "\t2. No"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "no receipt at all",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. No"
+  ],
+  "expected": null
+ },
+ {
+  "name": "single option only",
+  "lines": [
+   "⏺ Bash(ls)",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "Do you want to proceed?",
+   "❯ 1. Yes"
+  ],
+  "expected": null
+ },
+ {
+  "name": "ballot-box question picker",
+  "lines": [
+   "⏺ Bash(ls)",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " ☐ Fruit",
+   "",
+   "Which fruit?",
+   "❯ 1. Apple",
+   "  2. Pear",
+   "  3. Type something."
+  ],
+  "expected": null
+ },
+ {
+  "name": "review screen",
+  "lines": [
+   "⏺ Bash(ls)",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Review your answers",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Submit answers",
+   "  2. Cancel"
+  ],
+  "expected": null
+ },
+ {
+  "name": "plan-mode approval (other title)",
+  "lines": [
+   "⏺ Bash(ls)",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "Would you like to proceed with this plan?",
+   "❯ 1. Yes, auto-accept edits",
+   "  2. No, keep planning"
+  ],
+  "expected": null
+ },
+ {
+  "name": "file-create box (other title)",
+  "lines": [
+   "⏺ Write(a.py)",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "Do you want to create a.py?",
+   "❯ 1. Yes",
+   "  2. No"
+  ],
+  "expected": null
+ },
+ {
+  "name": "empty screen",
+  "lines": [],
+  "expected": null
+ },
+ {
+  "name": "whitespace only",
+  "lines": [
+   "",
+   "   ",
+   ""
+  ],
+  "expected": null
+ },
+ {
+  "name": "box scrolled out of the last 100 lines",
+  "lines": [
+   "⏺ Bash(ls)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler",
+   "filler"
+  ],
+  "expected": null
+ },
+ {
+  "name": "box inside the last 100 lines with lots of history above",
+  "lines": [
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "history",
+   "⏺ Bash(ls)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "tool name with digits and underscore",
+  "lines": [
+   "⏺ mcp_tool2(arg one)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "mcp_tool2",
+   "detail": "arg one",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "empty detail",
+  "lines": [
+   "⏺ Bash()",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "options 10 and up",
+  "lines": [
+   "⏺ Bash(ls)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "  1. Option 1",
+   "  2. Option 2",
+   "  3. Option 3",
+   "  4. Option 4",
+   "  5. Option 5",
+   "  6. Option 6",
+   "  7. Option 7",
+   "  8. Option 8",
+   "  9. Option 9",
+   "❯ 10. Option 10",
+   "  11. Option 11"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Option 1"
+    },
+    {
+     "index": 2,
+     "label": "Option 2"
+    },
+    {
+     "index": 3,
+     "label": "Option 3"
+    },
+    {
+     "index": 4,
+     "label": "Option 4"
+    },
+    {
+     "index": 5,
+     "label": "Option 5"
+    },
+    {
+     "index": 6,
+     "label": "Option 6"
+    },
+    {
+     "index": 7,
+     "label": "Option 7"
+    },
+    {
+     "index": 8,
+     "label": "Option 8"
+    },
+    {
+     "index": 9,
+     "label": "Option 9"
+    },
+    {
+     "index": 10,
+     "label": "Option 10"
+    },
+    {
+     "index": 11,
+     "label": "Option 11"
+    }
+   ],
+   "cursorIndex": 10
+  }
+ },
+ {
+  "name": "title with leading spaces",
+  "lines": [
+   "⏺ Bash(ls)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "  Do you want to proceed?  ",
+   "❯ 1. Yes",
+   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  3. No, and tell Claude what to do differently (esc)"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+    },
+    {
+     "index": 3,
+     "label": "No, and tell Claude what to do differently (esc)"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "label with checkbox-like brackets",
+  "lines": [
+   "⏺ Bash(ls)",
+   "  ⎿  Running…",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Bash command",
+   "",
+   "   the thing",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. [ ] Yes",
+   "  2. No"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "border between title and options",
+  "lines": [
+   "⏺ Bash(ls)",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "Do you want to proceed?",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "❯ 1. Yes",
+   "  2. No"
+  ],
+  "expected": null
+ },
+ {
+  "name": "REAL capture: edit box on pane p3K (Update)",
+  "lines": [
+   "⏺ Automatic continue cancelled · Claude Code exited during the wait, so the task will not resume on its own when the usage",
+   "  limit resets (send a prompt after the reset to continue)",
+   "",
+   "❯ cont",
+   "",
+   "  Read 2 files",
+   "",
+   "⏺ Update(.claude/chief-mode)",
+   "",
+   "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " .claude/chief-mode",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1  on 2026-09-15T04:21:16+00:00 84ac01f3-82fa-4505-ab39-f7b06a2e15e3",
+   " 2 +",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to chief-mode?",
+   " ❯ 1. Yes",
+   "   2. Yes, and allow Claude to edit files in this project's .claude folder for this session",
+   "   3. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": ".claude/chief-mode\n 1  on 2026-09-15T04:21:16+00:00 84ac01f3-82fa-4505-ab39-f7b06a2e15e3\n 2 +",
+   "title": "Do you want to make this edit to chief-mode?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and allow Claude to edit files in this project's .claude folder for this session"
+    },
+    {
+     "index": 3,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, short diff",
+  "lines": [
+   "⏺ Update(.claude/chief-mode)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " .claude/chief-mode",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1  on 2026-09-15T04:21:16+00:00 84ac01f3-…",
+   " 2 +",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to chief-mode?",
+   " ❯ 1. Yes",
+   "   2. Yes, and allow Claude to edit files in this project's .claude folder for this session",
+   "   3. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": ".claude/chief-mode\n 1  on 2026-09-15T04:21:16+00:00 84ac01f3-…\n 2 +",
+   "title": "Do you want to make this edit to chief-mode?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and allow Claude to edit files in this project's .claude folder for this session"
+    },
+    {
+     "index": 3,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, diff of exactly 20 lines",
+  "lines": [
+   "⏺ Write(scripts/a.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " scripts/a.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1 +line 1",
+   " 2 +line 2",
+   " 3 +line 3",
+   " 4 +line 4",
+   " 5 +line 5",
+   " 6 +line 6",
+   " 7 +line 7",
+   " 8 +line 8",
+   " 9 +line 9",
+   " 10 +line 10",
+   " 11 +line 11",
+   " 12 +line 12",
+   " 13 +line 13",
+   " 14 +line 14",
+   " 15 +line 15",
+   " 16 +line 16",
+   " 17 +line 17",
+   " 18 +line 18",
+   " 19 +line 19",
+   " 20 +line 20",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. Yes, and allow Claude to edit files in this project's .claude folder for this session",
+   "   3. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": {
+   "tool": "Write",
+   "detail": "scripts/a.py\n 1 +line 1\n 2 +line 2\n 3 +line 3\n 4 +line 4\n 5 +line 5\n 6 +line 6\n 7 +line 7\n 8 +line 8\n 9 +line 9\n 10 +line 10\n 11 +line 11\n 12 +line 12\n 13 +line 13\n 14 +line 14\n 15 +line 15\n 16 +line 16\n 17 +line 17\n 18 +line 18\n 19 +line 19\n 20 +line 20",
+   "title": "Do you want to make this edit to a.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and allow Claude to edit files in this project's .claude folder for this session"
+    },
+    {
+     "index": 3,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, diff of 21 lines (truncated)",
+  "lines": [
+   "⏺ Write(scripts/a.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " scripts/a.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1 +line 1",
+   " 2 +line 2",
+   " 3 +line 3",
+   " 4 +line 4",
+   " 5 +line 5",
+   " 6 +line 6",
+   " 7 +line 7",
+   " 8 +line 8",
+   " 9 +line 9",
+   " 10 +line 10",
+   " 11 +line 11",
+   " 12 +line 12",
+   " 13 +line 13",
+   " 14 +line 14",
+   " 15 +line 15",
+   " 16 +line 16",
+   " 17 +line 17",
+   " 18 +line 18",
+   " 19 +line 19",
+   " 20 +line 20",
+   " 21 +line 21",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. Yes, and allow Claude to edit files in this project's .claude folder for this session",
+   "   3. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": {
+   "tool": "Write",
+   "detail": "scripts/a.py\n 1 +line 1\n 2 +line 2\n 3 +line 3\n 4 +line 4\n 5 +line 5\n 6 +line 6\n 7 +line 7\n 8 +line 8\n 9 +line 9\n 10 +line 10\n 11 +line 11\n 12 +line 12\n 13 +line 13\n 14 +line 14\n 15 +line 15\n 16 +line 16\n 17 +line 17\n 18 +line 18\n 19 +line 19\n 20 +line 20\n… (1 more line(s) truncated)",
+   "title": "Do you want to make this edit to a.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "Yes, and allow Claude to edit files in this project's .claude folder for this session"
+    },
+    {
+     "index": 3,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, diff of 25 lines (truncated)",
+  "lines": [
+   "⏺ Write(scripts/long.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Create file",
+   " scripts/long.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1 +some line 1",
+   " 2 +some line 2",
+   " 3 +some line 3",
+   " 4 +some line 4",
+   " 5 +some line 5",
+   " 6 +some line 6",
+   " 7 +some line 7",
+   " 8 +some line 8",
+   " 9 +some line 9",
+   " 10 +some line 10",
+   " 11 +some line 11",
+   " 12 +some line 12",
+   " 13 +some line 13",
+   " 14 +some line 14",
+   " 15 +some line 15",
+   " 16 +some line 16",
+   " 17 +some line 17",
+   " 18 +some line 18",
+   " 19 +some line 19",
+   " 20 +some line 20",
+   " 21 +some line 21",
+   " 22 +some line 22",
+   " 23 +some line 23",
+   " 24 +some line 24",
+   " 25 +some line 25",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to long.py?",
+   " ❯ 1. Yes",
+   "   2. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": {
+   "tool": "Write",
+   "detail": "scripts/long.py\n 1 +some line 1\n 2 +some line 2\n 3 +some line 3\n 4 +some line 4\n 5 +some line 5\n 6 +some line 6\n 7 +some line 7\n 8 +some line 8\n 9 +some line 9\n 10 +some line 10\n 11 +some line 11\n 12 +some line 12\n 13 +some line 13\n 14 +some line 14\n 15 +some line 15\n 16 +some line 16\n 17 +some line 17\n 18 +some line 18\n 19 +some line 19\n 20 +some line 20\n… (5 more line(s) truncated)",
+   "title": "Do you want to make this edit to long.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, diff line that looks like a border",
+  "lines": [
+   "⏺ Update(scripts/lib/classify_pane.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " scripts/lib/classify_pane.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 10  BORDER = '────────────────────────────────────────'",
+   " 11 +BORDER2 = '────────────────────────────────────────'",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to classify_pane.py?",
+   " ❯ 1. Yes",
+   "   2. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": "scripts/lib/classify_pane.py\n 10  BORDER = '────────────────────────────────────────'\n 11 +BORDER2 = '────────────────────────────────────────'",
+   "title": "Do you want to make this edit to classify_pane.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, diff line that looks like a wall",
+  "lines": [
+   "⏺ Update(a.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " a.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 487  TITLE_GLYPH_RE = re.compile(r'[☐☒]')",
+   " 488 +# Review your answers",
+   " 489 +  ❯ 1. Yes",
+   " 490 +Submit",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": "a.py\n 487  TITLE_GLYPH_RE = re.compile(r'[☐☒]')\n 488 +# Review your answers\n 489 +  ❯ 1. Yes\n 490 +Submit",
+   "title": "Do you want to make this edit to a.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, diff with unicode, tabs and trailing spaces",
+  "lines": [
+   "⏺ Update(src/đ.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " src/đ.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1  print('xin chào ✓')   ",
+   "\t2 +\tindented",
+   " 3 -",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to đ.py?",
+   " ❯ 1. Yes",
+   "   2. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": "src/đ.py\n 1  print('xin chào ✓')\n\t2 +\tindented\n 3 -",
+   "title": "Do you want to make this edit to đ.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, no diff between the borders",
+  "lines": [
+   "⏺ Update(a.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " a.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. No"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": "a.py",
+   "title": "Do you want to make this edit to a.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, only one border (no diff excerpt)",
+  "lines": [
+   "⏺ Update(a.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " a.py",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. No"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": "a.py",
+   "title": "Do you want to make this edit to a.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, no receipt",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " a.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1 +x",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. No"
+  ],
+  "expected": null
+ },
+ {
+  "name": "edit box, receipt exactly 60 lines above the title",
+  "lines": [
+   "⏺ Update(a.py)",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. No"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": "a.py",
+   "title": "Do you want to make this edit to a.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, receipt 61 lines above the title",
+  "lines": [
+   "⏺ Update(a.py)",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " body",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. No"
+  ],
+  "expected": null
+ },
+ {
+  "name": "edit box, another prompt's title between receipt and title, no border (wall)",
+  "lines": [
+   "⏺ Update(a.py)",
+   "Do you want to proceed?",
+   " some text",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. No"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": "a.py",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, wall above the first border is this box's own content",
+  "lines": [
+   "⏺ Update(a.py)",
+   "Do you want to proceed?",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " a.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1 +x",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. No"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": "a.py\n 1 +x",
+   "title": "Do you want to make this edit to a.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box, old cursor row below the receipt but above the border",
+  "lines": [
+   "⏺ Update(a.py)",
+   " ❯ 1. Yes",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " a.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1 +x",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. No"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": "a.py\n 1 +x",
+   "title": "Do you want to make this edit to a.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "create-file title is not recognised",
+  "lines": [
+   "⏺ Write(scripts/new.py)",
+   "",
+   "Do you want to create scripts/new.py?",
+   "❯ 1. Yes",
+   "  2. No"
+  ],
+  "expected": null
+ },
+ {
+  "name": "edit title with trailing text after the question mark",
+  "lines": [
+   "⏺ Update(a.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " a.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1 +x",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to a.py? (y/n)",
+   " ❯ 1. Yes",
+   "   2. Yes, and allow Claude to edit files in this project's .claude folder for this session",
+   "   3. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": null
+ },
+ {
+  "name": "edit title that is only the stem",
+  "lines": [
+   "⏺ Update(a.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " a.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1 +x",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to ?",
+   " ❯ 1. Yes",
+   "   2. Yes, and allow Claude to edit files in this project's .claude folder for this session",
+   "   3. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": null
+ },
+ {
+  "name": "bash box 30 lines below a big output (receipt within 60 but before a wall)",
+  "lines": [
+   "⏺ Bash(ls)",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "  out",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. No"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "bash box with border above the receipt",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "⏺ Bash(ls)",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. No"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "ls",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "two receipts: the nearest wins",
+  "lines": [
+   "⏺ Bash(first)",
+   "  out",
+   "⏺ Bash(second)",
+   "",
+   "Do you want to proceed?",
+   "❯ 1. Yes",
+   "  2. No"
+  ],
+  "expected": {
+   "tool": "Bash",
+   "detail": "second",
+   "title": "Do you want to proceed?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ },
+ {
+  "name": "edit box options session label without Yes prefix",
+  "lines": [
+   "⏺ Update(a.py)",
+   "",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Edit file",
+   " a.py",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " 1 +x",
+   "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌",
+   " Do you want to make this edit to a.py?",
+   " ❯ 1. Yes",
+   "   2. No, and allow edits for this session",
+   "   3. No",
+   "",
+   " Esc to cancel · Tab to amend"
+  ],
+  "expected": {
+   "tool": "Update",
+   "detail": "a.py\n 1 +x",
+   "title": "Do you want to make this edit to a.py?",
+   "options": [
+    {
+     "index": 1,
+     "label": "Yes"
+    },
+    {
+     "index": 2,
+     "label": "No, and allow edits for this session"
+    },
+    {
+     "index": 3,
+     "label": "No"
+    }
+   ],
+   "cursorIndex": 1
+  }
+ }
+]

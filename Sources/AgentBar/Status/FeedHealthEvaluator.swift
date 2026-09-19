@@ -19,9 +19,10 @@ enum FeedHealthEvaluator {
     static let staleAfterRefreshIntervals = 3.0
 
     /// First problem found among the essential feeds, as display text; nil if all healthy.
-    static func firstProblem(in feeds: [String: DashboardFeed]) -> String? {
+    /// `unreadable` names feeds the reply had but that could not be read (told apart from ones it lacked).
+    static func firstProblem(in feeds: [String: DashboardFeed], unreadable: Set<String> = []) -> String? {
         for name in essentialFeedNames {
-            if let problem = problem(withFeed: feeds[name], named: name) { return problem }
+            if let problem = problem(withFeed: feeds[name], named: name, unreadable: unreadable) { return problem }
         }
         return nil
     }
@@ -30,8 +31,10 @@ enum FeedHealthEvaluator {
         problem(withFeed: feeds[boardFeedName], named: boardFeedName) == nil
     }
 
-    private static func problem(withFeed feed: DashboardFeed?, named name: String) -> String? {
-        guard let feed else { return "the \(name) feed is missing" }
+    private static func problem(withFeed feed: DashboardFeed?, named name: String, unreadable: Set<String> = []) -> String? {
+        guard let feed else {
+            return unreadable.contains(name) ? "the \(name) feed could not be read" : "the \(name) feed is not in the dashboard's reply"
+        }
         if feed.broken == true {
             return "the \(name) feed is broken" + (feed.error.map { ": \($0)" } ?? "")
         }

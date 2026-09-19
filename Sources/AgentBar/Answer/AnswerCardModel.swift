@@ -239,7 +239,7 @@ final class AnswerCardModel: ObservableObject {
             follow(question, in: card)
         case .questionLoading?, .questionNotAnswerable?:
             return   // the dashboard's view is between readings: the card stays on the question it has
-        case .permission?, nil:
+        case .permission?, .permissionReview?, nil:
             close()
         }
     }

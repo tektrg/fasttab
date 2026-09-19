@@ -16,7 +16,7 @@ struct AgentPanelView: View {
             if model.presentation.showsBoardNote {
                 BoardNoteView()
             }
-            PanelFooterView(notice: model.footerNotice, onOpenSettings: onOpenSettings)
+            PanelFooterView(notice: model.footerNotice, isPeeking: model.peek != nil, onOpenSettings: onOpenSettings)
         }
         .frame(width: AgentPanelMetrics.width)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -27,7 +27,14 @@ struct AgentPanelView: View {
 
     @ViewBuilder
     private var bodyContent: some View {
-        if model.presentation.state == .list {
+        if let peek = model.peek {
+            PanePeekView(
+                peek: peek,
+                bodyHeight: AgentPanelMetrics.peekBodyHeight(
+                    maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
+                )
+            )
+        } else if model.presentation.state == .list {
             AgentListView(
                 model: model,
                 rows: model.presentation.rows,

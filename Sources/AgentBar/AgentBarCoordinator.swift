@@ -39,6 +39,7 @@ final class AgentBarCoordinator {
         self.statusSource = statusSource
         let model = AgentPanelModel(listSettings: settings.list, dashboardAddress: endpoint.displayAddress)
         self.model = model
+        model.statusSource = statusSource
         let panelController = AgentPanelController(model: model)
         self.panelController = panelController
 
@@ -147,6 +148,7 @@ final class AgentBarCoordinator {
         let source = DashboardStatusSource(endpoint: endpoint)
         statusSource = source
         switchCoordinator.statusSource = source
+        model.statusSource = source
         model.useDashboard(address: endpoint.displayAddress)
         beginFeed(from: source)
     }

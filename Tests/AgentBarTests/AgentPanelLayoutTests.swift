@@ -69,4 +69,20 @@ struct AgentPanelLayoutTests {
         #expect(frame.maxY <= screen.maxY - AgentPanelPlacement.edgeMargin)
         #expect(frame.minY >= screen.minY)
     }
+
+    @Test func peekTakesTheFullListHeightEvenForAShortList() {
+        let few = F.presentation(F.snapshot([F.agent("a")]))
+        let peeking = AgentPanelMetrics.height(for: few, isPeeking: true)
+        let listing = AgentPanelMetrics.height(for: few)
+        #expect(peeking > listing)
+        #expect(peeking == AgentPanelMetrics.height(for: F.presentation(F.snapshot((0..<40).map { F.agent("id\($0)") }))))
+    }
+
+    @Test func peekTextLinesFitInsideTheBody() {
+        let body = AgentPanelMetrics.peekBodyHeight()
+        let lines = AgentPanelMetrics.peekVisibleLineCount(bodyHeight: body)
+        let used = AgentPanelMetrics.peekHeaderHeight + AgentPanelMetrics.peekReadLineHeight
+            + 2 * AgentPanelMetrics.peekTextVerticalPadding + CGFloat(lines) * AgentPanelMetrics.peekTextLineHeight
+        #expect(lines > 0 && used <= body)
+    }
 }

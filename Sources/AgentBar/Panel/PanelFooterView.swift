@@ -5,6 +5,7 @@ import SwiftUI
 /// settings button. Height is `AgentPanelMetrics.footerHeight`.
 struct PanelFooterView: View {
     let notice: PanelFooterNotice?
+    var isPeeking = false
     let onOpenSettings: () -> Void
 
     var body: some View {
@@ -37,7 +38,7 @@ struct PanelFooterView: View {
                 .truncationMode(.tail)
                 .help(notice.text)
         } else {
-            Text("↑↓ select   ↩ switch   esc close")
+            Text(isPeeking ? "space/esc back   ↩ switch" : "↑↓ select   space peek   ↩ switch   esc close")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }

@@ -18,8 +18,16 @@ final class AgentPanelModel: ObservableObject {
             guard query != oldValue else { return }
             rebuild()
             selectedAgentID = presentation.selectableAgentIDs.first
+            closePeek()
         }
     }
+
+    /// The pane-screen peek (Space), or nil while the list shows.
+    @Published private(set) var peek: PanePeek?
+
+    /// Where a peek reads the pane screen from; set by the host, and replaced
+    /// when the user points AgentBar at another dashboard.
+    var statusSource: (any AgentStatusSource)?
 
     /// Strip at the bottom of the panel: a failed switch, else a shortcut problem.
     @Published private(set) var footerNotice: PanelFooterNotice?
@@ -42,6 +50,7 @@ final class AgentPanelModel: ObservableObject {
     private var switchError: String?
     private var hotkeyIssue: String?
     private var switchErrorClearTask: Task<Void, Never>?
+    private let peekLoader = PanePeekLoader()
 
     init(
         store: FrecencyStore = FrecencyStore(),
@@ -62,6 +71,7 @@ final class AgentPanelModel: ObservableObject {
         self.snapshot = snapshot
         rebuild()
         selectedAgentID = AgentSelection.reconciled(selectedAgentID, in: presentation.selectableAgentIDs)
+        closePeekUnlessStillSelected()
     }
 
     /// New list settings: re-derive the list, keeping the selection while it survives.
@@ -70,6 +80,7 @@ final class AgentPanelModel: ObservableObject {
         listSettings = settings
         rebuild()
         selectedAgentID = AgentSelection.reconciled(selectedAgentID, in: presentation.selectableAgentIDs)
+        closePeekUnlessStillSelected()
     }
 
     /// The status feed now comes from another dashboard: forget the old feed's
@@ -79,11 +90,13 @@ final class AgentPanelModel: ObservableObject {
         snapshot = nil
         rebuild()
         selectedAgentID = nil
+        closePeek()
     }
 
     /// Fresh start for each summon: empty search, first row selected.
     func resetForShow() {
         clearSwitchError()
+        closePeek()
         query = ""
         rebuild()
         selectedAgentID = presentation.selectableAgentIDs.first
@@ -91,6 +104,7 @@ final class AgentPanelModel: ObservableObject {
     }
 
     func moveSelection(by step: Int) {
+        closePeek()
         selectedAgentID = AgentSelection.moved(from: selectedAgentID, by: step, in: presentation.selectableAgentIDs)
     }
 
@@ -98,6 +112,51 @@ final class AgentPanelModel: ObservableObject {
     func select(agentID: String) {
         guard presentation.selectableAgentIDs.contains(agentID) else { return }
         selectedAgentID = agentID
+        closePeekUnlessStillSelected()
+    }
+
+    /// Space. Peeks at the selected agent's screen, or closes the peek. Only
+    /// with an empty search: otherwise it is a literal space in the query, and
+    /// this returns false so the field types it.
+    @discardableResult
+    func togglePeek() -> Bool {
+        guard query.isEmpty else { return false }
+        if peek != nil {
+            closePeek()
+        } else {
+            openPeekOnSelected()
+        }
+        return true
+    }
+
+    func closePeek() {
+        peekLoader.cancel()
+        peek = nil
+    }
+
+    private func openPeekOnSelected() {
+        guard let selectedAgentID,
+              let agent = presentation.agents.first(where: { $0.id == selectedAgentID })
+        else { return }
+        var opened = PanePeek(agentID: agent.id, label: agent.label, projectName: agent.projectName, content: .loading)
+        guard let paneId = agent.paneId, !paneId.isEmpty else {
+            opened.content = .unavailable(PanePeek.endedAgentMessage)
+            peek = opened
+            return
+        }
+        guard let statusSource else {
+            opened.content = .unavailable(PanePeek.noSourceMessage)
+            peek = opened
+            return
+        }
+        peek = opened
+        peekLoader.load(paneId: paneId, from: statusSource) { [weak self] result in
+            self?.peek?.content = PanePeek.content(from: result)
+        }
+    }
+
+    private func closePeekUnlessStillSelected() {
+        if peek?.agentID != selectedAgentID { closePeek() }
     }
 
     func activateSelected() {

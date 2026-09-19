@@ -24,7 +24,13 @@ struct SearchFieldView: View {
             .onSubmit { model.activateSelected() }
             .onKeyPress(.upArrow) { model.moveSelection(by: -1); return .handled }
             .onKeyPress(.downArrow) { model.moveSelection(by: 1); return .handled }
-            .onExitCommand(perform: onClose)
+            .onKeyPress(keys: [.space], phases: .down) { press in
+                guard press.modifiers.isEmpty else { return .ignored }
+                return model.togglePeek() ? .handled : .ignored
+            }
+            .onExitCommand {
+                if model.peek != nil { model.closePeek() } else { onClose() }
+            }
             .onAppear { isFocused = true }
             .onChange(of: model.focusRequest) { isFocused = true }
     }

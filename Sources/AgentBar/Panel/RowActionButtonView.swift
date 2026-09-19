@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// One small button on an agent row (Done, Park, Unpark, Close pane).
+/// One small button on an agent row (Answer, Open terminal, Done, Park, Unpark, Close pane).
+/// A blocked agent's Answer / Open terminal is red: the one thing waiting on you.
 /// Highlighted = the keyboard is on it; confirming = the second press is armed.
 struct RowActionButtonView: View {
     let spec: RowButtonSpec
@@ -10,7 +11,7 @@ struct RowActionButtonView: View {
 
     var body: some View {
         Button(action: onPress) {
-            Text(RowActionText.title(of: spec.button, state: state))
+            Text(state == nil ? spec.label : RowActionText.title(of: spec.button, state: state))
                 .font(.system(size: 11, weight: .medium))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
@@ -40,10 +41,13 @@ struct RowActionButtonView: View {
     }
 
     private var fill: Color {
-        isConfirming ? Color.red.opacity(0.85) : Color.primary.opacity(isHighlighted ? 0.18 : 0.10)
+        if isConfirming { return Color.red.opacity(0.85) }
+        if spec.button.isBlockedAction { return Color.red.opacity(isHighlighted ? 0.26 : 0.16) }
+        return Color.primary.opacity(isHighlighted ? 0.18 : 0.10)
     }
 
     private var foreground: Color {
-        isConfirming ? .white : .primary
+        if isConfirming { return .white }
+        return spec.button.isBlockedAction ? Color.red : .primary
     }
 }

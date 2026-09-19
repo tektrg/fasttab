@@ -31,3 +31,21 @@ struct DashboardSessionActionResponse: Decodable {
         return error.map(SessionActionOutcome.failed)
     }
 }
+
+/// `POST /api/answer` reply: `{"ok": true, "next": <parsed question or null>}`
+/// or `{"ok": false, "error": "..."}` (the picker was not touched, or the answer
+/// may not have landed: the reason says which).
+struct DashboardAnswerResponse: Decodable {
+    let ok: Bool?
+    let error: String?
+    let next: DashboardQuestion?
+
+    /// The result the reply amounts to; nil when it says nothing usable.
+    var result: AnswerResult? {
+        switch ok {
+        case true?: .sent(next: AnswerableQuestion(next))
+        case false?: .failed(error ?? "The dashboard refused the answer.")
+        case nil: nil
+        }
+    }
+}

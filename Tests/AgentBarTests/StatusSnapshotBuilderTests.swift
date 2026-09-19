@@ -81,9 +81,9 @@ struct StatusSnapshotBuilderTests {
         #expect(try #require(healthy.agent(labelled: "agent-one")).id == StatusFixtures.sessionId(1))
     }
 
-    @Test func questionRowShowsTitleAndSearchesOnTheQuestion() throws {
+    @Test func questionRowShowsTitleAndQuestionAndSearchesOnTheQuestion() throws {
         let row = try #require(healthy.agent(labelled: "agent-one"))
-        #expect(row.statusText == "Storage choice")
+        #expect(row.statusText == "Storage choice: Should the sample setting persist to disk per workspace, or stay session-only and reset each time the app reopens?")
         #expect(row.promptExcerpt == "Should the sample setting persist to disk per workspace, or stay session-only and reset each time the app reopens?")
         #expect(row.secondsInStatus == 4179.3)
         #expect(row.canFocus)

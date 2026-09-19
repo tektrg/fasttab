@@ -7,6 +7,8 @@ struct AgentRowView: View {
     let isSelected: Bool
     let fetchedAt: Date
     var actionState: RowActionState?
+    /// The agent's answer is on its way: a spinner replaces the buttons.
+    var isSendingAnswer = false
     var highlightedButton: RowButton?
     var onPress: (RowButton) -> Void = { _ in }
 
@@ -40,7 +42,9 @@ struct AgentRowView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            if showsButtons {
+            if isSendingAnswer {
+                sendingIndicator
+            } else if showsButtons {
                 buttonStrip
             } else {
                 AgentAgeView(agent: agent, fetchedAt: fetchedAt)
@@ -48,16 +52,33 @@ struct AgentRowView: View {
         }
     }
 
+    private var sendingIndicator: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text("Sending answer…")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize()
+        .accessibilityLabel("Sending answer")
+    }
+
     private var buttons: [RowButtonSpec] { RowButtons.available(for: agent) }
 
     /// Buttons show on the selected row, and stay while a press is being settled.
+    /// A blocked row always shows its red button, so it cannot be missed.
     private var showsButtons: Bool {
-        !buttons.isEmpty && (isSelected || actionState != nil)
+        !visibleButtons.isEmpty && (isSelected || actionState != nil || agent.blockedOnYou != nil)
+    }
+
+    /// Selected (or settling): every button. Otherwise only the blocked row's red one.
+    private var visibleButtons: [RowButtonSpec] {
+        isSelected || actionState != nil ? buttons : buttons.filter { agent.blockedOnYou != nil && $0.button.isBlockedAction }
     }
 
     private var buttonStrip: some View {
         HStack(spacing: 6) {
-            ForEach(buttons, id: \.button.title) { spec in
+            ForEach(visibleButtons, id: \.button.title) { spec in
                 RowActionButtonView(
                     spec: spec,
                     state: actionState,

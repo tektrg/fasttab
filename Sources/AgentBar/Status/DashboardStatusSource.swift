@@ -84,6 +84,22 @@ actor DashboardStatusSource: AgentStatusSource {
         }
     }
 
+    func answer(paneId: String, choice: AnswerChoice, question: QuestionIdentity) async -> AnswerResult {
+        do {
+            let request = endpoint.answerRequest(paneId: paneId, choice: choice, question: question)
+            let (body, _) = try await transport.response(for: request)
+            let reply = try JSONDecoder().decode(DashboardAnswerResponse.self, from: body)
+            return reply.result ?? .failed("The dashboard sent an unreadable reply. Check the agent's terminal.")
+        } catch is DecodingError {
+            return .failed("The dashboard sent an unreadable reply. Check the agent's terminal.")
+        } catch let error as URLError where error.code == .timedOut {
+            // The answer may have gone through: never say it did not.
+            return .failed("The dashboard took too long to answer. Check the agent's terminal: the answer may have gone through.")
+        } catch {
+            return .failed("Can't reach the status dashboard.")
+        }
+    }
+
     func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome {
         do {
             let request = endpoint.sessionActionRequest(kind, rowId: rowId, confirmed: confirmed)

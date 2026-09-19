@@ -13,6 +13,9 @@ struct DashboardEndpoint: Sendable {
     static let requestTimeoutSeconds: TimeInterval = 10
     /// Stop gives the agent's processes a grace period before killing them.
     static let sessionActionTimeoutSeconds: TimeInterval = 30
+    /// An answer types into the pane, then re-reads it several times (up to a
+    /// minute for a multi-select with a review step) before it replies.
+    static let answerTimeoutSeconds: TimeInterval = 90
     /// The dashboard's accident guard: only the product owner's clicks may stop
     /// or close (`PO_ACTOR` in chief_dashboard_actions.py). AgentBar acts only
     /// on the user's own click, so it speaks as that actor.
@@ -51,6 +54,22 @@ struct DashboardEndpoint: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["paneId": paneId])
+        return request
+    }
+
+    /// `POST /api/answer`. `question` goes back exactly as the dashboard sent it:
+    /// it refuses unless the pane still shows that very question.
+    func answerRequest(paneId: String, choice: AnswerChoice, question: QuestionIdentity) -> URLRequest {
+        var request = request(path: "/api/answer")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.answerTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "paneId": paneId,
+            "choice": choice.jsonObject,
+            "question": ["title": question.title, "question": question.question],
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request
     }
 

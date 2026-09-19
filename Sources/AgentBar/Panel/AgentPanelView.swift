@@ -21,7 +21,8 @@ struct AgentPanelView: View {
                 hintContext: .init(
                     isPeeking: model.peek != nil,
                     hasHighlightedButton: model.highlightedButton != nil,
-                    searchIsEmpty: model.query.isEmpty
+                    searchIsEmpty: model.query.isEmpty,
+                    answerMode: model.answer.card?.state.hintMode
                 ),
                 onOpenSettings: onOpenSettings
             )
@@ -35,7 +36,14 @@ struct AgentPanelView: View {
 
     @ViewBuilder
     private var bodyContent: some View {
-        if let peek = model.peek {
+        if model.answer.isOpen {
+            AnswerCardView(
+                answer: model.answer,
+                bodyHeight: AgentPanelMetrics.fullBodyHeight(
+                    maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
+                )
+            )
+        } else if let peek = model.peek {
             PanePeekView(
                 peek: peek,
                 bodyHeight: AgentPanelMetrics.peekBodyHeight(

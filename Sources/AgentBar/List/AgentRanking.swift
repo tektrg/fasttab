@@ -6,9 +6,10 @@ enum AgentRanking {
     /// - Working / Parked: higher frecency (the user's own past switches, keyed by
     ///   agent id) first; ties, including every never-visited agent, keep the
     ///   status client's order.
-    /// - Needs you: the client's order is urgency, and a snapshot does not
-    ///   expose urgency levels, so ties cannot be told apart from real
-    ///   differences. Simplest defensible rule: keep the client's order as is.
+    /// - Needs you: agents blocked on a question or permission box come first
+    ///   (they cannot go on without the user). Beyond that the client's order is
+    ///   urgency, and a snapshot does not expose urgency levels, so ties cannot
+    ///   be told apart from real differences: keep the client's order as is.
     /// - Ended: newest first as delivered; frecency would bury the most recent.
     static func ordered(
         _ agents: [AgentSnapshot],
@@ -17,7 +18,9 @@ enum AgentRanking {
         now: Date
     ) -> [AgentSnapshot] {
         switch section {
-        case .needsYou, .ended:
+        case .needsYou:
+            return agents.filter { $0.blockedOnYou != nil } + agents.filter { $0.blockedOnYou == nil }
+        case .ended:
             return agents
         case .working, .parked:
             return agents.enumerated()

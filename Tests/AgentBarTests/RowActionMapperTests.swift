@@ -32,7 +32,7 @@ struct RowActionMapperTests {
     }
 
     @Test func aRealPromptStillShowsTheQuestion() throws {
-        #expect(try #require(healthy.agent(labelled: "agent-one")).statusText == "Storage choice")
+        #expect(try #require(healthy.agent(labelled: "agent-one")).statusText.hasPrefix("Storage choice: Should the sample setting"))
         #expect(try #require(healthy.agent(labelled: "agent-two")).statusText == "Do you want to proceed?")
     }
 

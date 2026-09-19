@@ -65,9 +65,25 @@ enum LiveAgentMapper {
             canFocus: true,
             hasHookData: agent.hasHookData ?? false,
             rowId: agent.rowId,
-            actions: AgentActions(decoded: agent.actions, fallback: .unknown)
+            sessionId: sessionId,
+            actions: AgentActions(decoded: agent.actions, fallback: .unknown),
+            blocker: blocker(for: needsYouEntry)
         )
         return (snapshot, hasPrompt)
+    }
+
+    /// A "question" row is answerable once its parsed picker has arrived (until
+    /// then it is loading); a "blocked" row is a permission box (or unconfirmed prompt).
+    private static func blocker(for needsYouEntry: DashboardNeedsYou?) -> AgentBlocker? {
+        switch needsYouEntry?.kind {
+        case "question":
+            if needsYouEntry?.question == nil { return .questionLoading(needsYouEntry?.questionPreview?.identity) }
+            return AnswerableQuestion(needsYouEntry?.question).map(AgentBlocker.question) ?? .questionNotAnswerable
+        case "blocked":
+            return .permission
+        default:
+            return nil
+        }
     }
 
     private static func statusText(
@@ -80,14 +96,16 @@ enum LiveAgentMapper {
         let hookReason = StatusTextCleaner.singleLine(agent.hookReason, maxLength: statusTextMaxLength)
         switch section {
         case .needsYou where hasPrompt:
-            // The question title names what is being asked. The dashboard's own
+            // The question (its title, then its text) is what is being asked. The dashboard's own
             // `detail` comes next: for a hook-preview question ("options loading")
             // it is fresher than the screen line, which is then stale. For a plain
             // permission prompt the screen line is the prompt itself (the hook
             // reason is only generic vendor copy) — same precedence as the dashboard.
             let title = StatusTextCleaner.singleLine(agent.screenQuestion?.title, maxLength: statusTextMaxLength)
+            let question = StatusTextCleaner.singleLine(agent.screenQuestion?.question, maxLength: statusTextMaxLength)
+            let asked = [title, question].compactMap { $0 }.joined(separator: ": ")
             let detail = StatusTextCleaner.singleLine(needsYouEntry?.detail, maxLength: statusTextMaxLength)
-            return title ?? detail ?? screenSignal ?? hookReason ?? "Waiting for your answer"
+            return (asked.isEmpty ? nil : asked) ?? detail ?? screenSignal ?? hookReason ?? "Waiting for your answer"
         case .working:
             return screenSignal ?? hookReason ?? "Working"
         case .needsYou, .parked, .ended:

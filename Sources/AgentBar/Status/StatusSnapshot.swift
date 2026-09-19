@@ -28,6 +28,10 @@ struct StatusSnapshot: Equatable, Sendable {
         StatusSnapshot(agents: [], health: .down(reason: reason), fetchedAt: date, boardIsCurrent: false)
     }
 
+    func replacingAgents(_ newAgents: [AgentSnapshot]) -> StatusSnapshot {
+        StatusSnapshot(agents: newAgents, health: health, fetchedAt: fetchedAt, boardIsCurrent: boardIsCurrent)
+    }
+
     func agents(in section: AgentSection) -> [AgentSnapshot] {
         agents.filter { $0.section == section }
     }

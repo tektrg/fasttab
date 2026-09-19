@@ -38,13 +38,14 @@ final class AgentPanelController {
         host.sizingOptions = []   // the window frame is ours, not the content's
         panel.contentViewController = host
         // Publishers emit before the property changes, so use the emitted values.
-        sizeSubscription = Publishers.CombineLatest3(
+        sizeSubscription = Publishers.CombineLatest4(
             model.$presentation,
             model.$listSettings,
-            model.$peek.map { $0 != nil }.removeDuplicates()
+            model.$peek.map { $0 != nil }.removeDuplicates(),
+            model.answer.$card.map { $0 != nil }.removeDuplicates()
         )
-        .sink { [weak self] presentation, listSettings, isPeeking in
-            self?.applySize(for: presentation, listSettings: listSettings, isPeeking: isPeeking)
+        .sink { [weak self] presentation, listSettings, isPeeking, isAnswering in
+            self?.applySize(for: presentation, listSettings: listSettings, isPeeking: isPeeking, isAnswering: isAnswering)
         }
     }
 
@@ -56,7 +57,10 @@ final class AgentPanelController {
     func show() {
         model.resetForShow()
         placementFrame = SummonScreen.visibleFrame(fallback: placementFrame)
-        applySize(for: model.presentation, listSettings: model.listSettings, isPeeking: model.peek != nil)
+        applySize(
+            for: model.presentation, listSettings: model.listSettings,
+            isPeeking: model.peek != nil, isAnswering: model.answer.isOpen
+        )
         panel.makeKeyAndOrderFront(nil)
         startOutsideClickMonitor()
         onVisibilityChange?(true)
@@ -69,9 +73,16 @@ final class AgentPanelController {
         if wasVisible { onVisibilityChange?(false) }
     }
 
-    private func applySize(for presentation: AgentListPresentation, listSettings: AgentListSettings, isPeeking: Bool) {
+    private func applySize(
+        for presentation: AgentListPresentation,
+        listSettings: AgentListSettings,
+        isPeeking: Bool,
+        isAnswering: Bool
+    ) {
         let maxListHeight = AgentPanelMetrics.maxListHeight(visibleRows: listSettings.maxVisibleRows)
-        let height = AgentPanelMetrics.height(for: presentation, maxListHeight: maxListHeight, isPeeking: isPeeking)
+        let height = AgentPanelMetrics.height(
+            for: presentation, maxListHeight: maxListHeight, isPeeking: isPeeking, isAnswering: isAnswering
+        )
         let size = CGSize(width: AgentPanelMetrics.width, height: height)
         panel.setFrame(AgentPanelPlacement.frame(size: size, in: placementFrame), display: panel.isVisible, animate: false)
     }

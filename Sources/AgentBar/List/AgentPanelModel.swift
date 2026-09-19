@@ -4,9 +4,9 @@ import CommandBarKit
 
 /// Observable state behind the panel: the latest snapshot, the search text,
 /// the selection, the user's frecency and parked agents, and the row buttons
-/// (Done / Park / Close pane). All derivation lives in the pure
-/// `AgentListBuilder` / `AgentSelection` / `FrecencyStore` / `TriageState` /
-/// `RowActionMachine`.
+/// (Done / Park / Close pane), the pane peek and the answer card (`answer`).
+/// All derivation lives in the pure `AgentListBuilder` / `AgentSelection` /
+/// `FrecencyStore` / `TriageState` / `RowActionMachine`.
 @MainActor
 final class AgentPanelModel: ObservableObject {
     @Published private(set) var snapshot: StatusSnapshot?
@@ -36,7 +36,13 @@ final class AgentPanelModel: ObservableObject {
 
     /// Where a peek reads the pane screen from; set by the host, and replaced
     /// when the user points AgentBar at another dashboard.
-    var statusSource: (any AgentStatusSource)?
+    var statusSource: (any AgentStatusSource)? {
+        didSet { answer.statusSource = statusSource }
+    }
+
+    /// Answering a blocked agent's question (replaces the list while open). Its
+    /// changes republish through this model, so views need observe only this.
+    let answer: AnswerCardModel
 
     /// Strip at the bottom of the panel: a failed switch or row action, else a shortcut problem.
     @Published private(set) var footerNotice: PanelFooterNotice?
@@ -66,8 +72,11 @@ final class AgentPanelModel: ObservableObject {
     private var transientNotice: PanelFooterNotice?
     private var hotkeyIssue: String?
     private var switchErrorClearTask: Task<Void, Never>?
-    private let peekLoader = PanePeekLoader()
+    private let peekLoader = LatestResultLoader<PaneScreenResult>()
     private var arrivalDetector = NeedsYouArrivalDetector()
+    private var blockerMemory = BlockerMemory()
+    private var lastAnswerNotice: (sentence: String, at: Date)?
+    private var answerObservation: AnyCancellable?
 
     init(
         store: FrecencyStore = FrecencyStore(),
@@ -76,8 +85,10 @@ final class AgentPanelModel: ObservableObject {
         dashboardAddress: String = DashboardEndpoint(baseURL: DashboardEndpoint.defaultBaseURL).displayAddress,
         switchErrorSeconds: TimeInterval = 6,
         completedHoldSeconds: TimeInterval = 8,
+        answer: AnswerCardModel = AnswerCardModel(),
         now: @escaping () -> Date = { Date() }
     ) {
+        self.answer = answer
         self.store = store
         self.triageStore = triageStore
         self.triage = triageStore.load()
@@ -87,9 +98,18 @@ final class AgentPanelModel: ObservableObject {
         self.switchErrorSeconds = switchErrorSeconds
         self.now = now
         self.frecency = store.load(now: now())
+        wireAnswerCard()
     }
 
-    func receive(_ snapshot: StatusSnapshot) {
+    private func wireAnswerCard() {
+        answerObservation = answer.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        answer.onNotice = { [weak self] sentence in self?.showAnswerNotice(sentence) }
+        answer.onAnswered = { [weak self] agentID in self?.advanceSelection(pastAnswered: agentID) }
+        answer.onReleaseKeyboard = { [weak self] in self?.focusRequest += 1 }
+    }
+
+    func receive(_ received: StatusSnapshot) {
+        let snapshot = received.replacingAgents(blockerMemory.steadied(received.agents, now: now()))
         self.snapshot = snapshot
         // A dead feed shows no agents; that must not read as "they all went away".
         if !snapshot.health.isDown, triage.observe(snapshot.agents) { triageStore.save(triage) }
@@ -98,6 +118,7 @@ final class AgentPanelModel: ObservableObject {
         selectedAgentID = AgentSelection.reconciled(selectedAgentID, in: presentation.selectableAgentIDs)
         settleRowActions()
         closePeekUnlessStillSelected()
+        reconcileAnswerCard()
     }
 
     /// New list settings: re-derive the list, keeping the selection while it survives.
@@ -109,6 +130,7 @@ final class AgentPanelModel: ObservableObject {
         trackNeedsYou(reportingArrivals: false)
         selectedAgentID = AgentSelection.reconciled(selectedAgentID, in: presentation.selectableAgentIDs)
         closePeekUnlessStillSelected()
+        reconcileAnswerCard()
     }
 
     /// The status feed now comes from another dashboard: forget the old feed's
@@ -116,17 +138,22 @@ final class AgentPanelModel: ObservableObject {
     func useDashboard(address: String) {
         dashboardAddress = address
         snapshot = nil
+        blockerMemory.reset()
+        lastAnswerNotice = nil
         rowActionStates = [:]
         rebuild()
         trackNeedsYou()
         selectedAgentID = nil
         closePeek()
+        answer.reset()
     }
 
     /// Fresh start for each summon: empty search, first row selected.
     func resetForShow() {
         clearTransientNotice()
+        repostRecentAnswerNotice()
         closePeek()
+        answer.close()
         cancelConfirmations()
         query = ""
         rebuild()
@@ -136,6 +163,7 @@ final class AgentPanelModel: ObservableObject {
 
     func moveSelection(by step: Int) {
         closePeek()
+        answer.close()
         selectedAgentID = AgentSelection.moved(from: selectedAgentID, by: step, in: presentation.selectableAgentIDs)
     }
 
@@ -146,11 +174,26 @@ final class AgentPanelModel: ObservableObject {
         closePeekUnlessStillSelected()
     }
 
-    /// Space. Peeks at the selected agent's screen, or closes the peek. Only
+    /// ↑/↓ from the keyboard: moves the highlight inside an open answer card,
+    /// else the selection in the list.
+    func moveSelectionOrAnswerHighlight(by step: Int) {
+        if answer.isOpen {
+            answer.handle(step < 0 ? .up : .down)
+        } else {
+            moveSelection(by: step)
+        }
+    }
+
+    /// Space. Ticks the highlighted option in an open answer card; otherwise
+    /// peeks at the selected agent's screen, or closes the peek. Only
     /// with an empty search: otherwise it is a literal space in the query, and
     /// this returns false so the field types it.
     @discardableResult
     func togglePeek() -> Bool {
+        if answer.isOpen {
+            answer.handle(.space)
+            return true
+        }
         guard query.isEmpty else { return false }
         if peek != nil {
             closePeek()
@@ -181,7 +224,7 @@ final class AgentPanelModel: ObservableObject {
             return
         }
         peek = opened
-        peekLoader.load(paneId: paneId, from: statusSource) { [weak self] result in
+        peekLoader.load({ await statusSource.paneScreen(paneId: paneId) }) { [weak self] result in
             self?.peek?.content = PanePeek.content(from: result)
         }
     }
@@ -192,6 +235,10 @@ final class AgentPanelModel: ObservableObject {
 
     /// Enter: presses the highlighted button, or with none highlighted switches to the agent.
     func activateSelected() {
+        if answer.isOpen {
+            answer.handle(.enter)
+            return
+        }
         guard let selectedAgentID else { return }
         if let highlightedButton {
             press(highlightedButton, on: selectedAgentID)
@@ -221,9 +268,10 @@ final class AgentPanelModel: ObservableObject {
     @discardableResult
     func moveButtonHighlight(by step: Int) -> Bool {
         guard query.isEmpty else { return false }
+        guard !answer.isOpen else { return true }
         guard peek == nil, let agent = selectedAgent else { return true }
         let previous = highlightedButton
-        highlightedButton = RowButtonHighlight.moved(from: previous, by: step, in: RowButtons.usableButtons(for: agent))
+        highlightedButton = RowButtonHighlight.moved(from: previous, by: step, in: usableButtons(for: agent))
         if previous != nil, highlightedButton == nil { cancelConfirmation(for: agent.id) }
         return true
     }
@@ -232,6 +280,10 @@ final class AgentPanelModel: ObservableObject {
     /// confirmation). False when there was nothing to back out of, so Esc
     /// goes on to close the peek / panel.
     func backOutOfButtons() -> Bool {
+        if answer.isOpen {
+            answer.handle(.escape)   // to the list; ignored while an answer is being sent
+            return true
+        }
         guard let selectedAgentID else { return false }
         let confirming = isConfirming(selectedAgentID)
         guard highlightedButton != nil || confirming else { return false }
@@ -246,7 +298,7 @@ final class AgentPanelModel: ObservableObject {
     @discardableResult
     func press(_ button: RowButton, on agentID: String) -> Task<Void, Never>? {
         guard let agent = presentation.agents.first(where: { $0.id == agentID }),
-              RowButtons.usableButtons(for: agent).contains(button) else { return nil }
+              usableButtons(for: agent).contains(button) else { return nil }
         switch RowActionMachine.plan(pressing: button, current: rowActionStates[agentID]) {
         case .ignore:
             return nil
@@ -255,6 +307,14 @@ final class AgentPanelModel: ObservableObject {
             return nil
         case .unpark:
             setParked(false, agentID: agentID)
+            return nil
+        case .openAnswer:
+            selectedAgentID = agentID
+            closePeek()
+            answer.open(agent)
+            return nil
+        case .openTerminal:
+            onActivate(agent)
             return nil
         case .send(let kind, let confirmed):
             return send(kind, confirmed: confirmed, button: button, agent: agent)
@@ -300,6 +360,19 @@ final class AgentPanelModel: ObservableObject {
                 selectedAgentID = following ?? selectedAgentID
             }
         }
+    }
+
+    /// After an answered question: on to the next row that needs the user.
+    private func advanceSelection(pastAnswered agentID: String) {
+        let needsYouIDs = presentation.agents.filter { $0.section == .needsYou && $0.canFocus }.map(\.id)
+        if let following = AgentSelection.neighbour(of: agentID, in: needsYouIDs) { selectedAgentID = following }
+    }
+
+    /// Keeps an open answer card true to the latest status (over every agent the
+    /// user could see, not just the ones the search leaves).
+    private func reconcileAnswerCard() {
+        let shown = snapshot.map { AgentListBuilder.shownAgents(in: $0, settings: listSettings, triage: triage) } ?? []
+        answer.reconcile(with: shown)
     }
 
     /// A "completed" row waits for the next status update to show the result;
@@ -358,12 +431,34 @@ final class AgentPanelModel: ObservableObject {
         showTransientNotice(.switchFailed(message))
     }
 
+    /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer is on its way.
+    private func usableButtons(for agent: AgentSnapshot) -> [RowButton] {
+        answer.isAwaiting(agent) ? [] : RowButtons.usableButtons(for: agent)
+    }
+
+    /// How long an answer's outcome stays in the footer: long enough to read a refusal in full.
+    static let answerNoticeSeconds: TimeInterval = 8
+    /// A refusal that arrived while the panel was away is shown once on the next summon within this time.
+    static let answerNoticeRecallSeconds: TimeInterval = 60
+
+    private func showAnswerNotice(_ sentence: String) {
+        lastAnswerNotice = (sentence, now())
+        showTransientNotice(.actionFailed(sentence), seconds: Self.answerNoticeSeconds)
+    }
+
+    private func repostRecentAnswerNotice() {
+        guard let notice = lastAnswerNotice else { return }
+        lastAnswerNotice = nil
+        guard now().timeIntervalSince(notice.at) < Self.answerNoticeRecallSeconds else { return }
+        showTransientNotice(.actionFailed(notice.sentence), seconds: Self.answerNoticeSeconds)
+    }
+
     /// A row button failed: show why for a few seconds, like a failed switch.
-    private func showTransientNotice(_ notice: PanelFooterNotice) {
+    private func showTransientNotice(_ notice: PanelFooterNotice, seconds: TimeInterval? = nil) {
         transientNotice = notice
         refreshFooterNotice()
         switchErrorClearTask?.cancel()
-        let seconds = switchErrorSeconds
+        let seconds = seconds ?? switchErrorSeconds
         switchErrorClearTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }

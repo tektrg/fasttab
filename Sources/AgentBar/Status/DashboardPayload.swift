@@ -54,16 +54,47 @@ struct DashboardFeed: Decodable {
     }
 }
 
+/// A parsed AskUserQuestion picker (`classify_pane.parse_question_block`). Also
+/// the shape of `next` in an answer reply. Strings are kept exactly as sent:
+/// the dashboard compares `title` and `question` verbatim when answering.
 struct DashboardQuestion: Decodable {
     let title: String?
     let question: String?
+    let multi: Bool?
+    let options: [DashboardQuestionOption]
+    /// Claude's last prose above the picker: a fallback for "what was I asked".
+    let context: String?
 
-    private enum CodingKeys: String, CodingKey { case title, question }
+    private enum CodingKeys: String, CodingKey { case title, question, multi, options, context }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         title = container.lenient(.title)
         question = container.lenient(.question)
+        multi = container.lenient(.multi)
+        context = container.lenient(.context)
+        options = (container.lenient(.options) as LenientArray<DashboardQuestionOption>?)?.elements ?? []
+    }
+}
+
+struct DashboardQuestionOption: Decodable {
+    /// The number the picker shows; what a digit key selects.
+    let index: Int?
+    let label: String?
+    let desc: String?
+    let checked: Bool?
+    /// The free-text row.
+    let other: Bool?
+
+    private enum CodingKeys: String, CodingKey { case index, label, desc, checked, other }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        index = container.lenient(.index)
+        label = container.lenient(.label)
+        desc = container.lenient(.desc)
+        checked = container.lenient(.checked)
+        other = container.lenient(.other)
     }
 }
 
@@ -113,8 +144,13 @@ struct DashboardNeedsYou: Decodable {
     let paneId: String?
     let detail: String?
     let sinceSec: Double?
+    /// Present on a "question" row once the screen sweep has parsed the picker;
+    /// before that the row carries only a display preview (not decoded here).
+    let question: DashboardQuestion?
+    /// The hook's early look at a picker (title and question only here), before the sweep has parsed it.
+    let questionPreview: DashboardQuestionPreview?
 
-    private enum CodingKeys: String, CodingKey { case kind, paneId, detail, sinceSec }
+    private enum CodingKeys: String, CodingKey { case kind, paneId, detail, sinceSec, question, questionPreview }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -122,6 +158,27 @@ struct DashboardNeedsYou: Decodable {
         paneId = container.lenient(.paneId)
         detail = container.lenient(.detail)
         sinceSec = container.lenient(.sinceSec)
+        question = container.lenient(.question)
+        questionPreview = container.lenient(.questionPreview)
+    }
+}
+
+/// A "question" row's display-only preview: which question, no options yet.
+struct DashboardQuestionPreview: Decodable {
+    let title: String?
+    let question: String?
+
+    private enum CodingKeys: String, CodingKey { case title, question }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = container.lenient(.title)
+        question = container.lenient(.question)
+    }
+
+    var identity: QuestionIdentity? {
+        guard let title, let question else { return nil }
+        return QuestionIdentity(title: title, question: question)
     }
 }
 

@@ -16,6 +16,7 @@ struct AgentSwitchCoordinatorTests {
             return focusResult
         }
         func paneScreen(paneId: String) async -> PaneScreenResult { .failure("unused") }
+        func answer(paneId: String, choice: AnswerChoice, question: QuestionIdentity) async -> AnswerResult { .failed("unused") }
         func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome { .failed("unused") }
     }
 

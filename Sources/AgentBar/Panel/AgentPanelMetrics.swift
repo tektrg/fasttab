@@ -29,6 +29,11 @@ enum AgentPanelMetrics {
     static let peekTextVerticalPadding: CGFloat = 6
     static let peekReadLineHeight: CGFloat = 26
 
+    /// Answer card: the header and the bar with the Send button; the message,
+    /// question and options share what is left.
+    static let answerHeaderHeight: CGFloat = 40
+    static let answerBottomBarHeight: CGFloat = 44
+
     /// The list height beyond which it scrolls, for a "rows before scrolling" choice.
     static func maxListHeight(visibleRows: Int) -> CGFloat {
         CGFloat(visibleRows) * rowHeight + CGFloat(typicalHeaderCount) * headerHeight + listVerticalPadding * 2
@@ -38,17 +43,24 @@ enum AgentPanelMetrics {
     static func height(
         for presentation: AgentListPresentation,
         maxListHeight: CGFloat = maxListHeight,
-        isPeeking: Bool = false
+        isPeeking: Bool = false,
+        isAnswering: Bool = false
     ) -> CGFloat {
         let note = presentation.showsBoardNote ? noteHeight : 0
-        let body = isPeeking ? peekBodyHeight(maxListHeight: maxListHeight) : bodyHeight(for: presentation, maxListHeight: maxListHeight)
+        let body = isPeeking || isAnswering
+            ? fullBodyHeight(maxListHeight: maxListHeight)
+            : bodyHeight(for: presentation, maxListHeight: maxListHeight)
         return searchFieldHeight + dividerHeight + body + note + footerHeight
     }
 
-    /// A peek replaces the list at the list's full height, so a short list
-    /// still gives the screen text room.
-    static func peekBodyHeight(maxListHeight: CGFloat = maxListHeight) -> CGFloat {
+    /// A peek or an answer card replaces the list at the list's full height, so
+    /// a short list still gives the screen text or the question room.
+    static func fullBodyHeight(maxListHeight: CGFloat = maxListHeight) -> CGFloat {
         maxListHeight
+    }
+
+    static func peekBodyHeight(maxListHeight: CGFloat = maxListHeight) -> CGFloat {
+        fullBodyHeight(maxListHeight: maxListHeight)
     }
 
     /// Whole screen-text lines that fit in a peek of `bodyHeight`.

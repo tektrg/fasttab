@@ -34,9 +34,20 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// The dashboard's row id (the session id): what stop/close are addressed to.
     /// Nil when the dashboard gave none.
     var rowId: String? = nil
+    /// The Claude session id (locates its transcript); nil for opencode and plain shells.
+    var sessionId: String? = nil
     /// Server-resolved Stop/Close availability. On an ended row, Close is
     /// enabled while the stopped agent's pane is still open.
     var actions: AgentActions = .none
+    /// What the dashboard says the agent is blocked on, if it is blocked on a
+    /// question or permission box. See `blockedOnYou` for what the list shows.
+    var blocker: AgentBlocker? = nil
+
+    /// The blocker while the row sits in Needs you. Parking sets a row aside, and
+    /// with it the Blocked badge, the answer action and the top-of-section spot.
+    var blockedOnYou: AgentBlocker? {
+        section == .needsYou ? blocker : nil
+    }
 
     /// The same agent shown under another section.
     func placed(in newSection: AgentSection) -> AgentSnapshot {

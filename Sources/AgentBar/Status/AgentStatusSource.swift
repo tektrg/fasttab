@@ -19,7 +19,8 @@ enum PaneScreenResult: Equatable, Sendable {
 }
 
 /// Where AgentBar gets agent status from and how it acts on it. It acts only
-/// on the user's explicit click: switching, and Stop / Close (Done). Today that is
+/// on the user's explicit action: switching, Stop / Close (Done), and sending
+/// the answer the user picked to an agent's open question. Today that is
 /// the AptusFit chief dashboard (`DashboardStatusSource`); a standalone status
 /// service can replace it without touching the UI.
 protocol AgentStatusSource: Sendable {
@@ -32,6 +33,12 @@ protocol AgentStatusSource: Sendable {
 
     /// Current screen text of a pane. Slow (~2.5s): call on demand, never poll.
     func paneScreen(paneId: String) async -> PaneScreenResult
+
+    /// Sends the user's answer to the question open in the pane. `question` is the
+    /// one the user was shown: the dashboard refuses when the pane no longer
+    /// shows it. Never call twice for one decision: a slow reply may still have
+    /// landed, and a repeat could answer the next question.
+    func answer(paneId: String, choice: AnswerChoice, question: QuestionIdentity) async -> AnswerResult
 
     /// Stops the agent or closes its pane (the dashboard's ladder). Destructive:
     /// call only for an explicit user press. `confirmed` is true only for the

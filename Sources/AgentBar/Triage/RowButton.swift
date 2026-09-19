@@ -1,8 +1,12 @@
 import Foundation
 
 /// A button on an agent row. Done and Close pane talk to the dashboard
-/// (`sessionAction`); Park and Unpark are local (`TriageState`).
+/// (`sessionAction`); Park and Unpark are local (`TriageState`); Answer opens
+/// the answer card of a blocked question, and Open terminal switches to the
+/// agent (the way out for a blocker the panel cannot answer).
 enum RowButton: Equatable, Sendable {
+    case answer
+    case openTerminal
     case done
     case park
     case unpark
@@ -10,6 +14,8 @@ enum RowButton: Equatable, Sendable {
 
     var title: String {
         switch self {
+        case .answer: "Answer"
+        case .openTerminal: "Open terminal"
         case .done: "Done"
         case .park: "Park"
         case .unpark: "Unpark"
@@ -18,11 +24,16 @@ enum RowButton: Equatable, Sendable {
     }
 
     /// The dashboard request behind the button; nil for the local ones.
+    /// The way out of a blocked agent: drawn red, the colour of "needs you".
+    var isBlockedAction: Bool {
+        self == .answer || self == .openTerminal
+    }
+
     var sessionAction: SessionActionKind? {
         switch self {
         case .done: .stop
         case .closePane: .close
-        case .park, .unpark: nil
+        case .answer, .openTerminal, .park, .unpark: nil
         }
     }
 }
@@ -34,23 +45,41 @@ struct RowButtonSpec: Equatable, Sendable {
     let disabledReason: String?
 
     var isEnabled: Bool { disabledReason == nil }
+
+    /// The label on the row: an Answer that cannot be pressed yet says why in one word.
+    var label: String {
+        button == .answer && disabledReason == RowButtons.readingOptionsReason ? "Reading…" : button.title
+    }
 }
 
 /// Which buttons a row shows, in left-to-right order. Pure.
 enum RowButtons {
     static let missingRowIdReason = "The dashboard did not identify this agent."
     static let refusedFallbackReason = "The dashboard refuses this right now."
+    static let readingOptionsReason = "The agent's options are still being read (a few seconds). Open its terminal meanwhile."
 
     static func available(for agent: AgentSnapshot) -> [RowButtonSpec] {
         switch agent.section {
         case .needsYou:
-            [spec(.done, for: agent), RowButtonSpec(button: .park, disabledReason: nil)]
+            needsYouButtons(for: agent)
         case .parked:
             [RowButtonSpec(button: .unpark, disabledReason: nil), spec(.done, for: agent)]
         case .ended where agent.actions.close.isEnabled:
             [spec(.closePane, for: agent)]
         case .working, .ended:
             []
+        }
+    }
+
+    /// A blocked agent is cleared by answering it (or in its terminal), so it
+    /// offers that in place of Done; Park stays for setting it aside.
+    private static func needsYouButtons(for agent: AgentSnapshot) -> [RowButtonSpec] {
+        let park = RowButtonSpec(button: .park, disabledReason: nil)
+        switch agent.blockedOnYou {
+        case .question?: return [RowButtonSpec(button: .answer, disabledReason: nil), park]
+        case .questionLoading?: return [RowButtonSpec(button: .answer, disabledReason: readingOptionsReason), park]
+        case .questionNotAnswerable?, .permission?: return [RowButtonSpec(button: .openTerminal, disabledReason: nil), park]
+        case nil: return [spec(.done, for: agent), park]
         }
     }
 

@@ -14,6 +14,17 @@ PRO_REPO="${MAC_PRO_REPO:-/Users/trungluong/01_Project/command-bar-macos}"
 APPS="${APPS:-FastTab AgentBar}"
 run() { echo "+ $*"; [[ "${DRY_RUN:-0}" == 1 ]] || "$@"; }
 
+# ssh sessions can't unlock the login keychain (codesign → errSecInternalComponent), so
+# signing uses a dedicated keychain holding only the dev identity, unlocked from files
+# under ~/.config (keychain password + identity hash). One-time setup: see CLAUDE.md.
+sign_dir="${HOME}/.config"
+if [[ -f "${sign_dir}/fasttab-signing.kcpw" ]]; then
+  echo "+ unlock fasttab-signing keychain"
+  [[ "${DRY_RUN:-0}" == 1 ]] || security unlock-keychain -p "$(cat "${sign_dir}/fasttab-signing.kcpw")" \
+    "${HOME}/Library/Keychains/fasttab-signing.keychain-db"
+  export FASTTAB_SIGN_IDENTITY="${FASTTAB_SIGN_IDENTITY:-$(cat "${sign_dir}/fasttab-signing.identity")}"
+fi
+
 for app in ${APPS}; do
   case "${app}" in
     FastTab)  run scripts/build-app.sh ;;

@@ -19,6 +19,8 @@ public final class ReaderExtractor: NSObject {
         case timeout
         case noContent
         case scriptError(String)
+        /// X Article whose body could not be fetched; the UI falls back to Safari Reader.
+        case xArticleUnavailable
 
         public var errorDescription: String? {
             switch self {
@@ -27,6 +29,7 @@ public final class ReaderExtractor: NSObject {
             case .timeout: return "Page load timed out."
             case .noContent: return "No readable content found on this page."
             case .scriptError(let msg): return "Extraction script error: \(msg)"
+            case .xArticleUnavailable: return "Couldn't load this X article."
             }
         }
     }
@@ -61,7 +64,11 @@ public final class ReaderExtractor: NSObject {
     /// For all other URLs: WKWebView + Readability.js is used directly.
     public func extract(url: URL) async throws -> ReaderArticle {
         // X Articles (`/article/<id>`) have no tweet text at all — go straight to the article body.
-        if XArticleExtractor.isArticleURL(url), let article = await XArticleExtractor.fetch(url: url) {
+        // If that fetch fails, throw: the web view can't get past X's login wall either.
+        if XArticleExtractor.isArticleURL(url) {
+            guard let article = await XArticleExtractor.fetch(url: url) else {
+                throw ExtractionError.xArticleUnavailable
+            }
             return article
         }
 
@@ -73,9 +80,10 @@ public final class ReaderExtractor: NSObject {
 
             // An Article post's tweet text is only a t.co link; oEmbed "succeeds" with that link
             // and the reader would show the cover image with no body. Fetch the real article.
-            if let oembed = oembedResult,
-               XArticleExtractor.isLinkOnly(oembed.excerpt),
-               let article = await XArticleExtractor.fetch(url: url) {
+            if let oembed = oembedResult, XArticleExtractor.isLinkOnly(oembed.excerpt) {
+                guard let article = await XArticleExtractor.fetch(url: url) else {
+                    throw ExtractionError.xArticleUnavailable
+                }
                 return article
             }
 

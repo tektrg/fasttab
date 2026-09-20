@@ -58,10 +58,15 @@ public struct ReaderView: View {
                     readerContent(article: article)
 
                 case .failed:
-                    inAppWebView
+                    if viewModel.needsSafariReader {
+                        safariReaderFallback
+                    } else {
+                        inAppWebView
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(viewModel.needsSafariReader ? .hidden : .automatic, for: .navigationBar)
             .toolbar {
                 if case .loaded = viewModel.loadState {
                     toolbarContent
@@ -165,6 +170,12 @@ public struct ReaderView: View {
     }
 
     // MARK: - In-App Fallback
+
+    /// X Article whose body couldn't be fetched: Safari's own Reader, with its own close button.
+    private var safariReaderFallback: some View {
+        InAppBrowserView(url: viewModel.url, title: viewModel.title, entersReaderIfAvailable: true)
+            .ignoresSafeArea()
+    }
 
     private var inAppWebView: some View {
         ReaderInAppFallbackView(url: viewModel.url, viewModel: viewModel)

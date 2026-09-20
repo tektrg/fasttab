@@ -87,4 +87,15 @@ final class XArticleExtractorTests: XCTestCase {
         XCTAssertFalse(XArticleExtractor.isLinkOnly("just setting up my twttr"))
         XCTAssertFalse(XArticleExtractor.isLinkOnly(""))
     }
+
+    @MainActor
+    func testOnlyXArticleFailureUsesSafariReader() {
+        let vm = ReaderViewModel(url: url, title: "t")
+        vm.loadState = .failed(ReaderExtractor.ExtractionError.xArticleUnavailable)
+        XCTAssertTrue(vm.needsSafariReader)
+        vm.loadState = .failed(ReaderExtractor.ExtractionError.noContent)
+        XCTAssertFalse(vm.needsSafariReader)
+        vm.loadState = .idle
+        XCTAssertFalse(vm.needsSafariReader)
+    }
 }

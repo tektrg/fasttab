@@ -35,6 +35,14 @@ public final class ReaderViewModel: ObservableObject {
         return false
     }
 
+    /// True when extraction failed on an X Article; the view shows Safari Reader instead.
+    public var needsSafariReader: Bool {
+        guard case .failed(let error) = loadState,
+              let extraction = error as? ReaderExtractor.ExtractionError,
+              case .xArticleUnavailable = extraction else { return false }
+        return true
+    }
+
     @Published public var loadState: LoadState = .idle
     /// Current reading scroll progress [0.0 – 1.0]. Not @Published to prevent redundant
     /// SwiftUI view-graph invalidations and main-thread re-renders during active scrolling.

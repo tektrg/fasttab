@@ -282,9 +282,18 @@ struct RowActionsModelTests {
         #expect(model.highlightedButton == nil)
     }
 
-    @Test func workingRowsHaveNoButtonsToHighlight() {
+    @Test func aWorkingClaudeRowHighlightsOnlyMessage() {
         let (model, _, _) = makeModel()
         model.receive(F.snapshot(agents(["w"], section: .working)))
+        model.moveButtonHighlight(by: 1)
+        #expect(model.highlightedButton == .message)
+        model.moveButtonHighlight(by: 1)
+        #expect(model.highlightedButton == .message)
+    }
+
+    @Test func workingRowsOfOtherCLIsHaveNoButtonsToHighlight() {
+        let (model, _, _) = makeModel()
+        model.receive(F.snapshot([F.agent("w", section: .working, hasHookData: false)]))
         model.moveButtonHighlight(by: 1)
         #expect(model.highlightedButton == nil)
     }

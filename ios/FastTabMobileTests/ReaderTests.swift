@@ -583,16 +583,18 @@ final class ReaderTests: XCTestCase {
 
     // MARK: - Twitter Reader Extraction DOM Tests
 
-    func testTwitterExtractionWithModernTailwindMarkup() async throws {
+    /// Tests extraction with the new stable data-testid="tweet" and data-testid="tweetText"
+    /// selectors, simulating the fully-hydrated X.com DOM state.
+    func testTwitterExtractionWithDataTestIdSelectors() async throws {
         let html = """
         <html><body>
-        <article>
-          <div>
+        <article data-testid="tweet">
+          <div data-testid="User-Name">
             <a href="/jack"><span>Jack Dorsey</span></a>
             <a href="/jack"><span>@jack</span></a>
-            <time datetime="2006-03-21T20:50:00.000Z">Mar 21, 2006</time>
           </div>
-          <div dir="auto" class="font-chirp max-w-full whitespace-pre-wrap break-words text-text text-body font-normal">
+          <time datetime="2006-03-21T20:50:00.000Z">Mar 21, 2006</time>
+          <div data-testid="tweetText" dir="auto">
             <span>just setting up my twttr</span>
           </div>
           <img src="https://pbs.twimg.com/media/abc.jpg" />
@@ -606,6 +608,8 @@ final class ReaderTests: XCTestCase {
         XCTAssertEqual(result?["byline"] as? String, "Jack Dorsey (@jack) · Mar 21, 2006")
         XCTAssertEqual(result?["siteName"] as? String, "X")
         XCTAssertEqual(result?["excerpt"] as? String, "just setting up my twttr")
+        // hasText must be true — signals to ExtractionDelegate that text was found
+        XCTAssertEqual(result?["hasText"] as? Bool, true)
 
         let content = (result?["content"] as? String) ?? ""
         XCTAssertTrue(content.contains("just setting up my twttr"))
@@ -613,14 +617,29 @@ final class ReaderTests: XCTestCase {
         XCTAssertTrue(content.contains("tweet-body"))
     }
 
-    func testTwitterExtractionImageOnlyPost() async throws {
+    /// Verifies that skeleton articles (no data-testid="tweet") are ignored by the new selector,
+    /// simulating the pre-hydration state. The script returns nil so polling continues.
+    func testTwitterExtractionSkeletonArticlesWithoutDataTestIdReturnsNil() async throws {
         let html = """
         <html><body>
         <article>
-          <div>
+          <img src="https://pbs.twimg.com/media/skeleton.jpg" />
+        </article>
+        </body></html>
+        """
+        let result = try await evaluateTwitterExtraction(html: html)
+        XCTAssertNil(result)
+    }
+
+    /// Verifies that an images-only result (no text) still produces a result dict, but with
+    /// hasText: false — which causes the Swift layer to continue polling for text hydration.
+    func testTwitterExtractionImagesOnlyHasTextFalse() async throws {
+        let html = """
+        <html><body>
+        <article data-testid="tweet">
+          <div data-testid="User-Name">
             <a href="/artist"><span>Artist Name</span></a>
             <a href="/artist"><span>@artist</span></a>
-            <time datetime="2026-01-01T00:00:00.000Z">Jan 1, 2026</time>
           </div>
           <img src="https://pbs.twimg.com/media/artwork.jpg" />
         </article>
@@ -629,35 +648,37 @@ final class ReaderTests: XCTestCase {
 
         let result = try await evaluateTwitterExtraction(html: html)
         XCTAssertNotNil(result)
-        XCTAssertEqual(result?["title"] as? String, "Post by Artist Name")
+        // hasText must be false — Swift ExtractionDelegate must reject this and continue polling
+        XCTAssertEqual(result?["hasText"] as? Bool, false)
         let content = (result?["content"] as? String) ?? ""
         XCTAssertTrue(content.contains("https://pbs.twimg.com/media/artwork.jpg"))
         XCTAssertFalse(content.contains("tweet-body"))
     }
 
+    /// Thread extraction: only continuation posts from the original author are included.
     func testTwitterExtractionThreadContinuationFiltersStrangerReplies() async throws {
         let html = """
         <html><body>
-        <article>
-          <div>
+        <article data-testid="tweet">
+          <div data-testid="User-Name">
             <a href="/author"><span>Thread Author</span></a>
             <a href="/author"><span>@author</span></a>
           </div>
-          <div dir="auto" class="whitespace-pre-wrap">First post in thread</div>
+          <div data-testid="tweetText" dir="auto">First post in thread</div>
         </article>
-        <article>
-          <div>
+        <article data-testid="tweet">
+          <div data-testid="User-Name">
             <a href="/author"><span>Thread Author</span></a>
             <a href="/author"><span>@author</span></a>
           </div>
-          <div dir="auto" class="whitespace-pre-wrap">Second post in thread</div>
+          <div data-testid="tweetText" dir="auto">Second post in thread</div>
         </article>
-        <article>
-          <div>
+        <article data-testid="tweet">
+          <div data-testid="User-Name">
             <a href="/stranger"><span>Stranger</span></a>
             <a href="/stranger"><span>@stranger</span></a>
           </div>
-          <div dir="auto" class="whitespace-pre-wrap">Unrelated third-party reply</div>
+          <div data-testid="tweetText" dir="auto">Unrelated third-party reply</div>
         </article>
         </body></html>
         """
@@ -675,6 +696,64 @@ final class ReaderTests: XCTestCase {
         let html = "<html><body><div id=\"react-root\"></div></body></html>"
         let result = try await evaluateTwitterExtraction(html: html)
         XCTAssertNil(result)
+    }
+
+    // MARK: - oEmbed text extraction tests
+
+    func testExtractTextFromOEmbedHTMLBasic() {
+        let html = """
+        <blockquote class="twitter-tweet"><p lang="en" dir="ltr">just setting up my twttr</p>&mdash; jack (@jack) <a href="https://twitter.com/jack/status/20">March 21, 2006</a></blockquote>
+        """
+        let text = ReaderExtractor.extractTextFromOEmbedHTML(html)
+        XCTAssertEqual(text, "just setting up my twttr")
+    }
+
+    func testExtractTextFromOEmbedHTMLWithLinks() {
+        let html = """
+        <blockquote class="twitter-tweet"><p lang="en" dir="ltr">Check out <a href="https://fasttab.app">FastTab</a> for browsing!</p>&mdash; User</blockquote>
+        """
+        let text = ReaderExtractor.extractTextFromOEmbedHTML(html)
+        XCTAssertEqual(text, "Check out FastTab for browsing!")
+    }
+
+    func testExtractTextFromOEmbedHTMLDecodesEntities() {
+        let html = """
+        <blockquote><p lang="en">It&#39;s &ldquo;FastTab&rdquo; &amp; &lt;b&gt;awesome&lt;/b&gt;</p></blockquote>
+        """
+        let text = ReaderExtractor.extractTextFromOEmbedHTML(html)
+        XCTAssertEqual(text, "It's \u{201C}FastTab\u{201D} & <b>awesome</b>")
+    }
+
+    func testExtractTextFromOEmbedHTMLWithLineBreaks() {
+        let html = """
+        <blockquote><p lang="en">Line 1<br>Line 2<br />Line 3</p></blockquote>
+        """
+        let text = ReaderExtractor.extractTextFromOEmbedHTML(html)
+        XCTAssertEqual(text, "Line 1\nLine 2\nLine 3")
+    }
+
+    func testExtractTextFromOEmbedHTMLEmptyOrMalformed() {
+        XCTAssertEqual(ReaderExtractor.extractTextFromOEmbedHTML(""), "")
+        XCTAssertEqual(ReaderExtractor.extractTextFromOEmbedHTML("<blockquote>no paragraph here</blockquote>"), "")
+    }
+
+    // MARK: - ReaderExtractor URL detection tests
+
+    func testReaderExtractorIsTwitterURLDetection() {
+        XCTAssertTrue(ReaderExtractor.isTwitterURL(URL(string: "https://x.com/jack")!))
+        XCTAssertTrue(ReaderExtractor.isTwitterURL(URL(string: "https://www.x.com/jack")!))
+        XCTAssertTrue(ReaderExtractor.isTwitterURL(URL(string: "https://twitter.com/jack")!))
+        XCTAssertTrue(ReaderExtractor.isTwitterURL(URL(string: "https://www.twitter.com/jack")!))
+        XCTAssertFalse(ReaderExtractor.isTwitterURL(URL(string: "https://example.com/jack")!))
+        XCTAssertFalse(ReaderExtractor.isTwitterURL(URL(string: "https://notx.com/jack")!))
+    }
+
+    func testReaderExtractorIsTwitterStatusURLDetection() {
+        XCTAssertTrue(ReaderExtractor.isTwitterStatusURL(URL(string: "https://x.com/jack/status/20")!))
+        XCTAssertTrue(ReaderExtractor.isTwitterStatusURL(URL(string: "https://twitter.com/user/status/123456789")!))
+        XCTAssertFalse(ReaderExtractor.isTwitterStatusURL(URL(string: "https://x.com/jack")!))
+        XCTAssertFalse(ReaderExtractor.isTwitterStatusURL(URL(string: "https://x.com/home")!))
+        XCTAssertFalse(ReaderExtractor.isTwitterStatusURL(URL(string: "https://example.com/status/20")!))
     }
 
     // MARK: - Test Helpers

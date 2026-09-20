@@ -82,3 +82,23 @@ struct CornerTabContentTests {
         #expect(CornerTabContent.forArrivals([], among: [F.agent("a")]) == nil)
     }
 }
+
+/// What the corner tab says when the pointer rests in the corner rather than an agent arriving.
+struct CornerTabSummaryTests {
+    typealias F = AgentListFixtures
+
+    @Test func nobodyNeedingYouIsSaidPlainly() {
+        #expect(CornerTabContent.summary(of: []) == .nothingNeedsYou)
+        #expect(CornerTabContent.summary(of: nil) == .nothingNeedsYou)
+        #expect(CornerTabContent.nothingNeedsYou.headline == "Nothing needs you")
+        #expect(CornerTabContent.nothingNeedsYou.detail == "AgentBar")
+    }
+
+    @Test func theSummaryCountsEveryoneAndNamesTheNewestToNeedYou() {
+        let older = F.agent("a", label: "older", secondsInStatus: 500)
+        let newer = F.agent("b", label: "newer", secondsInStatus: 20)
+        let summary = CornerTabContent.summary(of: [older, newer])
+        #expect(summary == CornerTabContent(count: 2, newestName: "newer"))
+        #expect(summary.detail == "newer")
+    }
+}

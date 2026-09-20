@@ -15,6 +15,8 @@ final class AgentPanelController {
     private var placementFrame = NSScreen.main?.visibleFrame ?? .zero
     private var outsideClickMonitor: Any?
     private var sizeSubscription: AnyCancellable?
+    private let activation: TextInputActivation
+    private var focusObservers: [NSObjectProtocol] = []
 
     /// Fires with true after the panel is shown and false after it is hidden,
     /// however that happened (Esc, outside click, a switch).
@@ -23,14 +25,15 @@ final class AgentPanelController {
     /// The gear / ⌘, was used; called after the panel has closed itself.
     var onOpenSettings: (() -> Void)?
 
-    init(model: AgentPanelModel) {
+    init(model: AgentPanelModel, activation: TextInputActivation) {
         self.model = model
+        self.activation = activation
         self.panel = Self.makePanel()
         let view = AgentPanelView(
             model: model,
             onClose: { [weak self] in self?.hide() },
             onOpenSettings: { [weak self] in
-                self?.hide()
+                self?.hide(restoringFocus: false)   // Settings takes the front itself
                 self?.onOpenSettings?()
             }
         )
@@ -42,11 +45,12 @@ final class AgentPanelController {
             model.$presentation,
             model.$listSettings,
             model.$peek.map { $0 != nil }.removeDuplicates(),
-            Publishers.CombineLatest(
+            Publishers.CombineLatest3(
                 model.answer.$card.map { $0 != nil },
-                model.permission.$card.map { $0 != nil }
+                model.permission.$card.map { $0 != nil },
+                model.message.$card.map { $0 != nil }
             )
-            .map { $0 || $1 }
+            .map { $0 || $1 || $2 }
             .removeDuplicates()
         )
         .sink { [weak self] presentation, listSettings, isPeeking, isAnswering in
@@ -55,9 +59,6 @@ final class AgentPanelController {
     }
 
     var isVisible: Bool { panel.isVisible }
-
-    /// The panel's frame while it is on screen.
-    var visibleFrame: CGRect? { panel.isVisible ? panel.frame : nil }
 
     func show() {
         model.resetForShow()
@@ -68,13 +69,21 @@ final class AgentPanelController {
         )
         panel.makeKeyAndOrderFront(nil)
         startOutsideClickMonitor()
+        startFocusObservers()
+        activation.panelDidShow()
         onVisibilityChange?(true)
     }
 
-    func hide() {
+    /// `restoringFocus: false` when the caller brings another window to the front itself
+    /// (Settings, an agent switch), so the previous app is not activated in between.
+    /// `isAgentSwitch`: the hide is for an agent switch; if the switch fails and the panel returns, focus is
+    /// still handed back correctly (`TextInputActivation`).
+    func hide(restoringFocus: Bool = true, isAgentSwitch: Bool = false) {
         let wasVisible = panel.isVisible
         stopOutsideClickMonitor()
+        stopFocusObservers()
         panel.orderOut(nil)
+        activation.panelDidHide(restoringFocus: restoringFocus, handingOffToAgentSwitch: isAgentSwitch)
         if wasVisible { onVisibilityChange?(false) }
     }
 
@@ -99,6 +108,30 @@ final class AgentPanelController {
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: clicks) { [weak self] _ in
             Task { @MainActor in self?.hide() }
         }
+    }
+
+    /// Once AgentBar is the active app (a card text box is open), clicks in other apps no longer
+    /// reach the global monitor above; the app losing the front is the signal instead. That
+    /// dismisses the panel without handing focus back: the user chose the other app.
+    private func startFocusObservers() {
+        guard focusObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        let resign = center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.panel.isVisible, self.activation.isActive else { return }
+                self.activation.appResignedActive()
+                self.hide()
+            }
+        }
+        let appeared = center.addObserver(forName: AnswerTextView.didAppearNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.activation.textInputAppeared() }
+        }
+        focusObservers = [resign, appeared]
+    }
+
+    private func stopFocusObservers() {
+        focusObservers.forEach(NotificationCenter.default.removeObserver)
+        focusObservers = []
     }
 
     private func stopOutsideClickMonitor() {

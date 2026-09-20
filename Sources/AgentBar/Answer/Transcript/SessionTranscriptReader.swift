@@ -33,6 +33,44 @@ struct SessionTranscriptReader: Sendable {
         return SessionContext(latestMessage: scan.latestMessage, planFile: firstExistingFile(in: scan.markdownPathCandidates))
     }
 
+    /// The AskUserQuestion form the agent is waiting on, when its transcript says so. The tail is widened
+    /// step by step until the newest such call is found (answered or not) or the whole file was read.
+    /// Never throws: nil means "no pending form" for whatever reason.
+    func pendingQuestionForm(forSession sessionId: String) -> PendingQuestionForm? {
+        guard let transcript = transcriptURL(forSession: sessionId),
+              let handle = try? FileHandle(forReadingFrom: transcript),
+              let fileSize = try? handle.seekToEnd() else { return nil }
+        defer { try? handle.close() }
+        for window in Self.tailWindowBytes {
+            let startOffset = fileSize > UInt64(window) ? fileSize - UInt64(window) : 0
+            guard (try? handle.seek(toOffset: startOffset)) != nil, let tail = try? handle.readToEnd() else { return nil }
+            switch AskUserQuestionExtractor.find(in: tail, chunkStartsAtFileStart: startOffset == 0) {
+            case .pending(let form): return form
+            case .settled: return nil
+            case .notFound: if startOffset == 0 { return nil }
+            }
+        }
+        return nil
+    }
+
+    /// The answers the transcript recorded for `form` (the agent's own record of what was submitted), or nil when it
+    /// has none yet (the result line lags the terminal by a moment) or cannot be read. Never throws.
+    func recordedAnswers(forSession sessionId: String, form: PendingQuestionForm) -> RecordedFormAnswers? {
+        guard let transcript = transcriptURL(forSession: sessionId),
+              let handle = try? FileHandle(forReadingFrom: transcript),
+              let fileSize = try? handle.seekToEnd() else { return nil }
+        defer { try? handle.close() }
+        for window in Self.tailWindowBytes {
+            let startOffset = fileSize > UInt64(window) ? fileSize - UInt64(window) : 0
+            guard (try? handle.seek(toOffset: startOffset)) != nil, let tail = try? handle.readToEnd() else { return nil }
+            if let found = AskUserQuestionResultExtractor.find(
+                toolUseId: form.toolUseId, form: form, in: tail, chunkStartsAtFileStart: startOffset == 0
+            ) { return found }
+            if startOffset == 0 { return nil }
+        }
+        return nil
+    }
+
     /// `<projectsRoot>/<any project folder>/<session id>.jsonl`. The folder name is
     /// the cwd with slashes flattened, which is unreliable, so search every folder.
     func transcriptURL(forSession sessionId: String) -> URL? {

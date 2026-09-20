@@ -38,7 +38,7 @@ struct BlockedRowTests {
     }
 
     @Test func aGenericNeedsYouRowKeepsDoneAndPark() {
-        #expect(buttons(A.blockedAgent("g", blocker: nil)) == [.done, .park])
+        #expect(buttons(A.blockedAgent("g", blocker: nil)) == [.done, .park, .message])
     }
 
     @Test func aParkedBlockedRowIsJustParked() {
@@ -90,10 +90,12 @@ struct BlockedRowTests {
 
     @Test func footerHintsSpeakForTheAnswerCard() {
         typealias Hints = PanelFooterHints
-        #expect(Hints.text(for: .init(answerMode: .singleSelect)) == "1-9 pick   ↑↓ move   ↩ send   esc back")
+        #expect(Hints.text(for: .init(answerMode: .singleSelect)) == "1-9 pick   ↑↓ move   ↩ send   ⌘C copy info   esc back")
         #expect(Hints.text(for: .init(answerMode: .multiSelect)).contains("space"))
         #expect(Hints.text(for: .init(answerMode: .multiSelect)).contains("submit"))
         #expect(Hints.text(for: .init(answerMode: .typing)) == "↩ send   ⇧↩ new line   ↑↓/esc back to options")
+        #expect(Hints.text(for: .init(answerMode: .form)).contains("submit when all answered"))
+        #expect(Hints.text(for: .init(answerMode: .formBusy)).contains("esc back when finished"))
         // The card outranks the list-level hints.
         #expect(!Hints.text(for: .init(hasHighlightedButton: true, answerMode: .singleSelect)).contains("button"))
     }

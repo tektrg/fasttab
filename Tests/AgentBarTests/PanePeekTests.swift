@@ -37,8 +37,10 @@ struct PanePeekTests {
 
     private static let readAt = Date(timeIntervalSince1970: 1_800_000_100)
 
+    /// "a" is blocked on something the panel does not read (terminal only), so the blocker
+    /// probe (which reads the screens of needs-you rows) leaves it alone and only peeks read.
     private let snapshot = F.snapshot([
-        F.agent("a", label: "alpha", project: "proj", section: .needsYou),
+        F.agent("a", label: "alpha", project: "proj", section: .needsYou).withBlocker(.questionNotAnswerable),
         F.agent("b", label: "beta", section: .working),
         F.agent("noPane", label: "orphan", section: .working)
     ])

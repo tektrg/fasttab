@@ -32,15 +32,17 @@ struct FooterNoticeView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
+        // Tint and divider go behind / never hit-test: an overlay Color on top of the row
+        // swallowed every click meant for the ✕ (esc worked, the mouse did nothing).
+        .background(notice.tint.opacity(0.12))
         .background(.regularMaterial)
-        .overlay(notice.tint.opacity(0.12))
-        .overlay(alignment: .top) { Divider() }
+        .overlay(alignment: .top) { Divider().allowsHitTesting(false) }
     }
 
     private var text: some View {
         Text(notice.text)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(notice.tint)
+            .foregroundStyle(notice.textColor)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)

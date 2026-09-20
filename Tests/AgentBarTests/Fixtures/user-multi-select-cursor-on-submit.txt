@@ -1,0 +1,19 @@
+────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ How to finish  ☐ Record findings  ✔ Submit  →
+
+Three findings currently exist only in this conversation. Which should I write up as durable records before anything else?
+
+  1. [ ] 8 red tests on the shipping line
+       desc one
+  2. [✔] Plan-settings silent data loss
+       desc two
+  3. [✔] Stale lint baseline in CLAUDE.md
+       desc three
+  4. [✔] Deliver run cost / fragility
+       desc four
+  5. [ ] Type something
+❯    Submit
+────────────────────────────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

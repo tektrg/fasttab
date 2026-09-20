@@ -15,6 +15,7 @@ final class AgentBarCoordinator {
     private let cycleController: AgentCycleController
     private let switchCoordinator: AgentSwitchCoordinator
     private let cornerTab: CornerTabController
+    private let arrivalSounds: ArrivalSoundController
     private var feedTask: Task<Void, Never>?
     private var settingsSubscriptions: Set<AnyCancellable> = []
 
@@ -41,7 +42,15 @@ final class AgentBarCoordinator {
         let model = AgentPanelModel(listSettings: settings.list, dashboardAddress: endpoint.displayAddress)
         self.model = model
         model.statusSource = statusSource
-        let panelController = AgentPanelController(model: model)
+        let settings = settings
+        let textInputActivation = TextInputActivation(
+            focus: SystemAppFocus(),
+            isShortcutModifierHeld: {
+                let held = settings.hotkey.modifiers.intersection(.deviceIndependentFlagsMask)
+                return !NSEvent.modifierFlags.intersection(held).isEmpty
+            }
+        )
+        let panelController = AgentPanelController(model: model, activation: textInputActivation)
         self.panelController = panelController
 
         let cycleController = AgentCycleController(
@@ -63,7 +72,7 @@ final class AgentBarCoordinator {
             model: model,
             statusSource: statusSource,
             panel: .init(
-                hide: { panelController.hide() },
+                hide: { panelController.hide(restoringFocus: false, isAgentSwitch: true) },   // the switch brings the agent's app forward
                 show: { panelController.show() },
                 isVisible: { panelController.isVisible }
             )
@@ -72,10 +81,10 @@ final class AgentBarCoordinator {
             isEnabled: settings.showsCornerTab,
             panel: .init(
                 open: { panelController.show() },
-                close: { panelController.hide() },
-                visibleFrame: { panelController.visibleFrame }
+                summary: { [model] in model.needsYouSummary() }
             )
         )
+        arrivalSounds = ArrivalSoundController(settings: { [settings] in settings.sounds })
         wire()
         observeSettings()
     }
@@ -104,6 +113,10 @@ final class AgentBarCoordinator {
         }
         panelController.onOpenSettings = { [unowned self] in showSettings() }
         model.onNeedsYouArrival = { [cornerTab] content in cornerTab.arrived(content) }
+        model.onNeedsYouReading = { [arrivalSounds, cornerTab] arrivals, needsYou in
+            arrivalSounds.observe(arrivals: arrivals, needsYou: needsYou ?? [])
+            cornerTab.needsYouChanged(needsYou)
+        }
         panelController.onVisibilityChange = { [modifierWatcher, cycleController, cornerTab] isVisible in
             cornerTab.panelVisibilityChanged(isVisible)
             if isVisible {

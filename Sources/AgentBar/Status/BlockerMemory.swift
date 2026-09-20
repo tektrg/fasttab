@@ -17,6 +17,10 @@ struct BlockerMemory {
         /// Only ever `.question` or `.permissionReview`.
         let blocker: AgentBlocker
         let at: Date
+        /// Read from the pane by AgentBar itself (see `BlockerProbe`) rather than reported by
+        /// the dashboard: the dashboard's own row may not show it yet, even as a plain
+        /// "blocked" one, so it also stands in for a row with no blocker at all.
+        var readFromPane = false
 
         var question: AnswerableQuestion? {
             if case .question(let question) = blocker { return question }
@@ -26,11 +30,24 @@ struct BlockerMemory {
 
     private var sightings: [String: Sighting] = [:]
 
+    /// A question or permission box AgentBar read from the pane before the dashboard reported it.
+    mutating func learn(_ blocker: AgentBlocker, for agentID: String, now: Date) {
+        switch blocker {
+        case .question, .permissionReview: sightings[agentID] = Sighting(blocker: blocker, at: now, readFromPane: true)
+        case .questionLoading, .questionNotAnswerable, .permission: break
+        }
+    }
+
     /// `agents` with each blocked agent's blocker steadied. Forgets agents no longer blocked.
     mutating func steadied(_ agents: [AgentSnapshot], now: Date) -> [AgentSnapshot] {
         var remembered: [String: Sighting] = [:]
         let result = agents.map { agent -> AgentSnapshot in
-            guard let blocker = agent.blocker else { return agent }
+            guard let blocker = agent.blocker else {
+                guard agent.section == .needsYou, let seen = sightings[agent.id], seen.readFromPane,
+                      now.timeIntervalSince(seen.at) <= Self.unconfirmedGraceSeconds else { return agent }
+                remembered[agent.id] = seen
+                return agent.withBlocker(seen.blocker)
+            }
             switch blocker {
             case .question(let question):
                 remembered[agent.id] = Sighting(blocker: blocker, at: now)

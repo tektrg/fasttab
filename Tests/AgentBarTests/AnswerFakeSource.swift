@@ -50,13 +50,18 @@ final class AnswerFakeSource: AgentStatusSource, @unchecked Sendable {
     }
 }
 
-/// Polls until `condition` holds (up to a few seconds, then gives up and lets
-/// the caller's expectation fail): the model's tasks are scheduled by the
-/// runtime, and under a busy parallel test run a fixed number of yields is not enough.
+/// Polls until `condition` holds (up to ~3s of polls, then gives up and lets the caller's
+/// expectation fail): the model's tasks are scheduled by the runtime, and under a busy parallel
+/// test run a fixed number of yields is not enough. The limit counts polls, not wall-clock time:
+/// the shared main actor can be stalled for seconds by another test, and a clock deadline would
+/// then expire without the condition ever having had a chance to become true.
 @MainActor
 func waitUntil(_ condition: @MainActor () -> Bool) async {
-    let deadline = Date().addingTimeInterval(3)
-    while !condition(), Date() < deadline { try? await Task.sleep(for: .milliseconds(2)) }
+    var polls = 0
+    while !condition(), polls < 1500 {
+        polls += 1
+        try? await Task.sleep(for: .milliseconds(2))
+    }
 }
 
 /// Lets tasks the model started run, for expectations that something did NOT happen.

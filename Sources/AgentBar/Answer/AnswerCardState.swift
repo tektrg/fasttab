@@ -40,6 +40,10 @@ struct AnswerCardState: Equatable, Sendable {
         case singleSelect
         case multiSelect
         case typing
+        /// A multi-question form, nothing sent yet.
+        case form
+        /// A multi-question form being sent, or stopped with a report.
+        case formBusy
     }
 
     static let pickAtLeastOneMessage = "Tick at least one option first (space ticks the highlighted one)."

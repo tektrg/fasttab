@@ -9,16 +9,60 @@ struct RowButtonsTests {
         RowButtons.available(for: agent).map(\.button)
     }
 
-    @Test func needsYouRowsOfferDoneThenPark() {
-        #expect(buttons(F.agent("a", section: .needsYou)) == [.done, .park])
+    @Test func needsYouRowsOfferDoneThenParkThenMessage() {
+        #expect(buttons(F.agent("a", section: .needsYou)) == [.done, .park, .message])
     }
 
-    @Test func parkedRowsOfferUnparkThenDone() {
-        #expect(buttons(F.agent("a", section: .parked)) == [.unpark, .done])
+    @Test func parkedRowsOfferUnparkThenDoneThenMessage() {
+        #expect(buttons(F.agent("a", section: .parked)) == [.unpark, .done, .message])
     }
 
-    @Test func workingRowsOfferNothing() {
-        #expect(buttons(F.agent("a", section: .working)).isEmpty)
+    @Test func workingRowsOfferMessageOnly() {
+        #expect(buttons(F.agent("a", section: .working)) == [.message])
+    }
+
+    // MARK: - Message availability
+
+    @Test func blockedRowsNeverOfferMessage() {
+        let blockers: [AgentBlocker] = [
+            .question(AnswerFixtures.question()), .questionLoading(nil), .questionNotAnswerable, .permission,
+            .permissionReview(PermissionFixtures.bash),
+        ]
+        for blocker in blockers {
+            var agent = F.agent("a", section: .needsYou)
+            agent.blocker = blocker
+            #expect(!buttons(agent).contains(.message), "\(blocker)")
+        }
+    }
+
+    @Test func aParkedRowThatIsStillBlockedDoesNotOfferMessage() {
+        var agent = F.agent("a", section: .needsYou)
+        agent.blocker = .permission
+        #expect(buttons(agent.placed(in: .parked)) == [.unpark, .done])
+    }
+
+    @Test func endedRowsNeverOfferMessage() {
+        #expect(!buttons(F.agent("a", section: .ended)).contains(.message))
+        let stopped = F.agent("s", section: .ended, actions: AgentActions(stop: .unavailable, close: .unknown))
+        #expect(buttons(stopped) == [.closePane])
+    }
+
+    @Test func messageNeedsARowIdALivePaneAndAClaudeAgent() {
+        var noRow = F.agent("a", section: .working)
+        noRow.rowId = nil
+        #expect(buttons(noRow).isEmpty)
+        #expect(buttons(F.agent("a", section: .working, canFocus: false)).isEmpty)
+        // Not Claude (no hook data): the dashboard's question/permission guard cannot see their boxes.
+        #expect(buttons(F.agent("a", section: .working, hasHookData: false)).isEmpty)
+        #expect(buttons(F.agent("a", section: .needsYou, hasHookData: false)) == [.done, .park])
+    }
+
+    @Test func messageIsAKeyboardStopAfterTheExistingButtons() {
+        let agent = F.agent("a", section: .needsYou)
+        #expect(RowButtons.usableButtons(for: agent) == [.done, .park, .message])
+        #expect(RowActionMachine.plan(pressing: .message, current: nil) == .openMessage)
+        #expect(RowButton.message.sessionAction == nil)
+        #expect(!RowButton.message.isBlockedAction)   // a neutral grey capsule
     }
 
     @Test func endedRowsOfferClosePaneOnlyWhileTheDashboardAllowsIt() {
@@ -34,7 +78,7 @@ struct RowButtonsTests {
         let done = try #require(RowButtons.available(for: agent).first { $0.button == .done })
         #expect(!done.isEnabled)
         #expect(done.disabledReason == "The chief's pane can never be stopped from the board")
-        #expect(RowButtons.usableButtons(for: agent) == [.park])   // the keyboard skips it
+        #expect(RowButtons.usableButtons(for: agent) == [.park, .message])   // the keyboard skips it
     }
 
     @Test func doneNeedsTheDashboardsRowId() throws {

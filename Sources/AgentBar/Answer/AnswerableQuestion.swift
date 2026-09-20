@@ -19,6 +19,14 @@ struct AnswerableQuestion: Equatable, Sendable {
         let description: String
         /// The free-text row: answered by typing, never by selecting.
         let isOther: Bool
+
+        func describing(_ description: String) -> Option {
+            Option(index: index, label: label, description: description, isOther: isOther)
+        }
+
+        func markedOther() -> Option {
+            Option(index: index, label: label, description: description, isOther: true)
+        }
     }
 
     let title: String
@@ -29,6 +37,15 @@ struct AnswerableQuestion: Equatable, Sendable {
     let context: String?
 
     static let minimumOptionCount = 2
+
+    /// A question read straight off a pane's screen (see `PaneQuestionReader.question`).
+    init(title: String, question: String, isMultiSelect: Bool, options: [Option], context: String?) {
+        self.title = title
+        self.question = question
+        self.isMultiSelect = isMultiSelect
+        self.options = options
+        self.context = context
+    }
 
     /// Nil unless `decoded` is a whole, unanswered picker: title, question,
     /// single/multi mode and 2+ options with distinct numbers. A picker that

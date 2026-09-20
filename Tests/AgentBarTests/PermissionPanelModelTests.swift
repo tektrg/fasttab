@@ -264,9 +264,9 @@ struct PermissionPanelModelTests {
         let rig = makeRig([P.agent("a", P.bash)])
         await openCard(rig)
         let hint = { PanelFooterHints.text(for: .init(permissionMode: rig.model.permission.card?.state.hintMode)) }
-        #expect(hint() == "↑↓ or number to choose   esc back")
+        #expect(hint() == "↑↓ or number to choose   ⌘C copy info   esc back")
         rig.model.handleCardDigit(2)
-        #expect(hint() == "↑↓ change   ↩ press   esc back")
+        #expect(hint() == "↑↓ change   ↩ press   ⌘C copy info   esc back")
         rig.model.activateSelected()
         #expect(hint() == "↩ confirm always allow   any other key cancels")
     }

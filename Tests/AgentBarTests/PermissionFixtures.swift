@@ -63,16 +63,28 @@ final class PermissionFakeSource: AgentStatusSource, @unchecked Sendable {
         let permission: PermissionPrompt
     }
 
+    /// A row picked on a plan card (`choice: "select"`).
+    struct PlanSent: Equatable {
+        let paneId: String
+        let index: Int
+        let text: String?
+        let permission: PermissionPrompt
+    }
+
     let updates = AsyncStream<StatusSnapshot> { _ in }
     private let lock = NSLock()
     private var sentRequests: [Sent] = []
     private var pending: [CheckedContinuation<PermissionResult, Never>] = []
+    private var planRequests: [PlanSent] = []
+    private var planPending: [CheckedContinuation<PermissionResult, Never>] = []
     private var screenReply: PaneScreenResult = .failure("unused")
     private var reads = 0
     private var answerCalls = 0
 
     var sent: [Sent] { lock.withLock { sentRequests } }
     var pendingCount: Int { lock.withLock { pending.count } }
+    var planSent: [PlanSent] { lock.withLock { planRequests } }
+    var planPendingCount: Int { lock.withLock { planPending.count } }
     var screenReads: Int { lock.withLock { reads } }
     var answersAttempted: Int { lock.withLock { answerCalls } }
 
@@ -109,6 +121,25 @@ final class PermissionFakeSource: AgentStatusSource, @unchecked Sendable {
     func reply(_ result: PermissionResult) {
         let continuation = lock.withLock { pending.isEmpty ? nil : pending.removeFirst() }
         continuation?.resume(returning: result)
+    }
+
+    func selectPlanOption(paneId: String, index: Int, text: String?, permission: PermissionPrompt) async -> PermissionResult {
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                planRequests.append(PlanSent(paneId: paneId, index: index, text: text, permission: permission))
+                planPending.append(continuation)
+            }
+        }
+    }
+
+    /// Replies to the oldest waiting plan request.
+    func replyPlan(_ result: PermissionResult) {
+        let continuation = lock.withLock { planPending.isEmpty ? nil : planPending.removeFirst() }
+        continuation?.resume(returning: result)
+    }
+
+    func waitForPlanRequests(_ count: Int) async {
+        await waitUntil { self.planPendingCount >= count }
     }
 
     func waitForRequests(_ count: Int) async {

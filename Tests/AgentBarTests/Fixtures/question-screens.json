@@ -1,0 +1,1101 @@
+[
+ {
+  "name": "plain single select with descriptions",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "      Crisp red fruit",
+   "    2. Banana",
+   "      Long yellow fruit",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "Crisp red fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "Long yellow fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "no descriptions",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "    2. Banana",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "multi select",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ←  ☒ Colors  ✔ Submit  →",
+   "Pick colours",
+   "",
+   "  ❯ 1. [ ] Red",
+   "    2. [ ] Green",
+   "    3. [ ] Type something",
+   "    Submit",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Colors",
+   "question": "Pick colours",
+   "multi": true,
+   "options": [
+    {
+     "index": 1,
+     "label": "Red",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Green",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": true,
+   "context": ""
+  }
+ },
+ {
+  "name": "multi select with a ticked option",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ←  ☒ Colors  ✔ Submit  →",
+   "Pick colours",
+   "",
+   "  ❯ 1. [✔] Red",
+   "    2. [ ] Green",
+   "    3. [ ] Type something",
+   "    Submit",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Colors",
+   "question": "Pick colours",
+   "multi": true,
+   "options": [
+    {
+     "index": 1,
+     "label": "Red",
+     "desc": "",
+     "checked": true,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Green",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": true,
+   "context": ""
+  }
+ },
+ {
+  "name": "typed other row (no placeholder label)",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "    2. Banana",
+   "    3. my own fruit",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "my own fruit",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "other row with wording and no period",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "    2. Banana",
+   "    3. type something",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "type something",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "wrapped question",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "A long question that the pane wrapped",
+   "over two lines, ok?",
+   "",
+   "  ❯ 1. Apple",
+   "      Crisp red fruit",
+   "    2. Banana",
+   "      Long yellow fruit",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "A long question that the pane wrapped over two lines, ok?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "Crisp red fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "Long yellow fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "no question text uses title",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "",
+   "  ❯ 1. Apple",
+   "      Crisp red fruit",
+   "    2. Banana",
+   "      Long yellow fruit",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Fruit",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "Crisp red fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "Long yellow fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "review screen",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "  Review your answers",
+   "  ❯ 1. Submit answers",
+   "    2. Cancel",
+   "──────────────────────────────────────────────────────────────────────────────────────────"
+  ],
+  "expected": null
+ },
+ {
+  "name": "permission box is not a question",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   " Do you want to proceed?",
+   " ❯ 1. Yes",
+   "   2. No",
+   "──────────────────────────────────────────────────────────────────────────────────────────"
+  ],
+  "expected": null
+ },
+ {
+  "name": "single option",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Only",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": null
+ },
+ {
+  "name": "no picker",
+  "lines": [
+   "$ ls",
+   "file.txt"
+  ],
+  "expected": null
+ },
+ {
+  "name": "prose above and older answered box",
+  "lines": [
+   "⏺ Here is what I found",
+   "Some prose.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Old",
+   "  Old?",
+   "  1. A",
+   "  2. B",
+   "  3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "more prose",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "      Crisp red fruit",
+   "    2. Banana",
+   "      Long yellow fruit",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "Crisp red fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "Long yellow fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": "more prose"
+  }
+ },
+ {
+  "name": "cursor on second option",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "    1. Apple",
+   "  ❯ 2. Banana",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 2,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "footer line inside block",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Real question?",
+   "  auto mode on",
+   "",
+   "  ❯ 1. Apple",
+   "      Crisp red fruit",
+   "    2. Banana",
+   "      Long yellow fruit",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Real question?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "Crisp red fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "Long yellow fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "description that wraps to two lines",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "      Crisp red fruit",
+   "      and very sweet",
+   "    2. Banana",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "Crisp red fruit and very sweet",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "same description twice",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "      Crisp",
+   "      Crisp",
+   "    2. Banana",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "Crisp",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "long description is cut at 300",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "      word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+   "      more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more more",
+   "    2. Banana",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word more more more more more more more more more more more more more more more more more more more more ",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "label with trailing spaces and checkbox-like text",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Use [brackets] here  ",
+   "    2. Banana",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": true,
+   "options": [
+    {
+     "index": 1,
+     "label": "Use [brackets] here",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "tabbed single with next row",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ←  ☐ Ships  ☐ Speed  ✔ Submit  →",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Fast",
+   "    2. Slow",
+   "    3. Type something.",
+   "    Next",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Ships Speed",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Fast",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Slow",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": true,
+   "context": ""
+  }
+ },
+ {
+  "name": "footer text after options within block",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "    2. Banana",
+   "    3. Type something.",
+   "  shift+tab to cycle",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "numbers past nine",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. A",
+   "    2. B",
+   "    3. C",
+   "    4. D",
+   "    5. E",
+   "    6. F",
+   "    7. G",
+   "    8. H",
+   "    9. I",
+   "    10. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "A",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "B",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "C",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 4,
+     "label": "D",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 5,
+     "label": "E",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 6,
+     "label": "F",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 7,
+     "label": "G",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 8,
+     "label": "H",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 9,
+     "label": "I",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 10,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 10,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "chat about this row outside block",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "      Crisp red fruit",
+   "    2. Banana",
+   "      Long yellow fruit",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Chat about this"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "Crisp red fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "Long yellow fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "no borders at all",
+  "lines": [
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Apple",
+   "      Crisp red fruit",
+   "    2. Banana",
+   "      Long yellow fruit",
+   "    3. Type something.",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Apple",
+     "desc": "Crisp red fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "Long yellow fruit",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "Enter to select · ↑/↓ to navigate · Esc to cancel",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ },
+ {
+  "name": "two spaces inside label",
+  "lines": [
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  ☐ Fruit",
+   "Which fruit do you want?",
+   "",
+   "  ❯ 1. Red  apple",
+   "    2. Banana",
+   "    3. Type something.",
+   "──────────────────────────────────────────────────────────────────────────────────────────",
+   "  Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ],
+  "expected": {
+   "title": "Fruit",
+   "question": "Which fruit do you want?",
+   "multi": false,
+   "options": [
+    {
+     "index": 1,
+     "label": "Red  apple",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 2,
+     "label": "Banana",
+     "desc": "",
+     "checked": false,
+     "other": false
+    },
+    {
+     "index": 3,
+     "label": "Type something.",
+     "desc": "",
+     "checked": false,
+     "other": true
+    }
+   ],
+   "cursorIndex": 1,
+   "otherIndex": 3,
+   "hasSubmit": false,
+   "context": ""
+  }
+ }
+]

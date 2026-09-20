@@ -1,21 +1,26 @@
 import Foundation
 
-/// How long the corner tab stays, and how long the hover-opened panel lingers
-/// after the mouse leaves.
+/// How long the corner tab waits and stays.
 struct CornerTabTiming: Equatable, Sendable {
+    /// How long an arrival's tab stays when the pointer is not on it.
     var visibleSeconds: TimeInterval
-    var hoverGraceSeconds: TimeInterval
+    /// How long the pointer must rest in the corner before the tab slides in, so passing
+    /// through the corner (or dragging something past it) shows nothing.
+    var hoverDwellSeconds: TimeInterval
+    /// How long the tab stays after the pointer leaves it and the corner.
+    var leaveGraceSeconds: TimeInterval
 
-    static let standard = CornerTabTiming(visibleSeconds: 5, hoverGraceSeconds: 0.5)
+    static let standard = CornerTabTiming(visibleSeconds: 5, hoverDwellSeconds: 0.3, leaveGraceSeconds: 0.7)
 }
 
 enum CornerTabEvent: Equatable, Sendable {
     /// An agent entered Needs you.
     case arrival(CornerTabContent)
-    /// The mouse is now over (or no longer over) the tab, or the panel it opened.
-    case mouse(isOverTabOrPanel: Bool)
-    /// The user pressed a key in the hover-opened panel.
-    case keyPressed
+    /// Every reading of Needs you (`nothingNeedsYou` when the feed is down): how many are blocked
+    /// on the user now, and whether one just became blocked (a late classification, or a new question).
+    case needsYouChanged(CornerTabContent, hasNewBlocker: Bool)
+    /// The pointer is now over (or no longer over) the bottom-right corner or the tab.
+    case mouse(isOverCornerOrTab: Bool)
     case tabClicked
     /// The main panel appeared or disappeared, however that happened.
     case panelVisibility(Bool)
@@ -27,36 +32,52 @@ enum CornerTabEvent: Equatable, Sendable {
 
 /// What the window layer must do as a result.
 enum CornerTabEffect: Equatable, Sendable {
+    /// Slide the tab in with this content (an arrival).
     case showTab(CornerTabContent)
+    /// Slide the tab in with the current Needs-you summary (the pointer rested in the corner).
+    case showSummaryTab
     case updateTab(CornerTabContent)
     case slideTabOut
     case removeTabNow
     case openPanel
-    case closePanel
 }
 
-/// The corner tab's life cycle, with no clock or windows of its own: every
-/// event carries `now`, and the machine names the next `nextDeadline` for the
-/// host to wake it at. Pure.
+/// The corner tab's life cycle, with no clock or windows of its own: every event carries
+/// `now`, and the machine names the next `nextDeadline` for the host to wake it at. Pure.
 ///
-///     idle --arrival--> tab --deadline--> idle            (slides out)
-///     tab --mouse enters (after it was seen outside)--> hoverOpen   (opens the panel)
-///     tab --click--> idle                                  (opens the panel)
-///     hoverOpen --mouse leaves--> grace --deadline--> idle (closes the panel)
-///     hoverOpen --key press--> idle                        (a normally summoned panel)
+///     idle --arrival--> tab                       (stays while the pointer is on it)
+///     idle --an agent becomes blocked--> tab
+///     tab --deadline--> idle                      (slides out; never while an agent is blocked)
+///     idle --pointer in the corner--> dwelling --rests a moment--> tab
+///     dwelling --pointer leaves--> idle
+///     tab --pointer leaves the tab and corner--> tab (hides after a short grace)
+///     tab --click--> idle                         (opens the panel like the shortcut)
+///
+/// Hovering never opens the panel; only a click does. Nothing shows while the panel is
+/// open or the setting is off.
+///
+/// **Sticky**: while any agent in Needs you is blocked on the user, the tab has no timer and no
+/// leave-grace: it stays until the panel opens, it is clicked, the setting goes off, or the last
+/// blocked agent is dealt with (then the usual short grace). An arrival tab shown as generic
+/// becomes sticky the moment its agent turns out to be blocked; one that already slid out comes
+/// back, once per blocker.
 struct CornerTabMachine: Equatable, Sendable {
     enum Phase: Equatable, Sendable {
         case idle
-        /// Showing. `mouseHasLeft`: the mouse was seen outside the tab since
-        /// it appeared, so a resting cursor does not open the panel by itself.
-        case tab(hideAt: Date, mouseHasLeft: Bool)
-        /// The panel was opened by hovering; `closeAt` is set while the mouse is away.
-        case hoverOpen(closeAt: Date?)
+        /// The pointer is in the corner; the tab slides in at `showAt` if it is still there.
+        case dwelling(showAt: Date)
+        /// Showing. `hideAt` is nil while the pointer is on the tab or in the corner.
+        case tab(hideAt: Date?)
     }
 
     private(set) var phase: Phase = .idle
     private var isEnabled: Bool
     private var isPanelVisible = false
+    private var pointerIsOver = false
+    /// How many agents in Needs you are blocked on the user, as of the latest reading.
+    private var blockedCount = 0
+    /// What the showing tab says, when the machine knows (not after a hover tab, whose text the host reads).
+    private var shownContent: CornerTabContent?
     private let timing: CornerTabTiming
 
     init(timing: CornerTabTiming = .standard, isEnabled: Bool = true) {
@@ -67,109 +88,127 @@ struct CornerTabMachine: Equatable, Sendable {
     var nextDeadline: Date? {
         switch phase {
         case .idle: nil
-        case .tab(let hideAt, _): hideAt
-        case .hoverOpen(let closeAt): closeAt
+        case .dwelling(let showAt): showAt
+        case .tab(let hideAt): hideAt
         }
     }
 
-    /// Whether the host should be watching the mouse.
-    var wantsMouseUpdates: Bool { phase != .idle }
+    /// Whether the host should follow the pointer's moves at all (to notice it reaching the corner).
+    var wantsCornerWatch: Bool { isEnabled && !isPanelVisible }
 
-    /// Whether the host should be watching for key presses.
-    var wantsKeyPresses: Bool {
-        if case .hoverOpen = phase { return true }
+    /// Whether the host should poll the pointer: while the tab is up, the pointer over it
+    /// generates no moves the host could observe.
+    var wantsMousePolling: Bool {
+        if case .tab = phase { return true }
         return false
     }
 
     mutating func handle(_ event: CornerTabEvent, now: Date) -> [CornerTabEffect] {
         switch event {
         case .arrival(let content): return arrive(content, now: now)
-        case .mouse(let isOver): return mouseMoved(isOver: isOver, now: now)
-        case .keyPressed: return keyPressed()
-        case .tabClicked: return openFromTab(mouseHasLeft: false)
+        case .needsYouChanged(let content, let hasNewBlocker): return needsYouChanged(content, hasNewBlocker: hasNewBlocker, now: now)
+        case .mouse(let isOver): return pointerMoved(isOver: isOver, now: now)
+        case .tabClicked: return clicked()
         case .panelVisibility(let isVisible): return panelVisibilityChanged(isVisible)
         case .enabled(let isEnabled): return setEnabled(isEnabled)
         case .deadlineReached: return deadlineReached(now: now)
         }
     }
 
+    private var isSticky: Bool { blockedCount > 0 }
+
     private mutating func arrive(_ content: CornerTabContent, now: Date) -> [CornerTabEffect] {
+        blockedCount = content.blockedCount
         guard isEnabled, !isPanelVisible else { return [] }
-        let hideAt = now.addingTimeInterval(timing.visibleSeconds)
+        let hideAt = pointerIsOver || isSticky ? nil : now.addingTimeInterval(timing.visibleSeconds)
+        shownContent = content
         switch phase {
-        case .idle:
-            phase = .tab(hideAt: hideAt, mouseHasLeft: false)
+        case .idle, .dwelling:
+            phase = .tab(hideAt: hideAt)
             return [.showTab(content)]
-        case .tab(_, let mouseHasLeft):
-            phase = .tab(hideAt: hideAt, mouseHasLeft: mouseHasLeft)
+        case .tab:
+            phase = .tab(hideAt: hideAt)
             return [.updateTab(content)]
-        case .hoverOpen:
-            return []
         }
     }
 
-    private mutating func mouseMoved(isOver: Bool, now: Date) -> [CornerTabEffect] {
+    private mutating func needsYouChanged(_ content: CornerTabContent, hasNewBlocker: Bool, now: Date) -> [CornerTabEffect] {
+        let wasSticky = isSticky
+        blockedCount = content.blockedCount
+        guard isEnabled, !isPanelVisible else { return [] }
+        switch phase {
+        case .idle, .dwelling:
+            guard hasNewBlocker, isSticky else { return [] }
+            phase = .tab(hideAt: nil)
+            shownContent = content
+            return [.showTab(content)]
+        case .tab:
+            if isSticky {
+                phase = .tab(hideAt: nil)
+            } else if wasSticky {
+                // The last blocked agent was dealt with: leave after the usual short grace.
+                phase = .tab(hideAt: pointerIsOver ? nil : now.addingTimeInterval(timing.leaveGraceSeconds))
+            } else {
+                return []   // a generic tab keeps its own timer and words
+            }
+            guard content != shownContent else { return [] }
+            shownContent = content
+            return [.updateTab(content)]
+        }
+    }
+
+    private mutating func pointerMoved(isOver: Bool, now: Date) -> [CornerTabEffect] {
+        pointerIsOver = isOver
         switch phase {
         case .idle:
-            return []
-        case .tab(let hideAt, let mouseHasLeft):
-            if !isOver {
-                phase = .tab(hideAt: hideAt, mouseHasLeft: true)
-                return []
-            }
-            return mouseHasLeft ? openFromTab(mouseHasLeft: true) : []
-        case .hoverOpen(let closeAt):
+            guard isOver, isEnabled, !isPanelVisible else { return [] }
+            phase = .dwelling(showAt: now.addingTimeInterval(timing.hoverDwellSeconds))
+        case .dwelling:
+            if !isOver { phase = .idle }
+        case .tab(let hideAt):
             if isOver {
-                phase = .hoverOpen(closeAt: nil)
-            } else if closeAt == nil {
-                phase = .hoverOpen(closeAt: now.addingTimeInterval(timing.hoverGraceSeconds))
+                phase = .tab(hideAt: nil)
+            } else if hideAt == nil, !isSticky {
+                phase = .tab(hideAt: now.addingTimeInterval(timing.leaveGraceSeconds))
             }
-            return []
         }
-    }
-
-    /// Hover opens the panel and stays in charge of closing it; a click opens
-    /// it as if summoned.
-    private mutating func openFromTab(mouseHasLeft: Bool) -> [CornerTabEffect] {
-        guard case .tab = phase else { return [] }
-        phase = mouseHasLeft ? .hoverOpen(closeAt: nil) : .idle
-        return [.removeTabNow, .openPanel]
-    }
-
-    private mutating func keyPressed() -> [CornerTabEffect] {
-        if case .hoverOpen = phase { phase = .idle }
         return []
+    }
+
+    private mutating func clicked() -> [CornerTabEffect] {
+        guard case .tab = phase else { return [] }
+        phase = .idle
+        return [.removeTabNow, .openPanel]
     }
 
     private mutating func panelVisibilityChanged(_ isVisible: Bool) -> [CornerTabEffect] {
         isPanelVisible = isVisible
-        switch phase {
-        case .tab where isVisible:
-            phase = .idle
-            return [.removeTabNow]
-        case .hoverOpen where !isVisible:
-            phase = .idle
-            return []
-        default:
-            return []
-        }
+        // The host stops following the pointer while the panel is open, so what it last reported (on the
+        // tab, in the corner) goes stale; the next sample after the panel closes says where it really is.
+        pointerIsOver = false
+        guard isVisible else { return [] }
+        let wasShowing = wantsMousePolling
+        phase = .idle
+        return wasShowing ? [.removeTabNow] : []
     }
 
     private mutating func setEnabled(_ enabled: Bool) -> [CornerTabEffect] {
         isEnabled = enabled
-        guard !enabled, case .tab = phase else { return [] }
+        guard !enabled else { return [] }
+        let wasShowing = wantsMousePolling
         phase = .idle
-        return [.slideTabOut]
+        return wasShowing ? [.slideTabOut] : []
     }
 
     private mutating func deadlineReached(now: Date) -> [CornerTabEffect] {
         switch phase {
-        case .tab(let hideAt, _) where now >= hideAt:
+        case .dwelling(let showAt) where now >= showAt:
+            phase = .tab(hideAt: pointerIsOver || isSticky ? nil : now.addingTimeInterval(timing.visibleSeconds))
+            shownContent = nil
+            return [.showSummaryTab]
+        case .tab(let hideAt?) where now >= hideAt:
             phase = .idle
             return [.slideTabOut]
-        case .hoverOpen(let closeAt?) where now >= closeAt:
-            phase = .idle
-            return [.closePanel]
         default:
             return []
         }

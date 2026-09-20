@@ -22,8 +22,9 @@ struct AgentPanelView: View {
                     isPeeking: model.peek != nil,
                     hasHighlightedButton: model.highlightedButton != nil,
                     searchIsEmpty: model.query.isEmpty,
-                    answerMode: model.answer.card?.state.hintMode,
-                    permissionMode: model.permission.card?.state.hintMode,
+                    answerMode: model.answer.card?.hintMode,
+                    permissionMode: model.permission.card?.hintMode,
+                    messageMode: model.message.card?.hintMode,
                     hasDismissibleNotice: model.footerNotice?.isDismissible == true
                 ),
                 onOpenSettings: onOpenSettings
@@ -53,14 +54,27 @@ struct AgentPanelView: View {
                 answer: model.answer,
                 bodyHeight: AgentPanelMetrics.fullBodyHeight(
                     maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
-                )
+                ),
+                copiedAgentID: model.copier.copiedAgentID,
+                onCopy: { model.copyOpenCardIdentity() }
             )
         } else if model.permission.isOpen {
             PermissionCardView(
                 permission: model.permission,
                 bodyHeight: AgentPanelMetrics.fullBodyHeight(
                     maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
-                )
+                ),
+                copiedAgentID: model.copier.copiedAgentID,
+                onCopy: { model.copyOpenCardIdentity() }
+            )
+        } else if model.message.isOpen {
+            MessageCardView(
+                message: model.message,
+                bodyHeight: AgentPanelMetrics.fullBodyHeight(
+                    maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
+                ),
+                copiedAgentID: model.copier.copiedAgentID,
+                onCopy: { model.copyOpenCardIdentity() }
             )
         } else if let peek = model.peek {
             PanePeekView(

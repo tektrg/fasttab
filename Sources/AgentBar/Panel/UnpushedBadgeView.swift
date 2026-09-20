@@ -7,7 +7,7 @@ struct UnpushedBadgeView: View {
     var body: some View {
         Text("↑ unpushed")
             .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.orange)
+            .foregroundStyle(WarningTextColor.color)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
             .background(Capsule().fill(Color.orange.opacity(0.15)))

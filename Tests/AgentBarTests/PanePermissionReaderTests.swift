@@ -97,4 +97,23 @@ struct PanePermissionReaderTests {
         #expect(PanePermissionReader.prompt(in: try screen("edit box, receipt exactly 60 lines above the title").lines) != nil)
         #expect(PanePermissionReader.prompt(in: try screen("edit box, receipt 61 lines above the title").lines) == nil)
     }
+
+    /// Proof, at herdr's 76 columns, that a tool box's option rows can wrap too: the real edit box's second
+    /// row is 90 characters. Neither this reader nor the dashboard's joins option rows, so both read the same
+    /// truncated label (a send still matches) but "for this session" falls onto the unread row and Allow always
+    /// is not offered. Fixing that here alone would make the echoed label differ from the dashboard's and be
+    /// refused: change both parsers together (AGENTS.md gotcha 13).
+    @Test func anOptionRowWrappedAtPaneWidthLosesItsTailOnBothSidesSoAllowAlwaysIsNotOffered() throws {
+        let wrapped = [
+            "⏺ Update(.claude/chief-mode)", "", String(repeating: "─", count: 72),
+            "   Do you want to make this edit to chief-mode?",
+            "   ❯ 1. Yes",
+            "     2. Yes, and allow Claude to edit files in this project's .claude folder",
+            "        for this session",
+            "     3. No",
+        ]
+        let read = try #require(PanePermissionReader.prompt(in: wrapped))
+        #expect(read.options.map(\.label) == ["Yes", "Yes, and allow Claude to edit files in this project's .claude folder", "No"])
+        #expect(read.choices == [.allow, .deny])
+    }
 }

@@ -44,6 +44,10 @@ struct PermissionCardState: Equatable, Sendable {
         case choosing
         case chosen
         case confirmingAlways
+        /// A plan box: the auto-mode / bypass row is waiting for its second press.
+        case confirmingPrivilege
+        /// A plan box: the feedback text box has the keyboard.
+        case typingFeedback
     }
 
     /// The box the decision would be sent for. First the status feed's copy (shown while the

@@ -13,17 +13,162 @@ enum PaneQuestionReader {
     static let lineWindow = 100
     private static let minimumBorderRun = 20
 
+    /// Which question a picker is asking, for any picker that is open: a plain one, one with the cursor
+    /// on its exit row, one with options already ticked. Nil only when no picker is on screen.
     static func identity(in screenLines: [String]) -> QuestionIdentity? {
+        switch openPickerState(in: screenLines) {
+        case .open(let question): question.identity
+        case .onExitRow(let identity), .hasTicks(let identity), .unparsed(let identity): identity
+        case .review, .none: nil
+        }
+    }
+
+    /// What the pane's picker is doing, for callers that must tell "answerable" from "someone is already
+    /// answering it in the terminal".
+    enum PickerState: Equatable, Sendable {
+        /// A whole, unanswered picker the panel can answer.
+        case open(AnswerableQuestion)
+        /// The terminal cursor sits on the exit row (`Submit` / `Next`): no `❯ 1.` line, yet a picker is open.
+        case onExitRow(QuestionIdentity)
+        /// An option is already ticked (multi-select): the panel would only add ticks, never undo them.
+        case hasTicks(QuestionIdentity)
+        /// A picker whose rows do not form a clean list (fewer than two, repeated numbers).
+        case unparsed(QuestionIdentity)
+        /// The form's review screen ("Ready to submit your answers?").
+        case review
+        case none
+    }
+
+    static func openPickerState(in screenLines: [String]) -> PickerState {
+        switch scan(screenLines) {
+        case .none: return .none
+        case .review: return .review
+        case .picker(let picker):
+            if picker.cursorIsOnExitRow { return .onExitRow(picker.identity) }
+            let rows = parsedOptions(in: picker.block)
+            if rows.hasTick { return .hasTicks(picker.identity) }
+            guard let question = answerable(picker, rows) else { return .unparsed(picker.identity) }
+            return .open(question)
+        }
+    }
+
+    /// The whole picker as the panel can answer it (options with their descriptions), read from
+    /// the screen like the dashboard's `parse_question_block`. Nil when there is no picker, or
+    /// one the panel leaves to the terminal (an option already ticked, the cursor on the exit row).
+    /// `context` (Claude's prose above the box) is not read: the card takes its message from the transcript.
+    static func question(in screenLines: [String]) -> AnswerableQuestion? {
+        guard case .open(let question) = openPickerState(in: screenLines) else { return nil }
+        return question
+    }
+
+    private static let descriptionMaxLength = 300
+
+    private struct Rows {
+        var options: [AnswerableQuestion.Option] = []
+        var isMultiSelect = false
+        var hasTick = false
+    }
+
+    /// The option rows of the block, down to the exit row: `Chat about this` (drawn after `Submit`)
+    /// is never an option.
+    private static func parsedOptions(in block: ArraySlice<String>) -> Rows {
+        var rows = Rows()
+        for line in block {
+            if isExitRow(line) { break }
+            guard let row = optionRow(line) else {
+                if let last = rows.options.last, isDescriptionLine(line) {
+                    let bit = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if last.description != bit {
+                        rows.options[rows.options.count - 1] = last.describing(String((last.description + " " + bit)
+                            .trimmingCharacters(in: .whitespacesAndNewlines).prefix(descriptionMaxLength)))
+                    }
+                }
+                continue
+            }
+            if row.isChecked { rows.hasTick = true }
+            if line.contains("["), line.contains("]") { rows.isMultiSelect = true }
+            rows.options.append(.init(index: row.index, label: row.label, description: "", isOther: isOtherLabel(row.label)))
+        }
+        return rows
+    }
+
+    private static func answerable(_ picker: Picker, _ rows: Rows) -> AnswerableQuestion? {
+        var options = rows.options
+        guard options.count >= AnswerableQuestion.minimumOptionCount, Set(options.map(\.index)).count == options.count else { return nil }
+        if !options.contains(where: \.isOther) {
+            // The free-text row is always the tool's last one, even once someone typed over its label.
+            options[options.count - 1] = options[options.count - 1].markedOther()
+        }
+        return AnswerableQuestion(
+            title: picker.identity.title, question: picker.identity.question,
+            isMultiSelect: rows.isMultiSelect, options: options, context: nil
+        )
+    }
+
+    private struct Picker {
+        let block: ArraySlice<String>
+        let identity: QuestionIdentity
+        let cursorIsOnExitRow: Bool
+    }
+
+    private enum Scan {
+        case picker(Picker)
+        case review
+        case none
+    }
+
+    /// The bordered block around the last picker's cursor row (an option row or the exit row), and the question it asks.
+    private static func scan(_ screenLines: [String]) -> Scan {
         let lines = screenLines.suffix(lineWindow).map(rightTrimmed)
-        guard let cursorIndex = lines.lastIndex(where: isCursorOptionLine) else { return nil }
+        guard let cursorIndex = lines.lastIndex(where: { isCursorOptionLine($0) || isCursorExitLine($0) }) else { return .none }
         let block = blockAround(cursorIndex, in: lines)
-        guard !block.contains(where: isReviewScreenLine),
-              let title = block.first(where: hasTitleGlyph).map(cleanedTitle), !title.isEmpty,
+        if block.contains(where: isReviewScreenLine) { return .review }
+        guard let title = block.first(where: hasTitleGlyph).map(cleanedTitle), !title.isEmpty,
               let firstOption = block.firstIndex(where: isOptionLine),
-              block.filter(isOptionLine).count >= 2 else { return nil }
+              block.filter(isOptionLine).count >= 2 else { return .none }
         let questionParts = block[..<firstOption].compactMap(questionPart)
         let question = collapsed(questionParts.joined(separator: " "))
-        return QuestionIdentity(title: title, question: question.isEmpty ? title : question)
+        let identity = QuestionIdentity(title: title, question: question.isEmpty ? title : question)
+        return .picker(Picker(block: block, identity: identity, cursorIsOnExitRow: isCursorExitLine(lines[cursorIndex])))
+    }
+
+    // MARK: - Options
+
+    private static let optionRowPattern = try? NSRegularExpression(
+        pattern: #"^\s*(?:❯\s*)?(\d+)\.\s+(?:\[\s*([✔xX]?)\s*\]\s+)?(\S.*\S|\S)\s*$"#)
+    private static let otherLabelPattern = try? NSRegularExpression(
+        pattern: #"^\s*Type something\.?\s*$"#, options: .caseInsensitive)
+    private static let submitRowPattern = try? NSRegularExpression(pattern: #"^\s*(?:❯\s*)?(?:Submit|Next)\s*$"#)
+
+    private static func optionRow(_ line: String) -> (index: Int, isChecked: Bool, label: String)? {
+        let range = NSRange(line.startIndex..., in: line)
+        guard let match = optionRowPattern?.firstMatch(in: line, range: range),
+              let index = Range(match.range(at: 1), in: line).flatMap({ Int(line[$0]) }),
+              let label = Range(match.range(at: 3), in: line).map({ String(line[$0]) }) else { return nil }
+        let box = Range(match.range(at: 2), in: line).map { String(line[$0]) } ?? ""
+        return (index, !box.isEmpty, label.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// `Submit` or `Next`, with or without the cursor.
+    private static func isExitRow(_ line: String) -> Bool {
+        submitRowPattern?.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil
+    }
+
+    /// `❯ Submit` / `❯ Next`: the cursor is on the exit row, so no option row carries it.
+    private static func isCursorExitLine(_ line: String) -> Bool {
+        line.drop(while: \.isWhitespace).first == "❯" && isExitRow(line)
+    }
+
+    private static func isOtherLabel(_ label: String) -> Bool {
+        otherLabelPattern?.firstMatch(in: label, range: NSRange(label.startIndex..., in: label)) != nil
+    }
+
+    /// Could this block line be an option's description (`_is_desc_line`)?
+    private static func isDescriptionLine(_ line: String) -> Bool {
+        let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !hasTitleGlyph(line), !isReviewScreenLine(line), !isChrome(text), !hasBorderRun(text), !isFooter(text)
+        else { return false }
+        return !isExitRow(line)
     }
 
     // MARK: - Block and lines

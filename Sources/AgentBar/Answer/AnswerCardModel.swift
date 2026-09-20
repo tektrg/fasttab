@@ -16,8 +16,13 @@ final class AnswerCardModel: ObservableObject {
     static let noSourceMessage = "No status dashboard to send the answer to."
 
     typealias SessionContextLoad = @Sendable (_ sessionId: String) async -> SessionContext
+    /// The AskUserQuestion form the agent is waiting on, per its transcript (nil: none, or unreadable).
+    typealias PendingFormLoad = @Sendable (_ sessionId: String) async -> PendingQuestionForm?
+    /// What the transcript recorded for a submitted form (nil: nothing yet, or unreadable).
+    typealias RecordedAnswersLoad = @Sendable (_ sessionId: String, _ form: PendingQuestionForm) async -> RecordedFormAnswers?
 
-    @Published private(set) var card: AnswerCard?
+    /// Written only by this model (its own files: `AnswerCardModel+Form`); everything else reads it.
+    @Published var card: AnswerCard?
 
     /// Where answers go; set by the host, replaced with the dashboard address.
     var statusSource: (any AgentStatusSource)?
@@ -25,27 +30,43 @@ final class AnswerCardModel: ObservableObject {
     var onNotice: (String) -> Void = { _ in }
     /// The question was answered and nothing follows it: the host moves on.
     var onAnswered: (_ agentID: String) -> Void = { _ in }
+    /// Esc pressed inside the card's text field: the host may use it to close a failure notice first
+    /// (true = used up, the card stays as it is).
+    var consumeEscape: () -> Bool = { false }
     /// The card's text field lost the keyboard: the host gives it back to the search field.
     var onReleaseKeyboard: () -> Void = {}
 
     private let loadSessionContext: SessionContextLoad
+    let loadPendingForm: PendingFormLoad
+    let loadRecordedAnswers: RecordedAnswersLoad
     private let openFile: (URL) -> Void
     private let contextLoader = LatestResultLoader<SessionContext>()
+    let formLoader = LatestResultLoader<PendingQuestionForm?>()
+    /// The batch sends of multi-question forms, one per agent, and each one's total-time watchdog (see `AnswerCardModel+Form`).
+    var batchTasks: [String: Task<Void, Never>] = [:]
+    var batchWatchdogs: [String: Task<Void, Never>] = [:]
+    let formTiming: FormBatchTiming
     /// Answers on their way, and the questions just answered. The dashboard's view lags
     /// the pane by up to ~15s, so until it shows something else an answered question is not open.
-    private var tracker = AnswerSendTracker()
-    private let now: () -> Date
+    var tracker = AnswerSendTracker()
+    let now: () -> Date
     private let sendExpirySeconds: TimeInterval
 
     init(
         now: @escaping () -> Date = Date.init,
         sendExpirySeconds: TimeInterval = AnswerSendTracker.expirySeconds,
         loadSessionContext: @escaping SessionContextLoad = AnswerCardModel.readTranscript,
+        loadPendingForm: @escaping PendingFormLoad = AnswerCardModel.readPendingForm,
+        loadRecordedAnswers: @escaping RecordedAnswersLoad = AnswerCardModel.readRecordedAnswers,
+        formTiming: FormBatchTiming = FormBatchTiming(),
         openFile: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
     ) {
         self.now = now
         self.sendExpirySeconds = sendExpirySeconds
         self.loadSessionContext = loadSessionContext
+        self.loadPendingForm = loadPendingForm
+        self.loadRecordedAnswers = loadRecordedAnswers
+        self.formTiming = formTiming
         self.openFile = openFile
     }
 
@@ -53,6 +74,20 @@ final class AnswerCardModel: ObservableObject {
     nonisolated static func readTranscript(sessionId: String) async -> SessionContext {
         await Task.detached(priority: .userInitiated) {
             SessionTranscriptReader.standard.context(forSession: sessionId)
+        }.value
+    }
+
+    /// Reads off the main thread, like `readTranscript`.
+    nonisolated static func readPendingForm(sessionId: String) async -> PendingQuestionForm? {
+        await Task.detached(priority: .userInitiated) {
+            SessionTranscriptReader.standard.pendingQuestionForm(forSession: sessionId)
+        }.value
+    }
+
+    /// Reads off the main thread, like `readTranscript`.
+    nonisolated static func readRecordedAnswers(sessionId: String, form: PendingQuestionForm) async -> RecordedFormAnswers? {
+        await Task.detached(priority: .userInitiated) {
+            SessionTranscriptReader.standard.recordedAnswers(forSession: sessionId, form: form)
         }.value
     }
 
@@ -81,16 +116,19 @@ final class AnswerCardModel: ObservableObject {
         if let draft = tracker.takeDraft(agentID: agent.id, for: question.identity) { opened.state.restore(draft) }
         card = opened
         loadContext()
+        loadPendingFormForCard()
         return true
     }
 
     func close() {
         contextLoader.cancel()
+        formLoader.cancel()
         card = nil
     }
 
     /// Forgets everything about the old dashboard's agents.
     func reset() {
+        cancelBatch()
         close()
         tracker.reset()
     }
@@ -99,6 +137,11 @@ final class AnswerCardModel: ObservableObject {
 
     func handle(_ key: AnswerCardState.Key) {
         guard var card else { return }
+        if key == .escape, consumeEscape() { return }
+        if card.form != nil {
+            handleFormKey(key)
+            return
+        }
         let wasTyping = card.state.phase == .typingOther
         let effect = card.state.handle(key)
         self.card = card
@@ -197,7 +240,7 @@ final class AnswerCardModel: ObservableObject {
     }
 
     /// Redraws once the "awaiting the dashboard" window has passed.
-    private func scheduleRefresh(after seconds: TimeInterval) {
+    func scheduleRefresh(after seconds: TimeInterval) {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds + 0.1))
             self?.objectWillChange.send()
@@ -233,6 +276,8 @@ final class AnswerCardModel: ObservableObject {
         }
         tracker.settle(currentQuestions: current)
         guard let card else { return }
+        // A form being sent, or stopped with its report, is not the dashboard's to move or close.
+        guard card.form?.isEditable ?? true else { return }
         let agent = agents.first { $0.id == card.agentID }
         switch agent?.blockedOnYou {
         case .question(let question)?:
@@ -244,7 +289,13 @@ final class AnswerCardModel: ObservableObject {
         }
     }
 
-    private func follow(_ current: AnswerableQuestion, in card: AnswerCard) {
+    private func follow(_ current: AnswerableQuestion, in shownCard: AnswerCard) {
+        var card = shownCard
+        if let form = card.form?.form {
+            // Another tab of the same form: the card already shows it. Anything else: an ordinary card on it.
+            if form.indexOfQuestion(matching: current.question) != nil { return }
+            card.form = nil
+        }
         guard current != card.state.question, !tracker.hasAnswered(agentID: card.agentID, current.identity) else { return }
         var replaced = card
         let questionChanged = current.identity != card.state.question.identity
@@ -256,7 +307,7 @@ final class AnswerCardModel: ObservableObject {
 
     // MARK: - Transcript
 
-    private func loadContext() {
+    func loadContext() {
         guard let sessionId = card?.sessionId, let agentID = card?.agentID else { return }
         let load = loadSessionContext
         contextLoader.load({ await load(sessionId) }) { [weak self] context in

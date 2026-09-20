@@ -23,6 +23,11 @@ struct SearchFieldView: View {
     /// option, other characters are dropped. Arrows, space, return and escape have
     /// their own handlers, and shortcuts (⌘,) pass through.
     private func answerCardKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        // ⌘C copies the agent's details. This handler only runs while the search box has the
+        // keyboard, so a text field or a selection elsewhere in the card keeps its own copy.
+        if model.isCardOpen, press.modifiers == .command, press.characters == "c" {
+            return model.copyOpenCardIdentity() ? .handled : .ignored
+        }
         guard model.isCardOpen, press.modifiers.subtracting(.shift).isEmpty else { return .ignored }
         switch press.key {
         case .upArrow, .downArrow, .leftArrow, .rightArrow, .space, .return, .escape, .tab:
@@ -39,7 +44,7 @@ struct SearchFieldView: View {
             .textFieldStyle(.plain)
             .font(.system(size: 18))
             .focused($isFocused)
-            .onSubmit { model.activateSelected() }
+            .onSubmit { model.activateSelected(isKeyRepeat: NSApp.currentEvent?.isARepeat ?? false) }
             .onKeyPress(.upArrow) { model.moveSelectionOrAnswerHighlight(by: -1); return .handled }
             .onKeyPress(.downArrow) { model.moveSelectionOrAnswerHighlight(by: 1); return .handled }
             .onKeyPress(.leftArrow) { model.moveButtonHighlight(by: -1) ? .handled : .ignored }

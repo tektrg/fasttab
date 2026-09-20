@@ -90,14 +90,21 @@ final class AnswerTextView: NSTextView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// Posted when a card text box enters a window: the panel controller uses it to make AgentBar
+    /// the frontmost app while one is on screen (`TextInputActivation`), so dictation tools can type into it.
+    static let didAppearNotification = Notification.Name("AgentBar.AnswerTextView.didAppear")
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window else { return }
+        NotificationCenter.default.post(name: Self.didAppearNotification, object: self)
         DispatchQueue.main.async { window.makeFirstResponder(self) }
     }
 
     override func keyDown(with event: NSEvent) {
         if Self.returnKeyCodes.contains(event.keyCode) {
+            // A held Return would send text the moment the box opens (Return on the row opened it), before it is read.
+            if event.isARepeat { return }
             if event.modifierFlags.intersection([.shift, .option]).isEmpty { onSubmit() } else { insertNewlineIgnoringFieldEditor(nil) }
             return
         }

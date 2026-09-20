@@ -24,6 +24,19 @@ struct MultiLineAnswerFieldTests {
         #expect(view.string == "abc")
     }
 
+    @Test func aHeldReturnSendsNothingMoreAndAddsNoLine() {
+        let view = AnswerTextView()
+        var sent = 0
+        view.onSubmit = { sent += 1 }
+        view.string = "abc"
+        let repeated = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: true, keyCode: 36
+        )!
+        view.keyDown(with: repeated)
+        #expect(sent == 0 && view.string == "abc")
+    }
+
     @Test func shiftReturnAddsALineAndSendsNothing() {
         let view = AnswerTextView()
         var sent = 0

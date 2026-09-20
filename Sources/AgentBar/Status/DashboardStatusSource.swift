@@ -101,8 +101,15 @@ actor DashboardStatusSource: AgentStatusSource {
     }
 
     func permission(paneId: String, choice: PermissionChoice, permission: PermissionPrompt) async -> PermissionResult {
+        await permissionResult(for: endpoint.permissionRequest(paneId: paneId, choice: choice, permission: permission))
+    }
+
+    func selectPlanOption(paneId: String, index: Int, text: String?, permission: PermissionPrompt) async -> PermissionResult {
+        await permissionResult(for: endpoint.planSelectRequest(paneId: paneId, index: index, text: text, permission: permission))
+    }
+
+    private func permissionResult(for request: URLRequest) async -> PermissionResult {
         do {
-            let request = endpoint.permissionRequest(paneId: paneId, choice: choice, permission: permission)
             let (body, statusCode) = try await transport.response(for: request)
             return DashboardPermissionResponse.result(body: body, statusCode: statusCode)
         } catch let error as URLError where error.code == .timedOut {
@@ -126,6 +133,21 @@ actor DashboardStatusSource: AgentStatusSource {
             return .failed("The dashboard took too long to answer. Check whether the \(kind.verb) worked.")
         } catch {
             return .failed("Can't reach the status dashboard.")
+        }
+    }
+
+    func sendMessage(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
+        do {
+            let request = endpoint.messageRequest(rowId: rowId, text: text, confirmed: confirmed)
+            let (body, _) = try await transport.response(for: request)
+            let reply = try JSONDecoder().decode(DashboardSessionActionResponse.self, from: body)
+            return reply.messageOutcome ?? .failed("The dashboard refused the message.")
+        } catch is DecodingError {
+            return .uncertain("The dashboard sent an unreadable reply. Check the agent's terminal: the message may have gone through.")
+        } catch let error as URLError where error.code == .timedOut {
+            return .uncertain("The dashboard took too long to answer. Check the agent's terminal: the message may have gone through.")
+        } catch {
+            return .failed("Can't reach the status dashboard. Nothing was sent.")
         }
     }
 

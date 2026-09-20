@@ -5,14 +5,14 @@ import Testing
 /// A blocked agent's Answer must not come and go as the dashboard re-reports its row.
 struct BlockerMemoryTests {
     typealias A = AnswerFixtures
-    private let now = Date(timeIntervalSince1970: 1_000)
-    private let fruit = A.question()
+    let now = Date(timeIntervalSince1970: 1_000)
+    let fruit = A.question()
 
-    private func agent(_ blocker: AgentBlocker?, id: String = "a") -> AgentSnapshot {
+    func agent(_ blocker: AgentBlocker?, id: String = "a") -> AgentSnapshot {
         A.blockedAgent(id, blocker: blocker)
     }
 
-    private func blockers(_ memory: inout BlockerMemory, _ agents: [AgentSnapshot], at time: Date) -> [AgentBlocker?] {
+    func blockers(_ memory: inout BlockerMemory, _ agents: [AgentSnapshot], at time: Date) -> [AgentBlocker?] {
         memory.steadied(agents, now: time).map(\.blocker)
     }
 
@@ -105,5 +105,38 @@ struct BlockerMemoryTests {
         var memory = BlockerMemory()
         _ = memory.steadied([agent(.permissionReview(box))], now: now)
         #expect(blockers(&memory, [agent(.questionLoading(nil))], at: now + 2) == [.questionLoading(nil)])
+    }
+}
+
+/// A question or box AgentBar read off the pane itself (see `BlockerProbe`).
+extension BlockerMemoryTests {
+    @Test func aQuestionReadFromThePaneStandsInForARowTheDashboardHasNoBlockerFor() {
+        var memory = BlockerMemory()
+        memory.learn(.question(fruit), for: "a", now: now)
+        #expect(blockers(&memory, [agent(nil)], at: now + 5) == [.question(fruit)])
+        #expect(blockers(&memory, [agent(.questionLoading(nil))], at: now + 6) == [.question(fruit)])
+    }
+
+    @Test func aReadOfThePaneIsHeldOnlyForTheGraceAndOnlyWhileTheAgentNeedsYou() {
+        var memory = BlockerMemory()
+        memory.learn(.permissionReview(PermissionFixtures.bash), for: "a", now: now)
+        let working = A.blockedAgent("a", blocker: nil, section: .working)
+        #expect(blockers(&memory, [working], at: now + 1) == [nil])   // moved on: forgotten
+        memory.learn(.permissionReview(PermissionFixtures.bash), for: "a", now: now)
+        let past = now + BlockerMemory.unconfirmedGraceSeconds + 1
+        #expect(blockers(&memory, [agent(nil)], at: past) == [nil])
+    }
+
+    @Test func aDashboardReportedBlockerNeverStandsInForAMissingOne() {
+        var memory = BlockerMemory()
+        _ = memory.steadied([agent(.question(fruit))], now: now)
+        #expect(blockers(&memory, [agent(nil)], at: now + 5) == [nil])
+    }
+
+    @Test func onlyAParsedBlockerCanBeLearned() {
+        var memory = BlockerMemory()
+        memory.learn(.permission, for: "a", now: now)
+        memory.learn(.questionLoading(nil), for: "a", now: now)
+        #expect(blockers(&memory, [agent(nil)], at: now + 1) == [nil])
     }
 }

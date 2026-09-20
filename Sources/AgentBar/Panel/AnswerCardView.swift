@@ -8,6 +8,9 @@ import SwiftUI
 struct AnswerCardView: View {
     @ObservedObject var answer: AnswerCardModel
     let bodyHeight: CGFloat
+    /// The agent whose details were just copied (for the "Copied" feedback), and the copy action.
+    var copiedAgentID: String?
+    var onCopy: () -> Void = {}
 
     var body: some View {
         if let card = answer.card {
@@ -34,6 +37,7 @@ struct AnswerCardView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            CopyIdentityButton(isCopied: copiedAgentID == card.agentID, showsLabel: true, onCopy: onCopy)
         }
         .padding(.horizontal, 18)
         .frame(height: AgentPanelMetrics.answerHeaderHeight)
@@ -81,8 +85,12 @@ struct AnswerCardView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     messageSection(card)
                     planLink(card)
-                    questionHeading(card.state.question)
-                    options(card)
+                    if let form = card.form {
+                        AnswerFormView(answer: answer, form: form)
+                    } else {
+                        questionHeading(card.state.question)
+                        options(card)
+                    }
                 }
                 .padding(.bottom, 8)
             }
@@ -134,7 +142,46 @@ struct AnswerCardView: View {
         .padding(.horizontal, 6)
     }
 
+    @ViewBuilder
     private func bottomBar(_ card: AnswerCard) -> some View {
+        if let form = card.form { formBottomBar(form) } else { singleBottomBar(card) }
+    }
+
+    /// Progress while the questions go out, the exact report when the batch stopped, else "N of M answered" and Submit.
+    private func formBottomBar(_ form: AnswerFormState) -> some View {
+        HStack(spacing: 10) {
+            switch form.sendState {
+            case .editing:
+                Text("\(form.answeredCount) of \(form.form.questions.count) answered")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button("Submit", action: { answer.pressSend() })
+                    .disabled(!form.canSubmit)
+            case .sending(let question):
+                ProgressView().controlSize(.small)
+                Text("Sending \(question + 1) of \(form.form.questions.count)…")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            case .stopped:
+                Text(form.report ?? "")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.red)
+                    .lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                Spacer(minLength: 0)
+                Button("Close", action: { answer.handle(.escape) })
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 6)
+        .frame(minHeight: AgentPanelMetrics.answerBottomBarHeight)
+        .background(Color.primary.opacity(0.04))
+    }
+
+    private func singleBottomBar(_ card: AnswerCard) -> some View {
         HStack(spacing: 10) {
             if let errorText = card.state.errorText {
                 Text(errorText)

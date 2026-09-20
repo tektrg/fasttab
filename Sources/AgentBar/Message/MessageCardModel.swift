@@ -1,0 +1,208 @@
+import Foundation
+
+/// Observable state behind the message card: opens it on a live agent, holds the draft, and
+/// sends it once per press. Rules for the draft and the card's phases live in the pure
+/// `MessageDraftValidator` / `MessageCard`.
+///
+/// Safety rules: nothing is sent unless the pane was read just before and shows neither a
+/// question picker nor a permission box (typed text would answer or deny it); a message goes out
+/// only from a press that means "send", one at a time per agent, and is never retried on its
+/// own (a timeout says it may have gone through); a busy agent's message needs a second press.
+@MainActor
+final class MessageCardModel: ObservableObject {
+    static let noSourceMessage = "No status dashboard to send the message to."
+    static let sendingLabel = "Sending message…"
+    /// How long the row says "Message sent" / "Message queued" in place of its buttons.
+    static let sentLabelSeconds: TimeInterval = 6
+
+    @Published private(set) var card: MessageCard?
+
+    /// Where messages go; set by the host, replaced with the dashboard address.
+    var statusSource: (any AgentStatusSource)?
+    /// A sentence for the panel's footer (a message that never reached the agent, said after the card is gone).
+    var onNotice: (String) -> Void = { _ in }
+    /// Esc pressed inside the card's text field: the host may use it to close a failure notice first
+    /// (true = used up, the card stays as it is).
+    var consumeEscape: () -> Bool = { false }
+    /// The card's text field lost the keyboard: the host gives it back to the search field.
+    var onReleaseKeyboard: () -> Void = {}
+
+    private let loadSessionContext: AnswerCardModel.SessionContextLoad
+    private let contextLoader = LatestResultLoader<SessionContext>()
+    private let now: () -> Date
+    private let sentLabelSeconds: TimeInterval
+    /// Agents whose message is on its way (the row shows a spinner; the card, if open, is busy).
+    private var inFlight: Set<String> = []
+    private var sentLabels: [String: (text: String, until: Date)] = [:]
+    /// Bumped when the dashboard changes: replies from the old one are dropped.
+    private var epoch = 0
+
+    init(
+        now: @escaping () -> Date = Date.init,
+        sentLabelSeconds: TimeInterval = MessageCardModel.sentLabelSeconds,
+        loadSessionContext: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript
+    ) {
+        self.now = now
+        self.sentLabelSeconds = sentLabelSeconds
+        self.loadSessionContext = loadSessionContext
+    }
+
+    var isOpen: Bool { card != nil }
+
+    // MARK: - Opening and closing
+
+    /// Opens the card on `agent`. False when the row does not offer Message, or (with a reason for
+    /// the footer, when there is one) when there is nowhere to send to.
+    @discardableResult
+    func open(_ agent: AgentSnapshot) -> Bool {
+        guard RowButtons.usableButtons(for: agent).contains(.message),
+              let paneId = agent.paneId, let rowId = agent.rowId, !inFlight.contains(agent.id)
+        else { return false }
+        guard statusSource != nil else {
+            onNotice(Self.noSourceMessage)
+            return false
+        }
+        close()
+        card = MessageCard(agent: agent, paneId: paneId, rowId: rowId)
+        loadContext()
+        return true
+    }
+
+    /// Closes the card. A message already on its way carries on: its result still reaches the row or the footer.
+    func close() {
+        contextLoader.cancel()
+        card = nil
+    }
+
+    /// Forgets everything about the old dashboard's agents.
+    func reset() {
+        epoch += 1
+        close()
+        inFlight = []
+        sentLabels = [:]
+    }
+
+    // MARK: - Keys and clicks
+
+    /// Every edit of the text field.
+    func setDraft(_ text: String) {
+        guard var card else { return }
+        card.setDraft(text)
+        self.card = card
+    }
+
+    /// Esc: a failure notice goes first, then the card closes (not while its message is on its way).
+    func handleEscape() {
+        guard let card, !consumeEscape(), card.phase == .editing else { return }
+        close()
+        onReleaseKeyboard()
+    }
+
+    /// Return in the text field, Enter in the list, the Send button.
+    func pressSend() {
+        guard var card, let statusSource, let text = card.sendableText else { return }
+        let confirmed = card.isConfirming
+        guard card.beginSending() else { return }
+        self.card = card
+        inFlight.insert(card.agentID)
+        objectWillChange.send()
+        let request = Request(agentID: card.agentID, label: card.label, paneId: card.paneId, rowId: card.rowId, text: text, confirmed: confirmed)
+        let epoch = epoch
+        Task { [weak self] in
+            let outcome = await Self.deliver(request, via: statusSource)
+            self?.finishSend(outcome, of: request, epoch: epoch)
+        }
+    }
+
+    // MARK: - Sending
+
+    private struct Request: Sendable {
+        let agentID: String
+        let label: String
+        let paneId: String
+        let rowId: String
+        let text: String
+        let confirmed: Bool
+    }
+
+    /// Reads the pane first: typed text would answer a question picker or a permission box.
+    private static func deliver(_ request: Request, via source: any AgentStatusSource) async -> MessageSendOutcome {
+        switch await source.paneScreen(paneId: request.paneId) {
+        case .failure(let reason):
+            return .failed("Couldn't check the terminal first (\(reason)). Nothing was sent.")
+        case .screen(let lines, _):
+            // A picker with an option already ticked is not one the panel can answer (`question` is nil for it), but
+            // typed text would still land in it: the guard asks whether any picker is open.
+            if PaneQuestionReader.identity(in: lines) != nil || PanePermissionReader.prompt(in: lines) != nil {
+                return .failed(MessageCard.waitingOnYouText)
+            }
+        }
+        return await source.sendMessage(rowId: request.rowId, text: request.text, confirmed: request.confirmed)
+    }
+
+    private func finishSend(_ outcome: MessageSendOutcome, of request: Request, epoch: Int) {
+        guard epoch == self.epoch else { return }
+        inFlight.remove(request.agentID)
+        var showing = card?.agentID == request.agentID ? card : nil
+        switch outcome {
+        case .sent(let queued):
+            sentLabels[request.agentID] = (queued ? "Message queued" : "Message sent", now().addingTimeInterval(sentLabelSeconds))
+            scheduleRefresh(after: sentLabelSeconds)
+            if showing != nil { close() }
+            showing = nil
+        case .needsConfirmation:
+            showing?.stopSendingNeedingConfirmation()
+            if showing == nil { onNotice("Message to \(request.label) not sent: the agent is mid-turn. Open Message again to queue it.") }
+        case .failed(let reason):
+            showing?.stopSending(error: reason)
+            if showing == nil { onNotice("Message to \(request.label) not sent: \(reason)") }
+        case .uncertain(let reason):
+            showing?.stopSendingUncertain(reason)
+            if showing == nil { onNotice("Message to \(request.label): \(reason)") }
+        }
+        if let showing { card = showing }
+        objectWillChange.send()
+    }
+
+    /// Redraws once the row's "Message sent" has run its time.
+    private func scheduleRefresh(after seconds: TimeInterval) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds + 0.1))
+            self?.objectWillChange.send()
+        }
+    }
+
+    // MARK: - Rows
+
+    /// What the row says in place of its buttons while its message is on its way.
+    func sendingLabel(for agent: AgentSnapshot) -> String? {
+        inFlight.contains(agent.id) ? Self.sendingLabel : nil
+    }
+
+    /// What the row says for a few seconds after its message went: "Message sent" or "Message queued".
+    func sentLabel(for agent: AgentSnapshot) -> String? {
+        guard let note = sentLabels[agent.id], now() < note.until else { return nil }
+        return note.text
+    }
+
+    // MARK: - Following the dashboard
+
+    /// Every status update: closes the card when its agent has gone or ended. A blocked agent
+    /// keeps the card (the dashboard's view flaps); the pane read before each send decides.
+    func reconcile(with agents: [AgentSnapshot]) {
+        guard let card else { return }
+        if let agent = agents.first(where: { $0.id == card.agentID }), agent.section != .ended, agent.canFocus { return }
+        close()
+    }
+
+    // MARK: - Transcript
+
+    private func loadContext() {
+        guard let sessionId = card?.sessionId, let agentID = card?.agentID else { return }
+        let load = loadSessionContext
+        contextLoader.load({ await load(sessionId) }) { [weak self] context in
+            guard self?.card?.agentID == agentID else { return }
+            self?.card?.sessionContext = context
+        }
+    }
+}

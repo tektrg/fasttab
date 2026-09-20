@@ -152,7 +152,7 @@ class BrowserTabService: ObservableObject {
     /// with `activate()`'s manual path so the same real switch is never
     /// recorded as two visits, whichever path observes it first.
     private func observeExtensionTabEvents() {
-        ExtensionBridge.shared.onTabActivated = { [weak self] appName, url, at in
+        ExtensionBridge.shared.onTabActivated = { [weak self] appName, tabID, url, at in
             Task { @MainActor in
                 guard let self else { return }
                 guard ExtensionBetaPreference.isEnabled else {
@@ -166,7 +166,17 @@ class BrowserTabService: ObservableObject {
                 }
                 let urlKey = makeTabURLRecencyKey(browserName: appName, url: url)
                 self.lastActiveTimes[urlKey] = at
-                self.logger.info("instant-rank applied. app=\(appName, privacy: .public) url=\(url, privacy: .public)")
+                if let idx = self.cachedLiveTabs.firstIndex(where: { $0.browserName == appName && $0.tabID == tabID }) ??
+                             self.cachedLiveTabs.firstIndex(where: { $0.browserName == appName && $0.url == url }) {
+                    self.cachedLiveTabs[idx] = self.cachedLiveTabs[idx].settingTimestamp(at)
+                    if let key = self.cachedLiveTabs[idx].tabRecencyKey {
+                        self.lastActiveTimes[key] = at
+                    }
+                }
+                if self.lastIssuedQuery.isEmpty {
+                    self.rebuildQuickOpenResults()
+                }
+                self.logger.info("instant-rank applied. app=\(appName, privacy: .public) tabID=\(tabID) url=\(url, privacy: .public)")
             }
         }
 
@@ -276,6 +286,10 @@ class BrowserTabService: ObservableObject {
                     if previous != frecencyKey {
                         self.lastPolledFrontFrecencyKey[browserName] = frecencyKey
                         self.recordVisit(frecencyKey: frecencyKey, now: stamp)
+                        if let idx = self.cachedLiveTabs.firstIndex(where: { $0.browserName == browserName && $0.url == url }) {
+                            self.cachedLiveTabs[idx] = self.cachedLiveTabs[idx].settingTimestamp(stamp)
+                        }
+                        self.cachedQuickOpenResults = []
                     }
                 }
                 // Throttle disk writes from the high-frequency poll. In-memory
@@ -973,7 +987,7 @@ class BrowserTabService: ObservableObject {
                     let filteredPrioritized = self.filteringRecentlyClosed(prioritizedTabs)
                     let dedupedPrioritized = deduplicatingSamePages(filteredPrioritized, frecencyScore: { _ in 0 })
                     let sentLinks = SentLinkInbox.shared.asSearchResults()
-                    let combinedQuickOpen = sortBrowserSearchResults(sentLinks + dedupedPrioritized)
+                    let combinedQuickOpen = sortQuickOpenResults(sentLinks + dedupedPrioritized)
 
                     self.lastActiveTimes = updatedTimes
                     self.lastAudibleSeenAt = updatedAudibleSeenAt
@@ -1400,10 +1414,11 @@ class BrowserTabService: ObservableObject {
                 let prioritizedTabs = allQuickOpenTabs(from: authoritativeTabs)
                 let dedupedPrioritized = deduplicatingSamePages(prioritizedTabs, frecencyScore: { _ in 0 })
                 let sentLinks = SentLinkInbox.shared.asSearchResults()
-                let combined = sortBrowserSearchResults(sentLinks + dedupedPrioritized, frecencyScore: nil)
+                let combined = sortQuickOpenResults(sentLinks + dedupedPrioritized)
 
                 self.cachedQuickOpenResults = combined
-                if self.results.isEmpty {
+                self.cachedQuickOpenSourceAppBundleIdentifier = sourceAppBundleIdentifier
+                if self.lastIssuedQuery.isEmpty {
                     self.results = combined
                 } else {
                     let frecencyLookup = self.makeFrecencyScoreLookup()
@@ -1450,9 +1465,13 @@ class BrowserTabService: ObservableObject {
             tabID: result.tabID,
             isPinned: pinned
         )
-        let frecencyLookup = lastIssuedQuery.isEmpty ? nil : makeFrecencyScoreLookup()
-        results = sortBrowserSearchResults(results, frecencyScore: frecencyLookup)
-        cachedQuickOpenResults = sortBrowserSearchResults(cachedQuickOpenResults, frecencyScore: nil)
+        if lastIssuedQuery.isEmpty {
+            results = sortQuickOpenResults(results)
+        } else {
+            let frecencyLookup = makeFrecencyScoreLookup()
+            results = sortBrowserSearchResults(results, frecencyScore: frecencyLookup)
+        }
+        cachedQuickOpenResults = sortQuickOpenResults(cachedQuickOpenResults)
     }
 
     private func applyPinned(
@@ -1475,17 +1494,31 @@ class BrowserTabService: ObservableObject {
         let isAudibleToUser = tabRecord.isAudible && !tabRecord.isMuted
         if let idx = cachedLiveTabs.firstIndex(where: { $0.browserName == appName && $0.tabID == tabRecord.tabID }) {
             let existing = cachedLiveTabs[idx]
+            let timestamp: Date
+            if tabRecord.isActive {
+                timestamp = tabRecord.lastAccessed ?? Date()
+            } else if let lastAccessed = tabRecord.lastAccessed {
+                timestamp = max(lastAccessed, existing.timestamp)
+            } else {
+                timestamp = existing.timestamp
+            }
+            if timestamp > Date(timeIntervalSince1970: 0) {
+                let key = makeTabRecencyKey(browserName: appName, windowIndex: tabRecord.windowIndex, tabIndex: tabRecord.tabIndex, url: tabRecord.url)
+                let urlKey = makeTabURLRecencyKey(browserName: appName, url: tabRecord.url)
+                lastActiveTimes[key] = timestamp
+                lastActiveTimes[urlKey] = timestamp
+            }
             let updated = BrowserSearchResult(
                 title: tabRecord.title,
                 url: tabRecord.url,
                 browserName: appName,
                 type: .tab,
-                timestamp: existing.timestamp,
+                timestamp: timestamp,
                 windowIndex: tabRecord.windowIndex,
                 tabIndex: tabRecord.tabIndex,
                 windowName: tabRecord.windowName,
                 profileName: existing.profileName,
-                isCurrentFlowActiveTab: existing.isCurrentFlowActiveTab,
+                isCurrentFlowActiveTab: tabRecord.isActive,
                 hasMediaIndicator: isAudibleToUser,
                 tabID: tabRecord.tabID,
                 isAudible: tabRecord.isAudible,
@@ -1514,7 +1547,7 @@ class BrowserTabService: ObservableObject {
                 applyPinned(effectivePinned, to: existing.id, fallbackID: updated.id, tabID: tabRecord.tabID, browserName: appName, in: &cachedQuickOpenResults)
                 let frecencyLookup = makeFrecencyScoreLookup()
                 results = sortBrowserSearchResults(results, frecencyScore: frecencyLookup)
-                cachedQuickOpenResults = sortBrowserSearchResults(cachedQuickOpenResults, frecencyScore: nil)
+                cachedQuickOpenResults = sortQuickOpenResults(cachedQuickOpenResults)
             }
         } else {
             // If this is a replaced/woken tab ID for an existing tab in the same window,
@@ -1527,12 +1560,20 @@ class BrowserTabService: ObservableObject {
                 MyOrderReconciler.canonicalURL($0.url) == canonical
             }
 
+            let timestamp = tabRecord.lastAccessed ?? Date()
+            if timestamp > Date(timeIntervalSince1970: 0) {
+                let key = makeTabRecencyKey(browserName: appName, windowIndex: tabRecord.windowIndex, tabIndex: tabRecord.tabIndex, url: tabRecord.url)
+                let urlKey = makeTabURLRecencyKey(browserName: appName, url: tabRecord.url)
+                lastActiveTimes[key] = timestamp
+                lastActiveTimes[urlKey] = timestamp
+            }
+
             let newTab = BrowserSearchResult(
                 title: tabRecord.title,
                 url: tabRecord.url,
                 browserName: appName,
                 type: .tab,
-                timestamp: Date(),
+                timestamp: timestamp,
                 windowIndex: tabRecord.windowIndex,
                 tabIndex: tabRecord.tabIndex,
                 windowName: tabRecord.windowName,
@@ -1575,7 +1616,7 @@ class BrowserTabService: ObservableObject {
         let filteredPrioritized = filteringRecentlyClosed(prioritizedTabs)
         let dedupedPrioritized = deduplicatingSamePages(filteredPrioritized, frecencyScore: { _ in 0 })
         let sentLinks = SentLinkInbox.shared.asSearchResults()
-        let combinedQuickOpen = sortBrowserSearchResults(sentLinks + dedupedPrioritized)
+        let combinedQuickOpen = sortQuickOpenResults(sentLinks + dedupedPrioritized)
         results = combinedQuickOpen
         cachedQuickOpenResults = combinedQuickOpen
     }
@@ -1584,14 +1625,36 @@ class BrowserTabService: ObservableObject {
         guard !extensionTabs.isEmpty else { return }
         logger.info("extension snapshot received. app=\(appName, privacy: .public) tabs=\(extensionTabs.count)")
 
+        let now = Date()
         let freshTabs = extensionTabs.map { tabRecord -> BrowserSearchResult in
             let isAudibleToUser = tabRecord.isAudible && !tabRecord.isMuted
+            let key = makeTabRecencyKey(browserName: appName, windowIndex: tabRecord.windowIndex, tabIndex: tabRecord.tabIndex, url: tabRecord.url)
+            let urlKey = makeTabURLRecencyKey(browserName: appName, url: tabRecord.url)
+            let storedTime = lastActiveTimes[key] ?? lastActiveTimes[urlKey]
+            let timestamp: Date
+            if tabRecord.isActive && tabRecord.windowIndex == 1 {
+                timestamp = tabRecord.lastAccessed ?? now
+            } else if let lastAccessed = tabRecord.lastAccessed {
+                if let stored = storedTime {
+                    timestamp = max(lastAccessed, stored)
+                } else {
+                    timestamp = lastAccessed
+                }
+            } else if let stored = storedTime {
+                timestamp = stored
+            } else {
+                timestamp = Date(timeIntervalSince1970: 0)
+            }
+            if timestamp > Date(timeIntervalSince1970: 0) {
+                lastActiveTimes[key] = timestamp
+                lastActiveTimes[urlKey] = timestamp
+            }
             return BrowserSearchResult(
                 title: tabRecord.title,
                 url: tabRecord.url,
                 browserName: appName,
                 type: .tab,
-                timestamp: Date(),
+                timestamp: timestamp,
                 windowIndex: tabRecord.windowIndex,
                 tabIndex: tabRecord.tabIndex,
                 windowName: tabRecord.windowName,

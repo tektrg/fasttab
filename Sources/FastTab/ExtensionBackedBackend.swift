@@ -105,15 +105,27 @@ struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileAccess>: Br
             if isFrontActive {
                 timestamp = fetchStart
             } else if let activation = view.activationTimes[tab.tabID] {
-                timestamp = activation
+                if let stored = storedTime {
+                    timestamp = max(activation, stored)
+                } else {
+                    timestamp = activation
+                }
+            } else if let lastAccessed = tab.lastAccessed {
+                if let stored = storedTime {
+                    timestamp = max(lastAccessed, stored)
+                } else {
+                    timestamp = lastAccessed
+                }
             } else {
                 timestamp = storedTime ?? Date(timeIntervalSince1970: 0)
             }
 
             // Exact activation times flow into the app's recency store so
             // quick-open and frecency ranking use truth, not a poll guess.
-            activeTimes[key] = timestamp
-            activeTimes[urlKey] = timestamp
+            if timestamp > Date(timeIntervalSince1970: 0) {
+                activeTimes[key] = timestamp
+                activeTimes[urlKey] = timestamp
+            }
 
             let isAudibleToUser = tab.isAudible && !tab.isMuted
 

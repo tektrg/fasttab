@@ -13,8 +13,11 @@ final class AgentBarSettings: ObservableObject {
 
     @Published private(set) var list: AgentListSettings
     @Published private(set) var showsMenuBarIcon: Bool
-    /// The corner tab that peeks in when an agent starts needing the user.
+    /// The corner tab: peeks in when an agent starts needing the user, and when the pointer rests
+    /// in the bottom-right corner (both off when this is off). A click on it opens the panel.
     @Published private(set) var showsCornerTab: Bool
+    /// Whether an agent arriving in Needs you plays a sound, and which one per kind.
+    @Published private(set) var sounds: SoundSettings
     @Published private(set) var hotkey: AgentHotkeyConfig
     @Published private(set) var dashboardBaseURL: URL
 
@@ -25,6 +28,7 @@ final class AgentBarSettings: ObservableObject {
         list = AgentListSettings.load(from: defaults)
         showsMenuBarIcon = defaults.object(forKey: Self.showsMenuBarIconKey) as? Bool ?? true
         showsCornerTab = defaults.object(forKey: Self.showsCornerTabKey) as? Bool ?? true
+        sounds = SoundSettings.load(from: defaults)
         hotkey = AgentHotkeyConfig.configured(defaults: defaults)
         dashboardBaseURL = DashboardEndpoint.configured(defaults: defaults).baseURL
     }
@@ -47,6 +51,14 @@ final class AgentBarSettings: ObservableObject {
         guard shows != showsCornerTab else { return }
         showsCornerTab = shows
         defaults.set(shows, forKey: Self.showsCornerTabKey)
+    }
+
+    func updateSounds(_ change: (inout SoundSettings) -> Void) {
+        var updated = sounds
+        change(&updated)
+        guard updated != sounds else { return }
+        sounds = updated
+        updated.save(to: defaults)
     }
 
     /// Records the shortcut that is now actually registered.

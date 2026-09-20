@@ -19,6 +19,8 @@ struct DashboardEndpoint: Sendable {
     static let answerTimeoutSeconds: TimeInterval = 90
     /// A permission press is one key, then a re-read of the pane (a few seconds).
     static let permissionTimeoutSeconds: TimeInterval = 45
+    /// A message types into the pane and re-reads it to see whether it was submitted (2s or more).
+    static let messageTimeoutSeconds: TimeInterval = 60
     /// The dashboard's accident guard: only the product owner's clicks may stop
     /// or close (`PO_ACTOR` in chief_dashboard_actions.py). AgentBar acts only
     /// on the user's own click, so it speaks as that actor.
@@ -79,20 +81,42 @@ struct DashboardEndpoint: Sendable {
     /// `POST /api/permission`. `permission` goes back as the pane was read: the dashboard
     /// presses nothing unless the box still equals it.
     func permissionRequest(paneId: String, choice: PermissionChoice, permission: PermissionPrompt) -> URLRequest {
+        permissionPost(["paneId": paneId, "choice": choice.wireName, "permission": Self.permissionBox(permission)])
+    }
+
+    /// `POST /api/permission` with `choice: "select"` for a plan-approval box: `index` is the 1-based row,
+    /// `text` (only for the feedback row) what to type. `permission` goes back as read, option labels
+    /// included: the dashboard compares them with the box it reads itself before pressing the one key.
+    func planSelectRequest(paneId: String, index: Int, text: String?, permission: PermissionPrompt) -> URLRequest {
+        var body: [String: Any] = ["paneId": paneId, "choice": "select", "index": index, "permission": Self.permissionBox(permission)]
+        if let text { body["text"] = text }
+        return permissionPost(body)
+    }
+
+    private func permissionPost(_ body: [String: Any]) -> URLRequest {
         var request = request(path: "/api/permission")
         request.httpMethod = "POST"
         request.timeoutInterval = Self.permissionTimeoutSeconds
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// The box as the dashboard's own parser shapes it. A plan box has `detail: null` and `kind` / `planPath`
+    /// (null when its footer is absent): the dashboard's exact-match check compares each of them.
+    private static func permissionBox(_ permission: PermissionPrompt) -> [String: Any] {
         var box: [String: Any] = [
             "tool": permission.tool,
-            "detail": permission.detail,
+            "detail": permission.isPlan ? NSNull() : permission.detail,
             "title": permission.title,
             "options": permission.options.map { ["index": $0.index, "label": $0.label] as [String: Any] },
         ]
         if let cursorIndex = permission.cursorIndex { box["cursorIndex"] = cursorIndex }
-        let body: [String: Any] = ["paneId": paneId, "choice": choice.wireName, "permission": box]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        return request
+        if permission.isPlan {
+            box["kind"] = "plan"
+            box["planPath"] = permission.planPath ?? NSNull()
+        }
+        return box
     }
 
     /// `POST /api/session/stop|close`. `confirmed` is sent only when the user
@@ -103,6 +127,19 @@ struct DashboardEndpoint: Sendable {
         request.timeoutInterval = Self.sessionActionTimeoutSeconds
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["rowId": rowId, "actor": Self.sessionActionActor]
+        if confirmed { body["confirm"] = true }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// `POST /api/session/message`. `text` is already sanitized (one line, no leading "/").
+    /// `confirmed` is sent only for the second press after the dashboard said the agent is mid-turn.
+    func messageRequest(rowId: String, text: String, confirmed: Bool) -> URLRequest {
+        var request = request(path: "/api/session/message")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.messageTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["rowId": rowId, "actor": Self.sessionActionActor, "text": text]
         if confirmed { body["confirm"] = true }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request

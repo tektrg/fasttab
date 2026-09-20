@@ -28,8 +28,8 @@ enum TranscriptFixtures {
         toolUse("AskUserQuestion", input: ["questions": [["question": "Which?", "header": "H", "options": []]]])
     }
 
-    static func userToolResult(_ text: String = "ok") -> String {
-        line(["type": "user", "message": ["role": "user", "content": [["type": "tool_result", "tool_use_id": "toolu_1", "content": text]]]])
+    static func userToolResult(_ text: String = "ok", toolUseId: String = "toolu_1") -> String {
+        line(["type": "user", "message": ["role": "user", "content": [["type": "tool_result", "tool_use_id": toolUseId, "content": text]]]])
     }
 
     static func housekeeping() -> String {

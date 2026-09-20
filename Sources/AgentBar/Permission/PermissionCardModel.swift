@@ -17,12 +17,16 @@ final class PermissionCardModel: ObservableObject {
     /// How long a dashboard that had no /api/permission is remembered as such.
     static let endpointMissingSeconds: TimeInterval = 120
 
-    @Published private(set) var card: PermissionCard?
+    /// The open card. Written only by this model and its plan extension (`PermissionCardModel+Plan`).
+    @Published var card: PermissionCard?
 
     /// Where decisions go; set by the host, replaced with the dashboard address.
     var statusSource: (any AgentStatusSource)?
     /// A sentence for the panel's footer (a decision that never reached the pane).
     var onNotice: (String) -> Void = { _ in }
+    /// A sentence for the footer that is not a failure: the answer went through but the pane ended up
+    /// somewhere the user should check (orange, closable).
+    var onWarning: (String) -> Void = { _ in }
     /// The box was decided and nothing follows it: the host moves on.
     var onDecided: (_ agentID: String) -> Void = { _ in }
     /// The dashboard has no permission endpoint: the host re-derives its rows.
@@ -30,22 +34,30 @@ final class PermissionCardModel: ObservableObject {
     /// The card's way out when the box cannot be decided from here.
     var onOpenTerminal: (_ agentID: String) -> Void = { _ in }
 
+    /// The plan card's text box gave the keyboard back: the host refocuses the search field.
+    var onReleaseKeyboard: () -> Void = {}
+
     private let loadSessionContext: AnswerCardModel.SessionContextLoad
     private let contextLoader = LatestResultLoader<SessionContext>()
     private let screenLoader = LatestResultLoader<PaneScreenResult>()
-    private var tracker = PermissionSendTracker()
+    // Shared with the plan card's half of the model (`PermissionCardModel+Plan`).
+    let loadPlanFile: PlanFileLoad
+    let planFileLoader = LatestResultLoader<PlanFile>()
+    var tracker = PermissionSendTracker()
     private var endpointMissingUntil: Date?
-    private let now: () -> Date
-    private let sendExpirySeconds: TimeInterval
+    let now: () -> Date
+    let sendExpirySeconds: TimeInterval
 
     init(
         now: @escaping () -> Date = Date.init,
         sendExpirySeconds: TimeInterval = PermissionSendTracker.expirySeconds,
-        loadSessionContext: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript
+        loadSessionContext: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript,
+        loadPlanFile: @escaping PlanFileLoad = PlanFileReader.load
     ) {
         self.now = now
         self.sendExpirySeconds = sendExpirySeconds
         self.loadSessionContext = loadSessionContext
+        self.loadPlanFile = loadPlanFile
     }
 
     var isOpen: Bool { card != nil }
@@ -75,6 +87,7 @@ final class PermissionCardModel: ObservableObject {
         close()
         card = PermissionCard(agent: agent, paneId: paneId, prompt: prompt)
         loadContext()
+        loadPlanFileIfNeeded()
         readPane(paneId: paneId, agentID: agent.id, source: statusSource)
         return true
     }
@@ -82,6 +95,7 @@ final class PermissionCardModel: ObservableObject {
     func close() {
         contextLoader.cancel()
         screenLoader.cancel()
+        planFileLoader.cancel()
         card = nil
     }
 
@@ -96,6 +110,10 @@ final class PermissionCardModel: ObservableObject {
 
     func handle(_ key: PermissionCardState.Key) {
         guard var card else { return }
+        if card.plan != nil {
+            handlePlanKey(key)
+            return
+        }
         let effect = card.state.handle(key)
         self.card = card
         switch effect {
@@ -134,11 +152,12 @@ final class PermissionCardModel: ObservableObject {
                    self.tracker.nextQuestion(agentID: agentID, after: box.identity) == nil {
                     live = nil   // the box just decided, still on screen a moment: not to be decided twice
                 }
-                card.state.resolve(live: live, failure: live == nil ? Self.notReadableMessage : nil)
+                card.resolve(live: live, failure: live == nil ? Self.notReadableMessage : nil)
             case .failure(let message):
-                card.state.resolve(live: nil, failure: message)
+                card.resolve(live: nil, failure: message)
             }
             self.card = card
+            self.reloadPlanFileIfPathChanged()
         }
     }
 
@@ -147,7 +166,7 @@ final class PermissionCardModel: ObservableObject {
     /// The action press: the card closes at once and the decision goes out in the
     /// background; the row shows "Sending approval…" until it is settled.
     private func send(_ choice: PermissionChoice) {
-        guard let card, let statusSource, card.state.phase == .ready else { return }
+        guard let card, let statusSource, card.plan == nil, card.state.phase == .ready else { return }
         let prompt = card.state.prompt
         let agentID = card.agentID
         let paneId = card.paneId
@@ -172,7 +191,9 @@ final class PermissionCardModel: ObservableObject {
             endpointMissingUntil = now().addingTimeInterval(Self.endpointMissingSeconds)
             onNotice("\(noun) not sent: the dashboard replied \"\(reply)\". It may need a restart to take approvals; use Open terminal meanwhile.")
             onEndpointMissing()
-        case .sent(let next):
+        case .sent(let next, let warning):
+            // The key went out: a dashboard warning is told even when the send record is stale.
+            if let warning { reportWarning("Sent, but the dashboard warned: \(Self.withoutTrailingPeriod(warning)). Check the terminal.", agentID: agentID) }
             guard tracker.succeeded(agentID: agentID, token: token, identity: prompt.identity, next: next, at: now()) else { return }
             scheduleRefresh(after: PermissionSendTracker.expirySeconds)
             if next == nil { onDecided(agentID) }
@@ -180,8 +201,20 @@ final class PermissionCardModel: ObservableObject {
         objectWillChange.send()
     }
 
+    /// Never swallowed: the footer says it, and a card open for that agent (a revised plan's, say) carries it too.
+    func reportWarning(_ sentence: String, agentID: String) {
+        onWarning(sentence)
+        if card?.agentID == agentID { card?.sentWarning = sentence }
+    }
+
+    static func withoutTrailingPeriod(_ text: String) -> String {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix(".") { trimmed.removeLast() }
+        return trimmed
+    }
+
     /// A send with no reply in time frees its row and says so; the decision may still have gone through.
-    private func scheduleExpiry(agentID: String, token: Int) {
+    func scheduleExpiry(agentID: String, token: Int) {
         Task { [weak self] in
             guard let self else { return }
             try? await Task.sleep(for: .seconds(self.sendExpirySeconds))
@@ -192,7 +225,7 @@ final class PermissionCardModel: ObservableObject {
     }
 
     /// Redraws once the "awaiting the dashboard" window has passed.
-    private func scheduleRefresh(after seconds: TimeInterval) {
+    func scheduleRefresh(after seconds: TimeInterval) {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds + 0.1))
             self?.objectWillChange.send()
@@ -206,6 +239,7 @@ final class PermissionCardModel: ObservableObject {
         var shown: PermissionIdentity?
         if case .permissionReview(let prompt)? = agent.blockedOnYou { shown = prompt.identity }
         guard let tag = tracker.awaitingTag(agentID: agent.id, showing: shown, now: now()) else { return nil }
+        if let planLabel = Self.planSendingLabel(forTag: tag) { return planLabel }
         return tag == PermissionChoice.deny.flightTag ? PermissionChoice.deny.sendingLabel : PermissionChoice.allow.sendingLabel
     }
 

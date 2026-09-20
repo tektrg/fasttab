@@ -36,8 +36,11 @@ struct AgentListView: View {
                 fetchedAt: fetchedAt,
                 actionState: model.rowActionStates[agent.id],
                 sendingLabel: model.sendingLabel(for: agent),
+                sentLabel: model.sentLabel(for: agent),
                 highlightedButton: isSelected ? model.highlightedButton : nil,
-                onPress: { model.press($0, on: agent.id) }
+                isCopied: model.copier.copiedAgentID == agent.id,
+                onPress: { model.press($0, on: agent.id) },
+                onCopy: { model.copyIdentity(of: agent) }
             )
                 .onHover { inside in
                     if inside { model.select(agentID: agent.id) }

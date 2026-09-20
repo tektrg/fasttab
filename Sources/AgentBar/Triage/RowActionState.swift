@@ -25,6 +25,7 @@ enum RowActionPlan: Equatable {
     case openAnswer
     case openReview
     case openTerminal
+    case openMessage
     case send(SessionActionKind, confirmed: Bool)
 }
 
@@ -42,6 +43,7 @@ enum RowActionMachine {
         case .answer: return .openAnswer
         case .review: return .openReview
         case .openTerminal: return .openTerminal
+        case .message: return .openMessage
         case .park: return .park
         case .unpark: return .unpark
         case .done, .closePane:

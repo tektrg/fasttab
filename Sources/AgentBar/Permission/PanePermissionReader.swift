@@ -19,7 +19,14 @@ enum PanePermissionReader {
     static let diffExcerptMaxLines = 20
     private static let minimumBorderRun = 20
 
+    /// The permission box open on the screen, whichever kind: a tool call, else a plan-approval box
+    /// (`parse_permission_or_plan_block`). The two cannot both match: their titles are disjoint.
     static func prompt(in screenLines: [String]) -> PermissionPrompt? {
+        toolPrompt(in: screenLines) ?? planPrompt(in: screenLines)
+    }
+
+    /// A tool-call permission box (`parse_permission_block`).
+    static func toolPrompt(in screenLines: [String]) -> PermissionPrompt? {
         let lines = screenLines.suffix(lineWindow).map(rightTrimmed)
         guard let cursorLine = lines.lastIndex(where: { matches(cursorOptionPattern, $0) }) else { return nil }
         let top = lines[...cursorLine].lastIndex(where: hasBorderRun).map { $0 + 1 } ?? 0
@@ -80,7 +87,7 @@ enum PanePermissionReader {
 
     // MARK: - Lines
 
-    private static func option(_ line: String) -> PermissionPrompt.Option? {
+    static func option(_ line: String) -> PermissionPrompt.Option? {
         guard let parts = groups(optionPattern, line), parts.count == 3, let index = Int(parts[0]) else { return nil }
         return PermissionPrompt.Option(index: index, label: parts[2].trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -98,11 +105,11 @@ enum PanePermissionReader {
             || isReviewLine(line) || matches(submitRowPattern, line)
     }
 
-    private static func isReviewLine(_ line: String) -> Bool {
+    static func isReviewLine(_ line: String) -> Bool {
         line.contains("Review your answers") || line.contains("Ready to submit your answers?") || line.contains("Submit answers")
     }
 
-    private static func hasBorderRun(_ line: String) -> Bool {
+    static func hasBorderRun(_ line: String) -> Bool {
         var run = 0
         for scalar in line.unicodeScalars {
             run = (0x2500...0x257F).contains(scalar.value) ? run + 1 : 0
@@ -111,7 +118,7 @@ enum PanePermissionReader {
         return false
     }
 
-    private static func rightTrimmed(_ line: String) -> String {
+    static func rightTrimmed(_ line: String) -> String {
         var end = line.endIndex
         while end > line.startIndex, line[line.index(before: end)].isWhitespace { end = line.index(before: end) }
         return String(line[..<end])
@@ -119,29 +126,29 @@ enum PanePermissionReader {
 
     // MARK: - Patterns (the dashboard's own regular expressions)
 
-    private static let cursorOptionPattern = pattern(#"^\s*❯\s*(\d+)\.\s+"#)
+    static let cursorOptionPattern = pattern(#"^\s*❯\s*(\d+)\.\s+"#)
     private static let optionPattern = pattern(#"^\s*(?:❯\s*)?(\d+)\.\s+(?:\[\s*([✔xX]?)\s*\]\s+)?(\S.*\S|\S)\s*$"#)
     private static let titlePattern = pattern(#"^\s*(Do you want to proceed\?|Would you like to proceed\?|Do you want to make this edit to .+\?)\s*$"#)
     private static let submitRowPattern = pattern(#"^\s*(?:❯\s*)?(?:Submit|Next)\s*$"#)
     private static let receiptPattern = pattern(#"^\s*⏺\s*([A-Za-z]\w*)\((.*)\)\s*$"#)
 
     /// Nil only for a pattern that does not compile (a mistake the tests catch): it then matches nothing.
-    private static func pattern(_ source: String) -> NSRegularExpression? {
+    static func pattern(_ source: String) -> NSRegularExpression? {
         try? NSRegularExpression(pattern: source)
     }
 
-    private static func matches(_ expression: NSRegularExpression?, _ text: String) -> Bool {
+    static func matches(_ expression: NSRegularExpression?, _ text: String) -> Bool {
         expression?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
-    private static func groups(_ expression: NSRegularExpression?, _ text: String) -> [String]? {
+    static func groups(_ expression: NSRegularExpression?, _ text: String) -> [String]? {
         guard let match = expression?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
         return (1..<match.numberOfRanges).map { group in
             Range(match.range(at: group), in: text).map { String(text[$0]) } ?? ""
         }
     }
 
-    private static func firstNumber(_ expression: NSRegularExpression?, _ text: String) -> Int? {
+    static func firstNumber(_ expression: NSRegularExpression?, _ text: String) -> Int? {
         groups(expression, text)?.first.flatMap { Int($0) }
     }
 }

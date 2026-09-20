@@ -81,7 +81,8 @@ function buildTabRecord(tab) {
     muted: !!(tab.mutedInfo && tab.mutedInfo.muted),
     pinned: tab.pinned || false,
     discarded: tab.discarded || false,
-    groupTitle: state.groups.get(tab.groupId)?.title || ''
+    groupTitle: state.groups.get(tab.groupId)?.title || '',
+    lastAccessed: typeof tab.lastAccessed === 'number' ? tab.lastAccessed : undefined
   };
 }
 
@@ -454,7 +455,10 @@ chrome.tabs.onActivated.addListener((info) => {
   activeTabByWindow.set(info.windowId, info.tabId);
 
   const newTab = state.tabs.get(info.tabId);
-  if (newTab) newTab.active = true;
+  if (newTab) {
+    newTab.active = true;
+    newTab.lastAccessed = Date.now();
+  }
   if (oldId !== undefined && oldId !== info.tabId) {
     const oldTab = state.tabs.get(oldId);
     if (oldTab) oldTab.active = false;

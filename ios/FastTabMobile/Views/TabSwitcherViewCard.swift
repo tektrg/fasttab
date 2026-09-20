@@ -178,7 +178,11 @@ struct TabSwitcherViewCard: View {
             //    within ±1 of the active index. Each WKWebView spins up a
             //    separate WebContent process (~20-50 MB), so this caps the
             //    total to 3 instances instead of one per HTTP tab.
-            if isNearActive, !(preview?.isTweet == true), let url = URL(string: tab.url), url.scheme?.hasPrefix("http") == true {
+            if isNearActive,
+               let url = URL(string: tab.url),
+               url.scheme?.hasPrefix("http") == true,
+               !(preview?.isTweet == true),
+               !LinkPreviewLoader.isTwitterStatusURL(url) {
                 TabWebPreviewView(url: url, isVisible: true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()

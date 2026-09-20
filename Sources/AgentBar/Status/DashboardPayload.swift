@@ -205,6 +205,10 @@ struct DashboardPermission: Decodable {
     let title: String?
     let options: [Option]
     let cursorIndex: Int?
+    /// "plan" on a plan-approval box (Claude's plan mode); absent on a tool-permission box.
+    let kind: String?
+    /// A plan box: the plan file named in the box's footer, verbatim (`~` unexpanded); null when absent.
+    let planPath: String?
 
     struct Option: Decodable {
         let index: Int?
@@ -219,7 +223,7 @@ struct DashboardPermission: Decodable {
         }
     }
 
-    private enum CodingKeys: String, CodingKey { case tool, detail, title, options, cursorIndex }
+    private enum CodingKeys: String, CodingKey { case tool, detail, title, options, cursorIndex, kind, planPath }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -227,18 +231,25 @@ struct DashboardPermission: Decodable {
         detail = container.lenient(.detail)
         title = container.lenient(.title)
         cursorIndex = container.lenient(.cursorIndex)
+        kind = container.lenient(.kind)
+        planPath = container.lenient(.planPath)
         options = (container.lenient(.options) as LenientArray<Option>?)?.elements ?? []
     }
 
     /// The prompt this describes; nil unless it is whole (a tool, a detail, a title and two or more numbered options).
+    /// A plan box (`kind == "plan"`) has no detail (null): it is whole with a tool, a title and its options.
     var prompt: PermissionPrompt? {
-        guard let tool, !tool.isEmpty, let detail, let title, !title.isEmpty else { return nil }
+        let isPlan = kind == "plan"
+        guard let tool, !tool.isEmpty, let title, !title.isEmpty, let detail = isPlan ? "" : detail else { return nil }
         let parsed = options.compactMap { option -> PermissionPrompt.Option? in
             guard let index = option.index, let label = option.label else { return nil }
             return PermissionPrompt.Option(index: index, label: label)
         }
         guard parsed.count == options.count, parsed.count >= 2 else { return nil }
-        return PermissionPrompt(tool: tool, detail: detail, title: title, options: parsed, cursorIndex: cursorIndex)
+        return PermissionPrompt(
+            tool: tool, detail: detail, title: title, options: parsed, cursorIndex: cursorIndex,
+            kind: isPlan ? .plan : .tool, planPath: isPlan ? planPath : nil
+        )
     }
 }
 

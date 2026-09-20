@@ -45,15 +45,34 @@ protocol AgentStatusSource: Sendable {
     /// unless the box in the pane still equals it. Never call twice for one decision.
     func permission(paneId: String, choice: PermissionChoice, permission: PermissionPrompt) async -> PermissionResult
 
+    /// Picks row `index` (1-based) of the plan-approval box open in the pane. `text` goes only with the
+    /// feedback row ("Tell Claude what to change"). `permission` is the box as the pane reads now, option
+    /// labels included: the dashboard refuses unless the box it reads still equals it. Never call twice for one decision.
+    func selectPlanOption(paneId: String, index: Int, text: String?, permission: PermissionPrompt) async -> PermissionResult
+
     /// Stops the agent or closes its pane (the dashboard's ladder). Destructive:
     /// call only for an explicit user press. `confirmed` is true only for the
     /// second press after `.needsConfirmation`.
     func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome
+
+    /// Types `text` (already one line, no leading "/") into the agent's input and submits it.
+    /// `confirmed` is true only for the second press after `.needsConfirmation`. Never call
+    /// twice for one message: a slow reply may still have landed.
+    func sendMessage(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome
 }
 
 extension AgentStatusSource {
+    /// Sources that cannot message an agent refuse, in words.
+    func sendMessage(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
+        .failed("This status source cannot send messages.")
+    }
+
     /// Sources that cannot decide permission boxes refuse, in words.
     func permission(paneId: String, choice: PermissionChoice, permission: PermissionPrompt) async -> PermissionResult {
         .unsupported("This status source cannot approve or deny from here.")
+    }
+
+    func selectPlanOption(paneId: String, index: Int, text: String?, permission: PermissionPrompt) async -> PermissionResult {
+        .unsupported("This status source cannot answer a plan from here.")
     }
 }

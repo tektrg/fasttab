@@ -44,6 +44,37 @@ struct ExtensionTabRecord: Sendable {
     let isPinned: Bool
     let isDiscarded: Bool
     let groupTitle: String?
+    let lastAccessed: Date?
+
+    init(
+        tabID: Int,
+        windowIndex: Int,
+        tabIndex: Int,
+        title: String,
+        url: String,
+        windowName: String,
+        isActive: Bool,
+        isAudible: Bool,
+        isMuted: Bool,
+        isPinned: Bool,
+        isDiscarded: Bool,
+        groupTitle: String?,
+        lastAccessed: Date? = nil
+    ) {
+        self.tabID = tabID
+        self.windowIndex = windowIndex
+        self.tabIndex = tabIndex
+        self.title = title
+        self.url = url
+        self.windowName = windowName
+        self.isActive = isActive
+        self.isAudible = isAudible
+        self.isMuted = isMuted
+        self.isPinned = isPinned
+        self.isDiscarded = isDiscarded
+        self.groupTitle = groupTitle
+        self.lastAccessed = lastAccessed
+    }
 }
 
 /// Synchronous, immutable snapshot read the decorator uses on the hot path.
@@ -171,7 +202,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
     /// slower front-tab poll. May be called from any thread; the handler
     /// (set by `BrowserTabService`) is responsible for hopping to the main
     /// actor before touching UI-facing state.
-    var onTabActivated: (@Sendable (String, String, Date) -> Void)?
+    var onTabActivated: (@Sendable (String, Int, String, Date) -> Void)?
     var onTabRemoved: (@Sendable (String, Int, String?) -> Void)?
     var onTabUpserted: (@Sendable (String, ExtensionTabRecord) -> Void)?
     var onSnapshotReceived: (@Sendable (String, [ExtensionTabRecord]) -> Void)?
@@ -663,7 +694,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         // body is @Sendable and cannot capture non-Sendable [String: Any].
         let message = Self.decodeInboundMessage(type: type, payload: payload, now: now)
 
-        let (connectionChanged, activation, removed, upserted, snapshot) = lock.withLock { registry -> (Bool, (appName: String, url: String, at: Date)?, (appName: String, tabID: Int, url: String?)?, (appName: String, tab: ExtensionTabRecord)?, (appName: String, tabs: [ExtensionTabRecord])?) in
+        let (connectionChanged, activation, removed, upserted, snapshot) = lock.withLock { registry -> (Bool, (appName: String, tabID: Int, url: String, at: Date)?, (appName: String, tabID: Int, url: String?)?, (appName: String, tab: ExtensionTabRecord)?, (appName: String, tabs: [ExtensionTabRecord])?) in
             guard var connection = registry.connections[fd] else { return (false, nil, nil, nil, nil) }
 
             connection.lastContactAt = now
@@ -680,7 +711,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             if seq > 0 { connection.lastSeq = max(connection.lastSeq, seq) }
 
             var connectionAddedOrNamed = false
-            var activationEvent: (appName: String, url: String, at: Date)?
+            var activationEvent: (appName: String, tabID: Int, url: String, at: Date)?
             var removedEvent: (appName: String, tabID: Int, url: String?)?
             var upsertedEvent: (appName: String, tab: ExtensionTabRecord)?
             var snapshotEvent: (appName: String, tabs: [ExtensionTabRecord])?
@@ -708,6 +739,9 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
                     }
                 }
                 connection.tabs[tab.tabID] = tab
+                if let lastAccessed = tab.lastAccessed {
+                    connection.activationTimes[tab.tabID] = lastAccessed
+                }
                 upsertedEvent = (appName: connection.appName, tab: tab)
 
             case .tabRemoved(let tabID):
@@ -732,7 +766,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             publishStatus()
         }
         if let activation, let onTabActivated {
-            onTabActivated(activation.appName, activation.url, activation.at)
+            onTabActivated(activation.appName, activation.tabID, activation.url, activation.at)
         }
         if let removed, let onTabRemoved {
             onTabRemoved(removed.appName, removed.tabID, removed.url)
@@ -855,6 +889,15 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         var newTabs: [Int: ExtensionTabRecord] = [:]
         for tab in tabs {
             newTabs[tab.tabID] = tab
+            if let lastAccessed = tab.lastAccessed {
+                if let existing = connection.activationTimes[tab.tabID] {
+                    if lastAccessed > existing {
+                        connection.activationTimes[tab.tabID] = lastAccessed
+                    }
+                } else {
+                    connection.activationTimes[tab.tabID] = lastAccessed
+                }
+            }
         }
         connection.tabs = newTabs
         // Drop activation times for tabs that no longer exist.
@@ -870,9 +913,9 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         tabs: [Int: ExtensionTabRecord],
         tabID: Int,
         at: Date
-    ) -> (appName: String, url: String, at: Date)? {
+    ) -> (appName: String, tabID: Int, url: String, at: Date)? {
         guard !appName.isEmpty, let url = tabs[tabID]?.url, !url.isEmpty else { return nil }
-        return (appName, url, at)
+        return (appName, tabID, url, at)
     }
 
     static func decodeTab(_ dict: [String: Any]?) -> ExtensionTabRecord? {
@@ -892,13 +935,25 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             isMuted: dict["muted"] as? Bool ?? false,
             isPinned: dict["pinned"] as? Bool ?? false,
             isDiscarded: dict["discarded"] as? Bool ?? false,
-            groupTitle: dict["groupTitle"] as? String
+            groupTitle: dict["groupTitle"] as? String,
+            lastAccessed: Self.date(fromEpochMS: dict["lastAccessed"])
         )
     }
 
     private static func date(fromEpochMS value: Any?) -> Date? {
-        guard let ms = (value as? NSNumber)?.doubleValue else { return nil }
-        return Date(timeIntervalSince1970: ms / 1000)
+        if let ms = (value as? NSNumber)?.doubleValue {
+            return Date(timeIntervalSince1970: ms / 1000)
+        }
+        if let ms = value as? Double {
+            return Date(timeIntervalSince1970: ms / 1000)
+        }
+        if let ms = value as? Int {
+            return Date(timeIntervalSince1970: Double(ms) / 1000)
+        }
+        if let ms = value as? Int64 {
+            return Date(timeIntervalSince1970: Double(ms) / 1000)
+        }
+        return nil
     }
 
     private static func encode(_ object: [String: Any]) -> Data {

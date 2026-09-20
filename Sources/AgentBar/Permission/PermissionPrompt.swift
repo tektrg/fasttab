@@ -11,20 +11,45 @@ struct PermissionPrompt: Equatable, Hashable, Sendable {
         let label: String
     }
 
-    /// "Bash", "Write", "Edit"...
+    /// What the box asks: a tool call to allow or deny, or Claude's plan mode asking to proceed.
+    enum Kind: String, Equatable, Hashable, Sendable {
+        case tool
+        case plan
+    }
+
+    /// "Bash", "Write", "Edit"... ("ExitPlanMode" for a plan box).
     let tool: String
-    /// The command, file or arguments, in full (the text inside `Tool(...)`).
+    /// The command, file or arguments, in full (the text inside `Tool(...)`). Empty for a plan box.
     let detail: String
     let title: String
     let options: [Option]
     /// The option the pane's cursor is on.
     let cursorIndex: Int?
+    let kind: Kind
+    /// A plan box: the plan file named in its footer, exactly as drawn (`~` not expanded); nil when the footer is absent.
+    let planPath: String?
+
+    init(
+        tool: String, detail: String, title: String, options: [Option], cursorIndex: Int?,
+        kind: Kind = .tool, planPath: String? = nil
+    ) {
+        self.tool = tool
+        self.detail = detail
+        self.title = title
+        self.options = options
+        self.cursorIndex = cursorIndex
+        self.kind = kind
+        self.planPath = planPath
+    }
 
     /// The choices this box offers, in the order the card shows them. The rules are the
     /// dashboard's own (it presses nothing its own reading of the box does not corroborate):
     /// allow is the first "Yes" row, deny the last "No" row, allow-always the row that says
-
+    /// "don't ask again" or "for this session". A plan box has no such rows (see `PermissionPrompt+Plan`).
     func option(for choice: PermissionChoice) -> Option? {
+        // A plan box's rows ("Yes, and use auto mode") only look like allow rows: it is never allowed or denied
+        // by wording, only by picking a row on the plan card.
+        guard !isPlan else { return nil }
         switch choice {
         case .allow:
             guard let first = options.first, first.label.hasPrefix("Yes"), !Self.isAlways(first.label) else { return nil }
@@ -67,11 +92,14 @@ struct PermissionIdentity: Hashable, Sendable {
     let tool: String
     let detail: String
     let title: String
+    /// A plan box's title and options are one fixed sentence for every plan: the file is what tells two apart.
+    let planPath: String?
 
     init(_ prompt: PermissionPrompt) {
         tool = prompt.tool
         detail = Self.collapsed(prompt.detail)
         title = Self.collapsed(prompt.title)
+        planPath = prompt.planPath
     }
 
     private static func collapsed(_ text: String) -> String {
@@ -117,7 +145,21 @@ enum PermissionChoice: CaseIterable, Equatable, Sendable {
 /// What was decided on a permission card when it was sent (nothing is kept for a retry).
 struct PermissionDecision: SendDraft {
     let identity: PermissionIdentity
-    let choice: PermissionChoice
+    /// Nil for a row picked on a plan card (`planRowIndex`).
+    let choice: PermissionChoice?
+    let planRowIndex: Int?
+
+    init(identity: PermissionIdentity, choice: PermissionChoice) {
+        self.identity = identity
+        self.choice = choice
+        self.planRowIndex = nil
+    }
+
+    init(identity: PermissionIdentity, planRowIndex: Int) {
+        self.identity = identity
+        self.choice = nil
+        self.planRowIndex = planRowIndex
+    }
 }
 
 /// The permission box as it stood on the row, for `PermissionCard` and the row's own buttons.

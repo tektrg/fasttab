@@ -12,7 +12,7 @@ enum OtherAnswerText {
 
     /// The text to send; nil when there is nothing to send.
     static func sendable(_ typed: String) -> String? {
-        let words = typed.split(whereSeparator: \.isWhitespace)
+        let words = TerminalSafeText.withoutControlCharacters(typed).split(whereSeparator: \.isWhitespace)
         guard !words.isEmpty else { return nil }
         let joined = words.joined(separator: " ")
         let scalars = joined.unicodeScalars

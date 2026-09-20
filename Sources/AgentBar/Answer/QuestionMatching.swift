@@ -23,7 +23,8 @@ extension QuestionIdentity {
         return paneReading
     }
 
-    private static func comparable(_ text: String) -> String {
+    /// The text with everything the pane's drawing adds removed: spaces, line breaks, box-border characters.
+    static func comparable(_ text: String) -> String {
         String(String.UnicodeScalarView(text.unicodeScalars.filter { scalar in
             !scalar.properties.isWhitespace && !(0x2500...0x257F).contains(scalar.value)
         }))

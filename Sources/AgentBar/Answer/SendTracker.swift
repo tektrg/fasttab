@@ -32,11 +32,16 @@ struct SendTracker<Draft: SendDraft, Next: Equatable & Sendable> {
     /// A question that has been answered; the dashboard may keep showing it for a while.
     struct Settled: Equatable {
         let identity: Identity
+        /// More questions answered by the same send (a whole form): the dashboard, up to ~15s behind,
+        /// may still show any of them.
+        let alsoAnswered: Set<Identity>
         /// What the reply named as coming next (the next question of a form, another prompt), if anything.
         let next: Next?
         let at: Date
         /// The tag the send carried (see `Flight.tag`).
         let tag: String
+
+        func covers(_ current: Identity) -> Bool { identity == current || alsoAnswered.contains(current) }
     }
 
     private(set) var flights: [String: Flight] = [:]
@@ -56,10 +61,12 @@ struct SendTracker<Draft: SendDraft, Next: Equatable & Sendable> {
     }
 
     /// The dashboard took the answer. False when this send is no longer the one being tracked.
-    mutating func succeeded(agentID: String, token: Int, identity: Identity, next: Next?, at now: Date) -> Bool {
+    mutating func succeeded(
+        agentID: String, token: Int, identity: Identity, alsoAnswered: Set<Identity> = [], next: Next?, at now: Date
+    ) -> Bool {
         guard let flight = flights[agentID], flight.token == token else { return false }
         flights[agentID] = nil
-        settled[agentID] = Settled(identity: identity, next: next, at: now, tag: flight.tag)
+        settled[agentID] = Settled(identity: identity, alsoAnswered: alsoAnswered, next: next, at: now, tag: flight.tag)
         return true
     }
 
@@ -90,18 +97,18 @@ struct SendTracker<Draft: SendDraft, Next: Equatable & Sendable> {
     /// the dashboard still shows that question with no next one to answer.
     func isAwaiting(agentID: String, showing current: Identity?, now: Date) -> Bool {
         if flights[agentID] != nil { return true }
-        guard let settledAnswer = settled[agentID], settledAnswer.identity == current, settledAnswer.next == nil else { return false }
+        guard let current, let settledAnswer = settled[agentID], settledAnswer.covers(current), settledAnswer.next == nil else { return false }
         return now.timeIntervalSince(settledAnswer.at) < Self.expirySeconds
     }
 
     /// True while the dashboard's `current` question is one already answered.
     func hasAnswered(agentID: String, _ current: Identity) -> Bool {
-        settled[agentID]?.identity == current
+        settled[agentID]?.covers(current) == true
     }
 
     /// The question to answer now when the dashboard still shows the answered `current` one.
     func nextQuestion(agentID: String, after current: Identity) -> Next? {
-        guard let settledAnswer = settled[agentID], settledAnswer.identity == current else { return nil }
+        guard let settledAnswer = settled[agentID], settledAnswer.covers(current) else { return nil }
         return settledAnswer.next
     }
 
@@ -117,7 +124,7 @@ struct SendTracker<Draft: SendDraft, Next: Equatable & Sendable> {
     /// An answered question stops being remembered once the dashboard shows another one (or none).
     /// Flights are not dropped with their row: a reply still has to be told, and every flight expires.
     mutating func settle(currentQuestions: [String: Identity]) {
-        settled = settled.filter { agentID, answered in currentQuestions[agentID] == answered.identity }
+        settled = settled.filter { agentID, answered in currentQuestions[agentID].map(answered.covers) == true }
     }
 
     mutating func reset() {

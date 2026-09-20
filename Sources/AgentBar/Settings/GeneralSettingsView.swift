@@ -5,6 +5,7 @@ import SwiftUI
 struct GeneralSettingsView: View {
     @ObservedObject var settings: AgentBarSettings
     @StateObject private var launchAtLogin = LaunchAtLoginService()
+    private let previewPlayer: SoundPlayer = SystemSoundPlayer()
 
     var body: some View {
         Form {
@@ -33,11 +34,22 @@ struct GeneralSettingsView: View {
             }
 
             Section("Alerts") {
-                Toggle("Peek at the corner when an agent needs you", isOn: Binding(
+                Toggle("Corner tab (bottom-right)", isOn: Binding(
                     get: { settings.showsCornerTab },
                     set: { settings.setShowsCornerTab($0) }
                 ))
-                Text("A small tab slides in at the bottom-right for a few seconds. Hover it to open AgentBar.")
+                Text("A small tab slides in at the bottom-right for a few seconds when an agent needs you, and whenever you rest the pointer in the bottom-right corner of the screen. While an agent is waiting for your answer or approval it stays until you deal with it. Click it to open AgentBar.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Play sounds", isOn: Binding(
+                    get: { settings.sounds.playsSounds },
+                    set: { isOn in settings.updateSounds { $0.playsSounds = isOn } }
+                ))
+                soundPicker("Needs you", cue: .needsAnswer)
+                soundPicker("Agent done", cue: .agentDone)
+                Text("Needs you plays when an agent is waiting for your answer or permission. Agent done plays when an agent has simply finished. Picking a sound previews it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -45,5 +57,23 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear { launchAtLogin.refreshStatus() }
+    }
+
+    private func soundPicker(_ title: String, cue: SoundCue) -> some View {
+        Picker(title, selection: Binding(
+            get: { settings.sounds.choice(for: cue) },
+            set: { choice in
+                settings.updateSounds { sounds in
+                    switch cue {
+                    case .needsAnswer: sounds.needsAnswer = choice
+                    case .agentDone: sounds.agentDone = choice
+                    }
+                }
+                previewPlayer.play(choice)
+            }
+        )) {
+            ForEach(SoundChoice.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        }
+        .disabled(!settings.sounds.playsSounds)
     }
 }

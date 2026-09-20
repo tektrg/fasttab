@@ -4,7 +4,8 @@ import Foundation
 /// (`sessionAction`); Park and Unpark are local (`TriageState`); Answer opens
 /// the answer card of a blocked question, Review opens the card of a permission box
 /// (approve or deny), and Open terminal switches to the
-/// agent (the way out for a blocker the panel cannot answer).
+/// agent (the way out for a blocker the panel cannot answer). Message opens the card
+/// that types a line into a Claude agent that is not asking anything.
 enum RowButton: Equatable, Sendable {
     case answer
     case review
@@ -13,6 +14,7 @@ enum RowButton: Equatable, Sendable {
     case park
     case unpark
     case closePane
+    case message
 
     var title: String {
         switch self {
@@ -23,6 +25,7 @@ enum RowButton: Equatable, Sendable {
         case .park: "Park"
         case .unpark: "Unpark"
         case .closePane: "Close pane"
+        case .message: "Message"
         }
     }
 
@@ -36,7 +39,7 @@ enum RowButton: Equatable, Sendable {
         switch self {
         case .done: .stop
         case .closePane: .close
-        case .answer, .review, .openTerminal, .park, .unpark: nil
+        case .answer, .review, .openTerminal, .park, .unpark, .message: nil
         }
     }
 }
@@ -66,12 +69,23 @@ enum RowButtons {
         case .needsYou:
             needsYouButtons(for: agent)
         case .parked:
-            [RowButtonSpec(button: .unpark, disabledReason: nil), spec(.done, for: agent)]
+            [RowButtonSpec(button: .unpark, disabledReason: nil), spec(.done, for: agent)] + messageButton(for: agent)
         case .ended where agent.actions.close.isEnabled:
             [spec(.closePane, for: agent)]
-        case .working, .ended:
+        case .working:
+            messageButton(for: agent)
+        case .ended:
             []
         }
+    }
+
+    /// Message, last so the existing keyboard order (→ lands on Done) is unchanged. Only a live
+    /// Claude agent (the dashboard's permission/question guard is blind to other CLIs, so a
+    /// message could answer a box it cannot see) that the dashboard can address by row, and that
+    /// is not asking anything (a parked row that is still blocked stays "just parked").
+    private static func messageButton(for agent: AgentSnapshot) -> [RowButtonSpec] {
+        guard agent.blocker == nil, agent.rowId != nil, agent.canFocus, agent.hasHookData, agent.paneId?.isEmpty == false else { return [] }
+        return [RowButtonSpec(button: .message, disabledReason: nil)]
     }
 
     /// A blocked agent is cleared by answering it (or in its terminal), so it
@@ -83,7 +97,7 @@ enum RowButtons {
         case .questionLoading?: return [RowButtonSpec(button: .answer, disabledReason: readingOptionsReason), park]
         case .permissionReview?: return [RowButtonSpec(button: .review, disabledReason: nil), park]
         case .questionNotAnswerable?, .permission?: return [RowButtonSpec(button: .openTerminal, disabledReason: nil), park]
-        case nil: return [spec(.done, for: agent), park]
+        case nil: return [spec(.done, for: agent), park] + messageButton(for: agent)
         }
     }
 

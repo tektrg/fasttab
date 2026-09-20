@@ -771,8 +771,61 @@ func quickOpenVisibleTabs(from results: [BrowserSearchResult], limit: Int) -> [B
     Array(results.prefix(max(0, limit)))
 }
 
+/// Sorts tabs strictly by raw recency for Quick Open / Recents view (⌘1 / empty query).
+/// Empty query (quick-open) must rank by raw recency so the tab you *just* used
+/// is always at the top — a hard UX guarantee that frecency or tab pinning
+/// must not violate.
+func sortQuickOpenTabs(_ tabs: [BrowserSearchResult]) -> [BrowserSearchResult] {
+    if tabs.count <= 1 { return tabs }
+    return tabs.sorted { lhs, rhs in
+        if lhs.isGhost != rhs.isGhost {
+            return !lhs.isGhost
+        }
+        if lhs.isPinnedAudibleTab != rhs.isPinnedAudibleTab {
+            return lhs.isPinnedAudibleTab
+        }
+        if lhs.timestamp != rhs.timestamp {
+            return lhs.timestamp > rhs.timestamp
+        }
+        if lhs.browserName != rhs.browserName {
+            return lhs.browserName.localizedCompare(rhs.browserName) == .orderedAscending
+        }
+        return lhs.title.localizedCompare(rhs.title) == .orderedAscending
+    }
+}
+
+/// Combines sent inbox links and live tabs for Quick Open / Recents display.
+/// Sent inbox items appear first (tier -1), followed by live tabs sorted by raw recency.
+func sortQuickOpenResults(_ items: [BrowserSearchResult]) -> [BrowserSearchResult] {
+    if items.count <= 1 { return items }
+    var sent: [BrowserSearchResult] = []
+    var tabs: [BrowserSearchResult] = []
+    var bookmarks: [BrowserSearchResult] = []
+    var history: [BrowserSearchResult] = []
+    for item in items {
+        switch item.type {
+        case .sent: sent.append(item)
+        case .tab: tabs.append(item)
+        case .bookmark: bookmarks.append(item)
+        case .history: history.append(item)
+        }
+    }
+    let sortedSent = sent.sorted { $0.timestamp > $1.timestamp }
+    let sortedTabs = sortQuickOpenTabs(tabs)
+    let sortedBookmarks = bookmarks.sorted { $0.timestamp > $1.timestamp }
+    let sortedHistory = history.sorted { $0.timestamp > $1.timestamp }
+
+    var out: [BrowserSearchResult] = []
+    out.reserveCapacity(sortedSent.count + sortedTabs.count + sortedBookmarks.count + sortedHistory.count)
+    out.append(contentsOf: sortedSent)
+    out.append(contentsOf: sortedTabs)
+    out.append(contentsOf: sortedBookmarks)
+    out.append(contentsOf: sortedHistory)
+    return out
+}
+
 func allQuickOpenTabs(from results: [BrowserSearchResult]) -> [BrowserSearchResult] {
-    sortBrowserSearchResults(results)
+    sortQuickOpenTabs(results)
 }
 
 struct QuickOpenDisplayState: Equatable {

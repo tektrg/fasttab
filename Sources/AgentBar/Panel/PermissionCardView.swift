@@ -8,9 +8,17 @@ import SwiftUI
 struct PermissionCardView: View {
     @ObservedObject var permission: PermissionCardModel
     let bodyHeight: CGFloat
+    /// The agent whose details were just copied (for the "Copied" feedback), and the copy action.
+    var copiedAgentID: String?
+    var onCopy: () -> Void = {}
 
     var body: some View {
-        if let card = permission.card {
+        if let card = permission.card, let plan = card.plan {
+            PlanCardView(
+                permission: permission, card: card, plan: plan, bodyHeight: bodyHeight,
+                copiedAgentID: copiedAgentID, onCopy: onCopy
+            )
+        } else if let card = permission.card {
             VStack(alignment: .leading, spacing: 0) {
                 header(card)
                 scrollingBody(card)
@@ -34,6 +42,7 @@ struct PermissionCardView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            CopyIdentityButton(isCopied: copiedAgentID == card.agentID, showsLabel: true, onCopy: onCopy)
         }
         .padding(.horizontal, 18)
         .frame(height: AgentPanelMetrics.answerHeaderHeight)
@@ -109,7 +118,7 @@ struct PermissionCardView: View {
     private func noteLine(_ note: String) -> some View {
         Text(note)
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.orange)
+            .foregroundStyle(WarningTextColor.color)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 18)
             .padding(.bottom, 6)

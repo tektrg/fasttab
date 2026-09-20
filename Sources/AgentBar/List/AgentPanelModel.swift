@@ -40,6 +40,8 @@ final class AgentPanelModel: ObservableObject {
         didSet {
             answer.statusSource = statusSource
             permission.statusSource = statusSource
+            message.statusSource = statusSource
+            blockerProbe.statusSource = statusSource
         }
     }
 
@@ -51,8 +53,14 @@ final class AgentPanelModel: ObservableObject {
     /// Same republishing as `answer`.
     let permission: PermissionCardModel
 
-    /// A card (answer or permission) is showing in place of the list.
-    var isCardOpen: Bool { answer.isOpen || permission.isOpen }
+    /// Typing a line to a working / idle agent (replaces the list while open). Same republishing as `answer`.
+    let message: MessageCardModel
+
+    /// Copy of an agent's identifying text to the pasteboard, and the "Copied" feedback.
+    let copier: IdentityCopier
+
+    /// A card (answer, permission or message) is showing in place of the list.
+    var isCardOpen: Bool { answer.isOpen || permission.isOpen || message.isOpen }
 
     /// A failed switch or row action (stays until the user dismisses or replaces it), else a shortcut problem.
     @Published private(set) var footerNotice: PanelFooterNotice?
@@ -72,6 +80,12 @@ final class AgentPanelModel: ObservableObject {
     /// the host shows the corner tab.
     var onNeedsYouArrival: (CornerTabContent) -> Void = { _ in }
 
+    /// Called on every reading of Needs you, after `onNeedsYouArrival`, with the newcomers (empty
+    /// most times) and everyone in it now (nil when the feed is down). Blockers are as the panel
+    /// shows them, so a question learned late arrives here as a later reading. The host plays the
+    /// alert sounds and keeps the corner tab sticky from it.
+    var onNeedsYouReading: (_ arrivals: [AgentSnapshot], _ needsYou: [AgentSnapshot]?) -> Void = { _, _ in }
+
     private let store: FrecencyStore
     private let triageStore: TriageStore
     private let now: () -> Date
@@ -83,8 +97,13 @@ final class AgentPanelModel: ObservableObject {
     private let peekLoader = LatestResultLoader<PaneScreenResult>()
     private var arrivalDetector = NeedsYouArrivalDetector()
     private var blockerMemory = BlockerMemory()
+    private let blockerProbe: BlockerProbe
+    /// The latest reading as the dashboard sent it, to derive the shown rows again when the probe learns something.
+    private var lastReceived: StatusSnapshot?
     private var answerObservation: AnyCancellable?
     private var permissionObservation: AnyCancellable?
+    private var messageObservation: AnyCancellable?
+    private var copierObservation: AnyCancellable?
 
     init(
         store: FrecencyStore = FrecencyStore(),
@@ -94,10 +113,16 @@ final class AgentPanelModel: ObservableObject {
         completedHoldSeconds: TimeInterval = 8,
         answer: AnswerCardModel = AnswerCardModel(),
         permission: PermissionCardModel = PermissionCardModel(),
+        message: MessageCardModel = MessageCardModel(),
+        copier: IdentityCopier = IdentityCopier(),
+        blockerProbe: BlockerProbe = BlockerProbe(),
         now: @escaping () -> Date = { Date() }
     ) {
         self.answer = answer
         self.permission = permission
+        self.message = message
+        self.copier = copier
+        self.blockerProbe = blockerProbe
         self.store = store
         self.triageStore = triageStore
         self.triage = triageStore.load()
@@ -108,6 +133,9 @@ final class AgentPanelModel: ObservableObject {
         self.frecency = store.load(now: now())
         wireAnswerCard()
         wirePermissionCard()
+        wireMessageCard()
+        wireBlockerProbe()
+        copierObservation = copier.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     private func wireAnswerCard() {
@@ -115,14 +143,35 @@ final class AgentPanelModel: ObservableObject {
         answer.onNotice = { [weak self] sentence in self?.showAnswerNotice(sentence) }
         answer.onAnswered = { [weak self] agentID in self?.advanceSelection(pastAnswered: agentID) }
         answer.onReleaseKeyboard = { [weak self] in self?.focusRequest += 1 }
+        answer.consumeEscape = { [weak self] in self?.dismissFooterNotice() ?? false }
     }
 
     private func wirePermissionCard() {
         permissionObservation = permission.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         permission.onNotice = { [weak self] sentence in self?.showAnswerNotice(sentence) }
+        permission.onWarning = { [weak self] sentence in self?.showFailureNotice(.warning(sentence)) }
         permission.onDecided = { [weak self] agentID in self?.advanceSelection(pastAnswered: agentID) }
         permission.onEndpointMissing = { [weak self] in self?.reapplyBlockerRules() }
         permission.onOpenTerminal = { [weak self] agentID in self?.activate(agentID: agentID) }
+        permission.onReleaseKeyboard = { [weak self] in self?.focusRequest += 1 }
+    }
+
+    private func wireMessageCard() {
+        messageObservation = message.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        message.onNotice = { [weak self] sentence in self?.showAnswerNotice(sentence) }
+        message.onReleaseKeyboard = { [weak self] in self?.focusRequest += 1 }
+        message.consumeEscape = { [weak self] in self?.dismissFooterNotice() ?? false }
+    }
+
+    private func wireBlockerProbe() {
+        blockerProbe.currentAgent = { [weak self] id in self?.snapshot?.agents.first { $0.id == id } }
+        blockerProbe.onLearned = { [weak self] id, blocker in self?.learnBlocker(blocker, for: id) }
+    }
+
+    /// The probe read a question or box off the pane before the dashboard reported it: show its button now.
+    private func learnBlocker(_ blocker: AgentBlocker, for agentID: String) {
+        blockerMemory.learn(blocker, for: agentID, now: now())
+        if let lastReceived { receive(lastReceived) }
     }
 
     /// The blockers as the panel shows them: steadied against the dashboard's flapping, and
@@ -141,6 +190,7 @@ final class AgentPanelModel: ObservableObject {
     }
 
     func receive(_ received: StatusSnapshot) {
+        lastReceived = received
         let snapshot = received.replacingAgents(shownBlockers(received.agents))
         self.snapshot = snapshot
         // A dead feed shows no agents; that must not read as "they all went away".
@@ -151,6 +201,7 @@ final class AgentPanelModel: ObservableObject {
         settleRowActions()
         closePeekUnlessStillSelected()
         reconcileAnswerCard()
+        if !snapshot.health.isDown { blockerProbe.observe(snapshot.agents) }
     }
 
     /// New list settings: re-derive the list, keeping the selection while it survives.
@@ -170,7 +221,9 @@ final class AgentPanelModel: ObservableObject {
     func useDashboard(address: String) {
         dashboardAddress = address
         snapshot = nil
+        lastReceived = nil
         blockerMemory.reset()
+        blockerProbe.reset()
         rowActionStates = [:]
         rebuild()
         trackNeedsYou()
@@ -178,6 +231,7 @@ final class AgentPanelModel: ObservableObject {
         closePeek()
         answer.reset()
         permission.reset()
+        message.reset()
     }
 
     /// Fresh start for each summon: empty search, first row selected.
@@ -185,6 +239,8 @@ final class AgentPanelModel: ObservableObject {
         closePeek()
         answer.close()
         permission.close()
+        message.close()
+        copier.clearFeedback()
         cancelConfirmations()
         query = ""
         rebuild()
@@ -196,6 +252,7 @@ final class AgentPanelModel: ObservableObject {
         closePeek()
         answer.close()
         permission.close()
+        message.close()
         selectedAgentID = AgentSelection.moved(from: selectedAgentID, by: step, in: presentation.selectableAgentIDs)
     }
 
@@ -213,6 +270,8 @@ final class AgentPanelModel: ObservableObject {
             answer.handle(step < 0 ? .up : .down)
         } else if permission.isOpen {
             permission.handle(step < 0 ? .up : .down)
+        } else if message.isOpen {
+            return   // the text field owns the arrows; from the search box they do nothing
         } else {
             moveSelection(by: step)
         }
@@ -232,6 +291,7 @@ final class AgentPanelModel: ObservableObject {
             permission.handle(.other)
             return true
         }
+        if message.isOpen { return true }
         guard query.isEmpty else { return false }
         if peek != nil {
             closePeek()
@@ -272,13 +332,20 @@ final class AgentPanelModel: ObservableObject {
     }
 
     /// Enter: presses the highlighted button, or with none highlighted switches to the agent.
-    func activateSelected() {
+    /// A held key (`isKeyRepeat`) does nothing: the press that armed a two-press action (Done, auto mode,
+    /// Allow always) must not be confirmed by the same finger still being down.
+    func activateSelected(isKeyRepeat: Bool = false) {
+        guard !isKeyRepeat else { return }
         if answer.isOpen {
             answer.handle(.enter)
             return
         }
         if permission.isOpen {
             permission.handle(.enter)
+            return
+        }
+        if message.isOpen {
+            message.pressSend()
             return
         }
         guard let selectedAgentID else { return }
@@ -314,7 +381,7 @@ final class AgentPanelModel: ObservableObject {
             permission.handle(.other)   // a stray key never carries a pending "Allow always" over
             return true
         }
-        guard !answer.isOpen else { return true }
+        guard !answer.isOpen, !message.isOpen else { return true }
         guard peek == nil, let agent = selectedAgent else { return true }
         let previous = highlightedButton
         highlightedButton = RowButtonHighlight.moved(from: previous, by: step, in: usableButtons(for: agent))
@@ -332,6 +399,10 @@ final class AgentPanelModel: ObservableObject {
         }
         if permission.isOpen {
             permission.handle(.escape)   // cancels a pending "Allow always", else back to the list
+            return true
+        }
+        if message.isOpen {
+            message.handleEscape()   // back to the list; ignored while the message is being sent
             return true
         }
         guard let selectedAgentID else { return false }
@@ -362,13 +433,22 @@ final class AgentPanelModel: ObservableObject {
             selectedAgentID = agentID
             closePeek()
             permission.close()
+            message.close()
             answer.open(agent)
             return nil
         case .openReview:
             selectedAgentID = agentID
             closePeek()
             answer.close()
+            message.close()
             permission.open(agent)
+            return nil
+        case .openMessage:
+            selectedAgentID = agentID
+            closePeek()
+            answer.close()
+            permission.close()
+            message.open(agent)
             return nil
         case .openTerminal:
             onActivate(agent)
@@ -431,6 +511,7 @@ final class AgentPanelModel: ObservableObject {
         let shown = snapshot.map { AgentListBuilder.shownAgents(in: $0, settings: listSettings, triage: triage) } ?? []
         answer.reconcile(with: shown)
         permission.reconcile(with: shown)
+        message.reconcile(with: shown)
     }
 
     /// A "completed" row waits for the next status update to show the result;
@@ -491,13 +572,40 @@ final class AgentPanelModel: ObservableObject {
 
     /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer or decision is on its way.
     private func usableButtons(for agent: AgentSnapshot) -> [RowButton] {
-        sendingLabel(for: agent) != nil ? [] : RowButtons.usableButtons(for: agent)
+        sendingLabel(for: agent) != nil || sentLabel(for: agent) != nil ? [] : RowButtons.usableButtons(for: agent)
     }
 
     /// What the row says in place of its buttons while an answer or decision is on its way; nil when none is.
     func sendingLabel(for agent: AgentSnapshot) -> String? {
         if answer.isAwaiting(agent) { return "Sending answer…" }
-        return permission.sendingLabel(for: agent)
+        return permission.sendingLabel(for: agent) ?? message.sendingLabel(for: agent)
+    }
+
+    /// What the row says for a few seconds after a message to it went ("Message sent" / "Message queued").
+    func sentLabel(for agent: AgentSnapshot) -> String? {
+        message.sentLabel(for: agent)
+    }
+
+    // MARK: - Copy
+
+    /// The row's copy icon.
+    func copyIdentity(of agent: AgentSnapshot) {
+        copier.copy(agent.identityText, for: agent.id)
+    }
+
+    /// The card's copy button or ⌘C. False when no card is open (the key is then left alone).
+    @discardableResult
+    func copyOpenCardIdentity() -> Bool {
+        if let card = answer.card {
+            copier.copy(card.identityText, for: card.agentID)
+        } else if let card = permission.card {
+            copier.copy(card.identityText, for: card.agentID)
+        } else if let card = message.card {
+            copier.copy(card.identityText, for: card.agentID)
+        } else {
+            return false
+        }
+        return true
     }
 
     /// A digit typed while a card is open: picks that option on it (the search box types nothing).
@@ -542,13 +650,19 @@ final class AgentPanelModel: ObservableObject {
         footerNotice = PanelFooterNotice.resolve(failure: failureNotice, hotkeyIssue: hotkeyIssue)
     }
 
+    /// What the corner tab says when the pointer rests in the corner.
+    func needsYouSummary() -> CornerTabContent {
+        CornerTabContent.summary(of: AgentListBuilder.needsYouAgents(snapshot: snapshot, settings: listSettings, triage: triage))
+    }
+
     /// Compares Needs you with the previous reading and reports newcomers.
     private func trackNeedsYou(reportingArrivals: Bool = true) {
         let needsYou = AgentListBuilder.needsYouAgents(snapshot: snapshot, settings: listSettings, triage: triage)
         let arrivals = arrivalDetector.observe(needsYou)
-        guard reportingArrivals, let needsYou,
-              let content = CornerTabContent.forArrivals(arrivals, among: needsYou) else { return }
-        onNeedsYouArrival(content)
+        if reportingArrivals, let needsYou, let content = CornerTabContent.forArrivals(arrivals, among: needsYou) {
+            onNeedsYouArrival(content)
+        }
+        onNeedsYouReading(reportingArrivals ? arrivals : [], needsYou)
     }
 
     private func rebuild() {

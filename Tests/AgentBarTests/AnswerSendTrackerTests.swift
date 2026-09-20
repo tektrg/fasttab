@@ -53,6 +53,25 @@ struct AnswerSendTrackerTests {
         #expect(!tracker.hasAnswered(agentID: "a", identity))
     }
 
+    @Test func aWholeFormSendKeepsTheRowWaitingWhicheverOfItsQuestionsTheDashboardStillShows() throws {
+        var tracker = AnswerSendTracker()
+        let token = try begin(&tracker, "a")
+        let second = A.question(title: "Colour", question: "Which colour?").identity
+        let third = A.question(title: "Size", question: "Which size?").identity
+        let accepted = tracker.succeeded(agentID: "a", token: token, identity: third, alsoAnswered: [identity, second, third], next: nil, at: now)
+        #expect(accepted)
+        for shown in [identity, second, third] {
+            #expect(tracker.isAwaiting(agentID: "a", showing: shown, now: now))
+            #expect(tracker.hasAnswered(agentID: "a", shown))
+        }
+        let unrelated = A.question(title: "Other", question: "Something new?").identity
+        #expect(!tracker.isAwaiting(agentID: "a", showing: unrelated, now: now))
+        tracker.settle(currentQuestions: ["a": second])
+        #expect(tracker.hasAnswered(agentID: "a", second))      // still one of the answered ones
+        tracker.settle(currentQuestions: ["a": unrelated])
+        #expect(!tracker.hasAnswered(agentID: "a", second))     // the dashboard moved on: forgotten
+    }
+
     @Test func aNextQuestionMeansNoSpinnerAndItIsWhatOpens() throws {
         var tracker = AnswerSendTracker()
         let token = try begin(&tracker, "a")

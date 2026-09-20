@@ -33,7 +33,7 @@ struct PanelFooterView: View {
         if let stripNotice {
             Text(stripNotice.text)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(stripNotice.tint)
+                .foregroundStyle(stripNotice.textColor)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(stripNotice.text)
@@ -54,7 +54,15 @@ extension PanelFooterNotice {
     var tint: Color {
         switch self {
         case .switchFailed, .actionFailed: .red
-        case .hotkeyUnavailable: .orange
+        case .hotkeyUnavailable, .warning: .orange
+        }
+    }
+
+    /// The notice's words: the tint is a fill, and plain orange is too faint as small text.
+    var textColor: Color {
+        switch self {
+        case .switchFailed, .actionFailed: .red
+        case .hotkeyUnavailable, .warning: WarningTextColor.color
         }
     }
 }

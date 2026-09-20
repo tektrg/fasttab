@@ -15,9 +15,14 @@ struct AnswerCard: Equatable, Sendable {
     let paneId: String
     let label: String
     let projectName: String?
+    /// What Copy puts on the pasteboard (see `AgentIdentityText`).
+    let identityText: String
     /// Nil for agents without a Claude session (opencode): nothing to read a message from.
     let sessionId: String?
     var state: AnswerCardState
+    /// Set when the question is one tab of a multi-question form: the card then shows every
+    /// question at once (`state` keeps the question the terminal was on when it opened).
+    var form: AnswerFormState?
     /// Nil while the transcript is still being read.
     var sessionContext: SessionContext?
 
@@ -26,10 +31,17 @@ struct AnswerCard: Equatable, Sendable {
         self.paneId = paneId
         self.label = agent.label
         self.projectName = agent.projectName
+        self.identityText = agent.identityText
         self.sessionId = agent.sessionId
         self.state = AnswerCardState(question: question)
         // No session to read: nothing is loading.
         self.sessionContext = agent.sessionId == nil ? .empty : nil
+    }
+
+    /// What the footer hints should say.
+    var hintMode: AnswerCardState.HintMode {
+        guard let form else { return state.hintMode }
+        return form.isEditable ? .form : .formBusy
     }
 
     /// The agent's latest message from its transcript, else the dashboard's

@@ -9,6 +9,8 @@ struct AnswerOptionRowView: View {
     let isHighlighted: Bool
     let isChecked: Bool
     let isTypingHere: Bool
+    /// A tick box or radio dot drawn for every row (the multi-question form); nil keeps the single card's look.
+    var choiceMarker: ChoiceMarker?
     /// What sending will change about the typed text (line breaks), when it will.
     var typedTextNote: String?
     @Binding var otherText: String
@@ -18,16 +20,21 @@ struct AnswerOptionRowView: View {
     var onLeaveTextUp: () -> Void = {}
     var onLeaveTextDown: () -> Void = {}
 
+    enum ChoiceMarker { case checkbox, radio }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Text("\(option.index)")
-                .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 18, height: 18)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.10)))
-            if isMultiSelect && !option.isOther {
-                Image(systemName: isChecked ? "checkmark.square.fill" : "square")
-                    .foregroundStyle(isChecked ? Color.accentColor : .secondary)
+            if choiceMarker == nil {   // the form is answered by clicking: no number keys to advertise
+                Text("\(option.index)")
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.10)))
+            }
+            if let choiceMarker {
+                marker(choiceMarker)
+            } else if isMultiSelect && !option.isOther {
+                marker(.checkbox)
             }
             VStack(alignment: .leading, spacing: 2) {
                 if isTypingHere {
@@ -60,6 +67,14 @@ struct AnswerOptionRowView: View {
         .padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 8).fill(isHighlighted ? Color.accentColor.opacity(0.22) : .clear))
         .contentShape(Rectangle())
+    }
+
+    private func marker(_ kind: ChoiceMarker) -> some View {
+        let symbol = switch kind {
+        case .checkbox: isChecked ? "checkmark.square.fill" : "square"
+        case .radio: isChecked ? "largecircle.fill.circle" : "circle"
+        }
+        return Image(systemName: symbol).foregroundStyle(isChecked ? Color.accentColor : .secondary)
     }
 
     /// Return sends; Shift+Return adds a line.

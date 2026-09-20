@@ -9,8 +9,13 @@ struct AgentRowView: View {
     var actionState: RowActionState?
     /// The agent's answer or decision is on its way: a spinner with these words replaces the buttons.
     var sendingLabel: String?
+    /// A message to this agent just went: this ("Message sent" / "Message queued") replaces the buttons for a few seconds.
+    var sentLabel: String?
     var highlightedButton: RowButton?
+    /// This row's details were just copied (its copy icon shows a check).
+    var isCopied = false
     var onPress: (RowButton) -> Void = { _ in }
+    var onCopy: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 10) {
@@ -44,10 +49,16 @@ struct AgentRowView: View {
             Spacer(minLength: 8)
             if let sendingLabel {
                 sendingIndicator(sendingLabel)
+            } else if let sentLabel {
+                sentIndicator(sentLabel)
             } else if showsButtons {
                 buttonStrip
             } else {
                 AgentAgeView(agent: agent, fetchedAt: fetchedAt)
+            }
+            // Only on the hovered / selected row, after the buttons, so it never crowds the red one.
+            if isSelected, sendingLabel == nil, sentLabel == nil {
+                CopyIdentityButton(isCopied: isCopied, onCopy: onCopy)
             }
         }
     }
@@ -55,6 +66,19 @@ struct AgentRowView: View {
     private func sendingIndicator(_ label: String) -> some View {
         HStack(spacing: 6) {
             ProgressView().controlSize(.small)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize()
+        .accessibilityLabel(label)
+    }
+
+    private func sentIndicator(_ label: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color.green)
             Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)

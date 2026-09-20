@@ -193,7 +193,7 @@ final class PermissionCardModel: ObservableObject {
             onEndpointMissing()
         case .sent(let next, let warning):
             // The key went out: a dashboard warning is told even when the send record is stale.
-            if let warning { reportWarning("Sent, but the dashboard warned: \(Self.withoutTrailingPeriod(warning)). Check the terminal.", agentID: agentID) }
+            if let warning { reportWarning("Sent, but the dashboard warned: \(warning.withoutTrailingPeriod). Check the terminal.", agentID: agentID) }
             guard tracker.succeeded(agentID: agentID, token: token, identity: prompt.identity, next: next, at: now()) else { return }
             scheduleRefresh(after: PermissionSendTracker.expirySeconds)
             if next == nil { onDecided(agentID) }
@@ -207,11 +207,7 @@ final class PermissionCardModel: ObservableObject {
         if card?.agentID == agentID { card?.sentWarning = sentence }
     }
 
-    nonisolated static func withoutTrailingPeriod(_ text: String) -> String {
-        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        while trimmed.hasSuffix(".") { trimmed.removeLast() }
-        return trimmed
-    }
+
 
     /// A send with no reply in time frees its row and says so; the decision may still have gone through.
     func scheduleExpiry(agentID: String, token: Int) {
@@ -283,5 +279,16 @@ final class PermissionCardModel: ObservableObject {
             guard self?.card?.agentID == agentID else { return }
             self?.card?.sessionContext = context
         }
+    }
+}
+
+extension String {
+    /// Trimmed, without trailing periods, so a dashboard warning reads inside a sentence.
+    /// A `String` extension (not a static on the main-actor model): Swift 6.2's compiler rejects
+    /// calling a `nonisolated static` of a `@MainActor` type from a nonisolated enum.
+    var withoutTrailingPeriod: String {
+        var trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix(".") { trimmed.removeLast() }
+        return trimmed
     }
 }

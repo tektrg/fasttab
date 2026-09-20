@@ -123,7 +123,7 @@ enum PlanSend {
     static let feedbackTag = "plan-feedback"
     /// The dashboard's own warning (the pane shows auto mode after a choice that was not auto mode), in a sentence.
     static func autoModeWarningSentence(_ warning: String) -> String {
-        "Sent, but the agent now shows auto mode: \(PermissionCardModel.withoutTrailingPeriod(warning)). Check the terminal."
+        "Sent, but the agent now shows auto mode: \(warning.withoutTrailingPeriod). Check the terminal."
     }
     static let promptChangedMessage = "Nothing was sent: the plan prompt in the terminal changed since this card was opened. Open it again."
 

@@ -54,7 +54,7 @@ final class AgentPanelModel: ObservableObject {
     /// A card (answer or permission) is showing in place of the list.
     var isCardOpen: Bool { answer.isOpen || permission.isOpen }
 
-    /// Strip at the bottom of the panel: a failed switch or row action, else a shortcut problem.
+    /// A failed switch or row action (stays until the user dismisses or replaces it), else a shortcut problem.
     @Published private(set) var footerNotice: PanelFooterNotice?
 
     /// What the user chose to show (Settings > List); changes apply at once.
@@ -75,17 +75,14 @@ final class AgentPanelModel: ObservableObject {
     private let store: FrecencyStore
     private let triageStore: TriageStore
     private let now: () -> Date
-    private let switchErrorSeconds: TimeInterval
     private let completedHoldSeconds: TimeInterval
     private var frecency: [String: FrecencyEntry]
     private var triage: TriageState
-    private var transientNotice: PanelFooterNotice?
+    private var failureNotice: PanelFooterNotice?
     private var hotkeyIssue: String?
-    private var switchErrorClearTask: Task<Void, Never>?
     private let peekLoader = LatestResultLoader<PaneScreenResult>()
     private var arrivalDetector = NeedsYouArrivalDetector()
     private var blockerMemory = BlockerMemory()
-    private var lastAnswerNotice: (sentence: String, at: Date)?
     private var answerObservation: AnyCancellable?
     private var permissionObservation: AnyCancellable?
 
@@ -94,7 +91,6 @@ final class AgentPanelModel: ObservableObject {
         triageStore: TriageStore = TriageStore(),
         listSettings: AgentListSettings = .standard,
         dashboardAddress: String = DashboardEndpoint(baseURL: DashboardEndpoint.defaultBaseURL).displayAddress,
-        switchErrorSeconds: TimeInterval = 6,
         completedHoldSeconds: TimeInterval = 8,
         answer: AnswerCardModel = AnswerCardModel(),
         permission: PermissionCardModel = PermissionCardModel(),
@@ -108,7 +104,6 @@ final class AgentPanelModel: ObservableObject {
         self.completedHoldSeconds = completedHoldSeconds
         self.listSettings = listSettings
         self.dashboardAddress = dashboardAddress
-        self.switchErrorSeconds = switchErrorSeconds
         self.now = now
         self.frecency = store.load(now: now())
         wireAnswerCard()
@@ -176,7 +171,6 @@ final class AgentPanelModel: ObservableObject {
         dashboardAddress = address
         snapshot = nil
         blockerMemory.reset()
-        lastAnswerNotice = nil
         rowActionStates = [:]
         rebuild()
         trackNeedsYou()
@@ -188,8 +182,6 @@ final class AgentPanelModel: ObservableObject {
 
     /// Fresh start for each summon: empty search, first row selected.
     func resetForShow() {
-        clearTransientNotice()
-        repostRecentAnswerNotice()
         closePeek()
         answer.close()
         permission.close()
@@ -401,7 +393,7 @@ final class AgentPanelModel: ObservableObject {
 
     private func send(_ kind: SessionActionKind, confirmed: Bool, button: RowButton, agent: AgentSnapshot) -> Task<Void, Never>? {
         guard let statusSource, let rowId = agent.rowId else {
-            showTransientNotice(.actionFailed(RowActionText.failureNotice(kind: kind, message: PanePeek.noSourceMessage)))
+            showFailureNotice(.actionFailed(RowActionText.failureNotice(kind: kind, message: PanePeek.noSourceMessage)))
             return nil
         }
         rowActionStates[agent.id] = .busy(button)
@@ -415,7 +407,7 @@ final class AgentPanelModel: ObservableObject {
         let result = RowActionMachine.state(after: outcome, pressing: button)
         rowActionStates[agentID] = result.state
         if let failure = result.failure {
-            showTransientNotice(.actionFailed(RowActionText.failureNotice(kind: kind, message: failure)))
+            showFailureNotice(.actionFailed(RowActionText.failureNotice(kind: kind, message: failure)))
         }
         if case .completed = result.state {
             expireCompletedState(of: agentID, after: completedHoldSeconds)
@@ -491,10 +483,10 @@ final class AgentPanelModel: ObservableObject {
         rebuild()
     }
 
-    /// A switch failed: show why, in the panel, for a few seconds. Not counted
+    /// A switch failed: show why, in the panel, until the user closes it. Not counted
     /// toward ranking (a dead pane must not float to the top).
     func reportSwitchFailure(_ message: String) {
-        showTransientNotice(.switchFailed(message))
+        showFailureNotice(.switchFailed(message))
     }
 
     /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer or decision is on its way.
@@ -519,34 +511,15 @@ final class AgentPanelModel: ObservableObject {
         if permission.isOpen { permission.handle(.other) }
     }
 
-    /// How long an answer's outcome stays in the footer: long enough to read a refusal in full.
-    static let answerNoticeSeconds: TimeInterval = 8
-    /// A refusal that arrived while the panel was away is shown once on the next summon within this time.
-    static let answerNoticeRecallSeconds: TimeInterval = 60
-
     private func showAnswerNotice(_ sentence: String) {
-        lastAnswerNotice = (sentence, now())
-        showTransientNotice(.actionFailed(sentence), seconds: Self.answerNoticeSeconds)
+        showFailureNotice(.actionFailed(sentence))
     }
 
-    private func repostRecentAnswerNotice() {
-        guard let notice = lastAnswerNotice else { return }
-        lastAnswerNotice = nil
-        guard now().timeIntervalSince(notice.at) < Self.answerNoticeRecallSeconds else { return }
-        showTransientNotice(.actionFailed(notice.sentence), seconds: Self.answerNoticeSeconds)
-    }
-
-    /// A row button failed: show why for a few seconds, like a failed switch.
-    private func showTransientNotice(_ notice: PanelFooterNotice, seconds: TimeInterval? = nil) {
-        transientNotice = notice
+    /// A failure to show in the panel: it stays, whether or not the panel is on screen, until
+    /// the user dismisses it or a newer failure replaces it.
+    private func showFailureNotice(_ notice: PanelFooterNotice) {
+        failureNotice = notice
         refreshFooterNotice()
-        switchErrorClearTask?.cancel()
-        let seconds = seconds ?? switchErrorSeconds
-        switchErrorClearTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled else { return }
-            self?.clearTransientNotice()
-        }
     }
 
     /// The global shortcut could not be registered; shown until the app quits.
@@ -555,16 +528,18 @@ final class AgentPanelModel: ObservableObject {
         refreshFooterNotice()
     }
 
-    private func clearTransientNotice() {
-        switchErrorClearTask?.cancel()
-        switchErrorClearTask = nil
-        guard transientNotice != nil else { return }
-        transientNotice = nil
+    /// The ✕ / Esc: closes the failure notice. False when there is none, so Esc goes on to
+    /// its other jobs (the shortcut warning is not closable; it goes when the shortcut works).
+    @discardableResult
+    func dismissFooterNotice() -> Bool {
+        guard failureNotice != nil else { return false }
+        failureNotice = nil
         refreshFooterNotice()
+        return true
     }
 
     private func refreshFooterNotice() {
-        footerNotice = PanelFooterNotice.resolve(transient: transientNotice, hotkeyIssue: hotkeyIssue)
+        footerNotice = PanelFooterNotice.resolve(failure: failureNotice, hotkeyIssue: hotkeyIssue)
     }
 
     /// Compares Needs you with the previous reading and reports newcomers.

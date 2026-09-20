@@ -32,20 +32,3 @@ struct QuestionDisplayTextTests {
         #expect(question.options[0].label.count > 250)   // labels are never shortened either
     }
 }
-
-struct AnswerCardLayoutTests {
-    @Test func shortMessagesNeedNoShowMore() {
-        #expect(!AnswerCardLayout.messageNeedsToggle("Two short lines.\nRight here."))
-    }
-
-    @Test func aLongMessageOrManyLinesOffersShowMore() {
-        #expect(AnswerCardLayout.messageNeedsToggle(String(repeating: "word ", count: 120)))
-        #expect(AnswerCardLayout.messageNeedsToggle("1\n2\n3\n4\n5\n6"))
-        #expect(!AnswerCardLayout.messageNeedsToggle("1\n2\n3\n4\n5"))
-    }
-
-    @Test func linesAreEstimatedPerParagraph() {
-        #expect(AnswerCardLayout.estimatedLineCount(of: "", charactersPerLine: 10) == 1)
-        #expect(AnswerCardLayout.estimatedLineCount(of: "12345678901\nabc", charactersPerLine: 10) == 3)
-    }
-}

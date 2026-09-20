@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Strip at the bottom of the panel, always present: key hints (or, in their
-/// place, a red failed-switch/action or orange shortcut-problem notice) and
-/// the settings button. Height is `AgentPanelMetrics.footerHeight`.
+/// place, the orange shortcut-problem notice) and the settings button. Failure
+/// notices are not drawn here but as `FooterNoticeView` above it. Height is `AgentPanelMetrics.footerHeight`.
 struct PanelFooterView: View {
     let notice: PanelFooterNotice?
     var hintContext = PanelFooterHints.Context()
@@ -25,18 +25,18 @@ struct PanelFooterView: View {
         .padding(.horizontal, 18)
         .frame(maxWidth: .infinity)
         .frame(height: AgentPanelMetrics.footerHeight)
-        .background(noticeColor?.opacity(0.12) ?? Color.clear)
+        .background(stripNotice?.tint.opacity(0.12) ?? Color.clear)
     }
 
     @ViewBuilder
     private var message: some View {
-        if let notice {
-            Text(notice.text)
+        if let stripNotice {
+            Text(stripNotice.text)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(noticeColor ?? .secondary)
+                .foregroundStyle(stripNotice.tint)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .help(notice.text)
+                .help(stripNotice.text)
         } else {
             Text(PanelFooterHints.text(for: hintContext))
                 .font(.system(size: 11))
@@ -44,11 +44,17 @@ struct PanelFooterView: View {
         }
     }
 
-    private var noticeColor: Color? {
-        switch notice {
+    /// Only the non-closable notice lives in the strip.
+    private var stripNotice: PanelFooterNotice? {
+        notice.flatMap { $0.isDismissible ? nil : $0 }
+    }
+}
+
+extension PanelFooterNotice {
+    var tint: Color {
+        switch self {
         case .switchFailed, .actionFailed: .red
         case .hotkeyUnavailable: .orange
-        case nil: nil
         }
     }
 }

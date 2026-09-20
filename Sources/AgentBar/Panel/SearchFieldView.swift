@@ -50,6 +50,7 @@ struct SearchFieldView: View {
             }
             .onKeyPress(phases: .down) { press in answerCardKeyPress(press) }
             .onExitCommand {
+                if model.dismissFooterNotice() { return }   // a failure notice goes first, then esc does its usual job
                 if model.backOutOfButtons() { return }
                 if model.peek != nil { model.closePeek() } else { onClose() }
             }

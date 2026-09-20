@@ -166,7 +166,7 @@ struct AnswerPanelModelTests {
         #expect(model.answer.card?.state.question == second)
     }
 
-    @Test func aRefusalShowsVerbatimInTheFooterForLongEnoughToRead() async {
+    @Test func aRefusalShowsVerbatimInTheFooterUntilDismissed() async {
         let (model, source, _) = makeRig([blockedQuestion])
         model.press(.answer, on: "q")
         model.answer.handle(.digit(1))
@@ -175,10 +175,11 @@ struct AnswerPanelModelTests {
         await waitUntil { model.footerNotice != nil }
         #expect(model.footerNotice == .actionFailed("Answer not sent: question changed or gone — re-check the pane"))
         #expect(!model.answer.isAwaiting(blockedQuestion))
-        #expect(AgentPanelModel.answerNoticeSeconds >= 8)
+        #expect(model.dismissFooterNotice())
+        #expect(model.footerNotice == nil)
     }
 
-    @Test func aRefusalThatArrivedWhileThePanelWasAwayIsShownOnceOnTheNextSummon() async {
+    @Test func aRefusalThatArrivedWhileThePanelWasAwayIsStillThereOnTheNextSummon() async {
         let (model, source, _) = makeRig([blockedQuestion])
         model.press(.answer, on: "q")
         model.answer.handle(.digit(1))
@@ -187,6 +188,7 @@ struct AnswerPanelModelTests {
         await waitUntil { model.footerNotice != nil }
         model.resetForShow()   // the panel was hidden and is summoned again
         #expect(model.footerNotice == .actionFailed("Answer not sent: pane gone"))
+        model.dismissFooterNotice()
         model.resetForShow()
         #expect(model.footerNotice == nil)
     }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Panel content: search field, then the list or a status message, then the
-/// optional stale-board note and the footer. Total height is dictated by
+/// optional stale-board note and the footer (a failure notice floats above it). Total height is dictated by
 /// `AgentPanelMetrics`.
 struct AgentPanelView: View {
     @ObservedObject var model: AgentPanelModel
@@ -23,7 +23,8 @@ struct AgentPanelView: View {
                     hasHighlightedButton: model.highlightedButton != nil,
                     searchIsEmpty: model.query.isEmpty,
                     answerMode: model.answer.card?.state.hintMode,
-                    permissionMode: model.permission.card?.state.hintMode
+                    permissionMode: model.permission.card?.state.hintMode,
+                    hasDismissibleNotice: model.footerNotice?.isDismissible == true
                 ),
                 onOpenSettings: onOpenSettings
             )
@@ -31,8 +32,18 @@ struct AgentPanelView: View {
         .frame(width: AgentPanelMetrics.width)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(.regularMaterial)
+        .overlay(alignment: .bottom) { failureNotice }
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(0.12)))
+    }
+
+    /// A failure stays over the bottom of the body, above the footer, until dismissed.
+    @ViewBuilder
+    private var failureNotice: some View {
+        if let notice = model.footerNotice, notice.isDismissible {
+            FooterNoticeView(notice: notice) { model.dismissFooterNotice() }
+                .padding(.bottom, AgentPanelMetrics.footerHeight)
+        }
     }
 
     @ViewBuilder

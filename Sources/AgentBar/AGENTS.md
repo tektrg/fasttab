@@ -4,7 +4,7 @@ Native Mac agent switcher (⌥Tab panel) over the AptusFit **chief dashboard** (
 
 ## Build / test / run
 - App: `scripts/build-agentbar-app.sh --open` (→ `dist/AgentBar.app`). Do this after every change.
-- Tests: `swift test --filter AgentBarTests` (~655). Full-suite runs flake under machine load; re-run the failing test alone before believing it.
+- Tests: `swift test --filter AgentBarTests` (~686). Full-suite runs flake under machine load; re-run the failing test alone before believing it.
 - Own defaults domain `com.trungluong.AgentBar`. Unsandboxed.
 
 ## What it does (user vocabulary → code)
@@ -28,12 +28,12 @@ Native Mac agent switcher (⌥Tab panel) over the AptusFit **chief dashboard** (
 2. Card error "unknown command: herdr" = the *dashboard* pane read is broken/stale, not AgentBar. Restart the dashboard after pulling AptusFit changes (old process keeps old code).
 3. Dashboard collapses newlines to spaces (500-char cap): Shift+Enter in the custom answer is a visual newline only.
 4. Feed decoding is per entry (`unreadableFeedNames`); one odd key (e.g. `machinesConfigError: null`) must not fail the whole state → false "status feed down".
-5. Latest message: tail of `~/.claude/projects/*/<agentSession>.jsonl` (last assistant text block; transcripts reach 130MB, tail-read only). Plan link = best-effort last existing `.md` `file_path`, skipping SKILL/CLAUDE/AGENTS/README/MEMORY.md and /tmp.
-6. Send closes the card at once; the row shows a spinner (20s safety timeout); failures show verbatim in the footer for 8s.
+5. Latest message: tail of `~/.claude/projects/*/<agentSession>.jsonl` (last assistant text block; transcripts reach 130MB, tail-read only). Plan link = best-effort last existing `.md` `file_path`, skipping SKILL/CLAUDE/AGENTS/README/MEMORY.md and /tmp. The message is drawn as markdown by `Markdown/` (own block parser → `MarkdownBlocksView`; input capped at 20k chars; collapsed to ~5 lines with Show more, measured not estimated; only http/https/mailto links are clickable).
+6. Send closes the card at once; the row shows a spinner (20s safety timeout); failures show verbatim in a red notice above the footer that stays until the user closes it (✕ or Esc; Esc dismisses it before it closes the panel / backs out). A newer failure replaces it; summoning the panel does not clear it. The orange shortcut-problem strip is separate and not closable.
 7. Alt-tab release = 20ms poll of `NSEvent.modifierFlags` (non-activating panel, no Accessibility permission).
 
 ## Known deferred
-Footer notice doesn't pause on hover; dashboard classifier reads non-Claude prompts (opencode/codex/gemini) as UNKNOWN; optional `transcript_path` in the hook sidecar; `aSwitchFailureShowsAFooterNoticeThatClearsItself` needs an injectable clock; kit-dedupe candidates (ShortcutRecorderField, LaunchAtLoginService, MenuBarItemController, Settings shell, PaneScreenText); stale `Package.swift` comment "Read-only agent switcher".
+Dashboard classifier reads non-Claude prompts (opencode/codex/gemini) as UNKNOWN; optional `transcript_path` in the hook sidecar; kit-dedupe candidates (ShortcutRecorderField, LaunchAtLoginService, MenuBarItemController, Settings shell, PaneScreenText); stale `Package.swift` comment "Read-only agent switcher".
 
 ## Live-check protocol (what worked)
 Test against a real agent pane in a scratch herdr tab (e.g. `test-perm`); prefer **Deny**/no-op choices on real boxes; verify dashboard behaviour with GET only.

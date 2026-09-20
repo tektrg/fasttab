@@ -1,6 +1,8 @@
 import Foundation
 
-/// The key hints in the footer (the answer and permission cards have their own). ←/→ (buttons) and space (peek) work only while
+/// The key hints in the footer (the answer and permission cards have their own; while a failure
+/// notice is showing the only hint is that esc dismisses it, since esc then no longer closes
+/// the panel or backs out until the notice is gone). ←/→ (buttons) and space (peek) work only while
 /// the search field is empty; with text in it they belong to the text field
 /// (caret, literal space), so the hints for them disappear too.
 enum PanelFooterHints {
@@ -13,9 +15,12 @@ enum PanelFooterHints {
         var answerMode: AnswerCardState.HintMode?
         /// The permission card is open; what its keys do depends on this.
         var permissionMode: PermissionCardState.HintMode?
+        /// A failure notice is showing: esc closes it before it does anything else.
+        var hasDismissibleNotice = false
     }
 
     static func text(for context: Context) -> String {
+        if context.hasDismissibleNotice { return "esc dismiss notice" }
         if let answerMode = context.answerMode { return answerText(for: answerMode) }
         if let permissionMode = context.permissionMode { return permissionText(for: permissionMode) }
         if context.isPeeking { return "space/esc back   ↩ switch" }

@@ -81,6 +81,8 @@ struct RowActionTextTests {
         typealias Hints = PanelFooterHints
         #expect(Hints.text(for: .init()).contains("←→ actions"))
         #expect(Hints.text(for: .init()).contains("space peek"))
+        #expect(Hints.text(for: .init(hasDismissibleNotice: true)).hasPrefix("esc dismiss notice"))
+        #expect(Hints.text(for: .init(answerMode: .singleSelect, hasDismissibleNotice: true)).hasPrefix("esc dismiss notice"))
         #expect(!Hints.text(for: .init(searchIsEmpty: false)).contains("←→"))   // arrows belong to the text field
         #expect(!Hints.text(for: .init(searchIsEmpty: false)).contains("space"))
         #expect(Hints.text(for: .init(hasHighlightedButton: true)) == "←→ button   ↩ press   esc back")

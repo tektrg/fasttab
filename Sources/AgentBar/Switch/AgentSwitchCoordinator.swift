@@ -5,9 +5,9 @@ import Foundation
 ///
 /// - Success: the switch is recorded for ranking (frecency).
 /// - Failure: the switch is NOT recorded (a dead pane must not float to the
-///   top), and the panel comes back with a red "Couldn't switch: ..." strip for
-///   a few seconds, since by then the user's eyes are already elsewhere. If the
-///   panel was reopened in the meantime it is left as is and only gets the strip.
+///   top), and the panel comes back with a red "Couldn't switch: ..." notice that
+///   stays until the user closes it, since by then their eyes are already elsewhere.
+///   If the panel was reopened in the meantime it is left as is and only gets the notice.
 @MainActor
 final class AgentSwitchCoordinator {
     struct PanelControls {

@@ -93,21 +93,40 @@ struct AgentPanelModelTests {
         #expect(model.presentation.agents.map(\.id) == ["n1", "w2", "w1", "e1"])
     }
 
-    @Test func aSwitchFailureShowsAFooterNoticeThatClearsItself() async throws {
-        let suite = "AgentBarTests.\(UUID().uuidString)"
-        let model = AgentPanelModel(store: FrecencyStore(defaults: UserDefaults(suiteName: suite)!),
-                                    switchErrorSeconds: 0.05, now: { F.now })
+    @Test func aSwitchFailureShowsAFooterNoticeThatStaysUntilDismissed() async throws {
+        let model = makeModel()
         model.reportSwitchFailure("nope")
         #expect(model.footerNotice == .switchFailed("nope"))
-        try await Task.sleep(for: .seconds(0.4))
+        #expect(model.footerNotice?.isDismissible == true)
+        await Task.yield()   // nothing is scheduled to clear it: it is still there after the loop has run
+        #expect(model.footerNotice == .switchFailed("nope"))
+        #expect(model.dismissFooterNotice())
         #expect(model.footerNotice == nil)
+        #expect(!model.dismissFooterNotice())   // nothing left: esc goes on to its other jobs
     }
 
-    @Test func showingThePanelClearsAStaleSwitchFailure() {
+    @Test func aNewFailureReplacesTheOneShown() {
+        let model = makeModel()
+        model.reportSwitchFailure("first")
+        model.reportSwitchFailure("second")
+        #expect(model.footerNotice == .switchFailed("second"))
+        #expect(model.dismissFooterNotice())
+        #expect(model.footerNotice == nil)   // one dismissal clears it; the replaced one does not come back
+    }
+
+    @Test func aFailureSurvivesTheNextSummon() {
         let model = makeModel()
         model.reportSwitchFailure("nope")
         model.resetForShow()
-        #expect(model.footerNotice == nil)
+        #expect(model.footerNotice == .switchFailed("nope"))
+    }
+
+    @Test func theShortcutProblemIsNotDismissible() {
+        let model = makeModel()
+        model.reportHotkeyIssue("⌥Tab: taken.")
+        #expect(model.footerNotice?.isDismissible == false)
+        #expect(!model.dismissFooterNotice())
+        #expect(model.footerNotice == .hotkeyUnavailable("⌥Tab: taken."))
     }
 
     @Test func aSwitchFailureOutranksAShortcutProblemWhichReturnsAfterwards() {
@@ -116,7 +135,7 @@ struct AgentPanelModelTests {
         #expect(model.footerNotice == .hotkeyUnavailable("⌥Tab: taken."))
         model.reportSwitchFailure("nope")
         #expect(model.footerNotice == .switchFailed("nope"))
-        model.resetForShow()
+        #expect(model.dismissFooterNotice())
         #expect(model.footerNotice == .hotkeyUnavailable("⌥Tab: taken."))
     }
 

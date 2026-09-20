@@ -21,21 +21,3 @@ enum QuestionDisplayText {
         return withoutBorders.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 }
-
-/// Sizes the card decides without drawing: when the "latest message" needs its Show more.
-enum AnswerCardLayout {
-    /// Lines of the latest message shown before "Show more".
-    static let messageLineLimit = 5
-    /// About how many characters of the message fit on a line of the card.
-    static let messageCharactersPerLine = 78
-
-    static func estimatedLineCount(of text: String, charactersPerLine: Int = messageCharactersPerLine) -> Int {
-        text.split(separator: "\n", omittingEmptySubsequences: false).reduce(0) { total, line in
-            total + max(1, Int((Double(line.count) / Double(charactersPerLine)).rounded(.up)))
-        }
-    }
-
-    static func messageNeedsToggle(_ text: String) -> Bool {
-        estimatedLineCount(of: text) > messageLineLimit
-    }
-}

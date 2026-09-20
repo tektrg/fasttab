@@ -60,16 +60,28 @@ public final class ReaderExtractor: NSObject {
     ///   3. If oEmbed fails, falls back to full WKWebView + Readability extraction.
     /// For all other URLs: WKWebView + Readability.js is used directly.
     public func extract(url: URL) async throws -> ReaderArticle {
-        if Self.isTwitterStatusURL(url) {
-            // Run text (oEmbed) and image scrape in parallel — both work without auth
-            async let oembedTask = extractTwitterViaOEmbed(url: url)
-            async let imagesTask = extractTwitterImagesOnly(url: url)
+        // X Articles (`/article/<id>`) have no tweet text at all — go straight to the article body.
+        if XArticleExtractor.isArticleURL(url), let article = await XArticleExtractor.fetch(url: url) {
+            return article
+        }
 
-            let (oembedResult, imageURLs) = await (oembedTask, imagesTask)
+        if Self.isTwitterStatusURL(url) {
+            // Run text (oEmbed) and image scrape in parallel — both work without auth.
+            // Images run as an unstructured Task so an early return (Article path) isn't held up by it.
+            let imagesTask = Task { await self.extractTwitterImagesOnly(url: url) }
+            let oembedResult = await extractTwitterViaOEmbed(url: url)
+
+            // An Article post's tweet text is only a t.co link; oEmbed "succeeds" with that link
+            // and the reader would show the cover image with no body. Fetch the real article.
+            if let oembed = oembedResult,
+               XArticleExtractor.isLinkOnly(oembed.excerpt),
+               let article = await XArticleExtractor.fetch(url: url) {
+                return article
+            }
 
             if let article = oembedResult {
                 // oEmbed gave us text — append any CDN images scraped from the live page
-                return appendImages(imageURLs, to: article)
+                return appendImages(await imagesTask.value, to: article)
             }
             // oEmbed failed — fall through to full WKWebView extraction
         }
@@ -80,7 +92,7 @@ public final class ReaderExtractor: NSObject {
     // MARK: - Twitter URL Detection
 
     /// Returns `true` if `url` is an X.com or twitter.com domain.
-    public static func isTwitterURL(_ url: URL) -> Bool {
+    nonisolated public static func isTwitterURL(_ url: URL) -> Bool {
         guard let host = url.host()?.lowercased() else { return false }
         return host == "x.com" || host == "www.x.com" || host.hasSuffix(".x.com") ||
                host == "twitter.com" || host == "www.twitter.com" || host.hasSuffix(".twitter.com")
@@ -291,7 +303,7 @@ public final class ReaderExtractor: NSObject {
     }
 
     /// Escapes `<`, `>`, `&`, `"` for safe embedding in HTML text nodes and attributes.
-    static func htmlEscape(_ string: String) -> String {
+    nonisolated static func htmlEscape(_ string: String) -> String {
         string
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")

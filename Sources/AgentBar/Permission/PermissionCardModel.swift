@@ -207,7 +207,7 @@ final class PermissionCardModel: ObservableObject {
         if card?.agentID == agentID { card?.sentWarning = sentence }
     }
 
-    static func withoutTrailingPeriod(_ text: String) -> String {
+    nonisolated static func withoutTrailingPeriod(_ text: String) -> String {
         var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         while trimmed.hasSuffix(".") { trimmed.removeLast() }
         return trimmed

@@ -126,10 +126,9 @@ struct PlanCardView: View {
             .frame(height: Self.feedbackFieldHeight)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.07)))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.15)))
-            Text(plan.isFeedbackTooLong
-                ? "Only the first \(PlanCardState.feedbackMaxCharacters) characters are sent. Line breaks are sent as spaces."
-                : "Line breaks are sent as spaces.")
+            Text(plan.isFeedbackTooLong ? PlanCardState.feedbackTooLongNote : PlanCardState.feedbackNote)
                 .font(.system(size: 11, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(plan.isFeedbackTooLong ? WarningTextColor.color : .secondary)
         }
         .padding(.horizontal, 18)

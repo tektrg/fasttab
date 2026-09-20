@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import AgentBar
 
+private let planWarningText = "pane shows 'auto mode on' after choosing option 3"
+
 /// The dashboard's optional `warning` on an ok plan `select` reply (the pane shows auto mode after a choice
 /// that was not auto mode): decoded, and always shown to the user (footer, and the plan card if one is open).
 @MainActor
@@ -9,7 +11,6 @@ struct PlanWarningTests {
     typealias F = PlanFixtures
     typealias A = AgentListFixtures
 
-    private static let warning = "pane shows 'auto mode on' after choosing option 3"
     private let endpoint = DashboardEndpoint(baseURL: URL(string: "http://127.0.0.1:4799")!)
 
     private func decode(_ json: String, status: Int = 200) -> PermissionResult {
@@ -19,7 +20,7 @@ struct PlanWarningTests {
     // MARK: - Decoding
 
     @Test func anOkReplyWithAWarningCarriesIt() {
-        #expect(decode(#"{"ok": true, "next": null, "warning": "\#(Self.warning)"}"#) == .sent(next: nil, warning: Self.warning))
+        #expect(decode(#"{"ok": true, "next": null, "warning": "\#(planWarningText)"}"#) == .sent(next: nil, warning: planWarningText))
     }
 
     @Test func anOkReplyWithoutAWarningCarriesNone() {
@@ -50,11 +51,11 @@ struct PlanWarningTests {
 
     @Test func aWarningComesThroughTheSource() async {
         let transport = ScriptedDashboardTransport { _ in
-            .body(Data(#"{"ok": true, "next": null, "warning": "\#(Self.warning)"}"#.utf8), statusCode: 200)
+            .body(Data(#"{"ok": true, "next": null, "warning": "\#(planWarningText)"}"#.utf8), statusCode: 200)
         }
         let source = DashboardStatusSource(endpoint: endpoint, transport: transport)
         let result = await source.selectPlanOption(paneId: "w1:p1", index: 3, text: "more", permission: F.box)
-        #expect(result == .sent(next: nil, warning: Self.warning))
+        #expect(result == .sent(next: nil, warning: planWarningText))
         #expect(transport.requests.count == 1)
     }
 
@@ -63,8 +64,14 @@ struct PlanWarningTests {
     @Test func theSentenceNamesAutoModeQuotesTheDashboardAndSendsYouToTheTerminal() {
         #expect(PlanSend.autoModeWarningSentence("pane shows auto mode.")
             == "Sent, but the agent now shows auto mode: pane shows auto mode. Check the terminal.")
-        #expect(PlanSend.autoModeWarningSentence(Self.warning)
-            == "Sent, but the agent now shows auto mode: \(Self.warning). Check the terminal.")
+        #expect(PlanSend.autoModeWarningSentence(planWarningText)
+            == "Sent, but the agent now shows auto mode: \(planWarningText). Check the terminal.")
+    }
+
+    @Test func theFeedbackNoteSaysItIsFeedbackAndThePaneStaysInPlanMode() {
+        #expect(PlanCardState.feedbackNote.contains("feedback"))
+        #expect(PlanCardState.feedbackNote.contains("stays in plan mode"))
+        #expect(PlanCardState.feedbackTooLongNote.contains("\(PlanCardState.feedbackMaxCharacters)"))
     }
 
     // MARK: - The card model
@@ -75,9 +82,10 @@ struct PlanWarningTests {
         var decided: [String] = []
     }
 
-    private func makeModel() -> (PermissionCardModel, PermissionFakeSource, Recorder) {
+    private func makeModel(expiry: TimeInterval = PermissionSendTracker.expirySeconds) -> (PermissionCardModel, PermissionFakeSource, Recorder) {
         let recorder = Recorder()
         let model = PermissionCardModel(
+            sendExpirySeconds: expiry,
             loadSessionContext: { _ in SessionContext(latestMessage: "The plan is ready.", planFile: nil) },
             loadPlanFile: { _ in .text("# Plan", truncated: false) }
         )
@@ -103,9 +111,9 @@ struct PlanWarningTests {
     @Test func aWarningOnASentFeedbackIsShownAsAWarningNotAFailure() async {
         let (model, source, recorder) = makeModel()
         await sendFeedback(model, source)
-        source.replyPlan(.sent(next: nil, warning: Self.warning))
+        source.replyPlan(.sent(next: nil, warning: planWarningText))
         await waitUntil { !recorder.warnings.isEmpty }
-        #expect(recorder.warnings == ["Sent, but the agent now shows auto mode: \(Self.warning). Check the terminal."])
+        #expect(recorder.warnings == ["Sent, but the agent now shows auto mode: \(planWarningText). Check the terminal."])
         #expect(recorder.notices.isEmpty)
         #expect(recorder.decided == ["a"])   // the send itself still counts as sent
     }
@@ -119,16 +127,17 @@ struct PlanWarningTests {
     }
 
     @Test func aPlanCardOpenForTheSameAgentCarriesTheWarningToo() async {
-        let (model, source, recorder) = makeModel()
+        // No reply within the wait frees the row; the user opens the (revised) plan's card; then the late reply lands.
+        let (model, source, recorder) = makeModel(expiry: 0.05)
         await sendFeedback(model, source)
         #expect(model.card == nil)
-        // The revised plan's box is on screen and its card is open when the reply arrives.
+        await waitUntil { !recorder.notices.isEmpty }
         model.open(F.agent("a"))
         await waitUntil { model.card?.plan?.phase == .ready }
-        source.replyPlan(.sent(next: nil, warning: Self.warning))
+        source.replyPlan(.sent(next: nil, warning: planWarningText))
         await waitUntil { model.card?.sentWarning != nil }
-        #expect(model.card?.sentWarning == "Sent, but the agent now shows auto mode: \(Self.warning). Check the terminal.")
-        #expect(recorder.warnings.count == 1)
+        #expect(model.card?.sentWarning == "Sent, but the agent now shows auto mode: \(planWarningText). Check the terminal.")
+        #expect(recorder.warnings.count == 1)   // told in the footer as well, even though the send record had expired
     }
 
     @Test func aCardOpenForAnotherAgentIsLeftAlone() async {
@@ -136,7 +145,7 @@ struct PlanWarningTests {
         await sendFeedback(model, source)
         model.open(F.agent("b"))
         await waitUntil { model.card?.plan?.phase == .ready }
-        source.replyPlan(.sent(next: nil, warning: Self.warning))
+        source.replyPlan(.sent(next: nil, warning: planWarningText))
         await waitUntil { !recorder.warnings.isEmpty }
         #expect(model.card?.sentWarning == nil)
     }
@@ -160,9 +169,9 @@ struct PlanWarningTests {
         permission.handle(.digit(2))
         model.activateSelected()
         await source.waitForPlanRequests(1)
-        source.replyPlan(.sent(next: nil, warning: Self.warning))
+        source.replyPlan(.sent(next: nil, warning: planWarningText))
         await waitUntil { model.footerNotice != nil }
-        let expected = PanelFooterNotice.warning("Sent, but the agent now shows auto mode: \(Self.warning). Check the terminal.")
+        let expected = PanelFooterNotice.warning("Sent, but the agent now shows auto mode: \(planWarningText). Check the terminal.")
         #expect(model.footerNotice == expected)
         #expect(expected.isDismissible)
         #expect(expected.text.hasPrefix("Sent, but the agent now shows auto mode"))

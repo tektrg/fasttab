@@ -27,6 +27,11 @@ struct PlanCardState: Equatable, Sendable {
         case close
     }
 
+    /// Under the feedback box. Live-proven 2026-09-20 (throwaway plan-mode pane): the text reaches the agent as a
+    /// rejection with feedback, it writes a revised plan (a new box), and the pane stays in plan mode.
+    static let feedbackNote = "Sent as feedback: the agent revises the plan and stays in plan mode. Line breaks are sent as spaces."
+    static let feedbackTooLongNote = "Only the first \(feedbackMaxCharacters) characters are sent. Line breaks are sent as spaces."
+
     /// The dashboard types at most this many characters of feedback (`_clean_free_text`).
     static let feedbackMaxCharacters = OtherAnswerText.maximumLength
 

@@ -11,7 +11,7 @@ cd "${repo_root}"
 
 PRO="${MAC_PRO_SSH:-mbp-m4}"
 PRO_REPO="${MAC_PRO_REPO:-/Users/trungluong/01_Project/command-bar-macos}"
-APPS="${APPS:-FastTab AgentBar}"
+APPS="${APPS-FastTab AgentBar}"   # APPS= (empty) skips the Mac apps
 run() { echo "+ $*"; [[ "${DRY_RUN:-0}" == 1 ]] || "$@"; }
 
 # ssh sessions can't unlock the login keychain (codesign → errSecInternalComponent), so
@@ -42,6 +42,7 @@ done
 if [[ "${IOS:-0}" == 1 ]]; then
   branch="$(git rev-parse --abbrev-ref HEAD)"
   run git push pro "${branch}"
-  run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/build-ios.sh"
+  # Via a tmux session on the Pro so Xcode can sign (see build-ios-in-gui-session.sh).
+  run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/build-ios-in-gui-session.sh"
 fi
 echo "==> prod-push done"

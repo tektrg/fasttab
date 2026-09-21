@@ -620,6 +620,7 @@ final class AgentPanelModel: ObservableObject {
     }
 
     private func showAnswerNotice(_ sentence: String) {
+        guard !isOpeningCardForCorner else { return }
         showFailureNotice(.actionFailed(sentence))
     }
 
@@ -653,6 +654,52 @@ final class AgentPanelModel: ObservableObject {
     /// What the corner tab says when the pointer rests in the corner.
     func needsYouSummary() -> CornerTabContent {
         CornerTabContent.summary(of: AgentListBuilder.needsYouAgents(snapshot: snapshot, settings: listSettings, triage: triage))
+    }
+
+    // MARK: - Corner tab card
+
+    private var isOpeningCardForCorner = false
+
+    /// The corner tab found `agentID` to be the sole agent blocked with something answerable: opens
+    /// its card exactly as the row's Answer/Review press would, so the corner shows the live card
+    /// (form batches, plan feedback, everything). Already open for that agent (from here or from an
+    /// earlier row press) is a no-op that reports success, so an in-progress draft or send is never
+    /// reset. False when there is nothing to show (the agent is gone, its answer is in flight, no
+    /// pane): the corner then shows its plain pill instead of an empty card. Looks in every shown
+    /// agent, not just the searched list, so a leftover search never hides the blocked agent.
+    @discardableResult
+    func openCardForCorner(agentID: String) -> Bool {
+        // The corner retries on its own (readings, card changes); "already answered" and the like are
+        // not news to the user then, so a failed attempt stays silent.
+        isOpeningCardForCorner = true
+        defer { isOpeningCardForCorner = false }
+        if answer.card?.agentID == agentID || permission.card?.agentID == agentID { return true }
+        guard let snapshot,
+              let agent = AgentListBuilder.shownAgents(in: snapshot, settings: listSettings, triage: triage)
+                .first(where: { $0.id == agentID })
+        else { return false }
+        switch agent.blockedOnYou {
+        case .question?:
+            guard answer.open(agent) else { return false }
+            message.close()
+            permission.close()
+            return true
+        case .permissionReview?:
+            guard permission.open(agent) else { return false }
+            message.close()
+            answer.close()
+            return true
+        case .questionLoading?, .questionNotAnswerable?, .permission?, nil:
+            return false
+        }
+    }
+
+    /// The corner left card mode (a second agent became blocked, the sole one was dealt with, or
+    /// the setting/panel took over): closes whichever card it had opened. Harmless if the send that
+    /// resolved it already closed the card itself.
+    func closeCardOpenedForCorner() {
+        answer.close()
+        permission.close()
     }
 
     /// Compares Needs you with the previous reading and reports newcomers.

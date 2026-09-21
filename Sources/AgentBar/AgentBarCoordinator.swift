@@ -82,7 +82,9 @@ final class AgentBarCoordinator {
             panel: .init(
                 open: { panelController.show() },
                 summary: { [model] in model.needsYouSummary() }
-            )
+            ),
+            model: model,
+            activation: textInputActivation
         )
         arrivalSounds = ArrivalSoundController(settings: { [settings] in settings.sounds })
         wire()
@@ -112,6 +114,7 @@ final class AgentBarCoordinator {
             Task { await switchCoordinator.switchTo(agent) }
         }
         panelController.onOpenSettings = { [unowned self] in showSettings() }
+        cornerTab.onOpenSettings = { [unowned self] in showSettings() }
         model.onNeedsYouArrival = { [cornerTab] content in cornerTab.arrived(content) }
         model.onNeedsYouReading = { [arrivalSounds, cornerTab] arrivals, needsYou in
             arrivalSounds.observe(arrivals: arrivals, needsYou: needsYou ?? [])

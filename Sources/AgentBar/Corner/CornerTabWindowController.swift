@@ -2,9 +2,13 @@ import AppKit
 import SwiftUI
 import CommandBarKit
 
-/// The corner tab's window: a small non-activating panel that never takes
-/// keyboard focus, configured like the main panel (same level, same behaviour
-/// over full-screen apps). Slides its content in and out; thin AppKit glue.
+/// The corner tab's window: a small non-activating panel, configured like the main panel (same
+/// level, same behaviour over full-screen apps). As the pill it never takes keyboard focus at all;
+/// as a card it can become key, but only when a control inside it actually needs it (a text field
+/// clicked for "Other"/feedback), never from a plain click on a button or option row
+/// (`becomesKeyOnlyIfNeeded`, `TabPanel.canBecomeKey`) — so a card sitting there passively never
+/// steals the keyboard from whatever the user is doing elsewhere. Slides its content in and out;
+/// thin AppKit glue.
 @MainActor
 final class CornerTabWindowController {
     static let slideSeconds: TimeInterval = 0.25
@@ -16,9 +20,16 @@ final class CornerTabWindowController {
     /// Invalidates a pending "order out after sliding" when the tab comes back.
     private var hideGeneration = 0
 
-    init(onClick: @escaping () -> Void) {
+    init(
+        model: AgentPanelModel, onClick: @escaping () -> Void, onDismiss: @escaping () -> Void,
+        onOpenSettings: @escaping () -> Void
+    ) {
         panel = Self.makePanel()
-        let host = NSHostingController(rootView: CornerTabView(state: state, onClick: onClick))
+        let host = NSHostingController(
+            rootView: CornerTabView(
+                state: state, model: model, onOpenPanel: onClick, onDismiss: onDismiss, onOpenSettings: onOpenSettings
+            )
+        )
         host.sizingOptions = []
         panel.contentViewController = host
     }
@@ -26,22 +37,58 @@ final class CornerTabWindowController {
     /// The window's frame while it is on screen.
     var frame: CGRect? { panel.isVisible ? panel.frame : nil }
 
+    /// A fresh pill appearance (the window was hidden): always slides in.
     func show(_ content: CornerTabContent) {
+        showPill(content)
+    }
+
+    /// The pill is already up (or, having just been a card, needs to become one): a plain text
+    /// refresh needs no animation; a mode change is shown like a fresh appearance.
+    func update(_ content: CornerTabContent) {
+        guard state.mode == .card else {
+            state.content = content
+            return
+        }
+        showPill(content)
+    }
+
+    /// A fresh card appearance (the window was hidden): always slides in.
+    func showCard() {
         hideGeneration += 1
+        state.mode = .card
+        state.isSlidIn = false
+        panel.hasShadow = true
+        present(frame: CornerTabPlacement.cardWindowFrame(in: screenFrame()))
+    }
+
+    /// The card is already up: its content follows the model on its own, nothing to do. Only a
+    /// mode change (the pill was showing instead) needs the fresh-appearance treatment.
+    func updateCard() {
+        guard state.mode == .pill else { return }
+        showCard()
+    }
+
+    private func showPill(_ content: CornerTabContent) {
+        hideGeneration += 1
+        state.mode = .pill
         state.content = content
         state.isSlidIn = false
-        let screenFrame = SummonScreen.visibleFrame(fallback: NSScreen.main?.visibleFrame ?? .zero)
-        panel.setFrame(CornerTabPlacement.windowFrame(in: screenFrame), display: true)
+        panel.hasShadow = false
+        present(frame: CornerTabPlacement.windowFrame(in: screenFrame()))
+    }
+
+    private func screenFrame() -> CGRect {
+        SummonScreen.visibleFrame(fallback: NSScreen.main?.visibleFrame ?? .zero)
+    }
+
+    private func present(frame: CGRect) {
+        panel.setFrame(frame, display: true)
         panel.orderFrontRegardless()
         let generation = hideGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.slideInDelaySeconds) { [weak self] in
             guard let self, generation == hideGeneration else { return }
             slide(in: true)
         }
-    }
-
-    func update(_ content: CornerTabContent) {
-        state.content = content
     }
 
     func slideOut() {
@@ -82,13 +129,17 @@ final class CornerTabWindowController {
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.animationBehavior = .none
+        panel.becomesKeyOnlyIfNeeded = true
         panel.configureCommandBarOverlayBehavior()
         return panel
     }
 }
 
-/// Never key, never main: the tab must not take focus from what the user is typing in.
+/// Never main; can become key, but `becomesKeyOnlyIfNeeded` (set on the instance above) means a
+/// plain click on the pill or a card's buttons/option rows never triggers it — only a control that
+/// itself demands key status (a text field's `becomeFirstResponder`) does. `.nonactivatingPanel`
+/// (the style mask) keeps even that from activating the app on its own.
 private final class TabPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 }

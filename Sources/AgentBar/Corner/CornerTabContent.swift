@@ -9,6 +9,11 @@ struct CornerTabContent: Equatable, Sendable {
     /// How many of them are blocked on the user: a question to answer or a permission box to review.
     /// While any is, the tab stays until the user deals with it.
     var blockedCount = 0
+    /// The sole blocked agent's id, when `blockedCount == 1` AND its blocker is one AgentBar can
+    /// render as a full card (a question or a reviewable permission/plan box) — nil for a lone
+    /// `questionLoading`/`questionNotAnswerable`/plain `permission` blocker, which has no card to
+    /// show, or when more than one agent is blocked (the corner falls back to the plain pill then).
+    var soleCardableAgentID: String?
 
     /// What the tab says when nothing needs the user (or the feed is down).
     static let nothingNeedsYou = CornerTabContent(count: 0, newestName: "")
@@ -41,8 +46,19 @@ struct CornerTabContent: Equatable, Sendable {
     static func forArrivals(_ arrivals: [AgentSnapshot], among needsYou: [AgentSnapshot]) -> CornerTabContent? {
         guard let newest = arrivals.min(by: { ($0.secondsInStatus ?? .infinity) < ($1.secondsInStatus ?? .infinity) })
         else { return nil }
+        let blocked = needsYou.filter { $0.blocker != nil }
         return CornerTabContent(
-            count: needsYou.count, newestName: newest.label, blockedCount: needsYou.filter { $0.blocker != nil }.count
+            count: needsYou.count, newestName: newest.label, blockedCount: blocked.count,
+            soleCardableAgentID: soleCardableAgentID(among: blocked)
         )
+    }
+
+    /// `blocked`'s one agent, when it is exactly one and its blocker is answerable/reviewable here.
+    private static func soleCardableAgentID(among blocked: [AgentSnapshot]) -> String? {
+        guard blocked.count == 1, let only = blocked.first else { return nil }
+        switch only.blockedOnYou {
+        case .question?, .permissionReview?: return only.id
+        case .questionLoading?, .questionNotAnswerable?, .permission?, nil: return nil
+        }
     }
 }

@@ -22,6 +22,9 @@ enum CornerTabEvent: Equatable, Sendable {
     /// The pointer is now over (or no longer over) the bottom-right corner or the tab.
     case mouse(isOverCornerOrTab: Bool)
     case tabClicked
+    /// The ✕ on the tab or card: put it away without opening the panel or answering. `cardAgentID` is
+    /// the agent whose card was showing (nil for the plain pill).
+    case dismissed(cardAgentID: String?)
     /// The main panel appeared or disappeared, however that happened.
     case panelVisibility(Bool)
     /// The Settings toggle.
@@ -37,6 +40,10 @@ enum CornerTabEffect: Equatable, Sendable {
     /// Slide the tab in with the current Needs-you summary (the pointer rested in the corner).
     case showSummaryTab
     case updateTab(CornerTabContent)
+    /// Slide in the sole blocked agent's live card in place of the tab (`content.soleCardableAgentID`).
+    case showCard(agentID: String)
+    /// The card is already showing; only its identity may have changed (a different sole agent).
+    case updateCard(agentID: String)
     case slideTabOut
     case removeTabNow
     case openPanel
@@ -52,6 +59,7 @@ enum CornerTabEffect: Equatable, Sendable {
 ///     dwelling --pointer leaves--> idle
 ///     tab --pointer leaves the tab and corner--> tab (hides after a short grace)
 ///     tab --click--> idle                         (opens the panel like the shortcut)
+///     tab --✕--> idle                             (slides out; the blocker stays in Needs you, not re-announced)
 ///
 /// Hovering never opens the panel; only a click does. Nothing shows while the panel is
 /// open or the setting is off.
@@ -61,6 +69,13 @@ enum CornerTabEffect: Equatable, Sendable {
 /// blocked agent is dealt with (then the usual short grace). An arrival tab shown as generic
 /// becomes sticky the moment its agent turns out to be blocked; one that already slid out comes
 /// back, once per blocker.
+///
+/// **Card mode**: whenever exactly one agent is blocked with something AgentBar can render
+/// (`content.soleCardableAgentID`), `showTab`/`updateTab` are replaced by `showCard`/`updateCard`:
+/// the corner shows that agent's live Answer/Review card instead of the pill. Two or more blocked,
+/// or the one blocker having no card (`questionLoading`/`questionNotAnswerable`/plain `permission`),
+/// falls back to the plain pill. Every other rule (sticky, timers, click) is unchanged — only what
+/// is drawn differs.
 struct CornerTabMachine: Equatable, Sendable {
     enum Phase: Equatable, Sendable {
         case idle
@@ -76,6 +91,9 @@ struct CornerTabMachine: Equatable, Sendable {
     private var pointerIsOver = false
     /// How many agents in Needs you are blocked on the user, as of the latest reading.
     private var blockedCount = 0
+    /// The agent whose card the user dismissed: it stays out of card mode (an unrelated arrival shows the
+    /// plain pill) until it gets a new blocker, nothing is blocked, or the pointer summons the corner.
+    private var dismissedCardAgentID: String?
     /// What the showing tab says, when the machine knows (not after a hover tab, whose text the host reads).
     private var shownContent: CornerTabContent?
     private let timing: CornerTabTiming
@@ -109,6 +127,7 @@ struct CornerTabMachine: Equatable, Sendable {
         case .needsYouChanged(let content, let hasNewBlocker): return needsYouChanged(content, hasNewBlocker: hasNewBlocker, now: now)
         case .mouse(let isOver): return pointerMoved(isOver: isOver, now: now)
         case .tabClicked: return clicked()
+        case .dismissed(let cardAgentID): return dismissed(cardAgentID: cardAgentID)
         case .panelVisibility(let isVisible): return panelVisibilityChanged(isVisible)
         case .enabled(let isEnabled): return setEnabled(isEnabled)
         case .deadlineReached: return deadlineReached(now: now)
@@ -119,29 +138,31 @@ struct CornerTabMachine: Equatable, Sendable {
 
     private mutating func arrive(_ content: CornerTabContent, now: Date) -> [CornerTabEffect] {
         blockedCount = content.blockedCount
+        if blockedCount == 0 { dismissedCardAgentID = nil }
         guard isEnabled, !isPanelVisible else { return [] }
         let hideAt = pointerIsOver || isSticky ? nil : now.addingTimeInterval(timing.visibleSeconds)
         shownContent = content
         switch phase {
         case .idle, .dwelling:
             phase = .tab(hideAt: hideAt)
-            return [.showTab(content)]
+            return [showEffect(for: content)]
         case .tab:
             phase = .tab(hideAt: hideAt)
-            return [.updateTab(content)]
+            return [updateEffect(for: content)]
         }
     }
 
     private mutating func needsYouChanged(_ content: CornerTabContent, hasNewBlocker: Bool, now: Date) -> [CornerTabEffect] {
         let wasSticky = isSticky
         blockedCount = content.blockedCount
+        if hasNewBlocker || blockedCount == 0 { dismissedCardAgentID = nil }
         guard isEnabled, !isPanelVisible else { return [] }
         switch phase {
         case .idle, .dwelling:
             guard hasNewBlocker, isSticky else { return [] }
             phase = .tab(hideAt: nil)
             shownContent = content
-            return [.showTab(content)]
+            return [showEffect(for: content)]
         case .tab:
             if isSticky {
                 phase = .tab(hideAt: nil)
@@ -153,8 +174,21 @@ struct CornerTabMachine: Equatable, Sendable {
             }
             guard content != shownContent else { return [] }
             shownContent = content
-            return [.updateTab(content)]
+            return [updateEffect(for: content)]
         }
+    }
+
+    /// The sole blocked agent's card in place of the tab, when there is one to show.
+    private func showEffect(for content: CornerTabContent) -> CornerTabEffect {
+        soleCardableAgentID(of: content).map(CornerTabEffect.showCard(agentID:)) ?? .showTab(content)
+    }
+
+    private func updateEffect(for content: CornerTabContent) -> CornerTabEffect {
+        soleCardableAgentID(of: content).map(CornerTabEffect.updateCard(agentID:)) ?? .updateTab(content)
+    }
+
+    private func soleCardableAgentID(of content: CornerTabContent) -> String? {
+        content.soleCardableAgentID.flatMap { $0 == dismissedCardAgentID ? nil : $0 }
     }
 
     private mutating func pointerMoved(isOver: Bool, now: Date) -> [CornerTabEffect] {
@@ -181,6 +215,15 @@ struct CornerTabMachine: Equatable, Sendable {
         return [.removeTabNow, .openPanel]
     }
 
+    /// Put away for now. Idle again, so a blocker already announced does not bring it back (the
+    /// `hasNewBlocker` gate); a new one, or the pointer resting in the corner, does.
+    private mutating func dismissed(cardAgentID: String?) -> [CornerTabEffect] {
+        guard case .tab = phase else { return [] }
+        phase = .idle
+        dismissedCardAgentID = cardAgentID
+        return [.slideTabOut]
+    }
+
     private mutating func panelVisibilityChanged(_ isVisible: Bool) -> [CornerTabEffect] {
         isPanelVisible = isVisible
         // The host stops following the pointer while the panel is open, so what it last reported (on the
@@ -205,6 +248,7 @@ struct CornerTabMachine: Equatable, Sendable {
         case .dwelling(let showAt) where now >= showAt:
             phase = .tab(hideAt: pointerIsOver || isSticky ? nil : now.addingTimeInterval(timing.visibleSeconds))
             shownContent = nil
+            dismissedCardAgentID = nil   // the user asked for it by resting the pointer here
             return [.showSummaryTab]
         case .tab(let hideAt?) where now >= hideAt:
             phase = .idle

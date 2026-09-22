@@ -45,16 +45,27 @@ final class AgentPanelController {
             model.$presentation,
             model.$listSettings,
             model.$peek.map { $0 != nil }.removeDuplicates(),
-            Publishers.CombineLatest3(
+            Publishers.CombineLatest4(
                 model.answer.$card.map { $0 != nil },
                 model.permission.$card.map { $0 != nil },
-                model.message.$card.map { $0 != nil }
+                model.message.$card.map { $0 != nil },
+                Publishers.CombineLatest3(
+                    model.$query.map { AgentPanelMetrics.searchFieldLineCount(for: $0) }.removeDuplicates(),
+                    model.$routingState.map { $0 != nil }.removeDuplicates(),
+                    // Tagged: the chip lives inline in the search field itself (no extra row), but it
+                    // does hide the list/status message below — a third, independent size input.
+                    model.$taggedAgentID.map { $0 != nil }.removeDuplicates()
+                )
             )
-            .map { $0 || $1 || $2 }
-            .removeDuplicates()
         )
-        .sink { [weak self] presentation, listSettings, isPeeking, isAnswering in
-            self?.applySize(for: presentation, listSettings: listSettings, isPeeking: isPeeking, isAnswering: isAnswering)
+        .sink { [weak self] presentation, listSettings, isPeeking, cardsAndSearchArea in
+            let (answerOpen, permissionOpen, messageOpen, searchArea) = cardsAndSearchArea
+            let (searchFieldLineCount, showsRoutingRow, isComposing) = searchArea
+            self?.applySize(
+                for: presentation, listSettings: listSettings, isPeeking: isPeeking,
+                isAnswering: answerOpen || permissionOpen || messageOpen, isComposing: isComposing,
+                searchFieldLineCount: searchFieldLineCount, showsRoutingRow: showsRoutingRow
+            )
         }
     }
 
@@ -91,11 +102,15 @@ final class AgentPanelController {
         for presentation: AgentListPresentation,
         listSettings: AgentListSettings,
         isPeeking: Bool,
-        isAnswering: Bool
+        isAnswering: Bool,
+        isComposing: Bool = false,
+        searchFieldLineCount: Int = 1,
+        showsRoutingRow: Bool = false
     ) {
         let maxListHeight = AgentPanelMetrics.maxListHeight(visibleRows: listSettings.maxVisibleRows)
         let height = AgentPanelMetrics.height(
-            for: presentation, maxListHeight: maxListHeight, isPeeking: isPeeking, isAnswering: isAnswering
+            for: presentation, maxListHeight: maxListHeight, isPeeking: isPeeking, isAnswering: isAnswering,
+            isComposing: isComposing, searchFieldLineCount: searchFieldLineCount, showsRoutingRow: showsRoutingRow
         )
         let size = CGSize(width: AgentPanelMetrics.width, height: height)
         panel.setFrame(AgentPanelPlacement.frame(size: size, in: placementFrame), display: panel.isVisible, animate: false)

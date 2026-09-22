@@ -4,7 +4,9 @@ import Foundation
 /// said, and the keyboard state of the box itself.
 struct PermissionCard: Equatable, Sendable {
     let agentID: String
-    let paneId: String
+    /// herdr can reassign this while the card stays open (same session, new pane): kept current by
+    /// `PermissionCardModel.reconcile(with:)`, never by anything that reads what the box says.
+    var paneId: String
     let label: String
     let projectName: String?
     /// What Copy puts on the pasteboard (see `AgentIdentityText`).

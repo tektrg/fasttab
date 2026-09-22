@@ -82,7 +82,7 @@ struct BlockerProbeTests {
         let rig = makeRig()
         rig.source.replyWith(questionScreen)
         rig.model.receive(needsYou(nil))
-        #expect(buttons(rig.model) == [.done, .park, .message])
+        #expect(buttons(rig.model) == [.park, .message, .moreActions])
         await waitUntil { buttons(rig.model) == [.answer, .park] }
         #expect(buttons(rig.model) == [.answer, .park])
         #expect(rig.source.readPaneIds == ["w1:a"])
@@ -116,7 +116,7 @@ struct BlockerProbeTests {
         rig.source.replyWith(.failure("Can't reach the status dashboard."))
         rig.model.receive(needsYou(nil, id: "other"))
         await settleTasks()
-        #expect(buttons(rig.model, "other") == [.done, .park, .message])
+        #expect(buttons(rig.model, "other") == [.park, .message, .moreActions])
     }
 
     @Test func aRowAlreadyParsedByTheDashboardIsNeverRead() async {
@@ -190,7 +190,7 @@ struct BlockerProbeTests {
         rig.source.release(questionScreen)
         await settleTasks()
         rig.model.receive(needsYou(nil))
-        #expect(buttons(rig.model) == [.done, .park, .message])   // nothing was learned from the stale screen
+        #expect(buttons(rig.model) == [.park, .message, .moreActions])   // nothing was learned from the stale screen
     }
 
     @Test func aReadThatReturnsAfterTheDashboardCaughtUpChangesNothing() async {
@@ -218,6 +218,6 @@ struct BlockerProbeTests {
         rig.model.receive(F.snapshot([moved]))
         rig.source.release(questionScreen)
         await settleTasks()
-        #expect(buttons(rig.model) == [.done, .park, .message])
+        #expect(buttons(rig.model) == [.park, .message, .moreActions])
     }
 }

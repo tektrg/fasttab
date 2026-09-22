@@ -259,7 +259,7 @@ struct RecentSortReproTests {
         #expect(results.first?.url == "https://example.com/unpinned")
     }
 
-    @Test func sortQuickOpenResultsCombinesSentLinksAndRecencyTabsWithoutPinnedBias() {
+    @Test func sortQuickOpenResultsOmitsSentLinksAndRanksTabsByRecencyWithoutPinnedBias() {
         let now = Date()
         let sentLink = BrowserSearchResult(
             title: "Sent Link from Mobile",
@@ -286,12 +286,11 @@ struct RecentSortReproTests {
         )
 
         // In quick open results:
-        // 1. Sent link must be first (tier -1)
-        // 2. Unpinned recent tab must be second (timestamp: -10s)
-        // 3. Pinned old tab must be third (timestamp: -3600s)
+        // 1. Sent link is omitted (it lives in My Order)
+        // 2. Unpinned recent tab first (timestamp: -10s)
+        // 3. Pinned old tab second (timestamp: -3600s)
         let quickOpenResults = sortQuickOpenResults([pinnedOldTab, sentLink, unpinnedRecentTab])
         #expect(quickOpenResults.map(\.url) == [
-            "https://example.com/sent",
             "https://example.com/recent",
             "https://example.com/pinned-old"
         ])
@@ -299,5 +298,28 @@ struct RecentSortReproTests {
         // In contrast, sortBrowserSearchResults promotes pinned tabs to the top tier ahead of unpinned:
         let searchResults = sortBrowserSearchResults([pinnedOldTab, unpinnedRecentTab])
         #expect(searchResults.first?.url == "https://example.com/pinned-old")
+    }
+
+    @Test func sortQuickOpenResultsNeverLetsSentLinkBacklogHideRecentTab() {
+        let now = Date()
+        let sentLinks = (1...6).map { n in
+            BrowserSearchResult(
+                title: "Sent \(n)",
+                url: "https://example.com/sent\(n)",
+                browserName: "iPhone",
+                type: .sent,
+                timestamp: now.addingTimeInterval(-Double(n))
+            )
+        }
+        let activeTab = BrowserSearchResult(
+            title: "Active Tab",
+            url: "https://example.com/active",
+            browserName: "Google Chrome",
+            type: .tab,
+            timestamp: now.addingTimeInterval(-5000)
+        )
+
+        #expect(sortQuickOpenResults(sentLinks + [activeTab]).map(\.url) == ["https://example.com/active"])
+        #expect(sortQuickOpenResults(sentLinks).isEmpty)
     }
 }

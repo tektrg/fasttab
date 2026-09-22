@@ -235,7 +235,7 @@ extension ContentView {
         case .orderedEntry(let slot):
             OrderedTabSlotRow(
                 slot: slot,
-                index: index,
+                index: index - myOrderSlotIndexOffset,
                 isSelected: isSelected,
                 faviconImage: appState.browserService.faviconImage(for: slot.asSearchResult),
                 onSelect: {
@@ -253,7 +253,7 @@ extension ContentView {
                 },
                 onReorder: { from, to in
                     myOrderStore.reorderSlot(from: from, to: to)
-                    appState.selectedIndex = min(to, max(0, myOrderStore.slots.count - 1))
+                    appState.selectedIndex = myOrderSlotIndexOffset + min(to, max(0, myOrderStore.slots.count - 1))
                 }
             )
             .contentShape(Rectangle())

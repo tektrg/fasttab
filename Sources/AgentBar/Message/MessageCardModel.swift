@@ -26,6 +26,10 @@ final class MessageCardModel: ObservableObject {
     var consumeEscape: () -> Bool = { false }
     /// The card's text field lost the keyboard: the host gives it back to the search field.
     var onReleaseKeyboard: () -> Void = {}
+    /// A `sendDirect` message actually reached the agent (Shift+Return routing, never a card
+    /// send): the host records it as a row note. Not called for a failed/uncertain/needing-confirmation
+    /// outcome — only a confirmed `.sent`.
+    var onSentDirect: (_ agentID: String, _ text: String) -> Void = { _, _ in }
 
     private let loadSessionContext: AnswerCardModel.SessionContextLoad
     private let contextLoader = LatestResultLoader<SessionContext>()
@@ -106,12 +110,40 @@ final class MessageCardModel: ObservableObject {
         self.card = card
         inFlight.insert(card.agentID)
         objectWillChange.send()
-        let request = Request(agentID: card.agentID, label: card.label, paneId: card.paneId, rowId: card.rowId, text: text, confirmed: confirmed)
+        let request = Request(agentID: card.agentID, label: card.label, paneId: card.paneId, rowId: card.rowId, text: text, confirmed: confirmed, notesOnSend: false)
         let epoch = epoch
         Task { [weak self] in
             let outcome = await Self.deliver(request, via: statusSource)
             self?.finishSend(outcome, of: request, epoch: epoch)
         }
+    }
+
+    /// Sends `text` straight to `agent`, with no card ever opened (Shift+Return routing, Tab-tag
+    /// compose). Same pre-send pane guard, one-flight-per-agent tracking, and row spinner/"Message
+    /// sent" label as `pressSend()` — `finishSend` already treats "no card open for this agent" as
+    /// the normal case (every outcome reaches `onNotice` instead of a card). A confirmed `.sent`
+    /// also calls `onSentDirect`, so the row can hold on to what it received. False when the row
+    /// cannot take a message right now (same eligibility as `open(_:)`, but never opens anything).
+    ///
+    /// Always sent `confirmed: true`: unlike the card, there is no UI here to show a "the agent is
+    /// mid-turn, send anyway?" prompt and wait for a second press, so a busy agent must just queue
+    /// on the first attempt rather than dead-end with "not sent, open Message again." The pre-send
+    /// pane guard above (open question/permission box) still applies regardless of `confirmed`.
+    @discardableResult
+    func sendDirect(to agent: AgentSnapshot, text: String) -> Bool {
+        guard RowButtons.usableButtons(for: agent).contains(.message),
+              let statusSource, let paneId = agent.paneId, let rowId = agent.rowId,
+              !inFlight.contains(agent.id)
+        else { return false }
+        inFlight.insert(agent.id)
+        objectWillChange.send()
+        let request = Request(agentID: agent.id, label: agent.label, paneId: paneId, rowId: rowId, text: text, confirmed: true, notesOnSend: true)
+        let epoch = epoch
+        Task { [weak self] in
+            let outcome = await Self.deliver(request, via: statusSource)
+            self?.finishSend(outcome, of: request, epoch: epoch)
+        }
+        return true
     }
 
     // MARK: - Sending
@@ -123,6 +155,8 @@ final class MessageCardModel: ObservableObject {
         let rowId: String
         let text: String
         let confirmed: Bool
+        /// True only for a `sendDirect` request: on `.sent`, `finishSend` calls `onSentDirect`.
+        let notesOnSend: Bool
     }
 
     /// Reads the pane first: typed text would answer a question picker or a permission box.
@@ -148,6 +182,7 @@ final class MessageCardModel: ObservableObject {
         case .sent(let queued):
             sentLabels[request.agentID] = (queued ? "Message queued" : "Message sent", now().addingTimeInterval(sentLabelSeconds))
             scheduleRefresh(after: sentLabelSeconds)
+            if request.notesOnSend { onSentDirect(request.agentID, request.text) }
             if showing != nil { close() }
             showing = nil
         case .needsConfirmation:

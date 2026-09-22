@@ -19,17 +19,39 @@ enum PanelFooterHints {
         var messageMode: MessageCard.HintMode?
         /// A failure notice is showing: esc closes it before it does anything else.
         var hasDismissibleNotice = false
+        /// Shift+Return routing (see `AgentPanelModel.routingState`): nil the rest of the time.
+        var routingMode: RoutingHintMode?
+        /// Tab-tagged an explicit send target (`AgentPanelModel.taggedAgentID`): mutually exclusive
+        /// with `routingMode`.
+        var isTagged = false
     }
+
+    enum RoutingHintMode { case loading, confirming }
 
     static func text(for context: Context) -> String {
         if context.hasDismissibleNotice { return "esc dismiss notice" }
+        if let routingMode = context.routingMode { return routingText(for: routingMode) }
+        // Card modes precede `isTagged`: `AgentPanelModel.press(_:on:)` already clears the tag the
+        // moment a card opens, but keeping this order too (matching `activateSelected()`'s own
+        // card-then-tag precedence) means the footer never claims Return sends the tagged message
+        // while a card is actually what's focused.
         if let answerMode = context.answerMode { return answerText(for: answerMode) }
         if let permissionMode = context.permissionMode { return permissionText(for: permissionMode) }
         if let messageMode = context.messageMode { return messageText(for: messageMode) }
+        if context.isTagged { return "↩ send   tab retag   esc untag" }
         if context.isPeeking { return "space/esc back   ↩ switch" }
         if context.hasHighlightedButton { return "←→ button   ↩ press   esc back" }
         if context.searchIsEmpty { return "↑↓ select   ←→ actions   space peek   ↩ switch   esc close" }
         return "↑↓ select   ↩ switch   esc close"
+    }
+
+    /// Keys only — the state itself ("Asking Jev…" / "→ target agent") is `SearchFieldView`'s own
+    /// row now, so it is said once, not here too.
+    private static func routingText(for mode: RoutingHintMode) -> String {
+        switch mode {
+        case .loading: "esc cancel"
+        case .confirming: "↩ send   esc cancel"
+        }
     }
 
     private static func messageText(for mode: MessageCard.HintMode) -> String {

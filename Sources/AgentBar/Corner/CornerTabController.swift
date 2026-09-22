@@ -149,11 +149,15 @@ final class CornerTabController {
     }
 
     /// The card window is up but its card is gone (sent, cancelled, or the blocker changed kind): it
-    /// shows the agent's new card if there is one, else the pill, rather than a header and footer
-    /// around nothing.
+    /// shows the agent's new card if there is one; puts itself away when the user just sent an answer
+    /// (the send carries on in the background); else the pill, rather than a header and footer around nothing.
     private func showPillIfCardEmpty() {
         guard let agentID = cardOpenAgentID, !model.answer.isOpen, !model.permission.isOpen else { return }
         if model.openCardForCorner(agentID: agentID) { return }
+        if model.isAnswerBeingSent(agentID: agentID) {
+            send(.dismissed(cardAgentID: agentID))
+            return
+        }
         closeCardIfNeeded()
         window.update(panel.summary())
     }

@@ -91,6 +91,6 @@ struct PermissionPayloadTests {
 
     @Test func aParkedReviewableAgentHasNoBlockedActions() {
         let agent = P.agent("a", P.bash).placed(in: .parked)
-        #expect(buttons(agent) == [.unpark, .done])
+        #expect(buttons(agent) == [.unpark, .moreActions])   // Done now lives in the ⋯ menu
     }
 }

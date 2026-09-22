@@ -14,8 +14,11 @@ struct AgentRowView: View {
     var highlightedButton: RowButton?
     /// This row's details were just copied (its copy icon shows a check).
     var isCopied = false
+    /// What Shift+Return routing has sent this agent, newest first; only the user clears one.
+    var routedNotes: [RoutedNote] = []
     var onPress: (RowButton) -> Void = { _ in }
     var onCopy: () -> Void = {}
+    var onClearRoutedNote: (UUID) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -88,6 +91,17 @@ struct AgentRowView: View {
     }
 
     private var buttons: [RowButtonSpec] { RowButtons.available(for: agent) }
+    private var menuItems: [RowButtonSpec] { RowButtons.menuItems(for: agent) }
+
+    /// Done/Close pane live in the ⋯ menu normally, but a press that needs a second look (or is
+    /// mid-flight, or just finished) must not vanish the moment the menu closes: this pulls that
+    /// one item back out so it re-shows as its own capsule — the same "Confirm?" / spinner / "Done"
+    /// capsule the row always drew, in place of the ⋯ trigger — for exactly as long as
+    /// `actionState` is about it. The safety confirmation is never skipped; it just moves.
+    private var activeMenuItemSpec: RowButtonSpec? {
+        guard let button = actionState?.button, button == .done || button == .closePane else { return nil }
+        return menuItems.first { $0.button == button }
+    }
 
     /// Buttons show on the selected row, and stay while a press is being settled.
     /// A blocked row always shows its red button, so it cannot be missed.
@@ -95,20 +109,31 @@ struct AgentRowView: View {
         !visibleButtons.isEmpty && (isSelected || actionState != nil || agent.blockedOnYou != nil)
     }
 
-    /// Selected (or settling): every button. Otherwise only the blocked row's red one.
+    /// Selected (or settling): every button, with a busy/confirming/just-finished menu item
+    /// (`activeMenuItemSpec`) swapped in for the ⋯ trigger. Otherwise only the blocked row's red one.
     private var visibleButtons: [RowButtonSpec] {
-        isSelected || actionState != nil ? buttons : buttons.filter { agent.blockedOnYou != nil && $0.button.isBlockedAction }
+        let base = isSelected || actionState != nil ? buttons : buttons.filter { agent.blockedOnYou != nil && $0.button.isBlockedAction }
+        guard let activeMenuItemSpec else { return base }
+        return base.map { $0.button == .moreActions ? activeMenuItemSpec : $0 }
     }
 
     private var buttonStrip: some View {
         HStack(spacing: 6) {
             ForEach(visibleButtons, id: \.button.title) { spec in
-                RowActionButtonView(
-                    spec: spec,
-                    state: actionState,
-                    isHighlighted: highlightedButton == spec.button,
-                    onPress: { onPress(spec.button) }
-                )
+                if spec.button == .moreActions {
+                    RowMoreMenuView(
+                        items: menuItems,
+                        isHighlighted: highlightedButton == .moreActions,
+                        onSelect: { onPress($0) }
+                    )
+                } else {
+                    RowActionButtonView(
+                        spec: spec,
+                        state: actionState,
+                        isHighlighted: highlightedButton == spec.button,
+                        onPress: { onPress(spec.button) }
+                    )
+                }
             }
         }
     }
@@ -120,6 +145,9 @@ struct AgentRowView: View {
                 .foregroundStyle(isConfirming ? Color.red : .secondary)
                 .lineLimit(1)
             Spacer(minLength: 8)
+            if !routedNotes.isEmpty {
+                RoutedNoteBadgeView(notes: routedNotes, onClear: onClearRoutedNote)
+            }
             if agent.hasUnpushedCommits {
                 UnpushedBadgeView(detail: agent.unpushedText)
             }

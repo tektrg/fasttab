@@ -17,6 +17,7 @@ struct ContentView: View {
     @ObservedObject var edgeRevealStore = EdgeRevealStore.shared
     @ObservedObject var viewStore = CommandBarViewStore.shared
     @ObservedObject var myOrderStore = MyOrderStore.shared
+    @ObservedObject var sentLinkInbox = SentLinkInbox.shared
     @ObservedObject var bookmarkTreeStore = BookmarkTreeStore.shared
     @ObservedObject var revealTrigger = CommandBarRevealTrigger.shared
     @ObservedObject var dismissTrigger = CommandBarDismissTrigger.shared
@@ -119,11 +120,25 @@ struct ContentView: View {
         )
     }
 
+    /// Unopened iPhone-sent links, newest first. They lead the My Order list
+    /// (and stay out of Recents). Every My Order row past this many is a slot,
+    /// so slot index = display index - this count; reorder code must apply it.
+    var myOrderSentLinks: [BrowserSearchResult] {
+        sentLinkInbox.asSearchResults().sorted { $0.timestamp > $1.timestamp }
+    }
+
+    /// Rows ahead of the first slot in the My Order list (0 outside it).
+    var myOrderSlotIndexOffset: Int {
+        guard viewStore.activeView == .myOrder, searchText.isEmpty, activeSearchAlias == nil else { return 0 }
+        return myOrderSentLinks.count
+    }
+
     func displayItems(for view: CommandBarView) -> [CommandBarDisplayItem] {
         if searchText.isEmpty, activeSearchAlias == nil {
             switch view {
             case .myOrder:
-                return myOrderStore.slots.map(CommandBarDisplayItem.orderedEntry)
+                return myOrderSentLinks.map(CommandBarDisplayItem.result)
+                    + myOrderStore.slots.map(CommandBarDisplayItem.orderedEntry)
             case .bookmarks:
                 return bookmarkTreeStore.flattenedRows(liveTabs: appState.browserService.cachedLiveTabs).map(CommandBarDisplayItem.bookmarkRow)
             case .recents:
@@ -794,6 +809,9 @@ struct ContentView: View {
             clampSelectionToDisplayedItems()
         }
         .onChange(of: myOrderStore.slots.count) { _, _ in
+            clampSelectionToDisplayedItems()
+        }
+        .onChange(of: sentLinkInbox.pendingCommands.count) { _, _ in
             clampSelectionToDisplayedItems()
         }
         .onChange(of: bookmarkTreeStore.expandedFolderIDs) { _, _ in

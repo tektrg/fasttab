@@ -16,14 +16,15 @@ enum AgentListFixtures {
         canFocus: Bool? = nil,
         hasHookData: Bool = true,
         secondsInStatus: TimeInterval? = 120,
-        actions: AgentActions = .unknown
+        actions: AgentActions = .unknown,
+        paneId: String? = nil
     ) -> AgentSnapshot {
         AgentSnapshot(
             id: id,
             label: label ?? id,
             projectName: project,
             cwd: nil,
-            paneId: "w1:\(id)",
+            paneId: paneId ?? "w1:\(id)",
             section: section,
             statusText: statusText,
             secondsInStatus: secondsInStatus,

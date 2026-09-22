@@ -42,6 +42,8 @@ final class AgentBarCoordinator {
         let model = AgentPanelModel(listSettings: settings.list, dashboardAddress: endpoint.displayAddress)
         self.model = model
         model.statusSource = statusSource
+        model.routingAPIKeyStore = KeychainRoutingAPIKeyStore()
+        model.applyRouting(settings.routing)
         let settings = settings
         let textInputActivation = TextInputActivation(
             focus: SystemAppFocus(),
@@ -154,6 +156,10 @@ final class AgentBarCoordinator {
             .dropFirst()
             .removeDuplicates()
             .sink { [weak self] url in self?.switchDashboard(to: url) }
+            .store(in: &settingsSubscriptions)
+        settings.$routing
+            .dropFirst()
+            .sink { [model] routing in model.applyRouting(routing) }
             .store(in: &settingsSubscriptions)
     }
 

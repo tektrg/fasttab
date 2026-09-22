@@ -65,6 +65,285 @@ final class AgentPanelModel: ObservableObject {
     /// A failed switch or row action (stays until the user dismisses or replaces it), else a shortcut problem.
     @Published private(set) var footerNotice: PanelFooterNotice?
 
+    /// Shift+Return routing (see `Routing/`): Jev is picking a candidate, or has picked one and
+    /// is waiting for a confirming Return (Settings > Routing > "After routing"). nil the rest
+    /// of the time — a failure never lands here, it goes to `footerNotice` like a failed message
+    /// send does, and clears back to nil at once.
+    enum RoutingState: Equatable {
+        case loading
+        case confirming(agentID: String, label: String, confidence: Double)
+    }
+    @Published private(set) var routingState: RoutingState?
+    /// The exact text Jev was asked about, captured at Shift+Return. A route always acts on this,
+    /// never on `query` again — the box is not locked while Jev thinks, so the user may keep
+    /// typing; that must never let a confirmed send carry text Jev never saw.
+    private var routingText = ""
+
+    /// Where the OpenRouter key lives; set by the host. No key = routing always fails fast,
+    /// telling the user where to set it up rather than guessing.
+    var routingAPIKeyStore: (any RoutingAPIKeyStoring)?
+    /// Model id + confirm-first/send-immediately, from Settings > Routing; applied live by `apply(_:)`.
+    private(set) var routingSettings = RoutingSettings.standard
+    /// Test seam: the real client hits OpenRouter; tests inject a fake.
+    var makeRoutingClient: (_ apiKey: String, _ model: String) -> any JevRoutingClient = { apiKey, model in
+        OpenRouterJevClient(apiKey: apiKey, model: model)
+    }
+    /// Bumped on every route so a reply for a route the user already left behind is dropped.
+    private var routingEpoch = 0
+
+    /// New routing settings from Settings > Routing; applies to the next route, never an in-flight one.
+    /// Named apart from `apply(_ settings: AgentListSettings)`: overloading it made `.standard`
+    /// ambiguous at every existing call site (both types have a static `standard`).
+    func applyRouting(_ settings: RoutingSettings) {
+        routingSettings = settings
+    }
+
+    /// Shift+Return with text in the box: asks Jev which shown, message-eligible agent should get
+    /// it. No-op with an empty box, a card open, or a route already running (one at a time, like
+    /// a message send). The box is not cleared: a failure leaves the text exactly as typed.
+    func startRouting() {
+        guard !isCardOpen, routingState == nil, taggedAgentID == nil else { return }
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guard let apiKey = routingAPIKeyStore?.get(), !apiKey.isEmpty else {
+            showAnswerNotice("Set an OpenRouter key in Settings > Routing first.")
+            return
+        }
+        guard let snapshot else {
+            showAnswerNotice("No agents to route to yet.")
+            return
+        }
+        let candidates = RouteCandidateBuilder.candidates(from: AgentListBuilder.shownAgents(in: snapshot, settings: listSettings, triage: triage))
+        guard !candidates.isEmpty else {
+            showAnswerNotice("No agent can take a message right now.")
+            return
+        }
+        routingState = .loading
+        routingText = text
+        let client = makeRoutingClient(apiKey, routingSettings.modelID)
+        let epoch = routingEpoch
+        let afterRouting = routingSettings.afterRouting
+        Task { [weak self] in
+            let outcome = await client.route(text: text, candidates: candidates)
+            self?.finishRouting(outcome, candidates: candidates, epoch: epoch, afterRouting: afterRouting)
+        }
+    }
+
+    private func finishRouting(_ outcome: RouteOutcome, candidates: [RouteCandidate], epoch: Int, afterRouting: AfterRoutingBehavior) {
+        guard epoch == routingEpoch, routingState == .loading else { return }
+        switch outcome {
+        case .none:
+            routingState = nil
+            showAnswerNotice("No agent can take a message right now.")
+        case .failed(let reason):
+            routingState = nil
+            showAnswerNotice(reason)
+        case .picked(let agentID, let confidence):
+            // Never act on Jev's raw echo: it must name one of the candidates this exact round
+            // actually offered, not merely any agent that happens to still exist.
+            guard candidates.contains(where: { $0.agentID == agentID }),
+                  let agent = presentation.agents.first(where: { $0.id == agentID }) ?? snapshot?.agents.first(where: { $0.id == agentID })
+            else {
+                routingState = nil
+                showAnswerNotice("Jev picked an agent that is no longer shown.")
+                return
+            }
+            if afterRouting == .sendImmediately {
+                send(to: agent)
+            } else {
+                routingState = .confirming(agentID: agentID, label: agent.label, confidence: confidence)
+            }
+        }
+    }
+
+    /// Return while a route is `.confirming`: sends. Returns false so `activateSelected` falls
+    /// through to its normal handling otherwise.
+    private func confirmRoutingIfPending() -> Bool {
+        guard case .confirming(let agentID, _, _) = routingState,
+              let agent = presentation.agents.first(where: { $0.id == agentID }) ?? snapshot?.agents.first(where: { $0.id == agentID })
+        else { return false }
+        send(to: agent)
+        return true
+    }
+
+    /// Return while a route is `.loading` ("Asking Jev…"): swallowed. Jev hasn't picked a target
+    /// agent yet, so a plain Return here must not fall through to the normal activate/switch path
+    /// (it would otherwise press whatever row happens to be highlighted — a surprising, unrelated
+    /// action firing mid-route). Named explicitly, mirroring `confirmRoutingIfPending()`, so both
+    /// in-flight `RoutingState` cases are handled the same deliberate way in `activateSelected`.
+    private func isRoutingLoading() -> Bool {
+        routingState == .loading
+    }
+
+    /// Hands `routingText` to the Message pipeline (its own pane guard, one-flight-per-agent
+    /// tracking, row labels and sticky note all apply unchanged), clears the route, and clears
+    /// the search box — even if the user kept typing into it while Jev thought (see `routingText`).
+    /// Runs through the same `MessageDraftValidator` the Message card's `pressSend()` uses first,
+    /// so pasted/typed newlines are flattened to spaces (never refused by the dashboard) and a
+    /// slash command or over-length draft is refused here, the same as it would be on that card,
+    /// rather than silently sent or dropped. A refusal keeps the typed text in the box, like any
+    /// other routing failure.
+    private func send(to agent: AgentSnapshot) {
+        routingEpoch += 1
+        routingState = nil
+        switch MessageDraftValidator.check(routingText) {
+        case .empty:
+            showAnswerNotice("Nothing to send.")
+        case .slashCommand:
+            showAnswerNotice(MessageDraftValidator.slashCommandHint)
+        case .tooLong(let over):
+            showAnswerNotice(MessageDraftValidator.tooLongHint(over: over))
+        case .ready(let text):
+            guard sendDirectMessage(to: agent, text: text) else { return }
+            query = ""
+        }
+    }
+
+    /// `message.sendDirect`, plus the "can't send" notice shared by every direct-send path —
+    /// Jev routing, Tab-tag compose, and the row menu's Compact/Clear (`RowActionPlan.sendQuickCommand`).
+    @discardableResult
+    private func sendDirectMessage(to agent: AgentSnapshot, text: String) -> Bool {
+        guard message.sendDirect(to: agent, text: text) else {
+            showAnswerNotice("Couldn't send to \(agent.label): it can no longer take a message.")
+            return false
+        }
+        return true
+    }
+
+    /// Esc while routing: cancels back to the plain search box (the typed text stays).
+    private func cancelRoutingIfActive() -> Bool {
+        guard routingState != nil else { return false }
+        routingEpoch += 1
+        routingState = nil
+        return true
+    }
+
+    // MARK: - Tag (Tab picks an explicit send target, an alternative to asking Jev)
+
+    /// Tab on a selected, message-eligible row: locks it as the send target. The search box keeps
+    /// working as a normal text field — typing fills it, Return sends to this agent instead of the
+    /// usual press/switch handling. One at a time, like `routingState`; nil the rest of the time.
+    @Published private(set) var taggedAgentID: String?
+
+    /// The tagged agent's label, for the "→ AgentName" indicator under the search box; nil once the
+    /// tag itself is nil, or if the agent has since vanished from both the shown list and the raw
+    /// snapshot (a moment `reconcileTag()` clears on the next status update anyway).
+    var taggedAgentLabel: String? {
+        taggedAgentID.flatMap { id in
+            (presentation.agents.first { $0.id == id } ?? snapshot?.agents.first { $0.id == id })?.label
+        }
+    }
+
+    /// Tab: tags the selected row if it can take a message (same eligibility `RowButtons` already
+    /// gates the Message button with). Re-tagging — arrow to another row, Tab again — just swaps the
+    /// target; typed text is untouched. Cancels an in-flight Jev route: the two are mutually
+    /// exclusive, and an explicit tag makes asking Jev redundant. No-op while a card is open, or
+    /// nothing selectable is message-eligible.
+    func tagSelected() {
+        guard !isCardOpen, let agent = selectedAgent, RowButtons.usableButtons(for: agent).contains(.message) else { return }
+        let wasRouting = cancelRoutingIfActive()
+        // Same as every card-opening path below: composing hides the list/peek area entirely
+        // (AgentPanelView, AgentPanelMetrics.isComposing), so a Peek left open behind the tag
+        // would render against a window sized as if nothing were shown.
+        closePeek()
+        // Only on the FIRST tag, and only if the box wasn't already a message-in-progress (Jev
+        // routing, just cancelled above, treats the box as the message to route — tagging instead
+        // is picking the target explicitly, not starting over). Otherwise whatever's in the box is
+        // just the search term used to find this row, not the start of a message, so it must not
+        // become one. Re-tagging (already composing, Tab to a different row) is a third case —
+        // that box already holds a drafted message, which must survive the target swap too (see
+        // `retaggingSwapsTheTargetWithoutTouchingTypedText`).
+        if taggedAgentID == nil, !wasRouting { query = "" }
+        taggedAgentID = agent.id
+    }
+
+    /// The chip's ✕ (`TagChipView` in `SearchFieldView`): same effect as Esc while tagged.
+    func removeTag() {
+        _ = cancelTagIfActive()
+    }
+
+    /// Esc while tagged: clears the tag, typed text stays. False when there was nothing to clear, so
+    /// Esc goes on to its other jobs (mirrors `cancelRoutingIfActive()`).
+    private func cancelTagIfActive() -> Bool {
+        guard taggedAgentID != nil else { return false }
+        taggedAgentID = nil
+        return true
+    }
+
+    /// Return while tagged: sends the box's text straight to the tagged agent through the same
+    /// guarded pipeline a Jev-routed send uses (`MessageCardModel.sendDirect` — pre-send pane
+    /// re-read, busy-agent confirmation, the lot), then clears the box and the tag. True whenever a
+    /// tag was pending (whether or not the send itself went through), so `activateSelected` never
+    /// falls through to its normal press/switch handling while tagged.
+    @discardableResult
+    private func sendToTaggedIfPending() -> Bool {
+        guard let agentID = taggedAgentID,
+              let agent = presentation.agents.first(where: { $0.id == agentID }) ?? snapshot?.agents.first(where: { $0.id == agentID })
+        else { return false }
+        switch MessageDraftValidator.check(query) {
+        case .empty:
+            showAnswerNotice("Nothing to send.")
+        case .slashCommand:
+            showAnswerNotice(MessageDraftValidator.slashCommandHint)
+        case .tooLong(let over):
+            showAnswerNotice(MessageDraftValidator.tooLongHint(over: over))
+        case .ready(let text):
+            guard sendDirectMessage(to: agent, text: text) else { return true }
+            query = ""
+            taggedAgentID = nil
+        }
+        return true
+    }
+
+    /// Every status update: the tagged agent may have stopped being message-eligible while the user
+    /// was still typing (finished, disconnected). Clears the tag and says so once, rather than let a
+    /// later Return silently fail against a stale target.
+    private func reconcileTag() {
+        guard let agentID = taggedAgentID else { return }
+        let agent = presentation.agents.first(where: { $0.id == agentID }) ?? snapshot?.agents.first(where: { $0.id == agentID })
+        guard let agent, RowButtons.usableButtons(for: agent).contains(.message) else {
+            taggedAgentID = nil
+            showAnswerNotice("\(agent?.label ?? "That agent") can no longer take a message — tag cleared.")
+            return
+        }
+    }
+
+    // MARK: - Routed notes (what a routed send left on the receiving row)
+
+    /// Newest first. Only the user clears one (`clearRoutedNote`); nothing here expires on its own.
+    @Published private(set) var routedNotesByAgentID: [String: [RoutedNote]] = [:]
+
+    /// The notes still on `agentID`'s row, newest first.
+    func routedNotes(for agentID: String) -> [RoutedNote] {
+        routedNotesByAgentID[agentID] ?? []
+    }
+
+    private func recordRoutedNote(agentID: String, text: String) {
+        var notes = routedNotesByAgentID[agentID] ?? []
+        notes.insert(RoutedNote(id: UUID(), text: text, sentAt: now()), at: 0)
+        routedNotesByAgentID[agentID] = notes
+        routedNoteStore.save(routedNotesByAgentID)
+    }
+
+    /// ✕ on a note: the only way one goes away.
+    func clearRoutedNote(_ noteID: UUID, for agentID: String) {
+        guard var notes = routedNotesByAgentID[agentID] else { return }
+        notes.removeAll { $0.id == noteID }
+        if notes.isEmpty { routedNotesByAgentID.removeValue(forKey: agentID) } else { routedNotesByAgentID[agentID] = notes }
+        routedNoteStore.save(routedNotesByAgentID)
+    }
+
+    /// An agent gone from the feed entirely (not merely `.ended`, which can still show briefly)
+    /// takes its notes with it — there is no row left to show them on. A dead feed reports no
+    /// agents at all, so it must never read as "everyone left" and wipe every note.
+    private func pruneRoutedNotes(keeping agents: [AgentSnapshot]) {
+        let liveIDs = Set(agents.map(\.id))
+        let staleIDs = routedNotesByAgentID.keys.filter { !liveIDs.contains($0) }
+        guard !staleIDs.isEmpty else { return }
+        for id in staleIDs { routedNotesByAgentID.removeValue(forKey: id) }
+        routedNoteStore.save(routedNotesByAgentID)
+    }
+
     /// What the user chose to show (Settings > List); changes apply at once.
     @Published private(set) var listSettings: AgentListSettings
 
@@ -88,6 +367,7 @@ final class AgentPanelModel: ObservableObject {
 
     private let store: FrecencyStore
     private let triageStore: TriageStore
+    private let routedNoteStore: RoutedNoteStore
     private let now: () -> Date
     private let completedHoldSeconds: TimeInterval
     private var frecency: [String: FrecencyEntry]
@@ -108,6 +388,7 @@ final class AgentPanelModel: ObservableObject {
     init(
         store: FrecencyStore = FrecencyStore(),
         triageStore: TriageStore = TriageStore(),
+        routedNoteStore: RoutedNoteStore = RoutedNoteStore(),
         listSettings: AgentListSettings = .standard,
         dashboardAddress: String = DashboardEndpoint(baseURL: DashboardEndpoint.defaultBaseURL).displayAddress,
         completedHoldSeconds: TimeInterval = 8,
@@ -125,12 +406,14 @@ final class AgentPanelModel: ObservableObject {
         self.blockerProbe = blockerProbe
         self.store = store
         self.triageStore = triageStore
+        self.routedNoteStore = routedNoteStore
         self.triage = triageStore.load()
         self.completedHoldSeconds = completedHoldSeconds
         self.listSettings = listSettings
         self.dashboardAddress = dashboardAddress
         self.now = now
         self.frecency = store.load(now: now())
+        self.routedNotesByAgentID = routedNoteStore.load()
         wireAnswerCard()
         wirePermissionCard()
         wireMessageCard()
@@ -161,6 +444,7 @@ final class AgentPanelModel: ObservableObject {
         message.onNotice = { [weak self] sentence in self?.showAnswerNotice(sentence) }
         message.onReleaseKeyboard = { [weak self] in self?.focusRequest += 1 }
         message.consumeEscape = { [weak self] in self?.dismissFooterNotice() ?? false }
+        message.onSentDirect = { [weak self] agentID, text in self?.recordRoutedNote(agentID: agentID, text: text) }
     }
 
     private func wireBlockerProbe() {
@@ -201,7 +485,16 @@ final class AgentPanelModel: ObservableObject {
         settleRowActions()
         closePeekUnlessStillSelected()
         reconcileAnswerCard()
-        if !snapshot.health.isDown { blockerProbe.observe(snapshot.agents) }
+        // Same care `pruneRoutedNotes`/`blockerProbe.observe` already take below: a dead feed's
+        // `agents` is contractually empty (`StatusSnapshot.health.isDown`), so reconciling the tag
+        // against it unconditionally would misread "feed blipped" as "the agent left" and clear a
+        // perfectly good tag mid-compose. Skip it during an outage; the next healthy reading catches
+        // a genuine departure just as well.
+        if !snapshot.health.isDown {
+            reconcileTag()
+            blockerProbe.observe(snapshot.agents)
+            pruneRoutedNotes(keeping: snapshot.agents)
+        }
     }
 
     /// New list settings: re-derive the list, keeping the selection while it survives.
@@ -232,6 +525,14 @@ final class AgentPanelModel: ObservableObject {
         answer.reset()
         permission.reset()
         message.reset()
+        // Same unconditional reset its siblings above do (`message.reset()` always bumps its own
+        // epoch, whether or not a send was in flight): a route started against the old dashboard
+        // must never be actable once the feed has switched, even if a reply lands with a coincidentally
+        // matching epoch and `routingState` back to `.loading` from a route against the new one.
+        routingState = nil
+        routingText = ""
+        routingEpoch += 1
+        taggedAgentID = nil
     }
 
     /// Fresh start for each summon: empty search, first row selected.
@@ -242,6 +543,11 @@ final class AgentPanelModel: ObservableObject {
         message.close()
         copier.clearFeedback()
         cancelConfirmations()
+        // Bumps `routingEpoch` when it walks away from an active route, same as `cancelRoutingIfActive()`
+        // (Esc) — otherwise a route started again after this summon reuses the same epoch, and a reply
+        // from the abandoned route can pass `finishRouting`'s `epoch == routingEpoch` check and hijack it.
+        _ = cancelRoutingIfActive()
+        taggedAgentID = nil
         query = ""
         rebuild()
         selectedAgentID = presentation.selectableAgentIDs.first
@@ -292,7 +598,11 @@ final class AgentPanelModel: ObservableObject {
             return true
         }
         if message.isOpen { return true }
-        guard query.isEmpty else { return false }
+        // While tagged the search box is a compose field: Space must always type a literal space
+        // (the box is usually non-empty by then anyway, which already falls through below — but
+        // right after tagging, before anything is typed, `query` is still empty and this would
+        // otherwise open the pane peek on the very first keystroke).
+        guard taggedAgentID == nil, query.isEmpty else { return false }
         if peek != nil {
             closePeek()
         } else {
@@ -336,6 +646,8 @@ final class AgentPanelModel: ObservableObject {
     /// Allow always) must not be confirmed by the same finger still being down.
     func activateSelected(isKeyRepeat: Bool = false) {
         guard !isKeyRepeat else { return }
+        if confirmRoutingIfPending() { return }
+        if isRoutingLoading() { return }
         if answer.isOpen {
             answer.handle(.enter)
             return
@@ -348,6 +660,7 @@ final class AgentPanelModel: ObservableObject {
             message.pressSend()
             return
         }
+        if sendToTaggedIfPending() { return }
         guard let selectedAgentID else { return }
         if let highlightedButton {
             press(highlightedButton, on: selectedAgentID)
@@ -356,7 +669,15 @@ final class AgentPanelModel: ObservableObject {
         }
     }
 
+    /// The mouse-click path to switching agents (`AgentListView`'s `.onTapGesture`) — a second,
+    /// independent entry point from `activateSelected`'s keyboard Return. Ignored while a route is
+    /// pending (`.loading` or `.confirming`): the same "nothing else should fire mid-route" rule
+    /// `activateSelected` applies to Return must hold here too, or a click bypasses it entirely.
+    /// Both states are swallowed the same way (matching `isRoutingLoading()`'s no-op precedent)
+    /// rather than letting a click confirm a route meant for the row Jev picked, not the row the
+    /// user happened to click — confirming stays Return's job alone.
     func activate(agentID: String) {
+        guard routingState == nil else { return }
         guard presentation.selectableAgentIDs.contains(agentID),
               let agent = presentation.agents.first(where: { $0.id == agentID })
         else { return }
@@ -393,6 +714,11 @@ final class AgentPanelModel: ObservableObject {
     /// confirmation). False when there was nothing to back out of, so Esc
     /// goes on to close the peek / panel.
     func backOutOfButtons() -> Bool {
+        if cancelRoutingIfActive() { return true }
+        // A card takes precedence over an (invisible, background) tag: `press(_:on:)` already
+        // clears the tag the moment a card opens, but this ordering is the same belt-and-suspenders
+        // rule `activateSelected()` already applies (its card checks precede `sendToTaggedIfPending()`
+        // too) — Esc must close what the user is actually looking at.
         if answer.isOpen {
             answer.handle(.escape)   // to the list; ignored while an answer is being sent
             return true
@@ -405,6 +731,7 @@ final class AgentPanelModel: ObservableObject {
             message.handleEscape()   // back to the list; ignored while the message is being sent
             return true
         }
+        if cancelTagIfActive() { return true }
         guard let selectedAgentID else { return false }
         let confirming = isConfirming(selectedAgentID)
         guard highlightedButton != nil || confirming else { return false }
@@ -419,7 +746,7 @@ final class AgentPanelModel: ObservableObject {
     @discardableResult
     func press(_ button: RowButton, on agentID: String) -> Task<Void, Never>? {
         guard let agent = presentation.agents.first(where: { $0.id == agentID }),
-              usableButtons(for: agent).contains(button) else { return nil }
+              isPressable(button, on: agent) else { return nil }
         switch RowActionMachine.plan(pressing: button, current: rowActionStates[agentID]) {
         case .ignore:
             return nil
@@ -432,6 +759,7 @@ final class AgentPanelModel: ObservableObject {
         case .openAnswer:
             selectedAgentID = agentID
             closePeek()
+            taggedAgentID = nil   // a card taking over the keyboard must not leave a tag lingering behind it
             permission.close()
             message.close()
             answer.open(agent)
@@ -439,6 +767,7 @@ final class AgentPanelModel: ObservableObject {
         case .openReview:
             selectedAgentID = agentID
             closePeek()
+            taggedAgentID = nil
             answer.close()
             message.close()
             permission.open(agent)
@@ -446,6 +775,7 @@ final class AgentPanelModel: ObservableObject {
         case .openMessage:
             selectedAgentID = agentID
             closePeek()
+            taggedAgentID = nil
             answer.close()
             permission.close()
             message.open(agent)
@@ -453,9 +783,21 @@ final class AgentPanelModel: ObservableObject {
         case .openTerminal:
             onActivate(agent)
             return nil
+        case .sendQuickCommand(let text):
+            sendDirectMessage(to: agent, text: text)
+            return nil
         case .send(let kind, let confirmed):
             return send(kind, confirmed: confirmed, button: button, agent: agent)
         }
+    }
+
+    /// `button` is currently something `agent`'s row would let the user act on right now —
+    /// whichever surface it lives on (its capsule strip or the ⋯ menu, `RowButtons.isPressable`) —
+    /// and the row is not mid-flight on some other send (no actions while a spinner or a
+    /// "Message sent" label is showing in their place).
+    private func isPressable(_ button: RowButton, on agent: AgentSnapshot) -> Bool {
+        guard sendingLabel(for: agent) == nil, sentLabel(for: agent) == nil else { return false }
+        return RowButtons.isPressable(button, on: agent)
     }
 
     private func setParked(_ isParked: Bool, agentID: String) {
@@ -531,7 +873,9 @@ final class AgentPanelModel: ObservableObject {
         let agentsByID = Dictionary(presentation.agents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         rowActionStates = rowActionStates.filter { id, state in
             guard let agent = agentsByID[id] else { return false }
-            if case .completed(let button) = state { return RowButtons.usableButtons(for: agent).contains(button) }
+            // Done/Close pane live in the ⋯ menu now, not `usableButtons` — `isPressable` still
+            // finds them there, so "still completed" keeps meaning "the dashboard hasn't caught up yet".
+            if case .completed(let button) = state { return RowButtons.isPressable(button, on: agent) }
             return true
         }
         if let agent = selectedAgent {
@@ -692,6 +1036,16 @@ final class AgentPanelModel: ObservableObject {
         case .questionLoading?, .questionNotAnswerable?, .permission?, nil:
             return false
         }
+    }
+
+    /// The answer the user just sent for `agentID` is still on its way (or waiting for the dashboard to
+    /// catch up): the corner puts itself away instead of showing a pill about it.
+    func isAnswerBeingSent(agentID: String) -> Bool {
+        guard let snapshot,
+              let agent = AgentListBuilder.shownAgents(in: snapshot, settings: listSettings, triage: triage)
+                .first(where: { $0.id == agentID })
+        else { return false }
+        return answer.isAwaiting(agent)
     }
 
     /// The corner left card mode (a second agent became blocked, the sole one was dealt with, or

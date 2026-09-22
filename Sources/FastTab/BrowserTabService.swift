@@ -986,8 +986,7 @@ class BrowserTabService: ObservableObject {
                     let prioritizedTabs = allQuickOpenTabs(from: filteredLiveTabs)
                     let filteredPrioritized = self.filteringRecentlyClosed(prioritizedTabs)
                     let dedupedPrioritized = deduplicatingSamePages(filteredPrioritized, frecencyScore: { _ in 0 })
-                    let sentLinks = SentLinkInbox.shared.asSearchResults()
-                    let combinedQuickOpen = sortQuickOpenResults(sentLinks + dedupedPrioritized)
+                    let combinedQuickOpen = sortQuickOpenResults(dedupedPrioritized)
 
                     self.lastActiveTimes = updatedTimes
                     self.lastAudibleSeenAt = updatedAudibleSeenAt
@@ -1002,7 +1001,7 @@ class BrowserTabService: ObservableObject {
                     self.duplicateTabCount = Self.duplicateTabCount(in: filteredLiveTabs)
                     self.hasFetchedOpenTabCount = true
                     self.isLoading = false
-                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) sentLinks=\(sentLinks.count) quickOpenTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
+                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) quickOpenTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
                     SyncService.shared.updateLiveTabs(filteredLiveTabs)
                     self.refreshCachesIfNeeded(force: false)
                 }
@@ -1413,8 +1412,7 @@ class BrowserTabService: ObservableObject {
 
                 let prioritizedTabs = allQuickOpenTabs(from: authoritativeTabs)
                 let dedupedPrioritized = deduplicatingSamePages(prioritizedTabs, frecencyScore: { _ in 0 })
-                let sentLinks = SentLinkInbox.shared.asSearchResults()
-                let combined = sortQuickOpenResults(sentLinks + dedupedPrioritized)
+                let combined = sortQuickOpenResults(dedupedPrioritized)
 
                 self.cachedQuickOpenResults = combined
                 self.cachedQuickOpenSourceAppBundleIdentifier = sourceAppBundleIdentifier
@@ -1615,8 +1613,7 @@ class BrowserTabService: ObservableObject {
         let prioritizedTabs = allQuickOpenTabs(from: filteredLiveTabs)
         let filteredPrioritized = filteringRecentlyClosed(prioritizedTabs)
         let dedupedPrioritized = deduplicatingSamePages(filteredPrioritized, frecencyScore: { _ in 0 })
-        let sentLinks = SentLinkInbox.shared.asSearchResults()
-        let combinedQuickOpen = sortQuickOpenResults(sentLinks + dedupedPrioritized)
+        let combinedQuickOpen = sortQuickOpenResults(dedupedPrioritized)
         results = combinedQuickOpen
         cachedQuickOpenResults = combinedQuickOpen
     }

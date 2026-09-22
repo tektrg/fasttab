@@ -237,6 +237,14 @@ function onNativeMessage(msg) {
     case 'setPinned':
       handleSetPinned(p.requestID, p.tabId, !!p.pinned);
       break;
+    case 'verifyTab':
+      // Read-only existence check for the phantom-twin audit: answers whether
+      // tabId still exists in the browser without touching it. Missing IDs
+      // reject with "No tab with id", which the app already recognizes as an
+      // authoritative purge signal. Unknown commands are ignored by older app
+      // versions, and vice versa — the app treats a timeout as inconclusive.
+      handleVerifyTab(p.requestID, p.tabId);
+      break;
     case 'deleteBookmark':
       handleDeleteBookmark(p.requestID, p.bookmarkId, p.url);
       break;
@@ -298,8 +306,16 @@ async function handleSetMuted(requestID, tabId, muted) {
   }
 }
 
-async function handleSetPinned(requestID, tabId, pinned) {
+async function handleVerifyTab(requestID, tabId) {
   try {
+    const tab = await chrome.tabs.get(tabId);
+    sendResponse('commandResult', { requestID, ok: true, url: tab.url, title: tab.title });
+  } catch (e) {
+    sendResponse('commandResult', { requestID, ok: false, error: String(e) });
+  }
+}
+
+async function handleSetPinned(requestID, tabId, pinned) {  try {
     if (pinned) {
       const tab = await chrome.tabs.get(tabId);
       if (tab && tab.groupId !== undefined && tab.groupId > -1) {

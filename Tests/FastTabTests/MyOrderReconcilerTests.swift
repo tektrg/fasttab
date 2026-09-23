@@ -719,6 +719,127 @@ struct MyOrderReconcilerTests {
         #expect(result.slots.count == 1, "Only 1 slot must survive when browser has 1 tab")
         #expect(result.slots[0].boundTabID == 484804868)
     }
+
+    @Test func rung1IDMatchRequiresURLMatch() {
+        // Slot bound to tab 101 at url A. Tab 101 has since navigated to url B
+        // (or the ID was recycled) while url A lives on under tab 102. The
+        // slot must re-bind ("update") to 102 via URL match, not latch onto
+        // 101 by stale ID.
+        let slot = OrderedTabSlot(
+            slotID: UUID(),
+            url: "https://a.com/page",
+            title: "Page A",
+            browserName: "Google Chrome",
+            boundTabID: 101,
+            windowIndex: 1,
+            tabIndex: 1
+        )
+        let movedTab = makeTab(title: "Page B", url: "https://b.com/other", browser: "Google Chrome", tabID: 101, win: 1, tabIndex: 1)
+        let correctTab = makeTab(title: "Page A", url: "https://a.com/page", browser: "Google Chrome", tabID: 102, win: 1, tabIndex: 2)
+
+        let result = MyOrderReconciler.reconcile(
+            currentSlots: [slot],
+            liveTabs: [movedTab, correctTab],
+            runningBrowsers: ["Google Chrome"],
+            pendingCloses: []
+        )
+
+        #expect(result.slots.count == 1)
+        #expect(result.slots[0].boundTabID == 102)
+        #expect(result.slots[0].url == "https://a.com/page")
+    }
+
+    @Test func rung1StillBindsWhenIDAndURLAgree() {
+        let slot = OrderedTabSlot(
+            slotID: UUID(),
+            url: "https://a.com/page",
+            title: "Page A",
+            browserName: "Google Chrome",
+            boundTabID: 101,
+            windowIndex: 1,
+            tabIndex: 1
+        )
+        let liveTab = makeTab(title: "Page A", url: "https://a.com/page", browser: "Google Chrome", tabID: 101, win: 1, tabIndex: 1)
+
+        let result = MyOrderReconciler.reconcile(
+            currentSlots: [slot],
+            liveTabs: [liveTab],
+            runningBrowsers: ["Google Chrome"],
+            pendingCloses: []
+        )
+
+        #expect(result.slots.count == 1)
+        #expect(result.slots[0].state == .live)
+        #expect(result.slots[0].boundTabID == 101)
+    }
+
+    @Test func twinSuspectsFlagsSamePageUnderDifferentIDs() {
+        // The Teams phantom shape: same URL, different titles (stale vs
+        // current), different bound IDs, both live.
+        let stale = OrderedTabSlot(
+            slotID: UUID(),
+            url: "https://teams.cloud.microsoft/",
+            title: "(1) Calendar | Bill Hurder | Microsoft Teams",
+            browserName: "Microsoft Edge",
+            state: .live,
+            boundTabID: 484806471,
+            windowIndex: 1,
+            tabIndex: 16
+        )
+        let live = OrderedTabSlot(
+            slotID: UUID(),
+            url: "https://teams.cloud.microsoft/",
+            title: "Calendar | Sync up | Microsoft Teams",
+            browserName: "Microsoft Edge",
+            state: .live,
+            boundTabID: 484808712,
+            windowIndex: 1,
+            tabIndex: 20
+        )
+
+        let suspects = MyOrderReconciler.findTwinSuspects(in: [stale, live])
+        #expect(suspects.count == 1)
+        #expect(suspects[0].browserName == "Microsoft Edge")
+        #expect(suspects[0].tabIDs == [484806471, 484808712])
+    }
+
+    @Test func twinSuspectsIgnoresProfilesGhostsAndDistinctPages() {
+        let work = OrderedTabSlot(
+            slotID: UUID(), url: "https://a.com", title: "A",
+            browserName: "Google Chrome", profileName: "Work",
+            state: .live, boundTabID: 1
+        )
+        let personal = OrderedTabSlot(
+            slotID: UUID(), url: "https://a.com", title: "A",
+            browserName: "Google Chrome", profileName: "Personal",
+            state: .live, boundTabID: 2
+        )
+        let ghost = OrderedTabSlot(
+            slotID: UUID(), url: "https://a.com", title: "A",
+            browserName: "Google Chrome",
+            state: .ghost, boundTabID: nil, isPinned: true
+        )
+        let otherPage = OrderedTabSlot(
+            slotID: UUID(), url: "https://b.com", title: "B",
+            browserName: "Google Chrome",
+            state: .live, boundTabID: 3
+        )
+        let sameID = OrderedTabSlot(
+            slotID: UUID(), url: "https://c.com", title: "C",
+            browserName: "Google Chrome",
+            state: .live, boundTabID: 4
+        )
+        let sameIDAgain = OrderedTabSlot(
+            slotID: UUID(), url: "https://c.com", title: "C copy",
+            browserName: "Google Chrome",
+            state: .live, boundTabID: 4
+        )
+
+        #expect(MyOrderReconciler.findTwinSuspects(in: [work, personal]).isEmpty)
+        #expect(MyOrderReconciler.findTwinSuspects(in: [work, ghost]).isEmpty)
+        #expect(MyOrderReconciler.findTwinSuspects(in: [work, otherPage]).isEmpty)
+        #expect(MyOrderReconciler.findTwinSuspects(in: [sameID, sameIDAgain]).isEmpty)
+    }
 }
 
 

@@ -22,6 +22,41 @@ struct PendingSlotClose: Codable, Equatable, Sendable {
 }
 
 enum MyOrderReconciler {
+    /// Two (or more) live slots claiming the same page in the same browser
+    /// and profile under different tab IDs. One of them is normally a phantom
+    /// twin (stale pre-replacement ID the extension mirror kept next to the
+    /// live one); legit same-URL duplicates (two SPA views, two profiles)
+    /// are separated by the profile scope and by the browser-side verify step,
+    /// never collapsed blindly.
+    struct TwinSuspect: Sendable, Equatable {
+        let browserName: String
+        let canonicalURL: String
+        /// Distinct bound tab IDs claiming the page, ascending (oldest first —
+        /// the audit verifies the older twins before the newest).
+        let tabIDs: [Int]
+    }
+
+    /// Finds live slots that need a browser-side existence check: same
+    /// browser + profile + canonical URL, distinct bound tab IDs. Pure so the
+    /// audit trigger stays testable without IPC.
+    static func findTwinSuspects(in slots: [OrderedTabSlot]) -> [TwinSuspect] {
+        var idsByKey: [String: (browser: String, canonical: String, ids: Set<Int>)] = [:]
+        for slot in slots {
+            guard slot.state == .live, let tabID = slot.boundTabID else { continue }
+            let canonical = canonicalURL(slot.url)
+            guard !canonical.isEmpty else { continue }
+            let key = "\(slot.browserName)|\(slot.profileName ?? "")|\(canonical)"
+            if idsByKey[key] == nil {
+                idsByKey[key] = (slot.browserName, canonical, [])
+            }
+            idsByKey[key]?.ids.insert(tabID)
+        }
+        return idsByKey.values
+            .filter { $0.ids.count > 1 }
+            .map { TwinSuspect(browserName: $0.browser, canonicalURL: $0.canonical, tabIDs: $0.ids.sorted()) }
+            .sorted { $0.browserName < $1.browserName }
+    }
+
     static func canonicalURL(_ url: String) -> String {
         var norm = Frecency.normalizeURL(url)
         while norm.count > 1 && norm.hasSuffix("/") {
@@ -401,10 +436,19 @@ enum MyOrderReconciler {
         liveCountByBrowser: [String: Int],
         currentSlotCountByBrowser: [String: Int]
     ) -> Int? {
-        // Rung 1: Browser + stable tab ID
+        // Rung 1: Browser + stable tab ID, cross-checked against the slot URL.
+        // A bare ID match is not trusted on its own: Chromium reuses tab IDs
+        // after closes/replacements, and a stale extension record can keep a
+        // retired ID alive next to the live one. When the ID-matched tab's URL
+        // no longer matches the slot, fall through to Rung 2 so the slot
+        // re-binds ("updates") to the correct tab instead of latching onto a
+        // phantom or an unrelated tab that recycled the ID.
         if let boundID = slot.boundTabID {
             if let idx = liveTabs.indices.first(where: { !usedIndices.contains($0) && liveTabs[$0].browserName == slot.browserName && liveTabs[$0].tabID == boundID }) {
-                return idx
+                let tab = liveTabs[idx]
+                if urlsMatch(tab.url, slot.url) || urlsMatch(tab.url, slot.matchKey) {
+                    return idx
+                }
             }
         }
 

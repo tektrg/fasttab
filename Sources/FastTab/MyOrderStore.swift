@@ -22,6 +22,11 @@ final class MyOrderStore: ObservableObject {
     var tabActivator: ((BrowserSearchResult) -> Void)?
     var tabReopener: ((BrowserSearchResult) -> Void)?
     var tabPinner: ((BrowserSearchResult, Bool) -> Void)?
+    /// Called with the post-reconcile slot list so the owner (BrowserTabService)
+    /// can run the phantom-twin audit — a browser-side existence check for live
+    /// slots sharing one page under different tab IDs. Same fire-and-forget
+    /// pattern as the other hooks; the audit throttles and re-reconciles itself.
+    var twinAuditor: (([OrderedTabSlot]) -> Void)?
     private var tombstoneCanceller: ((String, String) -> Void)?
     private var tabOrderSyncer: (([OrderedTabSlot]) -> Void)?
 
@@ -92,6 +97,7 @@ final class MyOrderStore: ObservableObject {
         self.slots = result.slots
         self.pendingCloses = result.remainingPendingCloses
         schedulePersist()
+        twinAuditor?(result.slots)
     }
 
     func reorderSlot(from sourceIndex: Int, to destinationIndex: Int) {

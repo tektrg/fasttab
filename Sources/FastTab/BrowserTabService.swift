@@ -99,6 +99,10 @@ class BrowserTabService: ObservableObject {
     // close-tab paths still persist immediately.
     private let pollPersistInterval: TimeInterval = 60
     private var lastPollPersistAt: Date = .distantPast
+    // Throttle for the phantom-twin audit (browser-side existence checks are
+    // native-messaging round-trips — cheap, but pointless more than ~1/min).
+    private let twinAuditInterval: TimeInterval = 60
+    private var lastTwinAuditAt: Date = .distantPast
 
     init() {
         let enabled = SourceSelectionStore.shared.enabled
@@ -141,6 +145,7 @@ class BrowserTabService: ObservableObject {
         logger.info("BrowserTabService init. backends=\(backendAppNames.joined(separator: ","), privacy: .public) frecencyEntries=\(self.frecency.count)")
         startActiveTabPoll()
         observeExtensionTabEvents()
+        MyOrderStore.shared.twinAuditor = { [weak self] slots in self?.auditTwinTabs(slots) }
     }
 
     /// Wires the extension's real-time tab-activation events into frecency
@@ -986,8 +991,7 @@ class BrowserTabService: ObservableObject {
                     let prioritizedTabs = allQuickOpenTabs(from: filteredLiveTabs)
                     let filteredPrioritized = self.filteringRecentlyClosed(prioritizedTabs)
                     let dedupedPrioritized = deduplicatingSamePages(filteredPrioritized, frecencyScore: { _ in 0 })
-                    let sentLinks = SentLinkInbox.shared.asSearchResults()
-                    let combinedQuickOpen = sortQuickOpenResults(sentLinks + dedupedPrioritized)
+                    let combinedQuickOpen = sortQuickOpenResults(dedupedPrioritized)
 
                     self.lastActiveTimes = updatedTimes
                     self.lastAudibleSeenAt = updatedAudibleSeenAt
@@ -1002,7 +1006,7 @@ class BrowserTabService: ObservableObject {
                     self.duplicateTabCount = Self.duplicateTabCount(in: filteredLiveTabs)
                     self.hasFetchedOpenTabCount = true
                     self.isLoading = false
-                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) sentLinks=\(sentLinks.count) quickOpenTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
+                    self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) quickOpenTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
                     SyncService.shared.updateLiveTabs(filteredLiveTabs)
                     self.refreshCachesIfNeeded(force: false)
                 }
@@ -1348,8 +1352,60 @@ class BrowserTabService: ObservableObject {
         duplicateTabCount = Self.duplicateTabCount(in: cachedLiveTabs)
     }
 
-    private func removeFirstTab(in list: inout [BrowserSearchResult], browserName: String, url: String, tabID: Int? = nil) {
-        if let tabID, let idx = list.firstIndex(where: { $0.type == .tab && $0.browserName == browserName && $0.tabID == tabID }) {
+    /// Phantom-twin audit — the "check the match" half of slot↔browser-tab
+    /// reconciliation. When two live records claim the same page under
+    /// different tab IDs (stale pre-replacement ID kept next to the live one),
+    /// slot-level matching cannot tell them apart: both carry the same URL, so
+    /// a URL check passes for both. The only authority is the browser itself,
+    /// so the older twin(s) get a read-only `chrome.tabs.get` existence check.
+    /// `.missing` means the browser denied the ID (its record was already
+    /// purged from every connection by the shared command-result path) — the
+    /// stale rows are dropped and slots re-reconcile ("close"). `.exists`
+    /// means a legit same-URL duplicate (two SPA views) — kept. `.unknown`
+    /// (timeout, older extension) is inconclusive — kept, retried next window.
+    /// Runs off-main (the check blocks on a native-messaging round-trip) and
+    /// at most once per `twinAuditInterval`.
+    private func auditTwinTabs(_ slots: [OrderedTabSlot]) {
+        guard ExtensionBetaPreference.isEnabled else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastTwinAuditAt) > twinAuditInterval else { return }
+        let suspects = MyOrderReconciler.findTwinSuspects(in: slots)
+        guard !suspects.isEmpty else { return }
+        lastTwinAuditAt = now
+        logger.info("twin audit start. groups=\(suspects.count)")
+        Task.detached(priority: .utility) { [weak self] in
+            var purged: [(browserName: String, tabID: Int)] = []
+            for suspect in suspects {
+                // Newest ID is presumed live; verify the older twins.
+                for tabID in suspect.tabIDs.dropLast() {
+                    let verdict = ExtensionBridge.shared.verifyTabExists(
+                        appName: suspect.browserName, tabID: tabID, timeout: 2.0
+                    )
+                    if verdict == .missing {
+                        purged.append((suspect.browserName, tabID))
+                    }
+                }
+            }
+            guard !purged.isEmpty else { return }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                for victim in purged {
+                    self.logger.info("twin audit purge. app=\(victim.browserName, privacy: .public) tabID=\(victim.tabID)")
+                    self.removeFirstTab(in: &self.results, browserName: victim.browserName, url: "", tabID: victim.tabID)
+                    self.removeFirstTab(in: &self.cachedQuickOpenResults, browserName: victim.browserName, url: "", tabID: victim.tabID)
+                    self.removeFirstTab(in: &self.cachedLiveTabs, browserName: victim.browserName, url: "", tabID: victim.tabID)
+                }
+                self.openTabCount = self.cachedLiveTabs.count
+                self.duplicateTabCount = Self.duplicateTabCount(in: self.cachedLiveTabs)
+                MyOrderStore.shared.reconcile(liveTabs: self.cachedLiveTabs)
+                if self.lastIssuedQuery.isEmpty {
+                    self.rebuildQuickOpenResults()
+                }
+            }
+        }
+    }
+
+    private func removeFirstTab(in list: inout [BrowserSearchResult], browserName: String, url: String, tabID: Int? = nil) {        if let tabID, let idx = list.firstIndex(where: { $0.type == .tab && $0.browserName == browserName && $0.tabID == tabID }) {
             list.remove(at: idx)
             return
         }
@@ -1413,8 +1469,7 @@ class BrowserTabService: ObservableObject {
 
                 let prioritizedTabs = allQuickOpenTabs(from: authoritativeTabs)
                 let dedupedPrioritized = deduplicatingSamePages(prioritizedTabs, frecencyScore: { _ in 0 })
-                let sentLinks = SentLinkInbox.shared.asSearchResults()
-                let combined = sortQuickOpenResults(sentLinks + dedupedPrioritized)
+                let combined = sortQuickOpenResults(dedupedPrioritized)
 
                 self.cachedQuickOpenResults = combined
                 self.cachedQuickOpenSourceAppBundleIdentifier = sourceAppBundleIdentifier
@@ -1615,8 +1670,7 @@ class BrowserTabService: ObservableObject {
         let prioritizedTabs = allQuickOpenTabs(from: filteredLiveTabs)
         let filteredPrioritized = filteringRecentlyClosed(prioritizedTabs)
         let dedupedPrioritized = deduplicatingSamePages(filteredPrioritized, frecencyScore: { _ in 0 })
-        let sentLinks = SentLinkInbox.shared.asSearchResults()
-        let combinedQuickOpen = sortQuickOpenResults(sentLinks + dedupedPrioritized)
+        let combinedQuickOpen = sortQuickOpenResults(dedupedPrioritized)
         results = combinedQuickOpen
         cachedQuickOpenResults = combinedQuickOpen
     }

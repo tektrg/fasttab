@@ -340,22 +340,20 @@ extension ContentView {
                     }
                 }
 
-                // ⌥↑/⌥↓: reorder row in My Order
+                // ⌥↑/⌥↓: reorder row in My Order (sent-link rows lead the list and never move)
                 if appState.isVisible, userModifiers == [.option], viewStore.activeView == .myOrder, searchText.isEmpty {
+                    let offset = myOrderSlotIndexOffset
+                    let slotIdx = appState.selectedIndex - offset
                     if event.keyCode == 126 { // Up arrow
-                        if appState.selectedIndex > 0 {
-                            let fromIdx = appState.selectedIndex
-                            let toIdx = fromIdx - 1
-                            myOrderStore.reorderSlot(from: fromIdx, to: toIdx)
-                            appState.selectedIndex = toIdx
+                        if slotIdx > 0 {
+                            myOrderStore.reorderSlot(from: slotIdx, to: slotIdx - 1)
+                            appState.selectedIndex -= 1
                             return nil
                         }
                     } else if event.keyCode == 125 { // Down arrow
-                        if appState.selectedIndex >= 0, appState.selectedIndex < myOrderStore.slots.count - 1 {
-                            let fromIdx = appState.selectedIndex
-                            let toIdx = fromIdx + 1
-                            myOrderStore.reorderSlot(from: fromIdx, to: toIdx)
-                            appState.selectedIndex = min(toIdx, max(0, myOrderStore.slots.count - 1))
+                        if slotIdx >= 0, slotIdx < myOrderStore.slots.count - 1 {
+                            myOrderStore.reorderSlot(from: slotIdx, to: slotIdx + 1)
+                            appState.selectedIndex += 1
                             return nil
                         }
                     }

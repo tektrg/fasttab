@@ -794,34 +794,26 @@ func sortQuickOpenTabs(_ tabs: [BrowserSearchResult]) -> [BrowserSearchResult] {
     }
 }
 
-/// Combines sent inbox links and live tabs for Quick Open / Recents display.
-/// Sent inbox items appear first (tier -1), followed by live tabs sorted by raw recency.
+/// Orders items for Quick Open / Recents: live tabs by raw recency, then
+/// bookmarks, then history. iPhone-sent links (`.sent`) are deliberately left
+/// out — they live in the My Order view, so an unopened backlog can never push
+/// the tab you were just using out of the short Recents list.
 func sortQuickOpenResults(_ items: [BrowserSearchResult]) -> [BrowserSearchResult] {
-    if items.count <= 1 { return items }
-    var sent: [BrowserSearchResult] = []
+    if items.count <= 1 { return items.filter { $0.type != .sent } }
     var tabs: [BrowserSearchResult] = []
     var bookmarks: [BrowserSearchResult] = []
     var history: [BrowserSearchResult] = []
     for item in items {
         switch item.type {
-        case .sent: sent.append(item)
+        case .sent: continue
         case .tab: tabs.append(item)
         case .bookmark: bookmarks.append(item)
         case .history: history.append(item)
         }
     }
-    let sortedSent = sent.sorted { $0.timestamp > $1.timestamp }
-    let sortedTabs = sortQuickOpenTabs(tabs)
-    let sortedBookmarks = bookmarks.sorted { $0.timestamp > $1.timestamp }
-    let sortedHistory = history.sorted { $0.timestamp > $1.timestamp }
-
-    var out: [BrowserSearchResult] = []
-    out.reserveCapacity(sortedSent.count + sortedTabs.count + sortedBookmarks.count + sortedHistory.count)
-    out.append(contentsOf: sortedSent)
-    out.append(contentsOf: sortedTabs)
-    out.append(contentsOf: sortedBookmarks)
-    out.append(contentsOf: sortedHistory)
-    return out
+    return sortQuickOpenTabs(tabs)
+        + bookmarks.sorted { $0.timestamp > $1.timestamp }
+        + history.sorted { $0.timestamp > $1.timestamp }
 }
 
 func allQuickOpenTabs(from results: [BrowserSearchResult]) -> [BrowserSearchResult] {

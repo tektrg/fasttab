@@ -669,4 +669,13 @@ import Testing
         #expect(deduped.count == 1, "Sleeping tab and waking tab for same URL in same window must collapse even if tabID and tabIndex differ")
         #expect(deduped.first?.tabID == 484804868, "Waking/active tab should win over discarded tab")
     }
+
+    @Test func isNoSuchTabErrorRecognizesAuthoritativeMissing() {
+        #expect(ExtensionBridge.isNoSuchTabError("No tab with id: 484806471"))
+        #expect(ExtensionBridge.isNoSuchTabError("No tab with id"))
+        #expect(ExtensionBridge.isNoSuchTabError("tab not found"))
+        #expect(!ExtensionBridge.isNoSuchTabError(""))
+        #expect(!ExtensionBridge.isNoSuchTabError("timeout"))
+        #expect(!ExtensionBridge.isNoSuchTabError("port closed"))
+    }
 }

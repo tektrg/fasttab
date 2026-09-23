@@ -77,6 +77,17 @@ struct ExtensionTabRecord: Sendable {
     }
 }
 
+/// Outcome of asking the browser whether a tab ID still exists there.
+/// `.missing` is authoritative (the browser said "No tab with id") and safe
+/// to purge on. `.unknown` covers timeouts, dropped connections, and older
+/// extensions that ignore the verify command — inconclusive, must never
+/// purge: treating it as missing would hide real tabs.
+enum TabVerifyResult: Sendable, Equatable {
+    case exists
+    case missing
+    case unknown
+}
+
 /// Synchronous, immutable snapshot read the decorator uses on the hot path.
 /// Produced under the bridge's lock so a `BrowserBackend` call never waits on
 /// the network.
@@ -93,6 +104,10 @@ protocol ExtensionBridgeServing: Sendable {
     func sendCommand(appName: String, type: String, tabID: Int, extraPayload: [String: Any], timeout: TimeInterval) -> Bool
     func sendBrowserCommand(appName: String, type: String, payload: [String: Any], timeout: TimeInterval) -> Bool
     func deleteBookmark(appName: String, id: String?, url: String?) -> Bool
+    /// Read-only existence check against the browser itself. Used by the
+    /// phantom-twin audit; defaults to `.unknown` (inconclusive, never purge)
+    /// so test doubles that don't model the wire protocol stay safe.
+    func verifyTabExists(appName: String, tabID: Int, timeout: TimeInterval) -> TabVerifyResult
 }
 
 extension ExtensionBridgeServing {
@@ -111,6 +126,10 @@ extension ExtensionBridgeServing {
 
     func sendBrowserCommand(appName: String, type: String, payload: [String: Any], timeout: TimeInterval) -> Bool {
         return false
+    }
+
+    func verifyTabExists(appName: String, tabID: Int, timeout: TimeInterval) -> TabVerifyResult {
+        return .unknown
     }
 
     func deleteBookmark(appName: String, id: String?, url: String?) -> Bool {
@@ -138,14 +157,27 @@ private final class CommandWaiter: @unchecked Sendable {
     private let semaphore = DispatchSemaphore(value: 0)
     private let resultLock = NSLock()
     private var result: Bool = false
+    private var resultError: String = ""
 
     func wait(timeout: TimeInterval) -> Bool {
         _ = semaphore.wait(timeout: .now() + timeout)
         return resultLock.withLock { result }
     }
 
-    func fulfill(_ value: Bool) {
-        resultLock.withLock { result = value }
+    /// Waits like `wait`, but also returns the extension's error string so
+    /// callers can distinguish "the browser says no such tab" (authoritative,
+    /// safe to purge) from a timeout or transport failure (inconclusive —
+    /// must NOT purge).
+    func waitWithError(timeout: TimeInterval) -> (ok: Bool, error: String) {
+        _ = semaphore.wait(timeout: .now() + timeout)
+        return resultLock.withLock { (result, resultError) }
+    }
+
+    func fulfill(_ value: Bool, error: String = "") {
+        resultLock.withLock {
+            result = value
+            resultError = error
+        }
         semaphore.signal()
     }
 }
@@ -513,6 +545,54 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         return result
     }
 
+    /// Matches the extension's "No tab with id" failure (Chrome's
+    /// `chrome.tabs.get` rejection for a retired/unknown ID). Centralized so
+    /// every purge decision uses the same predicate.
+    static func isNoSuchTabError(_ message: String) -> Bool {
+        message.contains("No tab with id") || message.contains("not found")
+    }
+
+    /// Read-only existence check: asks the browser itself whether `tabID`
+    /// still exists there (`chrome.tabs.get`, no side effects).
+    ///
+    /// Used by the phantom-twin audit when two live records claim the same
+    /// page. `.missing` means the browser authoritatively denied the ID — the
+    /// shared `commandResult` path has already purged that record from every
+    /// connection by the time this returns. `.unknown` (timeout, no owning
+    /// connection, older extension that ignores `verifyTab`) is inconclusive
+    /// and must never trigger a purge.
+    ///
+    /// Blocks the caller — only call from a background thread.
+    func verifyTabExists(appName: String, tabID: Int, timeout: TimeInterval = 2.0) -> TabVerifyResult {
+        let waiter = CommandWaiter()
+        let requestID = lock.withLockUnchecked { registry -> UInt64? in
+            guard let fd = registry.connections.first(where: { $0.value.appName == appName && $0.value.tabs[tabID] != nil })?.key else {
+                return nil
+            }
+            registry.nextRequestID += 1
+            let requestID = registry.nextRequestID
+            registry.pendingCommands[requestID] = PendingCommand(ownerFD: fd, waiter: waiter, commandType: "verifyTab", tabID: tabID)
+            let frame = Self.encode([
+                "v": protocolVersion,
+                "type": "verifyTab",
+                "seq": 0,
+                "payload": ["requestID": requestID, "tabId": tabID] as [String: Any]
+            ])
+            if var connection = registry.connections[fd] {
+                connection.outboundQueue.append(frame)
+                connection.outboundSignal.signal()
+                registry.connections[fd] = connection
+            }
+            return requestID
+        }
+        guard let requestID else { return .unknown }
+        let (ok, error) = waiter.waitWithError(timeout: timeout)
+        _ = lock.withLock { registry in registry.pendingCommands.removeValue(forKey: requestID) }
+        if ok { return .exists }
+        if Self.isNoSuchTabError(error) { return .missing }
+        return .unknown
+    }
+
     /// Sends a browser-level command (e.g. `deleteBookmark`, `deleteHistoryItem`, `getBookmarks`, `searchHistory`)
     /// without requiring a specific `tabID`.
     func sendBrowserCommand(appName: String, type: String, payload: [String: Any], timeout: TimeInterval = 2.0) -> Bool {
@@ -675,9 +755,9 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             let errorMsg = payload["error"] as? String ?? ""
             lock.withLock { registry in
                 if let cmd = registry.pendingCommands.removeValue(forKey: requestID) {
-                    cmd.waiter.fulfill(ok)
+                    cmd.waiter.fulfill(ok, error: errorMsg)
                     if let tabID = cmd.tabID {
-                        let isNoTab = !ok && (errorMsg.contains("No tab with id") || errorMsg.contains("not found"))
+                        let isNoTab = !ok && Self.isNoSuchTabError(errorMsg)
                         let isClose = cmd.commandType == "closeTab"
                         if isClose || isNoTab {
                             for key in registry.connections.keys {

@@ -6,7 +6,10 @@ extension ContentView {
         let snapshot = results
         // Expanding "show all tabs" reveals rows beyond the collapsed-view cap;
         // fetch every one of them instead of leaving the tail without favicons.
-        let prefetchLimit = isShowingAllOpenTabs ? results.count : (searchText.isEmpty ? effectiveQuickOpenLimit : 12)
+        // Chip/alias-only searches (empty text) are still searches — prefetch
+        // the live-search count, not the quick-open cap.
+        let searching = !searchText.isEmpty || !scopeChips.isEmpty || activeSearchAlias != nil
+        let prefetchLimit = isShowingAllOpenTabs ? results.count : (searching ? 12 : effectiveQuickOpenLimit)
 
         faviconPrefetchDebounceTask = Task {
             try? await Task.sleep(for: .milliseconds(220))

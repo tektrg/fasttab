@@ -21,6 +21,9 @@ struct DashboardEndpoint: Sendable {
     static let permissionTimeoutSeconds: TimeInterval = 45
     /// A message types into the pane and re-reads it to see whether it was submitted (2s or more).
     static let messageTimeoutSeconds: TimeInterval = 60
+    /// `/api/worker` runs AptusFit's `session-worktree.sh new` (180s budget), `tab-label.py` (30s)
+    /// and a herdr tab create + launch (30s) in sequence — generous margin over that ~240s worst case.
+    static let workerCreationTimeoutSeconds: TimeInterval = 270
     /// The dashboard's accident guard: only the product owner's clicks may stop
     /// or close (`PO_ACTOR` in chief_dashboard_actions.py). AgentBar acts only
     /// on the user's own click, so it speaks as that actor.
@@ -142,6 +145,19 @@ struct DashboardEndpoint: Sendable {
         var body: [String: Any] = ["rowId": rowId, "actor": Self.sessionActionActor, "text": text]
         if confirmed { body["confirm"] = true }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// `POST /api/worker`: starts a brand-new AptusFit worker (worktree + herdr pane + Claude
+    /// launch) in `repoAlias`'s repo, with `task` written into its brief and launch prompt by the
+    /// endpoint itself. Never re-send `task` afterwards through `messageRequest` — it is already
+    /// delivered as part of creation (AptusFit `chief_dashboard_worker.create_worker()`'s own docs).
+    func workerRequest(repoAlias: String, slug: String, task: String) -> URLRequest {
+        var request = request(path: "/api/worker")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.workerCreationTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["repoAlias": repoAlias, "slug": slug, "task": task])
         return request
     }
 

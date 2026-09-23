@@ -26,7 +26,7 @@ enum PanelFooterHints {
         var isTagged = false
     }
 
-    enum RoutingHintMode { case loading, confirming }
+    enum RoutingHintMode { case loading, confirming, confirmingCreate, creatingWorker }
 
     static func text(for context: Context) -> String {
         if context.hasDismissibleNotice { return "esc dismiss notice" }
@@ -51,6 +51,8 @@ enum PanelFooterHints {
         switch mode {
         case .loading: "esc cancel"
         case .confirming: "↩ send   esc cancel"
+        case .confirmingCreate: "↩ create   esc cancel"
+        case .creatingWorker: "creating…"
         }
     }
 

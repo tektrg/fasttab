@@ -19,6 +19,13 @@ struct OpenRouterJevClientTests {
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    private func routeInstructions(of transport: FakeJevHTTPTransport) throws -> String {
+        let body = try requestBody(of: transport)
+        let questions = try #require(body["questions"] as? [String: Any])
+        let route = try #require(questions["route"] as? [String: Any])
+        return try #require(route["instructions"] as? String)
+    }
+
     // MARK: - Request shape
 
     @Test func theRequestIsAPostToTheDecisionsEndpointWithTheKeyAndModel() async throws {
@@ -49,6 +56,33 @@ struct OpenRouterJevClientTests {
         let client = OpenRouterJevClient(apiKey: "k", model: "~typesafe/jev-mini", timeoutSeconds: 8, transport: transport)
         _ = await client.route(text: "hi", candidates: candidates)
         #expect(try requestBody(of: transport)["model"] as? String == "~typesafe/jev-mini")
+    }
+
+    // MARK: - System prompt (RoutingSettings.systemPrompt), folded into the instructions
+
+    @Test func withNoSystemPromptTheInstructionsAreExactlyTheBaseContract() async throws {
+        let transport = FakeJevHTTPTransport(.body(Data(#"{"answers":{"route":{"choice":"agent-1"}}}"#.utf8)))
+        _ = await makeClient(transport).route(text: "hi", candidates: candidates)
+        #expect(try routeInstructions(of: transport) == "Which agent should receive this message?")
+    }
+
+    @Test func aBlankSystemPromptIsDroppedRatherThanSentAsAnEmptySection() async throws {
+        let transport = FakeJevHTTPTransport(.body(Data(#"{"answers":{"route":{"choice":"agent-1"}}}"#.utf8)))
+        let client = OpenRouterJevClient(apiKey: "k", systemPrompt: "   \n  ", timeoutSeconds: 8, transport: transport)
+        _ = await client.route(text: "hi", candidates: candidates)
+        #expect(try routeInstructions(of: transport) == "Which agent should receive this message?")
+    }
+
+    @Test func aCustomSystemPromptIsAppendedAfterTheBaseInstructionsClearlyDelimited() async throws {
+        let transport = FakeJevHTTPTransport(.body(Data(#"{"answers":{"route":{"choice":"agent-1"}}}"#.utf8)))
+        let client = OpenRouterJevClient(apiKey: "k", systemPrompt: "Prefer the fe agent for UI bugs.", timeoutSeconds: 8, transport: transport)
+        _ = await client.route(text: "hi", candidates: candidates)
+        let instructions = try routeInstructions(of: transport)
+        // The base contract is always the prefix — a user's own guidance is additive, never a
+        // replacement for or a prefix ahead of it.
+        #expect(instructions.hasPrefix("Which agent should receive this message?"))
+        #expect(instructions.contains("Prefer the fe agent for UI bugs."))
+        #expect(instructions != "Which agent should receive this message?")
     }
 
     // MARK: - Empty candidates: no network call

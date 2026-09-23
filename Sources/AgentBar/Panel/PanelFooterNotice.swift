@@ -12,6 +12,10 @@ enum PanelFooterNotice: Equatable {
     case warning(String)
     /// Orange, lasting: the global shortcut could not be registered.
     case hotkeyUnavailable(String)
+    /// Green, closable: something the user asked for succeeded and there is no row to show it on
+    /// yet (e.g. a brand-new AptusFit worker — it takes a status update or two before its row
+    /// appears). Distinct from `.warning`: nothing needs checking, this is good news.
+    case created(String)
 
     static func resolve(failure: PanelFooterNotice?, hotkeyIssue: String?) -> PanelFooterNotice? {
         if let failure { return failure }
@@ -23,7 +27,7 @@ enum PanelFooterNotice: Equatable {
     /// problem is a fixed strip in the footer that goes when the shortcut works.
     var isDismissible: Bool {
         switch self {
-        case .switchFailed, .actionFailed, .warning: true
+        case .switchFailed, .actionFailed, .warning, .created: true
         case .hotkeyUnavailable: false
         }
     }
@@ -32,7 +36,7 @@ enum PanelFooterNotice: Equatable {
     var text: String {
         switch self {
         case .switchFailed(let message): "Couldn't switch: \(message)"
-        case .actionFailed(let sentence), .warning(let sentence): sentence
+        case .actionFailed(let sentence), .warning(let sentence), .created(let sentence): sentence
         case .hotkeyUnavailable(let message): "\(message) Re-open AgentBar to show this panel."
         }
     }

@@ -39,10 +39,12 @@ struct SearchFieldView: View {
         .padding(.horizontal, 18)
     }
 
-    /// Shift+Return routing (`AgentPanelModel.routingState`): Jev thinking, or its pick waiting for
-    /// a confirming Return. Its own row below the field (not squeezed beside it); key hints for it
-    /// live only in the footer (`PanelFooterHints`) — this row is just the state, never the keys,
-    /// so the two never say the same thing twice.
+    /// Shift+Return routing (`AgentPanelModel.routingState`): Jev thinking, its pick waiting for a
+    /// confirming Return, or a "create new worker" pick confirming/in flight. Its own row below the
+    /// field (not squeezed beside it); the drafted message itself stays visible in the field above
+    /// (never cleared until an actual send/create), which doubles as this row's "message preview".
+    /// Key hints live only in the footer (`PanelFooterHints`) — this row is just the state, never
+    /// the keys, so the two never say the same thing twice.
     @ViewBuilder
     private func routingRow(for state: AgentPanelModel.RoutingState) -> some View {
         switch state {
@@ -58,6 +60,18 @@ struct SearchFieldView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+        case .confirmingCreate(let area, let slug, _):
+            Text("→ start new \(area.label) worker (\(slug))")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        case .creatingWorker(let area, _):
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Starting \(area.label) worker…")
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
         }
     }
 

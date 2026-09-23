@@ -42,6 +42,7 @@ final class AgentBarCoordinator {
         let model = AgentPanelModel(listSettings: settings.list, dashboardAddress: endpoint.displayAddress)
         self.model = model
         model.statusSource = statusSource
+        model.workerClient = statusSource
         model.routingAPIKeyStore = KeychainRoutingAPIKeyStore()
         model.applyRouting(settings.routing)
         let settings = settings
@@ -186,6 +187,7 @@ final class AgentBarCoordinator {
         statusSource = source
         switchCoordinator.statusSource = source
         model.statusSource = source
+        model.workerClient = source
         model.useDashboard(address: endpoint.displayAddress)
         beginFeed(from: source)
     }

@@ -14,9 +14,11 @@ struct RoutingSettingsView: View {
     @State private var hasStoredKey = false
     @State private var apiKeyProblem: String?
     @State private var modelIDText = ""
+    @State private var systemPromptText = ""
     @State private var testState = TestState.idle
     @FocusState private var apiKeyFieldFocused: Bool
     @FocusState private var modelIDFieldFocused: Bool
+    @FocusState private var systemPromptFieldFocused: Bool
 
     private enum TestState: Equatable {
         case idle, testing, succeeded, failed(String)
@@ -57,6 +59,20 @@ struct RoutingSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Section("Jev guidance") {
+                TextEditor(text: $systemPromptText)
+                    .font(.system(size: 12))
+                    .frame(minHeight: 56, maxHeight: 120)
+                    .focused($systemPromptFieldFocused)
+                    .onChange(of: systemPromptFieldFocused) { _, focused in
+                        if !focused { applySystemPrompt() }
+                    }
+                Text("Extra guidance for Jev on how to route messages — for example, when it should start a new AptusFit worker instead of routing to an existing agent. This is advisory context only: it can steer which candidate Jev picks, but it can never change the routing task itself.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("After routing") {
                 Picker("After routing", selection: Binding(
                     get: { settings.routing.afterRouting },
@@ -77,6 +93,7 @@ struct RoutingSettingsView: View {
         .onAppear {
             hasStoredKey = keyStore.get() != nil
             modelIDText = settings.routing.modelID
+            systemPromptText = settings.routing.systemPrompt
         }
     }
 
@@ -124,6 +141,12 @@ struct RoutingSettingsView: View {
         modelIDText = resolved
     }
 
+    private func applySystemPrompt() {
+        let trimmed = systemPromptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.updateRouting { $0.systemPrompt = trimmed }
+        systemPromptText = trimmed
+    }
+
     /// Tests the currently-typed key (falling back to the stored one when the field is
     /// blank) and the currently-typed model id, neither of which needs to be saved first.
     private func runTest() {
@@ -143,7 +166,10 @@ struct RoutingSettingsView: View {
                 candidates: [RouteCandidate(agentID: "test", summary: "test")]
             )
             switch outcome {
-            case .picked:
+            case .picked, .createNew:
+                // A single, plain "test" candidate is never a "new:" id, so `.createNew` should
+                // not occur here in practice — treated the same as `.picked` regardless: either
+                // one means the round trip to OpenRouter worked.
                 testState = .succeeded
             case .none:
                 testState = .failed("Jev did not pick an agent.")

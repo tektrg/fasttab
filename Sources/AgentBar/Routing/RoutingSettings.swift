@@ -14,11 +14,16 @@ enum AfterRoutingBehavior: String, CaseIterable, Sendable {
 struct RoutingSettings: Equatable, Sendable {
     static let modelIDKey = "routingModelID"
     static let afterRoutingKey = "routingAfterRouting"
+    static let systemPromptKey = "routingSystemPrompt"
 
     static let defaultModelID = "~typesafe/jev-latest"
 
     var modelID: String = defaultModelID
     var afterRouting: AfterRoutingBehavior = .confirmFirst
+    /// Extra guidance folded into every Jev request, on top of the fixed `routeInstructions`
+    /// (`OpenRouterJevClient`) — e.g. when to start a new AptusFit worker instead of routing to an
+    /// existing agent. Empty by default; never overrides the base instructions' shape.
+    var systemPrompt: String = ""
 
     static let standard = RoutingSettings()
 
@@ -27,11 +32,13 @@ struct RoutingSettings: Equatable, Sendable {
         let modelID = defaults.string(forKey: modelIDKey) ?? standard.modelID
         let afterRouting = (defaults.string(forKey: afterRoutingKey)).flatMap(AfterRoutingBehavior.init(rawValue:))
             ?? standard.afterRouting
-        return RoutingSettings(modelID: modelID, afterRouting: afterRouting)
+        let systemPrompt = defaults.string(forKey: systemPromptKey) ?? standard.systemPrompt
+        return RoutingSettings(modelID: modelID, afterRouting: afterRouting, systemPrompt: systemPrompt)
     }
 
     func save(to defaults: UserDefaults) {
         defaults.set(modelID, forKey: Self.modelIDKey)
         defaults.set(afterRouting.rawValue, forKey: Self.afterRoutingKey)
+        defaults.set(systemPrompt, forKey: Self.systemPromptKey)
     }
 }

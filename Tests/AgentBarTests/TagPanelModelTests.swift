@@ -193,7 +193,7 @@ struct TagPanelModelTests {
         rig.model.routingAPIKeyStore = keyStore
         let client = FakeJevRoutingClient()
         client.outcome = .picked(agentID: "w1", confidence: 0.9)
-        rig.model.makeRoutingClient = { _, _ in client }
+        rig.model.makeRoutingClient = { _, _, _ in client }
         // "worker" (not a real message — chosen so both rows still match it) keeps "w2" selectable
         // by arrow key below; a real message rarely name-matches every row, which is a separate,
         // pre-existing limitation of arrow-selecting while composing (shared with Jev routing).

@@ -16,6 +16,37 @@ APP="dist/AgentBar.app"
 BUNDLE_ID="com.trungluong.AgentBar"
 SIGN_IDENTITY="${FASTTAB_SIGN_IDENTITY:-SELAV8N2B9}"
 
+# This checkout is often shared by multiple concurrent Claude Code sessions.
+# Two overlapping runs of this script raced once and left dist/AgentBar.app
+# holding a stale binary while still printing success — serialize instead.
+# `mkdir` is atomic on a POSIX filesystem, unlike `flock` this needs no tool
+# macOS doesn't ship by default. Self-heals if a prior run crashed/was killed
+# without cleaning up (stale lock whose owning PID is no longer alive).
+LOCK_DIR=".build/.agentbar-build.lock.d"
+mkdir -p .build
+waited=0
+announced=0
+while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
+  owner_pid="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
+  if [[ -n "${owner_pid}" ]] && ! kill -0 "${owner_pid}" 2>/dev/null; then
+    echo "==> Removing stale build lock (owning process ${owner_pid} is gone)"
+    rm -rf "${LOCK_DIR}"
+    continue
+  fi
+  if [[ "${announced}" == 0 ]]; then
+    echo "==> Another build-agentbar-app.sh is running; waiting for it to finish..."
+    announced=1
+  fi
+  sleep 1
+  waited=$((waited + 1))
+  if (( waited > 300 )); then
+    echo "build-agentbar-app: waited 5 minutes for the build lock; giving up" >&2
+    exit 1
+  fi
+done
+echo $$ > "${LOCK_DIR}/pid"
+trap 'rm -rf "${LOCK_DIR}"' EXIT
+
 echo "==> swift build -c release --product AgentBar"
 swift build -c release --product AgentBar
 
@@ -43,7 +74,16 @@ fi
 echo "==> Assembling ${APP}"
 rm -rf "${APP}"
 mkdir -p "${APP}/Contents/MacOS"
+BIN_HASH="$(shasum -a 256 "${BIN}" | awk '{print $1}')"
 cp "${BIN}" "${APP}/Contents/MacOS/AgentBar"
+
+# Belt-and-suspenders for the race above: confirm the bytes that landed in
+# dist/ are exactly the ones just compiled, before we sign/launch them.
+INSTALLED_HASH="$(shasum -a 256 "${APP}/Contents/MacOS/AgentBar" | awk '{print $1}')"
+if [[ "${BIN_HASH}" != "${INSTALLED_HASH}" ]]; then
+  echo "build-agentbar-app: installed binary doesn't match the one just built (hash mismatch) — aborting before signing/launching a stale app" >&2
+  exit 1
+fi
 
 cat > "${APP}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

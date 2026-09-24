@@ -68,14 +68,18 @@ public final class LinkPreviewLoader {
 
     private nonisolated static func fetchSitePreview(for url: URL, match: LinkSiteMatch) async -> LinkPreview? {
         let metadataCache = LinkCardMetadataCache.shared
-        let metadata: LinkCardMetadata
-        if let cached = metadataCache.metadata(for: url) {
-            metadata = cached
-        } else {
-            guard let fetched = await LinkSiteResolver().resolve(match) else { return nil }
-            metadataCache.store(fetched, for: url)
-            metadata = fetched
+        let cached = metadataCache.lookup(url)
+        var metadata = cached?.metadata
+        if cached == nil || cached?.isRetryDue == true {
+            if let fetched = await LinkSiteResolver().resolve(match) {
+                metadata = fetched
+                metadataCache.store(fetched, for: url, wasRetry: cached != nil)
+            } else if let partial = cached?.metadata {
+                // The retry failed outright: keep the partial card, and stop retrying it.
+                metadataCache.store(partial, for: url, wasRetry: true)
+            }
         }
+        guard let metadata else { return nil }
 
         let isShort = if case .youtubeVideo(_, let isShort) = match.target { isShort } else { false }
         let crop: LinkCardImageLoader.Crop = metadata.site != .youtube ? .none : (isShort ? .portrait : .widescreen)
@@ -83,9 +87,9 @@ public final class LinkPreviewLoader {
             from: metadata.imageURL, maxPixelSize: LinkCardImageLoader.cardMaxPixelSize, crop: crop
         )
         // The avatar only shows on an X post's text tile, i.e. when there is no media image.
-        let needsAvatar = metadata.site == .x && metadata.imageURL == nil
         async let avatar = LinkCardImageLoader.image(
-            from: needsAvatar ? metadata.avatarURL : nil, maxPixelSize: LinkCardImageLoader.avatarMaxPixelSize
+            from: metadata.usesAvatarAsPicture ? metadata.avatarURL : nil,
+            maxPixelSize: LinkCardImageLoader.avatarMaxPixelSize
         )
         return LinkPreview(metadata: metadata, image: await image, avatar: await avatar, isYouTubeShort: isShort)
     }

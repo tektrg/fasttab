@@ -72,7 +72,7 @@ enum AgentListBuilder {
         }
         let needsYou = agents.filter { $0.section == .needsYou }
         let rest = agents.filter { $0.section != .needsYou }
-        var rows = needsYouRows(needsYou, frecency: frecency, now: now)
+        var rows = needsYouRows(needsYou, tree: tree, frecency: frecency, now: now)
         rows.append(contentsOf: AgentListGrouping.rows(
             for: rest, tree: tree, needsYouIDs: Set(needsYou.map(\.id)), frecency: frecency, now: now
         ))
@@ -90,9 +90,28 @@ enum AgentListBuilder {
         }
     }
 
-    private static func needsYouRows(_ agents: [AgentSnapshot], frecency: [String: FrecencyEntry], now: Date) -> [AgentListRow] {
+    /// A chief that itself needs you keeps `.chief` nesting here (never `.child`, so it still
+    /// sits flush left like every other Needs you row — `.chief` never indents) so its "N needs
+    /// you" hint about its OTHER blocked workers still renders. Everyone else stays `.flat`.
+    private static func needsYouRows(_ agents: [AgentSnapshot], tree: AgentTree?, frecency: [String: FrecencyEntry], now: Date) -> [AgentListRow] {
         guard !agents.isEmpty else { return [] }
+        let needsYouIDs = Set(agents.map(\.id))
+        let chiefsByID = Dictionary(
+            (tree?.chiefs ?? []).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let chiefsByPaneID = Dictionary(
+            (tree?.chiefs ?? []).compactMap { chief in chief.paneId.map { ($0, chief) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+        func chief(for agent: AgentSnapshot) -> AgentTreeNode? {
+            chiefsByID[agent.id] ?? agent.paneId.flatMap { chiefsByPaneID[$0] }
+        }
         let ranked = AgentRanking.ordered(agents, in: .needsYou, frecency: frecency, now: now)
-        return [.header(.needsYou)] + ranked.map { .agent($0, nesting: .flat) }
+        return [.header(.needsYou)] + ranked.map { agent in
+            guard let chief = chief(for: agent) else { return .agent(agent, nesting: .flat) }
+            let needsYouHint = chief.children.filter { needsYouIDs.contains($0.id) }.count
+            return .agent(agent, nesting: .chief(needsYouHint: needsYouHint, machineBadge: chief.machineBadge))
+        }
     }
 }

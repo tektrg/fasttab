@@ -138,4 +138,45 @@ struct AgentListBuilderTests {
         )
         #expect(presentation.rows.map(\.id) == ["section-2", "agent-p1"])
     }
+
+    // MARK: - A chief that itself needs you keeps its "N needs you" hint
+
+    private func treeNode(_ id: String, isChief: Bool = false, children: [AgentTreeNode] = []) -> AgentTreeNode {
+        AgentTreeNode(
+            id: id, label: id, project: "proj", projectRoot: nil, machine: "local", paneId: "w1:\(id)",
+            alive: true, status: nil, crossProject: false, isChiefMode: isChief, children: children
+        )
+    }
+
+    /// Regression for the bug where a blocked chief's OWN row lost its "N needs you" hint: it is
+    /// shown only in Needs you (dedupe, same rule as a worker), but `needsYouRows` used to hand
+    /// every Needs you row `.flat` nesting, and only `.chief` nesting draws the hint. The fix keeps
+    /// `.chief` nesting there too — still flush left (only `.child` indents) — so the hint about
+    /// its OTHER blocked workers still renders, wherever the chief's row appears.
+    @Test func aChiefInNeedsYouStillShowsItsBlockedWorkersHint() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [
+            treeNode("c", isChief: true, children: [treeNode("w1"), treeNode("w2")])
+        ], unassigned: [], parentGone: [])
+        let snapshot = F.snapshot([
+            F.agent("c", section: .needsYou),
+            F.agent("w1", section: .needsYou),
+            F.agent("w2", section: .working)
+        ], agentTree: tree)
+        let presentation = AgentListBuilder.presentation(snapshot: snapshot, query: "", frecency: [:], now: F.now)
+
+        guard case .agent(_, let nesting) = presentation.rows.first(where: { $0.id == "agent-c" }) else {
+            Issue.record("expected c's row in Needs you")
+            return
+        }
+        guard case .chief(let hint, _) = nesting else {
+            Issue.record("expected a chief nesting so the hint renders, even though c itself needs you")
+            return
+        }
+        #expect(hint == 1)   // w1 also needs you; w2 doesn't
+
+        // Dedupe is unaffected: w1 stays out of c's group (already in Needs you), w2 stays nested under c.
+        #expect(presentation.rows.map(\.id) == [
+            "section-0", "agent-c", "agent-w1", "group-project-proj", "agent-w2"
+        ])
+    }
 }

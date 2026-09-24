@@ -403,7 +403,8 @@ enum MyOrderReconciler {
         finalSlots = deduplicateSlots(finalSlots)
 
 
-        // Pinned tabs are always displayed at the top of the My Order list
+        // Pinned tabs are always partitioned to the front of the slot list
+        // (the Stack view shows this pinned prefix as its top section)
         let pinnedSlots = finalSlots.filter { $0.isPinned }
         let unpinnedSlots = finalSlots.filter { !$0.isPinned }
         finalSlots = pinnedSlots + unpinnedSlots

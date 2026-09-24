@@ -18,7 +18,6 @@ struct ContentView: View {
     @ObservedObject var viewStore = CommandBarViewStore.shared
     @ObservedObject var myOrderStore = MyOrderStore.shared
     @ObservedObject var sentLinkInbox = SentLinkInbox.shared
-    @ObservedObject var bookmarkTreeStore = BookmarkTreeStore.shared
     @ObservedObject var revealTrigger = CommandBarRevealTrigger.shared
     @ObservedObject var dismissTrigger = CommandBarDismissTrigger.shared
     /// Reveal progress on the axis growing out of the anchored edge, and on the
@@ -120,29 +119,35 @@ struct ContentView: View {
         )
     }
 
-    /// Unopened iPhone-sent links, newest first. They lead the My Order list
-    /// (and stay out of Recents). Every My Order row past this many is a slot,
-    /// so slot index = display index - this count; reorder code must apply it.
-    var myOrderSentLinks: [BrowserSearchResult] {
+    /// Pinned slots in stored order — the Stack view's top section. Pinned
+    /// slots always occupy the prefix of `myOrderStore.slots` (see
+    /// `partitionSlots`), so a row's position in this array is also its
+    /// index in the store — reorder targets need no translation.
+    var stackPinnedSlots: [OrderedTabSlot] {
+        myOrderStore.slots.filter(\.isPinned)
+    }
+
+    /// Unopened iPhone-sent links ("Send to Mac"), newest first. The Stack
+    /// view's bottom section; they stay out of Recents.
+    var stackSentLinks: [BrowserSearchResult] {
         sentLinkInbox.asSearchResults().sorted { $0.timestamp > $1.timestamp }
     }
 
-    /// Rows ahead of the first slot in the My Order list (0 outside it, and 0
-    /// while any search — text, chips like `@Duplicate`, or alias — is active,
-    /// since the list then shows filtered results instead of slots).
-    var myOrderSlotIndexOffset: Int {
-        guard viewStore.activeView == .myOrder, !isSearchActive else { return 0 }
-        return myOrderSentLinks.count
+    /// Rows ahead of the sent-links section in the Stack list. 0 outside the
+    /// Stack view, and 0 while any search — text, chips like `@Duplicate`,
+    /// or alias — is active, since the list then shows filtered results
+    /// instead of sections.
+    var stackSentLinksOffset: Int {
+        guard viewStore.activeView == .stack, !isSearchActive else { return 0 }
+        return stackPinnedSlots.count
     }
 
     func displayItems(for view: CommandBarView) -> [CommandBarDisplayItem] {
         if !isSearchActive {
             switch view {
-            case .myOrder:
-                return myOrderSentLinks.map(CommandBarDisplayItem.result)
-                    + myOrderStore.slots.map(CommandBarDisplayItem.orderedEntry)
-            case .bookmarks:
-                return bookmarkTreeStore.flattenedRows(liveTabs: appState.browserService.cachedLiveTabs).map(CommandBarDisplayItem.bookmarkRow)
+            case .stack:
+                return stackPinnedSlots.map(CommandBarDisplayItem.orderedEntry)
+                    + stackSentLinks.map(CommandBarDisplayItem.result)
             case .recents:
                 break
             }
@@ -300,9 +305,6 @@ struct ContentView: View {
     }
 
     private func handleSelectedIndexChange(proxy: ScrollViewProxy) {
-        if bookmarkTreeStore.armedBookmarkID != nil {
-            bookmarkTreeStore.armedBookmarkID = nil
-        }
         guard !isSearchFocused else { return }
         withAnimation(.easeInOut(duration: 0.14)) {
             scrollSelectedResultIntoView(proxy)
@@ -510,6 +512,10 @@ struct ContentView: View {
                                     }
                                     moveSelectionForward(includeSearchField: true)
                                     lastInteractionKey = .upDown
+                                },
+                                isStackActive: viewStore.activeView == .stack,
+                                onToggleStack: {
+                                    viewStore.selectView(viewStore.activeView == .stack ? .recents : .stack)
                                 }
                             )
                             searchHeader
@@ -549,9 +555,6 @@ struct ContentView: View {
                                 }
                                 .zIndex(100)
                                 .allowsHitTesting(isScopeDropdownVisible)
-
-                            let viewSwitcherSegment: AnyView = AnyView(viewSwitcherSection)
-                            viewSwitcherSegment
 
                             ScrollViewReader { proxy in
                                 // Each modifier is erased to AnyView and split
@@ -816,12 +819,6 @@ struct ContentView: View {
             clampSelectionToDisplayedItems()
         }
         .onChange(of: sentLinkInbox.pendingCommands.count) { _, _ in
-            clampSelectionToDisplayedItems()
-        }
-        .onChange(of: bookmarkTreeStore.expandedFolderIDs) { _, _ in
-            clampSelectionToDisplayedItems()
-        }
-        .onChange(of: bookmarkTreeStore.rootFolders) { _, _ in
             clampSelectionToDisplayedItems()
         }
     }

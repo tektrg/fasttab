@@ -3,37 +3,33 @@ import SwiftUI
 
 public enum CommandBarView: String, CaseIterable, Codable, Sendable {
     case recents
-    case myOrder
-    case bookmarks
+    case stack
 
     public var displayName: String {
         switch self {
         case .recents: return "Recents"
-        case .myOrder: return "My Order"
-        case .bookmarks: return "Bookmarks"
+        case .stack: return "Stack"
         }
     }
 
     public var isTall: Bool {
         switch self {
         case .recents: return false
-        case .myOrder, .bookmarks: return true
+        case .stack: return true
         }
     }
 
     public var iconName: String {
         switch self {
         case .recents: return "clock"
-        case .myOrder: return "list.bullet"
-        case .bookmarks: return "bookmark"
+        case .stack: return "square.stack"
         }
     }
 
     public var index: Int {
         switch self {
         case .recents: return 0
-        case .myOrder: return 1
-        case .bookmarks: return 2
+        case .stack: return 1
         }
     }
 }
@@ -59,21 +55,30 @@ public final class CommandBarViewStore: ObservableObject {
     public init(defaults: UserDefaults = .standard) {
         let resolvedDefault: CommandBarView
         if let raw = defaults.string(forKey: Self.defaultViewKey),
-           let stored = CommandBarView(rawValue: raw) {
+           let stored = Self.decodeView(raw) {
             resolvedDefault = stored
         } else {
             let isExistingUser = defaults.bool(forKey: Self.onboardingCompletedKey)
-            resolvedDefault = isExistingUser ? .recents : .myOrder
+            resolvedDefault = isExistingUser ? .recents : .stack
         }
         self.defaultView = resolvedDefault
         self.activeView = resolvedDefault
 
         if let rawHover = defaults.string(forKey: Self.hoverDefaultViewKey),
-           let storedHover = CommandBarView(rawValue: rawHover) {
+           let storedHover = Self.decodeView(rawHover) {
             self.hoverDefaultView = storedHover
         } else {
-            self.hoverDefaultView = .myOrder
+            self.hoverDefaultView = .stack
         }
+    }
+
+    /// Decodes a persisted view, migrating the pre-Stack raw values:
+    /// "myOrder" became "stack", and the removed "bookmarks" view falls
+    /// back to Recents (bookmarks now live in Settings).
+    private static func decodeView(_ raw: String) -> CommandBarView? {
+        if raw == "myOrder" { return .stack }
+        if raw == "bookmarks" { return .recents }
+        return CommandBarView(rawValue: raw)
     }
 
     public func setDefaultView(_ view: CommandBarView, defaults: UserDefaults = .standard) {

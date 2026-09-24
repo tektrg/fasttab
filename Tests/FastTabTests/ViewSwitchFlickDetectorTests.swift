@@ -12,32 +12,33 @@ struct ViewSwitchFlickDetectorTests {
         let t2 = detector.handleScroll(deltaX: -20, isEnded: false, currentView: .recents)
         #expect(t2 == nil)
         let t3 = detector.handleScroll(deltaX: -20, isEnded: false, currentView: .recents)
-        #expect(t3 == .myOrder)
+        #expect(t3 == .stack)
 
         // Momentum events while gesture is still ongoing are suppressed
-        let momentum = detector.handleScroll(deltaX: -30, isEnded: false, currentView: .myOrder)
+        let momentum = detector.handleScroll(deltaX: -30, isEnded: false, currentView: .stack)
         #expect(momentum == nil)
 
         // End of gesture resets suppression
-        _ = detector.handleScroll(deltaX: 0, isEnded: true, currentView: .myOrder)
+        _ = detector.handleScroll(deltaX: 0, isEnded: true, currentView: .stack)
         #expect(detector.isSuppressed == false)
         #expect(detector.accumulator == 0)
 
-        // Next gesture switches from myOrder to bookmarks
-        let t4 = detector.handleScroll(deltaX: -65, isEnded: false, currentView: .myOrder)
-        #expect(t4 == .bookmarks)
+        // At the last view, swiping forward again stays put
+        let t4 = detector.handleScroll(deltaX: -65, isEnded: false, currentView: .stack)
+        #expect(t4 == nil)
     }
 
     @Test func swipeRightSwitchesBackward() {
         var detector = ViewSwitchFlickDetector()
 
-        let t1 = detector.handleScroll(deltaX: 65, isEnded: false, currentView: .bookmarks)
-        #expect(t1 == .myOrder)
+        let t1 = detector.handleScroll(deltaX: 65, isEnded: false, currentView: .stack)
+        #expect(t1 == .recents)
 
-        _ = detector.handleScroll(deltaX: 0, isEnded: true, currentView: .myOrder)
+        _ = detector.handleScroll(deltaX: 0, isEnded: true, currentView: .recents)
 
-        let t2 = detector.handleScroll(deltaX: 65, isEnded: false, currentView: .myOrder)
-        #expect(t2 == .recents)
+        // At the first view, swiping backward again stays put
+        let t2 = detector.handleScroll(deltaX: 65, isEnded: false, currentView: .recents)
+        #expect(t2 == nil)
     }
 
     @Test func directionClampingAtEdges() {
@@ -48,8 +49,8 @@ struct ViewSwitchFlickDetectorTests {
         #expect(r1 == nil)
         #expect(detector.accumulator == 0)
 
-        // At bookmarks: swipe left (forward) clamped
-        let b1 = detector.handleScroll(deltaX: -80, isEnded: false, currentView: .bookmarks)
+        // At stack: swipe left (forward) clamped
+        let b1 = detector.handleScroll(deltaX: -80, isEnded: false, currentView: .stack)
         #expect(b1 == nil)
         #expect(detector.accumulator == 0)
     }
@@ -69,13 +70,13 @@ struct ViewSwitchFlickDetectorTests {
         #expect(detector.accumulator == 0)
 
         // Sub-pixel horizontal jitter (< 1.5) without vertical scroll is filtered
-        let jitter = detector.handleScroll(deltaX: 1.0, deltaY: 0, isEnded: false, currentView: .myOrder)
+        let jitter = detector.handleScroll(deltaX: 1.0, deltaY: 0, isEnded: false, currentView: .stack)
         #expect(jitter == nil)
         #expect(detector.accumulator == 0)
 
         // Legitimate horizontal flick with minor vertical drift triggers properly
         let flick = detector.handleScroll(deltaX: -65, deltaY: 5, isEnded: false, currentView: .recents)
-        #expect(flick == .myOrder)
+        #expect(flick == .stack)
     }
 
     @Test func momentumScrollNeverTriggersFlick() {

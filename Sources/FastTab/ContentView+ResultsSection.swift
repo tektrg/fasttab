@@ -101,11 +101,8 @@ extension ContentView {
                         case .recents:
                             modeResultsList(for: .recents, showWindowName: showWindowName, showProfileName: showProfileName)
                                 .transition(modeSlideTransition)
-                        case .myOrder:
-                            modeResultsList(for: .myOrder, showWindowName: showWindowName, showProfileName: showProfileName)
-                                .transition(modeSlideTransition)
-                        case .bookmarks:
-                            modeResultsList(for: .bookmarks, showWindowName: showWindowName, showProfileName: showProfileName)
+                        case .stack:
+                            stackResultsList(showWindowName: showWindowName, showProfileName: showProfileName)
                                 .transition(modeSlideTransition)
                         }
                     }
@@ -119,6 +116,67 @@ extension ContentView {
         // is actually left over so the slack never shows as a dead band.
         .frame(minHeight: resultsHeight, maxHeight: .infinity)
         .background(CommandBarSurfaceBackground(cornerRadius: 16))
+    }
+
+    /// The Stack view: pinned tabs on top, iPhone-sent links ("Send to
+    /// Mac") below. Headers are decorative — keyboard selection still runs
+    /// over the flat `displayedItems` array (pinned first, then sent), so
+    /// the Nth row's global index is its section index plus the section's
+    /// offset (`stackSentLinksOffset` for the sent section).
+    @ViewBuilder
+    private func stackResultsList(showWindowName: Bool, showProfileName: Bool) -> some View {
+        let pinnedItems = stackPinnedSlots.map(CommandBarDisplayItem.orderedEntry)
+        let sentItems = stackSentLinks.map(CommandBarDisplayItem.result)
+        if pinnedItems.isEmpty && sentItems.isEmpty {
+            modeEmptyState(for: .stack)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if !pinnedItems.isEmpty {
+                        stackSectionHeader(title: "PINNED", icon: "pin.fill")
+                        ForEach(Array(pinnedItems.enumerated()), id: \.element.id) { index, item in
+                            displayItemRow(
+                                item: item,
+                                index: index,
+                                isSelected: appState.selectedIndex == index,
+                                showWindowName: showWindowName,
+                                showProfileName: showProfileName
+                            )
+                        }
+                    }
+                    if !sentItems.isEmpty {
+                        stackSectionHeader(title: "SENT TO MAC", icon: "iphone")
+                        ForEach(Array(sentItems.enumerated()), id: \.element.id) { sectionIndex, item in
+                            let index = stackSentLinksOffset + sectionIndex
+                            displayItemRow(
+                                item: item,
+                                index: index,
+                                isSelected: appState.selectedIndex == index,
+                                showWindowName: showWindowName,
+                                showProfileName: showProfileName
+                            )
+                        }
+                    }
+                }
+                .padding(.vertical, 3)
+            }
+            .background(Color.clear)
+        }
+    }
+
+    private func stackSectionHeader(title: String, icon: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .semibold))
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.5)
+            Spacer()
+        }
+        .foregroundStyle(.tertiary)
+        .padding(.horizontal, 10)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
     }
 
     @ViewBuilder
@@ -151,10 +209,8 @@ extension ContentView {
             switch view {
             case .recents:
                 return ("No tabs found", "Open a tab in Chrome or Edge and try again.", "rectangle.stack.badge.magnifyingglass")
-            case .myOrder:
-                return ("No tabs in My Order", "Add or reorder tabs to customize your list.", "list.bullet.rectangle")
-            case .bookmarks:
-                return ("No bookmarks found", "Bookmarks from your browser will appear here.", "bookmark")
+            case .stack:
+                return ("Stack is empty", "Pin a tab to keep it here, or send a link from your iPhone.", "square.stack")
             }
         }()
 
@@ -235,7 +291,7 @@ extension ContentView {
         case .orderedEntry(let slot):
             OrderedTabSlotRow(
                 slot: slot,
-                index: index - myOrderSlotIndexOffset,
+                index: index,
                 isSelected: isSelected,
                 faviconImage: appState.browserService.faviconImage(for: slot.asSearchResult),
                 onSelect: {
@@ -253,52 +309,9 @@ extension ContentView {
                 },
                 onReorder: { from, to in
                     myOrderStore.reorderSlot(from: from, to: to)
-                    appState.selectedIndex = myOrderSlotIndexOffset + min(to, max(0, myOrderStore.slots.count - 1))
-                }
-            )
-            .contentShape(Rectangle())
-            .padding(.horizontal, 8)
-        case .bookmarkRow(let row):
-            BookmarkTreeRow(
-                row: row,
-                isSelected: isSelected,
-                onSelect: {
-                    switch row {
-                    case .folder(let id, _, _, _, _, _):
-                        bookmarkTreeStore.toggleFolder(id)
-                    case .bookmark(let item, _, let liveTab, _, _):
-                        if let liveTab {
-                            activateAndHide(liveTab)
-                        } else {
-                            activateAndHide(item.asSearchResult)
-                        }
-                    }
+                    appState.selectedIndex = min(to, max(0, stackPinnedSlots.count - 1))
                 },
-                onToggleFolder: {
-                    if case .folder(let id, _, _, _, _, _) = row {
-                        bookmarkTreeStore.toggleFolder(id)
-                    }
-                },
-                onCopy: {
-                    if case .bookmark(let item, _, _, _, _) = row {
-                        performCopyLink(item.asSearchResult)
-                    }
-                },
-                onRemove: {
-                    if case .bookmark(let item, _, _, let isArmed, let isDeleting) = row {
-                        guard !isDeleting else { return }
-                        if isArmed {
-                            deleteBookmarkConfirmed(item)
-                        } else {
-                            bookmarkTreeStore.armedBookmarkID = item.uniqueKey
-                        }
-                    }
-                },
-                onCloseTab: {
-                    if case .bookmark(_, _, let liveTab, _, _) = row, let liveTab {
-                        appState.browserService.remove(liveTab)
-                    }
-                }
+                reorderUpperBound: stackPinnedSlots.count
             )
             .contentShape(Rectangle())
             .padding(.horizontal, 8)
@@ -341,27 +354,6 @@ extension ContentView {
             .padding(.horizontal, 8)
             .onTapGesture {
                 activateSearchAlias(alias: alias, query: query)
-            }
-        }
-    }
-
-    func deleteBookmarkConfirmed(_ item: BookmarkItem) {
-        bookmarkTreeStore.armedBookmarkID = nil
-        bookmarkTreeStore.deletingBookmarkIDs.insert(item.uniqueKey)
-        Task {
-            let ok = await appState.browserService.deleteBookmarkAsync(item.asSearchResult)
-            await MainActor.run {
-                if ok {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        _ = bookmarkTreeStore.removeBookmark(id: item.id, browserName: item.browserName, profileName: item.profileName)
-                        bookmarkTreeStore.deletingBookmarkIDs.remove(item.uniqueKey)
-                    }
-                } else {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        bookmarkTreeStore.deletingBookmarkIDs.remove(item.uniqueKey)
-                    }
-                    showToast("Could not delete bookmark from \(item.browserName)")
-                }
             }
         }
     }

@@ -66,9 +66,32 @@ struct SearchHeader: View {
     let onLeftArrowAtEmpty: () -> Void
     let onUpArrow: () -> Void
     let onDownArrow: () -> Void
+    /// Stack toggle shown at the leading edge: tapping switches between
+    /// Recents/search and the Stack view (same as swiping horizontally).
+    let isStackActive: Bool
+    let onToggleStack: () -> Void
+
+    @State private var isStackHovered = false
 
     var body: some View {
         HStack(spacing: 8) {
+            Button(action: onToggleStack) {
+                Image(systemName: isStackActive ? "square.stack.fill" : "square.stack")
+                    .font(.system(size: 15, weight: isStackActive ? .semibold : .regular))
+                    .foregroundStyle(isStackActive ? Color.accentColor : (isStackHovered ? Color.primary.opacity(0.85) : Color.secondary))
+                    .frame(width: 28, height: 28)
+                    .background {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(isStackActive ? Color.accentColor.opacity(0.14) : (isStackHovered ? Color.primary.opacity(0.06) : Color.clear))
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .focusable(false)
+            .onHover { isStackHovered = $0 }
+            .help(isStackActive ? "Back to Recents (⌘1)" : "Open Stack (⌘2)")
+            .accessibilityLabel(Text(isStackActive ? "Back to Recents" : "Open Stack"))
+
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 

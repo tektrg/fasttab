@@ -71,14 +71,14 @@ struct GeneralSettingsView: View {
                 .pickerStyle(.menu)
 
                 if edgeReveal.style != .off {
-                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab directly into My Order. Runs a background mouse-position listener whenever this isn't Off.")
+                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab directly into Stack. Runs a background mouse-position listener whenever this isn't Off.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            Section("My Order") {
+            Section("Stack") {
                 Stepper(
                     value: Binding(
                         get: { myOrderStore.ghostExpiryDays },
@@ -94,7 +94,7 @@ struct GeneralSettingsView: View {
                     }
                 }
 
-                Text("Closed pinned tabs in My Order remain as reopenable ghost rows for this long before being removed. Set to 0 to keep forever.")
+                Text("Closed pinned tabs in Stack remain as reopenable ghost rows for this long before being removed. Set to 0 to keep forever.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -103,7 +103,7 @@ struct GeneralSettingsView: View {
             Section("Gestures") {
                 Toggle("Swipe gestures on rows (Deprecated)", isOn: $rowSwipeStore.isEnabled)
 
-                Text("Swipe left to remove, swipe right to copy link. Deprecated: conflicts with trackpad swipe to switch views. When disabled (default), swiping horizontally anywhere switches tabs.")
+                Text("Swipe left to remove, swipe right to copy link. Deprecated: conflicts with trackpad swipe to switch views. When disabled (default), swiping horizontally anywhere switches between Recents and Stack.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

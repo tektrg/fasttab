@@ -28,25 +28,38 @@ struct ShortcutStoreTests {
 
         let store = ShortcutStore(defaults: defaults)
         #expect(store.shortcut(for: .recents) == nil)
-        #expect(store.shortcut(for: .myOrder) == nil)
-        #expect(store.shortcut(for: .bookmarks) == nil)
+        #expect(store.shortcut(for: .stack) == nil)
 
-        // Set My Order shortcut: ⌥2
-        let myOrderShortcut = ViewShortcut(keyCode: 19, modifiers: NSEvent.ModifierFlags.option.rawValue, keyName: "2")
-        store.updateViewShortcut(for: .myOrder, shortcut: myOrderShortcut)
+        // Set Stack shortcut: ⌥2
+        let stackShortcut = ViewShortcut(keyCode: 19, modifiers: NSEvent.ModifierFlags.option.rawValue, keyName: "2")
+        store.updateViewShortcut(for: .stack, shortcut: stackShortcut)
 
-        #expect(store.shortcut(for: .myOrder)?.keyName == "2")
-        #expect(defaults.string(forKey: "shortcut.myOrder.keyName") == "2")
+        #expect(store.shortcut(for: .stack)?.keyName == "2")
+        #expect(defaults.string(forKey: "shortcut.stack.keyName") == "2")
 
         // Reload from defaults
         let reloaded = ShortcutStore(defaults: defaults)
-        #expect(reloaded.shortcut(for: .myOrder)?.keyName == "2")
+        #expect(reloaded.shortcut(for: .stack)?.keyName == "2")
         #expect(reloaded.shortcut(for: .recents) == nil)
 
         // Clear shortcut
-        store.updateViewShortcut(for: .myOrder, shortcut: nil)
-        #expect(store.shortcut(for: .myOrder) == nil)
-        #expect(defaults.object(forKey: "shortcut.myOrder.keyName") == nil)
+        store.updateViewShortcut(for: .stack, shortcut: nil)
+        #expect(store.shortcut(for: .stack) == nil)
+        #expect(defaults.object(forKey: "shortcut.stack.keyName") == nil)
+    }
+
+    @MainActor
+    @Test func legacyMyOrderShortcutMigratesToStack() {
+        let suiteName = "test.fasttab.shortcut.migrate.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(19, forKey: "shortcut.myOrder.keyCode")
+        defaults.set(Int(NSEvent.ModifierFlags.option.rawValue), forKey: "shortcut.myOrder.modifiers")
+        defaults.set("2", forKey: "shortcut.myOrder.keyName")
+
+        let store = ShortcutStore(defaults: defaults)
+        #expect(store.shortcut(for: .stack)?.keyName == "2")
     }
 
     @MainActor
@@ -61,9 +74,9 @@ struct ShortcutStoreTests {
         #expect(store.isAnyShortcutModifierHeld(in: [.shift]))
         #expect(!store.isAnyShortcutModifierHeld(in: [.control]))
 
-        // Add ⌃B for bookmarks
-        let bms = ViewShortcut(keyCode: 11, modifiers: NSEvent.ModifierFlags.control.rawValue, keyName: "B")
-        store.updateViewShortcut(for: .bookmarks, shortcut: bms)
+        // Add ⌃S for Stack
+        let stack = ViewShortcut(keyCode: 1, modifiers: NSEvent.ModifierFlags.control.rawValue, keyName: "S")
+        store.updateViewShortcut(for: .stack, shortcut: stack)
 
         #expect(store.isAnyShortcutModifierHeld(in: [.control]))
     }

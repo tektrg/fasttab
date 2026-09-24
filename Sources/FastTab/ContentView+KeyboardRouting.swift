@@ -52,18 +52,6 @@ extension ContentView {
             activateAndHide(result)
         case .orderedEntry(let slot):
             activateOrderedSlot(slot)
-        case .bookmarkRow(let row):
-            switch row {
-            case .folder(let id, _, _, _, _, _):
-                bookmarkTreeStore.toggleFolder(id)
-            case .bookmark(let item, _, let liveTab, _, let isDeleting):
-                guard !isDeleting else { return }
-                if let liveTab {
-                    activateAndHide(liveTab)
-                } else {
-                    activateAndHide(item.asSearchResult)
-                }
-            }
         case .showAllTabs:
             expandAllOpenTabs()
         case .searchTheWeb(let query):
@@ -237,11 +225,6 @@ extension ContentView {
     }
 
     private func handleEscapeKey() {
-        if bookmarkTreeStore.armedBookmarkID != nil {
-            bookmarkTreeStore.armedBookmarkID = nil
-            return
-        }
-
         if appState.selectedIndex == -1 {
             appState.hideCommandBar()
             cycleSession.reset()
@@ -280,17 +263,14 @@ extension ContentView {
 
                 let noModifiers = userModifiers.isEmpty
 
-                // ⌘1/2/3 view switching: must be guarded on isVisible so Settings doesn't swallow them.
+                // ⌘1/2 view switching: must be guarded on isVisible so Settings doesn't swallow them.
                 if appState.isVisible, userModifiers == [.command] {
                     switch event.keyCode {
                     case 18:
                         viewStore.selectView(.recents)
                         return nil
                     case 19:
-                        viewStore.selectView(.myOrder)
-                        return nil
-                    case 20:
-                        viewStore.selectView(.bookmarks)
+                        viewStore.selectView(.stack)
                         return nil
                     default:
                         break
@@ -316,7 +296,7 @@ extension ContentView {
                     }
                 }
 
-                // ⌘W: close selected tab (ordered entry, live tab result, or open bookmark tab)
+                // ⌘W: close selected tab (ordered entry, live tab result, or open sent link)
                 if appState.isVisible, userModifiers == [.command], event.keyCode == 13 {
                     let items = displayedItems
                     if appState.selectedIndex >= 0, appState.selectedIndex < items.count {
@@ -329,29 +309,24 @@ extension ContentView {
                                 performRemove(result)
                                 return nil
                             }
-                        case .bookmarkRow(let row):
-                            if case .bookmark(_, _, let liveTab, _, _) = row, let liveTab {
-                                appState.browserService.remove(liveTab)
-                                return nil
-                            }
                         default:
                             break
                         }
                     }
                 }
 
-                // ⌥↑/⌥↓: reorder row in My Order (sent-link rows lead the list and never move)
-                if appState.isVisible, userModifiers == [.option], viewStore.activeView == .myOrder, searchText.isEmpty {
-                    let offset = myOrderSlotIndexOffset
-                    let slotIdx = appState.selectedIndex - offset
+                // ⌥↑/⌥↓: reorder pinned rows in the Stack (sent-link rows sit below and never move)
+                if appState.isVisible, userModifiers == [.option], viewStore.activeView == .stack, searchText.isEmpty {
+                    let pinnedCount = stackPinnedSlots.count
+                    let slotIdx = appState.selectedIndex
                     if event.keyCode == 126 { // Up arrow
-                        if slotIdx > 0 {
+                        if slotIdx > 0, slotIdx < pinnedCount {
                             myOrderStore.reorderSlot(from: slotIdx, to: slotIdx - 1)
                             appState.selectedIndex -= 1
                             return nil
                         }
                     } else if event.keyCode == 125 { // Down arrow
-                        if slotIdx >= 0, slotIdx < myOrderStore.slots.count - 1 {
+                        if slotIdx >= 0, slotIdx < pinnedCount - 1 {
                             myOrderStore.reorderSlot(from: slotIdx, to: slotIdx + 1)
                             appState.selectedIndex += 1
                             return nil
@@ -394,16 +369,6 @@ extension ContentView {
                         case .orderedEntry(let slot):
                             myOrderStore.closeSlot(slot.slotID)
                             return nil
-                        case .bookmarkRow(let row):
-                            if case .bookmark(let item, _, _, let isArmed, let isDeleting) = row {
-                                guard !isDeleting else { return nil }
-                                if isArmed {
-                                    deleteBookmarkConfirmed(item)
-                                } else {
-                                    bookmarkTreeStore.armedBookmarkID = item.uniqueKey
-                                }
-                                return nil
-                            }
                         case .result(let result):
                             if result.type == .tab {
                                 performRemove(result)
@@ -464,26 +429,12 @@ extension ContentView {
                 }
 
                 if noModifiers && event.keyCode == kLeftArrowKeyCode && appState.selectedIndex >= 0 {
-                    let items = displayedItems
-                    if appState.selectedIndex < items.count, case .bookmarkRow(let row) = items[appState.selectedIndex] {
-                        if case .folder(let id, _, _, let isExpanded, _, _) = row, isExpanded {
-                            bookmarkTreeStore.collapseFolder(id)
-                        }
-                        return nil
-                    }
                     handleKeyboardSwipe(.delete)
                     lastInteractionKey = .leftRight
                     return nil
                 }
 
                 if noModifiers && event.keyCode == kRightArrowKeyCode && appState.selectedIndex >= 0 {
-                    let items = displayedItems
-                    if appState.selectedIndex < items.count, case .bookmarkRow(let row) = items[appState.selectedIndex] {
-                        if case .folder(let id, _, _, let isExpanded, _, _) = row, !isExpanded {
-                            bookmarkTreeStore.expandFolder(id)
-                        }
-                        return nil
-                    }
                     handleKeyboardSwipe(.copy)
                     lastInteractionKey = .leftRight
                     return nil

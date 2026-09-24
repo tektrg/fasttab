@@ -41,7 +41,7 @@ struct ViewSwitchFlickDetector {
         guard absX >= 1.5 else { return nil }
 
         // Direction clamping: cannot flick further than edges
-        if currentView == .bookmarks && deltaX < 0 {
+        if currentView == .stack && deltaX < 0 {
             accumulator = 0
             return nil
         }
@@ -56,16 +56,14 @@ struct ViewSwitchFlickDetector {
             isSuppressed = true
             accumulator = 0
             switch currentView {
-            case .recents: return .myOrder
-            case .myOrder: return .bookmarks
-            case .bookmarks: return nil
+            case .recents: return .stack
+            case .stack: return nil
             }
         } else if accumulator >= Self.threshold {
             isSuppressed = true
             accumulator = 0
             switch currentView {
-            case .bookmarks: return .myOrder
-            case .myOrder: return .recents
+            case .stack: return .recents
             case .recents: return nil
             }
         }

@@ -13,8 +13,7 @@ class ShortcutStore: ObservableObject {
 
     // Per-view optional shortcuts
     @Published private(set) var recentsShortcut: ViewShortcut?
-    @Published private(set) var myOrderShortcut: ViewShortcut?
-    @Published private(set) var bookmarksShortcut: ViewShortcut?
+    @Published private(set) var stackShortcut: ViewShortcut?
 
     private let defaults: UserDefaults
 
@@ -32,8 +31,8 @@ class ShortcutStore: ObservableObject {
         keyDisplayName = defaults.string(forKey: "shortcut.keyName") ?? "Space"
 
         recentsShortcut = Self.loadViewShortcut(prefix: "shortcut.recents", from: defaults)
-        myOrderShortcut = Self.loadViewShortcut(prefix: "shortcut.myOrder", from: defaults)
-        bookmarksShortcut = Self.loadViewShortcut(prefix: "shortcut.bookmarks", from: defaults)
+        stackShortcut = Self.loadViewShortcut(prefix: "shortcut.stack", from: defaults)
+            ?? Self.loadViewShortcut(prefix: "shortcut.myOrder", from: defaults)
     }
 
     func update(keyCode: UInt16, modifiers: NSEvent.ModifierFlags, keyName: String) {
@@ -51,12 +50,9 @@ class ShortcutStore: ObservableObject {
         case .recents:
             recentsShortcut = shortcut
             prefix = "shortcut.recents"
-        case .myOrder:
-            myOrderShortcut = shortcut
-            prefix = "shortcut.myOrder"
-        case .bookmarks:
-            bookmarksShortcut = shortcut
-            prefix = "shortcut.bookmarks"
+        case .stack:
+            stackShortcut = shortcut
+            prefix = "shortcut.stack"
         }
 
         if let shortcut {
@@ -73,8 +69,7 @@ class ShortcutStore: ObservableObject {
     func shortcut(for view: CommandBarView) -> ViewShortcut? {
         switch view {
         case .recents: return recentsShortcut
-        case .myOrder: return myOrderShortcut
-        case .bookmarks: return bookmarksShortcut
+        case .stack: return stackShortcut
         }
     }
 
@@ -83,11 +78,8 @@ class ShortcutStore: ObservableObject {
         if let recents = recentsShortcut {
             list.append(recents.modifierFlags.intersection(.deviceIndependentFlagsMask))
         }
-        if let myOrder = myOrderShortcut {
-            list.append(myOrder.modifierFlags.intersection(.deviceIndependentFlagsMask))
-        }
-        if let bookmarks = bookmarksShortcut {
-            list.append(bookmarks.modifierFlags.intersection(.deviceIndependentFlagsMask))
+        if let stack = stackShortcut {
+            list.append(stack.modifierFlags.intersection(.deviceIndependentFlagsMask))
         }
         return list
     }

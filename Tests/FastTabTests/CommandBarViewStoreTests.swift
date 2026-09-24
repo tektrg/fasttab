@@ -21,14 +21,14 @@ struct CommandBarViewStoreTests {
     }
 
     @MainActor
-    @Test func freshInstallDefaultsToMyOrderWithoutWritingToDefaults() {
+    @Test func freshInstallDefaultsToStackWithoutWritingToDefaults() {
         let suiteName = "test.fasttab.viewstore.fresh.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let store = CommandBarViewStore(defaults: defaults)
-        #expect(store.defaultView == .myOrder)
-        #expect(store.activeView == .myOrder)
+        #expect(store.defaultView == .stack)
+        #expect(store.activeView == .stack)
 
         // Ensure init did NOT write back to defaults
         #expect(defaults.string(forKey: CommandBarViewStore.defaultViewKey) == nil)
@@ -40,11 +40,37 @@ struct CommandBarViewStoreTests {
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(CommandBarView.bookmarks.rawValue, forKey: CommandBarViewStore.defaultViewKey)
+        defaults.set(CommandBarView.stack.rawValue, forKey: CommandBarViewStore.defaultViewKey)
 
         let store = CommandBarViewStore(defaults: defaults)
-        #expect(store.defaultView == .bookmarks)
-        #expect(store.activeView == .bookmarks)
+        #expect(store.defaultView == .stack)
+        #expect(store.activeView == .stack)
+    }
+
+    @MainActor
+    @Test func legacyMyOrderDefaultMigratesToStack() {
+        let suiteName = "test.fasttab.viewstore.migrate.myorder.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("myOrder", forKey: CommandBarViewStore.defaultViewKey)
+
+        let store = CommandBarViewStore(defaults: defaults)
+        #expect(store.defaultView == .stack)
+        #expect(store.activeView == .stack)
+    }
+
+    @MainActor
+    @Test func legacyBookmarksDefaultFallsBackToRecents() {
+        let suiteName = "test.fasttab.viewstore.migrate.bookmarks.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("bookmarks", forKey: CommandBarViewStore.defaultViewKey)
+
+        let store = CommandBarViewStore(defaults: defaults)
+        #expect(store.defaultView == .recents)
+        #expect(store.activeView == .recents)
     }
 
     @MainActor
@@ -56,8 +82,8 @@ struct CommandBarViewStoreTests {
         let store = CommandBarViewStore(defaults: defaults)
         store.setDefaultView(.recents, defaults: defaults)
 
-        store.selectView(.myOrder)
-        #expect(store.activeView == .myOrder)
+        store.selectView(.stack)
+        #expect(store.activeView == .stack)
         #expect(store.defaultView == .recents)
 
         store.resetForOpen()
@@ -65,13 +91,13 @@ struct CommandBarViewStoreTests {
     }
 
     @MainActor
-    @Test func hoverDefaultViewDefaultsToMyOrderWithoutWritingToDefaults() {
+    @Test func hoverDefaultViewDefaultsToStackWithoutWritingToDefaults() {
         let suiteName = "test.fasttab.viewstore.hover.default.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let store = CommandBarViewStore(defaults: defaults)
-        #expect(store.hoverDefaultView == .myOrder)
+        #expect(store.hoverDefaultView == .stack)
         #expect(defaults.string(forKey: CommandBarViewStore.hoverDefaultViewKey) == nil)
 
         // Switch to another view then call resetForHoverOpen
@@ -79,7 +105,7 @@ struct CommandBarViewStoreTests {
         #expect(store.activeView == .recents)
 
         store.resetForHoverOpen()
-        #expect(store.activeView == .myOrder)
+        #expect(store.activeView == .stack)
     }
 
     @MainActor
@@ -88,13 +114,13 @@ struct CommandBarViewStoreTests {
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(CommandBarView.bookmarks.rawValue, forKey: CommandBarViewStore.hoverDefaultViewKey)
+        defaults.set(CommandBarView.stack.rawValue, forKey: CommandBarViewStore.hoverDefaultViewKey)
 
         let store = CommandBarViewStore(defaults: defaults)
-        #expect(store.hoverDefaultView == .bookmarks)
+        #expect(store.hoverDefaultView == .stack)
 
         store.resetForHoverOpen()
-        #expect(store.activeView == .bookmarks)
+        #expect(store.activeView == .stack)
 
         store.setHoverDefaultView(.recents, defaults: defaults)
         #expect(store.hoverDefaultView == .recents)
@@ -107,23 +133,12 @@ struct CommandBarViewStoreTests {
         store.resetForOpen(to: .recents)
         #expect(store.activeView == .recents)
 
-        // Forward transition: recents (0) -> myOrder (1)
-        store.selectView(.myOrder)
-        #expect(store.activeView == .myOrder)
+        // Forward transition: recents (0) -> stack (1)
+        store.selectView(.stack)
+        #expect(store.activeView == .stack)
         #expect(store.slideDirection == .forward)
 
-        // Forward transition: myOrder (1) -> bookmarks (2)
-        store.selectView(.bookmarks)
-        #expect(store.activeView == .bookmarks)
-        #expect(store.slideDirection == .forward)
-
-        // Backward transition: bookmarks (2) -> recents (0)
-        store.selectView(.recents)
-        #expect(store.activeView == .recents)
-        #expect(store.slideDirection == .backward)
-
-        // Backward transition: myOrder (1) -> recents (0)
-        store.selectView(.myOrder)
+        // Backward transition: stack (1) -> recents (0)
         store.selectView(.recents)
         #expect(store.activeView == .recents)
         #expect(store.slideDirection == .backward)
@@ -131,7 +146,6 @@ struct CommandBarViewStoreTests {
 
     @Test func commandBarViewIndicesAndOrder() {
         #expect(CommandBarView.recents.index == 0)
-        #expect(CommandBarView.myOrder.index == 1)
-        #expect(CommandBarView.bookmarks.index == 2)
+        #expect(CommandBarView.stack.index == 1)
     }
 }

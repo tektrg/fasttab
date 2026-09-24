@@ -12,6 +12,11 @@ struct OrderedTabSlotRow: View {
     let onReopen: () -> Void
     let onTogglePin: () -> Void
     let onReorder: (Int, Int) -> Void
+    /// Upper bound (exclusive) for drag-reorder targets. The Stack view only
+    /// shows pinned slots, so dragging must stay inside the pinned prefix —
+    /// otherwise a row dragged past the section would silently unpin itself.
+    /// Defaults to the full store count.
+    var reorderUpperBound: Int? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
@@ -149,7 +154,8 @@ struct OrderedTabSlotRow: View {
                 .onEnded { value in
                     let rowHeight: CGFloat = rowStyle == .minimal ? 40.0 : 66.0
                     let slotDelta = Int((value.translation.height / rowHeight).rounded())
-                    let targetIndex = min(max(0, index + slotDelta), myOrderStore.slots.count - 1)
+                    let upperBound = reorderUpperBound ?? myOrderStore.slots.count
+                    let targetIndex = min(max(0, index + slotDelta), max(0, upperBound - 1))
                     dragOffset = 0
                     isActivelyDragging = false
                     myOrderStore.isDragging = false

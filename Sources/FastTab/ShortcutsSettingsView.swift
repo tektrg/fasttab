@@ -38,8 +38,7 @@ struct ShortcutsSettingsView: View {
                     .foregroundStyle(.secondary)
 
                 viewShortcutRow(for: .recents)
-                viewShortcutRow(for: .myOrder)
-                viewShortcutRow(for: .bookmarks)
+                viewShortcutRow(for: .stack)
             }
         }
         .formStyle(.grouped)

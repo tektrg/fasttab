@@ -72,7 +72,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
     /// set this. Drives the sticky-to-top behavior in `sortTabsTier`.
     let isPinnedAudibleTab: Bool
     /// True when this result represents a closed (ghost) pinned tab that
-    /// remains persistent in FastTab's My Order slots.
+    /// remains persistent in FastTab's Stack slots.
     let isGhost: Bool
 
     /// Folded match keys (lowercased, accent-stripped, punctuation-stripped),
@@ -796,7 +796,7 @@ func sortQuickOpenTabs(_ tabs: [BrowserSearchResult]) -> [BrowserSearchResult] {
 
 /// Orders items for Quick Open / Recents: live tabs by raw recency, then
 /// bookmarks, then history. iPhone-sent links (`.sent`) are deliberately left
-/// out — they live in the My Order view, so an unopened backlog can never push
+/// out — they live in the Stack view, so an unopened backlog can never push
 /// the tab you were just using out of the short Recents list.
 func sortQuickOpenResults(_ items: [BrowserSearchResult]) -> [BrowserSearchResult] {
     if items.count <= 1 { return items.filter { $0.type != .sent } }

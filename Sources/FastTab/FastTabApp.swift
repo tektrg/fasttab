@@ -350,13 +350,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         applyAllShortcuts()
 
-        Publishers.CombineLatest4(store.$keyCode, store.$modifiers, store.$recentsShortcut, store.$myOrderShortcut)
-            .sink { [weak self] _ in
-                self?.applyAllShortcuts()
-            }
-            .store(in: &cancellables)
-
-        store.$bookmarksShortcut
+        Publishers.CombineLatest4(store.$keyCode, store.$modifiers, store.$recentsShortcut, store.$stackShortcut)
             .sink { [weak self] _ in
                 self?.applyAllShortcuts()
             }
@@ -383,18 +377,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             hotkeyService.unregisterShortcut(id: 2)
         }
 
-        // ID 3: My Order
-        if let myOrder = store.myOrderShortcut {
-            hotkeyService.registerShortcut(id: 3, keyCode: myOrder.keyCode, modifiers: myOrder.modifierFlags)
+        // ID 3: Stack
+        if let stack = store.stackShortcut {
+            hotkeyService.registerShortcut(id: 3, keyCode: stack.keyCode, modifiers: stack.modifierFlags)
         } else {
             hotkeyService.unregisterShortcut(id: 3)
-        }
-
-        // ID 4: Bookmarks
-        if let bookmarks = store.bookmarksShortcut {
-            hotkeyService.registerShortcut(id: 4, keyCode: bookmarks.keyCode, modifiers: bookmarks.modifierFlags)
-        } else {
-            hotkeyService.unregisterShortcut(id: 4)
         }
     }
 
@@ -426,21 +413,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         case 3:
-            if appState.isCommandWindowFrontAndActive && viewStore.activeView == .myOrder {
+            if appState.isCommandWindowFrontAndActive && viewStore.activeView == .stack {
                 advanceCycle()
             } else {
-                viewStore.selectView(.myOrder)
+                viewStore.selectView(.stack)
                 if !appState.isVisible {
-                    appState.showCommandBar(initialView: .myOrder, openedBy: .shortcut)
-                }
-            }
-        case 4:
-            if appState.isCommandWindowFrontAndActive && viewStore.activeView == .bookmarks {
-                advanceCycle()
-            } else {
-                viewStore.selectView(.bookmarks)
-                if !appState.isVisible {
-                    appState.showCommandBar(initialView: .bookmarks, openedBy: .shortcut)
+                    appState.showCommandBar(initialView: .stack, openedBy: .shortcut)
                 }
             }
         default:

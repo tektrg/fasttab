@@ -7,15 +7,12 @@ import CommandBarKit
 /// heights, chrome allowances, quick-open row caps, and the surface/canvas
 /// frames derived from them.
 extension CommandBarLayout {
-    /// Vertical allowance for the view switcher strip (Recents / My Order / Bookmarks).
-    static let viewSwitcherAllowance: CGFloat = 38
-
     /// Everything in the surface other than the results list: search header,
-    /// view switcher strip, footer, inter-section spacing, and the surface's
-    /// own padding. The compact (edge) allowance is larger because the footer's
-    /// hints and status text wrap onto extra lines at half width.
-    private static let chromeAllowance: CGFloat = 170
-    private static let compactChromeAllowance: CGFloat = 200
+    /// footer, inter-section spacing, and the surface's own padding. The
+    /// compact (edge) allowance is larger because the footer's hints and
+    /// status text wrap onto extra lines at half width.
+    private static let chromeAllowance: CGFloat = 132
+    private static let compactChromeAllowance: CGFloat = 162
 
     /// The footer's own share of `chromeAllowance` above — its content height
     /// plus the one inter-section spacing gap that disappears along with it.
@@ -149,7 +146,7 @@ extension CommandBarLayout {
 
     /// Single source of truth for row-cap branching across both SwiftUI view sizing (ContentView)
     /// and AppKit pointer hit testing (FastTabApp.isCursorOutsideSurface).
-    /// Tall views (My Order & Bookmarks) and the "show all tabs" expansion both resolve to expandedAllTabsMaxRows.
+    /// The tall Stack view and the "show all tabs" expansion both resolve to expandedAllTabsMaxRows.
     static func surfaceMaxRows(
         view: CommandBarView,
         isShowingAllOpenTabs: Bool,

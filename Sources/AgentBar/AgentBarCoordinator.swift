@@ -16,6 +16,8 @@ final class AgentBarCoordinator {
     private let switchCoordinator: AgentSwitchCoordinator
     private let cornerTab: CornerTabController
     private let arrivalSounds: ArrivalSoundController
+    private let agentTreeModel: AgentTreeModel
+    private lazy var agentTreeWindow = AgentTreeWindowController(model: agentTreeModel)
     private var feedTask: Task<Void, Never>?
     private var settingsSubscriptions: Set<AnyCancellable> = []
 
@@ -32,7 +34,8 @@ final class AgentBarCoordinator {
 
     private lazy var menuBarItem = MenuBarItemController(handlers: .init(
         showPanel: { [unowned self] in showPanel() },
-        showSettings: { [unowned self] in showSettings() }
+        showSettings: { [unowned self] in showSettings() },
+        showAgentTree: { [unowned self] in showAgentTree() }
     ))
 
     init() {
@@ -45,6 +48,7 @@ final class AgentBarCoordinator {
         model.workerClient = statusSource
         model.routingAPIKeyStore = KeychainRoutingAPIKeyStore()
         model.applyRouting(settings.routing)
+        agentTreeModel = AgentTreeModel(editing: statusSource)
         let settings = settings
         let textInputActivation = TextInputActivation(
             focus: SystemAppFocus(),
@@ -110,6 +114,10 @@ final class AgentBarCoordinator {
         settingsWindow.show()
     }
 
+    func showAgentTree() {
+        agentTreeWindow.show()
+    }
+
     // MARK: - Wiring
 
     private func wire() {
@@ -168,10 +176,11 @@ final class AgentBarCoordinator {
 
     private func beginFeed(from source: DashboardStatusSource) {
         Task { await source.start() }
-        feedTask = Task { @MainActor [model] in
+        feedTask = Task { @MainActor [model, agentTreeModel] in
             for await snapshot in source.updates {
                 guard !Task.isCancelled else { return }
                 model.receive(snapshot)
+                agentTreeModel.receive(snapshot)
             }
         }
     }
@@ -188,6 +197,7 @@ final class AgentBarCoordinator {
         switchCoordinator.statusSource = source
         model.statusSource = source
         model.workerClient = source
+        agentTreeModel.editing = source
         model.useDashboard(address: endpoint.displayAddress)
         beginFeed(from: source)
     }

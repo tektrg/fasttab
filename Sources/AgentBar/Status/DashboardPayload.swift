@@ -15,14 +15,19 @@ struct DashboardPayload: Decodable {
     let agents: [DashboardAgent]
     let needsYou: [DashboardNeedsYou]
     let boardRows: [DashboardBoardRow]?
+    /// Who-reports-to-whom, when this dashboard computes it. Nil when the key is absent, null, or
+    /// unreadable — all three read as "feature unavailable" (`AgentTreeMapper`, `AgentTreeModel`),
+    /// never as an error: an older dashboard simply predates this field.
+    let agentTree: AgentTreeWirePayload?
 
-    fileprivate enum CodingKeys: String, CodingKey { case serverTimeTs, feeds, computed, board }
+    fileprivate enum CodingKeys: String, CodingKey { case serverTimeTs, feeds, computed, board, agentTree }
     private enum ComputedKeys: String, CodingKey { case agents, needsYou }
     private enum BoardKeys: String, CodingKey { case rows }
 
     init(from decoder: Decoder) throws {
         let root = try decoder.container(keyedBy: CodingKeys.self)
         serverTimeTs = root.lenient(.serverTimeTs)
+        agentTree = root.lenient(.agentTree)
         (feeds, unreadableFeedNames) = Self.readFeeds(root)
         if let computed = try? root.nestedContainer(keyedBy: ComputedKeys.self, forKey: .computed) {
             agents = (computed.lenient(.agents) as LenientArray<DashboardAgent>?)?.elements ?? []

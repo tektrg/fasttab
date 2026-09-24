@@ -7,6 +7,7 @@ final class MenuBarItemController: NSObject {
     struct Handlers {
         var showPanel: () -> Void
         var showSettings: () -> Void
+        var showAgentTree: () -> Void
     }
 
     private let handlers: Handlers
@@ -35,6 +36,7 @@ final class MenuBarItemController: NSObject {
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(item("Show AgentBar", #selector(showPanel), key: ""))
+        menu.addItem(item("Agent Hierarchy…", #selector(showAgentTree), key: "t"))
         menu.addItem(item("Settings…", #selector(showSettings), key: ","))
         menu.addItem(.separator())
         menu.addItem(item("Quit AgentBar", #selector(quit), key: "q"))
@@ -49,5 +51,6 @@ final class MenuBarItemController: NSObject {
 
     @objc private func showPanel() { handlers.showPanel() }
     @objc private func showSettings() { handlers.showSettings() }
+    @objc private func showAgentTree() { handlers.showAgentTree() }
     @objc private func quit() { NSApp.terminate(nil) }
 }

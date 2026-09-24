@@ -33,7 +33,8 @@ enum StatusSnapshotBuilder {
             agents: liveAgents + ended,
             health: .ok,
             fetchedAt: fetchedAt,
-            boardIsCurrent: boardIsCurrent && payload.boardRows != nil
+            boardIsCurrent: boardIsCurrent && payload.boardRows != nil,
+            agentTree: AgentTreeMapper.map(payload.agentTree)
         )
     }
 }

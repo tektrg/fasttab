@@ -24,6 +24,9 @@ struct DashboardEndpoint: Sendable {
     /// `/api/worker` runs AptusFit's `session-worktree.sh new` (180s budget), `tab-label.py` (30s)
     /// and a herdr tab create + launch (30s) in sequence — generous margin over that ~240s worst case.
     static let workerCreationTimeoutSeconds: TimeInterval = 270
+    /// Attach/detach are one write to the dashboard's own tree state, no pane involved: a plain
+    /// request-timeout budget is generous.
+    static let agentTreeActionTimeoutSeconds: TimeInterval = 20
     /// The dashboard's accident guard: only the product owner's clicks may stop
     /// or close (`PO_ACTOR` in chief_dashboard_actions.py). AgentBar acts only
     /// on the user's own click, so it speaks as that actor.
@@ -158,6 +161,29 @@ struct DashboardEndpoint: Sendable {
         request.timeoutInterval = Self.workerCreationTimeoutSeconds
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["repoAlias": repoAlias, "slug": slug, "task": task])
+        return request
+    }
+
+    /// `POST /api/agent-tree/attach`: `child` reports to the chief `parent`. `confirmCrossProject`
+    /// is sent only on the retry after a `needsConfirm` (409) reply.
+    func agentTreeAttachRequest(child: String, parent: String, confirmCrossProject: Bool) -> URLRequest {
+        var request = request(path: "/api/agent-tree/attach")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.agentTreeActionTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "child": child, "parent": parent, "confirmCrossProject": confirmCrossProject,
+        ])
+        return request
+    }
+
+    /// `POST /api/agent-tree/detach`: `child` reports nowhere until attached again.
+    func agentTreeDetachRequest(child: String) -> URLRequest {
+        var request = request(path: "/api/agent-tree/detach")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.agentTreeActionTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["child": child])
         return request
     }
 

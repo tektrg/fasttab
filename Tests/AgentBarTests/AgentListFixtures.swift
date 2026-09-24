@@ -41,9 +41,10 @@ enum AgentListFixtures {
     static func snapshot(
         _ agents: [AgentSnapshot],
         health: StatusFeedHealth = .ok,
-        boardIsCurrent: Bool = true
+        boardIsCurrent: Bool = true,
+        agentTree: AgentTree? = nil
     ) -> StatusSnapshot {
-        StatusSnapshot(agents: agents, health: health, fetchedAt: now, boardIsCurrent: boardIsCurrent)
+        StatusSnapshot(agents: agents, health: health, fetchedAt: now, boardIsCurrent: boardIsCurrent, agentTree: agentTree)
     }
 
     static func presentation(

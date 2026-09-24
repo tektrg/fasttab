@@ -21,7 +21,12 @@ enum RowButton: Equatable, Sendable {
     case message
     case compact
     case clear
-    /// The ⋯ trigger that opens the overflow menu (Done / Close pane / Compact / Clear).
+    /// Attaches this row to a chief — the ⋯ menu's equivalent of ⌘] (`AgentTreeModel.indentSelected`):
+    /// nearest chief above in display order, or a picker if ambiguous. See `TreeRowActions`.
+    case reportTo
+    /// Detaches this row to Unassigned — the ⋯ menu's equivalent of ⌘[ / ⌘⌫.
+    case stopReporting
+    /// The ⋯ trigger that opens the overflow menu (Done / Close pane / Compact / Clear / Report to… / Stop reporting).
     case moreActions
 
     var title: String {
@@ -36,6 +41,8 @@ enum RowButton: Equatable, Sendable {
         case .message: "Message"
         case .compact: "Compact"
         case .clear: "Clear"
+        case .reportTo: "Report to…"
+        case .stopReporting: "Stop reporting"
         case .moreActions: "More actions"
         }
     }
@@ -50,7 +57,7 @@ enum RowButton: Equatable, Sendable {
         switch self {
         case .done: .stop
         case .closePane: .close
-        case .answer, .review, .openTerminal, .park, .unpark, .message, .compact, .clear, .moreActions: nil
+        case .answer, .review, .openTerminal, .park, .unpark, .message, .compact, .clear, .reportTo, .stopReporting, .moreActions: nil
         }
     }
 }

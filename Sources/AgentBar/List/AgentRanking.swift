@@ -23,11 +23,19 @@ enum AgentRanking {
         case .ended:
             return agents
         case .working, .parked:
-            return agents.enumerated()
-                .map { (index: $0.offset, agent: $0.element, score: score(for: $0.element, frecency, now)) }
-                .sorted { $0.score != $1.score ? $0.score > $1.score : $0.index < $1.index }
-                .map(\.agent)
+            return orderedByFrecency(agents, frecency: frecency, now: now)
         }
+    }
+
+    /// Higher frecency first; ties (including every never-visited agent) keep the given order.
+    /// What Working/Parked already do, and what `AgentListGrouping` uses for siblings inside a
+    /// chief's group and inside Unassigned — those aren't an `AgentSection`, so they don't go
+    /// through the switch above.
+    static func orderedByFrecency(_ agents: [AgentSnapshot], frecency: [String: FrecencyEntry], now: Date) -> [AgentSnapshot] {
+        agents.enumerated()
+            .map { (index: $0.offset, agent: $0.element, score: score(for: $0.element, frecency, now)) }
+            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.index < $1.index }
+            .map(\.agent)
     }
 
     private static func score(for agent: AgentSnapshot, _ frecency: [String: FrecencyEntry], _ now: Date) -> Double {

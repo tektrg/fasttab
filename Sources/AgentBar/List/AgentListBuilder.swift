@@ -32,7 +32,7 @@ enum AgentListBuilder {
 
         return AgentListPresentation(
             state: .list,
-            rows: rows(for: matching, frecency: frecency, now: now),
+            rows: rows(for: matching, tree: snapshot.agentTree, isSearching: !searchWords(in: query).isEmpty, frecency: frecency, now: now),
             showsBoardNote: note
         )
     }
@@ -62,13 +62,37 @@ enum AgentListBuilder {
         }
     }
 
-    /// Sections in display order, empty ones skipped, each behind its header.
-    static func rows(for agents: [AgentSnapshot], frecency: [String: FrecencyEntry], now: Date) -> [AgentListRow] {
+    /// Needs you always flat and on top (unchanged). Below it: while searching, or before a
+    /// non-empty tree has loaded, the old flat status sections (Working/Parked/Ended); otherwise
+    /// the PO's "Nest under chief" grouping (`AgentListGrouping`) — one group per chief's project,
+    /// then Unassigned.
+    static func rows(for agents: [AgentSnapshot], tree: AgentTree?, isSearching: Bool, frecency: [String: FrecencyEntry], now: Date) -> [AgentListRow] {
+        guard !isSearching, let tree, !tree.isEmpty else {
+            return flatRows(for: agents, frecency: frecency, now: now)
+        }
+        let needsYou = agents.filter { $0.section == .needsYou }
+        let rest = agents.filter { $0.section != .needsYou }
+        var rows = needsYouRows(needsYou, frecency: frecency, now: now)
+        rows.append(contentsOf: AgentListGrouping.rows(
+            for: rest, tree: tree, needsYouIDs: Set(needsYou.map(\.id)), frecency: frecency, now: now
+        ))
+        return rows
+    }
+
+    /// Sections in display order, empty ones skipped, each behind its header. What every section
+    /// looked like before the hierarchy grouping existed, and what a search still shows.
+    private static func flatRows(for agents: [AgentSnapshot], frecency: [String: FrecencyEntry], now: Date) -> [AgentListRow] {
         AgentSection.allCases.flatMap { section -> [AgentListRow] in
             let inSection = agents.filter { $0.section == section }
             guard !inSection.isEmpty else { return [] }
             let ranked = AgentRanking.ordered(inSection, in: section, frecency: frecency, now: now)
-            return [.header(section)] + ranked.map(AgentListRow.agent)
+            return [.header(section)] + ranked.map { .agent($0, nesting: .flat) }
         }
+    }
+
+    private static func needsYouRows(_ agents: [AgentSnapshot], frecency: [String: FrecencyEntry], now: Date) -> [AgentListRow] {
+        guard !agents.isEmpty else { return [] }
+        let ranked = AgentRanking.ordered(agents, in: .needsYou, frecency: frecency, now: now)
+        return [.header(.needsYou)] + ranked.map { .agent($0, nesting: .flat) }
     }
 }

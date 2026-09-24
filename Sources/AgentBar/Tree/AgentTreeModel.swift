@@ -1,9 +1,11 @@
 import Foundation
 
-/// State and actions for the Agent Hierarchy window: who reports to whom, and edits to it
-/// (attach/detach). Deliberately separate from `AgentTreeView` — no SwiftUI import here — so the
-/// same logic can back a future web-dashboard UI of the same tree (PO decision, see the feature
-/// brief). One level of scope down from `AgentPanelModel`'s own state/view split.
+/// State and actions for the agent hierarchy: who reports to whom, and edits to it
+/// (attach/detach). Nested into the main list (`AgentListGrouping`, `Panel/AgentListView.swift`) —
+/// originally its own "Agent Hierarchy" window, folded into the list per PO decision so there is
+/// one surface, not two (see `AgentPanelModel.treeModel`). Deliberately no SwiftUI import here —
+/// the same logic can back a future web-dashboard UI of the same tree. One level of scope down
+/// from `AgentPanelModel`'s own state/view split.
 @MainActor
 final class AgentTreeModel: ObservableObject {
     /// A 409 cross-project attach, waiting on the user's "Attach anyway?" before it retries with

@@ -4,6 +4,10 @@ import SwiftUI
 /// place of the age; a row waiting for a confirming press shows why, in red.
 struct AgentRowView: View {
     let agent: AgentSnapshot
+    /// Where this row sits in the grouped hierarchy display (`.flat` while searching, in Needs
+    /// you, or before the tree has loaded) — drives indentation and the chief/cross-project/lost-
+    /// parent decorations. See `AgentListGrouping`.
+    var nesting: AgentRowNesting = .flat
     let isSelected: Bool
     let fetchedAt: Date
     var actionState: RowActionState?
@@ -16,6 +20,9 @@ struct AgentRowView: View {
     var isCopied = false
     /// What Shift+Return routing has sent this agent, newest first; only the user clears one.
     var routedNotes: [RoutedNote] = []
+    /// "Report to…"/"Stop reporting" for this row (`TreeRowActions`), merged into the ⋯ menu
+    /// alongside Done/Close pane/Compact/Clear.
+    var treeMenuItems: [RowButtonSpec] = []
     var onPress: (RowButton) -> Void = { _ in }
     var onCopy: () -> Void = {}
     var onClearRoutedNote: (UUID) -> Void = { _ in }
@@ -30,12 +37,20 @@ struct AgentRowView: View {
                 detailLine
             }
         }
+        .padding(.leading, indent)
         .padding(.horizontal, 12)
         .frame(height: AgentPanelMetrics.rowHeight)
         .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Color.accentColor.opacity(0.22) : .clear))
         .padding(.horizontal, 10)
         .opacity(dimming)
         .contentShape(Rectangle())
+    }
+
+    /// Only a worker nested under its chief indents — a chief and every Unassigned row (including
+    /// Parent-gone) sit flush left, same as the old tree view's rule.
+    private var indent: CGFloat {
+        if case .child = nesting { return 20 }
+        return 0
     }
 
     private var titleLine: some View {
@@ -49,6 +64,7 @@ struct AgentRowView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            nestingDecorations
             Spacer(minLength: 8)
             if let sendingLabel {
                 sendingIndicator(sendingLabel)
@@ -90,8 +106,41 @@ struct AgentRowView: View {
         .accessibilityLabel(label)
     }
 
-    private var buttons: [RowButtonSpec] { RowButtons.available(for: agent) }
-    private var menuItems: [RowButtonSpec] { RowButtons.menuItems(for: agent) }
+    /// A chief's "N needs you" hint, a worker's cross-project marker, and either row's "Air"
+    /// machine badge — the decorations `AgentListGrouping`'s nesting carries per row.
+    @ViewBuilder
+    private var nestingDecorations: some View {
+        switch nesting {
+        case .chief(let needsYouHint, let machineBadge):
+            if needsYouHint > 0 {
+                Text("\(needsYouHint) needs you")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.red)
+            }
+            if let machineBadge { MachineBadgeView(text: machineBadge) }
+        case .child(let crossProject, let machineBadge):
+            if crossProject {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                    .help("This worker's project differs from its chief's")
+            }
+            if let machineBadge { MachineBadgeView(text: machineBadge) }
+        case .unassigned(_, let machineBadge):
+            if let machineBadge { MachineBadgeView(text: machineBadge) }
+        case .flat:
+            EmptyView()
+        }
+    }
+
+    private var buttons: [RowButtonSpec] {
+        var specs = RowButtons.available(for: agent)
+        guard !treeMenuItems.isEmpty, !specs.contains(where: { $0.button == .moreActions }) else { return specs }
+        specs.append(RowButtonSpec(button: .moreActions, disabledReason: nil))
+        return specs
+    }
+
+    private var menuItems: [RowButtonSpec] { RowButtons.menuItems(for: agent) + treeMenuItems }
 
     /// Done/Close pane live in the ⋯ menu normally, but a press that needs a second look (or is
     /// mid-flight, or just finished) must not vanish the moment the menu closes: this pulls that
@@ -159,10 +208,14 @@ struct AgentRowView: View {
         return false
     }
 
-    /// The status line, or the stake and "Confirm?" while a press awaits its second press.
+    /// The status line, or the stake and "Confirm?" while a press awaits its second press, or (a
+    /// Parent-gone row in Unassigned) who it used to report to — the tree view's own wording.
     private var detailText: String {
         if case .confirming(let button, let reason)? = actionState, let kind = button.sessionAction {
             return RowActionText.confirmPrompt(kind: kind, reason: reason)
+        }
+        if case .unassigned(let lostParentLabel?, _) = nesting {
+            return "\(agent.statusText) · was reporting to \(lostParentLabel)"
         }
         return agent.statusText
     }

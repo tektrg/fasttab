@@ -11,8 +11,11 @@ extension CommandBarLayout {
     /// footer, inter-section spacing, and the surface's own padding. The
     /// compact (edge) allowance is larger because the footer's hints and
     /// status text wrap onto extra lines at half width.
-    private static let chromeAllowance: CGFloat = 132
-    private static let compactChromeAllowance: CGFloat = 162
+    ///
+    /// Drops 48pt with the view switcher strip: its 38pt height plus the one
+    /// 10pt inter-section gap that disappears along with it.
+    private static let chromeAllowance: CGFloat = 122
+    private static let compactChromeAllowance: CGFloat = 152
 
     /// The footer's own share of `chromeAllowance` above — its content height
     /// plus the one inter-section spacing gap that disappears along with it.

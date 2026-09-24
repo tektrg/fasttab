@@ -182,7 +182,7 @@ struct TabSwitcherViewCard: View {
                let url = URL(string: tab.url),
                url.scheme?.hasPrefix("http") == true,
                !(preview?.isTweet == true),
-               !LinkPreviewLoader.isTwitterStatusURL(url) {
+               !LinkPreviewLoader.isXPostURL(url) {
                 TabWebPreviewView(url: url, isVisible: true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()

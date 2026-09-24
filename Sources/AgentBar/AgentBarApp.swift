@@ -17,6 +17,12 @@ final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
         let coordinator = AgentBarCoordinator()
         self.coordinator = coordinator
         coordinator.start()
+
+        // Debug launch option: `open AgentBar.app --args -showAgentTreeOnLaunch YES`
+        // opens the Agent Hierarchy window right away, for screenshot-driven verification.
+        if UserDefaults.standard.bool(forKey: "showAgentTreeOnLaunch") {
+            coordinator.showAgentTree()
+        }
     }
 
     /// Launching the app again (e.g. `open AgentBar.app`) summons the panel.

@@ -413,18 +413,14 @@ private struct RandomCardView: View {
                         : Color(uiColor: .secondarySystemBackground)
                 )
 
-            if let image = preview?.image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
+            if let preview, let image = preview.image {
+                LinkCardImageView(image: image, preview: preview, compact: false)
                     .frame(width: cardSize.width, height: cardSize.height)
                     .clipped()
             } else if let preview, preview.isTweet, let snippet = preview.snippetText, !snippet.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
-                        Text("𝕏")
-                            .font(.system(size: 20, weight: .black))
-                            .foregroundStyle(.white)
+                        LinkCardAvatarView(preview: preview, diameter: 32, glyphColor: .white)
                         VStack(alignment: .leading, spacing: 1) {
                             if let name = preview.authorName, !name.isEmpty {
                                 Text(name)

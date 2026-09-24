@@ -186,34 +186,22 @@ public struct ReadingFeedCardView: View {
     }
 
     private var displayTitle: String {
-        if !title.isEmpty && !title.hasPrefix("http://") && !title.hasPrefix("https://") {
-            return title
-        }
-        if let previewTitle = preview?.title, !previewTitle.isEmpty {
-            return previewTitle
-        }
-        return title
+        LinkPreview.cardTitle(storedTitle: title, preview: preview)
     }
 
     private var displaySubtitle: String {
-        if let preview, preview.isTweet {
-            if let handle = preview.authorHandle, let name = preview.authorName {
-                return "\(name) (\(handle))"
-            } else if let handle = preview.authorHandle {
-                return handle
-            }
-        }
-        return domain
+        preview?.siteSubtitle ?? domain
     }
 
+    /// Site image (with play / Shorts overlays), else a text tile for an X or Reddit post
+    /// without media, else the generic placeholder.
     @ViewBuilder
     private var thumbnailView: some View {
-        if let image = preview?.image {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-        } else if let preview, preview.isTweet, let snippet = preview.snippetText, !snippet.isEmpty {
-            tweetThumbnailView(preview: preview, snippet: snippet)
+        if let preview, let image = preview.image {
+            LinkCardImageView(image: image, preview: preview)
+        } else if let preview, preview.site == .x || preview.site == .reddit,
+                  let snippet = preview.snippetText, !snippet.isEmpty {
+            LinkCardTextTileView(preview: preview, text: snippet)
         } else {
             ZStack {
                 Self.warmMutedFillColor
@@ -234,39 +222,6 @@ public struct ReadingFeedCardView: View {
                     }
                 }
             }
-        }
-    }
-
-    private func tweetThumbnailView(preview: LinkPreview, snippet: String) -> some View {
-        ZStack(alignment: .topLeading) {
-            Color(uiColor: UIColor { trait in
-                trait.userInterfaceStyle == .dark
-                    ? UIColor(red: 0.12, green: 0.13, blue: 0.16, alpha: 1.0)
-                    : UIColor(red: 0.93, green: 0.94, blue: 0.96, alpha: 1.0)
-            })
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Text("𝕏")
-                        .font(.system(size: 11, weight: .black))
-                        .foregroundStyle(.primary)
-
-                    if let handle = preview.authorHandle {
-                        Text(handle)
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-
-                Text(snippet)
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.primary.opacity(0.9))
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
-                    .lineSpacing(1.5)
-            }
-            .padding(7)
         }
     }
 }

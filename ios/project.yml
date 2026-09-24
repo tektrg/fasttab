@@ -9,6 +9,10 @@ options:
 packages:
   FastTabPackage:
     path: ..
+  # Shared L1 library (sibling repo ~/01_Project/IndieLibKit). IndieLinks = site
+  # detection + link-card metadata for X / YouTube / Reddit / GitHub.
+  IndieLibKit:
+    path: ../../IndieLibKit
 
 targets:
   FastTabMobile:
@@ -23,6 +27,8 @@ targets:
         codeSign: true
       - package: FastTabPackage
         product: FastTabSync
+      - package: IndieLibKit
+        product: IndieLinks
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile
       DEVELOPMENT_TEAM: 56S46Y7CKN

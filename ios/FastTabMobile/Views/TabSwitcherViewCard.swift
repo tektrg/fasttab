@@ -166,10 +166,8 @@ struct TabSwitcherViewCard: View {
             fallbackCardContent
 
             // 2. OpenGraph preview image if loaded
-            if let image = preview?.image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+            if let preview, let image = preview.image {
+                LinkCardImageView(image: image, preview: preview, compact: false)
                     .frame(width: cardSize.width, height: cardSize.height)
                     .clipped()
             }
@@ -220,14 +218,8 @@ struct TabSwitcherViewCard: View {
     private func tweetCardContent(preview: LinkPreview, snippet: String) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.12))
-                        .frame(width: 32, height: 32)
-                    Text("𝕏")
-                        .font(.system(size: 16, weight: .black))
-                        .foregroundStyle(.white)
-                }
+                LinkCardAvatarView(preview: preview, diameter: 32, glyphColor: .white)
+                    .background(Color.white.opacity(0.12), in: Circle())
 
                 VStack(alignment: .leading, spacing: 1) {
                     if let name = preview.authorName {

@@ -167,10 +167,32 @@ final class LinkCardPreviewTests: XCTestCase {
         LinkCardMetadataCache(directory: directory, now: { savedAt }).store(metadata, for: url)
 
         let sixDaysLater = LinkCardMetadataCache(directory: directory, now: { savedAt.addingTimeInterval(6 * 86_400) })
-        XCTAssertEqual(sixDaysLater.metadata(for: url), metadata)
-        XCTAssertNil(sixDaysLater.metadata(for: URL(string: "https://github.com/apple/swift")!))
+        XCTAssertEqual(sixDaysLater.lookup(url)?.metadata, metadata)
+        XCTAssertEqual(sixDaysLater.lookup(url)?.isRetryDue, false)
+        XCTAssertNil(sixDaysLater.lookup(URL(string: "https://github.com/apple/swift")!))
 
         let eightDaysLater = LinkCardMetadataCache(directory: directory, now: { savedAt.addingTimeInterval(8 * 86_400) })
-        XCTAssertNil(eightDaysLater.metadata(for: url))
+        XCTAssertNil(eightDaysLater.lookup(url))
+    }
+
+    /// A partial card (e.g. GitHub API rate-limited) is fetched once more after 6 hours,
+    /// not kept thin for the whole 7-day lifetime, and not retried forever either.
+    func testPartialCardIsRetriedOnceAfterSixHours() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = URL(string: "https://github.com/swiftlang/swift")!
+        let partial = LinkCardMetadata(site: .github, title: "swiftlang/swift", mediaKind: .photo, isPartial: true)
+        let savedAt = Date(timeIntervalSince1970: 1_000_000)
+        func cache(hoursLater hours: Double) -> LinkCardMetadataCache {
+            LinkCardMetadataCache(directory: directory, now: { savedAt.addingTimeInterval(hours * 3_600) })
+        }
+
+        cache(hoursLater: 0).store(partial, for: url)
+        XCTAssertEqual(cache(hoursLater: 5).lookup(url)?.isRetryDue, false)
+        XCTAssertEqual(cache(hoursLater: 7).lookup(url)?.isRetryDue, true)
+
+        cache(hoursLater: 7).store(partial, for: url, wasRetry: true)
+        XCTAssertEqual(cache(hoursLater: 20).lookup(url)?.isRetryDue, false)
+        XCTAssertEqual(cache(hoursLater: 20).lookup(url)?.metadata, partial)
     }
 }

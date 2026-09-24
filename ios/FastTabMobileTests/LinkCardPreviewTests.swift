@@ -75,13 +75,15 @@ final class LinkCardPreviewTests: XCTestCase {
         XCTAssertNil(preview.siteSubtitle)
     }
 
-    func testGitHubPullRequestShowsNumberedRepoAsTitleAndPRTitleAsSubtitle() {
+    /// Same as Parklet (IndieLinks `headline` / `secondaryLine`): the PR's title leads, its
+    /// "owner/repo#N" is the source line, like a subreddit or channel.
+    func testGitHubPullRequestShowsItsTitleOverTheNumberedRepo() {
         let metadata = LinkCardMetadata(
             site: .github, title: "Fix the build", authorName: "octocat", authorHandle: "swiftlang/swift#1"
         )
         let preview = LinkPreview(metadata: metadata)
-        XCTAssertEqual(preview.title, "swiftlang/swift#1")
-        XCTAssertEqual(preview.siteSubtitle, "Fix the build")
+        XCTAssertEqual(preview.title, "Fix the build")
+        XCTAssertEqual(preview.siteSubtitle, "swiftlang/swift#1")
     }
 
     // MARK: - Card title choice
@@ -99,22 +101,6 @@ final class LinkCardPreviewTests: XCTestCase {
         XCTAssertEqual(LinkPreview.cardTitle(storedTitle: "My saved title", preview: preview), "My saved title")
         XCTAssertEqual(LinkPreview.cardTitle(storedTitle: "https://example.com", preview: preview), "Example Domain")
         XCTAssertEqual(LinkPreview.cardTitle(storedTitle: "https://example.com", preview: nil), "https://example.com")
-    }
-
-    // MARK: - Formatting
-
-    func testCompactCount() {
-        XCTAssertEqual(LinkPreview.compactCount(999), "999")
-        XCTAssertEqual(LinkPreview.compactCount(1_000), "1k")
-        XCTAssertEqual(LinkPreview.compactCount(1_234), "1.2k")
-        XCTAssertEqual(LinkPreview.compactCount(69_899), "69.8k")
-        XCTAssertEqual(LinkPreview.compactCount(1_250_000), "1.2M")
-    }
-
-    func testDurationText() {
-        XCTAssertEqual(LinkPreview.durationText(45), "0:45")
-        XCTAssertEqual(LinkPreview.durationText(75.4), "1:15")
-        XCTAssertEqual(LinkPreview.durationText(3_725), "1:02:05")
     }
 
     // MARK: - Images

@@ -71,12 +71,11 @@ public final class LinkPreviewLoader {
         let cached = metadataCache.lookup(url)
         var metadata = cached?.metadata
         if cached == nil || cached?.isRetryDue == true {
-            if let fetched = await LinkSiteResolver().resolve(match) {
-                metadata = fetched
-                metadataCache.store(fetched, for: url, wasRetry: cached != nil)
-            } else if let partial = cached?.metadata {
-                // The retry failed outright: keep the partial card, and stop retrying it.
-                metadataCache.store(partial, for: url, wasRetry: true)
+            // On the one retry, a failed or thinner result never replaces what the partial card had.
+            let fresh = await LinkSiteResolver().resolve(match)
+            if let card = LinkCardRetryPolicy.card(afterRetry: fresh, earlier: cached?.metadata) {
+                metadata = card
+                metadataCache.store(card, for: url, wasRetry: cached != nil)
             }
         }
         guard let metadata else { return nil }

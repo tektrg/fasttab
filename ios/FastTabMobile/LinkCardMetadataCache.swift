@@ -18,7 +18,7 @@ struct LinkCardMetadataCache: Sendable {
     let timeToLive: TimeInterval
     let now: @Sendable () -> Date
 
-    init(directory: URL, timeToLive: TimeInterval = Self.defaultTimeToLive, now: @escaping @Sendable () -> Date = Date.init) {
+    init(directory: URL, timeToLive: TimeInterval = Self.defaultTimeToLive, now: @escaping @Sendable () -> Date = { Date() }) {
         self.directory = directory
         self.timeToLive = timeToLive
         self.now = now

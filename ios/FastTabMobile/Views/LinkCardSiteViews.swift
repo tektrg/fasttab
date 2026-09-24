@@ -1,3 +1,4 @@
+import IndieLinks
 import SwiftUI
 import UIKit
 
@@ -24,6 +25,7 @@ struct LinkCardImageView: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: showsWholeImage ? .fit : .fill)
+                    .accessibilityHidden(true)
             }
             .clipped()
             .overlay { LinkCardMediaOverlay(preview: preview, compact: compact) }
@@ -58,6 +60,17 @@ struct LinkCardMediaOverlay: View {
                     .padding(compact ? 5 : 12)
             }
         }
+        // One spoken element ("Video, 1 minute, 54 seconds", "YouTube Short") instead of
+        // VoiceOver reading the play glyph as a "Play" button that does nothing.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spokenLabel ?? "")
+        .accessibilityHidden(spokenLabel == nil)
+    }
+
+    private var spokenLabel: String? {
+        if preview.isYouTubeShort { return "YouTube Short" }
+        guard preview.mediaKind == .video else { return nil }
+        return preview.durationSeconds.map { "Video, \(LinkCardText.spokenDuration(seconds: $0))" } ?? "Video"
     }
 
     private var centeredPlayBadge: some View {
@@ -75,7 +88,7 @@ struct LinkCardMediaOverlay: View {
             Image(systemName: "play.fill")
                 .font(.system(size: compact ? 7 : 11, weight: .bold))
             if let seconds = preview.durationSeconds {
-                Text(LinkPreview.durationText(seconds))
+                Text(LinkCardText.duration(seconds: seconds))
                     .font(.system(size: compact ? 9 : 13, weight: .semibold).monospacedDigit())
             }
         }
@@ -86,7 +99,8 @@ struct LinkCardMediaOverlay: View {
     }
 }
 
-/// X author avatar circle; the 𝕏 glyph when no avatar loaded.
+/// X author avatar circle; the 𝕏 glyph when no avatar loaded. Decorative: the author's
+/// name is always in the text beside it, so VoiceOver skips it.
 struct LinkCardAvatarView: View {
     let preview: LinkPreview
     let diameter: CGFloat
@@ -100,11 +114,13 @@ struct LinkCardAvatarView: View {
                 .scaledToFill()
                 .frame(width: diameter, height: diameter)
                 .clipShape(Circle())
+                .accessibilityHidden(true)
         } else {
             Text("𝕏")
                 .font(.system(size: diameter * 0.6, weight: .black))
                 .foregroundStyle(glyphColor)
                 .frame(width: diameter, height: diameter)
+                .accessibilityHidden(true)
         }
     }
 }

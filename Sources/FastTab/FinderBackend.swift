@@ -133,12 +133,15 @@ struct FinderBackend: BrowserBackend {
         } else {
             // Same word-by-word, accent-insensitive rule as tab/bookmark search
             // so file results don't behave differently from browser results.
+            // Fold the query once rather than per snapshot entry — this runs
+            // over the whole Finder history on every keystroke.
+            let queryWords = searchWords(in: trimmed)
             matches = snapshot.filter {
                 if let since, $0.lastVisit < since { return false }
                 if let before, $0.lastVisit >= before { return false }
                 return foldedKeys(
                     [foldForMatching($0.basename), foldForMatching($0.path)],
-                    containAllWordsOf: trimmed
+                    containAllWordsOf: queryWords
                 )
             }
         }

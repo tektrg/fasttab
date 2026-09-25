@@ -8,12 +8,20 @@ import Combine
 /// hold-to-confirm gesture. `CommandBarPanelController.playRevealAnimation`
 /// supplies the "grows out of the edge" motion that sells the connection
 /// between cursor and bar.
+///
+/// Detection is one invisible `EdgeRevealHoverWindow` per connected screen,
+/// each sized to that screen's trigger zone. That replaced a permanently
+/// running global mouse-moved monitor (plus an app-wide idle-sleep-disable to
+/// keep it alive against App Nap) — the window server now does the geometry
+/// check and only wakes this service when the cursor actually crosses a zone
+/// boundary.
 @MainActor
 final class EdgeRevealService: NSObject {
     static let shared = EdgeRevealService()
 
-    /// Outward margin on the hit-test rect so the pointer doesn't need to
-    /// land pixel-perfect on the (often only 10pt-wide) zone boundary.
+    /// Outward margin baked into each hover window's frame so the pointer
+    /// doesn't need to land pixel-perfect on the (often only 10pt-wide) zone
+    /// boundary.
     private static let hitTestOutset: CGFloat = 4
 
     /// How long the cursor must stay in the zone before the bar opens. Kept
@@ -24,18 +32,8 @@ final class EdgeRevealService: NSObject {
     /// well under this, so the pass-through filter still holds.
     private static let dwellDelay: TimeInterval = 0.14
 
-    private var mouseMovedMonitor: Any?
-    /// `addGlobalMonitorForEvents` only delivers events posted to *other*
-    /// applications — while one of FastTab's own windows (e.g. Settings) is
-    /// frontmost, mouse moves are routed to FastTab itself and the global
-    /// monitor goes silent. This local monitor covers that case so hovering
-    /// the trigger zone still works while Settings is open.
-    private var localMouseMovedMonitor: Any?
-    /// Tracks zone membership so triggering happens on the transition into
-    /// the zone, not merely while inside it — otherwise dismissing the bar
-    /// (e.g. via Escape) while the cursor is still sitting in the zone would
-    /// reopen it on the very next mouse tick.
-    private var wasInsideZone = false
+    private var currentStyle: EdgeRevealStyle = .off
+    private var hoverWindows: [EdgeRevealHoverWindow] = []
     /// Non-nil while a dwell is in flight; cancelled if the cursor leaves the
     /// zone before `dwellDelay` elapses.
     private var pendingReveal: DispatchWorkItem?
@@ -64,100 +62,66 @@ final class EdgeRevealService: NSObject {
 
     private func apply(style: EdgeRevealStyle) {
         cancelPendingReveal()
-        wasInsideZone = false
-        if style == .off {
-            stopMonitoring()
-        } else {
-            startMonitoring()
-        }
+        currentStyle = style
+        rebuildHoverWindows()
     }
 
     @objc private func handleScreenParametersChanged() {
-        // Display connect/disconnect and lid open/close can move or remove
-        // the notch/edge entirely — the next mouse move recomputes the zone
-        // fresh, but drop the stale membership flag so a zone that's now in
-        // a different spot doesn't look like it was already entered.
+        // Display connect/disconnect and lid open/close can move, resize, or
+        // remove the notch/edge entirely — rebuild every window's frame from
+        // scratch rather than trying to patch geometry in place.
         cancelPendingReveal()
-        wasInsideZone = false
+        rebuildHoverWindows()
     }
 
-    // MARK: - Monitor lifecycle
+    // MARK: - Hover window lifecycle
 
-    private func startMonitoring() {
-        if mouseMovedMonitor == nil {
-            mouseMovedMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
-                DispatchQueue.main.async {
-                    self?.handleMouseMoved(event)
-                }
-            }
-        }
+    private func rebuildHoverWindows() {
+        hoverWindows.forEach { $0.orderOut(nil) }
+        hoverWindows.removeAll()
 
-        if localMouseMovedMonitor == nil {
-            localMouseMovedMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
-                self?.handleMouseMoved(event)
-                return event
-            }
+        guard currentStyle != .off else { return }
+
+        for screen in NSScreen.screens {
+            let info = EdgeRevealGeometry.screenInfo(for: screen)
+            guard let zone = EdgeRevealGeometry.triggerZone(for: currentStyle, screenInfo: info) else { continue }
+            let outsetZone = zone.insetBy(dx: -Self.hitTestOutset, dy: -Self.hitTestOutset)
+            let window = EdgeRevealHoverWindow(
+                zoneFrame: outsetZone,
+                onEnter: { [weak self] in self?.handleZoneEntered() },
+                onExit: { [weak self] in self?.handleZoneExited() }
+            )
+            window.orderFrontRegardless()
+            hoverWindows.append(window)
         }
     }
 
-    private func stopMonitoring() {
-        if let monitor = mouseMovedMonitor {
-            NSEvent.removeMonitor(monitor)
-            mouseMovedMonitor = nil
-        }
-        if let monitor = localMouseMovedMonitor {
-            NSEvent.removeMonitor(monitor)
-            localMouseMovedMonitor = nil
-        }
+    // MARK: - Event handling
+
+    private func handleZoneEntered() {
+        guard !AppState.shared.isVisible else { return }
+
         cancelPendingReveal()
-        wasInsideZone = false
+        let style = currentStyle
+        let work = DispatchWorkItem { [weak self] in
+            self?.pendingReveal = nil
+            // Re-check on fire: the dwell only proves the cursor didn't leave,
+            // and the bar may have been opened another way meanwhile.
+            guard !AppState.shared.isVisible else { return }
+            AppState.shared.showCommandBar(revealStyle: style)
+        }
+        pendingReveal = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.dwellDelay, execute: work)
+    }
+
+    private func handleZoneExited() {
+        // Leaving the zone abandons an in-flight dwell, so a cursor merely
+        // passing through never opens the bar.
+        cancelPendingReveal()
     }
 
     private func cancelPendingReveal() {
         pendingReveal?.cancel()
         pendingReveal = nil
-    }
-
-    // MARK: - Event handling
-
-    private func handleMouseMoved(_ event: NSEvent) {
-        let style = EdgeRevealStore.shared.style
-        guard style != .off else { return }
-
-        let location = NSEvent.mouseLocation
-        // `NSScreen.main` tracks whichever display currently has keyboard
-        // focus, which lags behind the mouse on a two-display setup: moving
-        // the cursor onto an external display doesn't retarget it until a
-        // window there is actually focused. The trigger zone needs the
-        // display the cursor is physically over.
-        guard let screen = NSScreen.containing(location) ?? NSScreen.main else { return }
-
-        let info = EdgeRevealGeometry.screenInfo(for: screen)
-        guard let zone = EdgeRevealGeometry.triggerZone(for: style, screenInfo: info) else { return }
-
-        let insideZone = zone.insetBy(dx: -Self.hitTestOutset, dy: -Self.hitTestOutset).contains(location)
-
-        guard insideZone, !wasInsideZone else {
-            // Leaving the zone abandons an in-flight dwell, so a cursor merely
-            // passing through never opens the bar.
-            if !insideZone { cancelPendingReveal() }
-            wasInsideZone = insideZone
-            return
-        }
-        wasInsideZone = true
-
-        guard !AppState.shared.isVisible else { return }
-
-        cancelPendingReveal()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.pendingReveal = nil
-            // Re-check on fire: the dwell only proves the cursor didn't leave,
-            // and the bar may have been opened another way meanwhile.
-            guard self.wasInsideZone, !AppState.shared.isVisible else { return }
-            AppState.shared.showCommandBar(revealStyle: style)
-        }
-        pendingReveal = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.dwellDelay, execute: work)
     }
 }

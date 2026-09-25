@@ -5,7 +5,7 @@ struct CommandBarSurface<Content: View>: View {
     /// (flat on that side, rounded on the rest). See `CommandBarSurfaceShape`.
     var anchor: EdgeRevealStyle
     @ViewBuilder var content: Content
-    @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = false
+    @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = true
 
     var body: some View {
         // When the user enables Background, the whole bar gets one shape. Inner
@@ -123,7 +123,7 @@ struct CommandBarSurfaceBackground: View {
     var cornerRadius: CGFloat
     var accent: Color = .clear
 
-    @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = false
+    @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = true
 
     private static let zoneFillOpacity: Double = 0.05
 

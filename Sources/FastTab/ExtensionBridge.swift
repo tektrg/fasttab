@@ -120,6 +120,12 @@ struct ConnectionState {
     var tabs: [Int: ExtensionTabRecord] = [:]
     var activationTimes: [Int: Date] = [:]
     var outboundQueue: [Data] = []
+    /// Signaled whenever a frame is enqueued, or the connection is torn down,
+    /// so `writeLoop` wakes immediately instead of polling on a fixed sleep.
+    /// A `let` reference type: copying `ConnectionState` in and out of the
+    /// registry dictionary still shares the one semaphore for this fd's
+    /// lifetime.
+    let outboundSignal = DispatchSemaphore(value: 0)
 }
 
 private struct PendingCommand {
@@ -368,6 +374,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             ])
             if var connection = registry.connections[fd] {
                 connection.outboundQueue.append(frame)
+                connection.outboundSignal.signal()
                 registry.connections[fd] = connection
             }
             return requestID
@@ -399,6 +406,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             ])
             if var connection = registry.connections[fd] {
                 connection.outboundQueue.append(frame)
+                connection.outboundSignal.signal()
                 registry.connections[fd] = connection
             }
             return requestID
@@ -438,6 +446,10 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             handleInbound(fd, frame)
         }
         lock.withLock { registry in
+            // Wake a `writeLoop` blocked waiting for outbound work so it can
+            // notice the connection is gone and exit, instead of sitting on
+            // its wait timeout.
+            registry.connections[fd]?.outboundSignal.signal()
             registry.connections.removeValue(forKey: fd)
             // Fail only this connection's in-flight commands; another
             // connection's pending reply must be left alone.
@@ -454,7 +466,14 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         publishStatus()
     }
 
+    /// Drains `connection.outboundQueue` as frames arrive. Blocks on the
+    /// connection's `outboundSignal` between frames rather than polling on a
+    /// fixed sleep — every enqueue (and teardown) signals it, so this wakes
+    /// on demand instead of 20 times a second per connected browser whether
+    /// or not there's anything to send. The wait still carries a timeout as a
+    /// backstop against a signal getting missed, not as the normal wake path.
     private func writeLoop(_ fd: Int32) {
+        guard let outboundSignal = lock.withLock({ registry in registry.connections[fd]?.outboundSignal }) else { return }
         while true {
             let frame = lock.withLock { registry -> Data? in
                 guard var connection = registry.connections[fd], !connection.outboundQueue.isEmpty else { return nil }
@@ -466,7 +485,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             }
             guard let frame else {
                 if !lock.withLock({ registry in registry.connections[fd] != nil }) { return }
-                Thread.sleep(forTimeInterval: 0.05)
+                _ = outboundSignal.wait(timeout: .now() + 2.0)
                 continue
             }
             if !Self.writeAll(fd: fd, frame) {
@@ -513,6 +532,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
                 connection.outboundQueue.append(Self.encode([
                     "v": protocolVersion, "type": "resnapshot", "seq": 0, "payload": [:]
                 ]))
+                connection.outboundSignal.signal()
             }
             if seq > 0 { connection.lastSeq = max(connection.lastSeq, seq) }
 
@@ -631,6 +651,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             for fd in registry.connections.keys {
                 guard var connection = registry.connections[fd] else { continue }
                 connection.outboundQueue.append(ping)
+                connection.outboundSignal.signal()
                 registry.connections[fd] = connection
             }
         }

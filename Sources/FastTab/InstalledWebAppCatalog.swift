@@ -47,9 +47,22 @@ final class InstalledWebAppCatalog: ObservableObject {
         rescan()
     }
 
+    /// Runs the actual disk scan off the main actor — `scanInstalledWebApps()`
+    /// walks `/Applications` and `~/Applications` up to two levels deep and
+    /// reads an `Info.plist` per `.app` bundle found, which is enough real
+    /// disk I/O that doing it synchronously on `@MainActor` (this class's
+    /// isolation) stalled the UI thread on every 30s cache refresh.
     private func rescan() {
-        apps = Self.scanInstalledWebApps()
+        // Claim the interval before the scan starts, not after it finishes,
+        // so a second `rescanIfNeeded()` landing mid-scan doesn't kick off an
+        // overlapping one.
         lastScanAt = Date()
+        Task.detached(priority: .utility) { [weak self] in
+            let scanned = Self.scanInstalledWebApps()
+            await MainActor.run {
+                self?.apps = scanned
+            }
+        }
     }
 
     nonisolated static func scanInstalledWebApps() -> [InstalledWebApp] {

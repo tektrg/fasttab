@@ -381,6 +381,47 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     #expect(rightFrame.minX > canvasFrame.minX)
 }
 
+@Test func expandedAllTabsSurfaceCoversHeaderAndFooterThatQuickOpenBoxMissed() async throws {
+    // Regression: hover-dismiss used to bound the cursor against a box sized
+    // for the quick-open list even when a hover reveal had expanded the panel
+    // to show all tabs. On an edge anchor the taller expanded panel is
+    // vertically centred, so its search header (top) and helper bar (bottom)
+    // stuck out past that box — moving the cursor into either collapsed the
+    // bar. A hover reveal always expands, so the box must be the expanded one.
+    let displayFrame = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+    let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
+
+    let expandedMaxRows = CommandBarLayout.expandedAllTabsMaxRows(for: .leftEdge, rowStyle: .minimal, showFooter: true)
+    let quickOpenMaxRows = CommandBarLayout.minQuickOpenItemLimit
+
+    #expect(expandedMaxRows > quickOpenMaxRows)
+
+    let expanded = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .leftEdge, rowStyle: .minimal, maxRows: expandedMaxRows, showFooter: true)
+    let quickOpen = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .leftEdge, rowStyle: .minimal, maxRows: quickOpenMaxRows, showFooter: true)
+
+    #expect(expanded.height > quickOpen.height)
+
+    // Search header: top strip of the expanded panel.
+    let headerPoint = CGPoint(x: expanded.midX, y: expanded.maxY - 8)
+    #expect(expanded.contains(headerPoint))
+    #expect(!quickOpen.contains(headerPoint))
+
+    // Helper bar: bottom strip of the expanded panel.
+    let footerPoint = CGPoint(x: expanded.midX, y: expanded.minY + 8)
+    #expect(expanded.contains(footerPoint))
+    #expect(!quickOpen.contains(footerPoint))
+
+    // Notch anchor: both boxes are top-flush, so it's the helper bar at the
+    // bottom that the taller expanded panel pushes past the quick-open box.
+    let expandedNotch = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .notch, rowStyle: .minimal, maxRows: expandedMaxRows, showFooter: true)
+    let quickOpenNotch = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .notch, rowStyle: .minimal, maxRows: quickOpenMaxRows, showFooter: true)
+    #expect(expandedNotch.height > quickOpenNotch.height)
+    #expect(expandedNotch.maxY == quickOpenNotch.maxY) // both flush to the top
+    let notchFooterPoint = CGPoint(x: expandedNotch.midX, y: expandedNotch.minY + 8)
+    #expect(expandedNotch.contains(notchFooterPoint))
+    #expect(!quickOpenNotch.contains(notchFooterPoint))
+}
+
 @Test func commandBarAnchorFallsBackToNotchWhenOff() async throws {
     let displayFrame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
     let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)

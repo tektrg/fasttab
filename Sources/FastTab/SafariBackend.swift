@@ -688,42 +688,93 @@ struct SafariBackend: BrowserBackend {
     }
 
     func closeTab(_ result: BrowserSearchResult) {
+        _ = closeTabWithResult(result, allowPositionalFallback: true)
+    }
+
+    func closeTabWithResult(_ result: BrowserSearchResult, allowPositionalFallback: Bool) -> TabCloseResult {
         let safeURL = appleScriptQuoted(result.url)
         let fallbackWindow = max(1, result.windowIndex ?? 1)
         let fallbackTab = max(1, result.tabIndex ?? 1)
 
-        let script = """
-        tell application "Safari"
-            if it is not running then return
-            set targetURL to "\(safeURL)"
-            set didClose to false
-            try
-                set winCount to count of windows
-                repeat with w from 1 to winCount
-                    set tabList to tabs of window w
-                    repeat with i from 1 to count of tabList
-                        try
-                            set thisURL to URL of item i of tabList
-                            if thisURL is equal to targetURL then
-                                close tab i of window w
-                                set didClose to true
-                                exit repeat
-                            end if
-                        end try
+        let script: String
+        if allowPositionalFallback {
+            script = """
+            tell application "Safari"
+                if it is not running then return "not_found"
+                set targetURL to "\(safeURL)"
+                try
+                    set winCount to count of windows
+                    repeat with w from 1 to winCount
+                        set tabList to tabs of window w
+                        repeat with i from 1 to count of tabList
+                            try
+                                set thisURL to URL of item i of tabList
+                                if thisURL is equal to targetURL then
+                                    close tab i of window w
+                                    return "closed"
+                                end if
+                            end try
+                        end repeat
                     end repeat
-                    if didClose then exit repeat
-                end repeat
-            end try
-            if didClose is false then
+                end try
                 try
                     close tab \(fallbackTab) of window \(fallbackWindow)
+                    return "closed"
                 end try
-            end if
-        end tell
-        """
+                return "not_found"
+            end tell
+            """
+        } else {
+            script = """
+            tell application "Safari"
+                if it is not running then return "not_found"
+                set targetURL to "\(safeURL)"
+                set matchCount to 0
+                set targetWin to 0
+                set targetTab to 0
+                try
+                    set winCount to count of windows
+                    repeat with w from 1 to winCount
+                        set tabList to tabs of window w
+                        repeat with i from 1 to count of tabList
+                            try
+                                set thisURL to URL of item i of tabList
+                                if thisURL is equal to targetURL then
+                                    set matchCount to matchCount + 1
+                                    set targetWin to w
+                                    set targetTab to i
+                                end if
+                            end try
+                        end repeat
+                    end repeat
+                end try
+                if matchCount is equal to 0 then
+                    return "not_found"
+                else if matchCount is greater than 1 then
+                    return "refused:ambiguous"
+                else
+                    try
+                        close tab targetTab of window targetWin
+                        return "closed"
+                    end try
+                    return "not_found"
+                end if
+            end tell
+            """
+        }
 
-        logger.info("closeTab: app=Safari title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
-        runAppleScript(script, logger: logger, action: "closeTab")
+        logger.info("closeTabWithResult: app=Safari allowPositional=\(allowPositionalFallback) title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
+        let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script], timeoutSeconds: 8)
+        switch output {
+        case "closed":
+            return .closed
+        case "refused:ambiguous":
+            return .refused("Ambiguous tab URL: multiple tabs open with identical URL")
+        case "not_found":
+            return .notFound
+        default:
+            return .notFound
+        }
     }
 
     func openURL(_ result: BrowserSearchResult) {

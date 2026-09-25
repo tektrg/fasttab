@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>FastTab Companion</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 40px auto;
+      max-width: 380px;
+      color: #1c1c1e;
+    }
+    h1 { font-size: 18px; margin-bottom: 4px; }
+    p.sub { color: #666; margin-top: 0; font-size: 13px; }
+    .status { margin: 24px 0; font-size: 15px; }
+    .ok { color: #1a7f37; }
+    .bad { color: #b35900; }
+    button {
+      font-size: 14px;
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid #bbb;
+      background: #f5f5f5;
+      cursor: pointer;
+    }
+    button:hover { background: #e8e8e8; }
+  </style>
+</head>
+<body>
+  <h1>FastTab Companion</h1>
+  <p class="sub">Pairs with the FastTab Mac app. This extension does nothing on its own.</p>
+  <div class="status" id="status">Checking…</div>
+  <div class="sub" id="detail"></div>
+  <button id="reconnect">Reconnect</button>
+  <script src="options.js"></script>
+</body>
+</html>

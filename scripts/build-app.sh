@@ -13,7 +13,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
 APP="dist/FastTab.app"
-SIGN_IDENTITY="${FASTTAB_SIGN_IDENTITY:-Apple Development: luongtattrung@gmail.com (SELAV8N2B9)}"
+ENTITLEMENTS="dist/FastTab.entitlements"
+SIGN_IDENTITY="${FASTTAB_SIGN_IDENTITY:-SELAV8N2B9}"
 
 [[ -d "${APP}" ]] || { echo "build-app: ${APP} not found (expected an existing bundle to refresh)" >&2; exit 1; }
 
@@ -45,6 +46,16 @@ fi
 echo "==> Installing binary into bundle"
 cp "${BIN}" "${APP}/Contents/MacOS/FastTab"
 
+# Second executable: the native-messaging host relay. The deep re-sign below
+# covers it, so copying it before the sign step is all that's required here.
+HOST_BIN="$(swift build -c release --show-bin-path)/FastTabNativeHost"
+if [[ -f "${HOST_BIN}" ]]; then
+  echo "==> Installing native host binary into bundle"
+  cp "${HOST_BIN}" "${APP}/Contents/MacOS/FastTabNativeHost"
+else
+  echo "build-app: FastTabNativeHost binary not found (skipping host install)" >&2
+fi
+
 # SwiftPM does not add the bundle's Frameworks dir to the rpath, so the embedded
 # Sparkle.framework can't be found at runtime. Add it (idempotent).
 if ! otool -l "${APP}/Contents/MacOS/FastTab" | grep -q "@executable_path/../Frameworks"; then
@@ -52,11 +63,22 @@ if ! otool -l "${APP}/Contents/MacOS/FastTab" | grep -q "@executable_path/../Fra
   install_name_tool -add_rpath "@executable_path/../Frameworks" "${APP}/Contents/MacOS/FastTab"
 fi
 
+# Embed provisioning profile for CloudKit / restricted entitlements if available
+PROFILE="${FASTTAB_PROVISION_PROFILE:-dist/embedded.provisionprofile}"
+if [[ -f "${PROFILE}" ]]; then
+  echo "==> Embedding provisioning profile from ${PROFILE}"
+  cp "${PROFILE}" "${APP}/Contents/embedded.provisionprofile"
+elif [[ -f "${HOME}/Downloads/FastTab_Mac_Development.provisionprofile" ]]; then
+  echo "==> Embedding provisioning profile from Downloads"
+  cp "${HOME}/Downloads/FastTab_Mac_Development.provisionprofile" "${APP}/Contents/embedded.provisionprofile"
+fi
+
 echo "==> Re-signing (deep)"
 codesign --force --deep --options runtime \
   --sign "${SIGN_IDENTITY}" \
   "${APP}/Contents/Frameworks/Sparkle.framework" 2>/dev/null || true
 codesign --force --deep --options runtime \
+  --entitlements "${ENTITLEMENTS}" \
   --sign "${SIGN_IDENTITY}" \
   "${APP}"
 

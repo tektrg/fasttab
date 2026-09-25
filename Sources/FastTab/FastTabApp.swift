@@ -35,6 +35,16 @@ class AppState: ObservableObject {
             CommandBarPanelController.shared.evaluateHoverDismiss()
         }
     }
+    /// Mirrors `ContentView`'s `isShowingAllOpenTabs` so AppKit-side code (no
+    /// view access) can read it — `CommandBarPanelController.isCursorOutsideSurface`
+    /// sizes the hover-dismiss box off this flag so it matches the taller
+    /// expanded panel instead of the small quick-open cap.
+    @Published var isShowingAllOpenTabs: Bool = false {
+        didSet {
+            guard isShowingAllOpenTabs != oldValue, isVisible else { return }
+            CommandBarPanelController.shared.evaluateHoverDismiss()
+        }
+    }
     @Published var selectedIndex: Int = 0
     @Published var isRecordingShortcut: Bool = false
     @Published var globalShortcutRegistrationIssue: String?
@@ -55,7 +65,16 @@ class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
+        SentLinkInbox.shared.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.browserService.refetchCurrent()
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
         browserService.prewarmCaches()
+        SyncService.shared.start()
     }
 
     func attachCommandWindow(_ window: NSWindow) {
@@ -100,6 +119,8 @@ class AppState: ObservableObject {
     ///   animation instead of appearing instantly.
     func showCommandBar(revealStyle: EdgeRevealStyle? = nil) {
         LicenseService.shared.refreshTimeSensitiveState()
+        SyncService.shared.fetchLatestChanges()
+        SentLinkInbox.shared.reloadFromDisk()
 
         guard let commandWindow else {
             pendingShowAfterAttach = true
@@ -174,25 +195,25 @@ class AppState: ObservableObject {
 class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeyService = GlobalHotkeyService()
     private var cancellables = Set<AnyCancellable>()
-    /// Retained for the app's entire lifetime — never call `endActivity`.
-    /// As an accessory app (`LSUIElement`) with no visible window, FastTab is
-    /// exactly the profile macOS targets for App Nap. That throttles the run
-    /// loop over time, which silently stops delivering the continuous global
-    /// mouseMoved stream `EdgeRevealService` depends on for hover detection —
-    /// it works right after launch, then goes quiet a short while later.
-    private var appNapActivityToken: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         appLogger.info("Application did finish launching")
         NSApp.setActivationPolicy(.accessory)
-        appNapActivityToken = ProcessInfo.processInfo.beginActivity(
-            options: [.userInitiated, .idleSystemSleepDisabled],
-            reason: "Continuous global mouse tracking for notch/edge hover reveal"
-        )
+        // No idle-sleep-disable / App-Nap-exemption activity token here: the
+        // notch/edge hover trigger (`EdgeRevealService`) is invisible
+        // `NSTrackingArea` windows, not a continuous global mouse monitor, so
+        // detection is delivered on demand by the window server instead of
+        // depending on this process staying unthrottled in the background.
         CommandBarPanelController.shared.prepare()
         setupGlobalShortcut()
         EdgeRevealService.shared.start()
+        ExtensionBridge.shared.start()
+        NativeHostInstaller.shared.installIfNeeded()
         LicenseService.shared.validateForLaunch()
+
+        if CommandLine.arguments.contains("--cloudkit-spike") {
+            CloudKitSpike.run()
+        }
 
         if OnboardingWindowController.shared.isNeeded {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -322,6 +343,10 @@ struct FastTabApp: App {
 
         Button("Feedback & Support…") {
             licenseService.openSupport()
+        }
+
+        Button("Test CloudKit Sync…") {
+            CloudKitSpike.run()
         }
 
         Divider()
@@ -608,13 +633,25 @@ private final class CommandBarPanelController: NSObject {
     /// the box tall enough to swallow most of the screen's vertical middle,
     /// and leaving the bar by moving straight up or down never registered as
     /// "outside."
+    ///
+    /// When `AppState.isShowingAllOpenTabs` is set, the panel has expanded
+    /// past that configured cap to `expandedAllTabsMaxRows` — using the small
+    /// quick-open cap here would draw the box shorter than the actually
+    /// rendered (taller) panel, so leaving the panel by crossing out of that
+    /// undersized box (while still visibly over the expanded list) fired the
+    /// dismiss early.
     private func isCursorOutsideSurface() -> Bool {
         guard let panel else { return true }
         let defaults = UserDefaults.standard
         let rowStyle = ResultRowStyle(rawValue: defaults.string(forKey: CommandBarAppearance.resultRowStyleKey) ?? "") ?? .minimal
         let showFooter = defaults.object(forKey: CommandBarAppearance.helperPanelVisibleKey) as? Bool ?? true
-        let limitSetting = defaults.object(forKey: CommandBarAppearance.quickOpenItemLimitKey) as? Int ?? 5
-        let maxRows = min(max(limitSetting, CommandBarLayout.minQuickOpenItemLimit), CommandBarLayout.maxQuickOpenItemLimit)
+        let maxRows: Int
+        if AppState.shared.isShowingAllOpenTabs {
+            maxRows = CommandBarLayout.expandedAllTabsMaxRows(for: EdgeRevealStyle.commandBarAnchor, rowStyle: rowStyle, showFooter: showFooter)
+        } else {
+            let limitSetting = defaults.object(forKey: CommandBarAppearance.quickOpenItemLimitKey) as? Int ?? 5
+            maxRows = min(max(limitSetting, CommandBarLayout.minQuickOpenItemLimit), CommandBarLayout.maxQuickOpenItemLimit)
+        }
 
         let surface = CommandBarLayout.surfaceFrame(
             in: panel.frame,

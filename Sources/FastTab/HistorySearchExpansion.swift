@@ -58,6 +58,11 @@ enum HistorySearchExpansion {
         var deduped: [String: BrowserSearchResult] = [:]
 
         for window in windows {
+            // Typing another character supersedes this search — a cancelled
+            // caller (see `BrowserTabService.fetchTask`) has already stopped
+            // caring about the result, so stop opening more subprocess
+            // windows on its behalf instead of running the full budget out.
+            if Task.isCancelled { break }
             let remainingSeconds = deadline.timeIntervalSinceNow
             if deduped.count >= minimumResults || remainingSeconds <= 0 {
                 break
@@ -104,7 +109,8 @@ enum HistorySearchExpansion {
         await withTaskGroup(of: [BrowserSearchResult].self) { group in
             for backend in backends {
                 group.addTask {
-                    backend.searchHistory(
+                    guard !Task.isCancelled else { return [] }
+                    return backend.searchHistory(
                         query: query,
                         limit: perBackendLimit,
                         since: window.since,
@@ -137,12 +143,12 @@ enum HistorySearchExpansion {
     /// `@duplicate` tab filter stays strict — it exists to find tabs that are
     /// safe to *close*.
     static func canonicalHistoryKey(for result: BrowserSearchResult) -> String {
-        [
-            result.browserName,
-            result.profileName ?? "",
-            foldForMatching(strippingLeadingCountBadge(result.title)),
-            historyPageIdentity(forURL: result.url)
-        ].joined(separator: "|")
+        // Identical formula to `duplicatePageDedupeKey` — both express "same
+        // page, same title" identity — so this reuses the key already
+        // computed once at construction (`BrowserSearchResult.duplicateDedupeKey`)
+        // instead of re-parsing `url` with `URLComponents` per history row
+        // across every expansion window.
+        result.duplicateDedupeKey
     }
 
     private static func merge(_ results: [BrowserSearchResult], into deduped: inout [String: BrowserSearchResult]) {

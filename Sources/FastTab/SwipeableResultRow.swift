@@ -268,7 +268,12 @@ private struct ResultRowView: View {
     private var fullContent: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
-                if result.hasMediaIndicator {
+                if result.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                if result.isPinnedAudibleTab || result.hasMediaIndicator {
                     Image(systemName: "speaker.wave.2.fill")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -276,6 +281,7 @@ private struct ResultRowView: View {
 
                 Text(result.title)
                     .font(.system(size: 13, weight: .semibold, design: .default))
+                    .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
                     .lineLimit(isCompact ? 2 : 1)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -366,9 +372,22 @@ private struct ResultRowView: View {
     }
 
     private var minimalTitle: some View {
-        Text(result.title)
-            .font(.system(size: 13, weight: .semibold, design: .default))
-            .lineLimit(1)
+        HStack(spacing: 4) {
+            if result.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            if result.isPinnedAudibleTab || result.hasMediaIndicator {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Text(result.title)
+                .font(.system(size: 13, weight: .semibold, design: .default))
+                .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
+                .lineLimit(1)
+        }
     }
 }
 
@@ -475,6 +494,7 @@ private enum BrowserIconCache {
         "Google Chrome": "/Applications/Google Chrome.app",
         "Microsoft Edge": "/Applications/Microsoft Edge.app",
         "Brave Browser": "/Applications/Brave Browser.app",
+        "Safari": "/Applications/Safari.app",
         "Finder": "/System/Library/CoreServices/Finder.app"
     ]
 

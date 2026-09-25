@@ -10,9 +10,11 @@ struct SettingsView: View {
     @ObservedObject private var edgeReveal = EdgeRevealStore.shared
     @ObservedObject private var webAppCatalog = InstalledWebAppCatalog.shared
     @ObservedObject private var webAppRouting = WebAppRoutingStore.shared
+    @StateObject private var extensionBridge = ExtensionBridge.shared
 
     @AppStorage("FastTab.safari.includeFDAData") private var includeSafariFDAData: Bool = false
-    @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = false
+    @AppStorage(ExtensionBetaPreference.defaultsKey) private var extensionBetaEnabled: Bool = false
+    @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = true
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var resultRowStyle: ResultRowStyle = .minimal
     @AppStorage(CommandBarAppearance.quickOpenItemLimitKey) private var quickOpenItemLimit: Int = 5
     @AppStorage(CommandBarAppearance.menuBarIconVisibleKey) private var showMenuBarIcon: Bool = true
@@ -154,6 +156,26 @@ struct SettingsView: View {
                             restartApp()
                         }
                         .controlSize(.small)
+                    }
+                }
+            }
+
+            Section("Beta") {
+                Toggle("Browser extension (beta)", isOn: $extensionBetaEnabled)
+
+                if extensionBetaEnabled {
+                    Text("Opt-in experiment: reads and switches Chrome/Edge/Brave tabs through a companion extension — instant results, no macOS Automation prompt. Everything still works with it off.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    ForEach(ChromiumBrowserSpec.all, id: \.source) { spec in
+                        extensionStatusRow(for: spec)
+                    }
+
+                    if let storeURL = URL(string: "https://chromewebstore.google.com/detail/\(FastTabExtensionIdentity.id)") {
+                        Link("Install the extension", destination: storeURL)
+                            .font(.callout)
                     }
                 }
             }
@@ -380,6 +402,39 @@ struct SettingsView: View {
                 NSApp.terminate(nil)
             }
         }
+    }
+
+    @ViewBuilder
+    private func extensionStatusRow(for spec: ChromiumBrowserSpec) -> some View {
+        let connection = extensionBridge.status.first(where: { $0.appName == spec.appName })
+        let browserRunning = isAppRunning(bundleIdentifier: spec.bundleIdentifier)
+
+        HStack {
+            Text(spec.appName)
+                .foregroundStyle(.primary)
+            Spacer()
+            if let connection, connection.versionMismatch {
+                Label("Version mismatch", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.callout)
+            } else if let connection, connection.isConnected {
+                Label("Connected", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.callout)
+            } else if browserRunning {
+                Label("Not installed", systemImage: "circle.dashed")
+                    .foregroundStyle(.orange)
+                    .font(.callout)
+            } else {
+                Text("Not running")
+                    .foregroundStyle(.tertiary)
+                    .font(.callout)
+            }
+        }
+    }
+
+    private func isAppRunning(bundleIdentifier: String) -> Bool {
+        NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == bundleIdentifier }
     }
 
     private var safariAutomationStatusText: String {

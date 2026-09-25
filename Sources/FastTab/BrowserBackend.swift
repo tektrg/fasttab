@@ -44,6 +44,12 @@ func sqliteFileURIPath(_ dbPath: String) -> String {
     return dbPath.addingPercentEncoding(withAllowedCharacters: allowed) ?? dbPath
 }
 
+public enum TabCloseResult: Sendable, Equatable {
+    case closed
+    case notFound
+    case refused(String)
+}
+
 /// Protocol implemented by each browser backend (Chromium, Safari, ...).
 ///
 /// Conformers must be `Sendable` and have only value semantics / nonisolated
@@ -87,6 +93,11 @@ protocol BrowserBackend: Sendable {
 
     func activateTab(_ result: BrowserSearchResult)
     func closeTab(_ result: BrowserSearchResult)
+    func closeTabWithResult(_ result: BrowserSearchResult, allowPositionalFallback: Bool) -> TabCloseResult
+    /// Sets the tab's muted state. Only `ExtensionBackedBackend` can act on
+    /// this (Chrome exposes no scriptable mute via AppleScript); every other
+    /// backend keeps the default no-op below.
+    func toggleMuteTab(_ result: BrowserSearchResult, muted: Bool)
     func openURL(_ result: BrowserSearchResult)
     /// Opens `result` inside `app`'s installed-web-app window, reusing it if
     /// already open. Only meaningful for Chromium-family backends — other
@@ -132,6 +143,16 @@ extension BrowserBackend {
     func openInInstalledWebApp(_ result: BrowserSearchResult, app: InstalledWebApp) {
         openURL(result)
     }
+
+    func closeTab(_ result: BrowserSearchResult) {
+        _ = closeTabWithResult(result, allowPositionalFallback: true)
+    }
+
+    func closeTabWithResult(_ result: BrowserSearchResult, allowPositionalFallback: Bool) -> TabCloseResult {
+        return .notFound
+    }
+
+    func toggleMuteTab(_ result: BrowserSearchResult, muted: Bool) {}
 }
 
 // MARK: - Shared helpers

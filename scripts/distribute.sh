@@ -201,6 +201,13 @@ fi
 
 run codesign --force --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${FRAMEWORKS}"
 
+# Second Mach-O: the native-messaging host relay. The bundle sign below is not
+# --deep, so an unsigned nested executable would fail notarization.
+HOST_BIN="${APP}/Contents/MacOS/FastTabNativeHost"
+if [[ -e "${HOST_BIN}" ]]; then
+  run codesign --force --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${HOST_BIN}"
+fi
+
 run codesign \
   --force \
   --options runtime \

@@ -10,6 +10,7 @@ DerivedData/
 /dist/
 sparkle_private_key.pem
 *sparkle*private*.pem
+extension-key.pem
 
 # Local agent worktrees and generated launch media.
 /.claude/
@@ -28,3 +29,4 @@ sparkle_private_key.pem
 !/Sources/
 !/Tests/
 !/.agents/
+!/extension/

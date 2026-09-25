@@ -323,6 +323,10 @@ struct ChromiumBackend: BrowserBackend {
         let timePredicate = timeClauses.isEmpty ? "" : " AND " + timeClauses.joined(separator: " AND ")
 
         for profile in profiles() {
+            // A superseded search (the user kept typing) has already stopped
+            // caring about this result — stop launching another `sqlite3`
+            // subprocess per remaining profile once cancelled.
+            if Task.isCancelled { break }
             let remainingSeconds = deadline.timeIntervalSinceNow
             guard remainingSeconds > 0 else { break }
             guard FileManager.default.fileExists(atPath: profile.historyURL.path) else { continue }
@@ -566,38 +570,86 @@ struct ChromiumBackend: BrowserBackend {
     }
 
     func closeTab(_ result: BrowserSearchResult) {
+        _ = closeTabWithResult(result, allowPositionalFallback: true)
+    }
+
+    func closeTabWithResult(_ result: BrowserSearchResult, allowPositionalFallback: Bool) -> TabCloseResult {
         let safeURL = appleScriptQuoted(result.url)
         let fallbackWindow = max(1, result.windowIndex ?? 1)
         let fallbackTab = max(1, result.tabIndex ?? 1)
 
-        let script = """
-        tell application "\(result.browserName)"
-            if it is not running then return
-            set targetURL to "\(safeURL)"
-            set didClose to false
-            try
-                repeat with w in windows
-                    set tabURLs to URL of every tab of w
-                    repeat with i from 1 to count of tabURLs
-                        if (item i of tabURLs) is equal to targetURL then
-                            close tab i of w
-                            set didClose to true
-                            exit repeat
-                        end if
+        let script: String
+        if allowPositionalFallback {
+            script = """
+            tell application "\(result.browserName)"
+                if it is not running then return "not_found"
+                set targetURL to "\(safeURL)"
+                try
+                    repeat with w in windows
+                        set tabURLs to URL of every tab of w
+                        repeat with i from 1 to count of tabURLs
+                            if (item i of tabURLs) is equal to targetURL then
+                                close tab i of w
+                                return "closed"
+                            end if
+                        end repeat
                     end repeat
-                    if didClose then exit repeat
-                end repeat
-            end try
-            if didClose is false then
+                end try
                 try
                     close tab \(fallbackTab) of window \(fallbackWindow)
+                    return "closed"
                 end try
-            end if
-        end tell
-        """
+                return "not_found"
+            end tell
+            """
+        } else {
+            script = """
+            tell application "\(result.browserName)"
+                if it is not running then return "not_found"
+                set targetURL to "\(safeURL)"
+                set matchCount to 0
+                set targetWin to 0
+                set targetTab to 0
+                try
+                    repeat with wIdx from 1 to count of windows
+                        set w to window wIdx
+                        set tabURLs to URL of every tab of w
+                        repeat with i from 1 to count of tabURLs
+                            if (item i of tabURLs) is equal to targetURL then
+                                set matchCount to matchCount + 1
+                                set targetWin to wIdx
+                                set targetTab to i
+                            end if
+                        end repeat
+                    end repeat
+                end try
+                if matchCount is equal to 0 then
+                    return "not_found"
+                else if matchCount is greater than 1 then
+                    return "refused:ambiguous"
+                else
+                    try
+                        close tab targetTab of window targetWin
+                        return "closed"
+                    end try
+                    return "not_found"
+                end if
+            end tell
+            """
+        }
 
-        logger.info("closeTab: app=\(result.browserName, privacy: .public) title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
-        runAppleScript(script, logger: logger, action: "closeTab")
+        logger.info("closeTabWithResult: app=\(result.browserName, privacy: .public) allowPositional=\(allowPositionalFallback) title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
+        let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script], timeoutSeconds: 8)
+        switch output {
+        case "closed":
+            return .closed
+        case "refused:ambiguous":
+            return .refused("Ambiguous tab URL: multiple tabs open with identical URL")
+        case "not_found":
+            return .notFound
+        default:
+            return .notFound
+        }
     }
 
     func openURL(_ result: BrowserSearchResult) {
@@ -910,6 +962,52 @@ struct ChromiumBackend: BrowserBackend {
             return all.first(where: { $0.name == profileName })
         }
         return all.first
+    }
+
+    /// Profile directory names the browser currently has open, detected via
+    /// its running process's open file handles (no Automation permission
+    /// needed — this is process inspection, not Apple Events). `profiles()`
+    /// counts every profile folder ever created, including long-abandoned
+    /// ones (an unused "Guest Profile", a profile from years ago); the
+    /// extension-completeness check needs to know which profiles are
+    /// actually live right now, or it can never be satisfied. Returns nil
+    /// when this can't be determined (browser not running, `lsof` missing) —
+    /// callers should fall back to the full disk count rather than
+    /// under-count and risk treating a partial extension snapshot as complete.
+    func livingProfileNames() -> Set<String>? {
+        let knownNames = Set(profiles().map(\.name))
+        guard !knownNames.isEmpty else { return nil }
+
+        let pids = NSWorkspace.shared.runningApplications
+            .filter { $0.bundleIdentifier == bundleIdentifier }
+            .map(\.processIdentifier)
+        guard !pids.isEmpty else { return nil }
+
+        var living = Set<String>()
+        for pid in pids {
+            guard let output = Self.runLSOF(pid: pid) else { return nil }
+            for name in knownNames where output.contains("/\(name)/") {
+                living.insert(name)
+            }
+        }
+        return living
+    }
+
+    private static func runLSOF(pid: Int32) -> String? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        task.arguments = ["-p", String(pid)]
+        let outPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = Pipe()
+        do {
+            try task.run()
+        } catch {
+            return nil
+        }
+        let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
+        return String(data: data, encoding: .utf8)
     }
 
     private func browserExecutableURL() -> URL? {

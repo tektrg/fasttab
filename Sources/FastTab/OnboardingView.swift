@@ -66,6 +66,7 @@ private enum OnboardingStep: Hashable {
     case welcome
     case triggerStyle
     case sources
+    case extensionInstall
     case safariPermission
     case shortcut
 }
@@ -81,6 +82,10 @@ struct OnboardingView: View {
 
     private var steps: [OnboardingStep] {
         var list: [OnboardingStep] = [.welcome, .triggerStyle, .sources]
+        // Optional beta step — only meaningful when a Chromium browser is in play.
+        if ChromiumBrowserSpec.all.contains(where: { selectionStore.enabled.contains($0.source) }) {
+            list.append(.extensionInstall)
+        }
         if selectionStore.enabled.contains(.safari) {
             list.append(.safariPermission)
         }
@@ -116,6 +121,9 @@ struct OnboardingView: View {
                             onContinue: advance
                         )
                         .transition(stepTransition)
+                    case .extensionInstall:
+                        ExtensionInstallStep(onContinue: advance)
+                            .transition(stepTransition)
                     case .safariPermission:
                         SafariPermissionStep(onContinue: advance)
                             .transition(stepTransition)
@@ -469,6 +477,97 @@ private struct SourceRow: View {
     }
 }
 
+// MARK: - Optional beta: browser extension
+
+private struct ExtensionInstallStep: View {
+    @ObservedObject private var extensionBridge = ExtensionBridge.shared
+    let onContinue: () -> Void
+
+    @State private var didAutoAdvance = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 12)
+
+            Image(systemName: "puzzlepiece.extension")
+                .font(.system(size: 38, weight: .light))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 14)
+
+            Text("Optional: FastTab extension")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
+
+            Text("An opt-in beta. It makes tab search instant and skips the macOS permission prompt for Chrome, Edge & Brave. Everything works without it — skip freely.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+                .padding(.horizontal, 32)
+                .padding(.bottom, 20)
+
+            if let storeURL = URL(string: "https://chromewebstore.google.com/detail/\(FastTabExtensionIdentity.id)") {
+                Link("Get the extension", destination: storeURL)
+                    .font(.headline)
+                    .padding(.bottom, 16)
+            }
+
+            connectionStatus
+
+            HStack(spacing: 14) {
+                Button("Skip") {
+                    onContinue()
+                }
+                .buttonStyle(.plain)
+                .font(.callout)
+                .foregroundStyle(.tertiary)
+
+                Button {
+                    onContinue()
+                } label: {
+                    Label("Continue", systemImage: "arrow.right.circle.fill")
+                        .font(.headline)
+                        .frame(width: 168)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+
+            Spacer(minLength: 12)
+        }
+        .onAppear {
+            scheduleAutoAdvanceIfConnected()
+        }
+        .onChange(of: extensionBridge.status) { _, _ in
+            scheduleAutoAdvanceIfConnected()
+        }
+    }
+
+    /// Advances itself the moment the bridge handshakes — install the
+    /// extension in Chrome and this step finishes on its own.
+    private func scheduleAutoAdvanceIfConnected() {
+        guard !didAutoAdvance, extensionBridge.status.contains(where: { $0.isConnected }) else { return }
+        didAutoAdvance = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            onContinue()
+        }
+    }
+
+    private var connectionStatus: some View {
+        let connected = extensionBridge.status.contains(where: { $0.isConnected })
+        return HStack(spacing: 8) {
+            Image(systemName: connected ? "checkmark.circle.fill" : "circle.dashed")
+                .foregroundStyle(connected ? Color.green : Color.secondary)
+            Text(connected ? "Connected ✓" : "Waiting for connection…")
+                .font(.callout)
+                .foregroundStyle(connected ? .secondary : .tertiary)
+        }
+        .padding(.bottom, 18)
+    }
+}
+
 // MARK: - Step 4: Safari permission (conditional)
 
 private struct SafariPermissionStep: View {
@@ -574,6 +673,7 @@ private struct ShortcutStep: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var shortcutStore = ShortcutStore.shared
     @ObservedObject private var edgeReveal = EdgeRevealStore.shared
+    @ObservedObject private var extensionBridge = ExtensionBridge.shared
     let onDismiss: (Bool) -> Void
 
     var body: some View {
@@ -637,17 +737,34 @@ private struct ShortcutStep: View {
             : "Hovering opens FastTab, but this works too, from any app:"
     }
 
+    @ViewBuilder
     private var automationNote: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "info.circle")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .padding(.top, 1)
+        if extensionBridge.status.contains(where: { $0.isConnected }) {
+            // A connected companion extension covers Chromium tab switching, so
+            // the Automation prompt this note warns about never appears for it.
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "puzzlepiece.extension")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+                    .padding(.top, 1)
 
-            Text("The first time you search, macOS will ask to allow FastTab to control your browser. Click **Allow** to enable tab switching.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.leading)
+                Text("Chrome, Edge & Brave tab switching uses the companion extension — no macOS permission prompt needed.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.leading)
+            }
+        } else {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 1)
+
+                Text("The first time you search, macOS will ask to allow FastTab to control your browser. Click **Allow** to enable tab switching.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.leading)
+            }
         }
     }
 }

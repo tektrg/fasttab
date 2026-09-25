@@ -31,7 +31,7 @@ enum PlanFileReader {
             return .unreadable("AgentBar only reads a plan file at an absolute or ~ path ending in .md (\(path)).")
         }
         guard FileManager.default.fileExists(atPath: url.path) else {
-            return .unreadable("The plan file is not on this Mac: \(path).")
+            return .unreadable("\(path) is not on this Mac — the agent may be running on a different machine.")
         }
         // Only a regular file: a folder, or a pipe that would block the read forever, is not a plan.
         guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else {

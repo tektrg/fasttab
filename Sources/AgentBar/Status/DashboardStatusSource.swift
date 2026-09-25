@@ -3,7 +3,7 @@ import Foundation
 /// Reads agent status from the chief dashboard: prefers its SSE stream, falls
 /// back to polling `/api/state` while the stream is unavailable, and publishes
 /// a `.down` snapshot once neither has worked for `Timings.downAfterFailureSeconds`.
-actor DashboardStatusSource: AgentStatusSource {
+actor DashboardStatusSource: AgentStatusSource, DashboardWorkerCreating, AgentTreeEditing {
     struct Timings: Sendable {
         /// Poll cadence while SSE is unavailable (the dashboard refreshes every ~2s).
         var pollIntervalSeconds: TimeInterval
@@ -148,6 +148,54 @@ actor DashboardStatusSource: AgentStatusSource {
             return .uncertain("The dashboard took too long to answer. Check the agent's terminal: the message may have gone through.")
         } catch {
             return .failed("Can't reach the status dashboard. Nothing was sent.")
+        }
+    }
+
+    func createWorker(repoAlias: String, slug: String, task: String) async -> WorkerCreationOutcome {
+        do {
+            let (body, statusCode) = try await transport.response(for: endpoint.workerRequest(repoAlias: repoAlias, slug: slug, task: task))
+            guard (200..<300).contains(statusCode) else {
+                return .failed("The dashboard answered with an error (HTTP \(statusCode)).")
+            }
+            let reply = try JSONDecoder().decode(DashboardWorkerResponse.self, from: body)
+            return reply.outcome
+        } catch is DecodingError {
+            return .failed("The dashboard sent an unreadable reply. Check the dashboard directly.")
+        } catch let error as URLError where error.code == .timedOut {
+            // Worktree creation can legitimately take a while: never say it was not created.
+            return .failed("The dashboard took too long to create the worker. Check the dashboard: it may have been created anyway.")
+        } catch {
+            return .failed("Can't reach the status dashboard. Nothing was created.")
+        }
+    }
+
+    func attachToTree(child: String, parent: String, confirmCrossProject: Bool) async -> AttachOutcome {
+        do {
+            let request = endpoint.agentTreeAttachRequest(child: child, parent: parent, confirmCrossProject: confirmCrossProject)
+            let (body, _) = try await transport.response(for: request)
+            let reply = try JSONDecoder().decode(DashboardAttachResponse.self, from: body)
+            return reply.outcome
+        } catch is DecodingError {
+            return .failed("The dashboard sent an unreadable reply.")
+        } catch let error as URLError where error.code == .timedOut {
+            // The attach may have gone through: never say it did not.
+            return .failed("The dashboard took too long to answer. Check the tree: it may have gone through.")
+        } catch {
+            return .failed("Can't reach the status dashboard.")
+        }
+    }
+
+    func detachFromTree(child: String) async -> DetachOutcome {
+        do {
+            let (body, _) = try await transport.response(for: endpoint.agentTreeDetachRequest(child: child))
+            let reply = try JSONDecoder().decode(DashboardDetachResponse.self, from: body)
+            return reply.outcome
+        } catch is DecodingError {
+            return .failed("The dashboard sent an unreadable reply.")
+        } catch let error as URLError where error.code == .timedOut {
+            return .failed("The dashboard took too long to answer. Check the tree: it may have gone through.")
+        } catch {
+            return .failed("Can't reach the status dashboard.")
         }
     }
 

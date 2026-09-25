@@ -55,6 +55,7 @@ extension PanelFooterNotice {
         switch self {
         case .switchFailed, .actionFailed: .red
         case .hotkeyUnavailable, .warning: .orange
+        case .created: .green
         }
     }
 
@@ -63,6 +64,7 @@ extension PanelFooterNotice {
         switch self {
         case .switchFailed, .actionFailed: .red
         case .hotkeyUnavailable, .warning: WarningTextColor.color
+        case .created: .green
         }
     }
 }

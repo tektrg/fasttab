@@ -45,12 +45,11 @@ extension AnswerCardModel {
     }
 
     /// Keys while the form is showing: it is a mouse card. Enter submits when every question is answered;
-    /// Esc goes back to the list, except while the batch is running (it is bounded, and closing would hide what happens).
+    /// Esc goes back to the list.
     func handleFormKey(_ key: AnswerCardState.Key) {
-        guard let form = card?.form else { return }
+        guard card?.form != nil else { return }
         switch key {
         case .escape:
-            if case .sending = form.sendState { return }
             close()
         case .enter, .send:
             submitForm()
@@ -61,14 +60,14 @@ extension AnswerCardModel {
 
     // MARK: - Sending
 
-    /// Submit: only with every question answered. The card stays open showing progress while the questions go out
-    /// one after another (see `FormBatchDriver`); the row counts as sending until the dashboard catches up.
+    /// Submit: only with every question answered. The card closes at once, like a single answer's, and the questions
+    /// go out one after another in the background (see `FormBatchDriver`); the row counts as sending until the
+    /// dashboard catches up, and a batch that stops reports to the footer notice.
     private func submitForm() {
-        guard var card, let form = card.form?.form, card.form?.canSubmit == true,
+        guard let card, let form = card.form?.form, card.form?.canSubmit == true,
               let choices = card.form?.choices, let statusSource,
               let token = tracker.begin(agentID: card.agentID, at: now()) else { return }
-        card.form?.beginSending()
-        self.card = card
+        close()
         let agentID = card.agentID
         let fallbackIdentity = card.state.question.identity
         let sessionId = card.sessionId

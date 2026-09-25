@@ -1,9 +1,19 @@
 import Foundation
 
 /// What may be typed into an agent from the panel. Pure. The dashboard's message endpoint refuses
-/// empty text, any newline, a leading "/" and more than 2000 characters, so the panel decides
-/// the same things up front and says why, instead of finding out from a refusal.
+/// empty text, any newline, a leading "/" and more than 2000 characters — except, as of 2026-09-22,
+/// exactly `/compact` (bare, or followed by " " and trailing instructions) and exactly `/clear`
+/// (bare only — the dashboard's `is_allowed_slash_command` never accepts `/clear` with trailing
+/// text, asymmetric with `/compact` on purpose), which both the server and this validator now let
+/// through. Every other leading-"/" text is still refused.
 enum MessageDraftValidator {
+    /// The two bare slash commands the dashboard accepts (`/compactfoo`/`/clearish` do not match:
+    /// the command must be the whole word, not merely a prefix).
+    private static let allowedSlashCommands = ["/compact", "/clear"]
+    /// Only `/compact` also accepts trailing instructions after a space — `/clear` stays bare-only,
+    /// mirroring the dashboard's `_ALLOWED_SLASH_PREFIX` exactly (`/clear keep the context` must
+    /// still refuse, not silently reset the session with the trailing text discarded).
+    private static let allowedSlashCommandsWithTrailingText = ["/compact"]
     /// The dashboard's cap (`validate_message_text`).
     static let maxLength = 2000
     /// The character counter appears from here.
@@ -37,9 +47,18 @@ enum MessageDraftValidator {
     static func check(_ raw: String) -> Verdict {
         let text = sanitized(raw)
         if text.isEmpty { return .empty }
-        if text.hasPrefix("/") { return .slashCommand }
+        if text.hasPrefix("/"), !isAllowedSlashCommand(text) { return .slashCommand }
         if text.count > maxLength { return .tooLong(over: text.count - maxLength) }
         return .ready(text: text)
+    }
+
+    /// `/compact` or `/clear` alone; `/compact` (never `/clear`) also followed by " " and more
+    /// text. Never a prefix match, so `/compactfoo` and `/clearish` still count as a plain
+    /// (refused) slash command — and `/clear starting fresh` still refuses too, matching the
+    /// dashboard's bare-only `/clear`.
+    private static func isAllowedSlashCommand(_ text: String) -> Bool {
+        if allowedSlashCommands.contains(text) { return true }
+        return allowedSlashCommandsWithTrailingText.contains { text.hasPrefix($0 + " ") }
     }
 
     /// True when sending will change the draft (line breaks become spaces): worth telling the user.

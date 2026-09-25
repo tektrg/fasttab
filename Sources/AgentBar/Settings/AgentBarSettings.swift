@@ -18,6 +18,9 @@ final class AgentBarSettings: ObservableObject {
     @Published private(set) var showsCornerTab: Bool
     /// Whether an agent arriving in Needs you plays a sound, and which one per kind.
     @Published private(set) var sounds: SoundSettings
+    /// Jev message-routing preferences (model id, what happens after a pick). The API key
+    /// itself is not here — it lives in Keychain, see `RoutingAPIKeyStoring`.
+    @Published private(set) var routing: RoutingSettings
     @Published private(set) var hotkey: AgentHotkeyConfig
     @Published private(set) var dashboardBaseURL: URL
 
@@ -29,6 +32,7 @@ final class AgentBarSettings: ObservableObject {
         showsMenuBarIcon = defaults.object(forKey: Self.showsMenuBarIconKey) as? Bool ?? true
         showsCornerTab = defaults.object(forKey: Self.showsCornerTabKey) as? Bool ?? true
         sounds = SoundSettings.load(from: defaults)
+        routing = RoutingSettings.load(from: defaults)
         hotkey = AgentHotkeyConfig.configured(defaults: defaults)
         dashboardBaseURL = DashboardEndpoint.configured(defaults: defaults).baseURL
     }
@@ -58,6 +62,14 @@ final class AgentBarSettings: ObservableObject {
         change(&updated)
         guard updated != sounds else { return }
         sounds = updated
+        updated.save(to: defaults)
+    }
+
+    func updateRouting(_ change: (inout RoutingSettings) -> Void) {
+        var updated = routing
+        change(&updated)
+        guard updated != routing else { return }
+        routing = updated
         updated.save(to: defaults)
     }
 

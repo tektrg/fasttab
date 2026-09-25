@@ -73,7 +73,7 @@ struct PlanPayloadTests {
     }
 
     @Test func aParkedPlanRowKeepsTheUnparkButtons() {
-        #expect(RowButtons.usableButtons(for: F.agent("a").placed(in: .parked)) == [.unpark, .done])
+        #expect(RowButtons.usableButtons(for: F.agent("a").placed(in: .parked)) == [.unpark, .moreActions])
     }
 
     @Test func aPlanRowNeverOffersMessage() {

@@ -5,7 +5,11 @@ import Foundation
 /// the answer card of a blocked question, Review opens the card of a permission box
 /// (approve or deny), and Open terminal switches to the
 /// agent (the way out for a blocker the panel cannot answer). Message opens the card
-/// that types a line into a Claude agent that is not asking anything.
+/// that types a line into a Claude agent that is not asking anything. Compact and Clear
+/// type `/compact` / `/clear` straight through the Message pipeline (no card, no validator —
+/// see `RowButtons.menuItems`). Done, Close pane, Compact and Clear never appear as their own
+/// capsule; they live inside the `.moreActions` (⋯) menu (`RowMoreMenuView`), which is what
+/// actually shows in the row's button strip and the ←/→ keyboard order.
 enum RowButton: Equatable, Sendable {
     case answer
     case review
@@ -15,6 +19,10 @@ enum RowButton: Equatable, Sendable {
     case unpark
     case closePane
     case message
+    case compact
+    case clear
+    /// The ⋯ trigger that opens the overflow menu (Done / Close pane / Compact / Clear).
+    case moreActions
 
     var title: String {
         switch self {
@@ -26,6 +34,9 @@ enum RowButton: Equatable, Sendable {
         case .unpark: "Unpark"
         case .closePane: "Close pane"
         case .message: "Message"
+        case .compact: "Compact"
+        case .clear: "Clear"
+        case .moreActions: "More actions"
         }
     }
 
@@ -39,7 +50,7 @@ enum RowButton: Equatable, Sendable {
         switch self {
         case .done: .stop
         case .closePane: .close
-        case .answer, .review, .openTerminal, .park, .unpark, .message: nil
+        case .answer, .review, .openTerminal, .park, .unpark, .message, .compact, .clear, .moreActions: nil
         }
     }
 }
@@ -58,34 +69,82 @@ struct RowButtonSpec: Equatable, Sendable {
     }
 }
 
-/// Which buttons a row shows, in left-to-right order. Pure.
+/// Which buttons a row shows, in left-to-right order, and what its overflow menu holds. Pure.
 enum RowButtons {
     static let missingRowIdReason = "The dashboard did not identify this agent."
     static let refusedFallbackReason = "The dashboard refuses this right now."
     static let readingOptionsReason = "The agent's options are still being read (a few seconds). Open its terminal meanwhile."
 
+    /// The row's capsule strip, left to right, ending in the ⋯ trigger when it has anything to
+    /// show. Done and Close pane are never in this list — see `menuItems(for:)`.
     static func available(for agent: AgentSnapshot) -> [RowButtonSpec] {
         switch agent.section {
         case .needsYou:
             needsYouButtons(for: agent)
         case .parked:
-            [RowButtonSpec(button: .unpark, disabledReason: nil), spec(.done, for: agent)] + messageButton(for: agent)
+            [RowButtonSpec(button: .unpark, disabledReason: nil)] + messageButton(for: agent) + moreActionsButton(for: agent)
         case .ended where agent.actions.close.isEnabled:
-            [spec(.closePane, for: agent)]
+            moreActionsButton(for: agent)
         case .working:
-            messageButton(for: agent)
+            messageButton(for: agent) + moreActionsButton(for: agent)
         case .ended:
             []
         }
     }
 
-    /// Message, last so the existing keyboard order (→ lands on Done) is unchanged. Only a live
+    /// The ⋯ menu's own items for this row: Done and/or Close pane (whichever this row would have
+    /// offered as a loose button before the menu existed) plus Compact/Clear when the row is
+    /// message-eligible. Independent of `available(for:)` so a menu-item press (`AgentPanelModel.press`)
+    /// can be authorized even though the item itself never appears in the capsule strip.
+    static func menuItems(for agent: AgentSnapshot) -> [RowButtonSpec] {
+        switch agent.section {
+        case .needsYou where agent.blockedOnYou == nil:
+            [spec(.done, for: agent)] + quickCommandItems(for: agent)
+        case .parked:
+            [spec(.done, for: agent)] + quickCommandItems(for: agent)
+        case .ended where agent.actions.close.isEnabled:
+            [spec(.closePane, for: agent)]
+        case .working:
+            quickCommandItems(for: agent)
+        default:
+            []
+        }
+    }
+
+    /// Whether `button` is one this row currently allows pressing right now — whichever list it
+    /// lives in, the capsule strip (`available`) or the ⋯ menu (`menuItems`). `AgentPanelModel.press`
+    /// gates every press through this, so a menu selection is authorized the same way a capsule tap is.
+    static func isPressable(_ button: RowButton, on agent: AgentSnapshot) -> Bool {
+        if let spec = available(for: agent).first(where: { $0.button == button }) { return spec.isEnabled }
+        if let spec = menuItems(for: agent).first(where: { $0.button == button }) { return spec.isEnabled }
+        return false
+    }
+
+    /// Message, last so the existing keyboard order (→ lands on the ⋯ trigger) is unchanged. Only a live
     /// Claude agent (the dashboard's permission/question guard is blind to other CLIs, so a
     /// message could answer a box it cannot see) that the dashboard can address by row, and that
     /// is not asking anything (a parked row that is still blocked stays "just parked").
     private static func messageButton(for agent: AgentSnapshot) -> [RowButtonSpec] {
-        guard agent.blocker == nil, agent.rowId != nil, agent.canFocus, agent.hasHookData, agent.paneId?.isEmpty == false else { return [] }
-        return [RowButtonSpec(button: .message, disabledReason: nil)]
+        isMessageEligible(agent) ? [RowButtonSpec(button: .message, disabledReason: nil)] : []
+    }
+
+    /// Same eligibility gate as `messageButton` — Compact/Clear are typed through the same
+    /// Message pipeline (`MessageCardModel.sendDirect`), so a row that cannot take a message
+    /// cannot take these either.
+    private static func isMessageEligible(_ agent: AgentSnapshot) -> Bool {
+        agent.blocker == nil && agent.rowId != nil && agent.canFocus && agent.hasHookData && agent.paneId?.isEmpty == false
+    }
+
+    private static func quickCommandItems(for agent: AgentSnapshot) -> [RowButtonSpec] {
+        guard isMessageEligible(agent) else { return [] }
+        return [RowButtonSpec(button: .compact, disabledReason: nil), RowButtonSpec(button: .clear, disabledReason: nil)]
+    }
+
+    /// The ⋯ trigger itself: shown only while at least one of its items is actually usable (never a
+    /// menu that opens onto nothing but a disabled row — the same rule `usableButtons` already
+    /// applies to a disabled Done/Close pane today).
+    private static func moreActionsButton(for agent: AgentSnapshot) -> [RowButtonSpec] {
+        menuItems(for: agent).contains(where: \.isEnabled) ? [RowButtonSpec(button: .moreActions, disabledReason: nil)] : []
     }
 
     /// A blocked agent is cleared by answering it (or in its terminal), so it
@@ -97,11 +156,12 @@ enum RowButtons {
         case .questionLoading?: return [RowButtonSpec(button: .answer, disabledReason: readingOptionsReason), park]
         case .permissionReview?: return [RowButtonSpec(button: .review, disabledReason: nil), park]
         case .questionNotAnswerable?, .permission?: return [RowButtonSpec(button: .openTerminal, disabledReason: nil), park]
-        case nil: return [spec(.done, for: agent), park] + messageButton(for: agent)
+        case nil: return [park] + messageButton(for: agent) + moreActionsButton(for: agent)
         }
     }
 
-    /// The buttons the keyboard can land on.
+    /// The buttons the keyboard can land on: the capsule strip only (the ⋯ trigger is a stop, not
+    /// a way into its own items — see `RowMoreMenuView`'s doc comment for why).
     static func usableButtons(for agent: AgentSnapshot) -> [RowButton] {
         available(for: agent).filter(\.isEnabled).map(\.button)
     }

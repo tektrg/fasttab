@@ -36,8 +36,8 @@ enum PermissionFixtures {
         return lines
     }
 
-    static func agent(_ id: String, _ prompt: PermissionPrompt?, sessionId: String? = "session-1") -> AgentSnapshot {
-        AnswerFixtures.blockedAgent(id, blocker: prompt.map(AgentBlocker.permissionReview) ?? .permission, sessionId: sessionId)
+    static func agent(_ id: String, _ prompt: PermissionPrompt?, sessionId: String? = "session-1", paneId: String? = nil) -> AgentSnapshot {
+        AnswerFixtures.blockedAgent(id, blocker: prompt.map(AgentBlocker.permissionReview) ?? .permission, sessionId: sessionId, paneId: paneId)
     }
 
     /// The dashboard's JSON for a prompt (what `computed.needsYou[].permission` carries).

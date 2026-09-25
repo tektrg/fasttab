@@ -23,6 +23,46 @@ enum AgentPanelMetrics {
     /// problem) and the settings button.
     static let footerHeight: CGFloat = 30
 
+    /// Tab-tagged: the icon + `TagChipView` get their own row above the field (`SearchFieldView`),
+    /// instead of sharing the field's row — a long agent name would otherwise squeeze the field's
+    /// real width well under what `searchFieldLineCount`'s `charactersPerLine` assumes, under-reserving
+    /// height and clipping a long typed message. The field's own row then gets the rest of
+    /// `searchFieldHeight(forLineCount:)` at the field's full width, same as the untagged case.
+    static let tagRowHeight: CGFloat = 22
+    /// Breathing room above the chip row: added to the window's reserved height (`height(for:...)`,
+    /// `isComposing` case) rather than taken out of `tagRowHeight`/the field row's own budget — the
+    /// field row is already tight at 4 lines (see `SearchFieldView`), so this must not shrink it further.
+    static let tagChipTopPadding: CGFloat = 6
+
+    /// Search field growth (Task: routing composes a longer message than a plain search). The field
+    /// grows vertically with its content (`TextField(axis: .vertical)`, capped at this many lines) and
+    /// the routing state (Jev thinking / confirming) gets its own row underneath rather than squeezed
+    /// beside the field. Neither grows the window: `height(for:searchFieldLineCount:showsRoutingRow:)`
+    /// subtracts the growth from the content area's height (list OR a flat message state) so the total
+    /// stays put, whether or not the list happens to already be clamped at `maxListHeight`.
+    static let searchFieldMaxLines = 4
+    /// Extra height per line beyond the first.
+    static let searchFieldLineHeight: CGFloat = 20
+    /// The routing-state row (spinner + "Asking Jev…", or "→ target agent").
+    static let routingRowHeight: CGFloat = 20
+
+    /// Rough estimate of how many lines `text` wraps into at the field's width and font — good
+    /// enough to reserve height for, not exact text layout. Newlines only ever come from a paste
+    /// (Return is consumed to drive send/routing, never typed as a line break); each source line
+    /// counts as at least one wrapped line.
+    static func searchFieldLineCount(for text: String, charactersPerLine: Int = 46) -> Int {
+        guard !text.isEmpty else { return 1 }
+        let lines = text.components(separatedBy: .newlines).reduce(0) { total, line in
+            total + max(1, Int((Double(line.count) / Double(charactersPerLine)).rounded(.up)))
+        }
+        return min(max(lines, 1), searchFieldMaxLines)
+    }
+
+    /// The field's own height for `lineCount` lines of content (1 = the original single-line height).
+    static func searchFieldHeight(forLineCount lineCount: Int) -> CGFloat {
+        searchFieldHeight + CGFloat(max(0, min(lineCount, searchFieldMaxLines) - 1)) * searchFieldLineHeight
+    }
+
     /// Peek (Space): header, then the screen text, then the "read at" line.
     static let peekHeaderHeight: CGFloat = 40
     static let peekTextLineHeight: CGFloat = 14
@@ -39,18 +79,45 @@ enum AgentPanelMetrics {
         CGFloat(visibleRows) * rowHeight + CGFloat(typicalHeaderCount) * headerHeight + listVerticalPadding * 2
     }
 
-    /// Total window height for what is being shown.
+    /// Total window height for what is being shown. `searchFieldLineCount` > 1 and/or
+    /// `showsRoutingRow` grow the top of the panel; both are subtracted from the content area's
+    /// height below (the list OR a flat message state) so the total stays put (see the doc comment
+    /// above `searchFieldMaxLines`). This must hold whether the content area's natural height is
+    /// already at `maxListHeight` (a long, scrolling list) or well under it (a short list, or any of
+    /// the flat message states) — a `min(natural, reducedCap)` clamp only fixes the former, so the
+    /// growth is subtracted from the content area's own (unclamped) height instead, uniformly.
     static func height(
         for presentation: AgentListPresentation,
         maxListHeight: CGFloat = maxListHeight,
         isPeeking: Bool = false,
-        isAnswering: Bool = false
+        isAnswering: Bool = false,
+        /// Tab-tagged (`AgentPanelModel.taggedAgentID`): the tag shows as a chip on its own row above
+        /// the field (`tagRowHeight`, carved out of `searchFieldHeight(forLineCount:)` — the total is
+        /// unchanged, so this parameter needs no separate accounting for it, except for the chip row's
+        /// own top padding, `tagChipTopPadding`, which IS extra and added below), and the list/status
+        /// message below is hidden entirely — nothing to pick from while composing a message to an
+        /// already-chosen agent. The window
+        /// shrinks to just the search field (which still grows with a longer typed message) plus the
+        /// footer.
+        isComposing: Bool = false,
+        searchFieldLineCount: Int = 1,
+        showsRoutingRow: Bool = false
     ) -> CGFloat {
-        let note = presentation.showsBoardNote ? noteHeight : 0
-        let body = isPeeking || isAnswering
-            ? fullBodyHeight(maxListHeight: maxListHeight)
-            : bodyHeight(for: presentation, maxListHeight: maxListHeight)
-        return searchFieldHeight + dividerHeight + body + note + footerHeight
+        let note = (presentation.showsBoardNote && !isComposing) ? noteHeight : 0
+        let fieldHeight = searchFieldHeight(forLineCount: searchFieldLineCount)
+        let routingRow = showsRoutingRow ? routingRowHeight : 0
+        let growth = (fieldHeight - searchFieldHeight) + routingRow
+        let naturalBody: CGFloat = isComposing
+            ? 0
+            : isPeeking || isAnswering
+                ? fullBodyHeight(maxListHeight: maxListHeight)
+                : bodyHeight(for: presentation, maxListHeight: maxListHeight)
+        let body = max(0, naturalBody - growth)
+        // The chip row's own top padding (`tagChipTopPadding`) is extra, on top of the field
+        // area's usual budget — not carved out of it, unlike `tagRowHeight` — so it must be added
+        // here explicitly or the window falls a few points short and the field's bottom clips.
+        let tagChipPadding = isComposing ? tagChipTopPadding : 0
+        return fieldHeight + routingRow + dividerHeight + body + note + footerHeight + tagChipPadding
     }
 
     /// A peek or an answer card replaces the list at the list's full height, so

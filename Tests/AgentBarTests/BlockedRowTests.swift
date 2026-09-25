@@ -38,11 +38,13 @@ struct BlockedRowTests {
     }
 
     @Test func aGenericNeedsYouRowKeepsDoneAndPark() {
-        #expect(buttons(A.blockedAgent("g", blocker: nil)) == [.done, .park, .message])
+        // Done moved into the ⋯ menu (RowButtonsTests covers its contents); the capsule strip is
+        // Park, Message, then the ⋯ trigger.
+        #expect(buttons(A.blockedAgent("g", blocker: nil)) == [.park, .message, .moreActions])
     }
 
     @Test func aParkedBlockedRowIsJustParked() {
-        #expect(buttons(A.blockedAgent("k", blocker: .question(A.question()), section: .parked)) == [.unpark, .done])
+        #expect(buttons(A.blockedAgent("k", blocker: .question(A.question()), section: .parked)) == [.unpark, .moreActions])
     }
 
     @Test func theKeyboardCanReachAnswerAndOpenTerminal() {

@@ -2,7 +2,9 @@ import SwiftUI
 
 /// Panel content: search field, then the list or a status message, then the
 /// optional stale-board note and the footer (a failure notice floats above it). Total height is dictated by
-/// `AgentPanelMetrics`.
+/// `AgentPanelMetrics`. Tab-tagged (`AgentPanelModel.taggedAgentID`): the list/status message and the
+/// board note are both hidden — the target is already chosen (shown as a chip in the search field
+/// itself), so there's nothing left to pick from, and showing it anyway would just be clutter.
 struct AgentPanelView: View {
     @ObservedObject var model: AgentPanelModel
     let onClose: () -> Void
@@ -13,7 +15,7 @@ struct AgentPanelView: View {
             SearchFieldView(model: model, onClose: onClose)
             Divider()
             bodyContent
-            if model.presentation.showsBoardNote {
+            if model.presentation.showsBoardNote, model.taggedAgentID == nil {
                 BoardNoteView()
             }
             PanelFooterView(
@@ -25,7 +27,14 @@ struct AgentPanelView: View {
                     answerMode: model.answer.card?.hintMode,
                     permissionMode: model.permission.card?.hintMode,
                     messageMode: model.message.card?.hintMode,
-                    hasDismissibleNotice: model.footerNotice?.isDismissible == true
+                    hasDismissibleNotice: model.footerNotice?.isDismissible == true,
+                    routingMode: model.routingState.map { switch $0 {
+                        case .loading: .loading
+                        case .confirming: .confirming
+                        case .confirmingCreate: .confirmingCreate
+                        case .creatingWorker: .creatingWorker
+                    } },
+                    isTagged: model.taggedAgentID != nil
                 ),
                 onOpenSettings: onOpenSettings
             )
@@ -83,6 +92,11 @@ struct AgentPanelView: View {
                     maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
                 )
             )
+        } else if model.taggedAgentID != nil {
+            // Composing: the target is already chosen (the chip in the search field), so the
+            // list/status below has nothing left to contribute — matches
+            // `AgentPanelMetrics.height(isComposing:)` collapsing this area to zero height.
+            EmptyView()
         } else if model.presentation.state == .list {
             AgentListView(
                 model: model,

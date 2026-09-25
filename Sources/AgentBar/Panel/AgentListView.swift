@@ -28,8 +28,9 @@ struct AgentListView: View {
         switch row {
         case .header(let section):
             SectionHeaderView(section: section)
-        case .groupHeader(let header):
-            GroupHeaderView(header: header)
+        case .chiefPlaceholder(let node, _, let needsYouHint):
+            ChiefPlaceholderRowView(node: node, needsYouHint: needsYouHint)
+                .modifier(TreeDropTarget(agentID: node.id, isChief: true, treeModel: model.treeModel))
         case .agent(let agent, let nesting):
             let isSelected = model.selectedAgentID == agent.id
             AgentRowView(

@@ -4,9 +4,9 @@ import SwiftUI
 /// place of the age; a row waiting for a confirming press shows why, in red.
 struct AgentRowView: View {
     let agent: AgentSnapshot
-    /// Where this row sits in the grouped hierarchy display (`.flat` while searching, in Needs
-    /// you, or before the tree has loaded) — drives indentation and the chief/cross-project/lost-
-    /// parent decorations. See `AgentListGrouping`.
+    /// Where this row sits within its status section (`.flat` while searching, or before the tree
+    /// has loaded) — drives indentation and the chief/cross-project/lost-parent decorations. See
+    /// `AgentListGrouping`.
     var nesting: AgentRowNesting = .flat
     let isSelected: Bool
     let fetchedAt: Date
@@ -46,7 +46,7 @@ struct AgentRowView: View {
         .contentShape(Rectangle())
     }
 
-    /// Only a worker nested under its chief indents — a chief and every Unassigned row (including
+    /// Only a worker nested under its chief indents — a chief and every loose row (including
     /// Parent-gone) sit flush left, same as the old tree view's rule.
     private var indent: CGFloat {
         if case .child = nesting { return 20 }
@@ -126,7 +126,7 @@ struct AgentRowView: View {
                     .help("This worker's project differs from its chief's")
             }
             if let machineBadge { MachineBadgeView(text: machineBadge) }
-        case .unassigned(_, let machineBadge):
+        case .loose(_, let machineBadge):
             if let machineBadge { MachineBadgeView(text: machineBadge) }
         case .flat:
             EmptyView()
@@ -209,12 +209,12 @@ struct AgentRowView: View {
     }
 
     /// The status line, or the stake and "Confirm?" while a press awaits its second press, or (a
-    /// Parent-gone row in Unassigned) who it used to report to — the tree view's own wording.
+    /// Parent-gone row) who it used to report to — the tree view's own wording.
     private var detailText: String {
         if case .confirming(let button, let reason)? = actionState, let kind = button.sessionAction {
             return RowActionText.confirmPrompt(kind: kind, reason: reason)
         }
-        if case .unassigned(let lostParentLabel?, _) = nesting {
+        if case .loose(let lostParentLabel?, _) = nesting {
             return "\(agent.statusText) · was reporting to \(lostParentLabel)"
         }
         return agent.statusText

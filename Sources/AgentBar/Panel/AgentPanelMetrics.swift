@@ -128,8 +128,8 @@ enum AgentPanelMetrics {
     static func listContentHeight(for rows: [AgentListRow]) -> CGFloat {
         let content = rows.reduce(CGFloat(0)) { total, row in
             switch row {
-            case .header, .groupHeader: total + headerHeight
-            case .agent: total + rowHeight
+            case .header: total + headerHeight
+            case .agent, .chiefPlaceholder: total + rowHeight
             }
         }
         return content + listVerticalPadding * 2

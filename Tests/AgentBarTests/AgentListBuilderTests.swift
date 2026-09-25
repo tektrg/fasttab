@@ -148,11 +148,11 @@ struct AgentListBuilderTests {
         )
     }
 
-    /// Regression for the bug where a blocked chief's OWN row lost its "N needs you" hint: it is
-    /// shown only in Needs you (dedupe, same rule as a worker), but `needsYouRows` used to hand
-    /// every Needs you row `.flat` nesting, and only `.chief` nesting draws the hint. The fix keeps
-    /// `.chief` nesting there too — still flush left (only `.child` indents) — so the hint about
-    /// its OTHER blocked workers still renders, wherever the chief's row appears.
+    /// Regression for the bug where a blocked chief's OWN row lost its "N needs you" hint (fixed
+    /// 01de5de, generalized 2026-09-25 when nesting became per-section instead of Needs-you-only):
+    /// a chief shown in Needs you always gets `.chief` nesting, so the hint about its OTHER blocked
+    /// workers renders wherever the chief's row appears — and, since nesting is no longer skipped
+    /// inside Needs you, a blocked worker of a blocked chief now nests under it there too.
     @Test func aChiefInNeedsYouStillShowsItsBlockedWorkersHint() {
         let tree = AgentTree(generatedAt: nil, chiefs: [
             treeNode("c", isChief: true, children: [treeNode("w1"), treeNode("w2")])
@@ -174,9 +174,10 @@ struct AgentListBuilderTests {
         }
         #expect(hint == 1)   // w1 also needs you; w2 doesn't
 
-        // Dedupe is unaffected: w1 stays out of c's group (already in Needs you), w2 stays nested under c.
+        // w1 (blocked) now nests directly under c's real row, in Needs you; w2 nests under a
+        // placeholder anchor in Working, since c's own row lives in Needs you instead.
         #expect(presentation.rows.map(\.id) == [
-            "section-0", "agent-c", "agent-w1", "group-project-proj", "agent-w2"
+            "section-0", "agent-c", "agent-w1", "section-1", "chief-placeholder-1-c", "agent-w2"
         ])
     }
 }

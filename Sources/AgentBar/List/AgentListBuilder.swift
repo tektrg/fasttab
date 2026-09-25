@@ -62,21 +62,15 @@ enum AgentListBuilder {
         }
     }
 
-    /// Needs you always flat and on top (unchanged). Below it: while searching, or before a
-    /// non-empty tree has loaded, the old flat status sections (Working/Parked/Ended); otherwise
-    /// the PO's "Nest under chief" grouping (`AgentListGrouping`) — one group per chief's project,
-    /// then Unassigned.
+    /// While searching, or before a non-empty tree has loaded: the old flat status sections
+    /// (Needs you/Working/Parked/Ended). Otherwise the PO's "Nest inside each section" grouping
+    /// (`AgentListGrouping`) — same sections, same order, same ranking, with each section's workers
+    /// nested under their chief's anchor row.
     static func rows(for agents: [AgentSnapshot], tree: AgentTree?, isSearching: Bool, frecency: [String: FrecencyEntry], now: Date) -> [AgentListRow] {
         guard !isSearching, let tree, !tree.isEmpty else {
             return flatRows(for: agents, frecency: frecency, now: now)
         }
-        let needsYou = agents.filter { $0.section == .needsYou }
-        let rest = agents.filter { $0.section != .needsYou }
-        var rows = needsYouRows(needsYou, tree: tree, frecency: frecency, now: now)
-        rows.append(contentsOf: AgentListGrouping.rows(
-            for: rest, tree: tree, needsYouIDs: Set(needsYou.map(\.id)), frecency: frecency, now: now
-        ))
-        return rows
+        return AgentListGrouping.rows(for: agents, tree: tree, frecency: frecency, now: now)
     }
 
     /// Sections in display order, empty ones skipped, each behind its header. What every section
@@ -87,31 +81,6 @@ enum AgentListBuilder {
             guard !inSection.isEmpty else { return [] }
             let ranked = AgentRanking.ordered(inSection, in: section, frecency: frecency, now: now)
             return [.header(section)] + ranked.map { .agent($0, nesting: .flat) }
-        }
-    }
-
-    /// A chief that itself needs you keeps `.chief` nesting here (never `.child`, so it still
-    /// sits flush left like every other Needs you row — `.chief` never indents) so its "N needs
-    /// you" hint about its OTHER blocked workers still renders. Everyone else stays `.flat`.
-    private static func needsYouRows(_ agents: [AgentSnapshot], tree: AgentTree?, frecency: [String: FrecencyEntry], now: Date) -> [AgentListRow] {
-        guard !agents.isEmpty else { return [] }
-        let needsYouIDs = Set(agents.map(\.id))
-        let chiefsByID = Dictionary(
-            (tree?.chiefs ?? []).map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let chiefsByPaneID = Dictionary(
-            (tree?.chiefs ?? []).compactMap { chief in chief.paneId.map { ($0, chief) } },
-            uniquingKeysWith: { first, _ in first }
-        )
-        func chief(for agent: AgentSnapshot) -> AgentTreeNode? {
-            chiefsByID[agent.id] ?? agent.paneId.flatMap { chiefsByPaneID[$0] }
-        }
-        let ranked = AgentRanking.ordered(agents, in: .needsYou, frecency: frecency, now: now)
-        return [.header(.needsYou)] + ranked.map { agent in
-            guard let chief = chief(for: agent) else { return .agent(agent, nesting: .flat) }
-            let needsYouHint = chief.children.filter { needsYouIDs.contains($0.id) }.count
-            return .agent(agent, nesting: .chief(needsYouHint: needsYouHint, machineBadge: chief.machineBadge))
         }
     }
 }

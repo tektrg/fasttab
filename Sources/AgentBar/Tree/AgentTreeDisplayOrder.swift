@@ -18,9 +18,10 @@ enum AgentTreeDisplayRow: Equatable {
 }
 
 /// The flattened top-to-bottom row order the hierarchy uses for "nearest chief above", and what
-/// Indent (⌘]) targets from it. Kept separate from `AgentTreeModel` (and its tests) so both it and
-/// `AgentListGrouping` (which flattens the same tree its own way, for the merged list's rows) agree
-/// on what "above" means without either inventing its own order.
+/// Indent (⌘]) targets from it. Kept separate from `AgentTreeModel` (and its tests). Deliberately
+/// its OWN order, not the merged list's visual one: `AgentListGrouping` nests the same tree inside
+/// each status section, ranked by frecency/urgency, so "what's above" there depends on the section
+/// and the moment — Indent needs one stable, structural answer instead.
 enum AgentTreeDisplayOrder {
     /// Parent-gone first (never hidden, always at the top), then each chief with its workers
     /// indented beneath it in the server's own order, then Unassigned.

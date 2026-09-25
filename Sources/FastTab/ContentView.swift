@@ -478,7 +478,6 @@ struct ContentView: View {
                             let searchHeader = SearchHeader(
                                 searchText: $searchText,
                                 isSearchFocused: $isSearchFocused,
-                                isSelected: appState.selectedIndex == -1,
                                 scopeChips: scopeChips,
                                 activeAlias: activeSearchAlias,
                                 onRemoveAlias: {
@@ -514,9 +513,7 @@ struct ContentView: View {
                                     lastInteractionKey = .upDown
                                 },
                                 isStackActive: viewStore.activeView == .stack,
-                                onToggleStack: {
-                                    viewStore.selectView(viewStore.activeView == .stack ? .recents : .stack)
-                                }
+                                onSelectView: { viewStore.selectView($0) }
                             )
                             searchHeader
                                 .background(
@@ -528,6 +525,14 @@ struct ContentView: View {
                                     }
                                 )
                                 .zIndex(50)
+                                // The search field only exists in Recents mode:
+                                // focus it on entering search, release on
+                                // entering Stack. Centralized here so every
+                                // entry point (tabs, swipe, ⌘1/⌘2, hotkeys)
+                                // gets the same focus behavior.
+                                .onChange(of: viewStore.activeView) { _, newView in
+                                    isSearchFocused = (newView == .recents)
+                                }
 
                             // Zero-height layer that hosts the floating scope
                             // dropdown. `frame(height: 0)` keeps it out of the

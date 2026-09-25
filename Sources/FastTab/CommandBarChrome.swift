@@ -52,7 +52,6 @@ struct PermissionBanner: View {
 struct SearchHeader: View {
     @Binding var searchText: String
     @FocusState.Binding var isSearchFocused: Bool
-    let isSelected: Bool
     let scopeChips: [ScopeChip]
     /// Non-nil while alias mode is active — rendered as a badge between the
     /// scope chips and the caret, the way a browser address bar shows the
@@ -66,32 +65,49 @@ struct SearchHeader: View {
     let onLeftArrowAtEmpty: () -> Void
     let onUpArrow: () -> Void
     let onDownArrow: () -> Void
-    /// Stack toggle shown at the leading edge: tapping switches between
-    /// Recents/search and the Stack view (same as swiping horizontally).
+    /// Two-tab switch between Recents/search and Stack — the same
+    /// destinations as swiping horizontally or ⌘1/⌘2. The active tab wears
+    /// the accent pill (full search box, or icon plus "Stack"); the inactive
+    /// tab is just its icon. The pill slides between tabs on switch.
     let isStackActive: Bool
-    let onToggleStack: () -> Void
+    let onSelectView: (CommandBarView) -> Void
 
-    @State private var isStackHovered = false
+    @Namespace private var tabHighlight
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button(action: onToggleStack) {
-                Image(systemName: isStackActive ? "square.stack.fill" : "square.stack")
-                    .font(.system(size: 15, weight: isStackActive ? .semibold : .regular))
-                    .foregroundStyle(isStackActive ? Color.accentColor : (isStackHovered ? Color.primary.opacity(0.85) : Color.secondary))
-                    .frame(width: 28, height: 28)
-                    .background {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(isStackActive ? Color.accentColor.opacity(0.14) : (isStackHovered ? Color.primary.opacity(0.06) : Color.clear))
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        HStack(spacing: 6) {
+            if isStackActive {
+                HeaderTabIcon(
+                    icon: "magnifyingglass",
+                    help: "Search (⌘1)",
+                    label: "Search"
+                ) { onSelectView(.recents) }
+            } else {
+                searchTab
             }
-            .buttonStyle(.plain)
-            .focusable(false)
-            .onHover { isStackHovered = $0 }
-            .help(isStackActive ? "Back to Recents (⌘1)" : "Open Stack (⌘2)")
-            .accessibilityLabel(Text(isStackActive ? "Back to Recents" : "Open Stack"))
 
+            if isStackActive {
+                stackTab
+            } else {
+                HeaderTabIcon(
+                    icon: "square.stack",
+                    help: "Open Stack (⌘2)",
+                    label: "Open Stack"
+                ) { onSelectView(.stack) }
+            }
+        }
+        .padding(4)
+        .background(
+            CommandBarSurfaceBackground(
+                cornerRadius: 14,
+                accent: .clear
+            )
+        )
+    }
+
+    /// Active search tab: the full search box riding the sliding pill.
+    private var searchTab: some View {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
@@ -137,14 +153,35 @@ struct SearchHeader: View {
                 }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 11)
-        .background(
-            CommandBarSurfaceBackground(
-                cornerRadius: 14,
-                accent: isSelected ? Color.accentColor.opacity(0.14) : Color.clear
-            )
-        )
-        .animation(.spring(response: 0.24, dampingFraction: 0.88), value: isSelected)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accentColor.opacity(0.14))
+                .matchedGeometryEffect(id: "HeaderTabHighlight", in: tabHighlight)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+    }
+
+    /// Active stack tab: icon plus full name riding the sliding pill.
+    private var stackTab: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "square.stack.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+
+            Text("Stack")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accentColor.opacity(0.14))
+                .matchedGeometryEffect(id: "HeaderTabHighlight", in: tabHighlight)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
 
     /// In alias mode the placeholder names the destination, so an empty input
@@ -152,6 +189,36 @@ struct SearchHeader: View {
     private var searchFieldPlaceholder: String {
         if let activeAlias { return "Search \(activeAlias.displayName)…" }
         return scopeChips.isEmpty ? "Search tabs, bookmarks, history…" : ""
+    }
+}
+
+/// Icon-only inactive header tab with hover feedback.
+private struct HeaderTabIcon: View {
+    let icon: String
+    let help: String
+    let label: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundStyle(isHovered ? Color.primary.opacity(0.85) : Color.secondary)
+                .frame(width: 28, height: 28)
+                .background {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .onHover { isHovered = $0 }
+        .help(help)
+        .accessibilityLabel(Text(label))
+        .transition(.opacity.combined(with: .scale(scale: 0.9)))
     }
 }
 

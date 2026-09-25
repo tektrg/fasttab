@@ -2367,12 +2367,12 @@ connect();
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    # Phase 0 (React rewrite): the built app in scripts/chief-dashboard-ui/dist/
-    # is served statically at /. The original hand-written PAGE_HTML stays
-    # byte-identical at /legacy as the escape hatch until phase 2 ships.
-    # dist/ is committed so a fresh machine gets a working board with no build.
+    # The built React app in dashboard/ui/dist/ is served statically at /. The
+    # hand-written PAGE_HTML stays at /legacy, and is also what / falls back
+    # to when dist/ is missing. dist/ is NOT committed here (gitignored): build
+    # it with `cd dashboard/ui && bun install && bun run build`.
     UI_DIST = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "chief-dashboard-ui", "dist")
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ui", "dist")
     UI_MIME = {".html": "text/html; charset=utf-8",
                ".js": "text/javascript; charset=utf-8",
                ".css": "text/css; charset=utf-8",

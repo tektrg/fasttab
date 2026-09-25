@@ -17,8 +17,10 @@ struct AgentListView: View {
                 .padding(.vertical, AgentPanelMetrics.listVerticalPadding)
             }
             .onChange(of: model.selectedAgentID) {
-                guard let id = model.selectedAgentID else { return }
-                proxy.scrollTo("agent-\(id)")
+                guard let id = model.selectedAgentID,
+                      let target = AgentListScrollTarget.id(forSelecting: id, in: rows)
+                else { return }
+                proxy.scrollTo(target)
             }
         }
     }

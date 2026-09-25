@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import classify_pane  # noqa: E402  (scripts/lib/classify_pane.py)
 import chief_dashboard_context  # noqa: E402  (phase 8: context parser)
 import chief_dashboard_herdr as herdr_transport  # noqa: E402  (R2/R3: the one door)
+import dashboard_config  # noqa: E402  (P0 move: config.json + state dir)
 import pane_live_work  # noqa: E402  (sub-agent status lines: live-work evidence)
 import pane_screen_signals  # noqa: E402  (screen fingerprint + motion stamp)
 
@@ -30,11 +31,18 @@ import pane_screen_signals  # noqa: E402  (screen fingerprint + motion stamp)
 #: side; this is the matching server-side read). Defaults are byte-identical
 #: to before this existed.
 HOST = os.environ.get("CHIEF_DASHBOARD_HOST", "127.0.0.1")
-PORT = int(os.environ.get("CHIEF_DASHBOARD_PORT", "4711"))
+PORT = int(os.environ.get("CHIEF_DASHBOARD_PORT", str(dashboard_config.PORT_FROM_CONFIG)))
 
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPT_DIR = os.path.dirname(LIB_DIR)
-REPO_ROOT = os.path.dirname(SCRIPT_DIR)  # /Users/trungluong/01_Project/AptusFit
+#: P0 dashboard move: REPO_ROOT used to be this checkout's own parent folder
+#: (hardcoded to whichever repo the server script lived in — AptusFit,
+#: before the move). It's now config-driven — see dashboard_config.py's
+#: LOCAL_REPO_ROOT / PROJECT_ROOTS / config.json's "projectRoots" — and
+#: defaults to AptusFit only because that's still config.json's built-in
+#: default. Every call site below that passes REPO_ROOT as a herdr cwd, a
+#: machines-config base, or the pane-tick-cache.json base is unchanged.
+REPO_ROOT = dashboard_config.LOCAL_REPO_ROOT
 TMPDIR = os.environ.get("TMPDIR", "/tmp")
 HOOK_CACHE_DIR = os.path.join(TMPDIR, "delivery-ops-herdr")
 
@@ -43,8 +51,12 @@ SANITIZE_RE = re.compile(r"[^A-Za-z0-9]")
 #: Loaded once at import (same lifecycle as REPO_ROOT above — a machine
 #: added/removed/edited takes effect on the next server restart, same as
 #: every other config-shaped global in this module). Missing file ->
-#: ({}, None): today's exact behaviour, no ssh ever attempted (R18).
-MACHINES, MACHINES_CONFIG_ERROR = herdr_transport.load_machines_config(REPO_ROOT)
+#: ({}, None): today's exact behaviour, no ssh ever attempted (R18). Now
+#: resolved through dashboard_config: config.json's own "machines" key wins
+#: when set, else the legacy <REPO_ROOT>/.claude/dashboard-machines.json
+#: file (unchanged), else CHIEF_DASHBOARD_MACHINES (tests) always wins.
+MACHINES, MACHINES_CONFIG_ERROR = (dashboard_config.MACHINES,
+                                    dashboard_config.MACHINES_CONFIG_ERROR)
 
 
 def sanitize_pane_id(pane_id):

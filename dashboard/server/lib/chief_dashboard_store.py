@@ -12,15 +12,20 @@ import threading
 import time
 import uuid
 
+import dashboard_config
 import pane_screen_signals
 from chief_dashboard_feeds import sanitize_pane_id  # noqa: F401
 
 
-SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO_ROOT = os.path.dirname(SCRIPT_DIR)
-DEFAULT_DB_PATH = os.path.join(REPO_ROOT, ".claude", "chief-board.db")
+# P0 dashboard move: the board db + its schema export used to live under
+# <this checkout>/.claude/ (REPO_ROOT was this repo's own parent folder).
+# They're state, not source (never committed — see .gitignore), and per
+# design call #1 now live in the shared state dir instead, so they survive
+# independent of wherever this checkout is and never leave stray files in a
+# git worktree again.
+DEFAULT_DB_PATH = os.path.join(dashboard_config.STATE_HOME, "chief-board.db")
 DEFAULT_SCHEMA_PATH = os.path.join(
-    REPO_ROOT, ".claude", "chief-board-schema.json")
+    dashboard_config.STATE_HOME, "chief-board-schema.json")
 
 ROW_KIND_SESSION = "session"
 ROW_KIND_WORK_ITEM = "work_item"

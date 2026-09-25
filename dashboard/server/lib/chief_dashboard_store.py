@@ -995,10 +995,11 @@ class BoardStore:
 
     # P0 dashboard move: resolve_work_item_links, _resolve_named_link, and
     # build_workitem_board are RETIRED with the work-item board — no
-    # MOVE-set caller left (they only fed the retired GET /api/board for
-    # rowKind=work_item and the retired build_chief_pass). The session
-    # board's own link resolution lives elsewhere in this file and is
-    # unaffected.
+    # caller left (they only fed the retired GET /api/board for
+    # rowKind=work_item). chief_pass itself was restored 2026-09-25, generic
+    # (see chief_dashboard_pass.py) but never read the work-item board — it
+    # doesn't need these either. The session board's own link resolution
+    # lives elsewhere in this file and is unaffected.
 
     # ── Views ──
 

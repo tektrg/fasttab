@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import classify_pane  # noqa: E402  (scripts/lib/classify_pane.py)
 import chief_dashboard_context  # noqa: E402  (phase 8: context parser)
 import chief_dashboard_herdr as herdr_transport  # noqa: E402  (R2/R3: the one door)
+import chief_dashboard_pass  # noqa: E402  (chief_pass tick: generic script resolution)
 import dashboard_config  # noqa: E402  (P0 move: config.json + state dir)
 import pane_live_work  # noqa: E402  (sub-agent status lines: live-work evidence)
 import pane_screen_signals  # noqa: E402  (screen fingerprint + motion stamp)
@@ -166,8 +167,11 @@ def pane_screen_feed_key(machine):
 # P0 dashboard move: "gitHealth" (git worktree/branch health sweep — the
 # retired git view) and "workItems" (delivery-ops/Notion board mirror — the
 # retired work_item board) are RETIRED feeds. "paneTick" is KEPT — it is
-# still read by get_agent_tree_state (AgentBar's agent hierarchy view), not
-# just by the retired build_chief_pass.
+# read by get_agent_tree_state (AgentBar's agent hierarchy view) AND by
+# build_chief_pass (chief_pass restored 2026-09-25, generic — see
+# chief_dashboard_pass.py). "board" is KEPT for the same reason — chief_pass
+# is its only reader (see poll_board below for how it now resolves the
+# script generically).
 FEEDS = {
     "hookCache": Feed("hookCache", refresh_interval_sec=2),
     "herdr": Feed("herdr", refresh_interval_sec=5),
@@ -323,16 +327,29 @@ def poll_pane_tick():
 
 
 def poll_board():
+    """chief_pass's `tick` (restored 2026-09-25, generic — see
+    chief_dashboard_pass.py): AptusFit's `deliver-tick.py --json`, run ONLY
+    when some configured projectRoot actually has that script — resolved by
+    scanning dashboard_config.PROJECT_ROOTS each poll (cheap: a handful of
+    stat() calls), never hard-coded to REPO_ROOT/projectRoots[0]. No project
+    has it -> a clean, non-broken success with data=None (most projects
+    won't have a delivery tick; that is not a feed failure) -> chief_pass
+    reports `tick: null`, never a perpetually "broken" board feed."""
     feed = FEEDS["board"]
     while not STOP.is_set():
         t0 = time.time()
         try:
-            data = run_json(
-                ["python3", "scripts/deliver-tick.py", "--json"],
-                cwd=REPO_ROOT,
-                timeout=120,
-            )
-            feed.set_success(data, time.time() - t0)
+            root = chief_dashboard_pass.find_project_root_with(
+                chief_dashboard_pass.DELIVER_TICK_RELPATH)
+            if root is None:
+                feed.set_success(None, time.time() - t0)
+            else:
+                data = run_json(
+                    ["python3", "scripts/deliver-tick.py", "--json"],
+                    cwd=root,
+                    timeout=120,
+                )
+                feed.set_success(data, time.time() - t0)
         except Exception as e:
             # This is exactly the failure mode plan.md problem #2 describes:
             # the board poller crashing/erroring must surface as FEED BROKEN,
@@ -681,10 +698,14 @@ def poll_pane_screen_remote(machine):
 
 
 # P0 dashboard move: the "work items" feed (delivery-ops/Notion state mirror)
-# and the chief_pass review-mode plugin loader (_load_plugin_module,
-# _delivery_ops_shim) are both RETIRED — the former backed the retired
-# work_item board, the latter backed the retired chief_pass/toolbox map only.
-# Neither has a MOVE-set caller left.
+# is RETIRED — it backed the retired work_item board only, no MOVE-set
+# caller left. chief_pass itself was restored 2026-09-25, generic (see
+# chief_dashboard_pass.py, and poll_board above). AptusFit's own
+# _load_plugin_module/_delivery_ops_shim (a "review-mode" plugin loader that
+# used to live here) was deliberately NOT ported: confirmed dead code even
+# upstream — AptusFit's build_chief_pass never called it, the desk/remote
+# review-mode switch it would have served was removed 2026-09-22, and a
+# live GET /api/deliver/pass on AptusFit's :4711 has no "mode" key today.
 
 
 POLLERS = {

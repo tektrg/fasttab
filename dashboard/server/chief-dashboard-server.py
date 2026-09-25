@@ -194,13 +194,22 @@ from chief_dashboard_views import (  # noqa: E402
 )
 from chief_dashboard_memory import SAMPLER  # noqa: E402
 import chief_dashboard_actions as session_actions  # noqa: E402
+import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, generic)
 
-# P0 dashboard move: chief_pass (GET /api/deliver/pass) and the worker-create
-# flow (POST /api/worker, chief_dashboard_worker.py) are RETIRED here — both
-# were AptusFit chief/delivery-tick-only concerns (chief-board-mcp.py's tool
-# catalogue, the AptusFit delivery tick, worktree/session spin-up), AgentBar
-# never calls either endpoint (confirmed in p0-dependency-audit.md), and
-# neither is in the coordinator's required-endpoints list. See dashboard/AGENTS.md.
+# chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
+# KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
+# full rationale; it replaces AptusFit's hard-coded chief-board-mcp.py
+# import + CHIEF_TOOLBOX_MAP that used to sit here). Warmed at import time
+# (not lazily on first request) so a busted/missing tool catalogue on any
+# configured project logs immediately at boot, same as AptusFit's own copy
+# used to.
+chief_dashboard_pass.load_toolbox_map()
+
+# P0 dashboard move: the worker-create flow (POST /api/worker,
+# chief_dashboard_worker.py) is RETIRED here — an AptusFit chief/worktree-
+# spin-up-only concern, AgentBar never calls it (confirmed in
+# p0-dependency-audit.md), and it is not in the coordinator's required-
+# endpoints list. See dashboard/AGENTS.md.
 
 
 def _activate_terminal_app():
@@ -2537,6 +2546,9 @@ class Handler(BaseHTTPRequestHandler):
             # caller would still serialize herdr, so: on demand only.
             payload, status = handle_pane_screen(parse_qs(parsed.query))
             self._send_json(payload, status=status)
+        elif path == "/api/deliver/pass":
+            # Restored 2026-09-25, generic — see chief_dashboard_pass.py.
+            self._send_json(chief_dashboard_pass.get_chief_pass(get_full_state))
         else:
             self._send_json({"error": "not found"}, status=404)
 

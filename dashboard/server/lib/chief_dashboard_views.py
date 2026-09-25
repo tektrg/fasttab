@@ -443,12 +443,15 @@ def build_needs_you(feeds_snap, agents):
     return merged
 
 
-# P0 dashboard move: build_git_view (gitHealth feed) and build_chief_pass
-# (chief-board-mcp.py's tool catalogue) are RETIRED — neither has a MOVE-set
-# caller (AgentBar never called GET /api/deliver/pass; see
-# p0-dependency-audit.md). _pane_tick_by_pane_id / the paneTick feed are KEPT
-# below — get_agent_tree_state (AgentBar's agent hierarchy view) still reads
-# them for each row's status_by_pane.
+# P0 dashboard move: build_git_view (gitHealth feed) is RETIRED — no
+# MOVE-set caller. build_chief_pass moved OUT of this file entirely — it now
+# lives in chief_dashboard_pass.py (restored 2026-09-25, generic — see that
+# module's docstring), split out rather than grown here since its own
+# concerns (locating an optional per-project script, loading another
+# project's module by path) don't belong with this file's "pure functions
+# over feed snapshots" job. _pane_tick_by_pane_id / the paneTick feed are
+# KEPT below — get_agent_tree_state (AgentBar's agent hierarchy view) still
+# reads them for each row's status_by_pane.
 
 
 def _pane_tick_by_pane_id(feeds_snap):

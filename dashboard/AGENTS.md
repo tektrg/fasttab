@@ -16,7 +16,9 @@ move plan; this file is the day-to-day reference for running/testing it.
   `pane_screen_signals.py`), the agent hierarchy store (`agent_tree.py`), the
   generic board store (`chief_dashboard_store.py` — properties/views/links/
   session rows; the work-item board itself was retired, not moved), feeds/
-  views/actions/memory modules, and `dashboard_config.py` (below).
+  views/actions/memory modules, `chief_dashboard_pass.py` (`GET
+  /api/deliver/pass` — see "chief_pass" below), and `dashboard_config.py`
+  (below).
 - `scripts/restart.sh` — kill-and-relaunch by port ownership, with a
   liveness wait; `scripts/chief-dashboard-watchdog.py` — a 60s probe/
   restart-cap script meant for a LaunchAgent (none is installed by this
@@ -56,6 +58,31 @@ key > the legacy `<projectRoots[0]>/.claude/dashboard-machines.json` file
 `projectRoots[0]` is actually consulted anywhere (herdr cwd, the machines
 fallback file, the pane-tick-cache read) — true multi-project support
 (looping/merging across roots) is deferred past P0.
+
+## `chief_pass` (`GET /api/deliver/pass`)
+Restored 2026-09-25, generic (`server/lib/chief_dashboard_pass.py`) — it was
+dropped in the P0 move's first pass (no MOVE-set caller needed it), but the
+PO ruled it should be KEPT: AptusFit's chief calls the `chief_pass` MCP tool
+(`AptusFit/scripts/chief-board-mcp.py` -> this endpoint) at the start of
+every supervision round, and cutover would otherwise break every one of
+them. Response shape is byte-compatible with AptusFit's own (`feedHealth`,
+`tick`, `panes`, `paneDisagreementCount`, `toolboxMap` — verified against a
+live :4711 response; no `mode` key, that field was removed upstream
+2026-09-22 and never actually returned by AptusFit's build_chief_pass
+despite its MCP tool description text still mentioning one).
+
+Two parts resolve **per `projectRoots` entry**, never hard-coded to
+`projectRoots[0]`/AptusFit:
+- **`tick`**: AptusFit's `deliver-tick.py --json`, run only when some
+  configured project root actually has `scripts/deliver-tick.py`. None do
+  -> `tick: null` (not an error — most projects won't have a delivery tick).
+- **`toolboxMap`**: the first configured project root's own
+  `scripts/chief-board-mcp.py` TOOLS catalogue (name+description only).
+  None found, or it fails to import -> `[]`, never a broken chief_pass.
+
+AptusFit's own review-mode plugin loader (`_load_plugin_module`/
+`_delivery_ops_shim`) was deliberately not ported — confirmed dead code
+even upstream (see `chief_dashboard_pass.py`'s module docstring).
 
 ## Running it
 ```
@@ -124,7 +151,6 @@ isn't a mismatch).
   config correctly, but has no installed schedule and no test coverage
   yet in this checkout (`test_chief_dashboard_watchdog.py`, ~1390 lines in
   AptusFit, was not ported — flagged as a gap, not silently dropped).
-- Multi-project `projectRoots` (see the P0 scope note above).
-- `chief_pass` (`GET /api/deliver/pass`) was fully retired rather than
-  generalized (a documented deviation from the brief's literal "move
-  generically" instruction) — no MOVE-set caller needed it.
+- Multi-project `projectRoots` (see the P0 scope note above) — `chief_pass`'s
+  per-projectRoot script resolution is the one exception that already loops
+  every entry; every other call site still only reads `projectRoots[0]`.

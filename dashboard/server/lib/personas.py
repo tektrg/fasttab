@@ -40,10 +40,11 @@ MAIN SESSION
 Per the brief: the agent-tree root (chief) inside the persona's folder;
 else the most recently active session whose `cwd` is EXACTLY the folder
 (not a subfolder); else none. "Inside the persona's folder" is read as "the
-chief session that ITSELF maps to this persona" (via the same longest-match
-rule above) rather than naive path containment — that distinction matters
-for `portfolio`, which contains the other pilots' folders: a chief running
-in `~/01_Project/AptusFit` must never become `portfolio`'s main session.
+chief whose project root IS the persona's folder" (`main_chiefs_by_persona`)
+rather than path containment — that distinction matters for `portfolio`,
+which contains the other pilots' folders AND every project with no persona
+of its own: a chief in `~/01_Project/AptusFit` or `~/01_Project/speechtodo`
+must never become `portfolio`'s main session.
 "Most recently active" ranks by `hookSinceSec` ascending (seconds since the
 last hook event — smaller is more recent); rows with no hook data sort
 last, never crash the comparison.
@@ -256,6 +257,35 @@ def _recency_key(row):
     return (since is None, since if since is not None else float("inf"))
 
 
+def main_chiefs_by_persona(personas, chiefs, rows):
+    """{address: chief id} — each persona's front-door chief, if any.
+
+    A live chief counts for a persona only when its project root IS the
+    persona's folder (same machine). Mapping by containment alone is the
+    containment trap one level up: `portfolio` (`~/01_Project`) contains
+    every project with no persona of its own, so a chief running in
+    `~/01_Project/speechtodo` would become portfolio's front door and get
+    cross-project questions. The project root (agent_tree.project_for_cwd)
+    already folds a worktree back to its checkout, so an AptusFit chief in
+    `.claude/worktrees/x` still counts for `chief-aptus`.
+
+    Several chiefs for one persona: the most recently active one (its
+    dashboard row's `hookSinceSec`), then lowest id — deterministic."""
+    recency_by_id = {resolve_agent_row_id(r): _recency_key(r) for r in rows}
+    no_data = (True, float("inf"))
+    candidates = {}
+    for chief in chiefs:
+        if not chief.get("alive") or not chief.get("id"):
+            continue
+        root = chief.get("projectRoot")
+        addr = resolve_persona_for_cwd(personas, chief.get("machine"), root)
+        if not addr or _resolve_path(root) != personas[addr]["resolvedFolder"]:
+            continue
+        candidates.setdefault(addr, []).append(chief["id"])
+    return {addr: min(ids, key=lambda i: (recency_by_id.get(i, no_data), i))
+            for addr, ids in candidates.items()}
+
+
 def main_session_for_persona(persona, rows_for_persona, chief_id):
     """The persona's main session row id, or None. `chief_id` is the id of
     the (already resolved, already known to map to this persona) live
@@ -294,13 +324,8 @@ def get_personas_state():
         if addr:
             sessions_by_persona.setdefault(addr, []).append(row)
 
-    main_chief_by_persona = {}
-    for chief in tree.get("chiefs", []):
-        if not chief.get("alive"):
-            continue
-        addr = resolve_persona_for_cwd(personas, chief.get("machine"), chief.get("projectRoot"))
-        if addr and addr not in main_chief_by_persona:
-            main_chief_by_persona[addr] = chief["id"]
+    main_chief_by_persona = main_chiefs_by_persona(
+        personas, tree.get("chiefs", []), agent_rows)
 
     result = []
     for addr, persona in personas.items():

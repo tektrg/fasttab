@@ -83,6 +83,80 @@ check("no machine given -> none",
       personas.resolve_persona_for_cwd(PERSONAS, None, cwd("01_Project", "AptusFit")),
       None)
 
+print("\n== prefix trap: a sibling folder that merely STARTS with a persona's name ==")
+check("~/01_Project/AptusFit2 is not chief-aptus (falls through to portfolio)",
+      personas.resolve_persona_for_cwd(PERSONAS, "local", cwd("01_Project", "AptusFit2")),
+      "local:~/01_Project")
+check("~/01_Project/AptusFit-old/sub is not chief-aptus either",
+      personas.resolve_persona_for_cwd(PERSONAS, "local", cwd("01_Project", "AptusFit-old", "sub")),
+      "local:~/01_Project")
+
+print("\n== trailing slashes on either side still match ==")
+slash_personas = {"local:~/01_Project/AptusFit/": persona(
+    "local:~/01_Project/AptusFit/", "local", "~/01_Project/AptusFit/")}
+check("persona folder with a trailing slash matches a plain cwd",
+      personas.resolve_persona_for_cwd(slash_personas, "local", cwd("01_Project", "AptusFit")),
+      "local:~/01_Project/AptusFit/")
+check("cwd with a trailing slash matches a plain persona folder",
+      personas.resolve_persona_for_cwd(PERSONAS, "local", cwd("01_Project", "AptusFit") + "/"),
+      "local:~/01_Project/AptusFit")
+check("a trailing slash never opens the prefix trap (AptusFit/ vs AptusFit2)",
+      personas.resolve_persona_for_cwd(slash_personas, "local", cwd("01_Project", "AptusFit2")),
+      None)
+
+print("\n== symlinked folders resolve on both sides ==")
+real_proj = cwd("real", "proj")
+os.makedirs(os.path.join(real_proj, "sub"), exist_ok=True)
+os.makedirs(cwd("links"), exist_ok=True)
+os.symlink(real_proj, cwd("links", "proj"))
+link_persona = {"local:~/links/proj": persona("local:~/links/proj", "local", "~/links/proj")}
+real_persona = {"local:~/real/proj": persona("local:~/real/proj", "local", "~/real/proj")}
+check("persona stored via a symlink matches a session in the real folder",
+      personas.resolve_persona_for_cwd(link_persona, "local", os.path.join(real_proj, "sub")),
+      "local:~/links/proj")
+check("persona stored as the real folder matches a session cwd reached via the symlink",
+      personas.resolve_persona_for_cwd(real_persona, "local", cwd("links", "proj", "sub")),
+      "local:~/real/proj")
+
+print("\n== main_chiefs_by_persona: a chief counts only where its project root IS the folder ==")
+chief_rows = [
+    {"agentSession": "chief-aptus-wt", "cwd": cwd("01_Project", "AptusFit", ".claude", "worktrees", "x"),
+     "hookSinceSec": 30},
+    {"agentSession": "chief-stray", "cwd": cwd("01_Project", "speechtodo"), "hookSinceSec": 1},
+    {"agentSession": "chief-portfolio-old", "cwd": cwd("01_Project"), "hookSinceSec": 900},
+    {"agentSession": "chief-portfolio-new", "cwd": cwd("01_Project"), "hookSinceSec": 60},
+]
+
+
+def chief(cid, root, alive=True, machine="local"):
+    return {"id": cid, "projectRoot": root, "machine": machine, "alive": alive}
+
+
+got = personas.main_chiefs_by_persona(PERSONAS, [
+    # agent_tree.project_for_cwd folds the worktree back to the checkout.
+    chief("chief-aptus-wt", cwd("01_Project", "AptusFit")),
+    chief("chief-stray", cwd("01_Project", "speechtodo")),
+    chief("chief-portfolio-old", cwd("01_Project")),
+    chief("chief-portfolio-new", cwd("01_Project")),
+    chief("chief-dead", cwd("01_Project", "command-bar-macos"), alive=False),
+    chief("chief-air", cwd("01_Project", "command-bar-macos"), machine="air-m1"),
+], chief_rows)
+check("AptusFit chief (running in a worktree) is chief-aptus's front door",
+      got.get("local:~/01_Project/AptusFit"), "chief-aptus-wt")
+check("a chief in a persona-less sibling project never becomes portfolio's front door; "
+      "portfolio's own most recently active chief does",
+      got.get("local:~/01_Project"), "chief-portfolio-new")
+check("a dead chief, or one on another machine, is nobody's front door",
+      "local:~/01_Project/command-bar-macos" in got, False)
+check("only the stray chief in the persona-less project -> portfolio has no chief",
+      personas.main_chiefs_by_persona(
+          PERSONAS, [chief("chief-stray", cwd("01_Project", "speechtodo"))], chief_rows),
+      {})
+check("chiefs with no row data tie-break by id (deterministic)",
+      personas.main_chiefs_by_persona(
+          PERSONAS, [chief("b", cwd("01_Project")), chief("a", cwd("01_Project"))], []),
+      {"local:~/01_Project": "a"})
+
 print("\n== main_session_for_persona: tree root (chief) preferred ==")
 aptus = PERSONAS["local:~/01_Project/AptusFit"]
 rows_in_aptus = [

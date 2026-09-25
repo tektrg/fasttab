@@ -107,6 +107,9 @@ FEEDS["herdr"].set_success({
     "tabs": [],
 })
 agent_tree.attach("worker-a1", "chief-a", set_by="test-seed")
+# The stray session is ALSO a chief (it has a worker) — a chief in a project
+# with no persona of its own must still never become portfolio's front door.
+agent_tree.attach("no-cwd-session", "stray-session", set_by="test-seed")
 
 # machines_status() would normally read this process's real MACHINES config
 # (empty here, CHIEF_DASHBOARD_MACHINES="{}") — monkeypatch it directly so

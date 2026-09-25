@@ -46,7 +46,7 @@ struct OpenRouterJevClientTests {
         let questions = try #require(body["questions"] as? [String: Any])
         let route = try #require(questions["route"] as? [String: Any])
         #expect(route["type"] as? String == "choice")
-        #expect(route["instructions"] as? String == "Pick the specific live session this message is for.")
+        #expect(route["instructions"] as? String == "Pick the persona or specific live session this message is for. Pick a specific session only when the message continues that session's work. Prefer the most specific persona.")
         let criteria = try #require(route["criteria"] as? [String: String])
         #expect(criteria == ["agent-1": "Fixing the login bug", "agent-2": "Writing release notes"])
     }
@@ -63,14 +63,14 @@ struct OpenRouterJevClientTests {
     @Test func withNoSystemPromptTheInstructionsAreExactlyTheBaseContract() async throws {
         let transport = FakeJevHTTPTransport(.body(Data(#"{"answers":{"route":{"choice":"agent-1"}}}"#.utf8)))
         _ = await makeClient(transport).route(text: "hi", candidates: candidates)
-        #expect(try routeInstructions(of: transport) == "Pick the specific live session this message is for.")
+        #expect(try routeInstructions(of: transport) == "Pick the persona or specific live session this message is for. Pick a specific session only when the message continues that session's work. Prefer the most specific persona.")
     }
 
     @Test func aBlankSystemPromptIsDroppedRatherThanSentAsAnEmptySection() async throws {
         let transport = FakeJevHTTPTransport(.body(Data(#"{"answers":{"route":{"choice":"agent-1"}}}"#.utf8)))
         let client = OpenRouterJevClient(apiKey: "k", systemPrompt: "   \n  ", timeoutSeconds: 8, transport: transport)
         _ = await client.route(text: "hi", candidates: candidates)
-        #expect(try routeInstructions(of: transport) == "Pick the specific live session this message is for.")
+        #expect(try routeInstructions(of: transport) == "Pick the persona or specific live session this message is for. Pick a specific session only when the message continues that session's work. Prefer the most specific persona.")
     }
 
     @Test func aCustomSystemPromptIsAppendedAfterTheBaseInstructionsClearlyDelimited() async throws {
@@ -80,9 +80,9 @@ struct OpenRouterJevClientTests {
         let instructions = try routeInstructions(of: transport)
         // The base contract is always the prefix — a user's own guidance is additive, never a
         // replacement for or a prefix ahead of it.
-        #expect(instructions.hasPrefix("Pick the specific live session this message is for."))
+        #expect(instructions.hasPrefix("Pick the persona or specific live session this message is for. Pick a specific session only when the message continues that session's work. Prefer the most specific persona."))
         #expect(instructions.contains("Prefer the fe agent for UI bugs."))
-        #expect(instructions != "Pick the specific live session this message is for.")
+        #expect(instructions != "Pick the persona or specific live session this message is for. Pick a specific session only when the message continues that session's work. Prefer the most specific persona.")
     }
 
     /// The "start a new worker" route was retired 2026-09-25: the fixed wording sent with a user's

@@ -3,7 +3,7 @@ import Foundation
 /// Reads agent status from the chief dashboard: prefers its SSE stream, falls
 /// back to polling `/api/state` while the stream is unavailable, and publishes
 /// a `.down` snapshot once neither has worked for `Timings.downAfterFailureSeconds`.
-actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing {
+actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirectorySource {
     struct Timings: Sendable {
         /// Poll cadence while SSE is unavailable (the dashboard refreshes every ~2s).
         var pollIntervalSeconds: TimeInterval
@@ -148,6 +148,39 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing {
             return .uncertain("The dashboard took too long to answer. Check the agent's terminal: the message may have gone through.")
         } catch {
             return .failed("Can't reach the status dashboard. Nothing was sent.")
+        }
+    }
+
+    /// `GET /api/personas`. Nil on anything but a clean 2xx + decode — a slow/dead dashboard reads
+    /// exactly like "no personas offered", so `AgentPanelModel.startRouting` falls back to
+    /// sessions only, silently (no footer notice: this runs on every routing start, not a
+    /// user-initiated action).
+    func fetchPersonas() async -> [Persona]? {
+        do {
+            let (body, statusCode) = try await transport.response(for: endpoint.personasRequest)
+            guard (200..<300).contains(statusCode) else { return nil }
+            return try? JSONDecoder().decode([Persona].self, from: body)
+        } catch {
+            return nil
+        }
+    }
+
+    /// `POST /api/persona/start`. Every failure — unreadable reply, timeout, unreachable dashboard
+    /// — becomes `.failed`, never `.uncertain`: the spec calls for showing the error and never
+    /// auto-retrying, with no "it may have gone through" framing (unlike `sendMessage`, this isn't
+    /// a plain retry-safe pane write; the caller decides what to do next, if anything).
+    func startPersona(_ name: String, text: String, fresh: Bool) async -> PersonaStartOutcome {
+        do {
+            let request = endpoint.personaStartRequest(persona: name, text: text, fresh: fresh)
+            let (body, _) = try await transport.response(for: request)
+            let reply = try JSONDecoder().decode(DashboardPersonaStartResponse.self, from: body)
+            return reply.outcome ?? .failed("The dashboard sent an unreadable reply. Check whether \(name) started.")
+        } catch is DecodingError {
+            return .failed("The dashboard sent an unreadable reply. Check whether \(name) started.")
+        } catch let error as URLError where error.code == .timedOut {
+            return .failed("The dashboard took too long to answer. Check whether \(name) started.")
+        } catch {
+            return .failed("Can't reach the status dashboard.")
         }
     }
 

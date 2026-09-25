@@ -6,10 +6,11 @@ import Foundation
 struct OpenRouterJevClient: JevRoutingClient {
     static let endpoint = URL(string: "https://openrouter.ai/api/alpha/decisions")!
     private static let routeQuestionKey = "route"
-    /// Base contract: every candidate today is an existing live session (the "start a brand-new
-    /// worker" candidates and `.createNew` outcome were retired 2026-09-25 — the dashboard no
-    /// longer serves `POST /api/worker`). Personas will extend this wording later.
-    private static let routeInstructions = "Pick the specific live session this message is for."
+    /// Base contract: candidates are a flat mix of personas (`persona:<name>`, a named long-lived
+    /// agent's folder — see `.claude/briefs/jev-persona-routing.md`) and live sessions. The "start
+    /// a brand-new worker" candidates and `.createNew` outcome were retired 2026-09-25 — the
+    /// dashboard no longer serves `POST /api/worker`.
+    private static let routeInstructions = "Pick the persona or specific live session this message is for. Pick a specific session only when the message continues that session's work. Prefer the most specific persona."
     /// Delimits the user's own guidance (`RoutingSettings.systemPrompt`) from the fixed contract
     /// above, so it reads as advisory context rather than as instructions that could redefine the
     /// task, the output shape, or the valid choices — a user typing something adversarial or

@@ -105,6 +105,18 @@ struct SearchFieldView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+        case .confirmingPersona(let pick):
+            Text("→ \(pick.persona.name) · \(pick.effect.text)")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        case .startingPersona(let name):
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Starting \(name)…")
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -162,6 +174,11 @@ struct SearchFieldView: View {
                 // While a card is open, Tab stays a no-op (`answerCardKeyPress` below already
                 // ignores it there) rather than tagging a row the user can no longer see.
                 guard !model.isCardOpen else { return .ignored }
+                // A persona confirm row (`.confirmingPersona`) claims Tab first, flipping its
+                // delivery mode instead of tagging a row — `togglePersonaDeliveryOverride()` is a
+                // no-op (returns false) whenever that row isn't showing, so every other case falls
+                // through to the plain row-tag exactly as before.
+                if model.togglePersonaDeliveryOverride() { return .handled }
                 model.tagSelected()
                 return .handled
             }

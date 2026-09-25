@@ -24,6 +24,12 @@ struct DashboardEndpoint: Sendable {
     /// Attach/detach are one write to the dashboard's own tree state, no pane involved: a plain
     /// request-timeout budget is generous.
     static let agentTreeActionTimeoutSeconds: TimeInterval = 20
+    /// A short budget on purpose: this runs inline with a Jev route call every time routing
+    /// starts, so a slow or dead dashboard must not delay that — `fetchPersonas` treats a timeout
+    /// the same as "no personas" and falls back to sessions only.
+    static let personasTimeoutSeconds: TimeInterval = 5
+    /// `herdr tab create` + launching Claude "may take a few seconds" per the brief.
+    static let personaStartTimeoutSeconds: TimeInterval = 30
     /// The dashboard's accident guard: only the product owner's clicks may stop
     /// or close (`PO_ACTOR` in chief_dashboard_actions.py). AgentBar acts only
     /// on the user's own click, so it speaks as that actor.
@@ -168,6 +174,26 @@ struct DashboardEndpoint: Sendable {
         request.timeoutInterval = Self.agentTreeActionTimeoutSeconds
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["child": child])
+        return request
+    }
+
+    /// `GET /api/personas`.
+    var personasRequest: URLRequest {
+        var request = request(path: "/api/personas")
+        request.timeoutInterval = Self.personasTimeoutSeconds
+        return request
+    }
+
+    /// `POST /api/persona/start`. `fresh` is sent only when `true`, so the dashboard applies the
+    /// persona's own `idleStart` default whenever the caller didn't force a new session.
+    func personaStartRequest(persona: String, text: String, fresh: Bool) -> URLRequest {
+        var request = request(path: "/api/persona/start")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.personaStartTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["persona": persona, "text": text]
+        if fresh { body["fresh"] = true }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request
     }
 

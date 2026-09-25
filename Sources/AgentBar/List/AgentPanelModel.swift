@@ -80,6 +80,12 @@ final class AgentPanelModel: ObservableObject {
     enum RoutingState: Equatable {
         case loading
         case confirming(agentID: String, label: String, confidence: Double)
+        /// A persona pick, shown on the same confirm row (`→ <persona> · <effect text>`). Tab flips
+        /// `PersonaPick.forcedStartNew` (`togglePersonaDeliveryOverride()`); Return delivers via
+        /// `deliverPersonaPick(_:)`.
+        case confirmingPersona(PersonaPick)
+        /// `POST /api/persona/start` is in flight. Return is swallowed the same way `.loading` is.
+        case startingPersona(name: String)
     }
     @Published private(set) var routingState: RoutingState?
     /// The exact text Jev was asked about, captured at Shift+Return. A route always acts on this,
@@ -90,6 +96,10 @@ final class AgentPanelModel: ObservableObject {
     /// Where the OpenRouter key lives; set by the host. No key = routing always fails fast,
     /// telling the user where to set it up rather than guessing.
     var routingAPIKeyStore: (any RoutingAPIKeyStoring)?
+    /// The dashboard's persona registry; set by the host, replaced on dashboard switch like
+    /// `statusSource`. Nil, or any failure fetching from it, means routing falls back to
+    /// sessions-only candidates — never a footer notice, since this runs on every route start.
+    var personaSource: (any PersonaDirectorySource)?
     /// Model id + confirm-first/send-immediately + system prompt, from Settings > Routing; applied
     /// live by `apply(_:)`.
     private(set) var routingSettings = RoutingSettings.standard
@@ -135,21 +145,28 @@ final class AgentPanelModel: ObservableObject {
             showAnswerNotice("No agents to route to yet.")
             return
         }
-        // May be empty (zero message-eligible agents shown) — `OpenRouterJevClient.route` returns
-        // `.none` for that without a network call.
-        let candidates = RouteCandidateBuilder.candidates(from: AgentListBuilder.shownAgents(in: snapshot, settings: listSettings, triage: triage))
+        let agents = AgentListBuilder.shownAgents(in: snapshot, settings: listSettings, triage: triage)
         routingState = .loading
         routingText = text
         let client = makeRoutingClient(apiKey, routingSettings.modelID, routingSettings.systemPrompt)
         let epoch = routingEpoch
         let afterRouting = routingSettings.afterRouting
+        let personaSource = personaSource
+        let frecency = frecency
+        let asOf = now()
         Task { [weak self] in
+            // Nil (unreachable dashboard, timeout, bad reply) reads as "no personas" — sessions-only
+            // candidates, same as before personas existed; may also be empty (zero message-eligible
+            // agents shown and no personas) — `OpenRouterJevClient.route` returns `.none` for that
+            // without a network call.
+            let personas = await personaSource?.fetchPersonas() ?? []
+            let candidates = RouteCandidateBuilder.candidates(from: agents, personas: personas, frecency: frecency, now: asOf)
             let outcome = await client.route(text: text, candidates: candidates)
-            self?.finishRouting(outcome, candidates: candidates, epoch: epoch, afterRouting: afterRouting)
+            self?.finishRouting(outcome, candidates: candidates, personas: personas, epoch: epoch, afterRouting: afterRouting)
         }
     }
 
-    private func finishRouting(_ outcome: RouteOutcome, candidates: [RouteCandidate], epoch: Int, afterRouting: AfterRoutingBehavior) {
+    private func finishRouting(_ outcome: RouteOutcome, candidates: [RouteCandidate], personas: [Persona], epoch: Int, afterRouting: AfterRoutingBehavior) {
         guard epoch == routingEpoch, routingState == .loading else { return }
         switch outcome {
         case .none:
@@ -158,11 +175,19 @@ final class AgentPanelModel: ObservableObject {
         case .failed(let reason):
             routingState = nil
             showAnswerNotice(reason)
-        case .picked(let agentID, let confidence):
+        case .picked(let pickedID, let confidence):
             // Never act on Jev's raw echo: it must name one of the candidates this exact round
-            // actually offered, not merely any agent that happens to still exist.
-            guard candidates.contains(where: { $0.agentID == agentID }),
-                  let agent = presentation.agents.first(where: { $0.id == agentID }) ?? snapshot?.agents.first(where: { $0.id == agentID })
+            // actually offered, not merely any agent/persona that happens to still exist.
+            guard candidates.contains(where: { $0.agentID == pickedID }) else {
+                routingState = nil
+                showAnswerNotice("Jev picked an agent that is no longer shown.")
+                return
+            }
+            if let personaName = RouteCandidateBuilder.personaName(fromCandidateID: pickedID) {
+                resolvePersonaPick(named: personaName, personas: personas, confidence: confidence, afterRouting: afterRouting)
+                return
+            }
+            guard let agent = presentation.agents.first(where: { $0.id == pickedID }) ?? snapshot?.agents.first(where: { $0.id == pickedID })
             else {
                 routingState = nil
                 showAnswerNotice("Jev picked an agent that is no longer shown.")
@@ -171,8 +196,121 @@ final class AgentPanelModel: ObservableObject {
             if afterRouting == .sendImmediately {
                 send(to: agent)
             } else {
-                routingState = .confirming(agentID: agentID, label: agent.label, confidence: confidence)
+                routingState = .confirming(agentID: pickedID, label: agent.label, confidence: confidence)
             }
+        }
+    }
+
+    // MARK: - Persona picks
+
+    /// `finishRouting` found a `persona:<name>` pick: resolves whether its main session is live and
+    /// still message-eligible, then either shows the persona confirm row or, under "send
+    /// immediately", delivers straight away.
+    private func resolvePersonaPick(named name: String, personas: [Persona], confidence: Double, afterRouting: AfterRoutingBehavior) {
+        guard let persona = personas.first(where: { $0.name == name }) else {
+            routingState = nil
+            showAnswerNotice("Jev picked a persona that is no longer offered.")
+            return
+        }
+        let pick = PersonaPick(persona: persona, confidence: confidence, mainAgentID: liveMainAgentID(for: persona))
+        if afterRouting == .sendImmediately {
+            deliverPersonaPick(pick)
+        } else {
+            routingState = .confirmingPersona(pick)
+        }
+    }
+
+    /// The persona's main session's agent id, only if it is still shown and still message-eligible
+    /// right now — the same staleness window a plain session pick already tolerates at confirm time
+    /// (`confirmRoutingIfPending`), just resolved up front here: a persona confirm row needs to know
+    /// this to choose its effect text before the user ever presses Return.
+    private func liveMainAgentID(for persona: Persona) -> String? {
+        guard let mainRowId = persona.mainRowId else { return nil }
+        let agent = presentation.agents.first(where: { $0.rowId == mainRowId }) ?? snapshot?.agents.first(where: { $0.rowId == mainRowId })
+        guard let agent, RowButtons.usableButtons(for: agent).contains(.message) else { return nil }
+        return agent.id
+    }
+
+    /// Tab while `.confirmingPersona` is showing: the smallest version of the spec's Tab-tag menu
+    /// that fits a single confirm row — no existing "menu" mechanism was found (`tagSelected()` is a
+    /// *different* Tab meaning: tagging a selected row as the send target, which doesn't apply here
+    /// since a persona pick has no single row to tag). Flips between the persona's own default
+    /// delivery and an explicit "start new session"; the effect text alone shows which one will
+    /// happen. False when there was no persona confirm row to toggle.
+    @discardableResult
+    func togglePersonaDeliveryOverride() -> Bool {
+        guard case .confirmingPersona(var pick) = routingState else { return false }
+        pick.forcedStartNew.toggle()
+        routingState = .confirmingPersona(pick)
+        return true
+    }
+
+    /// Return while `.confirmingPersona`, or "send immediately" landing on a persona: sends to the
+    /// live main session through the exact same pipeline a plain session pick uses, or starts/resumes
+    /// the persona through the dashboard.
+    private func deliverPersonaPick(_ pick: PersonaPick) {
+        switch pick.effect {
+        case .sendToMain:
+            guard let mainAgentID = pick.mainAgentID,
+                  let agent = presentation.agents.first(where: { $0.id == mainAgentID }) ?? snapshot?.agents.first(where: { $0.id == mainAgentID })
+            else {
+                routingEpoch += 1
+                routingState = nil
+                showAnswerNotice("\(pick.persona.name)'s main session is no longer shown.")
+                return
+            }
+            send(to: agent)
+        case .resumeLast:
+            startPersonaSession(pick.persona, fresh: false)
+        case .startNew:
+            startPersonaSession(pick.persona, fresh: true)
+        }
+    }
+
+    /// `POST /api/persona/start`, reached only through `deliverPersonaPick`. Runs the exact same
+    /// `MessageDraftValidator` check every other send does first — a persona start is not exempt
+    /// from the empty/slash-command/too-long rules `send(to:)` and `sendToTaggedIfPending()` apply.
+    private func startPersonaSession(_ persona: Persona, fresh: Bool) {
+        routingEpoch += 1
+        switch MessageDraftValidator.check(routingText) {
+        case .empty:
+            routingState = nil
+            showAnswerNotice("Nothing to send.")
+        case .slashCommand:
+            routingState = nil
+            showAnswerNotice(MessageDraftValidator.slashCommandHint)
+        case .tooLong(let over):
+            routingState = nil
+            showAnswerNotice(MessageDraftValidator.tooLongHint(over: over))
+        case .ready(let text):
+            guard let personaSource else {
+                routingState = nil
+                showAnswerNotice("No status dashboard to start \(persona.name) on.")
+                return
+            }
+            routingState = .startingPersona(name: persona.name)
+            let epoch = routingEpoch
+            Task { [weak self] in
+                let outcome = await personaSource.startPersona(persona.name, text: text, fresh: fresh)
+                self?.finishPersonaStart(outcome, personaName: persona.name, epoch: epoch)
+            }
+        }
+    }
+
+    /// The `POST /api/persona/start` reply: never auto-retried, whatever it says (spec) — a failure
+    /// just shows the reason, the same as every other send failure.
+    private func finishPersonaStart(_ outcome: PersonaStartOutcome, personaName: String, epoch: Int) {
+        guard epoch == routingEpoch, case .startingPersona = routingState else { return }
+        routingState = nil
+        switch outcome {
+        case .started:
+            query = ""
+            showFailureNotice(.created("Started \(personaName)"))
+        case .resumed:
+            query = ""
+            showFailureNotice(.created("Resumed \(personaName)"))
+        case .failed(let reason):
+            showAnswerNotice(reason)
         }
     }
 
@@ -185,7 +323,10 @@ final class AgentPanelModel: ObservableObject {
             else { return false }
             send(to: agent)
             return true
-        case .loading, nil:
+        case .confirmingPersona(let pick):
+            deliverPersonaPick(pick)
+            return true
+        case .loading, .startingPersona, nil:
             return false
         }
     }
@@ -196,7 +337,10 @@ final class AgentPanelModel: ObservableObject {
     /// firing mid-route). Named explicitly, mirroring `confirmRoutingIfPending()`, so every
     /// in-flight `RoutingState` case is handled the same deliberate way in `activateSelected`.
     private func isRoutingInFlight() -> Bool {
-        routingState == .loading
+        switch routingState {
+        case .loading, .startingPersona: true
+        case .confirming, .confirmingPersona, nil: false
+        }
     }
 
     /// Hands `routingText` to the Message pipeline (its own pane guard, one-flight-per-agent

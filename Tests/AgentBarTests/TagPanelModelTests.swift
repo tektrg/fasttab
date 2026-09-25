@@ -42,6 +42,19 @@ struct TagPanelModelTests {
         #expect(rig.model.taggedAgentLabel == "w")
     }
 
+    /// Tagging used to swap `SearchFieldView` between two structurally different branches (AGENTS.md
+    /// gotcha 18), which could drop the field's real keyboard focus even though `@FocusState` still
+    /// read true. That's now fixed at the view level (`field` has one call site, never torn down);
+    /// `focusRequest` still gets bumped here as cheap defense-in-depth, no longer load-bearing for
+    /// that bug — pin that Tab still bumps it so a future edit can't silently drop it.
+    @Test func tabTaggingBumpsFocusRequestSoTheFieldReclaimsTheKeyboard() async {
+        let rig = makeRig([working()])
+        let before = rig.model.focusRequest
+        rig.model.tagSelected()
+        for _ in 0..<200 where rig.model.focusRequest == before { await Task.yield() }
+        #expect(rig.model.focusRequest == before + 1)
+    }
+
     /// The search term used to find the row (e.g. "fastt" to filter down to "fasttab-worker") is not
     /// the start of a message — the box must start empty for composing, not carry the filter over.
     @Test func tabClearsTheSearchTextUsedToFindTheAgentOnTheFirstTag() {
@@ -246,9 +259,24 @@ struct TagPanelModelTests {
         rig.model.receive(F.snapshot([], health: .down(reason: "dashboard unreachable")))
         #expect(rig.model.taggedAgentID == "w")
         #expect(rig.model.query == "hello")
+        // The label survives the blip too (last-known, not a live lookup): `presentation.agents`/
+        // `snapshot.agents` are contractually empty during an outage, and `reconcileTag()` is
+        // deliberately skipped while it lasts, so a plain live lookup alone would go nil here even
+        // though `taggedAgentID` didn't — dropping the chip/placeholder and leaving the window's
+        // composing-mode sizing (keyed on `taggedAgentID`) budgeting room for a chip that vanished.
+        #expect(rig.model.taggedAgentLabel == "w")
         // The feed recovers: the tag is still exactly what it was, ready to send.
         rig.model.receive(F.snapshot([working()]))
         #expect(rig.model.taggedAgentID == "w")
+        #expect(rig.model.taggedAgentLabel == "w")
+    }
+
+    @Test func theLabelStaysCurrentAcrossARenameWhileTagged() {
+        let rig = makeRig([working(label: "old-name")])
+        rig.model.tagSelected()
+        #expect(rig.model.taggedAgentLabel == "old-name")
+        rig.model.receive(F.snapshot([working(label: "new-name")]))
+        #expect(rig.model.taggedAgentLabel == "new-name")   // a healthy reading refreshes the cache, not just the live lookup
     }
 
     @Test func theTagClearsWithANoticeWhenTheTargetLeavesTheFeedEntirely() {

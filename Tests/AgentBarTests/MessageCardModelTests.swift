@@ -10,6 +10,10 @@ struct MessageCardModelTests {
     private final class Recorder {
         var notices: [String] = []
         var releasedKeyboard = 0
+        /// Every `sendDirect` outcome (`onDirectSendOutcome`) — this is how a headless send's
+        /// caller (`AgentPanelModel` in the real app) hears about a failure now; `MessageCardModel`
+        /// itself no longer turns one into a notice (see `aFailedSendDirectNeverCallsOnSentDirectAndReportsTheOutcome`).
+        var directOutcomes: [(agentID: String, label: String, text: String, outcome: MessageSendOutcome)] = []
     }
 
     private struct Rig {
@@ -29,6 +33,9 @@ struct MessageCardModelTests {
         model.statusSource = source
         model.onNotice = { recorder.notices.append($0) }
         model.onReleaseKeyboard = { recorder.releasedKeyboard += 1 }
+        model.onDirectSendOutcome = { agentID, label, text, outcome in
+            recorder.directOutcomes.append((agentID, label, text, outcome))
+        }
         return Rig(clock: clock, model: model, source: source, recorder: recorder)
     }
 
@@ -154,16 +161,23 @@ struct MessageCardModelTests {
         #expect(rig.source.sent.isEmpty)
     }
 
-    @Test func aFailedSendDirectNeverCallsOnSentDirectAndGoesToTheNotice() async {
+    /// `MessageCardModel` itself no longer turns a headless `.failed` reply into a notice — that
+    /// would race a caller that wants to retry it first (`AgentPanelModel.sendDirectMessage`, the
+    /// real app's retry queue). It reports every outcome via `onDirectSendOutcome` instead and
+    /// leaves the decision to the caller.
+    @Test func aFailedSendDirectNeverCallsOnSentDirectAndReportsTheOutcome() async {
         let rig = makeRig()
         var calls = 0
         rig.model.onSentDirect = { _, _ in calls += 1 }
         #expect(rig.model.sendDirect(to: agent(), text: "hi"))
         await rig.source.waitForRequests(1)
         rig.source.reply(.failed("busy"))
-        await waitUntil { !rig.recorder.notices.isEmpty }
+        await waitUntil { !rig.recorder.directOutcomes.isEmpty }
         #expect(calls == 0)
-        #expect(rig.recorder.notices == ["Message to agent a not sent: busy"])
+        #expect(rig.recorder.notices.isEmpty)
+        #expect(rig.recorder.directOutcomes.count == 1)
+        #expect(rig.recorder.directOutcomes[0].agentID == "a")
+        #expect(rig.recorder.directOutcomes[0].outcome == .failed("busy"))
     }
 
     @Test func sendDirectStillReadsThePaneFirstAndRefusesAnOpenPicker() async {
@@ -173,9 +187,11 @@ struct MessageCardModelTests {
         var calls = 0
         rig.model.onSentDirect = { _, _ in calls += 1 }
         #expect(rig.model.sendDirect(to: agent(), text: "hi"))
-        await waitUntil { !rig.recorder.notices.isEmpty }
+        await waitUntil { !rig.recorder.directOutcomes.isEmpty }
         #expect(rig.source.sent.isEmpty)
         #expect(calls == 0)
+        #expect(rig.recorder.notices.isEmpty)   // reported via onDirectSendOutcome, not a notice, same as any other failed headless send
+        #expect(rig.recorder.directOutcomes[0].outcome == .failed(MessageCard.waitingOnYouText))
     }
 
     @Test func newlinesAreFlattenedInTheTextThatGoesOut() async {

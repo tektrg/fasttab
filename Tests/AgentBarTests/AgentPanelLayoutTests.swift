@@ -117,7 +117,10 @@ struct AgentPanelLayoutTests {
         let stale = F.presentation(F.snapshot([F.agent("a")], boardIsCurrent: false))
         let composingMany = AgentPanelMetrics.height(for: many, isComposing: true)
         let composingStale = AgentPanelMetrics.height(for: stale, isComposing: true)
+        // + tagChipTopPadding: the chip row's own breathing room, added on top of the field's
+        // usual budget while composing (AgentPanelMetrics.height(for:...)).
         let floor = AgentPanelMetrics.searchFieldHeight + AgentPanelMetrics.dividerHeight + AgentPanelMetrics.footerHeight
+            + AgentPanelMetrics.tagChipTopPadding
         #expect(composingMany == floor)
         #expect(composingStale == floor)   // the board note is suppressed too, not just the list
     }

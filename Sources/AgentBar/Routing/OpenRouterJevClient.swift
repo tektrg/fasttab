@@ -6,7 +6,12 @@ import Foundation
 struct OpenRouterJevClient: JevRoutingClient {
     static let endpoint = URL(string: "https://openrouter.ai/api/alpha/decisions")!
     private static let routeQuestionKey = "route"
-    private static let routeInstructions = "Which agent should receive this message?"
+    /// Deliberately NOT phrased as "which agent" — that would presuppose an existing agent is
+    /// always the right answer and bias the model away from a "new:"-prefixed candidate even when
+    /// the message explicitly asks to start one (`WorkerArea.summary` already spells out that each
+    /// one means "not an existing agent", but the top-level framing has to say picking one is a
+    /// normal, expected outcome too, not a fallback).
+    private static let routeInstructions = "Which candidate should this message go to? Some candidates are existing agents; others start a brand-new one. Prefer starting a new one when the message asks for a new worker, task, or session rather than continuing an existing one."
     /// Delimits the user's own guidance (`RoutingSettings.systemPrompt`) from the fixed contract
     /// above, so it reads as advisory context rather than as instructions that could redefine the
     /// task, the output shape, or the valid choices — a user typing something adversarial or

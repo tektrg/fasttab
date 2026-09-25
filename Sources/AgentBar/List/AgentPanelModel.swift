@@ -107,6 +107,19 @@ final class AgentPanelModel: ObservableObject {
     /// Bumped on every route so a reply for a route the user already left behind is dropped.
     private var routingEpoch = 0
 
+    /// A headless send (Jev routing, Tab-tag compose, quick commands) that failed with "nothing
+    /// reached the agent" and is waiting on a retry, keyed by agent id. `attempt` is the attempt
+    /// number just made (1 = the original try); it doubles as a lightweight guard against a stale
+    /// scheduled retry firing after a fresh send (or `useDashboard()`) has already superseded it —
+    /// see `retryDirectSend`. An `.uncertain` reply is never queued here (see `sendDirectMessage`'s
+    /// doc comment): it might already be sitting typed in the agent's input box.
+    private struct PendingDirectSend { let text: String; var attempt: Int }
+    private var pendingDirectSends: [String: PendingDirectSend] = [:]
+    /// Attempts (including the first) before a headless send gives up; delay before each retry.
+    /// Configurable only so tests don't have to wait out real time.
+    private let directSendRetryDelays: [TimeInterval]
+    private var maxDirectSendAttempts: Int { directSendRetryDelays.count + 1 }
+
     /// New routing settings from Settings > Routing; applies to the next route, never an in-flight one.
     /// Named apart from `apply(_ settings: AgentListSettings)`: overloading it made `.standard`
     /// ambiguous at every existing call site (both types have a static `standard`).
@@ -233,15 +246,78 @@ final class AgentPanelModel: ObservableObject {
         }
     }
 
-    /// `message.sendDirect`, plus the "can't send" notice shared by every direct-send path —
-    /// Jev routing, Tab-tag compose, and the row menu's Compact/Clear (`RowActionPlan.sendQuickCommand`).
+    /// `message.sendDirect`, plus the retry shared by every direct-send path — Jev routing,
+    /// Tab-tag compose, and the row menu's Compact/Clear (`RowActionPlan.sendQuickCommand`). Two
+    /// failure shapes get a few quick automatic retries before the footer notice shows: the row
+    /// not being message-eligible right this instant (it just became blocked, or a previous send
+    /// to it is still finishing — nothing was sent either way) and a `.failed` dashboard reply
+    /// (refused before typing anything). An `.uncertain` reply (may already be typed into the
+    /// agent's input box) is handled by `handleDirectSendOutcome` and never reaches here again —
+    /// retrying that one could paste the message twice.
     @discardableResult
-    private func sendDirectMessage(to agent: AgentSnapshot, text: String) -> Bool {
+    private func sendDirectMessage(to agent: AgentSnapshot, text: String, attempt: Int = 1) -> Bool {
+        if attempt == 1, pendingDirectSends[agent.id] != nil {
+            showAnswerNotice("Still retrying an earlier message to \(agent.label) — wait a moment before sending another.")
+            return false
+        }
+        pendingDirectSends[agent.id] = PendingDirectSend(text: text, attempt: attempt)
         guard message.sendDirect(to: agent, text: text) else {
-            showAnswerNotice("Couldn't send to \(agent.label): it can no longer take a message.")
+            retryDirectSendOrGiveUp(agentID: agent.id, label: agent.label, text: text, attempt: attempt, reason: "it can no longer take a message")
             return false
         }
         return true
+    }
+
+    /// Every outcome of a headless send (`message.onDirectSendOutcome`) — `sendDirect` itself only
+    /// reports whether an attempt *started*.
+    private func handleDirectSendOutcome(agentID: String, label: String, text: String, outcome: MessageSendOutcome) {
+        switch outcome {
+        case .sent:
+            pendingDirectSends.removeValue(forKey: agentID)
+        case .failed(let reason):
+            // A missing entry means this reply is for a send `useDashboard()` (or a give-up) already
+            // superseded — drop it rather than default to attempt 1 and start a fresh retry cycle for
+            // a request nothing is tracking any more.
+            guard let attempt = pendingDirectSends[agentID]?.attempt else { return }
+            retryDirectSendOrGiveUp(agentID: agentID, label: label, text: text, attempt: attempt, reason: reason)
+        case .needsConfirmation:
+            // `sendDirect` always sends `confirmed: true` (see its doc comment), so this should not
+            // occur in practice; handled defensively, same wording the card uses, no retry.
+            pendingDirectSends.removeValue(forKey: agentID)
+            showAnswerNotice("Message to \(label) not sent: the agent is mid-turn. Open Message again to queue it.")
+        case .uncertain(let reason):
+            pendingDirectSends.removeValue(forKey: agentID)
+            showAnswerNotice("Message to \(label): \(reason)")
+        }
+    }
+
+    /// `attempt` is the attempt just made. One more try after a short delay, or the give-up notice
+    /// once `maxDirectSendAttempts` is used up.
+    private func retryDirectSendOrGiveUp(agentID: String, label: String, text: String, attempt: Int, reason: String) {
+        guard attempt < maxDirectSendAttempts else {
+            pendingDirectSends.removeValue(forKey: agentID)
+            showAnswerNotice("Couldn't send to \(label) after \(maxDirectSendAttempts) tries: \(reason)")
+            return
+        }
+        let delay = directSendRetryDelays[attempt - 1]
+        let nextAttempt = attempt + 1
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            self?.retryDirectSend(agentID: agentID, text: text, attempt: nextAttempt)
+        }
+    }
+
+    /// Fired after a retry's delay. Dropped if a fresh send (or `useDashboard()`) has since
+    /// superseded this one (`pendingDirectSends[agentID]` no longer names the attempt that just
+    /// failed) or the agent is no longer shown.
+    private func retryDirectSend(agentID: String, text: String, attempt: Int) {
+        guard pendingDirectSends[agentID]?.attempt == attempt - 1 else { return }
+        guard let agent = presentation.agents.first(where: { $0.id == agentID }) ?? snapshot?.agents.first(where: { $0.id == agentID }) else {
+            pendingDirectSends.removeValue(forKey: agentID)
+            showAnswerNotice("Couldn't send: that agent is no longer shown.")
+            return
+        }
+        sendDirectMessage(to: agent, text: text, attempt: attempt)
     }
 
     /// Esc while routing: cancels back to the plain search box (the typed text stays). While
@@ -305,10 +381,26 @@ final class AgentPanelModel: ObservableObject {
     /// usual press/switch handling. One at a time, like `routingState`; nil the rest of the time.
     @Published private(set) var taggedAgentID: String?
 
-    /// The tagged agent's label, for the "→ AgentName" indicator under the search box; nil once the
-    /// tag itself is nil, or if the agent has since vanished from both the shown list and the raw
-    /// snapshot (a moment `reconcileTag()` clears on the next status update anyway).
+    /// Refreshed alongside every live sighting of the tagged agent (`tagSelected()`, `reconcileTag()`)
+    /// so `taggedAgentLabel` has something to fall back on when a live lookup momentarily can't find
+    /// the agent — a feed outage deliberately empties `presentation.agents`/`snapshot.agents` and
+    /// `reconcileTag()` is deliberately skipped while it lasts (the tag itself must survive the blip,
+    /// see `receive()`), so without this the label alone would flicker to nil independently of
+    /// `taggedAgentID`, even though every OTHER piece of tagged/composing state stays keyed on
+    /// `taggedAgentID` (window sizing, list-hiding) — the exact mismatch a live-vs-cached label would
+    /// otherwise cause: chip disappears, icon/height revert to untagged, but the list stays hidden
+    /// and the window still budgets room for a chip that isn't drawn.
+    private var taggedAgentLastKnownLabel: String?
+
+    /// The tagged agent's label, for the chip/placeholder in the search box; nil only once the tag
+    /// itself is nil (the live lookup failing on its own, e.g. mid-outage, falls back to the last
+    /// known label instead — see `taggedAgentLastKnownLabel`).
     var taggedAgentLabel: String? {
+        guard taggedAgentID != nil else { return nil }
+        return liveTaggedAgentLabel ?? taggedAgentLastKnownLabel
+    }
+
+    private var liveTaggedAgentLabel: String? {
         taggedAgentID.flatMap { id in
             (presentation.agents.first { $0.id == id } ?? snapshot?.agents.first { $0.id == id })?.label
         }
@@ -338,6 +430,16 @@ final class AgentPanelModel: ObservableObject {
         // `retaggingSwapsTheTargetWithoutTouchingTypedText`).
         if taggedAgentID == nil, !wasRouting { query = "" }
         taggedAgentID = agent.id
+        taggedAgentLastKnownLabel = agent.label
+        // Tagging USED TO swap `SearchFieldView`'s body between two different `if`/`else` branches
+        // (the chip's own row existed only in the tagged one) — a structural identity change that
+        // tore the old field down and inserted a brand-new one, so the actual first-responder
+        // handoff sometimes didn't survive even though `@FocusState` looked fine (AGENTS.md gotcha
+        // 18). Fixed at the view level instead: `field` now has exactly one call site in
+        // `SearchFieldView.body`, in a row that's unconditionally present either way, so it's never
+        // torn down. This bump is kept only as cheap defense-in-depth (harmless either way) —
+        // it is no longer load-bearing for that bug.
+        DispatchQueue.main.async { [weak self] in self?.focusRequest += 1 }
     }
 
     /// The chip's ✕ (`TagChipView` in `SearchFieldView`): same effect as Esc while tagged.
@@ -350,6 +452,7 @@ final class AgentPanelModel: ObservableObject {
     private func cancelTagIfActive() -> Bool {
         guard taggedAgentID != nil else { return false }
         taggedAgentID = nil
+        taggedAgentLastKnownLabel = nil
         return true
     }
 
@@ -386,9 +489,13 @@ final class AgentPanelModel: ObservableObject {
         let agent = presentation.agents.first(where: { $0.id == agentID }) ?? snapshot?.agents.first(where: { $0.id == agentID })
         guard let agent, RowButtons.usableButtons(for: agent).contains(.message) else {
             taggedAgentID = nil
+            taggedAgentLastKnownLabel = nil
             showAnswerNotice("\(agent?.label ?? "That agent") can no longer take a message — tag cleared.")
             return
         }
+        // Only ever reached on a healthy reading (`receive()` skips this call during an outage), so
+        // this is always a genuine live sighting — safe to trust for a rename, never a stale/outage read.
+        taggedAgentLastKnownLabel = agent.label
     }
 
     // MARK: - Routed notes (what a routed send left on the receiving row)
@@ -480,6 +587,7 @@ final class AgentPanelModel: ObservableObject {
         message: MessageCardModel = MessageCardModel(),
         copier: IdentityCopier = IdentityCopier(),
         blockerProbe: BlockerProbe = BlockerProbe(),
+        directSendRetryDelays: [TimeInterval] = [5, 10],
         now: @escaping () -> Date = { Date() }
     ) {
         self.answer = answer
@@ -487,6 +595,7 @@ final class AgentPanelModel: ObservableObject {
         self.message = message
         self.copier = copier
         self.blockerProbe = blockerProbe
+        self.directSendRetryDelays = directSendRetryDelays
         self.store = store
         self.triageStore = triageStore
         self.routedNoteStore = routedNoteStore
@@ -528,6 +637,9 @@ final class AgentPanelModel: ObservableObject {
         message.onReleaseKeyboard = { [weak self] in self?.focusRequest += 1 }
         message.consumeEscape = { [weak self] in self?.dismissFooterNotice() ?? false }
         message.onSentDirect = { [weak self] agentID, text in self?.recordRoutedNote(agentID: agentID, text: text) }
+        message.onDirectSendOutcome = { [weak self] agentID, label, text, outcome in
+            self?.handleDirectSendOutcome(agentID: agentID, label: label, text: text, outcome: outcome)
+        }
     }
 
     private func wireBlockerProbe() {
@@ -608,6 +720,9 @@ final class AgentPanelModel: ObservableObject {
         answer.reset()
         permission.reset()
         message.reset()
+        // Any scheduled retry for the old dashboard's agents is left to fire and no-op: its guard
+        // (`pendingDirectSends[agentID]?.attempt == attempt - 1`) fails once the dict is cleared.
+        pendingDirectSends = [:]
         // A route started against the old dashboard must never be actable once the feed has
         // switched, even if a reply lands with a coincidentally matching epoch and `routingState`
         // back to `.loading` from a route against the new one — so `.loading`/`.confirming`/
@@ -1014,9 +1129,13 @@ final class AgentPanelModel: ObservableObject {
     }
 
     /// What the row says in place of its buttons while an answer or decision is on its way; nil when none is.
+    /// Covers the gap between a headless send's retries too (`message.sendingLabel` only knows
+    /// about the attempt actually in flight, not the backoff between them) so the row doesn't
+    /// flicker back to its normal buttons for a few seconds between tries.
     func sendingLabel(for agent: AgentSnapshot) -> String? {
         if answer.isAwaiting(agent) { return "Sending answer…" }
-        return permission.sendingLabel(for: agent) ?? message.sendingLabel(for: agent)
+        if let label = permission.sendingLabel(for: agent) ?? message.sendingLabel(for: agent) { return label }
+        return pendingDirectSends[agent.id] != nil ? MessageCardModel.sendingLabel : nil
     }
 
     /// What the row says for a few seconds after a message to it went ("Message sent" / "Message queued").

@@ -46,7 +46,7 @@ struct OpenRouterJevClientTests {
         let questions = try #require(body["questions"] as? [String: Any])
         let route = try #require(questions["route"] as? [String: Any])
         #expect(route["type"] as? String == "choice")
-        #expect(route["instructions"] as? String == "Which agent should receive this message?")
+        #expect(route["instructions"] as? String == "Which candidate should this message go to? Some candidates are existing agents; others start a brand-new one. Prefer starting a new one when the message asks for a new worker, task, or session rather than continuing an existing one.")
         let criteria = try #require(route["criteria"] as? [String: String])
         #expect(criteria == ["agent-1": "Fixing the login bug", "agent-2": "Writing release notes"])
     }
@@ -63,14 +63,14 @@ struct OpenRouterJevClientTests {
     @Test func withNoSystemPromptTheInstructionsAreExactlyTheBaseContract() async throws {
         let transport = FakeJevHTTPTransport(.body(Data(#"{"answers":{"route":{"choice":"agent-1"}}}"#.utf8)))
         _ = await makeClient(transport).route(text: "hi", candidates: candidates)
-        #expect(try routeInstructions(of: transport) == "Which agent should receive this message?")
+        #expect(try routeInstructions(of: transport) == "Which candidate should this message go to? Some candidates are existing agents; others start a brand-new one. Prefer starting a new one when the message asks for a new worker, task, or session rather than continuing an existing one.")
     }
 
     @Test func aBlankSystemPromptIsDroppedRatherThanSentAsAnEmptySection() async throws {
         let transport = FakeJevHTTPTransport(.body(Data(#"{"answers":{"route":{"choice":"agent-1"}}}"#.utf8)))
         let client = OpenRouterJevClient(apiKey: "k", systemPrompt: "   \n  ", timeoutSeconds: 8, transport: transport)
         _ = await client.route(text: "hi", candidates: candidates)
-        #expect(try routeInstructions(of: transport) == "Which agent should receive this message?")
+        #expect(try routeInstructions(of: transport) == "Which candidate should this message go to? Some candidates are existing agents; others start a brand-new one. Prefer starting a new one when the message asks for a new worker, task, or session rather than continuing an existing one.")
     }
 
     @Test func aCustomSystemPromptIsAppendedAfterTheBaseInstructionsClearlyDelimited() async throws {
@@ -80,9 +80,9 @@ struct OpenRouterJevClientTests {
         let instructions = try routeInstructions(of: transport)
         // The base contract is always the prefix — a user's own guidance is additive, never a
         // replacement for or a prefix ahead of it.
-        #expect(instructions.hasPrefix("Which agent should receive this message?"))
+        #expect(instructions.hasPrefix("Which candidate should this message go to? Some candidates are existing agents; others start a brand-new one. Prefer starting a new one when the message asks for a new worker, task, or session rather than continuing an existing one."))
         #expect(instructions.contains("Prefer the fe agent for UI bugs."))
-        #expect(instructions != "Which agent should receive this message?")
+        #expect(instructions != "Which candidate should this message go to? Some candidates are existing agents; others start a brand-new one. Prefer starting a new one when the message asks for a new worker, task, or session rather than continuing an existing one.")
     }
 
     // MARK: - Empty candidates: no network call

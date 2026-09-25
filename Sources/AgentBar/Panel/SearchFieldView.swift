@@ -4,11 +4,21 @@ import SwiftUI
 /// ←/→ walk the selected row's buttons, but only while the box is empty (with
 /// text in it they move the caret); Enter presses the highlighted button, else
 /// switches to the agent. With a card (answer or permission) open the keys drive the card.
-/// Tab-tagged (`AgentPanelModel.taggedAgentID`): the icon becomes a message glyph, a `TagChipView`
-/// names the target inline (its ✕ untags), and the field's placeholder names the target too — the
-/// box IS the compose field then, and `AgentPanelView` hides the list below it (nothing left to
-/// pick from once a target is already chosen).
+/// Tab-tagged (`AgentPanelModel.taggedAgentID`): the icon becomes a message glyph with a `TagChipView`
+/// naming the target (its ✕ untags), on its own row above the field rather than sharing the field's
+/// row — a long agent name would otherwise squeeze the field down to a fraction of its usual width,
+/// under-reserving height for the typed message and clipping it (`AgentPanelMetrics.tagRowHeight`).
+/// The field's placeholder also names the target — the box IS the compose field then, and
+/// `AgentPanelView` hides the list below it (nothing left to pick from once a target is already chosen).
 struct SearchFieldView: View {
+    /// Posted only on a genuine mouse click into the field — never on the auto-focus in `.onAppear`
+    /// or the keyboard-reclaim in `.onChange(of: model.focusRequest)`, both of which are passive and
+    /// must not activate AgentBar (`TextInputActivation`, `AGENTS.md` gotcha 12: a plain ⌥Tab cycle,
+    /// or a card closing, must never steal the front from the app the user is switching away from).
+    /// A deliberate click is a different signal: the user is about to dictate into search, so it's
+    /// safe to also activate here.
+    static let didReceiveClickNotification = Notification.Name("AgentBar.SearchField.didReceiveClick")
+
     @ObservedObject var model: AgentPanelModel
     let onClose: () -> Void
     @FocusState private var isFocused: Bool
@@ -17,19 +27,46 @@ struct SearchFieldView: View {
     /// 1 for a plain search, more once a longer message to route is typed or pasted in.
     private var lineCount: Int { AgentPanelMetrics.searchFieldLineCount(for: model.query) }
 
+    /// The real root cause of AGENTS.md gotcha 18 (Tab-tagging dropped keyboard focus): this used to
+    /// be `if tagged { ...; field } else { HStack { icon; field } }` — TWO textually different call
+    /// sites for `field`, one per branch. SwiftUI identifies a view by its position in the body's
+    /// static structure, not by comparing values, so switching branches was a guaranteed identity
+    /// loss for `field` — the old one is torn down, a new one built, and anything tracking a
+    /// "previous" value for it (`.onChange`) restarts blind. Fixed by giving `field` exactly ONE call
+    /// site, in a row that is unconditionally present in the body either way; only the LEADING
+    /// content of that row (an optional icon) and an optional sibling row above it vary. Per
+    /// SwiftUI's `ViewBuilder`, sibling statements in the same container each get their own stable
+    /// tree slot, so an optional sibling appearing/disappearing does not perturb another statement's
+    /// identity — unlike swapping which branch a shared call site lives in. Any future change to this
+    /// body must keep `field` at its one call site, or this bug returns.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                // Tagged: the icon reads as "you're messaging someone", the same way the magnifying
-                // glass reads as "you're searching" the rest of the time.
-                Image(systemName: model.taggedAgentLabel == nil ? "magnifyingglass" : "message.fill")
-                    .foregroundStyle(.secondary)
-                if let taggedLabel = model.taggedAgentLabel {
+            if let taggedLabel = model.taggedAgentLabel {
+                HStack(spacing: 10) {
+                    // Tagged: the icon reads as "you're messaging someone", the same way the magnifying
+                    // glass reads as "you're searching" the rest of the time.
+                    Image(systemName: "message.fill")
+                        .foregroundStyle(.secondary)
                     TagChipView(label: taggedLabel, onRemove: model.removeTag)
+                }
+                .frame(height: AgentPanelMetrics.tagRowHeight)
+                // Order matters: sized first, THEN padded, so this adds height on top of
+                // `tagRowHeight` (matching the extra budgeted in `AgentPanelMetrics.height(for:...)`)
+                // instead of squeezing the already-sized row down to fit inside it.
+                .padding(.top, AgentPanelMetrics.tagChipTopPadding)
+            }
+            // Unconditionally present either way — `field`'s one and only call site (see doc comment
+            // above). Untagged: the magnifying glass shares this row with it, same as always. Tagged:
+            // the icon has already been drawn in the chip row above, so this row is the field alone,
+            // at its full width regardless of how long the tagged agent's name is.
+            HStack(spacing: 10) {
+                if model.taggedAgentLabel == nil {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
                 }
                 field
             }
-            .frame(height: AgentPanelMetrics.searchFieldHeight(forLineCount: lineCount))
+            .frame(height: fieldRowHeight)
             if let routingState = model.routingState {
                 routingRow(for: routingState)
                     .padding(.leading, 28)
@@ -37,6 +74,14 @@ struct SearchFieldView: View {
             }
         }
         .padding(.horizontal, 18)
+    }
+
+    /// The field's own row height: the full budget when untagged (shares the row with just the
+    /// icon), or that budget minus the chip row's share when tagged (`AgentPanelMetrics.tagRowHeight`
+    /// — the total across both rows is unchanged, only re-split; see `AgentPanelMetrics.height(for:...)`).
+    private var fieldRowHeight: CGFloat {
+        let total = AgentPanelMetrics.searchFieldHeight(forLineCount: lineCount)
+        return model.taggedAgentLabel == nil ? total : total - AgentPanelMetrics.tagRowHeight
     }
 
     /// Shift+Return routing (`AgentPanelModel.routingState`): Jev thinking, its pick waiting for a
@@ -142,6 +187,9 @@ struct SearchFieldView: View {
                 if model.backOutOfButtons() { return }
                 if model.peek != nil { model.closePeek() } else { onClose() }
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                NotificationCenter.default.post(name: Self.didReceiveClickNotification, object: nil)
+            })
             .onAppear { isFocused = true }
             .onChange(of: model.focusRequest) {
                 // The answer card's text view may have taken the keyboard without SwiftUI knowing,

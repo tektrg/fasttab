@@ -95,6 +95,14 @@ struct RoutingSettingsView: View {
             modelIDText = settings.routing.modelID
             systemPromptText = settings.routing.systemPrompt
         }
+        // Blur-only saving (above) silently drops a typed-but-unblurred edit if the tab/window
+        // closes first (⌘W, switching Settings tabs, clicking the panel's own close button) —
+        // exactly how `routingSystemPrompt` was found empty despite being typed. This is the
+        // backstop: whatever is currently typed is saved on the way out, blurred or not.
+        .onDisappear {
+            applySystemPrompt()
+            applyModelID()
+        }
     }
 
     private var apiKeyPlaceholder: String {

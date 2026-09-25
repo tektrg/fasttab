@@ -52,8 +52,8 @@ final class AgentPanelController {
                 Publishers.CombineLatest3(
                     model.$query.map { AgentPanelMetrics.searchFieldLineCount(for: $0) }.removeDuplicates(),
                     model.$routingState.map { $0 != nil }.removeDuplicates(),
-                    // Tagged: the chip lives inline in the search field itself (no extra row), but it
-                    // does hide the list/status message below — a third, independent size input.
+                    // Tagged: the chip gets its own row above the field (AgentPanelMetrics.tagRowHeight),
+                    // and it does hide the list/status message below — a third, independent size input.
                     model.$taggedAgentID.map { $0 != nil }.removeDuplicates()
                 )
             )
@@ -141,7 +141,12 @@ final class AgentPanelController {
         let appeared = center.addObserver(forName: AnswerTextView.didAppearNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.activation.textInputAppeared() }
         }
-        focusObservers = [resign, appeared]
+        // A genuine click into the search box (never its passive auto-focus) is the same
+        // "dictation is about to type here" signal a card text box gives on appearing.
+        let searchClicked = center.addObserver(forName: SearchFieldView.didReceiveClickNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.activation.textInputAppeared() }
+        }
+        focusObservers = [resign, appeared, searchClicked]
     }
 
     private func stopFocusObservers() {

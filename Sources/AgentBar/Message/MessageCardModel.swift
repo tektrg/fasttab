@@ -6,8 +6,12 @@ import Foundation
 ///
 /// Safety rules: nothing is sent unless the pane was read just before and shows neither a
 /// question picker nor a permission box (typed text would answer or deny it); a message goes out
-/// only from a press that means "send", one at a time per agent, and is never retried on its
-/// own (a timeout says it may have gone through); a busy agent's message needs a second press.
+/// only from a press that means "send", one at a time per agent. A card send (`pressSend`) is
+/// never retried on its own (a timeout says it may have gone through); a busy agent's message
+/// needs a second press. A headless send (`sendDirect` — Jev routing, Tab-tag compose, quick
+/// commands) is different: its caller sees every outcome via `onDirectSendOutcome` and, for a
+/// `.failed` one (nothing reached the agent), retries it a few times before giving up — an
+/// `.uncertain` one is still never retried, same double-send reason as the card.
 @MainActor
 final class MessageCardModel: ObservableObject {
     static let noSourceMessage = "No status dashboard to send the message to."
@@ -30,6 +34,9 @@ final class MessageCardModel: ObservableObject {
     /// send): the host records it as a row note. Not called for a failed/uncertain/needing-confirmation
     /// outcome — only a confirmed `.sent`.
     var onSentDirect: (_ agentID: String, _ text: String) -> Void = { _, _ in }
+    /// Every `sendDirect` outcome (never a card send), so the host can drive its own retry —
+    /// `sendDirect` only reports whether an attempt *started*, not how it landed.
+    var onDirectSendOutcome: (_ agentID: String, _ label: String, _ text: String, _ outcome: MessageSendOutcome) -> Void = { _, _, _, _ in }
 
     private let loadSessionContext: AnswerCardModel.SessionContextLoad
     private let contextLoader = LatestResultLoader<SessionContext>()
@@ -187,13 +194,25 @@ final class MessageCardModel: ObservableObject {
             showing = nil
         case .needsConfirmation:
             showing?.stopSendingNeedingConfirmation()
-            if showing == nil { onNotice("Message to \(request.label) not sent: the agent is mid-turn. Open Message again to queue it.") }
+            if showing == nil, !request.notesOnSend {
+                onNotice("Message to \(request.label) not sent: the agent is mid-turn. Open Message again to queue it.")
+            }
         case .failed(let reason):
             showing?.stopSending(error: reason)
-            if showing == nil { onNotice("Message to \(request.label) not sent: \(reason)") }
+            if showing == nil, !request.notesOnSend {
+                onNotice("Message to \(request.label) not sent: \(reason)")
+            }
         case .uncertain(let reason):
             showing?.stopSendingUncertain(reason)
-            if showing == nil { onNotice("Message to \(request.label): \(reason)") }
+            if showing == nil, !request.notesOnSend {
+                onNotice("Message to \(request.label): \(reason)")
+            }
+        }
+        // Headless sends report every outcome to the caller instead — it owns the retry policy
+        // (see `onDirectSendOutcome`'s doc comment) and, unlike a card send, there is never a
+        // `showing` card here for it to fall back to notifying through.
+        if request.notesOnSend {
+            onDirectSendOutcome(request.agentID, request.label, request.text, outcome)
         }
         if let showing { card = showing }
         objectWillChange.send()

@@ -23,6 +23,17 @@ enum AgentPanelMetrics {
     /// problem) and the settings button.
     static let footerHeight: CGFloat = 30
 
+    /// Tab-tagged: the icon + `TagChipView` get their own row above the field (`SearchFieldView`),
+    /// instead of sharing the field's row — a long agent name would otherwise squeeze the field's
+    /// real width well under what `searchFieldLineCount`'s `charactersPerLine` assumes, under-reserving
+    /// height and clipping a long typed message. The field's own row then gets the rest of
+    /// `searchFieldHeight(forLineCount:)` at the field's full width, same as the untagged case.
+    static let tagRowHeight: CGFloat = 22
+    /// Breathing room above the chip row: added to the window's reserved height (`height(for:...)`,
+    /// `isComposing` case) rather than taken out of `tagRowHeight`/the field row's own budget — the
+    /// field row is already tight at 4 lines (see `SearchFieldView`), so this must not shrink it further.
+    static let tagChipTopPadding: CGFloat = 6
+
     /// Search field growth (Task: routing composes a longer message than a plain search). The field
     /// grows vertically with its content (`TextField(axis: .vertical)`, capped at this many lines) and
     /// the routing state (Jev thinking / confirming) gets its own row underneath rather than squeezed
@@ -80,9 +91,12 @@ enum AgentPanelMetrics {
         maxListHeight: CGFloat = maxListHeight,
         isPeeking: Bool = false,
         isAnswering: Bool = false,
-        /// Tab-tagged (`AgentPanelModel.taggedAgentID`): the tag itself shows inline in the search
-        /// field (a chip, no extra row), and the list/status message below is hidden entirely —
-        /// nothing to pick from while composing a message to an already-chosen agent. The window
+        /// Tab-tagged (`AgentPanelModel.taggedAgentID`): the tag shows as a chip on its own row above
+        /// the field (`tagRowHeight`, carved out of `searchFieldHeight(forLineCount:)` — the total is
+        /// unchanged, so this parameter needs no separate accounting for it, except for the chip row's
+        /// own top padding, `tagChipTopPadding`, which IS extra and added below), and the list/status
+        /// message below is hidden entirely — nothing to pick from while composing a message to an
+        /// already-chosen agent. The window
         /// shrinks to just the search field (which still grows with a longer typed message) plus the
         /// footer.
         isComposing: Bool = false,
@@ -99,7 +113,11 @@ enum AgentPanelMetrics {
                 ? fullBodyHeight(maxListHeight: maxListHeight)
                 : bodyHeight(for: presentation, maxListHeight: maxListHeight)
         let body = max(0, naturalBody - growth)
-        return fieldHeight + routingRow + dividerHeight + body + note + footerHeight
+        // The chip row's own top padding (`tagChipTopPadding`) is extra, on top of the field
+        // area's usual budget — not carved out of it, unlike `tagRowHeight` — so it must be added
+        // here explicitly or the window falls a few points short and the field's bottom clips.
+        let tagChipPadding = isComposing ? tagChipTopPadding : 0
+        return fieldHeight + routingRow + dividerHeight + body + note + footerHeight + tagChipPadding
     }
 
     /// A peek or an answer card replaces the list at the list's full height, so

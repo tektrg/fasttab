@@ -85,6 +85,18 @@ struct OpenRouterJevClientTests {
         #expect(instructions != "Pick the specific live session this message is for.")
     }
 
+    /// The "start a new worker" route was retired 2026-09-25: the fixed wording sent with a user's
+    /// guidance must never suggest a "new one" is a valid choice (every candidate is a live session).
+    @Test func theGuidanceHeaderNeverOffersStartingANewAgent() async throws {
+        let transport = FakeJevHTTPTransport(.body(Data(#"{"answers":{"route":{"choice":"agent-1"}}}"#.utf8)))
+        let client = OpenRouterJevClient(apiKey: "k", systemPrompt: "Prefer the fe agent for UI bugs.", timeoutSeconds: 8, transport: transport)
+        _ = await client.route(text: "hi", candidates: candidates)
+        let fixedWording = try routeInstructions(of: transport).replacingOccurrences(of: "Prefer the fe agent for UI bugs.", with: "").lowercased()
+        #expect(!fixedWording.contains("new one"))
+        #expect(!fixedWording.contains("new worker"))
+        #expect(!fixedWording.contains("start a new"))
+    }
+
     // MARK: - Empty candidates: no network call
 
     @Test func emptyCandidatesReturnsNoneWithoutANetworkCall() async {

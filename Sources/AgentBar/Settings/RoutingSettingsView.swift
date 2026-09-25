@@ -67,7 +67,7 @@ struct RoutingSettingsView: View {
                     .onChange(of: systemPromptFieldFocused) { _, focused in
                         if !focused { applySystemPrompt() }
                     }
-                Text("Extra guidance for Jev on how to route messages — for example, when it should start a new AptusFit worker instead of routing to an existing agent. This is advisory context only: it can steer which candidate Jev picks, but it can never change the routing task itself.")
+                Text("Extra guidance for Jev on how to route messages — for example, which agent should get UI bugs. Jev only ever picks one of the live agents shown in the list. This is advisory context only: it can steer which candidate Jev picks, but it can never change the routing task itself.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

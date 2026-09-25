@@ -21,8 +21,8 @@ struct RoutingSettings: Equatable, Sendable {
     var modelID: String = defaultModelID
     var afterRouting: AfterRoutingBehavior = .confirmFirst
     /// Extra guidance folded into every Jev request, on top of the fixed `routeInstructions`
-    /// (`OpenRouterJevClient`) — e.g. when to start a new AptusFit worker instead of routing to an
-    /// existing agent. Empty by default; never overrides the base instructions' shape.
+    /// (`OpenRouterJevClient`) — e.g. which live agent suits which kind of message. Empty by
+    /// default; never overrides the base instructions' shape.
     var systemPrompt: String = ""
 
     static let standard = RoutingSettings()

@@ -159,8 +159,8 @@ gone — re-check the pane" / "typed feedback did not land — re-check the
 pane" (/api/permission).
 
 Run via herdr (not tmux — see AGENTS.md's herdr override), e.g.:
-  herdr tab create --cwd /Users/trungluong/01_Project/AptusFit --label chief-dashboard-server --no-focus
-  herdr pane run <pane_id> "python3 scripts/chief-dashboard-server.py"
+  herdr tab create --cwd /Users/trungluong/01_Project/command-bar-macos-dashboard/dashboard --label chief-dashboard-server --no-focus
+  herdr pane run <pane_id> "python3 server/chief-dashboard-server.py"
 
 Python stdlib only. No pip installs, no node_modules.
 
@@ -1875,7 +1875,7 @@ PAGE_HTML = r"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Chief Dashboard · AptusFit</title>
+<title>Chief Dashboard</title>
 <style>
   :root {
     --bg: #0b0e14; --panel: #121620; --border: #262b38; --text: #d8dee9;
@@ -1947,7 +1947,7 @@ PAGE_HTML = r"""<!doctype html>
 </head>
 <body>
 <header>
-  <h1>CHIEF DASHBOARD &middot; AptusFit &middot; Stage 1</h1>
+  <h1>CHIEF DASHBOARD &middot; Stage 1</h1>
   <div class="meta" id="clock">connecting&hellip;</div>
 </header>
 

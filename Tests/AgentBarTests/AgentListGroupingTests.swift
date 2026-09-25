@@ -140,6 +140,47 @@ struct AgentListGroupingTests {
         #expect(rows.map(\.id) == ["section-1", "agent-c", "agent-w2", "agent-w1"])
     }
 
+    // MARK: - Tiering: blocked entries, then chief groups, then loose agents (2026-09-25)
+
+    @Test func aGroupRanksAboveLooseAgentsEvenWhenClientOrderRanksItLast() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [chief("c", children: [node("w")])], unassigned: [], parentGone: [])
+        // Client order puts the loose agent first and the group's members last, and nothing has
+        // frecency — a pure best-rank sort (the pre-tier behaviour) would put "loner" ahead of the
+        // whole group. The tier rule must still float the (non-blocked) chief group above the
+        // (non-blocked) loose agent regardless.
+        let agents = [F.agent("loner", section: .working), F.agent("c", section: .working), F.agent("w", section: .working)]
+        let rows = AgentListGrouping.rows(for: agents, tree: tree, frecency: [:], now: F.now)
+        #expect(rows.map(\.id) == ["section-1", "agent-c", "agent-w", "agent-loner"])
+    }
+
+    @Test func aBlockedLooseAgentStillRendersFirstAheadOfChiefGroups() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [chief("c", children: [node("w")])], unassigned: [], parentGone: [])
+        var blocked = F.agent("blocked", section: .needsYou)
+        blocked.blocker = .permission
+        // Neither "c" nor "w" is itself blocked (Needs you also holds idle, not-yet-triaged
+        // agents) — the blocked loose agent must still rank ahead of the whole group.
+        let agents = [F.agent("c", section: .needsYou), F.agent("w", section: .needsYou), blocked]
+        let rows = AgentListGrouping.rows(for: agents, tree: tree, frecency: [:], now: F.now)
+        #expect(rows.map(\.id) == ["section-0", "agent-blocked", "agent-c", "agent-w"])
+    }
+
+    @Test func aGroupWithOneBlockedChildOutranksAnUnblockedGroupAndLooseAgents() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [
+            chief("c1", children: [node("w1")]), chief("c2", children: [node("w2")])
+        ], unassigned: [], parentGone: [])
+        var w1 = F.agent("w1", section: .needsYou)
+        w1.blocker = .permission
+        // Client order: c2's group first, then a loose agent, then c1's group (whose only blocked
+        // member sorts last within it) — a group counts as blocked if ANY member is, so c1's group
+        // must still lead.
+        let agents = [
+            F.agent("c2", section: .needsYou), F.agent("w2", section: .needsYou),
+            F.agent("loner", section: .needsYou), F.agent("c1", section: .needsYou), w1
+        ]
+        let rows = AgentListGrouping.rows(for: agents, tree: tree, frecency: [:], now: F.now)
+        #expect(rows.map(\.id) == ["section-0", "agent-c1", "agent-w1", "agent-c2", "agent-w2", "agent-loner"])
+    }
+
     // MARK: - Parent-gone / untracked agents stay flat (loose), never indented, never hidden
 
     @Test func aParentGoneWorkerStaysFlatWithItsLostParentLabel() {

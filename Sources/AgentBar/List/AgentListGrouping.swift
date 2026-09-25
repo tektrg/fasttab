@@ -12,15 +12,30 @@ import CommandBarKit
 /// children are split across sections gets one anchor per section that holds at least one of them:
 /// its real row in its own section, a placeholder in every other one.
 ///
-/// A group's position within its section = the best-ranked member it has there (the chief's own
-/// rank if its real row is present, plus every child's rank) — so, e.g., a lone blocked child can
-/// pull its chief's placeholder up to the top of Needs you even though every OTHER child ranks
-/// lower. Children keep the section's own ranking order among themselves underneath.
+/// A section's top-level entries (loose agents and chief groups) are ordered in three tiers, in
+/// this order (2026-09-25, PO decision — a chief's 7-child group was ranking last in a ~20-agent
+/// Needs you section under pure best-rank sorting, so it sat below the fold and went unseen):
+///   1. Blocked — any entry with a member blocked on a question/permission (`blockedOnYou != nil`;
+///      only possible in Needs you). A group counts as blocked if ANY member is — chief or child.
+///   2. Chief groups (anchor + children) not already caught by (1).
+///   3. Loose agents not already caught by (1).
+/// Within a tier, entries keep today's section ranking (`AgentRanking`) by their best-ranked member
+/// (the chief's own rank if its real row is present, plus every child's rank) — so inside a tier a
+/// lone high-ranked child can still pull its chief's placeholder above the tier's other groups.
+/// Children keep the section's own ranking order among themselves underneath their anchor.
 ///
 /// Pure; no I/O, no SwiftUI. Used only while NOT searching and while a non-empty tree has loaded —
 /// `AgentListBuilder` falls back to the old flat sections otherwise (search flattens by design; an
 /// unavailable/empty tree has nothing to group by).
 enum AgentListGrouping {
+    /// A section's top-level-entry tiers, in render order. See the type doc comment above.
+    private enum UnitTier: Int, Comparable {
+        case blocked = 0
+        case chiefGroup = 1
+        case loose = 2
+        static func < (lhs: UnitTier, rhs: UnitTier) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
     /// `agents` is every shown agent, any section — Needs you included. Nesting is no longer
     /// special-cased there: a blocked worker whose chief is also blocked nests under it exactly
     /// like anywhere else (the old "Needs you dedupe" no longer applies now that every section, not
@@ -37,7 +52,8 @@ enum AgentListGrouping {
     }
 
     /// One section's rows: its header (omitted when the section is empty), then every top-level
-    /// entry — a loose agent, or a chief group (anchor row + its children) — in best-rank order.
+    /// entry — a loose agent, or a chief group (anchor row + its children) — ordered by tier, then
+    /// best-rank within the tier (`UnitTier`).
     private static func sectionRows(
         _ section: AgentSection, agents: [AgentSnapshot], index: TreeIndex, needsYouIDs: Set<String>,
         frecency: [String: FrecencyEntry], now: Date
@@ -59,7 +75,7 @@ enum AgentListGrouping {
             }
         }
 
-        var units: [(rank: Int, rows: [AgentListRow])] = []
+        var units: [(tier: UnitTier, rank: Int, rows: [AgentListRow])] = []
 
         for chiefID in Set(chiefAgentByChiefID.keys).union(childrenByChiefID.keys) {
             // Always true by construction: `chiefID` only ever comes from `index`, which sources
@@ -68,11 +84,13 @@ enum AgentListGrouping {
             let children = childrenByChiefID[chiefID] ?? []
             let orderedChildren = ranked.filter { agent in children.contains { $0.id == agent.id } }
             var memberRanks = orderedChildren.compactMap { rankOf[$0.id] }
+            var isBlocked = orderedChildren.contains { $0.blockedOnYou != nil }
 
             var rows: [AgentListRow] = []
             let needsYouHint = index.needsYouHint(node, needsYouIDs: needsYouIDs)
             if let chiefAgent = chiefAgentByChiefID[chiefID] {
                 if let rank = rankOf[chiefAgent.id] { memberRanks.append(rank) }
+                if chiefAgent.blockedOnYou != nil { isBlocked = true }
                 rows.append(.agent(chiefAgent, nesting: .chief(needsYouHint: needsYouHint, machineBadge: node.machineBadge)))
             } else {
                 rows.append(.chiefPlaceholder(node, section: section, needsYouHint: needsYouHint))
@@ -83,16 +101,19 @@ enum AgentListGrouping {
             })
 
             guard let bestRank = memberRanks.min() else { continue }
-            units.append((rank: bestRank, rows: rows))
+            units.append((tier: isBlocked ? .blocked : .chiefGroup, rank: bestRank, rows: rows))
         }
 
         for agent in looseAgents {
-            units.append((rank: rankOf[agent.id] ?? Int.max, rows: [.agent(agent, nesting: index.looseNesting(for: agent))]))
+            let tier: UnitTier = agent.blockedOnYou != nil ? .blocked : .loose
+            units.append((tier: tier, rank: rankOf[agent.id] ?? Int.max, rows: [.agent(agent, nesting: index.looseNesting(for: agent))]))
         }
 
-        // Every unit's best rank is a distinct agent's own rank index (each agent belongs to
-        // exactly one unit), so this sort is already unambiguous — no tie-break needed.
-        units.sort { $0.rank < $1.rank }
+        // Within a tier, every unit's best rank is a distinct agent's own rank index (each agent
+        // belongs to exactly one unit), so the rank comparison is already unambiguous there.
+        units.sort { lhs, rhs in
+            lhs.tier != rhs.tier ? lhs.tier < rhs.tier : lhs.rank < rhs.rank
+        }
         return [.header(section)] + units.flatMap(\.rows)
     }
 }

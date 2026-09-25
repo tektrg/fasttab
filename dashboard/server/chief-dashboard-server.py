@@ -195,6 +195,7 @@ from chief_dashboard_views import (  # noqa: E402
 from chief_dashboard_memory import SAMPLER  # noqa: E402
 import chief_dashboard_actions as session_actions  # noqa: E402
 import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, generic)
+import personas  # noqa: E402  (Jev persona registry + routing, P1)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -2549,6 +2550,12 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/deliver/pass":
             # Restored 2026-09-25, generic — see chief_dashboard_pass.py.
             self._send_json(chief_dashboard_pass.get_chief_pass(get_full_state))
+        elif path == "/api/personas":
+            # Jev persona routing P1 — see server/lib/personas.py.
+            try:
+                self._send_json(personas.get_personas_state())
+            except Exception as e:
+                self._send_json({"error": str(e)}, status=400)
         else:
             self._send_json({"error": "not found"}, status=404)
 

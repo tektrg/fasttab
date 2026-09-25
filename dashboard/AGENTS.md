@@ -17,7 +17,8 @@ move plan; this file is the day-to-day reference for running/testing it.
   generic board store (`chief_dashboard_store.py` — properties/views/links/
   session rows; the work-item board itself was retired, not moved), feeds/
   views/actions/memory modules, `chief_dashboard_pass.py` (`GET
-  /api/deliver/pass` — see "chief_pass" below), and `dashboard_config.py`
+  /api/deliver/pass` — see "chief_pass" below), `personas.py` (`GET
+  /api/personas` — see "Jev persona routing" below), and `dashboard_config.py`
   (below).
 - `scripts/restart.sh` — kill-and-relaunch by port ownership, with a
   liveness wait; `scripts/chief-dashboard-watchdog.py` — a 60s probe/
@@ -84,6 +85,29 @@ AptusFit's own review-mode plugin loader (`_load_plugin_module`/
 `_delivery_ops_shim`) was deliberately not ported — confirmed dead code
 even upstream (see `chief_dashboard_pass.py`'s module docstring).
 
+## Jev persona routing (`GET /api/personas`) — P1
+`server/lib/personas.py`. Registry: `~/.config/agentbar/personas.json`
+(override `AGENTBAR_PERSONAS_FILE` — tests, or a second local instance),
+NOT under `~/.config/agent-dashboard/`; AgentBar only edits it through
+dashboard endpoints (P4 — not built yet, hand-edit for now). Missing file
+-> empty registry; a malformed file or a single bad persona entry is
+skipped with a stderr log line, never a crash. A persona with an empty
+`description` is a valid registry entry but is never offered (Jev must
+never read an unreviewed draft).
+
+Session -> persona mapping: the persona whose folder contains the
+session's `cwd`, longest folder match wins, same `machine` only (`local`
+for every local session — this dashboard has no separate "pro"/"air" id
+for the machine it runs on, only for configured remote machines). Main
+session: the persona folder's own live agent-tree chief, else the most
+recently active session whose `cwd` is exactly the folder, else none.
+
+Pilots (hand-written, see the file): `chief-aptus` (~/01_Project/AptusFit),
+`fasttab-dev` (~/01_Project/command-bar-macos — this repo, FastTab +
+AgentBar + this dashboard), `bi` (~/01_Project/ssv-bi-platform),
+`portfolio` (~/01_Project — cross-project questions and anything with no
+persona of its own yet).
+
 ## Running it
 ```
 cd dashboard
@@ -108,13 +132,17 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this move: 35 test files, 1054 `PASS` assertions, 0 `FAIL`.
+As of this writing: 40 test files, 1130 `PASS` assertions, 0 `FAIL`.
 
 **Never POST to port 4711** (AptusFit's live instance) or restart/kill it.
 All P0-move testing runs on **4712**: GET requests against the real 4711
 data are fine (read-only, harmless), but every write path (`answer`,
 `permission`, `focus`, session actions) is exercised only through the
-`test_*.py` fakes, never live against real panes.
+`test_*.py` fakes, never live against real panes. `4712`'s server process
+still opens the same board sqlite db as `4711` unless told otherwise (it
+runs `_init_db()` on startup, a write) — export
+`CHIEF_DASHBOARD_STATE_HOME=<some throwaway dir>` before launching it with
+`--detached` so it never touches the live db file.
 
 **Parity check** — confirms the moved server (4712) produces the same
 agent rows as the original (4711):

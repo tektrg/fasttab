@@ -53,3 +53,9 @@ extension-key.pem
 /dashboard/ui/node_modules/
 /dashboard/ui/dist/
 /dashboard/.venv/
+# Runtime DB + its auto-exported schema snapshot (chief_dashboard_store.py's
+# DEFAULT_DB_PATH/DEFAULT_SCHEMA_PATH) — generated on first run/test, never
+# source; mirrors the root /.claude/ ignore rule above for this nested one.
+/dashboard/.claude/
+__pycache__/
+*.pyc

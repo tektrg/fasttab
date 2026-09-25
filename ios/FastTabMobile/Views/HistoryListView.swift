@@ -163,7 +163,7 @@ public struct HistoryListView: View {
         .fullScreenCover(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title)
         }
-        .dsToast($toast, bottomInset: DS.Space.xl)
+        .dsToast($toast, bottomInset: DS.Space.xl, duration: DS.Motion.toastLongDuration)
     }
 
     private func queueDeleteHistory(_ item: HistoryRowItem) {

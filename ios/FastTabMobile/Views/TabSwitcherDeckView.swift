@@ -176,7 +176,7 @@ struct TabSwitcherDeckView: View {
                 saveTabAsBookmark(request.tab, to: destination)
             }
         }
-        .dsToast($toast, bottomInset: DS.Space.xxl)
+        .dsToast($toast, bottomInset: DS.Space.xxl, onDark: true)
     }
 
     // MARK: - Backdrop
@@ -206,6 +206,8 @@ struct TabSwitcherDeckView: View {
                 Text("\(cachedVisibleTabs.count) Open Tab\(cachedVisibleTabs.count == 1 ? "" : "s")")
                     .font(DS.Font.cardTitle)
                     .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
 
                 if let deviceName = activeDevice?.name {
                     Text("•")

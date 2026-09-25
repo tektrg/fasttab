@@ -159,6 +159,8 @@ public enum DS {
         public static let toast = Animation.easeInOut(duration: 0.2)
         /// How long a toast stays up.
         public static let toastDuration: Duration = .seconds(2.5)
+        /// Toasts that ask the user to act elsewhere ("confirm on your Mac").
+        public static let toastLongDuration: Duration = .seconds(3.5)
     }
 }
 

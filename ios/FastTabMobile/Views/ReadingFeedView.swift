@@ -115,7 +115,8 @@ public struct ReadingFeedView: View {
             }
             .scrollTargetLayout()
             // Room for the card shadow, which a scroll view would otherwise clip.
-            .padding(.vertical, DS.Space.sm)
+            .padding(.top, DS.Space.sm)
+            .padding(.bottom, DS.Space.lg)
         }
         .contentMargins(.horizontal, DS.Space.gutter, for: .scrollContent)
         .scrollTargetBehavior(.viewAligned)

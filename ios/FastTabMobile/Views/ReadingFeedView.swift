@@ -12,8 +12,7 @@ public struct ReadingFeedView: View {
     @State private var readerItem: ReaderNavigationItem? = nil
     @State private var saveToBookmarkURL: URL? = nil
     @State private var saveToBookmarkTitle: String = ""
-    @State private var toastMessage: String? = nil
-    @State private var showToast: Bool = false
+    @State private var toast: String? = nil
 
     public init() {}
 
@@ -25,39 +24,9 @@ public struct ReadingFeedView: View {
         localCache.state.devices.first?.id ?? ""
     }
 
-    private let carouselRows = [
-        GridItem(.fixed(88), spacing: 10),
-        GridItem(.fixed(88), spacing: 10)
-    ]
-
-    public static let appBackgroundGradient = LinearGradient(
-        stops: [
-            .init(color: Color(uiColor: UIColor { traitCollection in
-                if traitCollection.userInterfaceStyle == .dark {
-                    // Top: very subtle warm black in dark mode
-                    return UIColor(red: 0.045, green: 0.042, blue: 0.040, alpha: 1.0)
-                } else {
-                    // Top: lighter warm white/stone
-                    return UIColor(red: 0.988, green: 0.985, blue: 0.980, alpha: 1.0)
-                }
-            }), location: 0.0),
-            .init(color: Color(uiColor: UIColor { traitCollection in
-                if traitCollection.userInterfaceStyle == .dark {
-                    // Bottom: deep black in dark mode
-                    return UIColor.black
-                } else {
-                    // Bottom: current warm grey color
-                    return UIColor(red: 0.955, green: 0.950, blue: 0.942, alpha: 1.0)
-                }
-            }), location: 1.0)
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
-
     public var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: DS.Space.section) {
                 // Top Bookmark Folder Filter Chips (YouTube Music style)
                 if !recentProvider.availableFolders.isEmpty {
                     ReadingFolderChipsView(
@@ -80,7 +49,7 @@ public struct ReadingFeedView: View {
             .padding(.top, 6)
             .padding(.bottom, 24)
         }
-        .background(Self.appBackgroundGradient.ignoresSafeArea())
+        .dsCanvas()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -115,19 +84,7 @@ public struct ReadingFeedView: View {
                 saveToBookmarkURL = nil
             }
         }
-        .overlay(alignment: .bottom) {
-            if showToast, let toastMessage {
-                Text(toastMessage)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color.black.opacity(0.85)))
-                    .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
-                    .padding(.bottom, 24)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .dsToast($toast)
         .onAppear {
             recentProvider.drainPendingShares()
             recentProvider.refresh()
@@ -140,276 +97,208 @@ public struct ReadingFeedView: View {
         }
     }
 
-    // MARK: - Section 1: Recent Added (2-Row Horizontal Carousel)
+    // MARK: - Carousel
+
+    /// One-row horizontal carousel of vertical cards. Each card is 5/9 of the visible
+    /// width, so about 1.8 cards show and the peeking second card invites a swipe.
+    /// Snaps card by card.
+    private func carousel<Items: RandomAccessCollection, Card: View>(
+        _ items: Items,
+        @ViewBuilder card: @escaping (Items.Element) -> Card
+    ) -> some View where Items.Element: Identifiable {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: DS.Space.md) {
+                ForEach(items) { item in
+                    card(item)
+                        .containerRelativeFrame(.horizontal, count: 9, span: 5, spacing: DS.Space.md)
+                }
+            }
+            .scrollTargetLayout()
+            // Room for the card shadow, which a scroll view would otherwise clip.
+            .padding(.vertical, DS.Space.sm)
+        }
+        .contentMargins(.horizontal, DS.Space.gutter, for: .scrollContent)
+        .scrollTargetBehavior(.viewAligned)
+    }
+
+    // MARK: - Section 1: Recent Added
 
     private var recentAddedSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center) {
-                HStack(spacing: 6) {
-                    Text("Recent Added")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.primary)
-
-                    if let selectedFolder {
-                        let leaf = BookmarkTreeBuilder.splitPath(selectedFolder).last ?? selectedFolder
-                        Text("in \(leaf)")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer()
-
-                Text("\(displayRecentItems.count)")
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                    .clipShape(Capsule())
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            DSSectionHeader(
+                "Recent Added",
+                context: selectedFolder.map { "in \(BookmarkTreeBuilder.splitPath($0).last ?? $0)" }
+            ) {
+                DSCountPill(displayRecentItems.count)
             }
-            .padding(.horizontal, 16)
 
             if displayRecentItems.isEmpty {
                 emptyRecentCard
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, DS.Space.gutter)
+                    .padding(.top, DS.Space.xs)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows, spacing: 12) {
-                        ForEach(displayRecentItems) { item in
-                            let (delTitle, delIcon) = recentDeleteInfo(for: item)
-                            ReadingFeedCardView(
-                                title: item.title,
-                                url: item.url,
-                                domain: item.domain,
-                                badgeText: item.source.badgeText,
-                                badgeTint: item.source.tintColor,
-                                fixedWidth: 310,
-                                readingProgress: readingProgress.progress(for: item.url),
-                                deleteTitle: delTitle,
-                                deleteIcon: delIcon,
-                                onSelect: {
-                                    openArticle(url: item.url, title: item.title)
-                                },
-                                onOpenOnMac: {
-                                    openOnMac(url: item.url, title: item.title)
-                                },
-                                onSaveToBookmarks: {
-                                    promptSaveBookmark(url: item.url, title: item.title)
-                                },
-                                onDelete: {
-                                    deleteRecentItem(item)
-                                }
-                            )
+                carousel(displayRecentItems) { item in
+                    let (delTitle, delIcon) = recentDeleteInfo(for: item)
+                    ReadingFeedCardView(
+                        title: item.title,
+                        url: item.url,
+                        domain: item.domain,
+                        badgeText: item.source.badgeText,
+                        badgeTint: item.source.tintColor,
+                        badgeIcon: item.source.iconName,
+                        readingProgress: readingProgress.progress(for: item.url),
+                        deleteTitle: delTitle,
+                        deleteIcon: delIcon,
+                        onSelect: {
+                            openArticle(url: item.url, title: item.title)
+                        },
+                        onOpenOnMac: {
+                            openOnMac(url: item.url, title: item.title)
+                        },
+                        onSaveToBookmarks: {
+                            promptSaveBookmark(url: item.url, title: item.title)
+                        },
+                        onDelete: {
+                            deleteRecentItem(item)
                         }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 4)
+                    )
                 }
             }
         }
     }
 
-    // MARK: - Section 2: Emerging (2-Row Horizontal Carousel)
+    // MARK: - Section 2: Emerging (Related to Mac & iOS Reading)
 
     private var emergingSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center) {
-                Text("Emerging")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.primary)
-
-                Spacer()
-
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            DSSectionHeader("Emerging") {
                 Button {
                     withAnimation {
                         emergingProvider.refresh()
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "shuffle")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("Shuffle")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color.purple.opacity(0.12))
-                    .foregroundStyle(.purple)
-                    .clipShape(Capsule())
+                    Label("Shuffle", systemImage: "shuffle")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.dsTinted(DS.Tint.emerging))
             }
-            .padding(.horizontal, 16)
 
             if emergingProvider.items.isEmpty {
                 if emergingProvider.isProcessing {
                     ProgressView()
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 24)
+                        .padding(.vertical, DS.Space.xl)
                 } else {
                     emptyEmergingCard
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, DS.Space.gutter)
+                        .padding(.top, DS.Space.xs)
                 }
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows, spacing: 12) {
-                        ForEach(emergingProvider.items) { item in
-                            let (delTitle, delIcon) = emergingDeleteInfo(for: item)
-                            ReadingFeedCardView(
-                                title: item.title,
-                                url: item.url,
-                                domain: item.domain,
-                                badgeText: item.badgeText,
-                                badgeTint: .purple,
-                                fixedWidth: 310,
-                                readingProgress: readingProgress.progress(for: item.url),
-                                deleteTitle: delTitle,
-                                deleteIcon: delIcon,
-                                onSelect: {
-                                    openArticle(url: item.url, title: item.title)
-                                },
-                                onOpenOnMac: {
-                                    openOnMac(url: item.url, title: item.title)
-                                },
-                                onSaveToBookmarks: {
-                                    promptSaveBookmark(url: item.url, title: item.title)
-                                },
-                                onDelete: {
-                                    deleteEmergingItem(item)
-                                }
-                            )
+                carousel(emergingProvider.items) { item in
+                    let (delTitle, delIcon) = emergingDeleteInfo(for: item)
+                    ReadingFeedCardView(
+                        title: item.title,
+                        url: item.url,
+                        domain: item.domain,
+                        badgeText: item.badgeText,
+                        badgeTint: DS.Tint.emerging,
+                        badgeIcon: "sparkles",
+                        readingProgress: readingProgress.progress(for: item.url),
+                        deleteTitle: delTitle,
+                        deleteIcon: delIcon,
+                        onSelect: {
+                            openArticle(url: item.url, title: item.title)
+                        },
+                        onOpenOnMac: {
+                            openOnMac(url: item.url, title: item.title)
+                        },
+                        onSaveToBookmarks: {
+                            promptSaveBookmark(url: item.url, title: item.title)
+                        },
+                        onDelete: {
+                            deleteEmergingItem(item)
                         }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 4)
+                    )
                 }
             }
         }
     }
 
-    // MARK: - Section 3: Last Opened on iPhone (2-Row Horizontal Carousel)
+    // MARK: - Section 3: Last Opened on iPhone
 
     private var lastOpenedSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center) {
-                Text("Last Opened")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.primary)
-
-                Spacer()
-
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            DSSectionHeader("Last Opened") {
                 if !lastOpenedStore.items.isEmpty {
-                    Button {
+                    Button("Clear") {
                         withAnimation {
                             lastOpenedStore.clear()
                         }
-                    } label: {
-                        Text("Clear")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
                     }
+                    .font(DS.Font.control)
+                    .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 16)
 
             if lastOpenedStore.items.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "book.closed")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.tertiary)
-                    Text("No recently opened articles")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("Articles you read in FastTab will appear here for easy resuming.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
-                .background(ReadingFeedCardView.cardBackgroundColor)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .padding(.horizontal, 16)
+                DSEmptyState(
+                    "No recently opened articles",
+                    systemImage: "book.closed",
+                    message: "Articles you read in FastTab will appear here for easy resuming.",
+                    tint: DS.Tint.recent,
+                    style: .inline
+                )
+                .padding(.horizontal, DS.Space.gutter)
+                .padding(.top, DS.Space.xs)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows, spacing: 12) {
-                        ForEach(lastOpenedStore.items.prefix(16)) { item in
-                            if let url = item.parsedURL {
-                                let (delTitle, delIcon) = lastOpenedDeleteInfo(for: url)
-                                ReadingFeedCardView(
-                                    title: item.title,
-                                    url: url,
-                                    domain: item.domain,
-                                    badgeText: "Opened on iPhone",
-                                    badgeTint: .teal,
-                                    fixedWidth: 310,
-                                    readingProgress: item.readingProgress,
-                                    deleteTitle: delTitle,
-                                    deleteIcon: delIcon,
-                                    onSelect: {
-                                        openArticle(url: url, title: item.title)
-                                    },
-                                    onOpenOnMac: {
-                                        openOnMac(url: url, title: item.title)
-                                    },
-                                    onSaveToBookmarks: {
-                                        promptSaveBookmark(url: url, title: item.title)
-                                    },
-                                    onDelete: {
-                                        deleteLastOpenedItem(item, url: url)
-                                    }
-                                )
+                carousel(lastOpenedStore.items.prefix(16)) { item in
+                    if let url = item.parsedURL {
+                        let (delTitle, delIcon) = lastOpenedDeleteInfo(for: url)
+                        ReadingFeedCardView(
+                            title: item.title,
+                            url: url,
+                            domain: item.domain,
+                            badgeText: "Opened on iPhone",
+                            badgeTint: DS.Tint.recent,
+                            badgeIcon: "iphone",
+                            readingProgress: item.readingProgress,
+                            deleteTitle: delTitle,
+                            deleteIcon: delIcon,
+                            onSelect: {
+                                openArticle(url: url, title: item.title)
+                            },
+                            onOpenOnMac: {
+                                openOnMac(url: url, title: item.title)
+                            },
+                            onSaveToBookmarks: {
+                                promptSaveBookmark(url: url, title: item.title)
+                            },
+                            onDelete: {
+                                deleteLastOpenedItem(item, url: url)
                             }
-                        }
+                        )
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 4)
                 }
             }
         }
     }
 
     private var emptyRecentCard: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "plus.square.dashed")
-                .font(.system(size: 32))
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("No recent additions")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text("Save links via the FastTab Share Sheet or sync bookmarks from your Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(16)
-        .background(ReadingFeedCardView.cardBackgroundColor)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        DSEmptyState(
+            "No recent additions",
+            systemImage: "plus.square.dashed",
+            message: "Save links via the FastTab Share Sheet or sync bookmarks from your Mac.",
+            style: .inline
+        )
     }
 
     private var emptyEmergingCard: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 28))
-                .foregroundStyle(.purple.opacity(0.8))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("No emerging links yet")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text("Browse pages on your Mac or iPhone to see connected recommendations here.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(16)
-        .background(ReadingFeedCardView.cardBackgroundColor)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        DSEmptyState(
+            "No emerging links yet",
+            systemImage: "sparkles",
+            message: "Browse pages on your Mac or iPhone to see connected recommendations here.",
+            tint: DS.Tint.emerging,
+            style: .inline
+        )
     }
 
     // MARK: - Deletion Helpers
@@ -589,15 +478,6 @@ public struct ReadingFeedView: View {
     }
 
     private func presentToast(_ message: String) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            toastMessage = message
-            showToast = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showToast = false
-            }
-        }
+        toast = message
     }
 }
-

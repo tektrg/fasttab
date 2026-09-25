@@ -14,8 +14,7 @@ public struct HistoryListView: View {
     @State private var searchText: String = ""
     @State private var selectedURLForReader: URL?
     @State private var readerItem: ReaderNavigationItem?
-    @State private var toastMessage: String?
-    @State private var showToast: Bool = false
+    @State private var toast: String?
 
     public init(device: SyncedDevice?) {
         self.device = device
@@ -54,44 +53,39 @@ public struct HistoryListView: View {
     public var body: some View {
         VStack(spacing: 0) {
             if filteredHistory.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    Text("No history found")
-                        .font(.headline)
-                    Text("Recent history from your Mac will sync here.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
+                DSEmptyState(
+                    "No history found",
+                    systemImage: "clock.arrow.circlepath",
+                    message: "Recent history from your Mac will sync here."
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     ForEach(filteredHistory) { item in
-                        HStack(spacing: 12) {
+                        HStack(spacing: DS.Space.md) {
                             Image(systemName: "clock")
                                 .foregroundColor(.secondary)
-                                .font(.system(size: 16))
+                                .font(.system(size: DS.IconSize.row))
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(item.entry.title.isEmpty ? item.entry.url : item.entry.title)
-                                    .font(.body)
+                                    .font(DS.Font.body)
                                     .lineLimit(1)
 
                                 HStack(spacing: 6) {
                                     Text(item.browser)
-                                        .font(.caption2)
+                                        .font(DS.Font.tag)
+                                        .foregroundColor(.secondary)
                                         .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color(uiColor: .tertiarySystemBackground))
-                                        .cornerRadius(4)
+                                        .padding(.vertical, DS.Space.xxs)
+                                        .background(DS.Palette.surfaceMuted, in: RoundedRectangle(cornerRadius: DS.Radius.xs, style: .continuous))
 
                                     Text(item.entry.lastVisitedAt, style: .time)
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
 
                                     Text(item.entry.url)
-                                        .font(.caption)
+                                        .font(DS.Font.meta)
                                         .foregroundColor(.secondary)
                                         .lineLimit(1)
                                 }
@@ -122,26 +116,14 @@ public struct HistoryListView: View {
 
                                 Button {
                                     UIPasteboard.general.string = item.entry.url
-                                    withAnimation {
-                                        toastMessage = "URL Copied"
-                                        showToast = true
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                        withAnimation { showToast = false }
-                                    }
+                                    toast = "URL Copied"
                                 } label: {
                                     Label("Copy URL", systemImage: "doc.on.doc")
                                 }
 
                                 Button {
                                     SyncConsumer.shared.sendOpenOnMac(url: item.entry.url, title: item.entry.title.isEmpty ? nil : item.entry.title)
-                                    withAnimation {
-                                        toastMessage = "Sent to Mac"
-                                        showToast = true
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                        withAnimation { showToast = false }
-                                    }
+                                    toast = "Sent to Mac"
                                 } label: {
                                     Label("Open on Mac", systemImage: "laptopcomputer")
                                 }
@@ -166,10 +148,13 @@ public struct HistoryListView: View {
                             }
                         }
                     }
+                    .dsListRow()
                 }
                 .listStyle(.insetGrouped)
+                .dsListStyle()
             }
         }
+        .dsCanvas()
         .searchable(text: $searchText, prompt: "Search history")
         .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
@@ -178,19 +163,7 @@ public struct HistoryListView: View {
         .fullScreenCover(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title)
         }
-        .overlay(alignment: .bottom) {
-            if showToast, let toastMessage {
-                Text(toastMessage)
-                    .font(.subheadline)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(20)
-                    .shadow(radius: 4)
-                    .padding(.bottom, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .dsToast($toast, bottomInset: DS.Space.xl)
     }
 
     private func queueDeleteHistory(_ item: HistoryRowItem) {
@@ -200,16 +173,6 @@ public struct HistoryListView: View {
             browserName: item.browser,
             targetDeviceID: targetID
         )
-
-        withAnimation {
-            toastMessage = "Queued history deletion — confirm on your Mac"
-            showToast = true
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
-            withAnimation {
-                showToast = false
-            }
-        }
+        toast = "Queued history deletion — confirm on your Mac"
     }
 }

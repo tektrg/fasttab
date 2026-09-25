@@ -40,7 +40,7 @@ struct PendingTabCloseStrip: View {
 
     var body: some View {
         if !failures.isEmpty || !unfinished.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
                 ForEach(failures) { item in
                     failureRow(item)
                 }
@@ -50,9 +50,9 @@ struct PendingTabCloseStrip: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(Color(uiColor: .secondarySystemBackground))
+            .padding(.horizontal, DS.Space.gutter)
+            .padding(.vertical, DS.Space.sm)
+            .background(DS.Palette.surfaceMuted)
             .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
@@ -61,25 +61,25 @@ struct PendingTabCloseStrip: View {
 
     @ViewBuilder
     private func failureRow(_ item: TrackedTabClose) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: DS.Space.md) {
             Image(systemName: item.progress.symbolName)
-                .font(.system(size: 16))
+                .font(.system(size: DS.IconSize.row))
                 .foregroundStyle(item.progress.tint)
                 .frame(width: 20)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text("Still open: \(item.close.tabTitle)")
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
 
                 Text(item.progress.detail ?? item.progress.label)
-                    .font(.caption)
+                    .font(DS.Font.meta)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: DS.Space.sm)
 
             Button {
                 onDismissFailure(item.close)
@@ -95,12 +95,12 @@ struct PendingTabCloseStrip: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Dismiss")
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 2)
-        .padding(.vertical, 4)
+        .padding(.leading, DS.Space.md)
+        .padding(.trailing, DS.Space.xxs)
+        .padding(.vertical, DS.Space.xs)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(item.progress.tint.opacity(0.12))
+            RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                .fill(item.progress.tint.opacity(DS.tintFillOpacity))
         )
     }
 
@@ -130,12 +130,12 @@ struct PendingTabCloseStrip: View {
 
     @ViewBuilder
     private func unfinishedRow(_ summary: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DS.Space.sm) {
             ProgressView()
                 .controlSize(.mini)
 
             Text(summary)
-                .font(.caption)
+                .font(DS.Font.meta)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(2)

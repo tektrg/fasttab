@@ -20,7 +20,7 @@ public struct FloatingSubTabBar<Tab: CaseIterable & Identifiable & Hashable & Eq
     }
 
     public var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: DS.Space.xs) {
             ForEach(Array(Tab.allCases), id: \.id) { tab in
                 let isSelected = selection == tab
                 Button {
@@ -29,19 +29,19 @@ public struct FloatingSubTabBar<Tab: CaseIterable & Identifiable & Hashable & Eq
                     }
                     UISelectionFeedbackGenerator().selectionChanged()
                 } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: DS.Space.xs) {
                         Image(systemName: iconProvider(tab))
                             .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
                         Text(titleProvider(tab))
                             .font(.subheadline.weight(isSelected ? .semibold : .medium))
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, DS.Space.md)
+                    .padding(.vertical, DS.Space.sm)
                     .foregroundColor(isSelected ? .primary : .secondary)
                     .background {
                         if isSelected {
                             Capsule()
-                                .fill(Color(uiColor: .systemBackground))
+                                .fill(DS.Palette.surface)
                                 .shadow(color: .black.opacity(0.12), radius: 4, y: 1.5)
                                 .matchedGeometryEffect(id: "ActiveSubTabPill", in: animation)
                         }
@@ -50,7 +50,7 @@ public struct FloatingSubTabBar<Tab: CaseIterable & Identifiable & Hashable & Eq
                 .buttonStyle(.plain)
             }
         }
-        .padding(4)
+        .padding(DS.Space.xs)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
         .overlay(
@@ -67,6 +67,6 @@ public struct FloatingSubTabBar<Tab: CaseIterable & Identifiable & Hashable & Eq
                     lineWidth: 0.75
                 )
         )
-        .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 5)
+        .dsShadow(.floating)
     }
 }

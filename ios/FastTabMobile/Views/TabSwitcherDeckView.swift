@@ -26,8 +26,7 @@ struct TabSwitcherDeckView: View {
     @State private var selectedURLForReader: URL?
     @State private var readerItem: ReaderNavigationItem?
     @State private var tabSaveRequest: TabSaveRequest?
-    @State private var toastMessage: String?
-    @State private var showToast: Bool = false
+    @State private var toast: String?
     @State private var expandingTabID: String?
     @State private var isExpanding: Bool = false
     /// Cached copy of the filtered tabs list. Recomputed only when the
@@ -112,9 +111,9 @@ struct TabSwitcherDeckView: View {
                     // Top Bar Header
                     topHeaderBar
                         .opacity(isExpanding ? 0 : 1)
-                        .padding(.top, geometry.safeAreaInsets.top > 0 ? geometry.safeAreaInsets.top : 20)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 8)
+                        .padding(.top, geometry.safeAreaInsets.top > 0 ? geometry.safeAreaInsets.top : DS.Space.xl)
+                        .padding(.horizontal, DS.Space.gutter)
+                        .padding(.bottom, DS.Space.sm)
 
                     PendingTabCloseStrip(tracked: trackedCloses) { close in
                         pendingCloses.removeAll { $0.tabID == close.tabID }
@@ -177,32 +176,14 @@ struct TabSwitcherDeckView: View {
                 saveTabAsBookmark(request.tab, to: destination)
             }
         }
-        .overlay(alignment: .bottom) {
-            if showToast, let toastMessage {
-                Text(toastMessage)
-                    .font(.subheadline.weight(.medium))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 9)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 36)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .dsToast($toast, bottomInset: DS.Space.xxl)
     }
 
     // MARK: - Backdrop
 
     private var switcherBackdrop: some View {
         LinearGradient(
-            colors: [
-                Color(red: 0.08, green: 0.11, blue: 0.18),
-                Color(red: 0.05, green: 0.07, blue: 0.11),
-                Color(red: 0.02, green: 0.03, blue: 0.05)
-            ],
+            colors: [DS.Palette.deckTop, DS.Palette.deckBottom],
             startPoint: .top,
             endPoint: .bottom
         )
@@ -217,26 +198,26 @@ struct TabSwitcherDeckView: View {
     private var topHeaderBar: some View {
         HStack {
             // Device pill & Tab Count
-            HStack(spacing: 8) {
+            HStack(spacing: DS.Space.sm) {
                 Image(systemName: "macwindow.on.rectangle")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(DS.Font.cardTitle)
                     .foregroundStyle(.white.opacity(0.9))
 
                 Text("\(cachedVisibleTabs.count) Open Tab\(cachedVisibleTabs.count == 1 ? "" : "s")")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(DS.Font.cardTitle)
                     .foregroundStyle(.white)
 
                 if let deviceName = activeDevice?.name {
                     Text("•")
                         .foregroundStyle(.white.opacity(0.5))
                     Text(deviceName)
-                        .font(.system(size: 13, weight: .regular))
+                        .font(.footnote)
                         .foregroundStyle(.white.opacity(0.75))
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, DS.Space.md)
+            .padding(.vertical, DS.Space.sm)
             .background(.ultraThinMaterial)
             .clipShape(Capsule())
             .overlay(
@@ -251,10 +232,10 @@ struct TabSwitcherDeckView: View {
                 onDismiss()
             } label: {
                 Text("Done")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(DS.Font.cardTitle)
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, DS.Space.lg)
+                    .padding(.vertical, DS.Space.sm)
                     .background(.ultraThinMaterial)
                     .clipShape(Capsule())
                     .overlay(
@@ -580,34 +561,21 @@ struct TabSwitcherDeckView: View {
     // MARK: - Empty State
 
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "macwindow.on.rectangle")
-                .font(.system(size: 48))
-                .foregroundStyle(.white.opacity(0.5))
-
-            Text("No Open Tabs")
-                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
-
-            Text("All synced tabs have been closed.")
-                .font(.system(size: 14))
-                .foregroundStyle(.white.opacity(0.7))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-
+        DSEmptyState(
+            "No Open Tabs",
+            systemImage: "macwindow.on.rectangle",
+            message: "All synced tabs have been closed.",
+            tint: .white.opacity(0.5)
+        ) {
             Button {
                 onDismiss()
             } label: {
                 Text("Return to Tabs")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(Color.blue)
-                    .clipShape(Capsule())
             }
-            .padding(.top, 8)
+            .buttonStyle(.dsPrimary)
         }
+        // The deck is dark in both appearances, so the empty state's text must be too.
+        .environment(\.colorScheme, .dark)
     }
 
     // MARK: - Close Logic
@@ -654,15 +622,7 @@ struct TabSwitcherDeckView: View {
     }
 
     private func showToastHUD(message: String) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            toastMessage = message
-            showToast = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showToast = false
-            }
-        }
+        toast = message
     }
 
     private struct TabSaveRequest: Identifiable {

@@ -69,7 +69,7 @@ struct TabSwitcherViewCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
             // Floating Header (App Icon + Title + Close Button)
             cardHeader
                 .frame(width: cardSize.width)
@@ -78,7 +78,7 @@ struct TabSwitcherViewCard: View {
             // Main Card Body
             cardBody
                 .frame(width: cardSize.width, height: cardSize.height)
-                .contentShape(RoundedRectangle(cornerRadius: isExpanding ? 0 : 28, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: isExpanding ? 0 : DS.Radius.xl, style: .continuous))
                 .onTapGesture {
                     onSelect()
                 }
@@ -97,11 +97,11 @@ struct TabSwitcherViewCard: View {
     // MARK: - Card Header
 
     private var cardHeader: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DS.Space.sm) {
             // Browser / App Icon Badge
             browserIconBadge
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 Text(displayTitle)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
@@ -117,7 +117,7 @@ struct TabSwitcherViewCard: View {
                 onSelect()
             }
 
-            Spacer(minLength: 4)
+            Spacer(minLength: DS.Space.xs)
 
             // Direct Close button
             Button {
@@ -134,10 +134,10 @@ struct TabSwitcherViewCard: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
                 .fill(Color.black.opacity(0.72))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
                 )
         )
@@ -147,7 +147,7 @@ struct TabSwitcherViewCard: View {
     private var browserIconBadge: some View {
         let (iconName, tintColor) = browserIconData(for: tab.browserName)
         return ZStack {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
                 .fill(tintColor.gradient)
                 .frame(width: 24, height: 24)
                 .shadow(color: tintColor.opacity(0.4), radius: 4, y: 2)
@@ -195,9 +195,9 @@ struct TabSwitcherViewCard: View {
                 closeSwipeIndicator
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: isExpanding ? 0 : 28, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: isExpanding ? 0 : DS.Radius.xl, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: isExpanding ? 0 : 28, style: .continuous)
+            RoundedRectangle(cornerRadius: isExpanding ? 0 : DS.Radius.xl, style: .continuous)
                 .strokeBorder(isExpanding ? Color.clear : Color.white.opacity(0.14), lineWidth: 1)
         )
         .shadow(color: isExpanding ? Color.clear : Color.black.opacity(0.35), radius: isExpanding ? 0 : 18, x: 0, y: isExpanding ? 0 : 8)
@@ -216,12 +216,12 @@ struct TabSwitcherViewCard: View {
     }
 
     private func tweetCardContent(preview: LinkPreview, snippet: String) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
+            HStack(spacing: DS.Space.sm) {
                 LinkCardAvatarView(preview: preview, diameter: 32, glyphColor: .white)
                     .background(Color.white.opacity(0.12), in: Circle())
 
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
                     if let name = preview.authorName {
                         Text(name)
                             .font(.system(size: 14, weight: .bold))
@@ -238,7 +238,7 @@ struct TabSwitcherViewCard: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DS.Space.lg)
             .padding(.top, 20)
 
             Text(snippet)
@@ -246,17 +246,14 @@ struct TabSwitcherViewCard: View {
                 .foregroundStyle(.white.opacity(0.95))
                 .lineSpacing(4)
                 .lineLimit(6)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, DS.Space.lg)
 
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
-                colors: [
-                    Color(red: 0.08, green: 0.09, blue: 0.12),
-                    Color(red: 0.04, green: 0.05, blue: 0.07)
-                ],
+                colors: [DS.Palette.deckTop, DS.Palette.deckBottom],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -264,7 +261,7 @@ struct TabSwitcherViewCard: View {
     }
 
     private var standardFallbackCardContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: DS.Space.lg) {
             // Simulated Address Bar
             HStack(spacing: 6) {
                 Image(systemName: "lock.fill")
@@ -275,11 +272,11 @@ struct TabSwitcherViewCard: View {
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, DS.Space.md)
             .padding(.vertical, 6)
             .background(Color.white.opacity(0.10))
             .clipShape(Capsule())
-            .padding(.top, 16)
+            .padding(.top, DS.Space.lg)
 
             Spacer()
 
@@ -307,11 +304,7 @@ struct TabSwitcherViewCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
-                colors: [
-                    Color(red: 0.12, green: 0.14, blue: 0.20),
-                    Color(red: 0.08, green: 0.10, blue: 0.15),
-                    Color(red: 0.05, green: 0.07, blue: 0.10)
-                ],
+                colors: [DS.Palette.deckTop, DS.Palette.deckBottom],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -358,7 +351,7 @@ struct TabSwitcherViewCard: View {
                 Spacer()
             }
         }
-        .padding(14)
+        .padding(DS.Space.md)
         .background(
             LinearGradient(
                 colors: [.clear, Color.black.opacity(0.75)],
@@ -382,9 +375,9 @@ struct TabSwitcherViewCard: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .background(Color.red.opacity(0.85 + 0.15 * progress))
+            .background(DS.Tint.destructive.opacity(0.85 + 0.15 * progress))
             .clipShape(Capsule())
-            .shadow(color: .red.opacity(0.4), radius: 8, y: 3)
+            .shadow(color: DS.Tint.destructive.opacity(0.4), radius: 8, y: 3)
             .padding(.top, 20)
             .opacity(Double(progress))
             .scaleEffect(0.8 + 0.2 * progress)

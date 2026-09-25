@@ -16,8 +16,7 @@ public struct BookmarkBrowserView: View {
     @State private var selectedFolder: String? = nil
     @State private var selectedURLForReader: URL?
     @State private var readerItem: ReaderNavigationItem?
-    @State private var toastMessage: String?
-    @State private var showToast: Bool = false
+    @State private var toast: String?
 
     public init(device: SyncedDevice?) {
         self.device = device
@@ -73,83 +72,59 @@ public struct BookmarkBrowserView: View {
         VStack(spacing: 0) {
             if !folders.isEmpty && searchText.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        Button {
+                    HStack(spacing: DS.Space.sm) {
+                        DSChip("All", isSelected: selectedFolder == nil) {
                             selectedFolder = nil
-                        } label: {
-                            Text("All")
-                                .font(.caption.bold())
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(selectedFolder == nil ? Color.accentColor : Color(uiColor: .secondarySystemBackground))
-                                .foregroundColor(selectedFolder == nil ? .white : .primary)
-                                .cornerRadius(14)
                         }
 
                         ForEach(folders, id: \.self) { folder in
-                            Button {
+                            DSChip(folder, systemImage: "folder", isSelected: selectedFolder == folder) {
                                 selectedFolder = (selectedFolder == folder) ? nil : folder
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "folder")
-                                    Text(folder)
-                                }
-                                .font(.caption)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(selectedFolder == folder ? Color.accentColor : Color(uiColor: .secondarySystemBackground))
-                                .foregroundColor(selectedFolder == folder ? .white : .primary)
-                                .cornerRadius(14)
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, DS.Space.gutter)
+                    .padding(.vertical, DS.Space.sm)
                 }
             }
 
             if filteredBookmarks.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "bookmark.slash")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    Text("No bookmarks found")
-                        .font(.headline)
-                    Text("Bookmarks from your Mac browsers will sync here.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
+                DSEmptyState(
+                    "No bookmarks found",
+                    systemImage: "bookmark.slash",
+                    message: "Bookmarks from your Mac browsers will sync here.",
+                    style: .fullScreen
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     ForEach(filteredBookmarks) { entry in
-                        HStack(spacing: 12) {
+                        HStack(spacing: DS.Space.md) {
                             Image(systemName: "bookmark.fill")
-                                .foregroundColor(.yellow)
-                                .font(.system(size: 18))
+                                .foregroundStyle(DS.Tint.bookmark)
+                                .font(.system(size: DS.IconSize.row))
 
-                            VStack(alignment: .leading, spacing: 3) {
+                            VStack(alignment: .leading, spacing: DS.Space.xxs) {
                                 Text(entry.item.title.isEmpty ? entry.item.url : entry.item.title)
-                                    .font(.body)
+                                    .font(DS.Font.body)
                                     .lineLimit(1)
 
-                                HStack(spacing: 6) {
+                                HStack(spacing: DS.Space.xs) {
                                     Text(entry.browser)
-                                        .font(.caption2)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color(uiColor: .tertiarySystemBackground))
-                                        .cornerRadius(4)
+                                        .font(DS.Font.tag)
+                                        .padding(.horizontal, DS.Space.xs)
+                                        .padding(.vertical, DS.Space.xxs)
+                                        .background(DS.Palette.surfaceMuted, in: RoundedRectangle(cornerRadius: DS.Radius.xs, style: .continuous))
 
                                     if let folder = entry.item.folderPath, !folder.isEmpty {
                                         Text(folder)
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
+                                            .font(DS.Font.tag)
+                                            .foregroundStyle(.secondary)
                                     }
 
                                     Text(entry.item.url)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .font(DS.Font.meta)
+                                        .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                 }
                             }
@@ -179,26 +154,14 @@ public struct BookmarkBrowserView: View {
 
                                 Button {
                                     UIPasteboard.general.string = entry.item.url
-                                    withAnimation {
-                                        toastMessage = "URL Copied"
-                                        showToast = true
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                        withAnimation { showToast = false }
-                                    }
+                                    toast = "URL Copied"
                                 } label: {
                                     Label("Copy URL", systemImage: "doc.on.doc")
                                 }
 
                                 Button {
                                     SyncConsumer.shared.sendOpenOnMac(url: entry.item.url, title: entry.item.title.isEmpty ? nil : entry.item.title)
-                                    withAnimation {
-                                        toastMessage = "Sent to Mac"
-                                        showToast = true
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                        withAnimation { showToast = false }
-                                    }
+                                    toast = "Sent to Mac"
                                 } label: {
                                     Label("Open on Mac", systemImage: "laptopcomputer")
                                 }
@@ -224,10 +187,13 @@ public struct BookmarkBrowserView: View {
                             }
                         }
                     }
+                    .dsListRow()
                 }
                 .listStyle(.insetGrouped)
+                .dsListStyle()
             }
         }
+        .dsCanvas()
         .searchable(text: $searchText, prompt: "Search bookmarks")
         .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
@@ -236,19 +202,7 @@ public struct BookmarkBrowserView: View {
         .fullScreenCover(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title)
         }
-        .overlay(alignment: .bottom) {
-            if showToast, let toastMessage {
-                Text(toastMessage)
-                    .font(.subheadline)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(20)
-                    .shadow(radius: 4)
-                    .padding(.bottom, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .dsToast($toast, bottomInset: DS.Space.xl)
     }
 
     private func queueDeleteBookmark(_ entry: BookmarkRowItem) {
@@ -260,15 +214,6 @@ public struct BookmarkBrowserView: View {
             targetDeviceID: targetID
         )
 
-        withAnimation {
-            toastMessage = "Queued deletion — confirm on your Mac"
-            showToast = true
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
-            withAnimation {
-                showToast = false
-            }
-        }
+        toast = "Queued deletion — confirm on your Mac"
     }
 }

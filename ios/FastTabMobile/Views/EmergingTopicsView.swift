@@ -9,8 +9,7 @@ public struct EmergingTopicsView: View {
     @State private var readerItem: ReaderNavigationItem?
     @State private var clusterToSave: TopicCluster?
     @State private var showCustomFolderPicker: Bool = false
-    @State private var toastMessage: String?
-    @State private var showToast: Bool = false
+    @State private var toast: String?
 
     public init() {}
 
@@ -35,7 +34,7 @@ public struct EmergingTopicsView: View {
     public var body: some View {
         Group {
             if service.isProcessing && service.topicClusters.isEmpty {
-                VStack(spacing: 16) {
+                VStack(spacing: DS.Space.lg) {
                     ProgressView()
                         .scaleEffect(1.3)
                     Text("Analyzing your browsing activity…")
@@ -45,38 +44,27 @@ public struct EmergingTopicsView: View {
                         .font(.subheadline)
                         .foregroundStyle(.tertiary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
+                        .padding(.horizontal, DS.Space.xxl)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if service.topicClusters.isEmpty {
-                VStack(spacing: 14) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 44))
-                        .foregroundStyle(.purple.opacity(0.8))
-                    Text("No Emerging Topics Yet")
-                        .font(.title3.weight(.semibold))
-                    Text("Browse more pages or open tabs on your Mac to let Intelligence group your recent activity into connected thoughts.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                    
+                DSEmptyState(
+                    "No Emerging Topics Yet",
+                    systemImage: "sparkles",
+                    message: "Browse more pages or open tabs on your Mac to let Intelligence group your recent activity into connected thoughts.",
+                    tint: DS.Tint.emerging
+                ) {
                     Button {
                         service.analyze(force: true)
                     } label: {
                         Label("Analyze Now", systemImage: "arrow.clockwise")
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.purple)
-                    .padding(.top, 6)
+                    .buttonStyle(.dsPrimary(DS.Tint.emerging))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 20) {
+                    LazyVStack(spacing: DS.Space.section) {
                         ForEach(service.topicClusters) { cluster in
                             TopicClusterCard(
                                 cluster: cluster,
@@ -92,15 +80,16 @@ public struct EmergingTopicsView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 80) // Spacing for floating sub-tab bar
+                    .padding(.horizontal, DS.Space.gutter)
+                    .padding(.top, DS.Space.md)
+                    .padding(.bottom, DS.Space.floatingBarClearance + DS.Space.sm) // Spacing for floating sub-tab bar
                 }
                 .refreshable {
                     service.analyze(force: true)
                 }
             }
         }
+        .dsCanvas()
         .animation(.easeInOut(duration: 0.25), value: service.topicClusters.isEmpty)
         .animation(.easeInOut(duration: 0.25), value: service.isProcessing)
         .sheet(item: $selectedURLForReader) { url in
@@ -152,19 +141,7 @@ public struct EmergingTopicsView: View {
                 }
             }
         }
-        .overlay(alignment: .bottom) {
-            if showToast, let toastMessage {
-                Text(toastMessage)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color.black.opacity(0.82)))
-                    .shadow(radius: 8)
-                    .padding(.bottom, 75)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .dsToast($toast, bottomInset: DS.Space.floatingBarClearance)
     }
 
     private func saveClusterToDefaultFolder(_ cluster: TopicCluster) {
@@ -184,15 +161,7 @@ public struct EmergingTopicsView: View {
     }
 
     private func showToastHUD(message: String) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            toastMessage = message
-            showToast = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showToast = false
-            }
-        }
+        toast = message
     }
 }
 
@@ -205,17 +174,17 @@ struct TopicClusterCard: View {
     let onSaveAll: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: DS.Space.md) {
             // Header
             HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
                     Text(cluster.name)
-                        .font(.title3.weight(.bold))
+                        .font(DS.Font.sectionTitle)
                         .foregroundStyle(.primary)
 
                     if let summary = cluster.summary {
                         Text(summary)
-                            .font(.caption)
+                            .font(DS.Font.meta)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -223,38 +192,31 @@ struct TopicClusterCard: View {
                 Spacer()
 
                 Button(action: onSaveAll) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: DS.Space.xs) {
                         Image(systemName: "folder.badge.plus")
-                            .font(.system(size: 13, weight: .semibold))
                         Text("Save All")
-                            .font(.subheadline.weight(.semibold))
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.purple.opacity(0.12))
-                    .foregroundStyle(.purple)
-                    .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.dsTinted(DS.Tint.emerging))
             }
 
             Divider()
 
             // Recent Browsing Items Section
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
                 ForEach(cluster.recentItems) { item in
                     Button {
                         if let url = URL(string: item.url) {
                             onSelectURL(url)
                         }
                     } label: {
-                        HStack(spacing: 10) {
+                        HStack(spacing: DS.Space.md) {
                             Image(systemName: item.source.isTab ? "macwindow" : "clock.arrow.circlepath")
                                 .font(.system(size: 14))
-                                .foregroundStyle(item.source.isTab ? .blue : .orange)
+                                .foregroundStyle(item.source.isTab ? DS.Tint.action : .secondary)
                                 .frame(width: 20)
 
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: DS.Space.xxs) {
                                 Text(item.displayTitle)
                                     .font(.subheadline.weight(.medium))
                                     .foregroundStyle(.primary)
@@ -282,7 +244,7 @@ struct TopicClusterCard: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(.tertiary)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, DS.Space.xs)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -320,16 +282,16 @@ struct TopicClusterCard: View {
 
             // Related Bookmarks Section
             if !cluster.relatedBookmarks.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 5) {
+                VStack(alignment: .leading, spacing: DS.Space.sm) {
+                    HStack(spacing: DS.Space.xs) {
                         Image(systemName: "bookmark.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.yellow)
+                            .imageScale(.small)
+                            .foregroundStyle(DS.Tint.bookmark)
                         Text("From your bookmarks")
-                            .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
-                    .padding(.top, 4)
+                    .font(DS.Font.meta.weight(.semibold))
+                    .padding(.top, DS.Space.xs)
 
                     ForEach(cluster.relatedBookmarks) { bm in
                         Button {
@@ -337,13 +299,13 @@ struct TopicClusterCard: View {
                                 onSelectURL(url)
                             }
                         } label: {
-                            HStack(spacing: 10) {
+                            HStack(spacing: DS.Space.md) {
                                 Image(systemName: "bookmark")
                                     .font(.system(size: 13))
-                                    .foregroundStyle(.yellow)
+                                    .foregroundStyle(DS.Tint.bookmark)
                                     .frame(width: 20)
 
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: DS.Space.xxs) {
                                     Text(bm.displayTitle)
                                         .font(.caption.weight(.medium))
                                         .foregroundStyle(.primary)
@@ -361,7 +323,7 @@ struct TopicClusterCard: View {
                                     .font(.system(size: 11))
                                     .foregroundStyle(.tertiary)
                             }
-                            .padding(.vertical, 2)
+                            .padding(.vertical, DS.Space.xxs)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -396,12 +358,9 @@ struct TopicClusterCard: View {
                         }
                     }
                 }
-                .padding(.top, 4)
+                .padding(.top, DS.Space.xs)
             }
         }
-        .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 2)
+        .dsCard()
     }
 }

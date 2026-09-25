@@ -41,7 +41,7 @@ public struct DataFreshnessBanner: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
             if let healthBadge, healthBadge.severity == .blocked {
                 blockedCard(healthBadge)
             } else {
@@ -56,9 +56,9 @@ public struct DataFreshnessBanner: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color(uiColor: .secondarySystemBackground))
+        .padding(.horizontal, DS.Space.lg)
+        .padding(.vertical, DS.Space.sm)
+        .background(DS.Palette.surface)
         .animation(.easeInOut(duration: 0.2), value: healthBadge)
         .animation(.easeInOut(duration: 0.2), value: pendingPhrase)
     }
@@ -69,44 +69,44 @@ public struct DataFreshnessBanner: View {
     /// this gets a tinted card and the full explanation rather than a caption.
     @ViewBuilder
     private func blockedCard(_ badge: SyncStatusCopy.HealthBadge) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: DS.Space.md) {
             Image(systemName: badge.symbolName)
-                .font(.system(size: 18))
-                .foregroundStyle(.orange)
+                .font(.system(size: DS.IconSize.row))
+                .foregroundStyle(DS.Tint.warning)
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(badge.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(DS.Font.cardTitle)
                     .foregroundStyle(.primary)
 
                 if let detail = badge.detail {
                     Text(detail)
-                        .font(.caption)
+                        .font(DS.Font.meta)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
+        .padding(DS.Space.md)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.orange.opacity(0.14))
+            RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                .fill(DS.Tint.warning.opacity(DS.tintFillOpacity))
         )
     }
 
     private var macLivenessRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DS.Space.sm) {
             Circle()
                 .fill(freshness.tint)
                 .frame(width: 8, height: 8)
 
             Text(freshness.text)
-                .font(.caption)
+                .font(DS.Font.meta)
                 .foregroundStyle(.secondary)
 
-            Spacer(minLength: 8)
+            Spacer(minLength: DS.Space.sm)
 
             if syncConsumer.isSyncing {
                 HStack(spacing: 5) {
@@ -134,7 +134,7 @@ public struct DataFreshnessBanner: View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: badge.symbolName)
                 .font(.caption2)
-                .foregroundStyle(.orange)
+                .foregroundStyle(DS.Tint.warning)
 
             Text(badge.detail ?? badge.title)
                 .font(.caption2)

@@ -179,14 +179,25 @@ public struct DSPrimaryButtonStyle: ButtonStyle {
     public init(tint: Color = DS.Tint.action) { self.tint = tint }
 
     public func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(DS.Font.cardTitle)
-            .foregroundStyle(.white)
-            .padding(.horizontal, DS.Space.xl)
-            .padding(.vertical, DS.Space.md)
-            .background(tint, in: Capsule())
-            .opacity(configuration.isPressed ? 0.75 : 1)
-            .contentShape(Capsule())
+        PrimaryLabel(configuration: configuration, tint: tint)
+    }
+
+    /// Separate view so it can read `isEnabled`: disabled turns the capsule grey.
+    private struct PrimaryLabel: View {
+        let configuration: Configuration
+        let tint: Color
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .font(DS.Font.cardTitle)
+                .foregroundStyle(isEnabled ? Color.white : Color.secondary)
+                .padding(.horizontal, DS.Space.xl)
+                .padding(.vertical, DS.Space.md)
+                .background(isEnabled ? tint : DS.Palette.surfaceMuted, in: Capsule())
+                .opacity(configuration.isPressed ? 0.75 : 1)
+                .contentShape(Capsule())
+        }
     }
 }
 

@@ -58,11 +58,7 @@ public struct ReaderWebView: UIViewRepresentable {
         wv.navigationDelegate = context.coordinator
         wv.scrollView.contentInsetAdjustmentBehavior = .automatic
         wv.isOpaque = true
-        let readerBgColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.078, green: 0.078, blue: 0.078, alpha: 1.0) // #141414
-                : UIColor(red: 0.980, green: 0.980, blue: 0.973, alpha: 1.0) // #FAFAF8
-        }
+        let readerBgColor = DS.Palette.readerPageUIColor
         wv.backgroundColor = readerBgColor
         wv.scrollView.backgroundColor = readerBgColor
 

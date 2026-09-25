@@ -46,8 +46,8 @@ struct TabWebPreviewView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.alpha = 0
         webView.isOpaque = false
-        webView.backgroundColor = UIColor(red: 0.08, green: 0.10, blue: 0.15, alpha: 1.0)
-        webView.scrollView.backgroundColor = UIColor(red: 0.08, green: 0.10, blue: 0.15, alpha: 1.0)
+        webView.backgroundColor = UIColor(DS.Palette.deckTop)
+        webView.scrollView.backgroundColor = UIColor(DS.Palette.deckTop)
 
         context.coordinator.webView = webView
 

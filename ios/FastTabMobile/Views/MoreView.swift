@@ -28,7 +28,7 @@ public struct MoreView: View {
                     device: localCache.state.devices.first,
                     lastSyncedAt: localCache.state.lastSyncedAt
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             }
@@ -38,131 +38,83 @@ public struct MoreView: View {
                     DeskQueueView()
                         .navigationTitle("Desk Queue")
                 } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.blue)
-                            .frame(width: 26)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Desk Queue")
-                                .font(.body.weight(.medium))
-                            Text("Links staged to open on your Mac")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
+                    MoreRowLabel(
+                        systemImage: "paperplane.fill",
+                        tint: DS.Tint.action,
+                        title: "Desk Queue",
+                        subtitle: "Links staged to open on your Mac"
+                    ) {
                         if queueCount > 0 {
+                            // Solid badge: pending sends are waiting on the Mac.
                             Text("\(queueCount)")
-                                .font(.caption2.weight(.bold))
-                                .padding(.horizontal, 7)
+                                .font(DS.Font.tag.monospacedDigit())
+                                .padding(.horizontal, DS.Space.sm)
                                 .padding(.vertical, 3)
-                                .background(Color.blue)
                                 .foregroundColor(.white)
-                                .clipShape(Capsule())
+                                .background(DS.Tint.action, in: Capsule())
                         }
                     }
-                    .padding(.vertical, 4)
                 }
 
                 NavigationLink {
                     IntelligenceView()
                         .navigationTitle("Intelligence")
                 } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.purple)
-                            .frame(width: 26)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Intelligence")
-                                .font(.body.weight(.medium))
-                            Text("Topic clusters & bookmark suggestions")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
+                    MoreRowLabel(
+                        systemImage: "sparkles",
+                        tint: DS.Tint.emerging,
+                        title: "Intelligence",
+                        subtitle: "Topic clusters & bookmark suggestions"
+                    )
                 }
             }
+            .dsListRow()
 
             Section("Bookmarks & History") {
                 NavigationLink {
                     BookmarkTreeView(device: nil)
                         .navigationTitle("Bookmarks")
                 } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "bookmark.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.yellow)
-                            .frame(width: 26)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Bookmarks")
-                                .font(.body.weight(.medium))
-                            Text("All synced browser bookmarks & folders")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
+                    MoreRowLabel(
+                        systemImage: "bookmark.fill",
+                        tint: DS.Tint.bookmark,
+                        title: "Bookmarks",
+                        subtitle: "All synced browser bookmarks & folders"
+                    ) {
                         if bookmarksCount > 0 {
-                            Text("\(bookmarksCount)")
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(.secondary)
+                            DSCountPill(bookmarksCount)
                         }
                     }
-                    .padding(.vertical, 4)
                 }
 
                 NavigationLink {
                     HistoryListView(device: nil)
                         .navigationTitle("History")
                 } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.orange)
-                            .frame(width: 26)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Synced History")
-                                .font(.body.weight(.medium))
-                            Text("Recent browsing history from your Mac")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
+                    MoreRowLabel(
+                        systemImage: "clock.arrow.circlepath",
+                        tint: .secondary,
+                        title: "Synced History",
+                        subtitle: "Recent browsing history from your Mac"
+                    )
                 }
             }
+            .dsListRow()
 
             Section("Devices") {
                 NavigationLink {
                     DeviceListView()
                         .navigationTitle("Devices")
                 } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "laptopcomputer")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.teal)
-                            .frame(width: 26)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Connected Macs")
-                                .font(.body.weight(.medium))
-                            Text("\(devicesCount) device\(devicesCount == 1 ? "" : "s") synced")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
+                    MoreRowLabel(
+                        systemImage: "laptopcomputer",
+                        tint: DS.Tint.action,
+                        title: "Connected Macs",
+                        subtitle: "\(devicesCount) device\(devicesCount == 1 ? "" : "s") synced"
+                    )
                 }
             }
+            .dsListRow()
 
             Section {
                 Button {
@@ -173,13 +125,60 @@ public struct MoreView: View {
                     HStack {
                         Spacer()
                         Label("Sync Now", systemImage: "arrow.clockwise")
-                            .font(.subheadline.weight(.semibold))
+                            .font(DS.Font.cardTitle)
                         Spacer()
                     }
                 }
             }
+            .dsListRow()
         }
         .listStyle(.insetGrouped)
+        .dsListStyle()
         .navigationTitle("More")
+    }
+}
+
+/// Leading tinted icon, title + subtitle, optional trailing accessory — one More row.
+private struct MoreRowLabel<Trailing: View>: View {
+    let systemImage: String
+    let tint: Color
+    let title: String
+    let subtitle: String
+    let trailing: Trailing
+
+    init(systemImage: String, tint: Color, title: String, subtitle: String, @ViewBuilder trailing: () -> Trailing) {
+        self.systemImage = systemImage
+        self.tint = tint
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        HStack(spacing: DS.Space.md) {
+            Image(systemName: systemImage)
+                .font(.system(size: DS.IconSize.row))
+                .foregroundStyle(tint)
+                .frame(width: 26)
+
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
+                Text(title)
+                    .font(DS.Font.body.weight(.medium))
+                Text(subtitle)
+                    .font(DS.Font.meta)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            trailing
+        }
+        .padding(.vertical, DS.Space.xs)
+    }
+}
+
+private extension MoreRowLabel where Trailing == EmptyView {
+    init(systemImage: String, tint: Color, title: String, subtitle: String) {
+        self.init(systemImage: systemImage, tint: tint, title: title, subtitle: subtitle) { EmptyView() }
     }
 }

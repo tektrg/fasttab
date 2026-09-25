@@ -46,3 +46,10 @@ extension-key.pem
 /ios/*.log
 # Design mockup — working reference, not versioned source.
 /ios/FastTabMobile_Redesign_Mockup.html
+
+# Dashboard move (feature/dashboard-move) — dashboard/ is excluded by the
+# root "/*" allowlist above; un-ignore it here so its contents can be tracked.
+!/dashboard/
+/dashboard/ui/node_modules/
+/dashboard/ui/dist/
+/dashboard/.venv/

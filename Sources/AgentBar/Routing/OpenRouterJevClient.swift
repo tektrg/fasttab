@@ -6,12 +6,10 @@ import Foundation
 struct OpenRouterJevClient: JevRoutingClient {
     static let endpoint = URL(string: "https://openrouter.ai/api/alpha/decisions")!
     private static let routeQuestionKey = "route"
-    /// Deliberately NOT phrased as "which agent" — that would presuppose an existing agent is
-    /// always the right answer and bias the model away from a "new:"-prefixed candidate even when
-    /// the message explicitly asks to start one (`WorkerArea.summary` already spells out that each
-    /// one means "not an existing agent", but the top-level framing has to say picking one is a
-    /// normal, expected outcome too, not a fallback).
-    private static let routeInstructions = "Which candidate should this message go to? Some candidates are existing agents; others start a brand-new one. Prefer starting a new one when the message asks for a new worker, task, or session rather than continuing an existing one."
+    /// Base contract: every candidate today is an existing live session (the "start a brand-new
+    /// worker" candidates and `.createNew` outcome were retired 2026-09-25 — the dashboard no
+    /// longer serves `POST /api/worker`). Personas will extend this wording later.
+    private static let routeInstructions = "Pick the specific live session this message is for."
     /// Delimits the user's own guidance (`RoutingSettings.systemPrompt`) from the fixed contract
     /// above, so it reads as advisory context rather than as instructions that could redefine the
     /// task, the output shape, or the valid choices — a user typing something adversarial or

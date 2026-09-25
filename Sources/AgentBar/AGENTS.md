@@ -4,7 +4,7 @@ Native Mac agent switcher (⌥Tab panel) over the AptusFit **chief dashboard** (
 
 ## Build / test / run
 - App: `scripts/build-agentbar-app.sh --open` (→ `dist/AgentBar.app`). Do this after every change.
-- Tests: `swift test --filter AgentBarTests` (~1377). Full-suite runs flake under machine load; re-run the failing test alone before believing it (known: `FastTabTests.licenseServiceRecoversWhenInitialStorageLoadFinishesAfterTimeout` under parallel load — passes solo).
+- Tests: `swift test --filter AgentBarTests` (~1360; down from ~1377 after the "start a new worker" route was retired 2026-09-25 — the dashboard no longer serves `POST /api/worker`). Full-suite runs flake under machine load; re-run the failing test alone before believing it (known: `FastTabTests.licenseServiceRecoversWhenInitialStorageLoadFinishesAfterTimeout` under parallel load — passes solo).
 - Own defaults domain `com.trungluong.AgentBar`. Unsandboxed.
 
 ## What it does (user vocabulary → code)

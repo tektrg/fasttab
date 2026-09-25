@@ -21,9 +21,9 @@ enum DetachOutcome: Equatable, Sendable {
     case failed(String)
 }
 
-/// A separate, narrow capability from `AgentStatusSource` (mirrors `DashboardWorkerCreating`'s own
-/// separate-protocol precedent): editing who-reports-to-whom isn't about one existing agent's
-/// pane/row, so it stays out of the pane-centric protocol every status-source fake already conforms to.
+/// A separate, narrow capability from `AgentStatusSource`: editing who-reports-to-whom isn't about
+/// one existing agent's pane/row, so it stays out of the pane-centric protocol every status-source
+/// fake already conforms to.
 protocol AgentTreeEditing: Sendable {
     /// Attaches `child` to report to the chief `parent`. `confirmCrossProject` is sent only on the
     /// retry after a `.needsConfirm` reply (mirrors `confirmed` on `perform`/`sendMessage`).

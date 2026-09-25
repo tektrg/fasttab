@@ -31,8 +31,6 @@ struct AgentPanelView: View {
                     routingMode: model.routingState.map { switch $0 {
                         case .loading: .loading
                         case .confirming: .confirming
-                        case .confirmingCreate: .confirmingCreate
-                        case .creatingWorker: .creatingWorker
                     } },
                     isTagged: model.taggedAgentID != nil
                 ),

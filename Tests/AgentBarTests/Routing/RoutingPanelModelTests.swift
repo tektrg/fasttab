@@ -21,14 +21,12 @@ struct RoutingPanelModelTests {
         let model: AgentPanelModel
         let client: FakeJevRoutingClient
         let source: MessageFakeSource
-        let workerCreator: FakeDashboardWorkerCreator
     }
 
     private func makeRig(
         apiKey: String? = "sk-test",
         agents: [AgentSnapshot] = [F.agent("w", label: "worker", section: .working)],
-        afterRouting: AfterRoutingBehavior = .confirmFirst,
-        workerSlug: String = "test-slug-ab12"
+        afterRouting: AfterRoutingBehavior = .confirmFirst
     ) -> Rig {
         let defaults = makeScratchDefaults("routing-panel-\(UUID().uuidString)")
         let model = AgentPanelModel(
@@ -43,11 +41,8 @@ struct RoutingPanelModelTests {
         model.applyRouting(RoutingSettings(modelID: "~typesafe/jev-latest", afterRouting: afterRouting))
         let client = FakeJevRoutingClient()
         model.makeRoutingClient = { _, _, _ in client }
-        let workerCreator = FakeDashboardWorkerCreator()
-        model.workerClient = workerCreator
-        model.makeWorkerSlug = { _ in workerSlug }
         model.receive(F.snapshot(agents))
-        return Rig(model: model, client: client, source: source, workerCreator: workerCreator)
+        return Rig(model: model, client: client, source: source)
     }
 
     // MARK: - Starting a route
@@ -76,17 +71,17 @@ struct RoutingPanelModelTests {
         #expect(rig.model.footerNotice?.text.contains("Settings > Routing") == true)
     }
 
-    /// Regression-turned-feature: `RouteCandidateBuilder` now always offers the create-new
-    /// candidates, so a dashboard with no message-eligible agent no longer fails fast — an empty
-    /// dashboard is a valid moment to ask Jev to spin up a first worker.
-    @Test func withNoMessageEligibleAgentsItStillAsksJevSinceCreateNewCandidatesAreAlwaysOffered() async {
+    /// Zero message-eligible agents shown = zero candidates (the real `OpenRouterJevClient.route`
+    /// then returns `.none` without a network call; the "start a new worker" candidates that used
+    /// to fill this gap were retired 2026-09-25). Either way the route must resolve to a clear
+    /// notice rather than sitting on `.loading` or silently picking something.
+    @Test func withNoMessageEligibleAgentsRoutingResolvesToNoneRatherThanPickingAnything() async {
         let rig = makeRig(agents: [F.agent("e", section: .ended)])
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.8)
         rig.model.query = "fix the login timeout"
         rig.model.startRouting()
-        #expect(rig.model.routingState == .loading)
-        await waitUntil { rig.model.routingState != .loading }
-        #expect(rig.client.calls.first?.candidateIDs == WorkerArea.allCases.map(\.candidateID))
+        await waitUntil { rig.model.routingState == nil }
+        #expect(rig.client.calls.first?.candidateIDs.isEmpty == true)
+        #expect(rig.model.footerNotice?.text == "No agent can take a message right now.")
     }
 
     @Test func onlyMessageEligibleAgentsAreOfferedAsLiveCandidates() async {
@@ -99,7 +94,7 @@ struct RoutingPanelModelTests {
         rig.model.startRouting()
         #expect(rig.model.routingState == .loading)
         await waitUntil { rig.model.routingState != .loading }
-        #expect(rig.client.calls.first?.candidateIDs == ["w"] + WorkerArea.allCases.map(\.candidateID))
+        #expect(rig.client.calls.first?.candidateIDs == ["w"])
         #expect(rig.client.calls.first?.text == "fix it")
     }
 
@@ -465,212 +460,24 @@ struct RoutingPanelModelTests {
         #expect(source.sent == [.init(rowId: "w2", text: "second message", confirmed: true)])
     }
 
-    // MARK: - Create-new (Jev picks "start a new worker" over any live agent)
-
-    /// Always confirms, even under "send immediately" — creating a worker is heavier than typing
-    /// a message, so it never auto-fires the way an existing-agent pick can.
-    @Test func aCreateNewPickAlwaysWaitsForAConfirmingReturnEvenUnderSendImmediately() async {
-        let rig = makeRig(afterRouting: .sendImmediately, workerSlug: "fix-login-ab12")
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.82)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        #expect(rig.model.routingState == .confirmingCreate(area: .fe, slug: "fix-login-ab12", confidence: 0.82))
-        #expect(rig.workerCreator.calls.isEmpty)   // nothing created until confirmed
-    }
-
-    @Test func confirmingACreateNewPickCallsTheDashboardWithTheDraftedTextAsTask() async {
-        let rig = makeRig(workerSlug: "fix-login-ab12")
-        rig.client.outcome = .picked(agentID: WorkerArea.backend.candidateID, confidence: 0.9)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        rig.model.activateSelected()
-        #expect(rig.model.routingState == .creatingWorker(area: .backend, slug: "fix-login-ab12"))
-        await rig.workerCreator.waitForRequests(1)
-        #expect(rig.workerCreator.calls == [.init(repoAlias: "backend", slug: "fix-login-ab12", task: "fix the login timeout")])
-    }
-
-    @Test func aSuccessfulCreationClearsTheDraftAndShowsASuccessNotice() async {
-        let rig = makeRig(workerSlug: "fix-login-ab12")
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.9)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        rig.model.activateSelected()
-        await rig.workerCreator.waitForRequests(1)
-        rig.workerCreator.reply(.created(WorkerCreationResult(paneId: "p1", worktreePath: "/x/fe-slug", branch: "wt/fix-login-ab12")))
-        await waitUntil { rig.model.routingState == nil }
-        #expect(rig.model.query == "")
-        #expect(rig.model.footerNotice != nil)
-        #expect(rig.model.footerNotice?.text.contains("fix-login-ab12") == true)
-        #expect(rig.model.footerNotice?.text.contains("AptusFit frontend") == true)
-    }
-
-    /// The endpoint already delivered the task as the new worker's brief/launch prompt — a
-    /// successful creation must never ALSO send it through the message pipeline.
-    @Test func aSuccessfulCreationNeverSendsTheMessageAgain() async {
-        let rig = makeRig(workerSlug: "fix-login-ab12")
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.9)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        rig.model.activateSelected()
-        await rig.workerCreator.waitForRequests(1)
-        rig.workerCreator.reply(.created(WorkerCreationResult(paneId: "p1", worktreePath: "/x", branch: "wt/x")))
-        await waitUntil { rig.model.routingState == nil }
-        #expect(rig.source.sent.isEmpty)
-    }
-
-    @Test func aFailedCreationShowsTheReasonAndKeepsTheTypedTextInTheBox() async {
-        let rig = makeRig(workerSlug: "fix-login-ab12")
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.9)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        rig.model.activateSelected()
-        await rig.workerCreator.waitForRequests(1)
-        rig.workerCreator.reply(.failed("unknown repoAlias"))
-        await waitUntil { rig.model.routingState == nil }
-        #expect(rig.model.query == "fix the login timeout")
-        #expect(rig.model.footerNotice?.text == "Couldn't create worker: unknown repoAlias")
-    }
-
-    @Test func escWhileConfirmingCreateCancelsAndKeepsTheTypedText() async {
-        let rig = makeRig()
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.9)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        #expect(rig.model.backOutOfButtons())
-        #expect(rig.model.routingState == nil)
-        #expect(rig.model.query == "fix the login timeout")
-        #expect(rig.workerCreator.calls.isEmpty)
-    }
-
-    /// `.creatingWorker` cannot be aborted (the network call is already in flight): Esc is
-    /// absorbed while it's showing, the same rule the message card follows while a message is on
-    /// its way. Regression: an earlier cut had `backOutOfButtons()` return `false` here ("nothing
-    /// to back out of"), which let `SearchFieldView.onExitCommand` fall through past it straight to
-    /// `onClose()` — Esc hid the whole floating panel mid-create instead of doing nothing. `true`
-    /// means "handled here"; it must never fall through, regardless of view wiring this
-    /// model-level test can't itself exercise.
-    @Test func escWhileCreatingIsAbsorbedNotFallenThroughAndTheCallIsNotAbandoned() async {
-        let rig = makeRig(workerSlug: "fix-login-ab12")
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.9)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        rig.model.activateSelected()
-        await rig.workerCreator.waitForRequests(1)
-        #expect(rig.model.backOutOfButtons())
-        #expect(rig.model.routingState == .creatingWorker(area: .fe, slug: "fix-login-ab12"))
-        // Not abandoned: the in-flight call's reply still lands and resolves normally afterward.
-        rig.workerCreator.reply(.created(WorkerCreationResult(paneId: "p1", worktreePath: "/x", branch: "wt/x")))
-        await waitUntil { rig.model.routingState == nil }
-        #expect(rig.model.query == "")
-    }
-
-    /// Regression: `useDashboard()` (switching the dashboard in Settings) used to reset
-    /// `routingState` unconditionally, the same as `.loading`/`.confirming` — but
-    /// `.creatingWorker`'s `POST /api/worker` is already in flight, not cancellable, and not
-    /// idempotent (a real worktree + herdr pane + Claude session). Resetting state out from under
-    /// it meant `finishCreatingWorker`'s eventual reply failed its `epoch == routingEpoch` /
-    /// `isCreatingWorker` guard and was silently dropped — no success or failure notice at all,
-    /// leaving the user with no way to tell whether the worker was actually created. Switching
-    /// dashboards mid-create must not drop that outcome, the same way Esc/Tab already don't.
-    @Test func switchingDashboardMidCreateDoesNotDropTheEventualOutcome() async {
-        let rig = makeRig(workerSlug: "fix-login-ab12")
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.9)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        rig.model.activateSelected()   // confirms -> .creatingWorker
-        await rig.workerCreator.waitForRequests(1)
-
-        rig.model.useDashboard(address: "10.0.0.5:9000")   // switches feeds mid-create
-
-        // Not abandoned: state survives the switch, so the in-flight call's reply is still honored.
-        #expect(rig.model.routingState == .creatingWorker(area: .fe, slug: "fix-login-ab12"))
-        rig.workerCreator.reply(.created(WorkerCreationResult(paneId: "p1", worktreePath: "/x", branch: "wt/x")))
-        await waitUntil { rig.model.routingState == nil }
-        #expect(rig.model.footerNotice != nil)
-        #expect(rig.model.footerNotice?.text.contains("fix-login-ab12") == true)
-    }
-
-    /// Regression: `tagSelected()` relied solely on `cancelRoutingIfActive()` to abandon any
-    /// pending route before tagging, but that function deliberately leaves `.creatingWorker`
-    /// untouched (bug above) — so Tab during an in-flight create used to both leave the create
-    /// running AND set a tag, breaking "the two are mutually exclusive" (this function's own doc
-    /// comment). Tab must refuse outright while `.creatingWorker`, the same as while a card is open.
-    @Test func tabWhileCreatingIsANoOpAndNeverTagsAlongsideTheInFlightCreate() async {
-        let rig = makeRig(agents: [F.agent("w", label: "worker", section: .working)], workerSlug: "fix-login-ab12")
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.9)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        rig.model.activateSelected()
-        await rig.workerCreator.waitForRequests(1)
-        rig.model.tagSelected()
-        #expect(rig.model.taggedAgentID == nil)
-        #expect(rig.model.routingState == .creatingWorker(area: .fe, slug: "fix-login-ab12"))
-        #expect(rig.model.query == "fix the login timeout")
-    }
-
     /// Regression (QA pass 2): a mouse click's `press(_:on:)` for Answer/Review/Message never
     /// checked `routingState` before opening a card, unlike `activate(agentID:)`. With a route
-    /// `.confirmingCreate`, clicking a different row's Answer button used to open its card anyway —
-    /// then a Return meant to submit that card hit `confirmRoutingIfPending()` first (it runs before
-    /// any card check in `activateSelected()`) and fired a real, uncancellable `POST /api/worker`
-    /// instead. Now the card-opening cases refuse outright while any route is pending, the same
-    /// "nothing else should fire mid-route" rule `activate(agentID:)` already applied to clicking a
-    /// row to switch to it.
-    @Test func pressToOpenACardIsRefusedWhileACreateIsPendingOrInFlight() async {
+    /// `.confirming`, clicking a different row's Answer button used to open its card anyway — then
+    /// a Return meant to submit that card hit `confirmRoutingIfPending()` first (it runs before any
+    /// card check in `activateSelected()`) and sent to whatever agent Jev picked instead. Now the
+    /// card-opening cases refuse outright while any route is pending, the same "nothing else should
+    /// fire mid-route" rule `activate(agentID:)` already applied to clicking a row to switch to it.
+    @Test func pressToOpenACardIsRefusedWhileARouteIsConfirming() async {
         let other = F.agent("other", label: "other worker", section: .needsYou, statusText: "waiting")
-        let rig = makeRig(agents: [F.agent("w", label: "worker", section: .working), other], workerSlug: "fix-login-ab12")
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.9)
+        let rig = makeRig(agents: [F.agent("w", label: "worker", section: .working), other])
+        rig.client.outcome = .picked(agentID: "w", confidence: 0.9)
         rig.model.query = "fix the login timeout"
         rig.model.startRouting()
         await waitUntil { rig.model.routingState != .loading }
-        #expect(rig.model.routingState == .confirmingCreate(area: .fe, slug: "fix-login-ab12", confidence: 0.9))
+        #expect(rig.model.routingState == .confirming(agentID: "w", label: "worker", confidence: 0.9))
 
         _ = rig.model.press(.answer, on: "other")
         #expect(!rig.model.answer.isOpen)
-        #expect(rig.model.routingState == .confirmingCreate(area: .fe, slug: "fix-login-ab12", confidence: 0.9))
-
-        rig.model.activateSelected()   // confirms -> .creatingWorker
-        await rig.workerCreator.waitForRequests(1)
-        _ = rig.model.press(.answer, on: "other")
-        #expect(!rig.model.answer.isOpen)
-        #expect(rig.model.routingState == .creatingWorker(area: .fe, slug: "fix-login-ab12"))
-    }
-
-    /// Return is swallowed while `.creatingWorker`, the same "nothing else should fire mid-route"
-    /// rule `.loading` already gets — it must not fall through to activate/switch the selected row.
-    @Test func returnWhileCreatingIsSwallowedAndDoesNotActivateTheSelectedAgent() async {
-        let rig = makeRig()
-        var activated: [String] = []
-        rig.model.onActivate = { activated.append($0.id) }
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.9)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        rig.model.activateSelected()   // confirms -> .creatingWorker
-        await rig.workerCreator.waitForRequests(1)
-        rig.model.activateSelected()   // must be swallowed, not fall through to activate/switch
-        #expect(activated.isEmpty)
-    }
-
-    @Test func withNoWorkerClientTheConfirmFailsFastWithNoCreationAttempted() async {
-        let rig = makeRig()
-        rig.model.workerClient = nil
-        rig.client.outcome = .picked(agentID: WorkerArea.fe.candidateID, confidence: 0.9)
-        rig.model.query = "fix the login timeout"
-        rig.model.startRouting()
-        await waitUntil { rig.model.routingState != .loading }
-        rig.model.activateSelected()
-        #expect(rig.model.routingState == nil)
-        #expect(rig.model.footerNotice?.text == "No status dashboard to create a worker with.")
-        #expect(rig.workerCreator.calls.isEmpty)
+        #expect(rig.model.routingState == .confirming(agentID: "w", label: "worker", confidence: 0.9))
     }
 }

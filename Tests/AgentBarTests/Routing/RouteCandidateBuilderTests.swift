@@ -14,8 +14,7 @@ struct RouteCandidateBuilderTests {
         let notHooked = F.agent("s", section: .working, hasHookData: false)
 
         let candidates = RouteCandidateBuilder.candidates(from: [working, ended, stillBlocked, notHooked])
-        let liveIDs = candidates.map(\.agentID).filter { !$0.hasPrefix(WorkerArea.candidateIDPrefix) }
-        #expect(liveIDs == ["w"])
+        #expect(candidates.map(\.agentID) == ["w"])
     }
 
     @Test func summaryCarriesLabelProjectAndStatus() {
@@ -30,26 +29,11 @@ struct RouteCandidateBuilderTests {
         #expect(candidates.first?.summary == "label: worker-2 · status: Working")
     }
 
-    /// The create-new candidates are always offered, even with zero live agents shown — an empty
-    /// dashboard is a valid moment to spin up a first worker, so this must not read as "nothing
-    /// to route to at all" any more.
-    @Test func noEligibleLiveRowsStillOffersTheCreateNewCandidates() {
+    /// No message-eligible agent shown -> no candidates at all (the caller, `OpenRouterJevClient.route`,
+    /// then returns `.none` without a network call — there used to be a "start a new worker" candidate
+    /// list offered here even with zero live agents, retired 2026-09-25).
+    @Test func noEligibleLiveRowsMeansNoCandidatesAtAll() {
         let candidates = RouteCandidateBuilder.candidates(from: [F.agent("e", section: .ended)])
-        #expect(candidates.map(\.agentID) == WorkerArea.allCases.map(\.candidateID))
-    }
-
-    @Test func createNewCandidatesCoverEveryWorkerAreaWithItsOwnIDAndSummary() {
-        let candidates = RouteCandidateBuilder.candidates(from: [])
-        let createNew = candidates.filter { $0.agentID.hasPrefix(WorkerArea.candidateIDPrefix) }
-        #expect(Set(createNew.map(\.agentID)) == Set(WorkerArea.allCases.map(\.candidateID)))
-        for area in WorkerArea.allCases {
-            #expect(createNew.first { $0.agentID == area.candidateID }?.summary == area.summary)
-        }
-    }
-
-    @Test func createNewCandidatesAreOfferedAlongsideLiveOnes() {
-        let working = F.agent("w", label: "worker", section: .working)
-        let candidates = RouteCandidateBuilder.candidates(from: [working])
-        #expect(Set(candidates.map(\.agentID)) == Set(["w"] + WorkerArea.allCases.map(\.candidateID)))
+        #expect(candidates.isEmpty)
     }
 }

@@ -174,10 +174,7 @@ struct RoutingSettingsView: View {
                 candidates: [RouteCandidate(agentID: "test", summary: "test")]
             )
             switch outcome {
-            case .picked, .createNew:
-                // A single, plain "test" candidate is never a "new:" id, so `.createNew` should
-                // not occur here in practice — treated the same as `.picked` regardless: either
-                // one means the round trip to OpenRouter worked.
+            case .picked:
                 testState = .succeeded
             case .none:
                 testState = .failed("Jev did not pick an agent.")

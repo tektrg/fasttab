@@ -80,14 +80,6 @@ final class AgentPanelModel: ObservableObject {
     enum RoutingState: Equatable {
         case loading
         case confirming(agentID: String, label: String, confidence: Double)
-        /// Jev picked "start a new worker" over any live agent; waiting for a confirming Return.
-        /// Always requires this confirm, whatever Settings > Routing's "after routing" says —
-        /// spinning up a worktree + session is heavier than typing a message, so it never
-        /// auto-fires even under "send immediately".
-        case confirmingCreate(area: WorkerArea, slug: String, confidence: Double)
-        /// The confirmed create-new call is in flight; not cancellable (unlike `.confirming`,
-        /// there is no way to abort `POST /api/worker` once sent).
-        case creatingWorker(area: WorkerArea, slug: String)
     }
     @Published private(set) var routingState: RoutingState?
     /// The exact text Jev was asked about, captured at Shift+Return. A route always acts on this,
@@ -105,13 +97,6 @@ final class AgentPanelModel: ObservableObject {
     var makeRoutingClient: (_ apiKey: String, _ model: String, _ systemPrompt: String) -> any JevRoutingClient = { apiKey, model, systemPrompt in
         OpenRouterJevClient(apiKey: apiKey, model: model, systemPrompt: systemPrompt)
     }
-    /// Where a "create new" pick actually creates the worker; set by the host (`AgentBarCoordinator`),
-    /// alongside `statusSource`. No client = the create-new confirm fails fast, same shape as
-    /// `statusSource == nil` elsewhere.
-    var workerClient: (any DashboardWorkerCreating)?
-    /// Test seam: real slugs are randomized (`WorkerSlugBuilder`'s own suffix); tests inject a
-    /// fixed one to assert on.
-    var makeWorkerSlug: (_ draftedText: String) -> String = { WorkerSlugBuilder.makeSlug(from: $0) }
     /// Bumped on every route so a reply for a route the user already left behind is dropped.
     private var routingEpoch = 0
 
@@ -150,8 +135,8 @@ final class AgentPanelModel: ObservableObject {
             showAnswerNotice("No agents to route to yet.")
             return
         }
-        // Never empty: `RouteCandidateBuilder.candidates` always appends one create-new candidate
-        // per `WorkerArea`, even with zero live message-eligible agents.
+        // May be empty (zero message-eligible agents shown) — `OpenRouterJevClient.route` returns
+        // `.none` for that without a network call.
         let candidates = RouteCandidateBuilder.candidates(from: AgentListBuilder.shownAgents(in: snapshot, settings: listSettings, triage: triage))
         routingState = .loading
         routingText = text
@@ -166,7 +151,7 @@ final class AgentPanelModel: ObservableObject {
 
     private func finishRouting(_ outcome: RouteOutcome, candidates: [RouteCandidate], epoch: Int, afterRouting: AfterRoutingBehavior) {
         guard epoch == routingEpoch, routingState == .loading else { return }
-        switch RouteOutcome.resolved(from: outcome) {
+        switch outcome {
         case .none:
             routingState = nil
             showAnswerNotice("No agent can take a message right now.")
@@ -188,20 +173,11 @@ final class AgentPanelModel: ObservableObject {
             } else {
                 routingState = .confirming(agentID: agentID, label: agent.label, confidence: confidence)
             }
-        case .createNew(let area, let confidence):
-            // Same never-trust-the-echo rule as `.picked` above.
-            guard candidates.contains(where: { $0.agentID == area.candidateID }) else {
-                routingState = nil
-                showAnswerNotice("Jev picked an option that is no longer offered.")
-                return
-            }
-            // Always confirms, regardless of `afterRouting` — see `RoutingState.confirmingCreate`.
-            routingState = .confirmingCreate(area: area, slug: makeWorkerSlug(routingText), confidence: confidence)
         }
     }
 
-    /// Return while a route is `.confirming`/`.confirmingCreate`: sends, or starts the create-new
-    /// call. Returns false so `activateSelected` falls through to its normal handling otherwise.
+    /// Return while a route is `.confirming`: sends. Returns false so `activateSelected` falls
+    /// through to its normal handling otherwise.
     private func confirmRoutingIfPending() -> Bool {
         switch routingState {
         case .confirming(let agentID, _, _):
@@ -209,25 +185,18 @@ final class AgentPanelModel: ObservableObject {
             else { return false }
             send(to: agent)
             return true
-        case .confirmingCreate(let area, let slug, _):
-            beginCreatingWorker(area: area, slug: slug)
-            return true
-        case .loading, .creatingWorker, nil:
+        case .loading, nil:
             return false
         }
     }
 
-    /// Return while a route is `.loading` ("Asking Jev…") or `.creatingWorker` ("Starting…"):
-    /// swallowed. Neither has picked a target yet / is done, so a plain Return here must not fall
-    /// through to the normal activate/switch path (it would otherwise press whatever row happens
-    /// to be highlighted — a surprising, unrelated action firing mid-route). Named explicitly,
-    /// mirroring `confirmRoutingIfPending()`, so every in-flight `RoutingState` case is handled the
-    /// same deliberate way in `activateSelected`.
+    /// Return while a route is `.loading` ("Asking Jev…"): swallowed. Nothing has been picked yet,
+    /// so a plain Return here must not fall through to the normal activate/switch path (it would
+    /// otherwise press whatever row happens to be highlighted — a surprising, unrelated action
+    /// firing mid-route). Named explicitly, mirroring `confirmRoutingIfPending()`, so every
+    /// in-flight `RoutingState` case is handled the same deliberate way in `activateSelected`.
     private func isRoutingInFlight() -> Bool {
-        switch routingState {
-        case .loading, .creatingWorker: true
-        case .confirming, .confirmingCreate, nil: false
-        }
+        routingState == .loading
     }
 
     /// Hands `routingText` to the Message pipeline (its own pane guard, one-flight-per-agent
@@ -328,58 +297,14 @@ final class AgentPanelModel: ObservableObject {
         sendDirectMessage(to: agent, text: text, attempt: attempt)
     }
 
-    /// Esc while routing: cancels back to the plain search box (the typed text stays). While
-    /// `.creatingWorker` it is absorbed instead — still returns `true` (Esc must not fall through
-    /// to `backOutOfButtons()`'s other jobs, let alone `onClose()` and hide the whole panel; there
-    /// is no `isCardOpen`-style flag for routing the way `message.isOpen` gives the message card
-    /// that same interception "for free") but leaves `routingState`/`routingEpoch` untouched: that
-    /// call is already in flight and cannot be aborted, the same reason the message card ignores
-    /// Esc while a message is on its way.
+    /// Esc while routing: cancels back to the plain search box (the typed text stays). True whenever
+    /// there was a route to cancel (there is no `isCardOpen`-style flag for routing the way
+    /// `message.isOpen` gives the message card that same interception "for free").
     private func cancelRoutingIfActive() -> Bool {
         guard routingState != nil else { return false }
-        guard !isCreatingWorker else { return true }
         routingEpoch += 1
         routingState = nil
         return true
-    }
-
-    private var isCreatingWorker: Bool {
-        if case .creatingWorker = routingState { return true }
-        return false
-    }
-
-    /// The user confirmed a "create new worker" pick: calls the dashboard's `/api/worker` with the
-    /// exact text Jev was asked to route (`routingText`, same capture discipline as `send(to:)`).
-    /// `.creatingWorker` is not cancellable once started (see `cancelRoutingIfActive`).
-    private func beginCreatingWorker(area: WorkerArea, slug: String) {
-        routingEpoch += 1
-        guard let workerClient else {
-            routingState = nil
-            showAnswerNotice("No status dashboard to create a worker with.")
-            return
-        }
-        let task = routingText
-        routingState = .creatingWorker(area: area, slug: slug)
-        let epoch = routingEpoch
-        Task { [weak self] in
-            let outcome = await workerClient.createWorker(repoAlias: area.repoAlias, slug: slug, task: task)
-            self?.finishCreatingWorker(outcome, area: area, slug: slug, epoch: epoch)
-        }
-    }
-
-    /// The endpoint itself already delivered `routingText` into the new worker as its brief and
-    /// launch prompt (see `DashboardEndpoint.workerRequest`'s doc comment) — success never re-sends
-    /// it through the message pipeline, it only clears the draft and says so.
-    private func finishCreatingWorker(_ outcome: WorkerCreationOutcome, area: WorkerArea, slug: String, epoch: Int) {
-        guard epoch == routingEpoch, isCreatingWorker else { return }
-        routingState = nil
-        switch outcome {
-        case .created:
-            query = ""
-            showFailureNotice(.created("Started a new \(area.label) worker (\(slug))."))
-        case .failed(let reason):
-            showFailureNotice(.actionFailed("Couldn't create worker: \(reason)"))
-        }
     }
 
     // MARK: - Tag (Tab picks an explicit send target, an alternative to asking Jev)
@@ -417,13 +342,10 @@ final class AgentPanelModel: ObservableObject {
     /// Tab: tags the selected row if it can take a message (same eligibility `RowButtons` already
     /// gates the Message button with). Re-tagging — arrow to another row, Tab again — just swaps the
     /// target; typed text is untouched. Cancels an in-flight Jev route: the two are mutually
-    /// exclusive, and an explicit tag makes asking Jev redundant. No-op while a card is open, while
-    /// `.creatingWorker` (that call is in flight and not cancellable — `cancelRoutingIfActive()`
-    /// absorbs Esc for it but deliberately never clears `routingState`, so tagging must refuse
-    /// outright here instead, the same way it refuses while a card is open, rather than let a tag
-    /// and an in-flight create coexist), or when nothing selectable is message-eligible.
+    /// exclusive, and an explicit tag makes asking Jev redundant. No-op while a card is open, or
+    /// when nothing selectable is message-eligible.
     func tagSelected() {
-        guard !isCardOpen, !isCreatingWorker, let agent = selectedAgent, RowButtons.usableButtons(for: agent).contains(.message) else { return }
+        guard !isCardOpen, let agent = selectedAgent, RowButtons.usableButtons(for: agent).contains(.message) else { return }
         let wasRouting = cancelRoutingIfActive()
         // Same as every card-opening path below: composing hides the list/peek area entirely
         // (AgentPanelView, AgentPanelMetrics.isComposing), so a Peek left open behind the tag
@@ -757,16 +679,8 @@ final class AgentPanelModel: ObservableObject {
         pendingDirectSends = [:]
         // A route started against the old dashboard must never be actable once the feed has
         // switched, even if a reply lands with a coincidentally matching epoch and `routingState`
-        // back to `.loading` from a route against the new one — so `.loading`/`.confirming`/
-        // `.confirmingCreate` are always wiped here, via the same helper Esc uses.
-        // `.creatingWorker` is the one exception, same reason `cancelRoutingIfActive()` already
-        // carves it out for Esc/Tab: `POST /api/worker` is already in flight, not cancellable, and
-        // not idempotent (a real worktree + herdr pane + Claude session) — switching dashboards
-        // mid-call must not make `finishCreatingWorker`'s eventual reply un-actable, or its outcome
-        // (success or failure) is silently dropped and the user has no way to tell whether the
-        // worker was actually created. Regression: `useDashboard` used to reset unconditionally,
-        // matching `message.reset()`'s always-bump precedent, without considering the one
-        // non-abortable, non-idempotent case those siblings don't have.
+        // back to `.loading` from a route against the new one — so `.loading`/`.confirming` are
+        // always wiped here, via the same helper Esc uses.
         _ = cancelRoutingIfActive()
         routingText = ""
         taggedAgentID = nil
@@ -908,12 +822,11 @@ final class AgentPanelModel: ObservableObject {
 
     /// The mouse-click path to switching agents (`AgentListView`'s `.onTapGesture`) — a second,
     /// independent entry point from `activateSelected`'s keyboard Return. Ignored while any route
-    /// is pending (`.loading`, `.confirming`, `.confirmingCreate`, `.creatingWorker`): the same
-    /// "nothing else should fire mid-route" rule `activateSelected` applies to Return must hold
-    /// here too, or a click bypasses it entirely. All four states are swallowed the same way
-    /// (`press(_:on:)`'s card-opening cases apply the identical guard) rather than letting a click
-    /// confirm a route meant for the row Jev picked, not the row the user happened to click —
-    /// confirming stays Return's job alone.
+    /// is pending (`.loading`, `.confirming`): the same "nothing else should fire mid-route" rule
+    /// `activateSelected` applies to Return must hold here too, or a click bypasses it entirely.
+    /// Both states are swallowed the same way (`press(_:on:)`'s card-opening cases apply the
+    /// identical guard) rather than letting a click confirm a route meant for the row Jev picked,
+    /// not the row the user happened to click — confirming stays Return's job alone.
     func activate(agentID: String) {
         guard routingState == nil else { return }
         guard presentation.selectableAgentIDs.contains(agentID),

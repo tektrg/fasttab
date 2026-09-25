@@ -13,9 +13,18 @@ The dashboard used to be one `python3 scripts/chief-dashboard-server.py`
 inside a herdr pane with NO keep-alive: pane dies -> board dies -> a human has
 to notice. chief-dashboard v5 turns the board into the chief's toolbox (its
 tools are served by this server), so "the dashboard is down" stops costing one
-supervision pass and starts halting the chief's whole loop. Hence a probe, and
-hence the loud death signal in `chief-tick-gate.py` (see `dashboard_down_reason`
-there) that rides the rail the 2026-08-31 silent-outage fix already built.
+supervision pass and starts halting the chief's whole loop. Hence a probe.
+
+P0 DASHBOARD MOVE NOTE: in AptusFit (where this file was written), a failure
+recorded here also fed a loud escalation in `chief-tick-gate.py` (via
+`dashboard_down_reason`) — that gate is AptusFit's own chief-supervision-loop
+code and stays there; it is NOT part of this move and this copy has no such
+consumer yet. The state this file keeps (`first_failed_at` / `trouble_since` /
+`outage_starts` / …, see below) is left fully intact regardless — it is the
+honest probe/restart-cap ledger on its own merits, and a future local
+consumer could read it the same way — but every comment below that used to
+say "so `chief-tick-gate.py` can escalate this" is describing AptusFit's
+behavior, not this copy's.
 
 WHY A PROBE AND NOT `KeepAlive` ON THE SERVER
 ---------------------------------------------
@@ -182,13 +191,26 @@ import urllib.error
 import urllib.request
 from shutil import which
 
-REPO_ROOT = "/Users/trungluong/01_Project/AptusFit"
-SERVER_SCRIPT = "scripts/chief-dashboard-server.py"
+# P0 dashboard move: REPO_ROOT was a literal AptusFit path (not derived, not
+# env-overridable — flagged in p0-move-map.md). Derived from __file__ instead,
+# same pattern chief_dashboard_feeds.py uses, so this runs correctly from
+# whichever checkout it lives in. DASHBOARD_HOME is this dashboard/ folder;
+# SERVER_SCRIPT is now an absolute path (the server lives in server/, not
+# scripts/, in this layout) so it does not depend on the herdr pane's own cwd.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DASHBOARD_HOME = os.path.dirname(SCRIPT_DIR)
+sys.path.insert(0, os.path.join(DASHBOARD_HOME, "server", "lib"))
+import dashboard_config  # noqa: E402  (P0 move: shared config/state-dir split)
+
+SERVER_SCRIPT = os.path.join(DASHBOARD_HOME, "server", "chief-dashboard-server.py")
 #: What a process holding the port must look like before this file will signal
 #: it — see `kill_stale_server`.
 SERVER_BASENAME = os.path.basename(SERVER_SCRIPT)
-FAILURE_FILE = os.path.join(REPO_ROOT, "scripts", ".chief-dashboard-failure.json")
-FALLBACK_LOG = os.path.join(REPO_ROOT, "logs", "chief-dashboard-fallback.log")
+#: Design call #1 (state dir): the failure ledger and fallback log are runtime
+#: state, not source — they now live in the shared state dir alongside the
+#: board db, not inside this checkout.
+FAILURE_FILE = os.path.join(dashboard_config.STATE_HOME, "chief-dashboard-failure.json")
+FALLBACK_LOG = os.path.join(dashboard_config.STATE_HOME, "logs", "chief-dashboard-fallback.log")
 
 #: Same 5s fast-failure budget the MCP layer contracts for. Never raise it —
 #: a probe that hangs is a probe that misses its own tick. The pre-kill
@@ -257,7 +279,12 @@ FLAP_OUTAGE_STARTS_TO_REPORT = 3
 #: for a hand-run pile-up, not a second window.
 LEDGER_ENTRIES_KEPT = 20
 
-PLUGIN_SCRIPTS = "/Users/trungluong/01_Project/agent-skills/plugins/delivery-ops/scripts"
+# P0 dashboard move: was a literal "/Users/trungluong/..." path (move-map
+# line 260) — not an AptusFit path (agent-skills is a separate, shared repo),
+# but still hardcoded to one user's home. `expanduser` keeps identical
+# behavior on this Mac while dropping the literal username.
+PLUGIN_SCRIPTS = os.path.expanduser(
+    "~/01_Project/agent-skills/plugins/delivery-ops/scripts")
 
 
 class _UnlockedJsonStore:
@@ -550,8 +577,9 @@ def restart_decision(state: dict, now: float | None = None):
                        f"(<{RESTART_COOLDOWN_SECONDS}s) — not restarting again")
     if len(recent) >= RESTART_CAP:
         return False, (f"restart cap reached ({len(recent)} in the last "
-                       f"{RESTART_CAP_WINDOW_SECONDS // 60}m) — leaving it to "
-                       f"chief-tick-gate.py to escalate")
+                       f"{RESTART_CAP_WINDOW_SECONDS // 60}m) — not restarting "
+                       f"again; this ledger is left in {FAILURE_FILE} for a "
+                       f"human or a future local escalation to read")
     return True, ""
 
 
@@ -741,7 +769,7 @@ def restart_detached() -> bool:
         with open(FALLBACK_LOG, "a") as out:
             subprocess.Popen(["python3", SERVER_SCRIPT],
                              stdout=out, stderr=out, start_new_session=True,
-                             cwd=REPO_ROOT)
+                             cwd=DASHBOARD_HOME)
         return True
     except Exception as exc:
         log(f"detached fallback failed too: {exc}")
@@ -800,8 +828,7 @@ def flap_note(residue: dict) -> str | None:
             f"recoveries inside the rolling {window_minutes}m window of a "
             f"trouble episode that started {trouble_for}s ago — the ledgers "
             f"survive recoveries, so the {RESTART_CAP}-per-{window_minutes}m "
-            f"cap counts across them and chief-tick-gate.py can escalate this "
-            f"as `flapping`")
+            f"cap counts across them")
 
 
 def note_alive(note: str | None = None) -> None:
@@ -819,7 +846,7 @@ def note_alive(note: str | None = None) -> None:
 
 
 def main() -> None:
-    os.chdir(REPO_ROOT)
+    os.chdir(DASHBOARD_HOME)
     if not STATE_STORE_IS_LOCKED:
         log("delivery_ops.filelock did not import — running the state file "
             "UNLOCKED (probe, streak and alarm all intact; see "
@@ -830,7 +857,7 @@ def main() -> None:
         record_failure(f"probe raised {type(exc).__name__}: {exc}", restarted=False)
         log(f"probe raised {type(exc).__name__}: {exc} — NOT restarting (an "
             f"unmeasurable probe is not a death), but the failure IS recorded "
-            f"so a repeating probe bug still reaches chief-tick-gate.py")
+            f"in {FAILURE_FILE} so a repeating probe bug is still visible")
         return
 
     if alive:
@@ -878,7 +905,7 @@ def main() -> None:
     if outcome == "failed":
         log(f"dead ({reason}, confirmed: {confirm_reason}) — restart FAILED: "
             f"nothing is listening on :{DASHBOARD_PORT} after the pane and the "
-            f"detached fallback; leaving it to chief-tick-gate.py to escalate")
+            f"detached fallback")
     else:
         log(f"dead ({reason}, confirmed: {confirm_reason}) — restarted via "
             f"{outcome}, listener confirmed on :{DASHBOARD_PORT}")

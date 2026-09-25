@@ -108,7 +108,7 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this move: 31 test files, 873 `PASS` assertions, 0 `FAIL`.
+As of this move: 35 test files, 1054 `PASS` assertions, 0 `FAIL`.
 
 **Never POST to port 4711** (AptusFit's live instance) or restart/kill it.
 All P0-move testing runs on **4712**: GET requests against the real 4711
@@ -148,9 +148,23 @@ isn't a mismatch).
   untouched and stays pointed at AptusFit's own server.
   `scripts/chief-dashboard-watchdog.py` here is copied, repointed at this
   checkout's own paths, and manually verified to import and resolve its
-  config correctly, but has no installed schedule and no test coverage
-  yet in this checkout (`test_chief_dashboard_watchdog.py`, ~1390 lines in
-  AptusFit, was not ported — flagged as a gap, not silently dropped).
+  config correctly, but still has no installed schedule.
+  AptusFit's `test_chief_dashboard_watchdog.py` (~1390 lines) IS now ported,
+  split by concern into three files under 340 lines each:
+  `tests/test_chief_dashboard_watchdog_state.py` (probe classification +
+  the pure failure-file state logic — streaks, episode residue, restart
+  cap, cooldown), `tests/test_chief_dashboard_watchdog_main.py` (`main()`'s
+  own orchestration — the two-consecutive-dead-probes trap, the anti-flap
+  blip case, the confirmation-read-on-a-longer-budget before any kill),
+  and `tests/test_chief_dashboard_watchdog_restart.py` (the restart-
+  execution layer — `kill_stale_server`, `restart_in_pane`,
+  `wait_for_dashboard`, the state store surviving a moved plugin path).
+  Dropped: the ~470-line `chief-tick-gate.py`-dependent section (alarm
+  reasons, `gate.main()`, the end-to-end `_FakeClock` flap simulation) —
+  not a retired *behaviour*, but `chief-tick-gate.py` itself was never
+  moved into this checkout (confirmed absent by search), so there is
+  nothing here to import or test against. Every watchdog-side fact those
+  end-to-end sims proved is still pinned by the pure unit checks above.
 - Multi-project `projectRoots` (see the P0 scope note above) — `chief_pass`'s
   per-projectRoot script resolution is the one exception that already loops
   every entry; every other call site still only reads `projectRoots[0]`.

@@ -11,10 +11,18 @@ import CommandBarKit
 final class AgentPanelModel: ObservableObject {
     @Published private(set) var snapshot: StatusSnapshot?
     @Published private(set) var presentation: AgentListPresentation = .connecting
-    /// Moving the selection drops any keyboard-highlighted button.
+    /// Moving the selection drops any keyboard-highlighted button, and follows into the hierarchy
+    /// model so ⌘]/⌘[/⌘⌫ and a "Report to…"/"Stop reporting" menu press act on the same row.
     @Published private(set) var selectedAgentID: String? {
-        didSet { if selectedAgentID != oldValue { highlightedButton = nil } }
+        didSet {
+            if selectedAgentID != oldValue { highlightedButton = nil }
+            treeModel.selectedNodeID = selectedAgentID
+        }
     }
+    /// Who reports to whom (`Tree/`), nested straight into this list — see `AgentListGrouping`.
+    /// Republishes through this model (same shape as `answer`/`permission`/`message`) so the panel
+    /// view needs only observe `AgentPanelModel`.
+    let treeModel: AgentTreeModel
     /// The selected row's button the keyboard is on (←/→), if any; ↩ presses it.
     @Published private(set) var highlightedButton: RowButton?
     /// Where each row's Done / Close pane press has got to (see `RowActionState`).
@@ -574,6 +582,9 @@ final class AgentPanelModel: ObservableObject {
     private var permissionObservation: AnyCancellable?
     private var messageObservation: AnyCancellable?
     private var copierObservation: AnyCancellable?
+    private var treeObservation: AnyCancellable?
+    private var treeErrorObservation: AnyCancellable?
+    private var treeInfoObservation: AnyCancellable?
 
     init(
         store: FrecencyStore = FrecencyStore(),
@@ -588,6 +599,7 @@ final class AgentPanelModel: ObservableObject {
         copier: IdentityCopier = IdentityCopier(),
         blockerProbe: BlockerProbe = BlockerProbe(),
         directSendRetryDelays: [TimeInterval] = [5, 10],
+        treeModel: AgentTreeModel = AgentTreeModel(),
         now: @escaping () -> Date = { Date() }
     ) {
         self.answer = answer
@@ -596,6 +608,7 @@ final class AgentPanelModel: ObservableObject {
         self.copier = copier
         self.blockerProbe = blockerProbe
         self.directSendRetryDelays = directSendRetryDelays
+        self.treeModel = treeModel
         self.store = store
         self.triageStore = triageStore
         self.routedNoteStore = routedNoteStore
@@ -610,6 +623,7 @@ final class AgentPanelModel: ObservableObject {
         wirePermissionCard()
         wireMessageCard()
         wireBlockerProbe()
+        wireTreeModel()
         copierObservation = copier.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
@@ -647,6 +661,23 @@ final class AgentPanelModel: ObservableObject {
         blockerProbe.onLearned = { [weak self] id, blocker in self?.learnBlocker(blocker, for: id) }
     }
 
+    /// Republishes the hierarchy model (same shape as `answer`/`permission`/`message`), and turns
+    /// its attach/detach outcomes into the same footer notice every other row action uses — a
+    /// refused/failed attach reads exactly like a failed Done/Close pane, an attach's warning like
+    /// a plan-answer warning. The dialogs for a cross-project confirm and an ambiguous-chief picker
+    /// (`pendingConfirm`/`pendingChiefPicker`) are drawn by `AgentPanelView` straight off `treeModel`.
+    private func wireTreeModel() {
+        treeObservation = treeModel.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        treeErrorObservation = treeModel.$errorMessage.compactMap { $0 }.sink { [weak self] message in
+            self?.showFailureNotice(.actionFailed(message))
+            self?.treeModel.dismissError()
+        }
+        treeInfoObservation = treeModel.$infoMessage.compactMap { $0 }.sink { [weak self] message in
+            self?.showFailureNotice(.warning(message))
+            self?.treeModel.dismissInfo()
+        }
+    }
+
     /// The probe read a question or box off the pane before the dashboard reported it: show its button now.
     private func learnBlocker(_ blocker: AgentBlocker, for agentID: String) {
         blockerMemory.learn(blocker, for: agentID, now: now())
@@ -672,6 +703,7 @@ final class AgentPanelModel: ObservableObject {
         lastReceived = received
         let snapshot = received.replacingAgents(shownBlockers(received.agents))
         self.snapshot = snapshot
+        treeModel.receive(received)
         // A dead feed shows no agents; that must not read as "they all went away".
         if !snapshot.health.isDown, triage.observe(snapshot.agents) { triageStore.save(triage) }
         rebuild()
@@ -997,16 +1029,24 @@ final class AgentPanelModel: ObservableObject {
             return nil
         case .send(let kind, let confirmed):
             return send(kind, confirmed: confirmed, button: button, agent: agent)
+        case .reportToNearestChief:
+            treeModel.selectedNodeID = agentID   // menu press may not be on the currently-selected row
+            treeModel.indentSelected()
+            return nil
+        case .stopReporting:
+            treeModel.selectedNodeID = agentID
+            treeModel.outdentSelected()
+            return nil
         }
     }
 
     /// `button` is currently something `agent`'s row would let the user act on right now —
-    /// whichever surface it lives on (its capsule strip or the ⋯ menu, `RowButtons.isPressable`) —
+    /// whichever surface it lives on (its capsule strip or the ⋯ menu, `TreeRowActions.isPressable`) —
     /// and the row is not mid-flight on some other send (no actions while a spinner or a
     /// "Message sent" label is showing in their place).
     private func isPressable(_ button: RowButton, on agent: AgentSnapshot) -> Bool {
         guard sendingLabel(for: agent) == nil, sentLabel(for: agent) == nil else { return false }
-        return RowButtons.isPressable(button, on: agent)
+        return TreeRowActions.isPressable(button, on: agent, tree: treeModel.tree)
     }
 
     private func setParked(_ isParked: Bool, agentID: String) {
@@ -1088,7 +1128,7 @@ final class AgentPanelModel: ObservableObject {
             return true
         }
         if let agent = selectedAgent {
-            highlightedButton = RowButtonHighlight.reconciled(highlightedButton, in: RowButtons.usableButtons(for: agent))
+            highlightedButton = RowButtonHighlight.reconciled(highlightedButton, in: usableButtons(for: agent))
         } else {
             highlightedButton = nil
         }
@@ -1125,7 +1165,8 @@ final class AgentPanelModel: ObservableObject {
 
     /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer or decision is on its way.
     private func usableButtons(for agent: AgentSnapshot) -> [RowButton] {
-        sendingLabel(for: agent) != nil || sentLabel(for: agent) != nil ? [] : RowButtons.usableButtons(for: agent)
+        guard sendingLabel(for: agent) == nil, sentLabel(for: agent) == nil else { return [] }
+        return TreeRowActions.availableButtons(for: agent, tree: treeModel.tree).filter(\.isEnabled).map(\.button)
     }
 
     /// What the row says in place of its buttons while an answer or decision is on its way; nil when none is.

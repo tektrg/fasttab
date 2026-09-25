@@ -200,6 +200,7 @@ struct BookmarkMovePicker: View {
                             folderRow(option, showsProfile: true)
                         }
                     }
+                    .dsListRow()
                 } else {
                     if !frequentOptions.isEmpty {
                         Section("Frequent") {
@@ -207,6 +208,7 @@ struct BookmarkMovePicker: View {
                                 folderRow(option, showsProfile: true)
                             }
                         }
+                        .dsListRow()
                     }
                     if !recentOptions.isEmpty {
                         Section("Recent") {
@@ -214,6 +216,7 @@ struct BookmarkMovePicker: View {
                                 folderRow(option, showsProfile: true)
                             }
                         }
+                        .dsListRow()
                     }
                     ForEach(profileGroups) { group in
                         Section {
@@ -230,21 +233,24 @@ struct BookmarkMovePicker: View {
                                 } label: {
                                     Label("New Folder", systemImage: "folder.badge.plus")
                                         .labelStyle(.iconOnly)
-                                        .font(.caption)
+                                        .font(DS.Font.meta)
                                 }
                                 .buttonStyle(.borderless)
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(DS.Tint.action)
                             }
                         }
+                        .dsListRow()
                     }
                 }
             }
+            .dsListStyle()
             .overlay {
                 if allFolderOptions.isEmpty {
-                    ContentUnavailableView(
+                    DSEmptyState(
                         "No Destinations Yet",
                         systemImage: "folder.badge.questionmark",
-                        description: Text("Only profiles that already have a synced bookmark can be picked as a destination.")
+                        message: "Only profiles that already have a synced bookmark can be picked as a destination.",
+                        style: .fullScreen
                     )
                 } else if !trimmedSearchText.isEmpty && searchResults.isEmpty {
                     ContentUnavailableView.search(text: trimmedSearchText)
@@ -296,15 +302,15 @@ struct BookmarkMovePicker: View {
         Button {
             confirm(option)
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: DS.Space.md) {
                 Image(systemName: option.iconName)
-                    .foregroundStyle(.blue)
-                VStack(alignment: .leading, spacing: 2) {
+                    .foregroundStyle(DS.Tint.action)
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
                     Text(option.folderDisplayName)
                         .foregroundStyle(.primary)
                     if showsProfile {
                         Text(option.profileDisplayName)
-                            .font(.caption)
+                            .font(DS.Font.meta)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -320,7 +326,7 @@ struct BookmarkMovePicker: View {
             } label: {
                 Label("Add Subfolder", systemImage: "folder.badge.plus")
             }
-            .tint(.blue)
+            .tint(DS.Tint.action)
         }
         .contextMenu {
             Button {

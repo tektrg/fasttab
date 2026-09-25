@@ -35,8 +35,8 @@ public enum RecentAddedSource: Hashable, Sendable {
 
     public var tintColor: Color {
         switch self {
-        case .shareSheet: return .blue
-        case .bookmark: return .yellow
+        case .shareSheet: return DS.Tint.shared
+        case .bookmark: return DS.Tint.bookmark
         }
     }
 }

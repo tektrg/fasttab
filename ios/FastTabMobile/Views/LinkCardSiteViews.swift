@@ -7,7 +7,7 @@ import UIKit
 // everywhere. Generic sites never reach these: their `LinkPreview.site` is nil.
 
 /// The preview image plus its site overlays: a play badge on video, a "Shorts" marker.
-/// `compact` is the feed's 96 × 88 thumbnail; the full-size cards pass `false`.
+/// `compact` is the Read feed card thumbnail; the full-size cards pass `false`.
 struct LinkCardImageView: View {
     let image: UIImage
     let preview: LinkPreview
@@ -131,7 +131,7 @@ struct LinkCardTextTileView: View {
     let preview: LinkPreview
     let text: String
 
-    static let redditOrange = Color(red: 1.0, green: 0.27, blue: 0.0)
+    static let redditOrange = DS.Tint.reddit
 
     private var tileBackground: Color {
         let isReddit = preview.site == .reddit
@@ -149,32 +149,32 @@ struct LinkCardTextTileView: View {
         ZStack(alignment: .topLeading) {
             tileBackground
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                HStack(spacing: 6) {
                     if preview.site == .reddit {
                         Circle()
                             .fill(Self.redditOrange)
-                            .frame(width: 8, height: 8)
+                            .frame(width: 10, height: 10)
                     } else {
-                        LinkCardAvatarView(preview: preview, diameter: 18)
+                        LinkCardAvatarView(preview: preview, diameter: 22)
                     }
                     // X: "@handle". Reddit: "r/sub".
                     if let handle = preview.authorHandle {
                         Text(handle)
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(DS.Font.tag)
                             .foregroundStyle(preview.site == .reddit ? Self.redditOrange : .secondary)
                             .lineLimit(1)
                     }
                 }
 
                 Text(text)
-                    .font(.system(size: 9.5))
+                    .font(.caption)
                     .foregroundStyle(.primary.opacity(0.9))
-                    .lineLimit(preview.site == .reddit ? 5 : 4)
+                    .lineLimit(4)
                     .multilineTextAlignment(.leading)
                     .lineSpacing(1.5)
             }
-            .padding(7)
+            .padding(DS.Space.md)
         }
     }
 }

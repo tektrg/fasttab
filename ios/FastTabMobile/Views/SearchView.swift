@@ -34,9 +34,9 @@ public struct UnifiedSearchResult: Identifiable {
 
         public var color: Color {
             switch self {
-            case .tab: return .blue
-            case .bookmark: return .yellow
-            case .history: return .gray
+            case .tab: return DS.Tint.action
+            case .bookmark: return DS.Tint.bookmark
+            case .history: return .secondary
             }
         }
     }
@@ -49,8 +49,7 @@ public struct SearchView: View {
     @State private var scope: SearchScope = .all
     @State private var selectedURLForReader: URL?
     @State private var readerItem: ReaderNavigationItem?
-    @State private var toastMessage: String?
-    @State private var showToast: Bool = false
+    @State private var toast: String?
 
     public init() {}
 
@@ -136,55 +135,43 @@ public struct SearchView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, DS.Space.gutter)
+            .padding(.vertical, DS.Space.sm)
 
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    Text("FastTab Instant Search")
-                        .font(.headline)
-                    Text("Search tabs, bookmarks, and history across all your synced Macs.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                }
+                DSEmptyState(
+                    "FastTab Instant Search",
+                    systemImage: "magnifyingglass",
+                    message: "Search tabs, bookmarks, and history across all your synced Macs."
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if matchingResults.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "text.magnifyingglass")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    Text("No results for \"\(query)\"")
-                        .font(.headline)
-                    Text("Check spelling or broaden your search terms.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
+                DSEmptyState(
+                    "No results for \"\(query)\"",
+                    systemImage: "text.magnifyingglass",
+                    message: "Check spelling or broaden your search terms."
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     ForEach(matchingResults) { item in
-                        HStack(spacing: 12) {
+                        HStack(spacing: DS.Space.md) {
                             Image(systemName: item.type.icon)
                                 .foregroundColor(item.type.color)
-                                .font(.system(size: 18))
+                                .font(.system(size: DS.IconSize.row))
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(item.title)
-                                    .font(.body)
+                                    .font(DS.Font.body)
                                     .lineLimit(1)
 
                                 HStack(spacing: 6) {
                                     Text(item.browserName)
-                                        .font(.caption2)
+                                        .font(DS.Font.tag)
+                                        .foregroundColor(.secondary)
                                         .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color(uiColor: .tertiarySystemBackground))
-                                        .cornerRadius(4)
+                                        .padding(.vertical, DS.Space.xxs)
+                                        .background(DS.Palette.surfaceMuted, in: RoundedRectangle(cornerRadius: DS.Radius.xs, style: .continuous))
 
                                     if let extra = item.folderOrWindow, !extra.isEmpty {
                                         Text(extra)
@@ -194,7 +181,7 @@ public struct SearchView: View {
                                     }
 
                                     Text(item.url)
-                                        .font(.caption)
+                                        .font(DS.Font.meta)
                                         .foregroundColor(.secondary)
                                         .lineLimit(1)
                                 }
@@ -225,36 +212,27 @@ public struct SearchView: View {
 
                                 Button {
                                     UIPasteboard.general.string = item.url
-                                    withAnimation {
-                                        toastMessage = "URL Copied"
-                                        showToast = true
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                        withAnimation { showToast = false }
-                                    }
+                                    toast = "URL Copied"
                                 } label: {
                                     Label("Copy URL", systemImage: "doc.on.doc")
                                 }
 
                                 Button {
                                     SyncConsumer.shared.sendOpenOnMac(url: item.url, title: item.title.isEmpty ? nil : item.title)
-                                    withAnimation {
-                                        toastMessage = "Sent to Mac"
-                                        showToast = true
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                        withAnimation { showToast = false }
-                                    }
+                                    toast = "Sent to Mac"
                                 } label: {
                                     Label("Open on Mac", systemImage: "laptopcomputer")
                                 }
                             }
                         }
                     }
+                    .dsListRow()
                 }
                 .listStyle(.insetGrouped)
+                .dsListStyle()
             }
         }
+        .dsCanvas()
         .searchable(text: $query, prompt: "Search tabs, bookmarks & history")
         .fullScreenCover(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
@@ -263,18 +241,6 @@ public struct SearchView: View {
         .fullScreenCover(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title)
         }
-        .overlay(alignment: .bottom) {
-            if showToast, let toastMessage {
-                Text(toastMessage)
-                    .font(.subheadline)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(20)
-                    .shadow(radius: 4)
-                    .padding(.bottom, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .dsToast($toast, bottomInset: DS.Space.xl)
     }
 }

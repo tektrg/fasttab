@@ -20,18 +20,18 @@ public struct ReaderHighlightBar: View {
     }
 
     public var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: DS.Space.md) {
             // Preview of selected text
             if !selectedText.isEmpty {
                 Text("\"\(selectedText.prefix(80))\(selectedText.count > 80 ? "…" : "")\"")
-                    .font(.caption)
+                    .font(DS.Font.meta)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, DS.Space.lg)
             }
 
-            HStack(spacing: 20) {
+            HStack(spacing: DS.Space.lg) {
                 ForEach(HighlightColor.allCases, id: \.rawValue) { color in
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -60,16 +60,17 @@ public struct ReaderHighlightBar: View {
                 .accessibilityLabel("Dismiss")
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
+        .padding(.horizontal, DS.Space.xl)
+        .padding(.vertical, DS.Space.lg)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            // Upward shadow: the bar floats over the article from below.
+            RoundedRectangle(cornerRadius: DS.Radius.xl, style: .continuous)
                 .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.15), radius: 16, y: -4)
+                .shadow(color: DS.Shadow.floating.color, radius: 16, y: -4)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
+        .contentShape(RoundedRectangle(cornerRadius: DS.Radius.xl, style: .continuous))
+        .padding(.horizontal, DS.Space.md)
+        .padding(.bottom, DS.Space.md)
         .offset(y: appeared ? 0 : 120)
         .opacity(appeared ? 1 : 0)
         .onAppear {

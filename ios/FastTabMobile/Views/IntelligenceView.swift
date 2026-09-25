@@ -15,19 +15,16 @@ public struct IntelligenceView: View {
     public init() {}
 
     public var body: some View {
-        ZStack {
-            Color(uiColor: .systemGroupedBackground)
-                .ignoresSafeArea()
-
-            Group {
-                switch selectedSubTab {
-                case .emerging:
-                    EmergingTopicsView()
-                case .suggestBookmarks:
-                    SuggestBookmarksView()
-                }
+        Group {
+            switch selectedSubTab {
+            case .emerging:
+                EmergingTopicsView()
+            case .suggestBookmarks:
+                SuggestBookmarksView()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .dsCanvas()
         .navigationTitle("Intelligence")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -54,7 +51,7 @@ public struct IntelligenceView: View {
                 },
                 titleProvider: { $0.rawValue }
             )
-            .padding(.bottom, 8)
+            .padding(.bottom, DS.Space.sm)
         }
         .onAppear {
             if service.topicClusters.isEmpty && service.folderSuggestions.isEmpty {

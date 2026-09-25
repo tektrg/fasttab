@@ -13,18 +13,11 @@ public struct DeviceListView: View {
     public var body: some View {
         List {
             if devices.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "laptopcomputer.and.iphone")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    Text("No Macs connected")
-                        .font(.headline)
-                    Text("Make sure FastTab is running on your Mac with iCloud sync enabled.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                }
+                DSEmptyState(
+                    "No Macs connected",
+                    systemImage: "laptopcomputer.and.iphone",
+                    message: "Make sure FastTab is running on your Mac with iCloud sync enabled."
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .listRowBackground(Color.clear)
             } else {
@@ -43,7 +36,7 @@ public struct DeviceListView: View {
                         } label: {
                             DeviceSectionRow(
                                 icon: "macwindow",
-                                color: .blue,
+                                color: DS.Tint.action,
                                 title: "Open Tabs",
                                 count: localCache.state.tabs.filter { $0.deviceID == device.id }.count
                             )
@@ -58,7 +51,7 @@ public struct DeviceListView: View {
                                 .reduce(0) { $0 + $1.bookmarks.count }
                             DeviceSectionRow(
                                 icon: "bookmark.fill",
-                                color: .yellow,
+                                color: DS.Tint.bookmark,
                                 title: "Bookmarks",
                                 count: count
                             )
@@ -73,16 +66,18 @@ public struct DeviceListView: View {
                                 .reduce(0) { $0 + $1.entries.count }
                             DeviceSectionRow(
                                 icon: "clock.fill",
-                                color: .gray,
+                                color: .secondary,
                                 title: "Recent History",
                                 count: count
                             )
                         }
                     }
+                    .dsListRow()
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .dsListStyle()
         .refreshable {
             await SyncConsumer.shared.refreshNow()
         }
@@ -99,14 +94,12 @@ private struct DeviceSectionRow: View {
         HStack {
             Image(systemName: icon)
                 .foregroundColor(color)
-                .frame(width: 24)
+                .frame(width: DS.Space.xl)
             Text(title)
-                .font(.body)
+                .font(DS.Font.body)
             Spacer()
-            Text("\(count)")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            DSCountPill(count)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, DS.Space.xxs)
     }
 }

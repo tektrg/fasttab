@@ -9,8 +9,7 @@ public struct DeskQueueView: View {
     @State private var selectedBrowser: String = "Default"
     @State private var isSending: Bool = false
     @State private var readerItem: ReaderNavigationItem?
-    @State private var toastMessage: String?
-    @State private var showToast: Bool = false
+    @State private var toast: String?
 
     private let supportedBrowsers = ["Default", "Google Chrome", "Safari", "Arc", "Microsoft Edge"]
 
@@ -69,31 +68,17 @@ public struct DeskQueueView: View {
 
     public var body: some View {
         queueList
-        .overlay(alignment: .bottom) {
-            if showToast, let toastMessage {
-                Text(toastMessage)
-                    .font(.subheadline.weight(.medium))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 9)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+            .dsToast($toast, bottomInset: DS.Space.xl)
     }
 
     private var queueList: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: DS.Space.md) {
+                    HStack(spacing: DS.Space.sm) {
                         Image(systemName: "link")
                             .foregroundStyle(.secondary)
-                            .font(.system(size: 14))
+                            .font(.system(size: DS.IconSize.row))
 
                         TextField("https://...", text: $inputURL)
                             .textContentType(.URL)
@@ -120,39 +105,35 @@ public struct DeskQueueView: View {
                         Button {
                             sendLink()
                         } label: {
-                            HStack(spacing: 6) {
+                            HStack(spacing: DS.Space.sm) {
                                 if isSending {
                                     ProgressView()
                                         .controlSize(.small)
                                 } else {
                                     Image(systemName: "paperplane.fill")
                                     Text("Send to Mac")
-                                        .fontWeight(.semibold)
                                 }
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(inputURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary.opacity(0.2) : Color.accentColor)
-                            .foregroundStyle(.white)
-                            .clipShape(Capsule())
                         }
+                        .buttonStyle(.dsPrimary)
                         .disabled(inputURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
                     }
-                    .padding(.top, 4)
+                    .padding(.top, DS.Space.xs)
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, DS.Space.xs)
             } header: {
                 Text("Staged Link")
             } footer: {
                 Text("Links go out to your Mac as soon as this iPhone can reach iCloud. A sleeping Mac opens them when it wakes.")
             }
+            .dsListRow()
 
             Section {
                 if sentCommands.isEmpty {
                     Text("No links sent yet. Use the share sheet or enter a URL above.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, DS.Space.sm)
                 } else {
                     ForEach(sentCommands) { cmd in
                         DeskQueueRowView(
@@ -181,13 +162,15 @@ public struct DeskQueueView: View {
                         Button("Clear All") {
                             clearList()
                         }
-                        .font(.caption)
+                        .font(DS.Font.meta)
                         .foregroundStyle(.secondary)
                     }
                 }
             }
+            .dsListRow()
         }
         .listStyle(.insetGrouped)
+        .dsListStyle()
         .refreshable {
             await SyncConsumer.shared.refreshNow()
         }
@@ -231,15 +214,7 @@ public struct DeskQueueView: View {
     }
 
     private func showToastHUD(message: String) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            toastMessage = message
-            showToast = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showToast = false
-            }
-        }
+        toast = message
     }
 }
 
@@ -256,19 +231,19 @@ private struct DeskQueueRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: DS.Space.md) {
             Image(systemName: progress.symbolName)
                 .foregroundStyle(progress.tint)
-                .font(.system(size: 16))
+                .font(.system(size: DS.IconSize.row))
                 .frame(width: 20)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 if let payload {
                     Text(payload.title ?? payload.url)
                         .font(.body)
                         .lineLimit(1)
                     Text(payload.url)
-                        .font(.caption)
+                        .font(DS.Font.meta)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
@@ -276,7 +251,7 @@ private struct DeskQueueRowView: View {
                         .font(.body)
                 }
 
-                HStack(spacing: 6) {
+                HStack(spacing: DS.Space.xs) {
                     Text(command.issuedAt, style: .time)
                         .font(.caption2)
                         .monospacedDigit()
@@ -312,7 +287,7 @@ private struct DeskQueueRowView: View {
             }
             Spacer()
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, DS.Space.xxs)
         .contextMenu {
             if let payload, let url = URL(string: payload.url) {
                 Button {

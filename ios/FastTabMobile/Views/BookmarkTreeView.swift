@@ -11,8 +11,7 @@ public struct BookmarkTreeView: View {
     @State private var readerItem: ReaderNavigationItem?
     @State private var expandedFolderIDs: Set<String> = []
     @State private var hasInitializedExpansion: Bool = false
-    @State private var toastMessage: String?
-    @State private var showToast: Bool = false
+    @State private var toast: String?
     /// Bookmarks the user asked to delete or move, each tied to the command
     /// that carries the request — same shape as `TabListView`'s
     /// `pendingCloses` and for the same reason: the outcome is always read
@@ -230,18 +229,12 @@ public struct BookmarkTreeView: View {
             .animation(.easeInOut(duration: 0.2), value: trackedActions)
 
             if filteredNodes.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "bookmark.slash")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary)
-                    Text(filterText.isEmpty ? "No Bookmarks Synced" : "No Bookmarks Match \"\(filterText)\"")
-                        .font(.headline)
-                    Text(filterText.isEmpty ? "Bookmarks from Safari, Chrome, and Edge will appear here." : "Check spelling or clear the search field.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                }
+                DSEmptyState(
+                    filterText.isEmpty ? "No Bookmarks Synced" : "No Bookmarks Match \"\(filterText)\"",
+                    systemImage: "bookmark.slash",
+                    message: filterText.isEmpty ? "Bookmarks from Safari, Chrome, and Edge will appear here." : "Check spelling or clear the search field.",
+                    style: .fullScreen
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
@@ -290,20 +283,23 @@ public struct BookmarkTreeView: View {
                             }
                         )
                     }
+                    .dsListRow()
                 }
                 .listStyle(.insetGrouped)
+                .dsListStyle()
                 .refreshable {
                     await SyncConsumer.shared.refreshNow()
                 }
             }
         }
+        .dsCanvas()
         .searchable(text: $filterText, prompt: "Filter bookmarks...")
         .onChange(of: liveBookmarkIdentity) {
             pruneFinishedActions()
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 12) {
+                HStack(spacing: DS.Space.md) {
                     Button {
                         let targetDevID = device?.id ?? localCache.state.devices.first?.id ?? ""
                         newFolderContext = TreeNewFolderContext(deviceID: targetDevID)
@@ -322,7 +318,7 @@ public struct BookmarkTreeView: View {
                             }
                         } label: {
                             Text(expandedFolderIDs.isEmpty ? "Expand All" : "Collapse All")
-                                .font(.caption.weight(.medium))
+                                .font(DS.Font.meta.weight(.medium))
                         }
                     }
                 }
@@ -406,31 +402,11 @@ public struct BookmarkTreeView: View {
             let macCount = Set(BookmarkTreeBuilder.collectLeaves(from: node).compactMap { $0.source?.deviceID }).count
             Text("Delete \"\(node.title)\" and its \(node.totalCount) bookmark\(node.totalCount == 1 ? "" : "s") from your \(macCount > 1 ? "Macs" : "Mac")?")
         }
-        .overlay(alignment: .bottom) {
-            if showToast, let toastMessage {
-                Text(toastMessage)
-                    .font(.subheadline.weight(.medium))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 9)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                    .padding(.bottom, 24)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .dsToast($toast, bottomInset: DS.Space.xl)
     }
 
     private func showToast(message: String) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            toastMessage = message
-            showToast = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showToast = false
-            }
-        }
+        toast = message
     }
 
     /// Asks the owning Mac to delete a bookmark, and hides the row only for as

@@ -93,7 +93,7 @@ enum SyncStatusCopy {
         let age = relativeTimeLabel(from: device.lastSeenAt, to: now)
 
         if elapsed < liveWindow {
-            return MacFreshness(text: "Active now", tint: .green, isStale: false)
+            return MacFreshness(text: "Active now", tint: DS.Tint.success, isStale: false)
         }
         if elapsed < quietWindow {
             return MacFreshness(text: "Last seen \(age)", tint: .secondary, isStale: false)
@@ -102,9 +102,9 @@ enum SyncStatusCopy {
             // "May be" is not hedging for its own sake: asleep, quit and offline
             // are indistinguishable from here, and only one of them is worth
             // the user's attention.
-            return MacFreshness(text: "Mac may be asleep — last seen \(age)", tint: .orange, isStale: true)
+            return MacFreshness(text: "Mac may be asleep — last seen \(age)", tint: DS.Tint.warning, isStale: true)
         }
-        return MacFreshness(text: "Mac offline — last seen \(age)", tint: .red, isStale: true)
+        return MacFreshness(text: "Mac offline — last seen \(age)", tint: DS.Tint.destructive, isStale: true)
     }
 
     // MARK: - Counts

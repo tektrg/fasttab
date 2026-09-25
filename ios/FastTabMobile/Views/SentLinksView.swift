@@ -18,7 +18,7 @@ public struct SentLinksView: View {
     public var body: some View {
         List {
             Section(header: Text("Send Link to Mac")) {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: DS.Space.sm) {
                     TextField("https://...", text: $inputURL)
                         .textContentType(.URL)
                         .keyboardType(.URL)
@@ -43,19 +43,20 @@ public struct SentLinksView: View {
                             }
                             Spacer()
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, DS.Space.sm)
                     }
                     .disabled(inputURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, DS.Space.xs)
             }
+            .dsListRow()
 
             Section(header: Text("Recent Sent Links")) {
                 if sentCommands.isEmpty {
                     Text("No links sent yet. Use the Share sheet from Safari or type a URL above.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, DS.Space.sm)
                 } else {
                     ForEach(sentCommands) { cmd in
                         CommandRowView(
@@ -68,8 +69,10 @@ public struct SentLinksView: View {
                     }
                 }
             }
+            .dsListRow()
         }
         .listStyle(.insetGrouped)
+        .dsListStyle()
         .refreshable {
             await SyncConsumer.shared.refreshNow()
         }
@@ -110,7 +113,7 @@ private struct CommandRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: DS.Space.md) {
             Image(systemName: progress.symbolName)
                 .foregroundColor(progress.tint)
                 .font(.system(size: 20))
@@ -118,15 +121,15 @@ private struct CommandRowView: View {
             VStack(alignment: .leading, spacing: 3) {
                 if let payload {
                     Text(payload.title ?? payload.url)
-                        .font(.body)
+                        .font(DS.Font.body)
                         .lineLimit(1)
                     Text(payload.url)
-                        .font(.caption)
+                        .font(DS.Font.meta)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 } else {
                     Text("Command: \(command.kind.rawValue)")
-                        .font(.body)
+                        .font(DS.Font.body)
                 }
 
                 HStack(spacing: 6) {
@@ -140,7 +143,7 @@ private struct CommandRowView: View {
                         .foregroundColor(.secondary)
 
                     Text(progress.label)
-                        .font(.caption2.bold())
+                        .font(DS.Font.tag)
                         .foregroundColor(progress.tint)
                         .lineLimit(1)
                 }
@@ -155,6 +158,6 @@ private struct CommandRowView: View {
             }
             Spacer()
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, DS.Space.xs)
     }
 }

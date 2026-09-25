@@ -36,7 +36,6 @@ public struct DSToastView: View {
             }
             .dsShadow(.floating)
             .padding(.horizontal, DS.Space.xl)
-            .accessibilityAddTraits(.updatesFrequently)
     }
 }
 

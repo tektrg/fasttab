@@ -101,6 +101,8 @@ public struct ReadingFeedCardView: View {
             .contentShape(RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityValue(readingProgress > 0.01 ? "\(Int(readingProgress * 100)) percent read" : "")
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous))
         .contextMenu {
             Button {
                 onSelect()
@@ -173,7 +175,6 @@ public struct ReadingFeedCardView: View {
             }
             .frame(height: 3)
             .background(Color.black.opacity(0.15))
-            .accessibilityLabel("\(Int(readingProgress * 100)) percent read")
         }
     }
 

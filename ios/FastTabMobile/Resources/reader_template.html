@@ -512,7 +512,11 @@ function focusHighlight(id) {
   setTimeout(function() {
     var mark = document.querySelector('mark[data-highlight-id="' + id + '"]');
     if (mark) {
+      // Programmatic jump: don't let it count as user scrolling, or the highlight's
+      // position would overwrite the article's saved reading progress.
+      isRestoringScroll = true;
       mark.scrollIntoView({ block: 'center' });
+      setTimeout(function() { isRestoringScroll = false; }, 100);
       mark.classList.add('reader-highlight-flash');
       setTimeout(function() { mark.classList.remove('reader-highlight-flash'); }, 1400);
     } else {

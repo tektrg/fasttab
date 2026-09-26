@@ -13,6 +13,7 @@ final class ReaderTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "FastTabMobile.lastOpenedReadingHistoryV1")
         UserDefaults.standard.removeObject(forKey: "FastTabMobile.readerArticleCacheIndexV1")
         ReaderArticleCache.shared.clear()
+        LastOpenedStore.shared.clear()
     }
 
     override func tearDown() {
@@ -21,6 +22,7 @@ final class ReaderTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "FastTabMobile.lastOpenedReadingHistoryV1")
         UserDefaults.standard.removeObject(forKey: "FastTabMobile.readerArticleCacheIndexV1")
         ReaderArticleCache.shared.clear()
+        LastOpenedStore.shared.clear()
         super.tearDown()
     }
 

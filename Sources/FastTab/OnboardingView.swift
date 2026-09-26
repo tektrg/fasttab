@@ -590,9 +590,16 @@ private struct ExtensionInstallStep: View {
                 .padding(.bottom, 20)
 
             primaryAction
-                .padding(.bottom, 10)
+                .padding(.bottom, 8)
 
-            connectionStatus
+            if permissions.extensionSetupState == .waiting {
+                Text("Add it in each browser profile you use.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 8)
+            }
+
+            ExtensionSetupStatusView()
 
             if !isExtensionUsable {
                 Button("Skip for now", action: onContinue)
@@ -606,7 +613,7 @@ private struct ExtensionInstallStep: View {
         .onAppear {
             scheduleAutoAdvanceIfConnected()
         }
-        .onChange(of: permissions.extensionConnectedAppNames) { _, _ in
+        .onChange(of: permissions.usableExtensionAppNames) { _, _ in
             scheduleAutoAdvanceIfConnected()
         }
     }
@@ -643,26 +650,6 @@ private struct ExtensionInstallStep: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
         }
-    }
-
-    private var connectionStatus: some View {
-        let connected = isExtensionUsable
-        return VStack(spacing: 2) {
-            HStack(spacing: 6) {
-                Image(systemName: connected ? "checkmark.circle.fill" : "circle.dashed")
-                    .foregroundStyle(connected ? Color.green : Color.secondary)
-                Text(connected ? "Connected" : "Waiting for the extension…")
-                    .foregroundStyle(connected ? .secondary : .tertiary)
-            }
-            .font(.caption)
-
-            if !connected {
-                Text("Add it in each browser profile you use.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.bottom, 12)
     }
 }
 

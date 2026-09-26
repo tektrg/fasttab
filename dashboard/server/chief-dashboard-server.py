@@ -199,6 +199,7 @@ import chief_dashboard_actions as session_actions  # noqa: E402
 import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, generic)
 import personas  # noqa: E402  (Jev persona registry + routing, P1)
 import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
+import persona_start  # noqa: E402  (POST /api/persona/start, P3)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -2877,6 +2878,31 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "not found"}, status=404)
 
+    def _handle_persona_start(self):
+        """POST /api/persona/start (Jev persona routing P3 — see
+        server/lib/persona_start.py). Localhost only (brief: "Dashboard
+        endpoints"): refused on the remote listener even when
+        authenticated, since starting a Claude session is a local-desk
+        action. Then the Content-Type gate, before the body is parsed: a
+        browser page can't send application/json cross-site without a
+        preflight this dashboard never answers."""
+        if self._is_remote_listener():
+            self._send_json(
+                {"ok": False, "error": "refused: /api/persona/start is localhost-only"},
+                status=403)
+            return
+        if not persona_start.is_json_content_type(self.headers.get("Content-Type")):
+            self._send_json(
+                {"ok": False, "error": "Content-Type must be application/json"},
+                status=400)
+            return
+        try:
+            body = self._read_json_body()
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, status=200)
+            return
+        self._send_json(persona_start.start_persona(body))
+
     def do_POST(self):
         if self._reject_foreign_write():
             return
@@ -2927,6 +2953,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             payload, status = agent_tree_detach(body.get("child"))
             self._send_json(payload, status=status)
+            return
+        if path == "/api/persona/start":
+            self._handle_persona_start()
             return
         # P0 dashboard move: POST /api/worker (chief_dashboard_worker.py —
         # worktree/session spin-up for AptusFit's not-yet-built "Jev

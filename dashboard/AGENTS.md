@@ -18,7 +18,8 @@ move plan; this file is the day-to-day reference for running/testing it.
   session rows; the work-item board itself was retired, not moved), feeds/
   views/actions/memory modules, `chief_dashboard_pass.py` (`GET
   /api/deliver/pass` — see "chief_pass" below), `personas.py` (`GET
-  /api/personas` — see "Jev persona routing" below), and `dashboard_config.py`
+  /api/personas` — see "Jev persona routing" below), `persona_start.py`
+  (`POST /api/persona/start`, same section), and `dashboard_config.py`
   (below).
 - `scripts/restart.sh` — kill-and-relaunch by port ownership, with a
   liveness wait; `scripts/chief-dashboard-watchdog.py` — a 60s probe/
@@ -108,6 +109,50 @@ AgentBar + this dashboard), `bi` (~/01_Project/ssv-bi-platform),
 `portfolio` (~/01_Project — cross-project questions and anything with no
 persona of its own yet).
 
+Names are unique among OFFERED personas (hidden/undescribed entries are
+filtered first, then a duplicate name keeps the first in registry order).
+Each row also carries `idleStart`: `"resume"` | `"fresh"` — what a start
+would do right now (see below). Only a local `start: in-place` persona can
+be `"resume"`; the folder scan is cached 30s.
+
+### `POST /api/persona/start` — P3 (`server/lib/persona_start.py`)
+Starts or resumes an idle persona's Claude session in a new herdr tab in
+its registry folder. **Localhost only**: 403 on the remote (tailscale)
+listener even when authenticated. Requires `Content-Type: application/json`
+(400 otherwise).
+
+- Request: `{"persona": "<name>", "text": "<first message>", "fresh": true?}`
+  — a name, never a path. `text` follows the Send message rules
+  (`validate_message_text`: one line, <= 2000 chars, no terminal control
+  characters, no slash command beyond `/clear`/`/compact`). `fresh` must
+  be a JSON bool if sent.
+- Response (always HTTP 200 past the gates above): `{"ok": true, "paneId":
+  "<new pane>", "mode": "started"|"resumed"}` or `{"ok": false, "error":
+  "<reason>"}`. Refused: unknown/hidden/undescribed name, `start: script`
+  or a remote machine (not built yet), a missing folder, a second start of
+  the same persona while one is in flight or within 10s of the last one.
+  If herdr fails after the tab opened, the tab is closed again.
+- The tab is created with `--env PERSONA_MESSAGE=<text>`; once its shell
+  shows output, `herdr pane run` types `claude [--resume <uuid>]
+  --append-system-prompt-file=<file> -- "$PERSONA_MESSAGE"`. No user text
+  is ever typed (no keystroke/quoting/`=word` risk, no shell history, the
+  line stays short). The instructions (global block + known persona names
+  + the persona's `extraInstructions`) go in
+  `<STATE_HOME>/persona-prompts/<name>-<hash>.md` (0600). `--resume <uuid>`
+  only when `idle: resume`, not `fresh`, the folder's newest UUID-named
+  transcript (`~/.claude/projects/<encoded folder>/`, override
+  `CLAUDE_PROJECTS_DIR`) is within `resumeWithinDays`, and that
+  conversation isn't already live (any `computed.agents` row: herdr panes
+  AND the `claudeSessions` feed's non-herdr sessions). Blind spot: a
+  session started seconds ago that no feed has picked up yet — the 10s
+  cooldown covers the dashboard's own starts, not someone else's.
+- Testing a second instance: `AGENTBAR_PERSONAS_FILE=<throwaway
+  personas.json>` + `CHIEF_DASHBOARD_STATE_HOME=<throwaway dir>` +
+  `CHIEF_DASHBOARD_CONFIG_HOME=<throwaway dir>` (keeps the remote listener,
+  default :4712, off) + `scripts/restart.sh --port <free port, not 4711/
+  4712> --detached`; POST only to that port, with a throwaway persona
+  folder.
+
 ## Claude sessions outside herdr (P4) + OpenCode status fallback (P5)
 - `server/lib/claude_sessions.py`, feed `claudeSessions` (3s): reads
   `~/.claude/sessions/<pid>.json` (override `CLAUDE_SESSIONS_DIR`) — every
@@ -158,7 +203,7 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 42 test files, 1268 `PASS` assertions, 0 `FAIL`.
+As of this writing: 46 test files, 1537 `PASS` assertions, 0 `FAIL`.
 
 **`agent_tree.py` is a verbatim copy of AptusFit's `scripts/lib/agent_tree.py`**
 — both write the same `~/.claude/agent-tree.json`, so their prune rules must

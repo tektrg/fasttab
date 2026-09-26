@@ -42,6 +42,10 @@ struct PanePeekView: View {
             centered { Text(reason).multilineTextAlignment(.center) }
         case .screen(let lines, _):
             screenText(lines)
+        case .loadingLatestMessage:
+            centered { HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Reading latest message…") } }
+        case .latestMessage(let text):
+            ScrollView { LastMessageView(text: text).padding(.horizontal, 18).padding(.vertical, 8) }
         }
     }
 

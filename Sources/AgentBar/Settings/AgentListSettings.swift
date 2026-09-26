@@ -12,6 +12,7 @@ struct AgentListSettings: Equatable, Sendable {
     static let endedWindowHoursKey = "listEndedWindowHours"
     static let maxEndedRowsKey = "listMaxEndedRows"
     static let showsNonClaudePanesKey = "listShowsNonClaudePanes"
+    static let showsClaudeOutsideHerdrKey = "listShowsClaudeOutsideHerdr"
     static let maxVisibleRowsKey = "listMaxVisibleRows"
 
     /// Defaults are the previously hard-coded behaviour.
@@ -19,6 +20,7 @@ struct AgentListSettings: Equatable, Sendable {
         endedWindowHours: Int(EndedAgentMapper.endedWindowSeconds / 3_600),
         maxEndedRows: EndedAgentMapper.maxEndedCount,
         showsNonClaudePanes: true,
+        showsClaudeOutsideHerdr: true,
         maxVisibleRows: AgentPanelMetrics.defaultMaxVisibleRows
     )
 
@@ -26,6 +28,8 @@ struct AgentListSettings: Equatable, Sendable {
     var maxEndedRows: Int
     /// Plain shells and other CLIs (OpenCode): panes with no Claude hook data.
     var showsNonClaudePanes: Bool
+    /// Status-only Claude sessions outside herdr (Claude Desktop, CLI in tmux): `AgentHost`.
+    var showsClaudeOutsideHerdr: Bool
     /// Rows shown before the list scrolls.
     var maxVisibleRows: Int
 
@@ -37,6 +41,7 @@ struct AgentListSettings: Equatable, Sendable {
             endedWindowHours: choice(defaults, endedWindowHoursKey, in: endedWindowHoursChoices, fallback: standard.endedWindowHours),
             maxEndedRows: choice(defaults, maxEndedRowsKey, in: maxEndedRowsChoices, fallback: standard.maxEndedRows),
             showsNonClaudePanes: defaults.object(forKey: showsNonClaudePanesKey) as? Bool ?? standard.showsNonClaudePanes,
+            showsClaudeOutsideHerdr: defaults.object(forKey: showsClaudeOutsideHerdrKey) as? Bool ?? standard.showsClaudeOutsideHerdr,
             maxVisibleRows: choice(defaults, maxVisibleRowsKey, in: Array(maxVisibleRowsRange), fallback: standard.maxVisibleRows)
         )
     }
@@ -45,6 +50,7 @@ struct AgentListSettings: Equatable, Sendable {
         defaults.set(endedWindowHours, forKey: Self.endedWindowHoursKey)
         defaults.set(maxEndedRows, forKey: Self.maxEndedRowsKey)
         defaults.set(showsNonClaudePanes, forKey: Self.showsNonClaudePanesKey)
+        defaults.set(showsClaudeOutsideHerdr, forKey: Self.showsClaudeOutsideHerdrKey)
         defaults.set(maxVisibleRows, forKey: Self.maxVisibleRowsKey)
     }
 
@@ -54,6 +60,7 @@ struct AgentListSettings: Equatable, Sendable {
         var endedKept = 0
         return agents.filter { agent in
             if !showsNonClaudePanes && !agent.hasHookData { return false }
+            if !showsClaudeOutsideHerdr && !agent.host.isHerdr { return false }
             guard agent.section == .ended else { return true }
             guard (agent.secondsInStatus ?? 0) <= endedWindowSeconds, endedKept < maxEndedRows else { return false }
             endedKept += 1

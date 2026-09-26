@@ -147,10 +147,17 @@ struct DashboardAgent: Decodable {
     let screenQuestion: DashboardQuestion?
     let rowId: String?
     let actions: DashboardActions?
+    /// "herdr" | "claude-desktop" | "claude-cli"; absent from an older dashboard (= herdr).
+    let source: String?
+    /// A Claude Desktop row: `claude://code/continue?session=…`.
+    let openUrl: String?
+    /// A Claude CLI row running in tmux: "session:@w.%p".
+    let tmuxTarget: String?
 
     private enum CodingKeys: String, CodingKey {
         case paneId, label, cwd, hookState, hookSinceSec, hasHookData, residue
         case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
+        case source, openUrl, tmuxTarget
     }
 
     init(from decoder: Decoder) throws {
@@ -169,6 +176,9 @@ struct DashboardAgent: Decodable {
         screenQuestion = container.lenient(.screenQuestion)
         rowId = container.lenient(.rowId)
         actions = container.lenient(.actions)
+        source = container.lenient(.source)
+        openUrl = container.lenient(.openUrl)
+        tmuxTarget = container.lenient(.tmuxTarget)
     }
 }
 
@@ -186,8 +196,10 @@ struct DashboardNeedsYou: Decodable {
     /// On a "blocked" row: the plain permission box, once the dashboard has parsed it
     /// (always sent, null when it has not; absent from an older dashboard).
     let permission: DashboardPermission?
+    /// A status-only (pane-less) row's Claude session id: how it is matched to its agent row.
+    let agentSession: String?
 
-    private enum CodingKeys: String, CodingKey { case kind, paneId, detail, sinceSec, question, questionPreview, permission }
+    private enum CodingKeys: String, CodingKey { case kind, paneId, detail, sinceSec, question, questionPreview, permission, agentSession }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -198,6 +210,7 @@ struct DashboardNeedsYou: Decodable {
         question = container.lenient(.question)
         questionPreview = container.lenient(.questionPreview)
         permission = container.lenient(.permission)
+        agentSession = container.lenient(.agentSession)
     }
 }
 

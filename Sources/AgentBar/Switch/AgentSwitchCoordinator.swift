@@ -8,6 +8,9 @@ import Foundation
 ///   top), and the panel comes back with a red "Couldn't switch: ..." notice that
 ///   stays until the user closes it, since by then their eyes are already elsewhere.
 ///   If the panel was reopened in the meantime it is left as is and only gets the notice.
+/// - Status-only rows (`AgentHost`) never reach the dashboard's focus: a Claude Desktop session
+///   opens in Claude.app (`ClaudeDesktopOpening`); a Claude CLI session outside herdr has
+///   nothing AgentBar can switch to, so the panel stays and says where it runs.
 @MainActor
 final class AgentSwitchCoordinator {
     struct PanelControls {
@@ -20,14 +23,42 @@ final class AgentSwitchCoordinator {
     /// Replaced when the user points AgentBar at another dashboard.
     var statusSource: any AgentStatusSource
     private let panel: PanelControls
+    private let desktopOpener: any ClaudeDesktopOpening
 
-    init(model: AgentPanelModel, statusSource: any AgentStatusSource, panel: PanelControls) {
+    init(
+        model: AgentPanelModel,
+        statusSource: any AgentStatusSource,
+        panel: PanelControls,
+        desktopOpener: any ClaudeDesktopOpening = ClaudeDesktopOpener()
+    ) {
         self.model = model
         self.statusSource = statusSource
         self.panel = panel
+        self.desktopOpener = desktopOpener
     }
 
     func switchTo(_ agent: AgentSnapshot) async {
+        switch agent.host {
+        case .herdr:
+            await focusPane(of: agent)
+        case .claudeDesktop(let openURL):
+            panel.hide()
+            if desktopOpener.openSession(openURL) {
+                model.recordSwitch(to: agent.id)
+            } else {
+                surface(failure: "Claude Desktop could not be opened.")
+            }
+        case .claudeCLI(let tmuxTarget):
+            model.reportSwitchFailure(Self.cliSessionMessage(tmuxTarget: tmuxTarget))
+        }
+    }
+
+    static func cliSessionMessage(tmuxTarget: String?) -> String {
+        let place = tmuxTarget.map { "tmux (\($0))" } ?? "a terminal"
+        return "this Claude CLI session runs in \(place), outside herdr — switch to it there."
+    }
+
+    private func focusPane(of agent: AgentSnapshot) async {
         panel.hide()
         guard let paneId = agent.paneId else {
             surface(failure: "this agent has no terminal pane.")

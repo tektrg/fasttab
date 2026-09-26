@@ -64,6 +64,7 @@ struct AgentRowView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            if let hostBadge = agent.host.badgeText { MachineBadgeView(text: hostBadge) }
             nestingDecorations
             Spacer(minLength: 8)
             if let sendingLabel {

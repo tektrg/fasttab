@@ -108,4 +108,56 @@ struct AgentSwitchCoordinatorTests {
         #expect(rig.source.focusedPaneIds.isEmpty)
         #expect(rig.model.footerNotice != nil)
     }
+
+    // MARK: - Status-only rows (Claude Desktop / CLI outside herdr)
+
+    @MainActor private final class DesktopOpenerSpy: ClaudeDesktopOpening {
+        var opens = true
+        private(set) var openedURLs: [URL?] = []
+        func openSession(_ url: URL?) -> Bool {
+            openedURLs.append(url)
+            return opens
+        }
+    }
+
+    private func coordinator(_ rig: Rig, opener: DesktopOpenerSpy) -> AgentSwitchCoordinator {
+        AgentSwitchCoordinator(model: rig.model, statusSource: rig.source, panel: rig.panel.controls, desktopOpener: opener)
+    }
+
+    @Test func aDesktopSessionOpensInClaudeAppAndNeverAsksTheDashboardToFocus() async {
+        let rig = makeRig()
+        let opener = DesktopOpenerSpy()
+        let desktop = StatusOnlyFixtures.desktopAgent("d")
+        rig.model.receive(F.snapshot([F.agent("w1", section: .working), desktop]))
+        await coordinator(rig, opener: opener).switchTo(desktop)
+        #expect(opener.openedURLs == [URL(string: StatusOnlyFixtures.openUrl)])
+        #expect(rig.source.focusedPaneIds.isEmpty)
+        #expect(rig.panel.events == ["hide"])
+        #expect(rig.model.footerNotice == nil)
+    }
+
+    @Test func aDesktopSessionThatCannotOpenSaysSo() async {
+        let rig = makeRig()
+        let opener = DesktopOpenerSpy()
+        opener.opens = false
+        await coordinator(rig, opener: opener).switchTo(StatusOnlyFixtures.desktopAgent("d"))
+        #expect(rig.panel.events == ["hide", "show"])
+        #expect(rig.model.footerNotice == .switchFailed("Claude Desktop could not be opened."))
+        #expect(rig.source.focusedPaneIds.isEmpty)
+    }
+
+    @Test func aCliSessionOutsideHerdrKeepsThePanelAndSaysWhereItRuns() async {
+        let rig = makeRig()
+        let opener = DesktopOpenerSpy()
+        let cli = AgentSnapshot(
+            id: "c", label: "c", projectName: nil, cwd: nil, paneId: nil, section: .needsYou, statusText: "",
+            secondsInStatus: nil, hasUnpushedCommits: false, unpushedText: nil, promptExcerpt: nil,
+            canFocus: true, hasHookData: true, host: .claudeCLI(tmuxTarget: "work:@3.%7"))
+        await coordinator(rig, opener: opener).switchTo(cli)
+        #expect(rig.panel.events.isEmpty)
+        #expect(opener.openedURLs.isEmpty)
+        #expect(rig.source.focusedPaneIds.isEmpty)
+        #expect(rig.model.footerNotice == .switchFailed(AgentSwitchCoordinator.cliSessionMessage(tmuxTarget: "work:@3.%7")))
+        #expect(AgentSwitchCoordinator.cliSessionMessage(tmuxTarget: "work:@3.%7").contains("tmux (work:@3.%7)"))
+    }
 }

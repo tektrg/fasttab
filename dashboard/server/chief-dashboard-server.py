@@ -180,6 +180,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import classify_pane  # noqa: E402  (scripts/lib/classify_pane.py)
 import agent_tree  # noqa: E402  (scripts/lib/agent_tree.py — the hierarchy store)
+import session_transcript  # noqa: E402  (transcript latest message + plan file, P1b)
 import chief_dashboard_herdr as herdr_transport  # noqa: E402
 from chief_dashboard_feeds import (  # noqa: E402
     HOST, PORT, REPO_ROOT, STOP, start_pollers, run_json, MACHINES,
@@ -1806,6 +1807,189 @@ def handle_session_history(qs):
     return {"ok": True, "rowId": row_id, "entries": entries}, 200
 
 
+# ── Phase 1b (agentbar-mobile-web plan): transcript latest message + plan
+# file, machine-aware ──
+#
+# AgentBar's own SessionTranscriptReader/PlanFileReader
+# (Sources/AgentBar/Answer/Transcript/, Sources/AgentBar/Permission/Plan/)
+# read straight off THIS Mac's local disk — they cannot see a session
+# running on a configured remote machine (the Air), and a phone has no
+# local disk at all (AGENTS.md gotchas 9 and 13). These two endpoints port
+# the same read logic (session_transcript.py) and route it through
+# chief_dashboard_herdr's one ssh door for a remote row, so the web/phone
+# UI (and eventually Mac AgentBar) can ask the dashboard instead of reading
+# a file directly.
+
+_CLAUDE_PROJECTS_ROOT = os.path.expanduser("~/.claude/projects")
+_REMOTE_TAIL_TIMEOUT_SEC = 20
+_REMOTE_PLAN_READ_TIMEOUT_SEC = 15
+
+
+def _agent_for_row(row_id):
+    """The live `computed.agents[]` entry for one board row id, or None —
+    same resolution `_handle_reach_action` uses (resolve_agent_row_id)."""
+    state = get_full_state()
+    agents = state.get("computed", {}).get("agents") or []
+    return next((a for a in agents if resolve_agent_row_id(a) == row_id), None)
+
+
+def _local_tail_reader(session_id):
+    """A `read_window` callback (see session_transcript.latest_message_from_tail
+    / .pending_question_form_from_tail) backed by this Mac's own disk."""
+    def read_window(window_bytes):
+        path = session_transcript.find_local_transcript(
+            session_id, _CLAUDE_PROJECTS_ROOT)
+        if path is None:
+            return None
+        result = session_transcript.read_local_tail(path, window_bytes)
+        if result is None:
+            return None
+        data, starts_at_file_start, _size = result
+        return data, starts_at_file_start
+    return read_window
+
+
+def _remote_tail_reader(machine, session_id, errors):
+    """Same `read_window` shape, over ssh (chief_dashboard_herdr's one
+    door). Memoized per window size: the message scan and the pending-
+    question scan each walk the same growing window list, and without this
+    a single request could cost up to 6 ssh round trips instead of at most
+    3. Any ssh failure is recorded into `errors` (the caller's list) and
+    read as "nothing at this window" rather than raised — a transient ssh
+    hiccup on the FIRST (smallest) window must not stop a wider retry."""
+    cache = {}
+
+    def read_window(window_bytes):
+        if window_bytes in cache:
+            return cache[window_bytes]
+        script = session_transcript.remote_tail_script(session_id, window_bytes)
+        try:
+            out = herdr_transport.remote_shell_text(
+                machine, script, repo_root=REPO_ROOT, machines=MACHINES,
+                timeout=_REMOTE_TAIL_TIMEOUT_SEC)
+        except herdr_transport.HerdrError as e:
+            errors.append(str(e))
+            cache[window_bytes] = None
+            return None
+        result = session_transcript.parse_remote_tail_reply(out)
+        cache[window_bytes] = result
+        return result
+    return read_window
+
+
+def handle_session_latest(qs):
+    """GET /api/session/latest?rowId= -> (payload, http_status).
+
+    {ok, rowId, machine, latestMessage, pendingQuestion} — the same two
+    things AgentBar's Answer card reads from local disk: the last assistant
+    text, and (when the agent is sitting on an unanswered multi-question
+    AskUserQuestion form) the pending form's questions/options, ported from
+    SessionTranscriptReader/AskUserQuestionExtractor (see session_transcript.py's
+    module docstring for exact, documented differences from the Swift
+    originals). `machine` is "local" or a configured remote machine name;
+    reads for a remote row go over the same ssh door every other machine
+    call in this server uses (chief_dashboard_herdr), not a new one.
+
+    A row with no live agent, or a live agent with no Claude session
+    (opencode/codex/gemini, or a status-only Claude Desktop/CLI row that
+    has since ended) reads `ok:false` with a plain reason — never a 400,
+    since "not live right now" is an operational fact, not a bad request.
+    """
+    row_id = (qs.get("rowId") or [None])[0]
+    if not row_id or not row_id.strip():
+        return {"ok": False, "error": "missing rowId"}, 400
+    row_id = row_id.strip()
+    agent = _agent_for_row(row_id)
+    if agent is None:
+        return {"ok": False, "error": f"row {row_id} is not live"}, 200
+    session_id = agent.get("agentSession")
+    if not session_id:
+        return {"ok": False,
+                "error": f"row {row_id} has no Claude session transcript"}, 200
+    if not session_transcript.is_safe_session_id(session_id):
+        return {"ok": False, "error": "bad session id"}, 400
+    machine = agent.get("machine") or herdr_transport.LOCAL_MACHINE
+
+    errors = []
+    read_window = (_local_tail_reader(session_id) if machine == herdr_transport.LOCAL_MACHINE
+                   else _remote_tail_reader(machine, session_id, errors))
+    scan = session_transcript.latest_message_from_tail(read_window)
+    pending = session_transcript.pending_question_form_from_tail(read_window)
+    if scan["latestMessage"] is None and pending is None and errors:
+        # Nothing at all came back AND at least one window attempt failed
+        # over ssh — report the ssh failure rather than a silent "no
+        # message", so a dead Air reads as "unreachable", not "quiet".
+        return {"ok": False, "error": errors[0]}, 200
+    return {"ok": True, "rowId": row_id, "machine": machine,
+            "latestMessage": scan["latestMessage"],
+            "pendingQuestion": pending}, 200
+
+
+def _current_plan_path(pane_id, row_id):
+    """Reads the pane FRESH (same `_read_pane_now` door every send-path
+    handler uses) and returns (planPath, resolvedMachine, error). error is
+    a plain-English reason for the UI when the row has nothing to show —
+    no pane, unreachable, or not currently sitting on a plan-approval box."""
+    if not pane_id:
+        return None, None, f"row {row_id} has no pane — nothing to read"
+    try:
+        machine, raw_pane_id = herdr_transport.split_pane_key(pane_id, MACHINES)
+    except herdr_transport.HerdrError as e:
+        return None, None, f"could not resolve pane machine: {e}"
+    try:
+        _lines, prompt = _read_pane_now(
+            raw_pane_id, parser=classify_pane.parse_permission_or_plan_block,
+            machine=machine)
+    except Exception as e:
+        return None, machine, f"could not read pane {pane_id} fresh — {e}"
+    if not prompt or prompt.get("kind") != "plan":
+        return None, machine, (f"row {row_id} is not showing a plan approval "
+                               "box right now")
+    return prompt.get("planPath"), machine, None
+
+
+def handle_session_plan(qs):
+    """GET /api/session/plan?rowId= -> (payload, http_status).
+
+    {ok, rowId, machine, planPath, plan:{status, text?, truncated?, reason?}}
+    — ports PlanFileReader (Sources/AgentBar/Permission/Plan/PlanFileReader.swift)
+    for a row currently blocked on a plan-approval box, reading the plan
+    file from whichever machine the row's pane actually lives on instead of
+    only this Mac's disk (AGENTS.md gotcha 13's deferred item). `plan.status`
+    is one of "noPath" (box names no file), "unreadable" (reason given,
+    never blocks approval), or "text" (plan.text, plan.truncated at 200KB —
+    same cap as the Swift reader).
+    """
+    row_id = (qs.get("rowId") or [None])[0]
+    if not row_id or not row_id.strip():
+        return {"ok": False, "error": "missing rowId"}, 400
+    row_id = row_id.strip()
+    agent = _agent_for_row(row_id)
+    if agent is None:
+        return {"ok": False, "error": f"row {row_id} is not live"}, 200
+    plan_path, machine, err = _current_plan_path(agent.get("paneId"), row_id)
+    machine = machine or agent.get("machine") or herdr_transport.LOCAL_MACHINE
+    if err:
+        return {"ok": False, "error": err}, 200
+    if not plan_path:
+        return {"ok": True, "rowId": row_id, "machine": machine,
+                "planPath": None, "plan": {"status": "noPath"}}, 200
+
+    if machine == herdr_transport.LOCAL_MACHINE:
+        plan = session_transcript.read_local_plan_file(plan_path)
+    else:
+        script = session_transcript.remote_plan_file_script(plan_path)
+        try:
+            out = herdr_transport.remote_shell_text(
+                machine, script, repo_root=REPO_ROOT, machines=MACHINES,
+                timeout=_REMOTE_PLAN_READ_TIMEOUT_SEC)
+        except herdr_transport.HerdrError as e:
+            return {"ok": False, "error": str(e)}, 200
+        plan = session_transcript.parse_remote_plan_file_reply(out, plan_path)
+    return {"ok": True, "rowId": row_id, "machine": machine,
+            "planPath": plan_path, "plan": plan}, 200
+
+
 def _plain_herdr_error(exc):
     """A herdr failure as one sentence the PO can read.
 
@@ -2540,6 +2724,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"links": STORE.list_links(work_row_id)})
         elif path == "/api/session/history":
             payload, status = handle_session_history(parse_qs(parsed.query))
+            self._send_json(payload, status=status)
+        elif path == "/api/session/latest":
+            payload, status = handle_session_latest(parse_qs(parsed.query))
+            self._send_json(payload, status=status)
+        elif path == "/api/session/plan":
+            payload, status = handle_session_plan(parse_qs(parsed.query))
             self._send_json(payload, status=status)
         elif path == "/api/pane/screen":
             # BLOCKING ~2.5s on this request thread. ThreadingHTTPServer keeps

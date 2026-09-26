@@ -171,21 +171,58 @@ describe("Composer", () => {
     unmount();
   });
 
-  test("a plain refusal puts the text back in the box", async () => {
-    stubFetch([{ ok: false, error: "refused: control character '\\x03'" }]);
+  const inputValue = (host: HTMLElement) =>
+    (host.querySelector("input") as HTMLInputElement).value;
+
+  test("a control-char refusal (typed:false) puts the text back in the box", async () => {
+    stubFetch([
+      { ok: false, error: "refused: control character '\\x03'", typed: false },
+    ]);
     const { host, unmount } = mount([boardRow("a")]);
     typeInto(host, "keep me");
     await clickSend(host);
-    expect((host.querySelector("input") as HTMLInputElement).value).toBe(
-      "keep me",
-    );
+    expect(inputValue(host)).toBe("keep me");
+    unmount();
+  });
+
+  test("a mid-sequence error leaves the box empty — the text may have landed", async () => {
+    const toasts: [string, boolean][] = [];
+    stubFetch([
+      { ok: false, error: "message send failed mid-sequence — sentinel drop" },
+    ]);
+    const { host, unmount } = mount([boardRow("a")], (...t) => toasts.push(t));
+    typeInto(host, "maybe delivered");
+    await clickSend(host);
+    expect(inputValue(host)).toBe("");
+    expect(toasts.some(([m]) => m.includes("may have arrived"))).toBe(true);
+    unmount();
+  });
+
+  test("a fetch exception (connection dropped mid-send) leaves the box empty", async () => {
+    globalThis.fetch = (async (url: unknown) => {
+      if (url === "/api/session/message") throw new TypeError("sentinel drop");
+      return { json: async () => ({ ok: true }) };
+    }) as typeof fetch;
+    const { host, unmount } = mount([boardRow("a")]);
+    typeInto(host, "maybe delivered");
+    await clickSend(host);
+    expect(inputValue(host)).toBe("");
+    unmount();
+  });
+
+  test("a refusal without the typed:false marker leaves the box empty", async () => {
+    stubFetch([{ ok: false, error: "refused: sentinel from an older server" }]);
+    const { host, unmount } = mount([boardRow("a")]);
+    typeInto(host, "unproven");
+    await clickSend(host);
+    expect(inputValue(host)).toBe("");
     unmount();
   });
 
   test("a refusal on one row only (another row got it) leaves the box empty", async () => {
     stubFetch([
       { ok: true, state: "message sent" },
-      { ok: false, error: "refused: row b is not live" },
+      { ok: false, error: "refused: row b is not live", typed: false },
     ]);
     const { host, unmount } = mount([boardRow("a"), boardRow("b")]);
     typeInto(host, "once only");

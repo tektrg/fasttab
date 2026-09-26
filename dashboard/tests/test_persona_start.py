@@ -234,13 +234,18 @@ check("…it reaches claude as the prompt, via the env",
 print("\n== terminal control characters in text are refused before any herdr call ==")
 for label, hostile in (("ctrl-C", "\x03echo INJECTED"), ("ctrl-U", "\x15echo INJECTED"),
                        ("ESC", "\x1b[2Jecho INJECTED"), ("DEL", "ab\x7fecho INJECTED"),
-                       ("C1 CSI", "ab\x9becho INJECTED"), ("NUL", "ab\x00echo INJECTED"),
-                       ("tab", "ab\techo INJECTED")):
+                       ("C1 CSI", "ab\x9becho INJECTED"), ("NUL", "ab\x00echo INJECTED")):
     result, herdr = start({"persona": "test-echo", "text": f"hello {hostile}"})
     check(f"{label}: refused", result.get("ok"), False)
     check(f"{label}: reason names a control character",
           "control character" in (result.get("error") or ""), True)
     check(f"{label}: herdr never called", herdr.calls, [])
+
+print("\n== a tab in text becomes a space (same rule as Send message / AgentBar) ==")
+result, herdr = start({"persona": "test-echo", "text": "col a\tcol b"})
+check("tab text accepted", result.get("ok"), True)
+check("the tab reached claude as a space",
+      herdr.tab_env(), {ps.MESSAGE_ENV_VAR: "col a col b"})
 
 print("\n== the shared Send-message rules apply to text ==")
 for label, text, needle in (("newline", "line one\nline two", "newline"),

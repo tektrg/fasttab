@@ -127,7 +127,8 @@ parse that body as a second, attacker-written request (live-proven
 
 - Request: `{"persona": "<name>", "text": "<first message>", "fresh": true?}`
   — a name, never a path. `text` follows the Send message rules
-  (`validate_message_text`: one line, <= 2000 chars, no terminal control
+  (`validate_message_text`: one line, <= 2000 chars, tabs become spaces
+  like AgentBar's `TerminalSafeText`, no other terminal control
   characters, no slash command beyond `/clear`/`/compact`). `fresh` must
   be a JSON bool if sent.
 - Response (always HTTP 200 past the gates above): `{"ok": true, "paneId":

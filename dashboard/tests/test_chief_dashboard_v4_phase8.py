@@ -107,6 +107,14 @@ for label, hostile in (("ctrl-C", "hi \x03echo INJECTED"), ("ESC", "hi \x1b[2J")
     ok, why = act.validate_message_text(hostile)
     check(f"{label} refused as a control character",
           (ok, "control character" in why), (False, True))
+# Tabs are normalized to spaces (AgentBar's TerminalSafeText rule), not refused.
+ok, cleaned = act.validate_message_text("\tcol a\tcol b\t")
+check("tabs become spaces (edges then stripped)", (ok, cleaned), (True, "col a col b"))
+ok, why = act.validate_message_text("a\tb \x03echo INJECTED")
+check("a tab does not excuse another control character",
+      (ok, "control character" in why), (False, True))
+ok, why = act.validate_message_text("\t\t")
+check("tabs only -> empty, refused", (ok, "empty" in why), (False, True))
 check("find_terminal_control_char honours an allowlist",
       act.find_terminal_control_char("a\nb\tc", allowed="\n\t"), None)
 

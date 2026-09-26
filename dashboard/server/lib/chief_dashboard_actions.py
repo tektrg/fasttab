@@ -679,8 +679,14 @@ def validate_message_text(text):
       - any other terminal control character (`find_terminal_control_char`):
         typed into a live pane it is a keystroke (ctrl-C, ctrl-U, ESC...),
         not text — quoting can't neutralise it.
+
+    Tabs are the one control character NORMALIZED instead of refused: each
+    becomes a space (a pasted tab is almost always spacing, and a refusal
+    would cost the PO the whole message). Same rule as AgentBar's
+    `TerminalSafeText`, so every client sends the same text. Every caller
+    (Send message, persona start) gets this through here.
     """
-    cleaned = (text or "").strip()
+    cleaned = (text or "").replace("\t", " ").strip()
     if not cleaned:
         return False, "refused: empty message — nothing to send"
     if "\n" in cleaned or "\r" in cleaned:

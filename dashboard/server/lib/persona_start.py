@@ -21,8 +21,9 @@ SECURITY (brief: "Dashboard endpoints")
   checked by the server before the body is parsed: a browser page can't
   send that cross-site without a preflight this dashboard never answers.
 - `text` passes `chief_dashboard_actions.validate_message_text` (the Send
-  message rules: one line, <= 2000 chars, no terminal control characters,
-  no slash command beyond /clear and /compact).
+  message rules: one line, <= 2000 chars, tabs become spaces, no other
+  terminal control characters, no slash command beyond /clear and
+  /compact).
 - One start per persona at a time, and none within `START_COOLDOWN_SEC`
   of the last success (`StartGuard`) — a double POST must not open two
   tabs.

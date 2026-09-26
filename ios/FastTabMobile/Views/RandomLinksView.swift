@@ -78,7 +78,7 @@ public struct RandomLinksView: View {
             }
         }
         .dsCanvas()
-        .navigationTitle("Random")
+        .navigationTitle("Shuffle")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

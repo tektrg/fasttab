@@ -338,11 +338,8 @@ public struct ReaderView: View {
         }
         .padding(.horizontal, DS.Space.xl)
         .padding(.vertical, DS.Space.md)
-        .background(
-            Capsule(style: .continuous)
-                .fill(.regularMaterial)
-                .shadow(color: DS.Shadow.floating.color, radius: DS.Shadow.floating.radius, y: DS.Shadow.floating.y)
-        )
+        .readerBottomBarGlass()
+        .dsShadow(.floating)
         .padding(.horizontal, DS.Space.lg)
         // Clear the WebView's bottom progress bar + home indicator.
         .padding(.bottom, DS.Space.sm)
@@ -437,10 +434,24 @@ public struct ReaderView: View {
 
     // MARK: - Highlight Action
 
-    private func applyHighlight(color: HighlightColor) {
-        withAnimation { showHighlightBar = false }
+    private func applyHighlight(color: HighlightColor) {        withAnimation { showHighlightBar = false }
         guard !selectedRange.isEmpty else { return }
         viewModel.commitHighlight(selectedText: selectedText, serializedRange: selectedRange, color: color)
+    }
+}
+
+// MARK: - Bottom Bar Glass
+
+/// Liquid Glass pill on iOS 26+, regular-material capsule on earlier versions
+/// (deployment target is iOS 17).
+private extension View {
+    @ViewBuilder
+    func readerBottomBarGlass() -> some View {
+        if #available(iOS 26, *) {
+            self.glassEffect(.regular, in: Capsule())
+        } else {
+            self.background(Capsule().fill(.regularMaterial))
+        }
     }
 }
 

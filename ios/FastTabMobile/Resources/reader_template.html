@@ -222,18 +222,24 @@
     animation: reader-highlight-flash 0.7s ease-in-out 2;
   }
 
-  /* ── Progress bar (bottom fixed) ────────────────────────── */
-  #progress-bar {
+  /* ── Progress dock (bottom fixed, solid) ──────────────── */
+  /* Opaque strip behind the progress bar so article content never shows through. */
+  #progress-dock {
     position: fixed;
-    bottom: env(safe-area-inset-bottom, 0px);
     left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    z-index: 99;
+  }
+  #progress-bar {
     width: 100%;
     height: 3px;
     background: var(--link);
     transform: scaleX(0);
     transform-origin: left;
     will-change: transform;
-    z-index: 100;
     border-radius: 2px 2px 0 0;
   }
 
@@ -245,7 +251,7 @@
 </head>
 <body>
 
-<div id="progress-bar"></div>
+<div id="progress-dock"><div id="progress-bar"></div></div>
 
 <div id="reader-container">
   <header id="reader-header">

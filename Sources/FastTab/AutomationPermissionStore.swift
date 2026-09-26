@@ -57,6 +57,11 @@ final class AutomationPermissionStore: ObservableObject {
     @Published private(set) var requestInFlight: SearchSource?
     /// Browsers (by `appName`) whose extension is connected on a compatible protocol.
     @Published private(set) var extensionConnectedAppNames: Set<String> = []
+    /// Browsers whose extension is connected on an incompatible protocol.
+    @Published private(set) var extensionMismatchedAppNames: Set<String> = []
+    /// Live mirror of `ExtensionBetaPreference` (Settings > Advanced toggle), so
+    /// anything derived from it re-renders when the user flips it.
+    @Published private(set) var isExtensionFeatureEnabled: Bool = ExtensionBetaPreference.isEnabled
 
     private let sourceSelection: SourceSelectionStore
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "AutomationPermission")
@@ -66,14 +71,46 @@ final class AutomationPermissionStore: ObservableObject {
     private var requestGeneration = 0
     private var answeredGeneration: [SearchSource: Int] = [:]
     private var extensionStatusSubscription: AnyCancellable?
+    private var extensionPreferenceSubscription: AnyCancellable?
 
     init(sourceSelection: SourceSelectionStore = .shared, extensionBridge: ExtensionBridge = .shared) {
         self.sourceSelection = sourceSelection
         // Bridge publishes `status` on main; mirroring it here re-renders the banner on (dis)connect.
         extensionStatusSubscription = extensionBridge.$status
-            .map { statuses in Set(statuses.filter { $0.isConnected && !$0.versionMismatch }.map(\.appName)) }
+            .sink { [weak self] statuses in
+                let connected = statuses.filter(\.isConnected)
+                let compatible = Set(connected.filter { !$0.versionMismatch }.map(\.appName))
+                let mismatched = Set(connected.filter(\.versionMismatch).map(\.appName))
+                guard let self else { return }
+                if self.extensionConnectedAppNames != compatible { self.extensionConnectedAppNames = compatible }
+                if self.extensionMismatchedAppNames != mismatched { self.extensionMismatchedAppNames = mismatched }
+            }
+        // The Settings toggle writes through @AppStorage; follow it without polling.
+        extensionPreferenceSubscription = NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification)
+            .map { _ in ExtensionBetaPreference.isEnabled }
             .removeDuplicates()
-            .sink { [weak self] connected in self?.extensionConnectedAppNames = connected }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] enabled in
+                guard let self, self.isExtensionFeatureEnabled != enabled else { return }
+                self.isExtensionFeatureEnabled = enabled
+            }
+    }
+
+    /// Setup progress for onboarding / Settings: tells "not connected" apart
+    /// from "connected but turned off" and "connected on a stale version".
+    var extensionSetupState: ExtensionSetupState {
+        ExtensionSetupState.resolve(
+            extensionEnabled: isExtensionFeatureEnabled,
+            compatibleAppNames: extensionConnectedAppNames,
+            mismatchedAppNames: extensionMismatchedAppNames
+        )
+    }
+
+    /// Switches the extension setting on (same effect as the Settings toggle).
+    func turnOnExtensionFeature() {
+        ExtensionBetaPreference.setEnabled(true)
+        isExtensionFeatureEnabled = true
     }
 
     /// Enabled, installed sources in stable display order — the ones worth a status.
@@ -86,7 +123,7 @@ final class AutomationPermissionStore: ObservableObject {
         Self.deniedSources(
             tracked: trackedSources,
             statuses: statuses,
-            extensionEnabled: ExtensionBetaPreference.isEnabled,
+            extensionEnabled: isExtensionFeatureEnabled,
             extensionConnectedAppNames: extensionConnectedAppNames
         )
     }
@@ -95,7 +132,7 @@ final class AutomationPermissionStore: ObservableObject {
     /// connected, compatible, and the extension feature switched on.
     var usableExtensionAppNames: Set<String> {
         Self.usableExtensionAppNames(
-            extensionEnabled: ExtensionBetaPreference.isEnabled,
+            extensionEnabled: isExtensionFeatureEnabled,
             connectedAppNames: extensionConnectedAppNames
         )
     }

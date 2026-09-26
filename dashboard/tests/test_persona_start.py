@@ -167,7 +167,7 @@ def argv_of(command):
     return shlex.split(command)
 
 
-MESSAGE_WORD = "$" + ps.MESSAGE_ENV_VAR
+MESSAGE_WORD = "${" + ps.MESSAGE_ENV_VAR + ":?}"
 
 
 SENTINEL_SUBST = "$(echo INJECTED)"
@@ -469,8 +469,16 @@ try:
     check("wait_shell_ready argv", recorded[-1][1],
           ["pane", "wait-output", "w1:p1", "--regex", r"\S", "--source", "visible",
            "--timeout", str(ps.SHELL_READY_TIMEOUT_MS)])
-    total = (ps.HERDR_CALL_TIMEOUT_SEC + recorded[-1][2] + ps.HERDR_CALL_TIMEOUT_SEC)
-    check("tab create + shell wait + pane run budgets stay under AgentBar's 30s", total < 30, True)
+    shell_wait_budget = recorded[-1][2]
+    ops.tab_close("t1")
+    check("tab_close uses its own short budget", recorded[-1][1:], (["tab", "close", "t1"],
+                                                                     ps.TAB_CLOSE_TIMEOUT_SEC))
+    total = (ps.HERDR_CALL_TIMEOUT_SEC + shell_wait_budget + ps.HERDR_CALL_TIMEOUT_SEC
+             + ps.TAB_CLOSE_TIMEOUT_SEC)
+    check("worst case (create + wait + run + close) stays under AgentBar's 30s", total < 30, True)
+    ops.tab_create("/fake-folder", "x", {"PERSONA_MESSAGE": "a=b=c"})
+    check("a message with '=' is one --env argument, split only by herdr at the first '='",
+          recorded[-1][1][-2:], ["--env", "PERSONA_MESSAGE=a=b=c"])
     ps.herdr_transport.herdr_cmd_json = lambda machine, argv, **kw: ["not", "an", "object"]
     try:
         ops.tab_create("/fake-folder", "x", {})

@@ -29,13 +29,15 @@ SECURITY (brief: "Dashboard endpoints")
 
 COMMAND SHAPE
 -------------
-`claude [--resume <uuid>] --append-system-prompt-file=<path> -- "$PERSONA_MESSAGE"`,
+`claude [--resume <uuid>] --append-system-prompt-file=<path> -- "${PERSONA_MESSAGE:?}"`,
 typed into the new tab's live interactive shell by `herdr pane run`
 (herdr 0.9.1 docs: "`pane run` atomically sends command text and Enter").
 The message itself is NEVER typed: `herdr tab create --env
 PERSONA_MESSAGE=<text>` puts it in the new shell's environment (the same
 variable name the brief gives `startScript`), and the typed line only
-expands it inside double quotes — one argv element, no re-parsing. So the
+expands it inside double quotes — one argv element, no re-parsing; `:?`
+makes the shell refuse to run claude at all if the variable arrived
+unset/empty (rather than start it with a lost message). So the
 typed line holds no user input at all: nothing in it can be a keystroke,
 a quote break-out or a zsh `=word` expansion, it stays far below the
 1024-byte canonical-line limit, and the message stays out of the shell
@@ -118,8 +120,10 @@ IDLE_START_CACHE_TTL_SEC = 30
 
 #: Per-call herdr budgets, kept so a whole start (tab create + shell wait +
 #: pane run) stays under AgentBar's 30s `personaStartTimeoutSeconds`.
-HERDR_CALL_TIMEOUT_SEC = 7
+#: Worst case (every call times out): 5 + (8 + 2) + 5 + 3 (tab close) = 23s.
+HERDR_CALL_TIMEOUT_SEC = 5
 SHELL_READY_TIMEOUT_MS = 8000
+TAB_CLOSE_TIMEOUT_SEC = 3
 
 #: The new shell's env var holding the message (brief: `$PERSONA_MESSAGE`).
 MESSAGE_ENV_VAR = "PERSONA_MESSAGE"
@@ -291,7 +295,7 @@ def _single_quote(token):
 
 def build_start_command(instructions_path, *, resume_session_id=None, claude_bin=None):
     """`claude [--resume <uuid>] --append-system-prompt-file=<path> --
-    "$PERSONA_MESSAGE"` (module docstring). No user text goes in here: the
+    "${PERSONA_MESSAGE:?}"` (module docstring). No user text goes in here: the
     message arrives through the tab's environment. Raises ValueError on a
     non-UUID resume id or a control character anywhere in the line — last
     line of defence; callers validate earlier."""
@@ -301,7 +305,7 @@ def build_start_command(instructions_path, *, resume_session_id=None, claude_bin
             raise ValueError(f"not a session UUID: {resume_session_id!r}")
         parts += ["--resume", resume_session_id]
     parts += [f"--append-system-prompt-file={instructions_path}", "--"]
-    command = " ".join(_single_quote(p) for p in parts) + f' "${MESSAGE_ENV_VAR}"'
+    command = " ".join(_single_quote(p) for p in parts) + f' "${{{MESSAGE_ENV_VAR}:?}}"'
     control_char = find_terminal_control_char(command)
     if control_char is not None:
         raise ValueError(f"control character {control_char!r} in the start command")
@@ -351,7 +355,7 @@ class HerdrTabOps:
         self._text(["pane", "run", pane_id, command])
 
     def tab_close(self, tab_id):
-        self._text(["tab", "close", tab_id])
+        self._text(["tab", "close", tab_id], timeout=TAB_CLOSE_TIMEOUT_SEC)
 
 
 # ── Double-POST guard ──
@@ -504,7 +508,8 @@ def _launch(deps, persona, text, fresh, instructions):
         tab_id, pane_id = deps.herdr.tab_create(
             persona["resolvedFolder"], persona["name"], {MESSAGE_ENV_VAR: text})
     except Exception as e:  # noqa: BLE001 — no pane id -> no tab we could close
-        return _refuse(f"herdr couldn't open a tab: {e}")
+        return _refuse(f"herdr couldn't open a tab: {e} (if a new "
+                       f"{persona['name']!r} tab appeared anyway, close it by hand)")
     try:
         deps.herdr.wait_shell_ready(pane_id)
         deps.herdr.pane_run(pane_id, command)

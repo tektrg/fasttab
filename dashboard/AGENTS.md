@@ -134,9 +134,13 @@ listener even when authenticated. Requires `Content-Type: application/json`
   If herdr fails after the tab opened, the tab is closed again.
 - The tab is created with `--env PERSONA_MESSAGE=<text>`; once its shell
   shows output, `herdr pane run` types `claude [--resume <uuid>]
-  --append-system-prompt-file=<file> -- "$PERSONA_MESSAGE"`. No user text
-  is ever typed (no keystroke/quoting/`=word` risk, no shell history, the
-  line stays short). The instructions (global block + known persona names
+  --append-system-prompt-file=<file> -- "${PERSONA_MESSAGE:?}"`. No user
+  text is ever typed (no keystroke/quoting/`=word` risk, no shell history,
+  the line stays short); `:?` refuses to run claude if the variable is
+  missing. `PERSONA_MESSAGE` stays in that tab's environment (claude and
+  its tools inherit it). Shell readiness is a heuristic (any visible
+  output, e.g. a MOTD or instant prompt, counts): an rc file that reads
+  the keyboard can swallow the line while the endpoint still says ok. The instructions (global block + known persona names
   + the persona's `extraInstructions`) go in
   `<STATE_HOME>/persona-prompts/<name>-<hash>.md` (0600). `--resume <uuid>`
   only when `idle: resume`, not `fresh`, the folder's newest UUID-named
@@ -203,7 +207,7 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 46 test files, 1537 `PASS` assertions, 0 `FAIL`.
+As of this writing: 46 test files, 1539 `PASS` assertions, 0 `FAIL`.
 
 **`agent_tree.py` is a verbatim copy of AptusFit's `scripts/lib/agent_tree.py`**
 — both write the same `~/.claude/agent-tree.json`, so their prune rules must

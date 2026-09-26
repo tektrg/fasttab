@@ -68,7 +68,7 @@ public final class CommandBarViewStore: ObservableObject {
            let storedHover = Self.decodeView(rawHover) {
             self.hoverDefaultView = storedHover
         } else {
-            self.hoverDefaultView = .stack
+            self.hoverDefaultView = .recents
         }
     }
 

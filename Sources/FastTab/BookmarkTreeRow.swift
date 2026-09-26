@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import CommandBarKit
 
 struct BookmarkTreeRow: View {
@@ -98,6 +99,7 @@ struct BookmarkTreeRow: View {
                             .font(.system(size: 13, weight: .regular))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
+                            .truncationMode(.tail)
 
                         if isDeleting {
                             HStack(spacing: 3) {
@@ -128,7 +130,14 @@ struct BookmarkTreeRow: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
+                // Reserve trailing clearance while the action overlay is
+                // visible so the title/URL truncate before the buttons instead
+                // of running underneath them.
+                .padding(.trailing, !isDeleting && (isHovered || isSelected || isArmedForDelete)
+                    ? RowActionOverlay<EmptyView>.reservedWidth(buttonCount: 3, trailingPadding: 0)
+                    : 0)
 
                 Spacer(minLength: 0)
             }
@@ -144,6 +153,7 @@ struct BookmarkTreeRow: View {
                 isHovering: isHovered,
                 isVisible: !isDeleting && (isHovered || isSelected || isArmedForDelete),
                 accentTint: Color.primary.opacity(0.05),
+                base: Color(nsColor: .windowBackgroundColor),
                 trailingPadding: 0
             ) {
                 actionButtonCluster(isArmedForDelete: isArmedForDelete, isOpen: matchingLiveTab != nil)

@@ -10,6 +10,7 @@ private struct SearchHeaderFrameKey: PreferenceKey {
 }
 struct ContentView: View {
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.openSettings) private var openSettings
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var licenseService: LicenseService
     @StateObject var updateService = UpdateService.shared
@@ -83,6 +84,10 @@ struct ContentView: View {
 
     @AppStorage(CommandBarAppearance.resultRowStyleKey) var rowStyle: ResultRowStyle = .minimal
     @AppStorage(CommandBarAppearance.helperPanelVisibleKey) var showHelperPanel: Bool = true
+    /// The hints/status half of the helper panel. Freely hideable: the
+    /// shortcut recorder and its gear (or the floating corner gear when the
+    /// whole panel is off) keep Settings reachable regardless.
+    @AppStorage(CommandBarAppearance.guideBarVisibleKey) var showGuideBar: Bool = true
     /// The "Background" appearance setting — handed to `CommandBarSurface`,
     /// which passes it down to every section background inside it.
     @AppStorage(CommandBarAppearance.outerPanelKey) var outerPanelEnabled: Bool = true
@@ -270,6 +275,29 @@ struct ContentView: View {
         return appState.browserService.duplicateTabCount
     }
 
+    /// Settings entry shown when the helper panel (and the gear inside it) is
+    /// hidden: a small pill floating at the surface's bottom-right corner. An
+    /// overlay, so it never moves the results layout around.
+    var settingsCornerGear: some View {
+        Button {
+            openSettings()
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(.ultraThinMaterial)
+                )
+        }
+        .buttonStyle(.plain)
+        .help("Open Settings")
+        .accessibilityLabel("Open Settings")
+        .padding([.trailing, .bottom], 10)
+    }
+
     var commandBarAnchor: EdgeRevealStyle {
         edgeRevealStore.style == .off ? .notch : edgeRevealStore.style
     }
@@ -287,19 +315,16 @@ struct ContentView: View {
     /// below: the combined chain of adjacent modifier closures was too much
     /// for the checker even after any single one shrank.
     private func handleActiveViewChange(proxy: ScrollViewProxy) {
-        isShowingAllOpenTabs = wasOpenedByMouse
+        // Preserve the search query (text, chips, alias) across view
+        // switches: the search field only lives in Recents, but both views
+        // render the same filtered results while a search is active — so
+        // clearing here left stale results behind an empty box on return.
+        isShowingAllOpenTabs = wasOpenedByMouse && !isSearchActive
         clearKeyboardSwipe()
         resetPointerSwipe(animated: false)
-        activeSearchAlias = nil
-        consumedAliasKeyword = ""
-        rejectedAliasKeyword = nil
-        scopeChips = []
         focusedChipID = nil
         scopeSuggestionMode = .hidden
-        if !searchText.isEmpty {
-            suppressNextSearchChange = true
-            searchText = ""
-        }
+        scopeDropdownSelectedIndex = 0
         appState.selectedIndex = 0
         scrollResultsToTop(proxy)
     }
@@ -607,29 +632,33 @@ struct ContentView: View {
                                     // can't sit side by side without clipping.
                                     if isCompact(anchor) {
                                         VStack(alignment: .leading, spacing: 6) {
-                                            GuidanceBarView(
-                                                hint: guidanceHint,
-                                                statusText: openTabsStatusText,
-                                                duplicateTabCount: duplicateTabTagCount,
-                                                onTapDuplicateTag: activateDuplicateFilterFromTag,
-                                                hoveredResult: hoveredResultFooterMetadata,
-                                                showWindowName: shouldShowWindowName,
-                                                showProfileName: shouldShowProfileName
-                                            )
+                                            if showGuideBar {
+                                                GuidanceBarView(
+                                                    hint: guidanceHint,
+                                                    statusText: openTabsStatusText,
+                                                    duplicateTabCount: duplicateTabTagCount,
+                                                    onTapDuplicateTag: activateDuplicateFilterFromTag,
+                                                    hoveredResult: hoveredResultFooterMetadata,
+                                                    showWindowName: shouldShowWindowName,
+                                                    showProfileName: shouldShowProfileName
+                                                )
+                                            }
                                             ShortcutRecorderView(store: ShortcutStore.shared, showsSettingsButton: true)
                                                 .environmentObject(appState)
                                         }
                                     } else {
                                         HStack(spacing: 0) {
-                                            GuidanceBarView(
-                                                hint: guidanceHint,
-                                                statusText: openTabsStatusText,
-                                                duplicateTabCount: duplicateTabTagCount,
-                                                onTapDuplicateTag: activateDuplicateFilterFromTag,
-                                                hoveredResult: hoveredResultFooterMetadata,
-                                                showWindowName: shouldShowWindowName,
-                                                showProfileName: shouldShowProfileName
-                                            )
+                                            if showGuideBar {
+                                                GuidanceBarView(
+                                                    hint: guidanceHint,
+                                                    statusText: openTabsStatusText,
+                                                    duplicateTabCount: duplicateTabTagCount,
+                                                    onTapDuplicateTag: activateDuplicateFilterFromTag,
+                                                    hoveredResult: hoveredResultFooterMetadata,
+                                                    showWindowName: shouldShowWindowName,
+                                                    showProfileName: shouldShowProfileName
+                                                )
+                                            }
                                             Spacer(minLength: 12)
                                             ShortcutRecorderView(store: ShortcutStore.shared, showsSettingsButton: true)
                                                 .environmentObject(appState)
@@ -675,6 +704,11 @@ struct ContentView: View {
                                 depthProgress: revealDepthProgress,
                                 spreadProgress: revealSpreadProgress
                             ))
+                            .overlay(alignment: .bottomTrailing) {
+                                if !showHelperPanel {
+                                    settingsCornerGear
+                                }
+                            }
                     )
                     // Fills the notch-clearance inset above with a small
                     // notch-width (not panel-width) black connector instead of

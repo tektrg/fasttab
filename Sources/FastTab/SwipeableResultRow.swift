@@ -187,6 +187,16 @@ private struct ResultRowView: View {
         result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName)
     }
 
+    private var isActionsVisible: Bool { isHovering || isSelected }
+
+    /// Trailing clearance reserved while the action overlay is visible, so the
+    /// title truncates before the buttons instead of running underneath them.
+    private var actionReserveWidth: CGFloat {
+        guard isActionsVisible else { return 0 }
+        let buttonCount = result.type == .tab ? 3 : 2
+        return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: buttonCount)
+    }
+
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 10) {
@@ -207,6 +217,7 @@ private struct ResultRowView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
+                .padding(.trailing, actionReserveWidth)
 
                 Spacer(minLength: 0)
             }
@@ -242,6 +253,20 @@ private struct ResultRowView: View {
         }
     }
 
+    /// Only pinned live tabs close into a ghost — everything else
+    /// (unpinned tabs, sent links, bookmarks, history, and ghosts
+    /// themselves) just closes/removes, so it gets an "x".
+    private var showsMinusIcon: Bool {
+        result.isPinned && !result.isGhost
+    }
+
+    private var removeHelpText: String {
+        if isConfirmingRemoval { return "Confirm delete" }
+        if result.isGhost { return "Delete ghost tab" }
+        if showsMinusIcon { return "Close tab (leaves ghost)" }
+        return "Remove / close"
+    }
+
     @ViewBuilder
     private var actionButtonCluster: some View {
         HStack(spacing: 4) {
@@ -268,12 +293,12 @@ private struct ResultRowView: View {
             .help("Copy link")
 
             Button(action: onRemove) {
-                if isConfirmingRemoval {
+                if isConfirmingRemoval || !showsMinusIcon {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(isConfirmingRemoval ? .red : .secondary)
                         .frame(width: 22, height: 22)
-                        .background(Circle().fill(Color.red.opacity(0.12)))
+                        .background(Circle().fill(isConfirmingRemoval ? Color.red.opacity(0.12) : Color.primary.opacity(0.06)))
                 } else {
                     Image(systemName: "minus")
                         .font(.system(size: 11, weight: .bold))
@@ -283,7 +308,7 @@ private struct ResultRowView: View {
                 }
             }
             .buttonStyle(.plain)
-            .help(isConfirmingRemoval ? "Confirm delete" : (result.isGhost ? "Delete ghost tab" : "Remove / close"))
+            .help(removeHelpText)
         }
     }
 
@@ -306,11 +331,8 @@ private struct ResultRowView: View {
                     .font(.system(size: 13, weight: .semibold, design: .default))
                     .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
                     .lineLimit(isCompact ? 2 : 1)
+                    .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
-
-                if result.isGhost {
-                    ghostBadge
-                }
             }
 
             // Wraps at the narrow edge-anchored width, where the type
@@ -386,16 +408,21 @@ private struct ResultRowView: View {
     private func minimalLine(tag: String? = nil, slug: String? = nil) -> some View {
         HStack(spacing: 6) {
             minimalTitle
+                .layoutPriority(1)
             if let tag {
                 MetadataPill(title: tag)
+                    .fixedSize()
             }
             if let slug {
                 Text("/\(slug)")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .clipped()
     }
 
     private var minimalTitle: some View {
@@ -414,20 +441,9 @@ private struct ResultRowView: View {
                 .font(.system(size: 13, weight: .semibold, design: .default))
                 .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
                 .lineLimit(1)
-
-            if result.isGhost {
-                ghostBadge
-            }
+                .truncationMode(.tail)
         }
-    }
-
-    private var ghostBadge: some View {
-        Text("ghost")
-            .font(.system(size: 9, weight: .medium, design: .rounded))
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(Color.secondary.opacity(0.15)))
-            .foregroundStyle(.secondary)
+        .clipped()
     }
 }
 

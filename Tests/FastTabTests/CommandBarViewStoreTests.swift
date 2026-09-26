@@ -91,21 +91,21 @@ struct CommandBarViewStoreTests {
     }
 
     @MainActor
-    @Test func hoverDefaultViewDefaultsToStackWithoutWritingToDefaults() {
+    @Test func hoverDefaultViewDefaultsToRecentsWithoutWritingToDefaults() {
         let suiteName = "test.fasttab.viewstore.hover.default.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let store = CommandBarViewStore(defaults: defaults)
-        #expect(store.hoverDefaultView == .stack)
+        #expect(store.hoverDefaultView == .recents)
         #expect(defaults.string(forKey: CommandBarViewStore.hoverDefaultViewKey) == nil)
 
         // Switch to another view then call resetForHoverOpen
-        store.selectView(.recents)
-        #expect(store.activeView == .recents)
+        store.selectView(.stack)
+        #expect(store.activeView == .stack)
 
         store.resetForHoverOpen()
-        #expect(store.activeView == .stack)
+        #expect(store.activeView == .recents)
     }
 
     @MainActor
@@ -118,6 +118,9 @@ struct CommandBarViewStoreTests {
 
         let store = CommandBarViewStore(defaults: defaults)
         #expect(store.hoverDefaultView == .stack)
+
+        store.selectView(.recents)
+        #expect(store.activeView == .recents)
 
         store.resetForHoverOpen()
         #expect(store.activeView == .stack)

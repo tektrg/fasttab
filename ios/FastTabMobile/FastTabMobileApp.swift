@@ -32,7 +32,7 @@ public struct FastTabMobileApp: App {
                     RandomLinksView()
                 }
                 .tabItem {
-                    Label("Random", systemImage: "shuffle")
+                    Label("Shuffle", systemImage: "shuffle")
                 }
 
                 NavigationStack {

@@ -380,8 +380,9 @@ private struct AudibleTabRow: View {
 
     var body: some View {
         // The mute action overlays the trailing edge with a solid background on
-        // hover via RowActionOverlay, allowing the tab title to take full width
-        // while preserving unambiguous click hit-testing for both controls.
+        // hover via RowActionOverlay; the title reserves trailing clearance
+        // while it's visible so it truncates before the button instead of
+        // running underneath it.
         Button(action: onSelect) {
             HStack(spacing: 10) {
                 LeadingIconColumn(
@@ -399,7 +400,11 @@ private struct AudibleTabRow: View {
                         .font(.system(size: 13, weight: .semibold, design: .default))
                         .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
+                .padding(.trailing, isHovering
+                    ? RowActionOverlay<EmptyView>.reservedWidth(buttonCount: 1, buttonDiameter: 20)
+                    : 0)
 
                 Spacer(minLength: 0)
             }

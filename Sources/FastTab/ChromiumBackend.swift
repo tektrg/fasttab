@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import OSLog
+import CommandBarKit
 
 struct ChromiumProfile: Sendable {
     let browserAppName: String
@@ -121,6 +122,7 @@ struct ChromiumBackend: BrowserBackend {
                     windowIndex: winIdx,
                     tabIndex: tabIdx,
                     windowName: windowName,
+                    profileName: Frecency.profileFromWindowTitle(windowName),
                     isCurrentFlowActiveTab: isCurrentFlowActiveTab,
                     hasMediaIndicator: hasMediaIndicator
                 )
@@ -762,25 +764,54 @@ struct ChromiumBackend: BrowserBackend {
         }
     }
 
+    static func buildOpenURLScript(appName: String, url: String, windowIndex: Int?) -> String {
+        let safeURL = appleScriptQuoted(url)
+        // Ghost slots remember the window they lived in, which pins the
+        // profile (each window belongs to one profile) even when profileName
+        // is unknown. Fronting that window first makes `open location` land
+        // in the correct profile instead of whatever window is frontmost.
+        // The `try` keeps a stale index (window since closed) a safe no-op
+        // that falls back to front-window behavior.
+        if let win = windowIndex, win >= 1 {
+            return """
+            tell application "\(appName)"
+                activate
+                try
+                    set index of window \(win) to 1
+                end try
+                open location "\(safeURL)"
+            end tell
+            """
+        }
+        return """
+        tell application "\(appName)"
+            activate
+            open location "\(safeURL)"
+        end tell
+        """
+    }
+
     func openURL(_ result: BrowserSearchResult) {
-        // Profile-aware open via executable launch.
+        // Profile-aware open via executable launch. profileName may be a
+        // directory ("Profile 1") or a display name parsed from the window
+        // title ("Work") — resolve display names via Local State first.
         if let profileName = result.profileName,
+           !profileName.isEmpty,
+           let directory = Self.resolveProfileDirectory(
+               supportDirectory: supportDirectory,
+               profileName: profileName
+           ),
            let executableURL = browserExecutableURL() {
-            let shellScript = "nohup \(shellQuoted(executableURL.path)) --profile-directory=\(shellQuoted(profileName)) \(shellQuoted(result.url)) > /dev/null 2>&1 &"
+            let shellScript = "nohup \(shellQuoted(executableURL.path)) --profile-directory=\(shellQuoted(directory)) \(shellQuoted(result.url)) > /dev/null 2>&1 &"
             if runDetachedShellCommand(shellScript) {
                 logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) profile=\(profileName, privacy: .public) url='\(result.url, privacy: .public)'")
                 return
             }
         }
 
-        // Fallback to AppleScript
-        let safeURL = appleScriptQuoted(result.url)
-        let script = """
-        tell application "\(result.browserName)"
-            activate
-            open location "\(safeURL)"
-        end tell
-        """
+        // Fallback to AppleScript — window-targeted when known so ghost
+        // reopens land in their original window/profile.
+        let script = Self.buildOpenURLScript(appName: result.browserName, url: result.url, windowIndex: result.windowIndex)
 
         logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) url='\(result.url, privacy: .public)' (fallback)")
         runAppleScript(script, logger: logger, action: "openURL")
@@ -1442,6 +1473,45 @@ struct ChromiumBackend: BrowserBackend {
             return all.first(where: { $0.name == profileName })
         }
         return all.first
+    }
+
+    /// Resolves a stored profile reference to a `--profile-directory` value.
+    /// Slots carry whatever the live-tab poll knew: usually a directory name
+    /// ("Default", "Profile 1"), but since the window-title parse it can be
+    /// the user-visible display name ("Work"). Directories pass straight
+    /// through (verified against the profile folders on disk); display names
+    /// resolve via the browser's Local State `profile.info_cache`. Returns
+    /// nil when nothing matches — callers fall back to window-targeted open.
+    static func resolveProfileDirectory(supportDirectory: String, profileName: String) -> String? {
+        let trimmed = profileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let basePath = (supportDirectory as NSString).expandingTildeInPath
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: (basePath as NSString).appendingPathComponent(trimmed), isDirectory: &isDir), isDir.boolValue {
+            return trimmed
+        }
+        if let mapped = Self.displayNameToDirectory(basePath: basePath, displayName: trimmed) {
+            return mapped
+        }
+        return nil
+    }
+
+    private static func displayNameToDirectory(basePath: String, displayName: String) -> String? {
+        let localStateURL = URL(fileURLWithPath: basePath, isDirectory: true).appendingPathComponent("Local State")
+        guard let data = try? Data(contentsOf: localStateURL),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let profile = root["profile"] as? [String: Any],
+              let infoCache = profile["info_cache"] as? [String: Any] else {
+            return nil
+        }
+        for (directory, info) in infoCache {
+            if let infoDict = info as? [String: Any],
+               let name = infoDict["name"] as? String,
+               name.trimmingCharacters(in: .whitespacesAndNewlines) == displayName {
+                return directory
+            }
+        }
+        return nil
     }
 
     /// Profile directory names the browser currently has open, detected via

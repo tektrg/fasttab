@@ -78,7 +78,7 @@ public struct RandomLinksView: View {
                     .padding(20)
             }
         }
-        .navigationTitle("Random")
+        .navigationTitle("Shuffle")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

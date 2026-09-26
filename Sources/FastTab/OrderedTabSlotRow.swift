@@ -28,6 +28,16 @@ struct OrderedTabSlotRow: View {
     private var isGhost: Bool { slot.state == .ghost }
     private var isFrozen: Bool { slot.state == .browserFrozen }
 
+    private var isActionsVisible: Bool { isHovering || isSelected }
+
+    /// Trailing clearance reserved while the action overlay is visible, so the
+    /// title truncates before the buttons instead of running underneath them.
+    /// Ghost rows show an extra reopen button.
+    private var actionReserveWidth: CGFloat {
+        guard isActionsVisible else { return 0 }
+        return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: isGhost ? 4 : 3)
+    }
+
     var body: some View {
         Button(action: {
             if isGhost {
@@ -69,17 +79,9 @@ struct OrderedTabSlotRow: View {
                             .font(.system(size: 13, weight: .semibold, design: .default))
                             .foregroundStyle(titleColor)
                             .lineLimit(1)
+                            .truncationMode(.tail)
 
-                        if isGhost {
-                            Text("ghost")
-                                .font(.system(size: 9, weight: .medium, design: .rounded))
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(
-                                    Capsule().fill(Color.secondary.opacity(0.15))
-                                )
-                                .foregroundStyle(.secondary)
-                        } else if isFrozen {
+                        if isFrozen {
                             Text("\(slot.browserName) closed")
                                 .font(.system(size: 9, weight: .medium, design: .rounded))
                                 .padding(.horizontal, 4)
@@ -107,10 +109,13 @@ struct OrderedTabSlotRow: View {
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, actionReserveWidth)
+                .clipped()
 
                 Spacer(minLength: 0)
             }

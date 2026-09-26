@@ -271,6 +271,7 @@ enum CommandBarAppearance {
     static let quickOpenItemLimitKey = "FastTab.appearance.quickOpenItemLimit"
     static let menuBarIconVisibleKey = "FastTab.appearance.showMenuBarIcon"
     static let helperPanelVisibleKey = "FastTab.appearance.showHelperPanel"
+    static let guideBarVisibleKey = "FastTab.appearance.showGuideBar"
 }
 
 func commandBarFullScreenShadowColor(for colorScheme: ColorScheme) -> Color {

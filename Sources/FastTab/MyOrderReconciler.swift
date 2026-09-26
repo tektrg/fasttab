@@ -230,7 +230,12 @@ enum MyOrderReconciler {
             slot.matchKey = Frecency.normalizeURL(tab.url)
             slot.title = tab.title
             slot.browserName = tab.browserName
-            slot.profileName = tab.profileName
+            // Profile is only known on some paths (AppleScript window-title
+            // parse); the extension snapshot reports nil. Never wipe a known
+            // profile with an unknown one, or ghost reopen loses its target.
+            if let prof = tab.profileName, !prof.isEmpty {
+                slot.profileName = prof
+            }
             slot.state = .live
             if let tabID = tab.tabID {
                 slot.boundTabID = tabID

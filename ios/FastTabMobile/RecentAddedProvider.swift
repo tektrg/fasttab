@@ -6,6 +6,7 @@ import FastTabSync
 
 public enum RecentAddedSource: Hashable, Sendable {
     case shareSheet(commandID: String, status: String)
+    case savedOnIPhone(linkID: String)
     case bookmark(
         browser: String,
         folderPath: String?,
@@ -18,6 +19,8 @@ public enum RecentAddedSource: Hashable, Sendable {
         switch self {
         case .shareSheet(_, let status):
             return status.isEmpty ? "Queued to Mac" : status
+        case .savedOnIPhone:
+            return "Saved on iPhone"
         case .bookmark(_, let folder, _, _, _):
             if let folder, !folder.isEmpty {
                 return BookmarkTreeBuilder.splitPath(folder).last ?? folder
@@ -29,6 +32,7 @@ public enum RecentAddedSource: Hashable, Sendable {
     public var iconName: String {
         switch self {
         case .shareSheet: return "paperplane.fill"
+        case .savedOnIPhone: return "iphone"
         case .bookmark: return "bookmark.fill"
         }
     }
@@ -36,6 +40,7 @@ public enum RecentAddedSource: Hashable, Sendable {
     public var tintColor: Color {
         switch self {
         case .shareSheet: return .blue
+        case .savedOnIPhone: return .green
         case .bookmark: return .yellow
         }
     }
@@ -89,13 +94,23 @@ public final class RecentAddedProvider: ObservableObject {
 
     private let logger = Logger(subsystem: "app.theindie.FastTab", category: "RecentAddedProvider")
     private var stateCancellable: AnyCancellable?
+    private var savedOnIPhoneCancellable: AnyCancellable?
 
     private init() {
         drainPendingShares()
+        SavedOnIPhoneStore.shared.drainPendingSaves()
         refresh()
 
         // Re-seed automatically whenever LocalCache updates from background sync or foreground polling
         stateCancellable = LocalCache.shared.$state
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.refresh()
+            }
+
+        // Re-seed when a share-sheet save lands in the local-only list
+        savedOnIPhoneCancellable = SavedOnIPhoneStore.shared.$items
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -128,6 +143,7 @@ public final class RecentAddedProvider: ObservableObject {
     /// Rebuilds the combined list of recent bookmarks and desk queue / share sheet additions.
     public func refresh() {
         drainPendingShares()
+        SavedOnIPhoneStore.shared.drainPendingSaves()
 
         let state = LocalCache.shared.state
         var gathered: [RecentAddedItem] = []
@@ -160,7 +176,31 @@ public final class RecentAddedProvider: ObservableObject {
             }
         }
 
-        // 2. Ingest Synced Bookmarks
+        // 2. Ingest local-only saves from the share sheet ("Save to iPhone").
+        // Mac-bound commands above win the dedupe so a link sent both ways
+        // keeps its delivery status row.
+        for link in SavedOnIPhoneStore.shared.items {
+            guard let url = URL(string: link.url),
+                  url.scheme?.hasPrefix("http") == true else {
+                continue
+            }
+
+            let normalized = normalize(url)
+            if !seenNormalizedURLs.contains(normalized) {
+                seenNormalizedURLs.insert(normalized)
+                gathered.append(RecentAddedItem(
+                    id: "saved_\(link.id)",
+                    title: (link.title?.isEmpty == false) ? link.title! : (url.host() ?? link.url),
+                    url: url,
+                    domain: url.host() ?? "",
+                    date: link.savedAt,
+                    source: .savedOnIPhone(linkID: link.id),
+                    folderPath: nil
+                ))
+            }
+        }
+
+        // 3. Ingest Synced Bookmarks
         var folderMap: [String: String] = [:] // fullPath -> displayName
         for blob in state.bookmarkBlobs {
             for bm in blob.bookmarks {

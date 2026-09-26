@@ -795,14 +795,32 @@ struct SafariBackend: BrowserBackend {
         }
     }
 
-    func openURL(_ result: BrowserSearchResult) {
-        let safeURL = appleScriptQuoted(result.url)
-        let script = """
+    static func buildOpenURLScript(url: String, windowIndex: Int?) -> String {
+        let safeURL = appleScriptQuoted(url)
+        // Same window-targeting as ChromiumBackend: ghost slots remember
+        // their window, so front it before `open location` to land in the
+        // correct window/profile instead of whatever is frontmost.
+        if let win = windowIndex, win >= 1 {
+            return """
+            tell application "Safari"
+                activate
+                try
+                    set index of window \(win) to 1
+                end try
+                open location "\(safeURL)"
+            end tell
+            """
+        }
+        return """
         tell application "Safari"
             activate
             open location "\(safeURL)"
         end tell
         """
+    }
+
+    func openURL(_ result: BrowserSearchResult) {
+        let script = Self.buildOpenURLScript(url: result.url, windowIndex: result.windowIndex)
 
         logger.info("openURL: app=Safari type=\(result.type.rawValue, privacy: .public) url='\(result.url, privacy: .public)'")
         runAppleScript(script, logger: logger, action: "openURL")

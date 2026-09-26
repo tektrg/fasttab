@@ -6,15 +6,17 @@ struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var launchAtLogin = LaunchAtLoginService.shared
     @ObservedObject private var edgeReveal = EdgeRevealStore.shared
+    @ObservedObject private var viewStore = CommandBarViewStore.shared
     @ObservedObject private var myOrderStore = MyOrderStore.shared
     @ObservedObject private var rowSwipeStore = RowSwipeGestureStore.shared
 
-    // The gear icon that opens this window lives in the helper panel, and
-    // "Settings…" lives in the menu bar menu — each is the other's fallback.
-    // Refusing to disable the second one keeps at least one path back into
-    // Settings once the icon and panel are both off.
+    // Settings stays reachable with the icon and the panel both off: the
+    // bar itself still opens from the global shortcut (or a hover edge),
+    // and hiding the helper panel leaves a gear floating at the bar's
+    // bottom-right corner — so neither toggle needs to guard the other.
     @AppStorage(CommandBarAppearance.menuBarIconVisibleKey) private var showMenuBarIcon: Bool = true
     @AppStorage(CommandBarAppearance.helperPanelVisibleKey) private var showHelperPanel: Bool = true
+    @AppStorage(CommandBarAppearance.guideBarVisibleKey) private var showGuideBar: Bool = true
 
     var body: some View {
         Form {
@@ -30,30 +32,28 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Toggle("Show menu bar icon", isOn: Binding(
-                    get: { showMenuBarIcon },
-                    set: { newValue in
-                        guard newValue || showHelperPanel else { return }
-                        showMenuBarIcon = newValue
-                    }
-                ))
+                Toggle("Show menu bar icon", isOn: $showMenuBarIcon)
 
                 if !showMenuBarIcon {
-                    Text("The global shortcut still opens FastTab. Reopen this settings window from the helper panel's gear icon.")
+                    Text("The global shortcut still opens FastTab. Reopen this settings window from the gear at the bottom-right corner of the command bar.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Toggle("Show helper panel", isOn: Binding(
-                    get: { showHelperPanel },
-                    set: { newValue in
-                        guard newValue || showMenuBarIcon else { return }
-                        showHelperPanel = newValue
-                    }
-                ))
+                Toggle("Show helper panel", isOn: $showHelperPanel)
 
-                Text("The row of hints and the shortcut recorder shown at the bottom of the command bar.")
+                Text("The shortcut recorder and the gear that reopens these settings, shown at the bottom of the command bar. Hiding it leaves a smaller gear floating at the bar's bottom-right corner.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // Hiding just the hints keeps the shortcut recorder and its
+                // gear, so this is safe with the menu bar icon off too.
+                Toggle("Show guide bar", isOn: $showGuideBar)
+                    .disabled(!showHelperPanel)
+
+                Text("The row of hints and the tab-count status shown at the bottom of the command bar. Safe to hide with the menu bar icon off.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -71,7 +71,17 @@ struct GeneralSettingsView: View {
                 .pickerStyle(.menu)
 
                 if edgeReveal.style != .off {
-                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab directly into Stack. Runs a background mouse-position listener whenever this isn't Off.")
+                    Picker("Hover opens", selection: Binding(
+                        get: { viewStore.hoverDefaultView },
+                        set: { viewStore.setHoverDefaultView($0) }
+                    )) {
+                        ForEach(CommandBarView.allCases, id: \.self) { view in
+                            Text(view.displayName).tag(view)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab directly into \(viewStore.hoverDefaultView.displayName). Runs a background mouse-position listener whenever this isn't Off.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

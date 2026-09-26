@@ -420,6 +420,8 @@ public struct ReadingFeedView: View {
             return ("Delete Bookmark", "trash")
         case .shareSheet:
             return ("Delete Link", "trash")
+        case .savedOnIPhone:
+            return ("Delete Link", "trash")
         }
     }
 
@@ -440,6 +442,12 @@ public struct ReadingFeedView: View {
         case .shareSheet(let commandID, _):
             SyncConsumer.shared.cancelQueuedCommand(id: commandID)
             LocalCache.shared.removeSentCommand(id: commandID)
+            withAnimation {
+                recentProvider.removeItem(id: item.id)
+            }
+            presentToast("Removed link")
+        case .savedOnIPhone(let linkID):
+            SavedOnIPhoneStore.shared.remove(id: linkID)
             withAnimation {
                 recentProvider.removeItem(id: item.id)
             }

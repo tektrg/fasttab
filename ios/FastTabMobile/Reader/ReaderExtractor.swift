@@ -78,13 +78,15 @@ public final class ReaderExtractor: NSObject {
             let imagesTask = Task { await self.extractTwitterImagesOnly(url: url) }
             let oembedResult = await extractTwitterViaOEmbed(url: url)
 
-            // An Article post's tweet text is only a t.co link; oEmbed "succeeds" with that link
-            // and the reader would show the cover image with no body. Fetch the real article.
-            if let oembed = oembedResult, XArticleExtractor.isLinkOnly(oembed.excerpt) {
-                guard let article = await XArticleExtractor.fetch(url: url) else {
+            // An Article post's tweet text is at most a caption plus a t.co link to the article;
+            // oEmbed "succeeds" with that and the reader would show the cover image with no body.
+            // So when the text has a t.co link (or oEmbed failed), check whether it's an Article.
+            if oembedResult.map({ XArticleExtractor.mayLinkToArticle($0.content) }) ?? true {
+                if let article = await XArticleExtractor.fetch(url: url) { return article }
+                // Link-only text is certainly an Article; the web view can't get past X's login wall.
+                if let oembed = oembedResult, XArticleExtractor.isLinkOnly(oembed.excerpt) {
                     throw ExtractionError.xArticleUnavailable
                 }
-                return article
             }
 
             if let article = oembedResult {

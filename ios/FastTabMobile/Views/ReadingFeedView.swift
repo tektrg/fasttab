@@ -217,6 +217,9 @@ public struct ReadingFeedView: View {
                         },
                         onDelete: {
                             deleteEmergingItem(item)
+                        },
+                        onMarkNotARead: { wholeWebsite in
+                            markEmergingItemNotARead(item, wholeWebsite: wholeWebsite)
                         }
                     )
                 }
@@ -402,6 +405,18 @@ public struct ReadingFeedView: View {
                     emergingProvider.removeItem(id: item.id)
                 }
                 presentToast("Removed link")
+            }
+        }
+    }
+
+    private func markEmergingItemNotARead(_ item: EmergingItem, wholeWebsite: Bool) {
+        withAnimation {
+            if wholeWebsite {
+                emergingProvider.markHostNotARead(item)
+                presentToast("Won't suggest \(item.domain) again")
+            } else {
+                emergingProvider.markLinkNotARead(item)
+                presentToast("Won't suggest this link again")
             }
         }
     }

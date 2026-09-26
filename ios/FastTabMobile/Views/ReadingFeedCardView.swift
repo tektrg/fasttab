@@ -18,6 +18,10 @@ public struct ReadingFeedCardView: View {
     public let onOpenOnMac: (() -> Void)?
     public let onSaveToBookmarks: (() -> Void)?
     public let onDelete: (() -> Void)?
+    /// Emerging-only: "this isn't something I'd read" — offered as two
+    /// choices (just this link, or the whole website) rather than a single
+    /// destructive delete, since it's teaching the feed, not removing data.
+    public let onMarkNotARead: ((_ wholeWebsite: Bool) -> Void)?
 
     @State private var preview: LinkPreview?
     @State private var isLoadingPreview: Bool = true
@@ -39,7 +43,8 @@ public struct ReadingFeedCardView: View {
         onSelect: @escaping () -> Void,
         onOpenOnMac: (() -> Void)? = nil,
         onSaveToBookmarks: (() -> Void)? = nil,
-        onDelete: (() -> Void)? = nil
+        onDelete: (() -> Void)? = nil,
+        onMarkNotARead: ((_ wholeWebsite: Bool) -> Void)? = nil
     ) {
         self.title = title
         self.url = url
@@ -55,6 +60,7 @@ public struct ReadingFeedCardView: View {
         self.onOpenOnMac = onOpenOnMac
         self.onSaveToBookmarks = onSaveToBookmarks
         self.onDelete = onDelete
+        self.onMarkNotARead = onMarkNotARead
     }
 
     public var body: some View {
@@ -138,6 +144,24 @@ public struct ReadingFeedCardView: View {
                 UIPasteboard.general.url = url
             } label: {
                 Label("Copy Link", systemImage: "doc.on.doc")
+            }
+
+            if let onMarkNotARead {
+                Divider()
+                Menu {
+                    Button {
+                        onMarkNotARead(false)
+                    } label: {
+                        Label("This Link", systemImage: "link")
+                    }
+                    Button {
+                        onMarkNotARead(true)
+                    } label: {
+                        Label("This Website", systemImage: "globe")
+                    }
+                } label: {
+                    Label("Not a Read", systemImage: "hand.thumbsdown")
+                }
             }
 
             if let onDelete {

@@ -39,6 +39,9 @@ public struct ReaderView: View {
     // Extraction skeleton phase
     @State private var isLongExtraction: Bool = false
 
+    // Header auto-hide on scroll
+    @State private var isHeaderHidden: Bool = false
+
     public init(url: URL, title: String) {
         _viewModel = StateObject(wrappedValue: ReaderViewModel(url: url, title: title))
     }
@@ -66,7 +69,8 @@ public struct ReaderView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(viewModel.needsSafariReader ? .hidden : .automatic, for: .navigationBar)
+            .toolbar(viewModel.needsSafariReader || isHeaderHidden ? .hidden : .automatic, for: .navigationBar)
+            .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)
             .toolbar {
                 if case .loaded = viewModel.loadState {
                     toolbarContent
@@ -164,6 +168,9 @@ public struct ReaderView: View {
             },
             onHighlightTapped: { id in
                 tappedHighlightID = id
+            },
+            onHeaderHiddenChanged: { hidden in
+                isHeaderHidden = hidden
             }
         )
         .ignoresSafeArea(edges: .bottom)

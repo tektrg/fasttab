@@ -22,12 +22,21 @@ enum AgentHost: Equatable, Sendable {
         case nil, "herdr":
             self = .herdr
         case "claude-desktop":
-            self = .claudeDesktop(openURL: openUrl.flatMap { $0.isEmpty ? nil : URL(string: $0) })
+            self = .claudeDesktop(openURL: Self.claudeDesktopSessionURL(openUrl))
         case "claude-cli":
             self = .claudeCLI(tmuxTarget: tmuxTarget.flatMap { $0.isEmpty ? nil : $0 })
         default:
             return nil
         }
+    }
+
+    /// Only Claude.app's own session link is ever opened: Enter hands this URL to NSWorkspace, so
+    /// anything else from the dashboard (another scheme, a file, a web page) falls back to just
+    /// activating Claude.app.
+    private static func claudeDesktopSessionURL(_ text: String?) -> URL? {
+        guard let text, let url = URL(string: text),
+              url.scheme == "claude", url.host == "code", url.path == "/continue" else { return nil }
+        return url
     }
 
     var isHerdr: Bool { self == .herdr }

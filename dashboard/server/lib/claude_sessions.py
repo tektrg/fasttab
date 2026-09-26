@@ -151,7 +151,7 @@ def read_live_sessions(sessions_dir=None, pid_alive=_pid_alive,
 def _desktop_open_url(entry):
     host_id = entry.get("hostSessionId")
     if (entry.get("entrypoint") == "claude-desktop" and isinstance(host_id, str)
-            and DESKTOP_SESSION_ID_RE.match(host_id)):
+            and DESKTOP_SESSION_ID_RE.fullmatch(host_id)):  # `$` alone lets "…\n" through
         return DESKTOP_CONTINUE_URL.format(host_id)
     return None
 

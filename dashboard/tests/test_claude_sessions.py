@@ -134,6 +134,11 @@ check("desktop openUrl", rows["busy-1"]["openUrl"],
 check("cli row: no openUrl even with a host id", rows["idle-3"]["openUrl"], None)
 check("invalid host id: no openUrl", rows["odd-5"]["openUrl"], None)
 check("tmux target carried", rows["idle-3"]["tmuxTarget"], "s:@1.%1")
+for odd_host_id in ("not-a-desktop-id", HOST_ID + "\n", HOST_ID + "&x=1", "local_a b"):
+    desktop_row = claude_sessions.build_status_only_rows(
+        [session(6, "desk-6", hostSessionId=odd_host_id)], set(), NOW, machine="local")[0]
+    check(f"desktop row, malformed host id {odd_host_id!r}: no openUrl",
+          desktop_row["openUrl"], None)
 
 print("== build_agents_view merges them, never duplicating a herdr row ==")
 herdr_agents = [{"pane_id": "w1:p1", "tab_id": "w1:t1", "agent": "claude",

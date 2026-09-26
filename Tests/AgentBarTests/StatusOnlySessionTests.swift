@@ -94,6 +94,18 @@ struct StatusOnlyMapperTests {
         #expect(AgentHost.claudeDesktop(openURL: nil).badgeText == "Claude Desktop")
     }
 
+    /// Enter hands `openUrl` to NSWorkspace: only Claude.app's own session link may get there.
+    @Test func onlyAClaudeSessionLinkIsKeptAsTheOpenURL() {
+        let link = "claude://code/continue?session=local_8711df12-7689"
+        #expect(AgentHost(source: "claude-desktop", openUrl: link, tmuxTarget: nil)
+            == .claudeDesktop(openURL: URL(string: link)))
+        for other in ["https://example.com/continue", "file:///Applications/Calculator.app",
+                      "claude://settings", "claude://code/new?session=local_1", ""] {
+            #expect(AgentHost(source: "claude-desktop", openUrl: other, tmuxTarget: nil)
+                == .claudeDesktop(openURL: nil), "\(other)")
+        }
+    }
+
     @Test func aMissingSourceIsHerdrAndAHerdrRowStillNeedsItsPane() throws {
         let snapshot = try S.snapshot(agents: [
             #"{"paneId": "w1:p1", "label": "old-dashboard", "agentSession": "s1"}"#,

@@ -37,8 +37,8 @@ struct AutomationDeniedBanner: View {
         }
     }
 
-    static func message(for denied: [SearchSource]) -> String {
-        let names = denied.map(\.displayName).joined(separator: ", ")
+    nonisolated static func message(for denied: [SearchSource]) -> String {
+        let names = denied.map(\.displayName).joinedAsNaturalList(conjunction: "and")
         return "\(names) can't be read — allow FastTab in Automation settings."
     }
 }
@@ -87,6 +87,7 @@ struct AutomationPermissionSection: View {
             case .notYetAsked, .appNotRunning:
                 Button("Allow") { Task { await permissions.requestAccess(for: source) } }
                     .controlSize(.small)
+                    .disabled(permissions.requestInFlight != nil)
             default:
                 EmptyView()
             }

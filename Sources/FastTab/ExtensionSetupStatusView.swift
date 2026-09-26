@@ -3,6 +3,7 @@ import SwiftUI
 /// Onboarding's extension status line. Says *why* the extension isn't usable
 /// yet — turned off in Settings, stale version, or not connected — and after
 /// a while of "waiting" offers the fixes that actually unstick a connection.
+/// The fix for "turned off" is the step's primary button, not this view.
 struct ExtensionSetupStatusView: View {
     @ObservedObject private var permissions = AutomationPermissionStore.shared
     @State private var showsNotConnectingHint = false
@@ -31,6 +32,7 @@ struct ExtensionSetupStatusView: View {
         HStack(spacing: 8) {
             Image(systemName: iconName)
                 .foregroundStyle(iconColor)
+                .accessibilityHidden(true)
             Text(title)
                 .font(.callout)
                 .foregroundStyle(setupState == .waiting ? .tertiary : .secondary)
@@ -42,10 +44,8 @@ struct ExtensionSetupStatusView: View {
     private var detail: some View {
         switch setupState {
         case .turnedOff:
-            Button("Turn on the extension") {
-                permissions.turnOnExtensionFeature()
-            }
-            .controlSize(.small)
+            // The step's primary button switches it on; say where it lives.
+            hint("You can also change this in Settings > Advanced.")
         case .versionMismatch:
             hint("Update the extension and FastTab to their latest versions, then reload the extension.")
         case .waiting where showsNotConnectingHint:

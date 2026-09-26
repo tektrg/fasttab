@@ -66,6 +66,7 @@ private struct OnboardingExtensionBenefitRow: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 22, height: 18)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(benefit.title)

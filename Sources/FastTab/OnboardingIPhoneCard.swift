@@ -46,6 +46,7 @@ struct OnboardingIPhoneCard: View {
                 .font(.system(size: 20, weight: .regular))
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 22)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("FastTab for iPhone")
@@ -84,6 +85,7 @@ private struct OnboardingIPhoneBenefitLabelStyle: LabelStyle {
         HStack(spacing: 8) {
             configuration.icon
                 .frame(width: 16)
+                .accessibilityHidden(true)
             configuration.title
         }
     }

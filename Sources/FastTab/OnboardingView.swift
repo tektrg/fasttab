@@ -628,28 +628,26 @@ private struct ExtensionInstallStep: View {
         }
     }
 
-    /// One prominent action: get the extension, or move on once it's connected.
-    @ViewBuilder
+    /// One prominent action for where setup stands: move on once usable,
+    /// switch the setting on when it's installed but turned off, otherwise
+    /// get (or update) the extension.
     private var primaryAction: some View {
-        if isExtensionUsable {
-            Button(action: onContinue) {
-                Label("Continue", systemImage: "arrow.right.circle.fill")
-                    .font(.headline)
-                    .frame(width: 200)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-        } else {
-            Button {
-                openURL(FastTabExtensionIdentity.chromeWebStoreURL)
-            } label: {
-                Label("Get the extension", systemImage: "arrow.down.circle.fill")
-                    .font(.headline)
-                    .frame(width: 200)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+        let action: (title: String, symbolName: String, perform: () -> Void)
+        switch permissions.extensionSetupState {
+        case .usable:
+            action = ("Continue", "arrow.right.circle.fill", onContinue)
+        case .turnedOff:
+            action = ("Turn on the extension", "power.circle.fill", { permissions.turnOnExtensionFeature() })
+        case .versionMismatch, .waiting:
+            action = ("Get the extension", "arrow.down.circle.fill", { openURL(FastTabExtensionIdentity.chromeWebStoreURL) })
         }
+        return Button(action: action.perform) {
+            Label(action.title, systemImage: action.symbolName)
+                .font(.headline)
+                .frame(width: 200)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
     }
 }
 

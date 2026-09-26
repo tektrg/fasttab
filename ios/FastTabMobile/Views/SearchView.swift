@@ -239,7 +239,7 @@ public struct SearchView: View {
                 .ignoresSafeArea()
         }
         .fullScreenCover(item: $readerItem) { item in
-            ReaderView(url: item.url, title: item.title)
+            ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
         .dsToast($toast, bottomInset: DS.Space.xl)
     }

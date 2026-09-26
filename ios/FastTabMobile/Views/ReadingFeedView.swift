@@ -7,6 +7,7 @@ public struct ReadingFeedView: View {
     @ObservedObject private var lastOpenedStore = LastOpenedStore.shared
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var readingProgress = ReaderReadingProgress.shared
+    @ObservedObject private var highlightStore = ReaderHighlightStore.shared
 
     @State private var selectedFolder: String? = nil
     @State private var readerItem: ReaderNavigationItem? = nil
@@ -44,6 +45,9 @@ public struct ReadingFeedView: View {
                 // Section 3: Last Opened on iPhone
                 lastOpenedSection
 
+                // Section 4: Recent Highlights
+                recentHighlightsSection
+
                 Spacer(minLength: 40)
             }
             .padding(.top, 6)
@@ -65,7 +69,7 @@ public struct ReadingFeedView: View {
             await refreshAllAsync()
         }
         .fullScreenCover(item: $readerItem) { item in
-            ReaderView(url: item.url, title: item.title)
+            ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
         .sheet(item: $saveToBookmarkURL) { url in
             BookmarkMovePicker(
@@ -286,6 +290,50 @@ public struct ReadingFeedView: View {
         }
     }
 
+    // MARK: - Section 4: Recent Highlights
+
+    /// Newest 12 highlights across every article. "See all" pushes the full,
+    /// article-grouped list onto this tab's own `NavigationStack`.
+    private var recentHighlightsSection: some View {
+        let recent = Array(highlightStore.allHighlightsNewestFirst().prefix(12))
+
+        return VStack(alignment: .leading, spacing: DS.Space.xs) {
+            DSSectionHeader("Recent Highlights") {
+                NavigationLink {
+                    HighlightsListView()
+                } label: {
+                    HStack(spacing: 2) {
+                        Text("See all")
+                        Image(systemName: "chevron.right")
+                    }
+                }
+                .font(DS.Font.control)
+                .foregroundStyle(.secondary)
+            }
+
+            if recent.isEmpty {
+                DSEmptyState(
+                    "No highlights yet",
+                    systemImage: "highlighter",
+                    message: "Long-press any text in the article reader to save a highlight.",
+                    style: .inline
+                )
+                .padding(.horizontal, DS.Space.gutter)
+                .padding(.top, DS.Space.xs)
+            } else {
+                carousel(recent) { highlight in
+                    HighlightSnippetRow(
+                        highlight: highlight,
+                        articleTitle: ReaderHighlightTitleResolver.resolve(for: highlight),
+                        style: .card
+                    ) {
+                        openHighlight(highlight)
+                    }
+                }
+            }
+        }
+    }
+
     private var emptyRecentCard: some View {
         DSEmptyState(
             "No recent additions",
@@ -470,9 +518,15 @@ public struct ReadingFeedView: View {
 
     // MARK: - Actions
 
-    private func openArticle(url: URL, title: String) {
+    private func openArticle(url: URL, title: String, focusHighlightID: String? = nil) {
         lastOpenedStore.recordOpened(url: url, title: title)
-        readerItem = ReaderNavigationItem(url: url, title: title)
+        readerItem = ReaderNavigationItem(url: url, title: title, focusHighlightID: focusHighlightID)
+    }
+
+    private func openHighlight(_ highlight: ReaderHighlight) {
+        guard let url = highlight.articleURL else { return }
+        let title = ReaderHighlightTitleResolver.resolve(for: highlight)
+        openArticle(url: url, title: title, focusHighlightID: highlight.id)
     }
 
     private func openOnMac(url: URL, title: String) {

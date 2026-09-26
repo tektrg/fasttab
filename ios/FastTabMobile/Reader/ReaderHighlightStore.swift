@@ -21,6 +21,11 @@ public final class ReaderHighlightStore: ObservableObject {
         store[canonical(url)] ?? []
     }
 
+    /// Every highlight across every article, newest first.
+    public func allHighlightsNewestFirst() -> [ReaderHighlight] {
+        store.values.flatMap { $0 }.sorted { $0.createdAt > $1.createdAt }
+    }
+
     public func add(_ highlight: ReaderHighlight) {
         var list = store[highlight.urlKey] ?? []
         list.append(highlight)
@@ -31,6 +36,13 @@ public final class ReaderHighlightStore: ObservableObject {
     public func remove(id: String, url: URL) {
         let key = canonical(url)
         store[key]?.removeAll { $0.id == id }
+        saveToDisk()
+    }
+
+    /// Removes a highlight without needing to reconstruct its article `URL` — `urlKey` is
+    /// already canonical, so it doubles as the store's dictionary key directly.
+    public func remove(_ highlight: ReaderHighlight) {
+        store[highlight.urlKey]?.removeAll { $0.id == highlight.id }
         saveToDisk()
     }
 

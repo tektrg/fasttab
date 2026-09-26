@@ -98,6 +98,17 @@ public struct MoreView: View {
                         subtitle: "Recent browsing history from your Mac"
                     )
                 }
+
+                NavigationLink {
+                    HighlightsListView()
+                } label: {
+                    MoreRowLabel(
+                        systemImage: "highlighter",
+                        tint: DS.Tint.warning,
+                        title: "Highlights",
+                        subtitle: "Text you've highlighted while reading"
+                    )
+                }
             }
             .dsListRow()
 

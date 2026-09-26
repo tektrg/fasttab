@@ -686,6 +686,17 @@ def _picker_or_permission_open(lines, question):
     return None, live_state
 
 
+def _refused_before_typing(error):
+    """A refusal that provably typed nothing into any pane: {ok:false,
+    error, typed:false}. `typed: false` is the ONLY signal the board's
+    Composer uses to put the text back in the box — any other failure
+    (mid-sequence error, dropped connection, NOT SUBMITTED) may already
+    have delivered the text, and restoring it invites a double-send on the
+    next Enter. So mark ONLY returns that happen before the first
+    keystroke; never add it after `_type_text`."""
+    return {"ok": False, "error": error, "typed": False}
+
+
 def _handle_reach_action(action, body, row_id, actor):
     """POST /api/session/message {rowId, actor, text?, confirm?}.
 
@@ -710,7 +721,7 @@ def _handle_reach_action(action, body, row_id, actor):
     ok, cleaned = session_actions.validate_message_text(
         (body or {}).get("text"))
     if not ok:
-        return {"ok": False, "error": cleaned}
+        return _refused_before_typing(cleaned)
     text = cleaned
 
     state = get_full_state()
@@ -719,18 +730,17 @@ def _handle_reach_action(action, body, row_id, actor):
     agent = next((a for a in agents
                   if resolve_agent_row_id(a) == row_id), None)
     if agent is None:
-        return {"ok": False,
-                "error": f"row {row_id} is not live — no agent there "
-                         "to read it"}
+        return _refused_before_typing(
+            f"row {row_id} is not live — no agent there to read it")
     pane_id = agent.get("paneId")
     if not pane_id:
-        return {"ok": False,
-                "error": f"row {row_id} has no pane — nothing to type into"}
+        return _refused_before_typing(
+            f"row {row_id} has no pane — nothing to type into")
     try:
         machine, raw_pane_id = herdr_transport.split_pane_key(
             pane_id, MACHINES)
     except herdr_transport.HerdrError as e:
-        return {"ok": False, "error": f"could not resolve pane machine: {e}"}
+        return _refused_before_typing(f"could not resolve pane machine: {e}")
     label = agent.get("label") or ""
     # No chief refusal here — deliberate (see docstring). The guards below
     # (own pane, dev-servers) still apply to every row including the chief's.
@@ -740,31 +750,31 @@ def _handle_reach_action(action, body, row_id, actor):
     except Exception:
         own = None
     if own and pane_id == own:
-        return {"ok": False,
-                "error": "refused: this is the dashboard server's own pane "
-                         "— there is no agent there to read it"}
+        return _refused_before_typing(
+            "refused: this is the dashboard server's own pane "
+            "— there is no agent there to read it")
     if label in session_actions.DEV_SERVER_LABELS:
-        return {"ok": False,
-                "error": "refused: dev-server panes are out of scope here — "
-                         "no agent there to read it, and the keystrokes "
-                         "would land in Metro"}
+        return _refused_before_typing(
+            "refused: dev-server panes are out of scope here — "
+            "no agent there to read it, and the keystrokes "
+            "would land in Metro")
 
     try:
         lines, question = _read_pane_now(raw_pane_id, machine=machine)
     except Exception as e:
-        return {"ok": False,
-                "error": f"could not read pane {pane_id} fresh — {e}"}
+        return _refused_before_typing(
+            f"could not read pane {pane_id} fresh — {e}")
     blocked, live_state = _picker_or_permission_open(lines, question)
     if blocked == "picker":
-        return {"ok": False,
-                "error": "refused: a question picker is open on that pane — "
-                         "free text would route into it and mis-answer real "
-                         "work. Answer it in the answer panel instead"}
+        return _refused_before_typing(
+            "refused: a question picker is open on that pane — "
+            "free text would route into it and mis-answer real "
+            "work. Answer it in the answer panel instead")
     if blocked == "permission":
-        return {"ok": False,
-                "error": "refused: a permission prompt is open on that "
-                         "pane — free text would land in it. Answer it in "
-                         "the terminal instead"}
+        return _refused_before_typing(
+            "refused: a permission prompt is open on that "
+            "pane — free text would land in it. Answer it in "
+            "the terminal instead")
 
     # Busy is evaluated ONCE, up front: it drives the confirm rule below
     # AND the queued verdict after sending. A mid-turn pane queues input —
@@ -883,17 +893,17 @@ def handle_session_action(action, body):
     row_id = (body or {}).get("rowId")
     actor = (body or {}).get("actor")
     if not row_id:
-        return {"ok": False, "error": "missing rowId"}
+        return _refused_before_typing("missing rowId")
     if action not in ("stop", "close", "relaunch", "archive", "unarchive",
                       "message"):
-        return {"ok": False, "error": "bad action"}
+        return _refused_before_typing("bad action")
     if action in ("archive", "unarchive"):
         ok, why = session_actions.check_actor(
             actor, allowed=session_actions.ARCHIVE_ACTORS)
     else:
         ok, why = session_actions.check_actor(actor)
     if not ok:
-        return {"ok": False, "error": why}
+        return _refused_before_typing(why)
 
     if action in ("archive", "unarchive"):
         # Board-only, and resolved BEFORE any agent lookup on purpose.

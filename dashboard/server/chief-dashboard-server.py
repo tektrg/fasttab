@@ -180,6 +180,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import classify_pane  # noqa: E402  (scripts/lib/classify_pane.py)
 import agent_tree  # noqa: E402  (scripts/lib/agent_tree.py — the hierarchy store)
+import session_transcript  # noqa: E402  (transcript latest message + plan file, P1b)
 import chief_dashboard_herdr as herdr_transport  # noqa: E402
 from chief_dashboard_feeds import (  # noqa: E402
     HOST, PORT, REPO_ROOT, STOP, start_pollers, run_json, MACHINES,
@@ -196,6 +197,7 @@ from chief_dashboard_memory import SAMPLER  # noqa: E402
 import chief_dashboard_actions as session_actions  # noqa: E402
 import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, generic)
 import personas  # noqa: E402  (Jev persona registry + routing, P1)
+import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -1806,6 +1808,189 @@ def handle_session_history(qs):
     return {"ok": True, "rowId": row_id, "entries": entries}, 200
 
 
+# ── Phase 1b (agentbar-mobile-web plan): transcript latest message + plan
+# file, machine-aware ──
+#
+# AgentBar's own SessionTranscriptReader/PlanFileReader
+# (Sources/AgentBar/Answer/Transcript/, Sources/AgentBar/Permission/Plan/)
+# read straight off THIS Mac's local disk — they cannot see a session
+# running on a configured remote machine (the Air), and a phone has no
+# local disk at all (AGENTS.md gotchas 9 and 13). These two endpoints port
+# the same read logic (session_transcript.py) and route it through
+# chief_dashboard_herdr's one ssh door for a remote row, so the web/phone
+# UI (and eventually Mac AgentBar) can ask the dashboard instead of reading
+# a file directly.
+
+_CLAUDE_PROJECTS_ROOT = os.path.expanduser("~/.claude/projects")
+_REMOTE_TAIL_TIMEOUT_SEC = 20
+_REMOTE_PLAN_READ_TIMEOUT_SEC = 15
+
+
+def _agent_for_row(row_id):
+    """The live `computed.agents[]` entry for one board row id, or None —
+    same resolution `_handle_reach_action` uses (resolve_agent_row_id)."""
+    state = get_full_state()
+    agents = state.get("computed", {}).get("agents") or []
+    return next((a for a in agents if resolve_agent_row_id(a) == row_id), None)
+
+
+def _local_tail_reader(session_id):
+    """A `read_window` callback (see session_transcript.latest_message_from_tail
+    / .pending_question_form_from_tail) backed by this Mac's own disk."""
+    def read_window(window_bytes):
+        path = session_transcript.find_local_transcript(
+            session_id, _CLAUDE_PROJECTS_ROOT)
+        if path is None:
+            return None
+        result = session_transcript.read_local_tail(path, window_bytes)
+        if result is None:
+            return None
+        data, starts_at_file_start, _size = result
+        return data, starts_at_file_start
+    return read_window
+
+
+def _remote_tail_reader(machine, session_id, errors):
+    """Same `read_window` shape, over ssh (chief_dashboard_herdr's one
+    door). Memoized per window size: the message scan and the pending-
+    question scan each walk the same growing window list, and without this
+    a single request could cost up to 6 ssh round trips instead of at most
+    3. Any ssh failure is recorded into `errors` (the caller's list) and
+    read as "nothing at this window" rather than raised — a transient ssh
+    hiccup on the FIRST (smallest) window must not stop a wider retry."""
+    cache = {}
+
+    def read_window(window_bytes):
+        if window_bytes in cache:
+            return cache[window_bytes]
+        script = session_transcript.remote_tail_script(session_id, window_bytes)
+        try:
+            out = herdr_transport.remote_shell_text(
+                machine, script, repo_root=REPO_ROOT, machines=MACHINES,
+                timeout=_REMOTE_TAIL_TIMEOUT_SEC)
+        except herdr_transport.HerdrError as e:
+            errors.append(str(e))
+            cache[window_bytes] = None
+            return None
+        result = session_transcript.parse_remote_tail_reply(out)
+        cache[window_bytes] = result
+        return result
+    return read_window
+
+
+def handle_session_latest(qs):
+    """GET /api/session/latest?rowId= -> (payload, http_status).
+
+    {ok, rowId, machine, latestMessage, pendingQuestion} — the same two
+    things AgentBar's Answer card reads from local disk: the last assistant
+    text, and (when the agent is sitting on an unanswered multi-question
+    AskUserQuestion form) the pending form's questions/options, ported from
+    SessionTranscriptReader/AskUserQuestionExtractor (see session_transcript.py's
+    module docstring for exact, documented differences from the Swift
+    originals). `machine` is "local" or a configured remote machine name;
+    reads for a remote row go over the same ssh door every other machine
+    call in this server uses (chief_dashboard_herdr), not a new one.
+
+    A row with no live agent, or a live agent with no Claude session
+    (opencode/codex/gemini, or a status-only Claude Desktop/CLI row that
+    has since ended) reads `ok:false` with a plain reason — never a 400,
+    since "not live right now" is an operational fact, not a bad request.
+    """
+    row_id = (qs.get("rowId") or [None])[0]
+    if not row_id or not row_id.strip():
+        return {"ok": False, "error": "missing rowId"}, 400
+    row_id = row_id.strip()
+    agent = _agent_for_row(row_id)
+    if agent is None:
+        return {"ok": False, "error": f"row {row_id} is not live"}, 200
+    session_id = agent.get("agentSession")
+    if not session_id:
+        return {"ok": False,
+                "error": f"row {row_id} has no Claude session transcript"}, 200
+    if not session_transcript.is_safe_session_id(session_id):
+        return {"ok": False, "error": "bad session id"}, 400
+    machine = agent.get("machine") or herdr_transport.LOCAL_MACHINE
+
+    errors = []
+    read_window = (_local_tail_reader(session_id) if machine == herdr_transport.LOCAL_MACHINE
+                   else _remote_tail_reader(machine, session_id, errors))
+    scan = session_transcript.latest_message_from_tail(read_window)
+    pending = session_transcript.pending_question_form_from_tail(read_window)
+    if scan["latestMessage"] is None and pending is None and errors:
+        # Nothing at all came back AND at least one window attempt failed
+        # over ssh — report the ssh failure rather than a silent "no
+        # message", so a dead Air reads as "unreachable", not "quiet".
+        return {"ok": False, "error": errors[0]}, 200
+    return {"ok": True, "rowId": row_id, "machine": machine,
+            "latestMessage": scan["latestMessage"],
+            "pendingQuestion": pending}, 200
+
+
+def _current_plan_path(pane_id, row_id):
+    """Reads the pane FRESH (same `_read_pane_now` door every send-path
+    handler uses) and returns (planPath, resolvedMachine, error). error is
+    a plain-English reason for the UI when the row has nothing to show —
+    no pane, unreachable, or not currently sitting on a plan-approval box."""
+    if not pane_id:
+        return None, None, f"row {row_id} has no pane — nothing to read"
+    try:
+        machine, raw_pane_id = herdr_transport.split_pane_key(pane_id, MACHINES)
+    except herdr_transport.HerdrError as e:
+        return None, None, f"could not resolve pane machine: {e}"
+    try:
+        _lines, prompt = _read_pane_now(
+            raw_pane_id, parser=classify_pane.parse_permission_or_plan_block,
+            machine=machine)
+    except Exception as e:
+        return None, machine, f"could not read pane {pane_id} fresh — {e}"
+    if not prompt or prompt.get("kind") != "plan":
+        return None, machine, (f"row {row_id} is not showing a plan approval "
+                               "box right now")
+    return prompt.get("planPath"), machine, None
+
+
+def handle_session_plan(qs):
+    """GET /api/session/plan?rowId= -> (payload, http_status).
+
+    {ok, rowId, machine, planPath, plan:{status, text?, truncated?, reason?}}
+    — ports PlanFileReader (Sources/AgentBar/Permission/Plan/PlanFileReader.swift)
+    for a row currently blocked on a plan-approval box, reading the plan
+    file from whichever machine the row's pane actually lives on instead of
+    only this Mac's disk (AGENTS.md gotcha 13's deferred item). `plan.status`
+    is one of "noPath" (box names no file), "unreadable" (reason given,
+    never blocks approval), or "text" (plan.text, plan.truncated at 200KB —
+    same cap as the Swift reader).
+    """
+    row_id = (qs.get("rowId") or [None])[0]
+    if not row_id or not row_id.strip():
+        return {"ok": False, "error": "missing rowId"}, 400
+    row_id = row_id.strip()
+    agent = _agent_for_row(row_id)
+    if agent is None:
+        return {"ok": False, "error": f"row {row_id} is not live"}, 200
+    plan_path, machine, err = _current_plan_path(agent.get("paneId"), row_id)
+    machine = machine or agent.get("machine") or herdr_transport.LOCAL_MACHINE
+    if err:
+        return {"ok": False, "error": err}, 200
+    if not plan_path:
+        return {"ok": True, "rowId": row_id, "machine": machine,
+                "planPath": None, "plan": {"status": "noPath"}}, 200
+
+    if machine == herdr_transport.LOCAL_MACHINE:
+        plan = session_transcript.read_local_plan_file(plan_path)
+    else:
+        script = session_transcript.remote_plan_file_script(plan_path)
+        try:
+            out = herdr_transport.remote_shell_text(
+                machine, script, repo_root=REPO_ROOT, machines=MACHINES,
+                timeout=_REMOTE_PLAN_READ_TIMEOUT_SEC)
+        except herdr_transport.HerdrError as e:
+            return {"ok": False, "error": str(e)}, 200
+        plan = session_transcript.parse_remote_plan_file_reply(out, plan_path)
+    return {"ok": True, "rowId": row_id, "machine": machine,
+            "planPath": plan_path, "plan": plan}, 200
+
+
 def _plain_herdr_error(exc):
     """A herdr failure as one sentence the PO can read.
 
@@ -2399,6 +2584,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+        # Phase 1a remote access: flush the audit line for this write once
+        # its real outcome (this status) is known — see _reject_foreign_write.
+        pending = getattr(self, "_pending_remote_audit", None)
+        if pending is not None:
+            self._pending_remote_audit = None
+            remote_access.append_audit(
+                pending["host"], pending["route"], pending["method"],
+                status, row_id=pending.get("row_id"))
 
     def _read_json_body(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -2426,16 +2619,171 @@ class Handler(BaseHTTPRequestHandler):
             host = netloc.split(":")[0]
         return host.strip("[]").lower() in cls._LOOPBACK_HOSTNAMES
 
-    def _reject_foreign_write(self):
-        """True (and a 403 already sent) when this write must be refused.
+    # ---- Phase 1a remote access (tailscale serve) -----------------------
+    # A request whose Host is 127.0.0.1/localhost/[::1] never touches any
+    # of this — _remote_context short-circuits to None on the very first
+    # check, so the loopback path below is byte-for-byte what it was
+    # before this phase.
 
-        No Origin header at all — a curl call, or a same-page fetch that
-        never sends one — is NOT foreign; only an explicit cross-origin
-        Origin, or a Host naming something other than this loopback
-        server, counts. Called once at the top of every write method,
-        before any path routing or handler runs.
+    #: Tailscale serve/funnel strips ANY client-supplied copy of these
+    #: headers before forwarding and re-adds its own (see server/REMOTE.md,
+    #: "Auth mechanics" — confirmed against Tailscale's own docs: identity
+    #: headers "will [be] remove[d] for security reasons, to avoid header
+    #: spoofing"). Their presence is proof this request transited tailscale
+    #: serve — used ONLY as that proof, never to identify which user, since
+    #: they are absent for tagged devices and this is a single-user server.
+    _TAILSCALE_PROXY_HEADERS = (
+        "Tailscale-User-Login", "Tailscale-User-Name", "Tailscale-App-Capabilities",
+    )
+
+    def _proxied_via_tailscale(self):
+        return any(self.headers.get(h) for h in self._TAILSCALE_PROXY_HEADERS)
+
+    def _remote_context(self):
+        """The value to gate this request on, or None for "genuinely
+        loopback — pre-existing, fully unauthenticated behaviour applies."
+
+        QA pass 1 fix (two confirmed bypasses of the remote-auth gate):
+
+        1. Host-header spoofing. `tailscale serve` passes the client's Host
+           header through to this backend UNCHANGED — it does not rewrite it
+           to the backend address. So a remote attacker on the tailnet could
+           set `Host: 127.0.0.1` and be treated as a trusted local caller,
+           skipping auth entirely. Fixed by never trusting a loopback-looking
+           Host when `_proxied_via_tailscale()` proves the request actually
+           came in through the proxy.
+        2. Fail-OPEN on an unrecognized Host. A Host that was simply not one
+           of `remote.hosts` (typo, IP address, any other string) used to
+           return None here — the SAME "no auth needed" value as a real
+           loopback request — so `do_GET` served every route, including
+           `/api/state` and session transcripts, with zero auth to anyone who
+           just avoided sending the configured hostname. Fixed by returning
+           UNRECOGNIZED_REMOTE_HOST (a value nothing is ever authenticated
+           against) instead of None whenever the Host isn't proven loopback,
+           so it goes through the exact same auth gate as a recognized
+           remote host and can never succeed without the real token/session.
+
+        Writes already fail closed here via `_reject_foreign_write`'s
+        loopback-Origin/Host fallback (R20) — this fix brings GET/SSE/static
+        routes up to the same fail-closed posture, which is the only route
+        class this bug affected.
+        """
+        host_header = self.headers.get("Host")
+        proxied = self._proxied_via_tailscale()
+        if not proxied and (not host_header or self._is_loopback_netloc(host_header)):
+            return None
+        enabled, hosts = remote_access.load_remote_settings()
+        if not enabled:
+            # remote.enabled is false: the operator hasn't opted into any of
+            # this, so behave exactly as if this module didn't exist (same
+            # as before this fix) — the fail-closed sentinel below is only
+            # for the case remote access IS switched on but this particular
+            # Host wasn't proven loopback.
+            return None
+        matched = remote_access.matched_remote_host(host_header, hosts)
+        return matched or remote_access.UNRECOGNIZED_REMOTE_HOST
+
+    def _remote_authenticated(self, matched_host):
+        auth = self.headers.get("Authorization") or ""
+        if auth.startswith("Bearer "):
+            if remote_access.verify_token(auth[len("Bearer "):].strip()):
+                return True
+        cookies = remote_access.parse_cookies(self.headers.get("Cookie"))
+        session_id = cookies.get(remote_access.SESSION_COOKIE_NAME)
+        return remote_access.session_host(session_id) == matched_host
+
+    def _note_remote_audit_row(self, row_id):
+        pending = getattr(self, "_pending_remote_audit", None)
+        if pending is not None and row_id is not None:
+            pending["row_id"] = row_id
+
+    def _handle_remote_login(self, matched_host):
+        """Verify the token BEFORE consulting the failure-rate limiter.
+
+        QA pass 1 fix: `client_address` is 127.0.0.1 for EVERY remote
+        request (tailscale serve always proxies in over loopback), so
+        `is_login_blocked` is keyed on the same bucket for every remote
+        caller, not per real attacker — it was checked first, so an
+        attacker sending one wrong-token guess roughly once a minute could
+        keep the shared 60s window perpetually full and lock the real
+        owner's own phone out of ever logging in. A request carrying the
+        actual token proves its sender isn't the guesser being rate-limited,
+        so it must always be allowed through regardless of recent failures
+        from whoever else is hitting this endpoint; only a WRONG guess is
+        subject to the limiter (unchanged otherwise)."""
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b""
+        token = remote_access.parse_login_form(raw)
+        if not remote_access.verify_token(token):
+            if remote_access.is_login_blocked(self.client_address):
+                self._send_page(remote_access.render_login_page(
+                    "Too many attempts — wait a minute and try again."))
+                return
+            remote_access.record_login_failure(self.client_address)
+            remote_access.append_audit(matched_host, "/remote/login", "POST", 401)
+            self._send_page(remote_access.render_login_page("Invalid token."))
+            return
+        remote_access.clear_login_failures(self.client_address)
+        session_id = remote_access.create_session(matched_host)
+        remote_access.append_audit(matched_host, "/remote/login", "POST", 200)
+        self.send_response(302)
+        self.send_header("Location", "/")
+        self.send_header("Set-Cookie", remote_access.session_cookie_header(session_id))
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _reject_foreign_write(self):
+        """True (and a response already sent) when this write must be
+        refused. Called once at the top of every write method, before any
+        path routing or handler runs.
+
+        Remote Host (matches config.json's `remote.hosts`, tailscale-serve
+        case): auth is required first — an unauthenticated remote request
+        is refused with 401 before Origin is even inspected, since Origin
+        can't be trusted to identify a legitimate caller until one is
+        known. Once authenticated, Origin (when the browser sends one)
+        must equal this exact remote host — a same-page fetch from the
+        phone PWA satisfies that; anything else is CSRF and gets 403.
+
+        Loopback / anything else: unchanged from before this phase — no
+        Origin header at all (a curl call, or a same-page fetch that never
+        sends one) is NOT foreign; only an explicit cross-origin Origin, or
+        a Host naming something other than this loopback server, counts.
         """
         origin = self.headers.get("Origin")
+        remote_host = self._remote_context()
+        if remote_host is not None:
+            # self.path is only read on this branch (a real remote Host was
+            # matched) — the loopback-only unit tests for this method
+            # construct a bare Handler with no real request/socket behind
+            # it, so nothing below this point may assume self.path exists.
+            path = urlparse(self.path).path
+            if path == "/remote/login":
+                self._handle_remote_login(remote_host)
+                return True
+            if not self._remote_authenticated(remote_host):
+                remote_access.append_audit(remote_host, path, self.command, 401)
+                self._send_json({"ok": False, "error": "unauthenticated"}, status=401)
+                return True
+            if origin:
+                try:
+                    origin_host = remote_access.strip_port(urlparse(origin).netloc)
+                except Exception:
+                    origin_host = None
+                if origin_host != remote_host:
+                    remote_access.append_audit(remote_host, path, self.command, 403)
+                    self._send_json(
+                        {"ok": False, "error": "refused: foreign Origin"},
+                        status=403)
+                    return True
+            # Authenticated + CSRF-clean: allow through, and remember what
+            # to audit once the real handler's response status is known
+            # (flushed from _send_json).
+            self._pending_remote_audit = {
+                "host": remote_host, "route": path, "method": self.command,
+            }
+            return False
+
         if origin:
             try:
                 ok = self._is_loopback_netloc(urlparse(origin).netloc)
@@ -2496,6 +2844,25 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        # Phase 1a remote access: on a matched remote Host, EVERY route
+        # (including the SPA shell, static /assets/, and the /api/events
+        # SSE stream) requires auth — unlike loopback, where GET has never
+        # needed any. /remote/login itself must stay reachable unauthed,
+        # or there would be no way to ever get a session.
+        remote_host = self._remote_context()
+        if remote_host is not None:
+            if path == "/remote/login":
+                self._send_page(remote_access.render_login_page())
+                return
+            if not self._remote_authenticated(remote_host):
+                if path.startswith("/api/"):
+                    self._send_json({"ok": False, "error": "unauthenticated"}, status=401)
+                else:
+                    self.send_response(302)
+                    self.send_header("Location", "/remote/login")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                return
         if path == "/" or path == "/index.html":
             self._serve_spa()
         elif path == "/legacy":
@@ -2541,6 +2908,12 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/session/history":
             payload, status = handle_session_history(parse_qs(parsed.query))
             self._send_json(payload, status=status)
+        elif path == "/api/session/latest":
+            payload, status = handle_session_latest(parse_qs(parsed.query))
+            self._send_json(payload, status=status)
+        elif path == "/api/session/plan":
+            payload, status = handle_session_plan(parse_qs(parsed.query))
+            self._send_json(payload, status=status)
         elif path == "/api/pane/screen":
             # BLOCKING ~2.5s on this request thread. ThreadingHTTPServer keeps
             # it off the SSE stream and the rest of the board; a polling
@@ -2564,9 +2937,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         if path.startswith("/api/session/"):
+            session_id = path[len("/api/session/"):]
+            self._note_remote_audit_row(session_id)
             try:
                 self._send_json(handle_session_action(
-                    path[len("/api/session/"):], self._read_json_body()))
+                    session_id, self._read_json_body()))
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)}, status=200)
             return
@@ -2620,6 +2995,7 @@ class Handler(BaseHTTPRequestHandler):
             if not pane_id:
                 self._send_json({"ok": False, "error": "missing paneId"}, status=400)
                 return
+            self._note_remote_audit_row(pane_id)
             if path == "/api/focus":
                 result = focus_pane(pane_id)
             elif path == "/api/answer":

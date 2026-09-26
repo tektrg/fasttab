@@ -23,7 +23,7 @@ struct AgentListSettingsTests {
 
     @Test func roundTripsThroughDefaults() {
         let defaults = makeScratchDefaults()
-        let chosen = AgentListSettings(endedWindowHours: 72, maxEndedRows: 0, showsNonClaudePanes: false, maxVisibleRows: 14)
+        let chosen = AgentListSettings(endedWindowHours: 72, maxEndedRows: 0, showsNonClaudePanes: false, showsClaudeOutsideHerdr: false, maxVisibleRows: 14)
         chosen.save(to: defaults)
         #expect(AgentListSettings.load(from: defaults) == chosen)
     }

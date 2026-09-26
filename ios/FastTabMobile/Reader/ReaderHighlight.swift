@@ -53,6 +53,16 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
     /// Opaque JS-serialised range descriptor (passed back to `highlight.js`)
     public let serializedRange: String
     public let createdAt: Date
+    /// Article title captured at highlight time. Absent on highlights created before this
+    /// field existed; `ReaderHighlightTitleResolver` falls back to other sources for those.
+    public let title: String?
+    /// Raw article URL captured at highlight time, for opening the highlight later.
+    public let urlString: String?
+
+    // Explicit CodingKeys so old stored JSON (no `title`/`urlString`) still decodes.
+    enum CodingKeys: String, CodingKey {
+        case id, urlKey, selectedText, color, serializedRange, createdAt, title, urlString
+    }
 
     public init(
         id: String = UUID().uuidString,
@@ -60,7 +70,9 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         selectedText: String,
         color: HighlightColor,
         serializedRange: String,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        title: String? = nil,
+        urlString: String? = nil
     ) {
         self.id = id
         self.urlKey = urlKey
@@ -68,5 +80,60 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         self.color = color
         self.serializedRange = serializedRange
         self.createdAt = createdAt
+        self.title = title
+        self.urlString = urlString
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        urlKey = try c.decode(String.self, forKey: .urlKey)
+        selectedText = try c.decode(String.self, forKey: .selectedText)
+        color = try c.decode(HighlightColor.self, forKey: .color)
+        serializedRange = try c.decode(String.self, forKey: .serializedRange)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        urlString = try c.decodeIfPresent(String.self, forKey: .urlString)
+    }
+}
+
+public extension ReaderHighlight {
+    /// URL to reopen this highlight's article: the raw URL captured at highlight time,
+    /// falling back to the canonical key for highlights saved before `urlString` existed.
+    var articleURL: URL? {
+        urlString.flatMap(URL.init(string:)) ?? URL(string: urlKey)
+    }
+}
+
+// MARK: - Title Resolution
+
+/// Resolves a display title for a highlight, oldest-first source order:
+/// the title stored on the highlight itself, then the extracted article cache,
+/// then the Last Opened history, then finally the host name of the URL.
+public enum ReaderHighlightTitleResolver {
+    /// Article-cache titles already looked up, keyed by `urlKey`. The cache lookup can hit disk
+    /// and rewrites its access index, too costly to repeat on every carousel re-render.
+    @MainActor private static var cachedTitles: [String: String] = [:]
+
+    @MainActor
+    public static func resolve(for highlight: ReaderHighlight) -> String {
+        if let stored = highlight.title, !stored.isEmpty {
+            return stored
+        }
+        guard let url = highlight.articleURL else {
+            return highlight.urlKey
+        }
+        if let memo = cachedTitles[highlight.urlKey] {
+            return memo
+        }
+        if let cached = ReaderArticleCache.shared.article(for: url)?.title, !cached.isEmpty {
+            cachedTitles[highlight.urlKey] = cached
+            return cached
+        }
+        if let lastOpened = LastOpenedStore.shared.items.first(where: { $0.url == url.absoluteString })?.title,
+           !lastOpened.isEmpty {
+            return lastOpened
+        }
+        return url.host() ?? highlight.urlKey
     }
 }

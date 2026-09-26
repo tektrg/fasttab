@@ -95,7 +95,7 @@ public struct RandomLinksView: View {
             reshuffle()
         }
         .fullScreenCover(item: $readerItem) { item in
-            ReaderView(url: item.url, title: item.title)
+            ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
         .sheet(item: $moveRequest) { item in
             switch item.source {

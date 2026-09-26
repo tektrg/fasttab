@@ -46,9 +46,12 @@ enum EndedAgentMapper {
         return rows
             .filter { $0.status == "ended" && $0.archived != true }
             .compactMap { row -> (endedTs: TimeInterval, snapshot: AgentSnapshot)? in
-                guard let endedTs = row.endedTs, serverNow - endedTs <= limits.windowSeconds,
+                // A pane-less ended row is a status-only session (Claude Desktop / CLI outside
+                // herdr, `AgentHost`) that ended — or the old id of one that is still running after
+                // /clear or a resume, which would list it twice. Nothing to close or open: left out.
+                guard let paneId = row.paneId, !paneId.isEmpty, !livePaneIds.contains(paneId),
+                      let endedTs = row.endedTs, serverNow - endedTs <= limits.windowSeconds,
                       let rowId = row.rowId, !liveRowIds.contains(rowId),
-                      row.paneId.map({ !livePaneIds.contains($0) }) ?? true,
                       !wasClosedByUser(row),
                       let label = usableLabel(row.label) else { return nil }
                 return (endedTs, snapshot(row: row, rowId: rowId, label: label, endedTs: endedTs, serverNow: serverNow))

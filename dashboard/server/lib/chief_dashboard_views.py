@@ -9,6 +9,7 @@ import time
 
 import agent_tree  # noqa: E402  (scripts/lib/agent_tree.py — the hierarchy store)
 import chief_dashboard_herdr as herdr_transport
+import claude_sessions  # P4: non-herdr Claude sessions as status-only rows
 import pane_screen_signals
 from chief_dashboard_feeds import FEEDS, MACHINES, sanitize_pane_id  # noqa: F401
 from chief_dashboard_feeds import MACHINES_CONFIG_ERROR  # noqa: F401,E402  (surfaced on every /api/state)
@@ -50,6 +51,11 @@ def build_agents_view(feeds_snap):
             hook_state, herdr_status, screen.get("state"), since_sec,
             screen_unchanged_sec=unchanged_sec, subagents=subagents)
         tab = tabs_by_id.get(a.get("tab_id"), {})
+        # P5: a non-Claude pane (OpenCode, …) the screen can't classify falls
+        # back to herdr's own agent_status; screenStateSource says which won.
+        screen_state, screen_state_source = (
+            pane_screen_signals.screen_state_with_herdr_fallback(
+                a.get("agent"), screen.get("state"), herdr_status))
         rows.append({
             "paneId": pane_id,
             "tabId": a.get("tab_id"),
@@ -72,12 +78,13 @@ def build_agents_view(feeds_snap):
             # Parked on a monitor/agent past the 2h ceiling: the UI stops
             # painting the row as working (same rule as resolve_state).
             "backgroundWaitExpired": pane_screen_signals.background_wait_expired(
-                screen.get("state"), since_sec),
+                screen_state, since_sec),
             "residue": False,
             "agentSession": (a.get("agent_session") or {}).get("value"),
             "hookReason": (hook_entry or {}).get("reason"),
             # What the pane actually shows right now — the corroborating truth.
-            "screenState": screen.get("state"),
+            "screenState": screen_state,
+            "screenStateSource": screen_state_source,
             "screenSignal": screen.get("signal"),
             # The open AskUserQuestion picker, if any (parsed block, or None).
             "screenQuestion": screen.get("question"),
@@ -90,6 +97,7 @@ def build_agents_view(feeds_snap):
             # an orphaned sidecar with no pane is residue, never a row.
             "hookQuestion": read_hook_question(sid) if sid else None,
             "machine": herdr_transport.LOCAL_MACHINE,
+            "source": claude_sessions.HERDR_SOURCE,
         })
 
     # Remote rows (R1/R4/R7): one machine at a time, from that machine's OWN
@@ -138,10 +146,20 @@ def build_agents_view(feeds_snap):
                 "screenPermission": screen.get("permission"),
                 "hookQuestion": None,
                 "machine": machine,
+                "source": claude_sessions.HERDR_SOURCE,
                 # Local-only facts (R16) degrade to null on a remote row,
                 # never a guessed/borrowed local value.
                 "memoryBytes": None,
             })
+
+    # P4: Claude sessions outside herdr (Claude Desktop, a plain terminal),
+    # status-only. A session herdr already shows (same agentSession) is skipped
+    # — the pane row is the richer one. Local sessions folder only.
+    herdr_session_ids = {r["agentSession"] for r in rows if r.get("agentSession")}
+    claude_sessions_data = (feeds_snap.get("claudeSessions") or {}).get("data")
+    rows.extend(claude_sessions.build_status_only_rows(
+        claude_sessions_data, herdr_session_ids, now,
+        machine=herdr_transport.LOCAL_MACHINE))
 
     # Hook files with no matching herdr pane. The hook only deletes one on a
     # graceful SessionEnd, so a closed tab or a killed session leaves it behind
@@ -335,6 +353,19 @@ def build_needs_you(feeds_snap, agents):
         pane_id = a.get("paneId") or a.get("paneIdSanitized")
         label = a["label"]
         age = a["hookSinceSec"]
+        if claude_sessions.is_status_only_row(a):
+            # P4: no pane, no screen — the session's own `waiting` status is
+            # the whole signal. Answered in its own app, never from here.
+            if a["hookState"] == "blocked":
+                row = _row("blocked", label, None, a.get("hookReason")
+                           or claude_sessions.DEFAULT_WAITING_REASON, age,
+                           identity=a.get("agentSession"))
+                row["permission"] = None
+                row["source"] = a["source"]
+                row["agentSession"] = a.get("agentSession")
+                row["openUrl"] = a.get("openUrl")
+                rows.append(row)
+            continue
         screen = a.get("screenState")
         signal = a.get("screenSignal")
         # Only a reading at least as new as the hook event may overrule it.

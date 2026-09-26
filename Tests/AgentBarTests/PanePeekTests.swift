@@ -105,6 +105,36 @@ struct PanePeekTests {
         #expect(source.requestedPaneIds.isEmpty)
     }
 
+    @Test func aStatusOnlyRowPeeksAtItsLatestMessageNotAPane() async {
+        let suite = "AgentBarTests.\(UUID().uuidString)"
+        let model = AgentPanelModel(
+            store: FrecencyStore(defaults: UserDefaults(suiteName: suite)!),
+            loadPeekMessage: { sessionId in SessionContext(latestMessage: "done with \(sessionId)", planFile: nil) },
+            now: { F.now }
+        )
+        let source = ScreenFakeSource()
+        model.statusSource = source
+        model.receive(F.snapshot([StatusOnlyFixtures.desktopAgent("d")]))
+        model.togglePeek()
+        #expect(model.peek?.content == .loadingLatestMessage)
+        await settle()
+        #expect(model.peek?.content == .latestMessage("done with d"))
+        #expect(source.requestedPaneIds.isEmpty)   // no pane read, and the blocker probe left it alone too
+    }
+
+    @Test func aStatusOnlyRowWithNoMessageSaysSo() async {
+        let suite = "AgentBarTests.\(UUID().uuidString)"
+        let model = AgentPanelModel(
+            store: FrecencyStore(defaults: UserDefaults(suiteName: suite)!),
+            loadPeekMessage: { _ in .empty },
+            now: { F.now }
+        )
+        model.receive(F.snapshot([StatusOnlyFixtures.desktopAgent("d")]))
+        model.togglePeek()
+        await settle()
+        #expect(model.peek?.content == .unavailable(PanePeek.noLatestMessage))
+    }
+
     @Test func withoutAStatusSourceThePeekSaysSo() {
         let (model, _) = makeRig()
         model.statusSource = nil

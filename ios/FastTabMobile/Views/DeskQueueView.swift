@@ -175,7 +175,7 @@ public struct DeskQueueView: View {
             await SyncConsumer.shared.refreshNow()
         }
         .fullScreenCover(item: $readerItem) { item in
-            ReaderView(url: item.url, title: item.title)
+            ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
     }
 

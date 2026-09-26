@@ -214,6 +214,13 @@
   .reader-highlight:hover {
     filter: brightness(0.9);
   }
+  @keyframes reader-highlight-flash {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.6); }
+  }
+  .reader-highlight-flash {
+    animation: reader-highlight-flash 0.7s ease-in-out 2;
+  }
 
   /* ── Progress bar (bottom fixed) ────────────────────────── */
   #progress-bar {
@@ -500,19 +507,45 @@ function restoreHighlights() {
   });
 }
 
+// ── Scroll to and flash a single highlight (opened from Highlights list) ──
+function focusHighlight(id) {
+  setTimeout(function() {
+    var mark = document.querySelector('mark[data-highlight-id="' + id + '"]');
+    if (mark) {
+      // Programmatic jump: don't let it count as user scrolling, or the highlight's
+      // position would overwrite the article's saved reading progress.
+      isRestoringScroll = true;
+      mark.scrollIntoView({ block: 'center' });
+      setTimeout(function() { isRestoringScroll = false; }, 100);
+      mark.classList.add('reader-highlight-flash');
+      setTimeout(function() { mark.classList.remove('reader-highlight-flash'); }, 1400);
+    } else {
+      isRestoringScroll = true;
+      window.scrollTo(0, 0);
+      setTimeout(function() { isRestoringScroll = false; }, 100);
+    }
+  }, 50);
+}
+
 // ── Init sequence ──────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', function() {
   restoreHighlights();
-  // Give layout a tick before restoring scroll
-  setTimeout(restoreScroll, 50);
+  if (article.focusHighlightID) {
+    // A specific highlight was requested: jump to it instead of the last scroll position.
+    focusHighlight(article.focusHighlightID);
+  } else {
+    // Give layout a tick before restoring scroll
+    setTimeout(restoreScroll, 50);
+  }
   try {
     window.webkit.messageHandlers.ready.postMessage({});
   } catch(e) {}
 });
 
-// Re-adjust scroll after images finish loading if user hasn't started manual scroll
+// Re-adjust scroll after images finish loading if user hasn't started manual scroll.
+// Skipped when focusing a specific highlight — that scroll position wins instead.
 window.addEventListener('load', function() {
-  if (!userHasScrolled) {
+  if (!userHasScrolled && !article.focusHighlightID) {
     restoreScroll();
   }
 });

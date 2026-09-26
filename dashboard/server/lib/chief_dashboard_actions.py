@@ -24,6 +24,7 @@ import subprocess
 import time
 
 import chief_dashboard_herdr as herdr_transport
+import claude_sessions  # P4: status-only (paneless) rows
 
 try:
     from chief_dashboard_feeds import REPO_ROOT, MACHINES
@@ -301,6 +302,10 @@ def assess_row(agent, row_id, *, live_pane_ids, memory_bytes=None,
     session = (agent or {}).get("agentSession")
     alive = bool(pane_id) and pane_id in (live_pane_ids or set())
 
+    if claude_sessions.is_status_only_row(agent):
+        why = (f"refused: {agent['source']} session, not a herdr pane — "
+               "status only, act on it in its own app")
+        return _guarded_refusal(why, is_archived)
     if pane_id and pane_id == own_pane:
         why = ("refused: this is the dashboard server's own pane — "
                "self-destruct is structurally impossible")

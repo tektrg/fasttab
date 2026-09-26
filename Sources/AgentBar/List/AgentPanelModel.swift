@@ -639,6 +639,9 @@ final class AgentPanelModel: ObservableObject {
     private var failureNotice: PanelFooterNotice?
     private var hotkeyIssue: String?
     private let peekLoader = LatestResultLoader<PaneScreenResult>()
+    /// Peek on a status-only row (no pane): reads the session transcript's latest message.
+    private let peekMessageLoader = LatestResultLoader<SessionContext>()
+    private let loadPeekMessage: AnswerCardModel.SessionContextLoad
     private var arrivalDetector = NeedsYouArrivalDetector()
     private var blockerMemory = BlockerMemory()
     private let blockerProbe: BlockerProbe
@@ -666,8 +669,10 @@ final class AgentPanelModel: ObservableObject {
         blockerProbe: BlockerProbe = BlockerProbe(),
         directSendRetryDelays: [TimeInterval] = [5, 10],
         treeModel: AgentTreeModel = AgentTreeModel(),
+        loadPeekMessage: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript,
         now: @escaping () -> Date = { Date() }
     ) {
+        self.loadPeekMessage = loadPeekMessage
         self.answer = answer
         self.permission = permission
         self.message = message
@@ -908,6 +913,7 @@ final class AgentPanelModel: ObservableObject {
 
     func closePeek() {
         peekLoader.cancel()
+        peekMessageLoader.cancel()
         peek = nil
     }
 
@@ -916,6 +922,10 @@ final class AgentPanelModel: ObservableObject {
               let agent = presentation.agents.first(where: { $0.id == selectedAgentID })
         else { return }
         var opened = PanePeek(agentID: agent.id, label: agent.label, projectName: agent.projectName, content: .loading)
+        if !agent.host.isHerdr, agent.section != .ended, let sessionId = agent.sessionId {
+            openLatestMessagePeek(opened, sessionId: sessionId)
+            return
+        }
         guard let paneId = agent.paneId, !paneId.isEmpty else {
             opened.content = .unavailable(PanePeek.endedAgentMessage)
             peek = opened
@@ -929,6 +939,18 @@ final class AgentPanelModel: ObservableObject {
         peek = opened
         peekLoader.load({ await statusSource.paneScreen(paneId: paneId) }) { [weak self] result in
             self?.peek?.content = PanePeek.content(from: result)
+        }
+    }
+
+    /// A status-only row has no pane to read: the peek is its transcript's latest message.
+    private func openLatestMessagePeek(_ opened: PanePeek, sessionId: String) {
+        var opened = opened
+        opened.content = .loadingLatestMessage
+        peek = opened
+        let load = loadPeekMessage
+        peekMessageLoader.load({ await load(sessionId) }) { [weak self] context in
+            guard self?.peek?.agentID == opened.agentID else { return }
+            self?.peek?.content = PanePeek.content(fromLatestMessage: context.latestMessage)
         }
     }
 

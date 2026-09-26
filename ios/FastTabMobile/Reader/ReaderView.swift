@@ -7,10 +7,14 @@ public struct ReaderNavigationItem: Identifiable, Hashable {
     public let id = UUID()
     public let url: URL
     public let title: String
+    /// When set, the reader scrolls to and briefly flashes this highlight instead of
+    /// restoring the last scroll position.
+    public let focusHighlightID: String?
 
-    public init(url: URL, title: String) {
+    public init(url: URL, title: String, focusHighlightID: String? = nil) {
         self.url = url
         self.title = title
+        self.focusHighlightID = focusHighlightID
     }
 }
 
@@ -42,8 +46,8 @@ public struct ReaderView: View {
     // Header auto-hide on scroll
     @State private var isHeaderHidden: Bool = false
 
-    public init(url: URL, title: String) {
-        _viewModel = StateObject(wrappedValue: ReaderViewModel(url: url, title: title))
+    public init(url: URL, title: String, focusHighlightID: String? = nil) {
+        _viewModel = StateObject(wrappedValue: ReaderViewModel(url: url, title: title, focusHighlightID: focusHighlightID))
     }
 
     // MARK: - Body

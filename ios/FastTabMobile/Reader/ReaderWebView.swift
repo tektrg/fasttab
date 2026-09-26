@@ -140,6 +140,7 @@ public struct ReaderWebView: UIViewRepresentable {
         let fontSize: Int
         let initialProgress: Double
         let highlights: [HighlightItem]
+        let focusHighlightID: String?
     }
 
     private func loadTemplate(into webView: WKWebView, coordinator: Coordinator) {
@@ -159,7 +160,8 @@ public struct ReaderWebView: UIViewRepresentable {
             content: article.content,
             fontSize: viewModel.fontSize,
             initialProgress: viewModel.scrollProgress,
-            highlights: highlightItems
+            highlights: highlightItems,
+            focusHighlightID: viewModel.focusHighlightID
         )
 
         var jsonString = "{}"

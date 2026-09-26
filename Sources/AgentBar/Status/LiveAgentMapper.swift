@@ -11,15 +11,8 @@ enum LiveAgentMapper {
         needsYou: [DashboardNeedsYou],
         board: BoardIndex
     ) -> [AgentSnapshot] {
-        let needsYouByPaneId = Dictionary(
-            needsYou.compactMap { entry -> (String, DashboardNeedsYou)? in
-                guard entry.kind == "question" || entry.kind == "blocked",
-                      let paneId = entry.paneId, !paneId.isEmpty else { return nil }
-                return (paneId, entry)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let snapshots = agents.compactMap { snapshot(for: $0, needsYouByPaneId: needsYouByPaneId, board: board) }
+        let needsYouIndex = NeedsYouIndex(needsYou)
+        let snapshots = agents.compactMap { snapshot(for: $0, needsYouIndex: needsYouIndex, board: board) }
         // Sections in display order; inside Needs you an agent with a real prompt
         // comes before one that merely finished; the server's order is kept otherwise.
         return snapshots.enumerated()
@@ -28,14 +21,47 @@ enum LiveAgentMapper {
             .map(\.element.snapshot)
     }
 
+    /// The dashboard's question/blocked entries: herdr ones by pane, status-only (pane-less)
+    /// ones by Claude session id.
+    private struct NeedsYouIndex {
+        var byPaneId: [String: DashboardNeedsYou] = [:]
+        var bySessionId: [String: DashboardNeedsYou] = [:]
+
+        init(_ entries: [DashboardNeedsYou]) {
+            for entry in entries where entry.kind == "question" || entry.kind == "blocked" {
+                if let paneId = nonEmpty(entry.paneId) {
+                    if byPaneId[paneId] == nil { byPaneId[paneId] = entry }
+                } else if let sessionId = nonEmpty(entry.agentSession), bySessionId[sessionId] == nil {
+                    bySessionId[sessionId] = entry
+                }
+            }
+        }
+
+        func entry(paneId: String?, sessionId: String?) -> DashboardNeedsYou? {
+            if let paneId { return byPaneId[paneId] }
+            return sessionId.flatMap { bySessionId[$0] }
+        }
+    }
+
+    private static func nonEmpty(_ text: String?) -> String? {
+        text.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     private static func snapshot(
         for agent: DashboardAgent,
-        needsYouByPaneId: [String: DashboardNeedsYou],
+        needsYouIndex: NeedsYouIndex,
         board: BoardIndex
     ) -> (snapshot: AgentSnapshot, hasPrompt: Bool)? {
         // Residue = a leftover hook file whose pane is gone; nothing to switch to.
-        guard agent.residue != true, let paneId = agent.paneId, !paneId.isEmpty else { return nil }
-        let needsYouEntry = needsYouByPaneId[paneId]
+        guard agent.residue != true else { return nil }
+        let paneId = nonEmpty(agent.paneId)
+        let sessionId = nonEmpty(agent.agentSession)
+        // A herdr row needs its pane; a status-only row (Claude Desktop / CLI) needs its session id,
+        // which is its identity. An unknown `source` is kept only as a herdr pane.
+        let host = AgentHost(source: agent.source, openUrl: agent.openUrl, tmuxTarget: agent.tmuxTarget)
+            ?? (paneId == nil ? nil : .herdr)
+        guard let host, let id = host.isHerdr ? paneId.map({ sessionId ?? $0 }) : sessionId else { return nil }
+        let needsYouEntry = needsYouIndex.entry(paneId: host.isHerdr ? paneId : nil, sessionId: sessionId)
         let hasPrompt = AgentSectionClassifier.isAwaitingPrompt(
             screenState: agent.screenState, paneIsInDashboardNeedsYou: needsYouEntry != nil
         )
@@ -44,16 +70,15 @@ enum LiveAgentMapper {
             screenState: agent.screenState,
             paneIsInDashboardNeedsYou: needsYouEntry != nil
         )
-        let sessionId = agent.agentSession.flatMap { $0.isEmpty ? nil : $0 }
         let pushText = board.unpushedText(rowId: agent.rowId, paneId: paneId)
         let questionText = StatusTextCleaner.singleLine(agent.screenQuestion?.question, maxLength: promptExcerptMaxLength)
         let screenSignal = StatusTextCleaner.singleLine(agent.screenSignal, maxLength: statusTextMaxLength)
         let snapshot = AgentSnapshot(
-            id: sessionId ?? paneId,
+            id: id,
             label: agent.label ?? "",
             projectName: ProjectNameResolver.projectName(fromCwd: agent.cwd),
             cwd: agent.cwd,
-            paneId: paneId,
+            paneId: host.isHerdr ? paneId : nil,
             section: section,
             statusText: statusText(
                 section: section, hasPrompt: hasPrompt, agent: agent, needsYouEntry: needsYouEntry, screenSignal: screenSignal
@@ -66,8 +91,12 @@ enum LiveAgentMapper {
             hasHookData: agent.hasHookData ?? false,
             rowId: agent.rowId,
             sessionId: sessionId,
-            actions: AgentActions(decoded: agent.actions, fallback: .unknown),
-            blocker: blocker(for: needsYouEntry)
+            // Status-only rows: the dashboard refuses stop/close on them; never offer Done.
+            actions: host.isHerdr ? AgentActions(decoded: agent.actions, fallback: .unknown) : .none,
+            // A waiting status-only session is generic Needs you ("Input needed"): nothing AgentBar can
+            // answer or review, and no pane to open, so no blocker (no red button, no corner card).
+            blocker: host.isHerdr ? blocker(for: needsYouEntry) : nil,
+            host: host
         )
         return (snapshot, hasPrompt)
     }

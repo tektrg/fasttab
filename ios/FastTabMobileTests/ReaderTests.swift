@@ -13,6 +13,7 @@ final class ReaderTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "FastTabMobile.lastOpenedReadingHistoryV1")
         UserDefaults.standard.removeObject(forKey: "FastTabMobile.readerArticleCacheIndexV1")
         ReaderArticleCache.shared.clear()
+        LastOpenedStore.shared.clear()
     }
 
     override func tearDown() {
@@ -21,6 +22,7 @@ final class ReaderTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "FastTabMobile.lastOpenedReadingHistoryV1")
         UserDefaults.standard.removeObject(forKey: "FastTabMobile.readerArticleCacheIndexV1")
         ReaderArticleCache.shared.clear()
+        LastOpenedStore.shared.clear()
         super.tearDown()
     }
 
@@ -173,6 +175,110 @@ final class ReaderTests: XCTestCase {
             let decoded = try? JSONDecoder().decode([String: String].self, from: data)
             XCTAssertEqual(decoded?["range"], rangeJSON)
         }
+    }
+
+    func testAllHighlightsNewestFirst() {
+        let store = ReaderHighlightStore.shared
+        let urlA = URL(string: "https://example.com/article-a")!
+        let urlB = URL(string: "https://example.com/article-b")!
+
+        let oldest = ReaderHighlight(
+            id: "oldest", urlKey: urlA.readerCanonicalKey, selectedText: "Oldest",
+            color: .yellow, serializedRange: "{}", createdAt: Date(timeIntervalSince1970: 100)
+        )
+        let middle = ReaderHighlight(
+            id: "middle", urlKey: urlB.readerCanonicalKey, selectedText: "Middle",
+            color: .green, serializedRange: "{}", createdAt: Date(timeIntervalSince1970: 200)
+        )
+        let newest = ReaderHighlight(
+            id: "newest", urlKey: urlA.readerCanonicalKey, selectedText: "Newest",
+            color: .blue, serializedRange: "{}", createdAt: Date(timeIntervalSince1970: 300)
+        )
+        // Insert out of chronological order to prove the store sorts, not just preserves insertion order.
+        store.add(middle)
+        store.add(oldest)
+        store.add(newest)
+        defer {
+            store.remove(id: "oldest", url: urlA)
+            store.remove(id: "middle", url: urlB)
+            store.remove(id: "newest", url: urlA)
+        }
+
+        // Filter to just this test's ids: the store is a shared singleton, so other tests'
+        // highlights may also be present.
+        let ours: Set<String> = ["oldest", "middle", "newest"]
+        let ordered = store.allHighlightsNewestFirst().filter { ours.contains($0.id) }
+        XCTAssertEqual(ordered.map(\.id), ["newest", "middle", "oldest"])
+    }
+
+    func testHighlightTitleResolverFallbackChain() {
+        let url = URL(string: "https://fallback-example.com/article")!
+
+        // 1. Title stored on the highlight itself wins.
+        let withTitle = ReaderHighlight(
+            urlKey: url.readerCanonicalKey, selectedText: "text", color: .yellow,
+            serializedRange: "{}", title: "Stored Title", urlString: url.absoluteString
+        )
+        XCTAssertEqual(ReaderHighlightTitleResolver.resolve(for: withTitle), "Stored Title")
+
+        // 2. No stored title, no cache/last-opened entry: falls back to the URL host.
+        let withoutTitle = ReaderHighlight(
+            urlKey: url.readerCanonicalKey, selectedText: "text", color: .yellow,
+            serializedRange: "{}", title: nil, urlString: url.absoluteString
+        )
+        XCTAssertEqual(ReaderHighlightTitleResolver.resolve(for: withoutTitle), "fallback-example.com")
+
+        // 3. No stored title, but Last Opened has a title for this URL.
+        LastOpenedStore.shared.recordOpened(url: url, title: "Last Opened Title")
+        XCTAssertEqual(ReaderHighlightTitleResolver.resolve(for: withoutTitle), "Last Opened Title")
+    }
+
+    func testReaderHighlightDecodesOldJSONWithoutTitleOrURLString() throws {
+        // Pre-existing stored data never had `title`/`urlString` keys.
+        let oldJSON = """
+        {
+            "id": "legacy-1",
+            "urlKey": "https://example.com/legacy",
+            "selectedText": "Legacy highlight",
+            "color": "yellow",
+            "serializedRange": "{\\"start\\":0,\\"len\\":5}",
+            "createdAt": 700000000.0
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(ReaderHighlight.self, from: oldJSON)
+        XCTAssertEqual(decoded.id, "legacy-1")
+        XCTAssertEqual(decoded.selectedText, "Legacy highlight")
+        XCTAssertNil(decoded.title)
+        XCTAssertNil(decoded.urlString)
+        // articleURL falls back to the canonical urlKey when urlString is absent.
+        XCTAssertEqual(decoded.articleURL?.absoluteString, "https://example.com/legacy")
+    }
+
+    func testCommitHighlightCapturesTitleAndURL() {
+        let url = URL(string: "https://example.com/commit-test")!
+        let vm = ReaderViewModel(url: url, title: "Commit Test Title")
+
+        vm.commitHighlight(selectedText: "Selected", serializedRange: "{\"start\":0,\"len\":8}", color: .pink)
+        defer { ReaderHighlightStore.shared.removeAll(for: url) }
+
+        let saved = ReaderHighlightStore.shared.highlights(for: url)
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertEqual(saved.first?.title, "Commit Test Title")
+        XCTAssertEqual(saved.first?.urlString, url.absoluteString)
+    }
+
+    func testFocusHighlightIDPropagatesFromNavigationItemToViewModel() {
+        let url = URL(string: "https://example.com/focus-test")!
+        let navItem = ReaderNavigationItem(url: url, title: "Focus Test", focusHighlightID: "hl-focus-1")
+        XCTAssertEqual(navItem.focusHighlightID, "hl-focus-1")
+
+        let vm = ReaderViewModel(url: navItem.url, title: navItem.title, focusHighlightID: navItem.focusHighlightID)
+        XCTAssertEqual(vm.focusHighlightID, "hl-focus-1")
+
+        // Default (no highlight requested) stays nil, so normal scroll restoration still applies.
+        let defaultVM = ReaderViewModel(url: url, title: "Focus Test")
+        XCTAssertNil(defaultVM.focusHighlightID)
     }
 
     func testViewModelIsFailedHelper() {

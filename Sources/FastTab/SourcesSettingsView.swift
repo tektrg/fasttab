@@ -40,6 +40,8 @@ struct SourcesSettingsView: View {
                 }
             }
 
+            AutomationPermissionSection()
+
             Section("Open as App") {
                 if webAppCatalog.apps.isEmpty {
                     Text("No installed web apps found. Use a browser's \"Install as app\" option to see it here.")

@@ -39,6 +39,14 @@ extension ContentView {
         }
     }
 
+    /// Everything pinned above the results list, inside its height budget
+    /// (the window can't grow): the Automation-denied banner, then "Playing now".
+    @ViewBuilder
+    private func resultsTopStrips(_ audibleTabs: [BrowserSearchResult]) -> some View {
+        AutomationDeniedBanner(isCommandBarVisible: appState.isVisible)
+        audibleTabsStrip(audibleTabs)
+    }
+
     private var modeSlideTransition: AnyTransition {
         let isForward = viewStore.slideDirection == .forward
         return .asymmetric(
@@ -57,7 +65,7 @@ extension ContentView {
         Group {
             if appState.browserService.isLoading && displayedResults.isEmpty {
                 VStack(spacing: 10) {
-                    audibleTabsStrip(audibleTabs)
+                    resultsTopStrips(audibleTabs)
                     Spacer()
                     ProgressView()
                         .controlSize(.regular)
@@ -70,7 +78,7 @@ extension ContentView {
                 .frame(height: resultsHeight)
             } else if isSearchActive {
                 VStack(spacing: 0) {
-                    audibleTabsStrip(audibleTabs)
+                    resultsTopStrips(audibleTabs)
 
                     if displayedItems.isEmpty {
                         searchEmptyState
@@ -94,7 +102,7 @@ extension ContentView {
                 }
             } else {
                 VStack(spacing: 0) {
-                    audibleTabsStrip(audibleTabs)
+                    resultsTopStrips(audibleTabs)
 
                     ZStack {
                         switch viewStore.activeView {
@@ -208,7 +216,7 @@ extension ContentView {
         let (title, subtitle, icon): (String, String, String) = {
             switch view {
             case .recents:
-                return ("No tabs found", "Open a tab in Chrome or Edge and try again.", "rectangle.stack.badge.magnifyingglass")
+                return ("No tabs found", SearchSource.recentsEmptyHint(enabled: SourceSelectionStore.shared.launchSnapshot), "rectangle.stack.badge.magnifyingglass")
             case .stack:
                 return ("Stack is empty", "Pin a tab to keep it here, or send a link from your iPhone.", "square.stack")
             }

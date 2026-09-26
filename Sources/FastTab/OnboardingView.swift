@@ -9,15 +9,38 @@ private let onboardingCompletedKey = "onboarding.v1.completed"
 @MainActor
 final class OnboardingWindowController: NSObject {
     static let shared = OnboardingWindowController()
+    /// Shared by the menu bar item and Settings > About.
+    static let replayMenuTitle = "Replay Onboarding…"
 
     private var window: NSWindow?
+    /// Full Disk Access state when this process started (the controller is
+    /// first touched at launch). Safari's protected data only becomes
+    /// readable after a relaunch, so a grant during onboarding needs one.
+    private let safariDataReadableAtLaunch = AppState.shared.browserService.canReadSafariProtectedData()
 
     var isNeeded: Bool {
         !UserDefaults.standard.bool(forKey: onboardingCompletedKey)
     }
 
+    /// Onboarding choices that only take effect in a fresh process: source
+    /// toggles (backends are built once at launch — see `BrowserTabService.init`)
+    /// and a Full Disk Access grant for Safari bookmarks/history.
+    var isRestartNeededToApplyChoices: Bool {
+        let sources = SourceSelectionStore.shared
+        if sources.needsRestartToApply { return true }
+        guard sources.isEnabled(.safari), SafariBackend.isFDADataIncluded(), !safariDataReadableAtLaunch else { return false }
+        return AppState.shared.browserService.canReadSafariProtectedData()
+    }
+
+    /// Opens onboarding from the first step. Also used to replay it later
+    /// (menu bar / Settings); replaying only re-shows the steps — existing
+    /// settings are kept and pre-filled.
     func show() {
-        guard window == nil else { return }
+        if let window {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
 
         let view = OnboardingView { [weak self] shouldOpenBar in
             self?.dismiss(andOpenBar: shouldOpenBar)
@@ -53,9 +76,14 @@ final class OnboardingWindowController: NSObject {
     }
 
     private func dismiss(andOpenBar: Bool) {
+        let needsRestart = isRestartNeededToApplyChoices
         window?.close()
         window = nil
         UserDefaults.standard.set(true, forKey: onboardingCompletedKey)
+        if needsRestart {
+            restartFastTab(openCommandBarAfterRelaunch: andOpenBar)
+            return
+        }
         if andOpenBar {
             AppState.shared.showCommandBar(openedBy: .mouse)
         }
@@ -85,10 +113,13 @@ struct OnboardingView: View {
     let onDismiss: (Bool) -> Void
 
     @State private var stepIndex: Int = 0
+    /// Lifted out of `ExtensionInstallStep` so stepping Back onto it doesn't
+    /// auto-advance the user forward again.
+    @State private var didAutoAdvancePastExtension = false
 
     private var steps: [OnboardingStep] {
         var list: [OnboardingStep] = [.welcome, .triggerStyle, .sources]
-        // Optional beta step — only meaningful when a Chromium browser is in play.
+        // Recommended (skippable) step — only meaningful when a Chromium browser is in play.
         if ChromiumBrowserSpec.all.contains(where: { selectionStore.enabled.contains($0.source) }) {
             list.append(.extensionInstall)
         }
@@ -103,8 +134,11 @@ struct OnboardingView: View {
     /// the user unchecks Safari on the picker step, so the index can momentarily
     /// point past the end — clamp rather than crash.
     private var currentStep: OnboardingStep {
-        let safeIndex = min(max(stepIndex, 0), steps.count - 1)
-        return steps[safeIndex]
+        steps[clampedStepIndex]
+    }
+
+    private var clampedStepIndex: Int {
+        min(max(stepIndex, 0), steps.count - 1)
     }
 
     var body: some View {
@@ -128,7 +162,7 @@ struct OnboardingView: View {
                         )
                         .transition(stepTransition)
                     case .extensionInstall:
-                        ExtensionInstallStep(onContinue: advance)
+                        ExtensionInstallStep(didAutoAdvance: $didAutoAdvancePastExtension, onContinue: advance)
                             .transition(stepTransition)
                     case .safariPermission:
                         SafariPermissionStep(onContinue: advance)
@@ -144,6 +178,11 @@ struct OnboardingView: View {
                     .padding(.bottom, 20)
             }
         }
+        .overlay(alignment: .topLeading) {
+            if clampedStepIndex > 0 {
+                backButton
+            }
+        }
         .frame(width: 440, height: 520)
     }
 
@@ -157,8 +196,28 @@ struct OnboardingView: View {
     private func advance() {
         let count = steps.count
         withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-            stepIndex = min(stepIndex + 1, count - 1)
+            stepIndex = min(clampedStepIndex + 1, count - 1)
         }
+    }
+
+    /// Steps back through the live `steps` list, so conditional steps
+    /// (extension, Safari) are revisited only while they still apply.
+    private func goBack() {
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+            stepIndex = max(clampedStepIndex - 1, 0)
+        }
+    }
+
+    private var backButton: some View {
+        Button(action: goBack) {
+            Label("Back", systemImage: "chevron.left")
+                .font(.callout)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .keyboardShortcut(.leftArrow, modifiers: .command)
+        .padding(.top, 16)
+        .padding(.leading, 18)
     }
 
     private var stepDots: some View {
@@ -191,7 +250,7 @@ private struct WelcomeStep: View {
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .padding(.bottom, 10)
 
-            Text("Search and switch between browser tabs\nfrom anywhere — just hover to open.")
+            Text("Search and switch browser tabs\nfrom anywhere — just hover to open.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -216,22 +275,18 @@ private struct WelcomeStep: View {
     }
 
     private var appIcon: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.thinMaterial)
-                .frame(width: 64, height: 64)
-
-            Image(systemName: "command")
-                .font(.system(size: 32, weight: .regular))
-                .foregroundStyle(.primary)
-        }
+        Image(nsImage: NSApp.applicationIconImage)
+            .resizable()
+            .frame(width: 72, height: 72)
+            .accessibilityHidden(true)
     }
 
     private var featureList: some View {
         VStack(alignment: .leading, spacing: 10) {
             FeatureRow(icon: "arrow.left.arrow.right", label: "Switch tabs instantly")
             FeatureRow(icon: "magnifyingglass", label: "Search tabs, bookmarks & history")
-            FeatureRow(icon: "macwindow.on.rectangle", label: "Works across Chrome, Edge, Safari & Finder")
+            FeatureRow(icon: "macwindow.on.rectangle", label: "Chrome, Edge, Brave, Safari & Finder")
+            FeatureRow(icon: "square.stack", label: "Keep a Stack of tabs, synced with your iPhone")
             FeatureRow(icon: "lock.shield", label: "100% local. No data collection. No analytics.")
         }
     }
@@ -483,13 +538,12 @@ private struct SourceRow: View {
     }
 }
 
-// MARK: - Optional beta: browser extension
+// MARK: - Recommended: browser extension
 
 private struct ExtensionInstallStep: View {
     @ObservedObject private var extensionBridge = ExtensionBridge.shared
+    @Binding var didAutoAdvance: Bool
     let onContinue: () -> Void
-
-    @State private var didAutoAdvance = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -500,13 +554,13 @@ private struct ExtensionInstallStep: View {
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 14)
 
-            Text("Optional: FastTab extension")
+            Text("Recommended: FastTab extension")
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)
 
-            Text("An opt-in beta. It makes tab search instant and skips the macOS permission prompt for Chrome, Edge & Brave. Everything works without it — skip freely.")
+            Text("Recommended for Chrome, Edge & Brave. It makes tab search instant and skips the macOS permission prompt. Everything still works without it — skip if you prefer.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -578,7 +632,7 @@ private struct ExtensionInstallStep: View {
 
 private struct SafariPermissionStep: View {
     @EnvironmentObject var appState: AppState
-    @AppStorage("FastTab.safari.includeFDAData") private var includeSafariFDAData: Bool = true
+    @AppStorage(SafariBackend.includeFDADataDefaultsKey) private var includeSafariFDAData: Bool = SafariBackend.includeFDADataDefaultValue
     let onContinue: () -> Void
 
     @State private var fdaInitiallyGranted: Bool = false
@@ -626,7 +680,7 @@ private struct SafariPermissionStep: View {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
-                    Text("Full Disk Access granted — restart required after onboarding.")
+                    Text("Full Disk Access granted — FastTab restarts when you finish.")
                         .font(.caption)
                     Spacer()
                 }
@@ -713,6 +767,13 @@ private struct ShortcutStep: View {
             automationNote
                 .padding(.horizontal, 40)
                 .padding(.bottom, 36)
+
+            if OnboardingWindowController.shared.isRestartNeededToApplyChoices {
+                Text("FastTab will restart to apply your choices.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 10)
+            }
 
             HStack(spacing: 14) {
                 Button("Maybe Later") {

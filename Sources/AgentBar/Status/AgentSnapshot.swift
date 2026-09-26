@@ -42,6 +42,9 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// What the dashboard says the agent is blocked on, if it is blocked on a
     /// question or permission box. See `blockedOnYou` for what the list shows.
     var blocker: AgentBlocker? = nil
+    /// herdr pane, or a status-only Claude Desktop / CLI session (no pane: no Answer, Message,
+    /// Done, peek-at-screen; Enter opens Claude.app for a desktop session). See `AgentHost`.
+    var host: AgentHost = .herdr
 
     /// The blocker while the row sits in Needs you. Parking sets a row aside, and
     /// with it the Blocked badge, the answer action and the top-of-section spot.

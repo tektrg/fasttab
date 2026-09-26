@@ -57,6 +57,9 @@ public final class ReaderViewModel: ObservableObject {
 
     public let url: URL
     public let title: String
+    /// Highlight to scroll to and flash on load, set when opened from `HighlightsListView`
+    /// or the Read tab's Recent Highlights carousel. `nil` restores the last scroll position instead.
+    public let focusHighlightID: String?
 
     // MARK: - Dependencies (lazy so init is nonisolated-safe)
 
@@ -66,9 +69,10 @@ public final class ReaderViewModel: ObservableObject {
 
     // MARK: - Init
 
-    public init(url: URL, title: String) {
+    public init(url: URL, title: String, focusHighlightID: String? = nil) {
         self.url = url
         self.title = title
+        self.focusHighlightID = focusHighlightID
     }
 
     /// Called from `ReaderView.onAppear` — safe to record history side-effects here.
@@ -148,7 +152,9 @@ public final class ReaderViewModel: ObservableObject {
             urlKey: url.readerCanonicalKey,
             selectedText: selectedText,
             color: color,
-            serializedRange: serializedRange
+            serializedRange: serializedRange,
+            title: title,
+            urlString: url.absoluteString
         )
         highlightStore.add(h)
         highlights = highlightStore.highlights(for: url)

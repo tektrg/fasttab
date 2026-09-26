@@ -1,26 +1,26 @@
 import SwiftUI
 import AppKit
 
-/// "Advanced" tab of Settings: opt-in beta features and Safari's extra
-/// permission (Full Disk Access) for bookmarks/history.
+/// "Advanced" tab of Settings: the companion browser extension and Safari's
+/// extra permission (Full Disk Access) for bookmarks/history.
 struct AdvancedSettingsView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var sourceSelection = SourceSelectionStore.shared
     @StateObject private var extensionBridge = ExtensionBridge.shared
 
-    @AppStorage(ExtensionBetaPreference.defaultsKey) private var extensionBetaEnabled: Bool = false
-    @AppStorage("FastTab.safari.includeFDAData") private var includeSafariFDAData: Bool = false
+    @AppStorage(ExtensionBetaPreference.defaultsKey) private var extensionEnabled: Bool = ExtensionBetaPreference.defaultValue
+    @AppStorage(SafariBackend.includeFDADataDefaultsKey) private var includeSafariFDAData: Bool = SafariBackend.includeFDADataDefaultValue
 
     @State private var fdaInitiallyGranted: Bool = false
     @State private var fdaGrantedNow: Bool = false
 
     var body: some View {
         Form {
-            Section("Beta") {
-                Toggle("Browser extension (beta)", isOn: $extensionBetaEnabled)
+            Section("Browser Extension") {
+                Toggle("Browser extension (recommended)", isOn: $extensionEnabled)
 
-                if extensionBetaEnabled {
-                    Text("Opt-in experiment: reads and switches Chrome/Edge/Brave tabs through a companion extension — instant results, no macOS Automation prompt. Everything still works with it off.")
+                if extensionEnabled {
+                    Text("Recommended for Chrome, Edge & Brave: reads and switches tabs through a companion extension — instant results, no macOS Automation prompt. Everything still works with it off.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -74,19 +74,6 @@ struct AdvancedSettingsView: View {
                             }
                         }
                     }
-
-                    HStack(spacing: 8) {
-                        Text("Safari automation:")
-                            .foregroundStyle(.secondary)
-                        Text(safariAutomationStatusText)
-                            .font(.callout.weight(.medium))
-                        Spacer()
-                        Button("Recheck") {
-                            appState.browserService.recheckSafariAutomation()
-                        }
-                        .controlSize(.small)
-                    }
-                    .font(.caption)
                 }
             }
         }
@@ -136,19 +123,6 @@ struct AdvancedSettingsView: View {
     private func openFullDiskAccessSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
             NSWorkspace.shared.open(url)
-        }
-    }
-
-    private var safariAutomationStatusText: String {
-        switch appState.browserService.safariAutomationStatus {
-        case .notInstalled:
-            return "Safari not installed"
-        case .granted:
-            return "granted"
-        case .denied:
-            return "denied"
-        case .notDetermined:
-            return "not yet requested"
         }
     }
 }

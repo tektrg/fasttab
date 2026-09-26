@@ -1,11 +1,32 @@
-# Remote access (phase 1a — phone over Tailscale)
+# Remote access (phone over Tailscale)
 
 Lets a phone reach this dashboard through `tailscale serve`'s HTTPS proxy
-instead of only `127.0.0.1:4711`. Off by default; loopback behaviour is
-completely unchanged whether this is on or off. See
+instead of only `127.0.0.1:4711`. Off by default; loopback behaviour on the
+main dashboard port is completely unchanged whether this is on or off — see
+"Why a separate listener" below for why that's now a hard architectural
+guarantee, not just a header check. See
 `docs/plans/2026-09-26-agentbar-mobile-web.md` for the full phased plan —
-this covers phase 1a only (server-side access; phone UI and push are later
-phases).
+this covers remote access only; phone UI and push are later phases.
+
+## Why a separate listener
+
+The first version of this (QA pass 1) gated remote requests by inspecting
+the `Host` header on the SAME port (4711) loopback callers use, and treated
+a Tailscale identity header as proof a request had actually transited the
+proxy. That header is Tailscale's own defense against Host spoofing for
+*tagged* devices, but a personal, untagged phone reaching `tailscale serve`
+does not get it set — which would have made its requests indistinguishable
+from genuine loopback calls again, defeating the whole scheme.
+
+QA pass 2 removes Host-header trust entirely. Remote access now binds a
+**second, separate socket**, `127.0.0.1:<remote.port>` (default 4712), only
+when `remote.enabled` is true. `tailscale serve` is pointed at THAT port —
+never at 4711. Nothing on the tailnet can reach 4711 at all, so there is no
+Host header to spoof against it in the first place, and the main listener
+runs no remote-access code whatsoever: it is byte-identical to the
+pre-remote-access server. Every request that arrives on the remote listener
+is remote by construction, so auth is required on **every** route,
+unconditionally, regardless of whatever `Host` or other headers it carries.
 
 ## Enable, step by step
 
@@ -21,66 +42,58 @@ phases).
    {
      "remote": {
        "enabled": true,
+       "port": 4712,
        "hosts": ["mymac.tailxxxx.ts.net"]
      }
    }
    ```
-   `hosts` is the exact hostname(s) `tailscale serve` will front — find it
-   with `tailscale status` (your machine's `<name>.<tailnet>.ts.net`).
-   Restart the dashboard for the config change to take effect.
+   `port` is where the separate remote listener binds (127.0.0.1 only —
+   still not reachable from the tailnet directly; `tailscale serve` is what
+   fronts it with HTTPS). `hosts` is used only as the Origin allow-list for
+   CSRF checks on writes (see below) — find your machine's name with
+   `tailscale status` (`<name>.<tailnet>.ts.net`). Restart the dashboard for
+   the config change to take effect.
 
-3. **Point Tailscale at the dashboard port**:
+3. **Point Tailscale at the remote listener's port** (4712, not 4711):
    ```
-   tailscale serve --bg 4711
+   tailscale serve --bg 4712
    ```
-   This serves `https://<that ts.net name>/` → `http://127.0.0.1:4711`,
+   This serves `https://<that ts.net name>/` → `http://127.0.0.1:4712`,
    reachable from any device on your tailnet (including your phone, once
-   the Tailscale app is signed into the same tailnet).
+   the Tailscale app is signed into the same tailnet). The main dashboard
+   port (4711) is never targeted by `tailscale serve` and stays loopback-only.
 
-   **Never run `tailscale serve --set-path` with `--bg` variants that
-   imply Funnel, and never run `tailscale funnel`.** Funnel exposes the
-   port to the *public internet*, not just your tailnet — this dashboard
-   can start terminal sessions on your Mac; it must never be reachable by
-   anyone outside your own tailnet.
+   **Never run `tailscale serve` (or any `--bg` variant) against the main
+   dashboard port, and never run `tailscale funnel` against either port.**
+   Funnel exposes the port to the *public internet*, not just your tailnet
+   — this dashboard can start terminal sessions on your Mac; it must never
+   be reachable by anyone outside your own tailnet.
 
 4. **Log in from the phone**: open `https://<name>.ts.net/` in Safari →
    redirects to `/remote/login` → paste the token from step 1 → sets a
    30-day session cookie. Add to Home Screen for the fuller PWA experience
-   once phase 1b ships the manifest.
+   once a later phase ships the manifest.
 
 ## What changes when `remote.enabled` is true
 
-- Loopback requests (`Host: 127.0.0.1`/`localhost`/`[::1]`) are **never**
-  affected — same unauthenticated behaviour as today.
-- A request whose `Host` matches one of `remote.hosts` now requires auth on
-  **every** route, including `GET /api/state`, the `/api/events` SSE
-  stream, and static UI assets — not just writes. Unauthenticated: `401`
-  JSON for `/api/*`, a redirect to `/remote/login` for everything else.
-- Writes (`POST`/`PATCH`/`DELETE`/`PUT`) from an authenticated remote Host
-  still enforce CSRF: a browser `Origin` header, when sent, must equal
-  `https://<that same remote host>` or the request is refused with `403`.
+- The **main dashboard port** (4711 by default) runs no remote-access code
+  at all — no auth, no Host inspection, nothing. It is exactly the server
+  that existed before remote access shipped.
+- A **separate listener** binds `127.0.0.1:<remote.port>` (default 4712).
+  Every request on it requires auth on **every** route, including
+  `GET /api/state`, the `/api/events` SSE stream, and static UI assets —
+  not just writes. Unauthenticated: `401` JSON for `/api/*`, a redirect to
+  `/remote/login` for everything else.
+- Writes (`POST`/`PATCH`/`DELETE`/`PUT`) on the remote listener enforce
+  auth first, then CSRF: a browser `Origin` header, when sent, must name
+  one of `remote.hosts` over `https://` or the request is refused with
+  `403`.
 - Every remote write attempt (allowed or refused) is appended as one JSON
   line to `~/.config/agent-dashboard/remote-audit.jsonl`
-  (`ts`, `host`, `route`, `method`, `rowId` when known, `status`).
-- A request whose `Host` is neither loopback nor a configured remote host is
-  **refused with `401`** the same as an unauthenticated recognized-remote-host
-  request would be — it is never served as if it were loopback. (QA pass 1,
-  2026-09-26: this used to fall through to the exact same unauthenticated
-  handling as a genuine loopback request for every `GET` route, so anyone
-  reaching the tailscale-served port could read `/api/state`, session
-  transcripts, etc. with zero auth just by NOT sending the configured
-  hostname as `Host`. Writes were already safe — R20's Origin/Host check
-  refused them regardless.)
-- A `Host` that merely *looks* loopback (`127.0.0.1`/`localhost`/`[::1]`) is
-  **not** trusted as loopback when the request also carries a Tailscale
-  identity header (`Tailscale-User-Login`/`-User-Name`/`-App-Capabilities`).
-  `tailscale serve` passes the client's `Host` header through to this
-  backend unchanged — it does not rewrite it to match the backend address —
-  so a remote attacker could otherwise set `Host: 127.0.0.1` and be treated
-  as a trusted local caller. Tailscale strips any client-supplied copy of
-  those three headers and re-adds its own before proxying in, so their mere
-  presence is reliable proof the request transited `tailscale serve` (used
-  only as that proof here, never to identify which tailnet user).
+  (`ts`, `route`, `method`, `rowId` when known, `status`).
+- If the remote listener's port is already in use (another instance, a
+  stale process), the dashboard logs a warning and continues running the
+  main listener normally — a busy remote port never takes down the board.
 
 ## Auth mechanics (for anyone auditing this)
 
@@ -111,7 +124,7 @@ phases).
 - Also acceptable: `Authorization: Bearer <token>` directly, for scripts
   that don't want to carry a cookie jar (the token itself, not a session).
 
-## Not done in phase 1a (later phases)
+## Not done here (later phases)
 
 - Phone-friendly UI, PWA manifest/service worker (phase 2).
 - Push notifications (phase 3).

@@ -199,11 +199,15 @@ isn't a mismatch).
   `Origin` sent) is not "foreign" and is allowed. This is a same-machine
   trust boundary, not a network-facing auth system: never expose this port
   beyond localhost.
-- **Exception, opt-in only**: phase 1a (`server/lib/remote_access.py`,
+- **Exception, opt-in only**: (`server/lib/remote_access.py`,
   `server/REMOTE.md`) lets a phone reach this server through
   `tailscale serve`'s HTTPS proxy, gated by `remote.enabled` in
-  config.json + a token, off by default. Loopback behaviour above is
-  unchanged either way — read `server/REMOTE.md` before enabling it.
+  config.json + a token, off by default. This is a SEPARATE listener
+  (127.0.0.1:`remote.port`, default 4712) bound only when enabled —
+  `tailscale serve` targets that port, never 4711, so the main loopback
+  port above is unreachable from the tailnet and everything in the
+  paragraph above stays byte-identical whether remote access is on or off.
+  Read `server/REMOTE.md` before enabling it.
 - Kill/restart by **port ownership** only (`lsof` + confirm the owning
   pid's argv looks like `chief-dashboard-server.py`), never by process
   name (`pkill -f <name>` kills every same-named process regardless of

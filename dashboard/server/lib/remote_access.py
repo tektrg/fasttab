@@ -1,12 +1,28 @@
 """Phase 1a (docs/plans/2026-09-26-agentbar-mobile-web.md): lets the phone
 reach the dashboard through `tailscale serve` (an HTTPS proxy at
-https://<machine>.<tailnet>.ts.net that forwards to 127.0.0.1:<port>) without
-loosening anything for the existing loopback path.
+https://<machine>.<tailnet>.ts.net that forwards to
+127.0.0.1:<remote.port>) without loosening anything for the existing
+loopback path.
 
-Nothing in this module changes behaviour unless `remote.enabled` is true in
-config.json AND the request's Host header names one of `remote.hosts`. Every
-loopback request (Host is 127.0.0.1/localhost/[::1]) never touches this
-module at all — see the two call sites in chief-dashboard-server.py.
+QA pass 2 REDESIGN (2026-09-26): pass 1 gated remote requests by inspecting
+the Host header on the SAME listener (127.0.0.1:4711) everything else uses,
+and treated a Tailscale identity header as proof the request was proxied in.
+That header is Tailscale's own defense against Host spoofing, but
+`tailscale serve` only adds it for a *tagged* device's requests — a
+personal/untagged phone can reach the proxy with none of those headers set,
+which would have made every request from it indistinguishable from a
+genuine loopback call again. Host-header trust is gone entirely now:
+
+  - The main listener (127.0.0.1:4711) runs NO remote-access code at all —
+    see chief-dashboard-server.py's Handler, which now only calls into this
+    module when `self.server.remote_listener` is True.
+  - A SEPARATE listener (127.0.0.1:<remote.port>, default 4712) is bound
+    only when `remote.enabled` is true in config.json. `tailscale serve`
+    targets THIS port, never 4711 — nothing on the tailnet can reach 4711 at
+    all, so there is no Host header to spoof against it in the first place.
+    Every request that arrives on the remote listener is, by construction,
+    remote: auth is required on every route, unconditionally, regardless of
+    whatever Host or identity headers it happens to carry.
 
 Design choices (kept here, not spread across the server):
   - Token: one shared secret in a mode-600 file
@@ -15,13 +31,21 @@ Design choices (kept here, not spread across the server):
     time) so response timing can't leak how many characters matched.
   - Session: the login form exchanges the token for a session id
     (secrets.token_urlsafe(32) — 256 bits, unguessable on its own) held in
-    an in-memory dict {session_id: (host, expires_at)} on this process.
+    an in-memory dict {session_id: (expires_at, token_fp)} on this process.
     Deliberately NOT persisted or HMAC-derived: the token file is already
     the durable secret, a restart only costs the phone one re-login (a tap),
     and a plain server-side map avoids a second secret (a cookie-signing
     key) to generate, store and rotate. Cookie is HttpOnly + Secure +
     SameSite=Strict so it never reaches page JS and is never sent
-    cross-site or over plain HTTP.
+    cross-site or over plain HTTP. Sessions are no longer bound to a
+    specific `remote.hosts` entry (pass 1's `host` field) — the remote
+    listener doesn't trust Host either, so there is nothing meaningful left
+    to bind against; a session is simply "logged in on the remote
+    listener," full stop.
+  - CSRF: a write's `Origin` header, when the browser sends one, must name
+    one of `remote.hosts` over https — never anything else. This is the
+    ONLY remaining use of `remote.hosts`: an allow-list for Origin
+    comparison, not a Host-header identity check.
   - Rate limiting: a small in-memory backoff per client IP (not per token
     guess) — this is a single-user personal server, the goal is only to
     slow down a brute-force script, not to defend a multi-tenant login.
@@ -37,20 +61,18 @@ import secrets
 import stat
 import threading
 import time
+from urllib.parse import urlsplit
 
 import dashboard_config
 
 TOKEN_PATH = os.path.join(dashboard_config.CONFIG_HOME, "remote-token")
 AUDIT_LOG_PATH = os.path.join(dashboard_config.CONFIG_HOME, "remote-audit.jsonl")
 
-#: A Host header value that matched neither a loopback literal nor a
-#: configured `remote.hosts` entry — returned by the server's
-#: `_remote_context()` instead of None so that an unrecognized Host still
-#: requires the full remote-auth gate (QA pass 1: a Host that simply wasn't
-#: the configured ts.net name used to fall through to the SAME unauthenticated
-#: handling as a genuine loopback request for every GET route — the fix
-#: treats "not proven loopback" as "must authenticate", never the reverse).
-UNRECOGNIZED_REMOTE_HOST = "__unrecognized_remote_host__"
+#: `tailscale serve` fronts this port when remote access is enabled — the
+#: main dashboard listener (4711 by default) is never reachable from the
+#: tailnet at all, so there is no Host header on it to spoof. Configurable
+#: via config.json's `remote.port`.
+DEFAULT_REMOTE_PORT = 4712
 
 SESSION_COOKIE_NAME = "agentbar_remote_session"
 SESSION_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days — a phone stays logged in
@@ -61,17 +83,20 @@ LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_SECONDS = 60
 
 _LOCK = threading.Lock()
-#: {session_id: (host, expires_at_epoch)}
+#: {session_id: (expires_at_epoch, token_fingerprint_at_issue)}
 _SESSIONS = {}
 #: {client_ip: [failure_epoch, ...]} — pruned to LOGIN_WINDOW_SECONDS on read
 _LOGIN_FAILURES = {}
 
 
 def load_remote_settings(path=None):
-    """(enabled, hosts) — hosts is a set of lowercase hostnames (no port,
-    no scheme) taken from config.json's `remote` block:
+    """(enabled, hosts, port) — hosts is a set of lowercase hostnames (no
+    port, no scheme) taken from config.json's `remote` block, used ONLY as
+    the Origin allow-list for CSRF (see module docstring). `port` is where
+    the separate remote listener binds (127.0.0.1 only), default 4712.
 
-        {"remote": {"enabled": true, "hosts": ["mymac.tailnet.ts.net"]}}
+        {"remote": {"enabled": true, "hosts": ["mymac.tailnet.ts.net"],
+                     "port": 4712}}
 
     Missing file / missing key / wrong type all mean "disabled" — remote
     access is opt-in, never inferred."""
@@ -85,33 +110,43 @@ def load_remote_settings(path=None):
             raw = {}
     remote = raw.get("remote") if isinstance(raw, dict) else None
     if not isinstance(remote, dict):
-        return False, set()
+        return False, set(), DEFAULT_REMOTE_PORT
     enabled = bool(remote.get("enabled"))
     hosts_raw = remote.get("hosts") or []
     if not isinstance(hosts_raw, list):
         hosts_raw = []
     hosts = {str(h).strip().lower() for h in hosts_raw if str(h).strip()}
-    return enabled, hosts
+    try:
+        port = int(remote.get("port") or DEFAULT_REMOTE_PORT)
+    except (TypeError, ValueError):
+        port = DEFAULT_REMOTE_PORT
+    return enabled, hosts, port
 
 
 def strip_port(netloc):
-    """Lowercase hostname out of a `host[:port]` or bracketed-IPv6 netloc —
-    shared by Host-header and Origin-header parsing so both use the exact
-    same notion of "hostname"."""
+    """Lowercase hostname out of a `host[:port]` or bracketed-IPv6 netloc."""
     netloc = (netloc or "").strip()
     if netloc.startswith("["):
         return netloc[1:].split("]")[0].lower()
     return netloc.split(":")[0].lower()
 
 
-def matched_remote_host(host_header, configured_hosts):
-    """The configured remote hostname this request's Host header names, or
-    None. Port is ignored (tailscale serve fronts 443; a client testing
-    against a bare port still matches by hostname)."""
-    if not configured_hosts:
-        return None
-    host = strip_port(host_header)
-    return host if host in configured_hosts else None
+def origin_allowed(origin_header, configured_hosts):
+    """True when `origin_header` is present and names an https:// origin
+    whose hostname is one of `configured_hosts`. False for anything else,
+    including a missing/unparsable Origin — callers decide separately
+    whether "no Origin at all" (a curl call, or a fetch that never sends
+    one) should be treated as allowed; this function only answers "does the
+    Origin that WAS sent check out."""
+    if not origin_header or not configured_hosts:
+        return False
+    try:
+        parsed = urlsplit(origin_header)
+    except ValueError:
+        return False
+    if parsed.scheme != "https":
+        return False
+    return strip_port(parsed.netloc) in configured_hosts
 
 
 def load_token():
@@ -185,40 +220,37 @@ def verify_token(candidate, token=None):
     return hmac.compare_digest(candidate, token)
 
 
-def create_session(host):
-    """New session id bound to `host` (the remote hostname it was issued
-    for — a cookie minted for one ts.net name is only ever honoured for
-    requests carrying that same Host, see session_host below) AND to a
-    fingerprint of the token that was live at login time. Rotating the
-    token (scripts/remote-token.py --rotate) changes that fingerprint, so
-    every session issued under the old token stops resolving a host on its
-    very next request — rotation revokes, it doesn't just block future
-    logins (previously documented as a known gap; fixed here)."""
+def create_session():
+    """New session id bound to a fingerprint of the token that was live at
+    login time. Rotating the token (scripts/remote-token.py --rotate)
+    changes that fingerprint, so every session issued under the old token
+    stops validating on its very next request — rotation revokes, it
+    doesn't just block future logins."""
     session_id = secrets.token_urlsafe(32)
     expires_at = time.time() + SESSION_TTL_SECONDS
     token_fp = token_fingerprint(load_token())
     with _LOCK:
-        _SESSIONS[session_id] = (host, expires_at, token_fp)
+        _SESSIONS[session_id] = (expires_at, token_fp)
     return session_id
 
 
-def session_host(session_id):
-    """The host a still-valid session was issued for, or None (missing,
-    expired, bound to a different host than the caller expects — callers
-    pass the current request's matched host and compare themselves — or
-    issued under a token that has since been rotated/removed)."""
+def session_valid(session_id):
+    """True when `session_id` is a still-valid, still-logged-in session:
+    not missing, not expired, and issued under the token that is still the
+    current one (a rotated/removed token invalidates every session that was
+    issued under the old one)."""
     if not session_id:
-        return None
+        return False
     current_fp = token_fingerprint(load_token())
     with _LOCK:
         entry = _SESSIONS.get(session_id)
         if not entry:
-            return None
-        host, expires_at, token_fp = entry
+            return False
+        expires_at, token_fp = entry
         if time.time() >= expires_at or token_fp != current_fp:
             del _SESSIONS[session_id]
-            return None
-        return host
+            return False
+        return True
 
 
 def parse_cookies(cookie_header):
@@ -253,13 +285,12 @@ def clear_session_cookie_header():
     return f"{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
 
 
-def append_audit(host, route, method, status, row_id=None):
+def append_audit(route, method, status, row_id=None):
     """One JSONL line per remote write attempt (allowed or refused) to
     AUDIT_LOG_PATH. Best-effort: a write failure here must never break the
     request it's auditing, so I/O errors are swallowed."""
     entry = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "host": host,
         "route": route,
         "method": method,
         "rowId": row_id,

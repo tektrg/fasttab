@@ -14,8 +14,9 @@
     }
   },
   "remote": {
-    "_comment": "Phase 1a (see server/REMOTE.md): off unless enabled. Generate the token with scripts/remote-token.py — this block only says WHICH Host names may authenticate, never the secret itself.",
+    "_comment": "See server/REMOTE.md: off unless enabled. A SEPARATE listener binds on 127.0.0.1:<port> only when enabled — point `tailscale serve` at that port, never at the main dashboard port above. Generate the token with scripts/remote-token.py. `hosts` is only the Origin allow-list for CSRF, never a Host-header identity check.",
     "enabled": false,
+    "port": 4712,
     "hosts": ["mymac.tailxxxx.ts.net"]
   }
 }

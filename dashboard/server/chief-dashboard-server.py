@@ -173,6 +173,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -2584,13 +2585,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
-        # Phase 1a remote access: flush the audit line for this write once
-        # its real outcome (this status) is known — see _reject_foreign_write.
+        # Remote access: flush the audit line for this write once its real
+        # outcome (this status) is known — see _reject_foreign_write.
         pending = getattr(self, "_pending_remote_audit", None)
         if pending is not None:
             self._pending_remote_audit = None
             remote_access.append_audit(
-                pending["host"], pending["route"], pending["method"],
+                pending["route"], pending["method"],
                 status, row_id=pending.get("row_id"))
 
     def _read_json_body(self):
@@ -2619,98 +2620,50 @@ class Handler(BaseHTTPRequestHandler):
             host = netloc.split(":")[0]
         return host.strip("[]").lower() in cls._LOOPBACK_HOSTNAMES
 
-    # ---- Phase 1a remote access (tailscale serve) -----------------------
-    # A request whose Host is 127.0.0.1/localhost/[::1] never touches any
-    # of this — _remote_context short-circuits to None on the very first
-    # check, so the loopback path below is byte-for-byte what it was
-    # before this phase.
+    # ---- Remote access (tailscale serve) --------------------------------
+    # QA pass 2 REDESIGN: remote access no longer shares this listener with
+    # loopback callers at all. A SEPARATE socket is bound (see main()) only
+    # when `remote.enabled` is true, and `self.server.remote_listener` is
+    # True on that socket's server instance, False on the main one — that
+    # flag, not any header, decides which branch below runs. Every request
+    # that arrives on the remote listener is remote by construction (it is
+    # a different port that `tailscale serve` fronts and 4711 never is), so
+    # there is nothing left to spoof: no Host-header classification, no
+    # Tailscale-identity-header heuristic, no "unrecognized host" sentinel.
+    # See server/lib/remote_access.py's module docstring for why pass 1's
+    # header-based approach was replaced.
 
-    #: Tailscale serve/funnel strips ANY client-supplied copy of these
-    #: headers before forwarding and re-adds its own (see server/REMOTE.md,
-    #: "Auth mechanics" — confirmed against Tailscale's own docs: identity
-    #: headers "will [be] remove[d] for security reasons, to avoid header
-    #: spoofing"). Their presence is proof this request transited tailscale
-    #: serve — used ONLY as that proof, never to identify which user, since
-    #: they are absent for tagged devices and this is a single-user server.
-    _TAILSCALE_PROXY_HEADERS = (
-        "Tailscale-User-Login", "Tailscale-User-Name", "Tailscale-App-Capabilities",
-    )
+    def _is_remote_listener(self):
+        return bool(getattr(getattr(self, "server", None), "remote_listener", False))
 
-    def _proxied_via_tailscale(self):
-        return any(self.headers.get(h) for h in self._TAILSCALE_PROXY_HEADERS)
-
-    def _remote_context(self):
-        """The value to gate this request on, or None for "genuinely
-        loopback — pre-existing, fully unauthenticated behaviour applies."
-
-        QA pass 1 fix (two confirmed bypasses of the remote-auth gate):
-
-        1. Host-header spoofing. `tailscale serve` passes the client's Host
-           header through to this backend UNCHANGED — it does not rewrite it
-           to the backend address. So a remote attacker on the tailnet could
-           set `Host: 127.0.0.1` and be treated as a trusted local caller,
-           skipping auth entirely. Fixed by never trusting a loopback-looking
-           Host when `_proxied_via_tailscale()` proves the request actually
-           came in through the proxy.
-        2. Fail-OPEN on an unrecognized Host. A Host that was simply not one
-           of `remote.hosts` (typo, IP address, any other string) used to
-           return None here — the SAME "no auth needed" value as a real
-           loopback request — so `do_GET` served every route, including
-           `/api/state` and session transcripts, with zero auth to anyone who
-           just avoided sending the configured hostname. Fixed by returning
-           UNRECOGNIZED_REMOTE_HOST (a value nothing is ever authenticated
-           against) instead of None whenever the Host isn't proven loopback,
-           so it goes through the exact same auth gate as a recognized
-           remote host and can never succeed without the real token/session.
-
-        Writes already fail closed here via `_reject_foreign_write`'s
-        loopback-Origin/Host fallback (R20) — this fix brings GET/SSE/static
-        routes up to the same fail-closed posture, which is the only route
-        class this bug affected.
-        """
-        host_header = self.headers.get("Host")
-        proxied = self._proxied_via_tailscale()
-        if not proxied and (not host_header or self._is_loopback_netloc(host_header)):
-            return None
-        enabled, hosts = remote_access.load_remote_settings()
-        if not enabled:
-            # remote.enabled is false: the operator hasn't opted into any of
-            # this, so behave exactly as if this module didn't exist (same
-            # as before this fix) — the fail-closed sentinel below is only
-            # for the case remote access IS switched on but this particular
-            # Host wasn't proven loopback.
-            return None
-        matched = remote_access.matched_remote_host(host_header, hosts)
-        return matched or remote_access.UNRECOGNIZED_REMOTE_HOST
-
-    def _remote_authenticated(self, matched_host):
+    def _remote_authenticated(self):
         auth = self.headers.get("Authorization") or ""
         if auth.startswith("Bearer "):
             if remote_access.verify_token(auth[len("Bearer "):].strip()):
                 return True
         cookies = remote_access.parse_cookies(self.headers.get("Cookie"))
         session_id = cookies.get(remote_access.SESSION_COOKIE_NAME)
-        return remote_access.session_host(session_id) == matched_host
+        return remote_access.session_valid(session_id)
 
     def _note_remote_audit_row(self, row_id):
         pending = getattr(self, "_pending_remote_audit", None)
         if pending is not None and row_id is not None:
             pending["row_id"] = row_id
 
-    def _handle_remote_login(self, matched_host):
+    def _handle_remote_login(self):
         """Verify the token BEFORE consulting the failure-rate limiter.
 
-        QA pass 1 fix: `client_address` is 127.0.0.1 for EVERY remote
-        request (tailscale serve always proxies in over loopback), so
-        `is_login_blocked` is keyed on the same bucket for every remote
-        caller, not per real attacker — it was checked first, so an
-        attacker sending one wrong-token guess roughly once a minute could
-        keep the shared 60s window perpetually full and lock the real
-        owner's own phone out of ever logging in. A request carrying the
-        actual token proves its sender isn't the guesser being rate-limited,
-        so it must always be allowed through regardless of recent failures
-        from whoever else is hitting this endpoint; only a WRONG guess is
-        subject to the limiter (unchanged otherwise)."""
+        `client_address` is 127.0.0.1 for EVERY remote request (tailscale
+        serve always proxies in over loopback), so `is_login_blocked` is
+        keyed on the same bucket for every remote caller, not per real
+        attacker — it is checked first, so an attacker sending one
+        wrong-token guess roughly once a minute could keep the shared 60s
+        window perpetually full and lock the real owner's own phone out of
+        ever logging in. A request carrying the actual token proves its
+        sender isn't the guesser being rate-limited, so it must always be
+        allowed through regardless of recent failures from whoever else is
+        hitting this endpoint; only a WRONG guess is subject to the limiter
+        (unchanged otherwise)."""
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b""
         token = remote_access.parse_login_form(raw)
@@ -2720,12 +2673,12 @@ class Handler(BaseHTTPRequestHandler):
                     "Too many attempts — wait a minute and try again."))
                 return
             remote_access.record_login_failure(self.client_address)
-            remote_access.append_audit(matched_host, "/remote/login", "POST", 401)
+            remote_access.append_audit("/remote/login", "POST", 401)
             self._send_page(remote_access.render_login_page("Invalid token."))
             return
         remote_access.clear_login_failures(self.client_address)
-        session_id = remote_access.create_session(matched_host)
-        remote_access.append_audit(matched_host, "/remote/login", "POST", 200)
+        session_id = remote_access.create_session()
+        remote_access.append_audit("/remote/login", "POST", 200)
         self.send_response(302)
         self.send_header("Location", "/")
         self.send_header("Set-Cookie", remote_access.session_cookie_header(session_id))
@@ -2737,51 +2690,44 @@ class Handler(BaseHTTPRequestHandler):
         refused. Called once at the top of every write method, before any
         path routing or handler runs.
 
-        Remote Host (matches config.json's `remote.hosts`, tailscale-serve
-        case): auth is required first — an unauthenticated remote request
-        is refused with 401 before Origin is even inspected, since Origin
-        can't be trusted to identify a legitimate caller until one is
-        known. Once authenticated, Origin (when the browser sends one)
-        must equal this exact remote host — a same-page fetch from the
-        phone PWA satisfies that; anything else is CSRF and gets 403.
+        Remote listener: auth is required first — an unauthenticated
+        remote request is refused with 401 before Origin is even
+        inspected, since Origin can't be trusted to identify a legitimate
+        caller until one is known. Once authenticated, an Origin the
+        browser sends must name one of `remote.hosts` over https — a
+        same-page fetch from the phone PWA satisfies that; anything else
+        is CSRF and gets 403.
 
-        Loopback / anything else: unchanged from before this phase — no
+        Main (loopback) listener: unchanged from before phase 1a — no
         Origin header at all (a curl call, or a same-page fetch that never
         sends one) is NOT foreign; only an explicit cross-origin Origin, or
         a Host naming something other than this loopback server, counts.
         """
         origin = self.headers.get("Origin")
-        remote_host = self._remote_context()
-        if remote_host is not None:
-            # self.path is only read on this branch (a real remote Host was
-            # matched) — the loopback-only unit tests for this method
-            # construct a bare Handler with no real request/socket behind
-            # it, so nothing below this point may assume self.path exists.
+        if self._is_remote_listener():
+            # self.path is only read on this branch — the loopback-only
+            # unit tests for this method construct a bare Handler with no
+            # real request/socket behind it, so nothing below this point
+            # may assume self.path exists.
             path = urlparse(self.path).path
             if path == "/remote/login":
-                self._handle_remote_login(remote_host)
+                self._handle_remote_login()
                 return True
-            if not self._remote_authenticated(remote_host):
-                remote_access.append_audit(remote_host, path, self.command, 401)
+            if not self._remote_authenticated():
+                remote_access.append_audit(path, self.command, 401)
                 self._send_json({"ok": False, "error": "unauthenticated"}, status=401)
                 return True
-            if origin:
-                try:
-                    origin_host = remote_access.strip_port(urlparse(origin).netloc)
-                except Exception:
-                    origin_host = None
-                if origin_host != remote_host:
-                    remote_access.append_audit(remote_host, path, self.command, 403)
-                    self._send_json(
-                        {"ok": False, "error": "refused: foreign Origin"},
-                        status=403)
-                    return True
+            _enabled, hosts, _port = remote_access.load_remote_settings()
+            if origin and not remote_access.origin_allowed(origin, hosts):
+                remote_access.append_audit(path, self.command, 403)
+                self._send_json(
+                    {"ok": False, "error": "refused: foreign Origin"},
+                    status=403)
+                return True
             # Authenticated + CSRF-clean: allow through, and remember what
             # to audit once the real handler's response status is known
             # (flushed from _send_json).
-            self._pending_remote_audit = {
-                "host": remote_host, "route": path, "method": self.command,
-            }
+            self._pending_remote_audit = {"route": path, "method": self.command}
             return False
 
         if origin:
@@ -2844,17 +2790,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        # Phase 1a remote access: on a matched remote Host, EVERY route
-        # (including the SPA shell, static /assets/, and the /api/events
-        # SSE stream) requires auth — unlike loopback, where GET has never
-        # needed any. /remote/login itself must stay reachable unauthed,
-        # or there would be no way to ever get a session.
-        remote_host = self._remote_context()
-        if remote_host is not None:
+        # Remote access: on the remote listener, EVERY route (including the
+        # SPA shell, static /assets/, and the /api/events SSE stream)
+        # requires auth — unlike the main loopback listener, where GET has
+        # never needed any. /remote/login itself must stay reachable
+        # unauthed, or there would be no way to ever get a session.
+        if self._is_remote_listener():
             if path == "/remote/login":
                 self._send_page(remote_access.render_login_page())
                 return
-            if not self._remote_authenticated(remote_host):
+            if not self._remote_authenticated():
                 if path.startswith("/api/"):
                     self._send_json({"ok": False, "error": "unauthenticated"}, status=401)
                 else:
@@ -3105,11 +3050,41 @@ class QuietThreadingHTTPServer(ThreadingHTTPServer):
 # attach/detach + hook-cache paths.
 
 
+def _start_remote_listener():
+    """Binds the separate remote-access listener (127.0.0.1:<remote.port>,
+    default 4712) when `remote.enabled` is true in config.json, and returns
+    the running server (already serve_forever-ing on a background thread),
+    or None when remote access is off or the port could not be bound.
+
+    A bind failure here (port already in use, e.g. two dashboard instances,
+    or a stale process still holding it) must never take down the main
+    dashboard — it's logged and the server keeps running local-only, same
+    as if `remote.enabled` were false."""
+    enabled, _hosts, port = remote_access.load_remote_settings()
+    if not enabled:
+        return None
+    try:
+        server = QuietThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        print(f"chief-dashboard-server: remote listener could not bind "
+              f"127.0.0.1:{port} ({e}) — continuing WITHOUT remote access", file=sys.stderr)
+        return None
+    server.remote_listener = True
+    thread = threading.Thread(target=server.serve_forever, daemon=True,
+                               name="remote-listener")
+    thread.start()
+    print(f"chief-dashboard-server: remote listener on http://127.0.0.1:{port}/ "
+          f"(tailscale serve should target this port, never {PORT})")
+    return server
+
+
 def main():
     start_pollers()
     SAMPLER.start()
 
     server = QuietThreadingHTTPServer((HOST, PORT), Handler)
+    server.remote_listener = False
+    remote_server = _start_remote_listener()
     print(f"chief-dashboard-server listening on http://{HOST}:{PORT}/  (repo root: {REPO_ROOT})")
     try:
         server.serve_forever()
@@ -3118,6 +3093,8 @@ def main():
     finally:
         STOP.set()
         server.shutdown()
+        if remote_server is not None:
+            remote_server.shutdown()
 
 
 if __name__ == "__main__":

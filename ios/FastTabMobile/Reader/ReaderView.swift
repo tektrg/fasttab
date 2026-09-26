@@ -69,40 +69,47 @@ public struct ReaderView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(viewModel.needsSafariReader || isHeaderHidden ? .hidden : .automatic, for: .navigationBar)
+            .toolbar(isLoaded || viewModel.needsSafariReader || isHeaderHidden ? .hidden : .automatic, for: .navigationBar)
             .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)
             .toolbar {
-                if case .loaded = viewModel.loadState {
-                    toolbarContent
-                } else if viewModel.isFailed {
-                    fallbackToolbarContent
-                } else {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            dismiss()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .symbolRenderingMode(.hierarchical)
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
+                // Reader controls live in the floating bottom bar — nothing up top
+                // once the article is loaded.
+                if !isLoaded {
+                    if viewModel.isFailed {
+                        fallbackToolbarContent
+                    } else {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button {
+                                dismiss()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .symbolRenderingMode(.hierarchical)
+                                    .font(.title3)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
             .overlay(alignment: .bottom) {
-                if showHighlightBar {
-                    ReaderHighlightBar(
-                        selectedText: selectedText,
-                        onSelectColor: { color in
-                            applyHighlight(color: color)
-                        },
-                        onDismiss: {
-                            withAnimation { showHighlightBar = false }
-                        }
-                    )
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(10)
+                VStack(spacing: DS.Space.sm) {
+                    if showHighlightBar {
+                        ReaderHighlightBar(
+                            selectedText: selectedText,
+                            onSelectColor: { color in
+                                applyHighlight(color: color)
+                            },
+                            onDismiss: {
+                                withAnimation { showHighlightBar = false }
+                            }
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(10)
+                    }
+                    if isLoaded {
+                        bottomControlBar
+                    }
                 }
             }
         }
@@ -228,9 +235,15 @@ public struct ReaderView: View {
 
     // MARK: - Toolbar
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
+    private var isLoaded: Bool {
+        if case .loaded = viewModel.loadState { return true }
+        return false
+    }
+
+    /// Floating bottom control bar. Replaces the old top `toolbarContent` —
+    /// close, font size, highlights and the overflow menu all live here.
+    private var bottomControlBar: some View {
+        HStack(spacing: DS.Space.lg) {
             Button {
                 dismiss()
             } label: {
@@ -240,18 +253,22 @@ public struct ReaderView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-        }
+            .accessibilityLabel("Close reader")
 
-        ToolbarItemGroup(placement: .topBarTrailing) {
+            Divider()
+                .frame(height: 24)
+
             // Font size
             Button {
                 showFontSizeControls.toggle()
             } label: {
                 Image(systemName: "textformat.size")
+                    .font(.body)
             }
             .popover(isPresented: $showFontSizeControls) {
                 fontSizePopover
             }
+            .accessibilityLabel("Font size")
 
             // Highlights list
             Menu {
@@ -313,7 +330,21 @@ public struct ReaderView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
+            .accessibilityLabel("More actions")
         }
+        .padding(.horizontal, DS.Space.xl)
+        .padding(.vertical, DS.Space.md)
+        .background(
+            Capsule(style: .continuous)
+                .fill(.regularMaterial)
+                .shadow(color: DS.Shadow.floating.color, radius: DS.Shadow.floating.radius, y: DS.Shadow.floating.y)
+        )
+        .padding(.horizontal, DS.Space.lg)
+        // Clear the WebView's bottom progress bar + home indicator.
+        .padding(.bottom, DS.Space.sm)
+        .offset(y: isHeaderHidden ? 120 : 0)
+        .opacity(isHeaderHidden ? 0 : 1)
+        .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)
     }
 
     // MARK: - Font Size Popover

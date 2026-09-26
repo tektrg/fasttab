@@ -132,7 +132,15 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 40 test files, 1130 `PASS` assertions, 0 `FAIL`.
+As of this writing: 41 test files, 1212 `PASS` assertions, 0 `FAIL`.
+
+**`agent_tree.py` is a verbatim copy of AptusFit's `scripts/lib/agent_tree.py`**
+— both write the same `~/.claude/agent-tree.json`, so their prune rules must
+match. `tests/test_agent_tree_upstream_parity.py` fails on any drift; sync by
+copying AptusFit's file over, never by editing this copy alone.
+`tests/test_agent_tree.py` is AptusFit's test file with two edits (lib path,
+the retired `agent_tree_routing` test); nothing guards it, so port new
+upstream tests by hand on each sync.
 
 **Never POST to port 4711** (AptusFit's live instance) or restart/kill it.
 All P0-move testing runs on **4712**: GET requests against the real 4711

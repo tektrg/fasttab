@@ -177,6 +177,18 @@ OWN launch-time seeding, never from a later dashboard-driven attach/detach
 (no sync exists between the two files), so worker-report-to-chief.py's
 `deliver()` treats the CHIEF's own tree (where it always runs) as
 authoritative over whatever an Air worker resolved locally at hook time.
+When the chief's tree has NO entry yet, `deliver()` (2026-09-25 fix) now
+also PERSISTS the worker-resolved fallback into it via `attach_if_absent` —
+so a worker that only ever got seeded on its OWN (non-chief) machine still
+ends up in the Pro's tree, just on its first report instead of at launch.
+See also `worker_launch_settings.seed_launch_edge` (scripts/lib/
+worker_launch_settings.py): the PREFERRED path writes the edge straight into
+this file at launch time, on whichever machine actually runs that builder
+CODE (not necessarily the worker's own machine — `open-remote-pane.sh new`
+runs entirely on the Pro, ssh'ing only the herdr calls, so its seed is a
+plain local write here with no cross-machine gap at all); this section's
+CHIEF_PARENT/deliver() fallback only matters for the launch doors or
+callers that can't reach this file directly at launch time.
 
 CHIEF RESTART REKEY (bug fix, 2026-09-25)
 -------------------------------------------
@@ -207,8 +219,8 @@ previous registration had no `sessionId` at all (a legacy file, or the very
 first registration) — `register_self` simply skips the call, same as "no
 rekey happened", never a crash.
 
-STALE-ENTRY PRUNING (bug fix, 2026-09-25)
----------------------------------------------
+STALE-ENTRY PRUNING (bug fix, 2026-09-25; M-B correction, QA pass 4, 2026-09-26)
+---------------------------------------------------------------------------------
 Tombstones (H2 DETACH TOMBSTONE above) and dead children's real edges are
 never otherwise removed, so the store file grows without bound. Every write
 path (`attach`, `attach_if_absent`, `detach`, `rekey_child`,
@@ -217,17 +229,124 @@ prunes before writing:
   * a TOMBSTONE older than `TOMBSTONE_MAX_AGE_SECONDS` (7 days) is dropped
     unconditionally — a detach that old is settled, nothing reads it as
     "recently detached" any more.
-  * a REAL edge older than `EDGE_MAX_AGE_SECONDS` (30 days) is dropped ONLY
-    when the caller passed a `known_live_ids` set (the same `known_ids` an
-    attach/attach_if_absent caller already has for validation — see
-    `_validate_attach`) AND the child is NOT in it. No `known_live_ids` at
-    all (e.g. `register_self`'s rekey call, which has no live-agent poll of
-    its own) means "prune tombstones only" — a live child's edge is never
-    guessed away from staleness alone; only an explicit live-id set can
-    positively say a child is gone.
+  * a REAL or PENDING edge older than its own age threshold is dropped ONLY
+    when the write passes a `known_live_ids` roster AND the child is NOT in
+    it — but M-B CORRECTION (QA pass 4, 2026-09-26): `attach`, `attach_if_
+    absent`, `detach`, `rekey_child` and `rekey_children_of_parent` never
+    pass one any more, EVER — the `known_ids` an attach/attach_if_absent
+    caller has is for `_validate_attach` ONLY. It is very often PARTIAL (a
+    local-machine-only `herdr agent list` in chief-dashboard-server.py's
+    one-time migration; whatever chief_dashboard_views.py's FEEDS cache
+    happens to hold for a dashboard-driven attach), and QA reproduced the
+    exact consequence: a local-only migration attach pruned a >24h pending
+    Air edge purely because Air was absent from that partial validation
+    set. `mark_children_live` (`scripts/pane-tick-writer.py`'s heartbeat,
+    roster-complete-aware — see its own docstring) is now the ONLY caller
+    in this module that ever prunes a real/pending edge by roster absence.
+    Every other write here still prunes tombstones (unconditional, above)
+    but never guesses a live child's edge is gone from age/absence alone.
 Kept intentionally simple: one age check per entry kind, no cross-file
 reconciliation, no background sweep — pruning piggybacks on writes that
 were already happening.
+
+GHOST NODE — LAUNCH-PENDING EDGES (QA fix, 2026-09-25)
+---------------------------------------------------------
+A launch-time seed (`worker_launch_settings.seed_launch_edge`, called from
+`scripts/worker-launch-settings.py`, `chief_dashboard_worker.create_worker`,
+`remote_pane_mirror.cmd_new`) writes the edge the INSTANT a launch is
+dispatched, before anything confirms the pre-assigned `--session-id` ever
+actually booted. A launch that never boots (bad settings JSON, a crashed
+`claude-aptus`, a remote pane that never came up) then leaves a GHOST NODE:
+an edge for a session that never existed, permanently visible under its
+chief (`alive: false`) — the ordinary STALE-ENTRY PRUNING above never
+catches it, since that only fires at 30 days AND only when a caller happens
+to pass `known_live_ids` (most of these seeding call sites don't have a
+live-roster poll on hand at seed time).
+
+Two-part fix, additive to the edge shape (`launchPending: true`, an
+optional key — a reader that doesn't know it still sees a normal edge):
+
+  1. KNOWN (POSITIVE) boot failure -> hard-remove. `attach_if_absent(...,
+     pending=True)` marks the edge `launchPending: true`. The one door that
+     gets a POSITIVE boot-failure signal today (`remote_pane_mirror.
+     wait_for_remote_agent` — the pane itself is gone, or its foreground has
+     already reverted to a bare shell prompt with no agent process, i.e. the
+     launched command already exited/crashed) calls `remove_child()` — a
+     genuine `del`, NOT `detach()`'s sticky tombstone: the tombstone exists
+     to survive a still-running worker's env re-seeding it (DETACH TOMBSTONE
+     above), but a session that never booted has no live process and
+     nothing to guard against re-seeding — a tombstone here would be a
+     permanent, semantically-wrong "someone explicitly detached this" record
+     for a launch that simply never came up. `remove_child()` itself only
+     ever deletes an entry that is STILL `launchPending` (L1 fix, QA pass 2)
+     — it must never be able to delete a real dashboard-driven attach or a
+     detach tombstone, only a still-unconfirmed launch seed. A bare TIMEOUT
+     (`wait_for_remote_agent` ran out of its wait budget with no positive
+     signal either way — a slow but still-in-progress boot) is NOT treated
+     as a failure and must never remove the edge.
+  2. NO positive boot-failure signal at all (`chief_dashboard_worker.
+     create_worker` has no boot check; `scripts/worker-launch-settings.py`'s
+     CLI can't observe the pane it typed a launch line into either; a REMOTE
+     timeout from case 1 above also falls through to here) -> `_prune` drops
+     a `launchPending` edge older than `LAUNCH_PENDING_MAX_AGE_SECONDS`
+     (24h) — but ONLY GATED THE SAME WAY as the ordinary 30-day rule above:
+     a `known_live_ids` roster must be supplied AND must NOT include the
+     child. H1 REGRESSION (QA pass 2, 2026-09-25): this used to fire
+     UNCONDITIONALLY (no roster needed) on the theory that "a launch is
+     confirmed live well within a day, or it never will be" — true for a
+     worker that produces a REPORTABLE Stop-hook turn, false for most
+     CHIEF_WORKER=1 shared-tree workers, which routinely go a full session
+     without one (`worker-report-to-chief.py`'s `plan_report` only fires on
+     a fingerprint CHANGE) — so a perfectly healthy worker's edge was being
+     deleted out from under it at 24h and never re-seeded, reintroducing the
+     exact "worker not nested" bug this whole feature exists to fix. Fixed
+     by requiring the SAME positive roster evidence the 30-day rule already
+     requires — age alone, with no roster to check against, proves nothing
+     for a pending edge any more than it does for a confirmed one.
+
+  `launchPending` is cleared (`mark_child_live()` / `mark_children_live()`)
+  the moment a caller has ACTUAL evidence the child is alive:
+    * `worker-report-to-chief.py`'s `run_hook` calls `mark_child_live` for
+      EVERY Stop-hook firing (a hook firing at all IS proof of life),
+      BEFORE `plan_report`'s reportable-turn gate — not inside
+      `seed_edge_if_needed`/`deliver()`, which (H1 REGRESSION above) only
+      run on a REPORTABLE turn and so under-cover most workers.
+    * `scripts/pane-tick-writer.py`'s ~2-minute heartbeat already collects
+      every LIVE `agent_session` id, local + every configured remote
+      machine (the Air) — it calls the batch
+      `mark_children_live(live_ids, roster_complete)` every tick, which
+      both clears `launchPending` for every match AND (when
+      `roster_complete`) passes that same roster through to the write as
+      `known_live_ids`, actually exercising case 2's gated prune on a
+      REGULAR cadence, not just incidentally whenever some other write
+      happens to occur. This is the primary, most-complete liveness signal
+      — it is the only one that covers an Air worker (whose own machine
+      never writes into the Pro's tree at all) and a worker that never
+      produces a single reportable turn.
+
+  M1 REGRESSION (QA pass 3, 2026-09-26): `roster_complete` matters as much
+  as the roster itself. `_herdr_pane_info` asks local herdr AND every
+  configured remote machine; ANY of those failing (one machine briefly
+  asleep or unreachable) makes the roster PARTIAL, not empty — and a caller
+  that passed a partial roster through as `known_live_ids` let `_prune` read
+  "not in this (incomplete) roster" as "confirmed gone" for every child that
+  down machine alone owns. QA reproduced it: 11 of 15 real children are Air,
+  and a single bad tick deleted both a >24h pending Air child AND a >30-day
+  CONFIRMED Air edge. Fixed: `mark_children_live` only passes the roster
+  through to `known_live_ids` when `roster_complete` is True; an incomplete
+  roster still clears `launchPending` for whoever it did see (a partial
+  sighting is still real evidence) but prunes NOTHING.
+
+  A confirmed (non-pending) edge ages out via the 30-day/`known_live_ids`
+  rule from then on, same as any other edge — but that rule now measures
+  SILENCE, not age: `lastSeenAt` (refreshed by `mark_children_live`, at most
+  once per `LAST_SEEN_REFRESH_MIN_INTERVAL_SECONDS`, only during a COMPLETE
+  roster tick) if present, else `setAt` (an edge no complete tick has ever
+  confirmed yet) — age-since-`setAt` alone would prune a perfectly healthy,
+  long-lived edge the instant a transient roster gap coincided with it
+  merely being OLD, which is the normal case for every edge past 30 days.
+  `launchPending` only ever makes an edge prunable SOONER, never keeps one
+  around longer.
 """
 from __future__ import annotations
 
@@ -253,6 +372,24 @@ CHIEF_MODE_TTL_HOURS = 72
 #: edge for a no-longer-known child must be before a write drops it.
 TOMBSTONE_MAX_AGE_SECONDS = 7 * 24 * 3600
 EDGE_MAX_AGE_SECONDS = 30 * 24 * 3600
+
+#: GHOST NODE — LAUNCH-PENDING EDGES (module docstring) — how old an
+#: unconfirmed (`launchPending: true`) launch-time seed must be before a
+#: write drops it. L3 correction (QA pass 3, 2026-09-26): this DOES need a
+#: `known_live_ids` roster, same as EDGE_MAX_AGE_SECONDS below — a stale
+#: comment here once claimed otherwise, which is exactly the H1 REGRESSION
+#: (QA pass 2) this module's docstring describes: age alone proves nothing
+#: without a roster to check the child against.
+LAUNCH_PENDING_MAX_AGE_SECONDS = 24 * 3600
+
+#: `mark_children_live`'s `lastSeenAt` throttle (QA pass 3, 2026-09-26): the
+#: EDGE_MAX_AGE_SECONDS silence clock above is a 30-DAY threshold, so
+#: bumping `lastSeenAt` on every single ~2-minute heartbeat tick is far more
+#: precision than that clock needs — and it makes `_write_edges`'s L5
+#: no-op-write skip never actually fire for a tree with any live child at
+#: all (a fresh timestamp every write is, by definition, never identical to
+#: the last write). Refresh at most this often per child instead.
+LAST_SEEN_REFRESH_MIN_INTERVAL_SECONDS = 3600
 
 ERROR_SELF = "self"
 ERROR_CYCLE = "cycle"
@@ -310,7 +447,14 @@ def _prune(edges: dict, known_live_ids=None, now=None) -> dict:
     """STALE-ENTRY PRUNING (module docstring) — pure, called from inside
     `_write_edges` on every write. Returns a NEW dict; never mutates
     `edges` in place (callers may still hold a reference to the pre-prune
-    version, e.g. for a return value already computed)."""
+    version, e.g. for a return value already computed).
+
+    `known_live_ids` must be a COMPLETE, trustworthy roster whenever it is
+    not None — a caller unsure whether it saw everyone (a partial herdr
+    answer, one machine down) must pass None, never its partial set, or this
+    prunes every child that machine happens to own (QA pass 3, 2026-09-26,
+    M1 REGRESSION: `mark_children_live` used to pass its roster through even
+    when incomplete — see that function's docstring)."""
     now = now if now is not None else time.time()
     kept = {}
     for child_id, edge in edges.items():
@@ -320,19 +464,55 @@ def _prune(edges: dict, known_live_ids=None, now=None) -> dict:
         if e.get("detached"):
             if age > TOMBSTONE_MAX_AGE_SECONDS:
                 continue
-        elif known_live_ids is not None and age > EDGE_MAX_AGE_SECONDS \
-                and child_id not in known_live_ids:
-            continue
+        elif e.get("launchPending"):
+            # GHOST NODE (module docstring) — H1 REGRESSION FIX (QA pass 2,
+            # 2026-09-25): SAME gating as the known_live_ids rule below, just
+            # a shorter age threshold. Never unconditional — most workers
+            # never produce a "reportable" Stop-hook turn, so age alone
+            # proves nothing without a roster to check against (that used to
+            # prune perfectly healthy workers at 24h and never re-seed them).
+            if known_live_ids is not None and age > LAUNCH_PENDING_MAX_AGE_SECONDS \
+                    and child_id not in known_live_ids:
+                continue
+        else:
+            # M1 fix (QA pass 3, 2026-09-26): measure SILENCE, not age — how
+            # long since a complete roster last actually saw this child
+            # (`lastSeenAt`, refreshed by `mark_children_live`), falling back
+            # to `age` (time since the edge was SET) only for an edge no
+            # complete-roster tick has ever confirmed yet. Age-since-setAt
+            # alone would prune a perfectly healthy, long-lived edge the
+            # instant a transient roster gap (this machine briefly
+            # unreachable) coincided with it merely being OLD, which is the
+            # normal case for every edge that has lived past 30 days.
+            last_seen = e.get("lastSeenAt")
+            silence = (now - last_seen) if isinstance(last_seen, (int, float)) else age
+            if known_live_ids is not None and silence > EDGE_MAX_AGE_SECONDS \
+                    and child_id not in known_live_ids:
+                continue
         kept[child_id] = edge
     return kept
 
 
 def _write_edges(path: Path, edges: dict, known_live_ids=None) -> None:
+    """L5 fix (QA pass 3, 2026-09-26): skip the disk write entirely when the
+    post-prune content is byte-identical to what's already on disk. A caller
+    like `mark_children_live` runs on EVERY ~2-minute heartbeat tick — most
+    of which change nothing at all once `lastSeenAt` is throttled
+    (LAST_SEEN_REFRESH_MIN_INTERVAL_SECONDS) — so without this, every single
+    tick still replaced the file and bumped its mtime for no reason, which
+    every other reader (the dashboard, `read_edges` callers elsewhere) would
+    otherwise see as constant unexplained churn."""
     edges = _prune(edges, known_live_ids)
     path = Path(path)
+    serialized = json.dumps(edges, indent=2, sort_keys=True) + "\n"
+    try:
+        if path.read_text() == serialized:
+            return
+    except Exception:
+        pass  # doesn't exist yet, or unreadable — fall through to a real write
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(f".{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(edges, indent=2, sort_keys=True) + "\n")
+    tmp.write_text(serialized)
     tmp.replace(path)
 
 
@@ -373,44 +553,79 @@ def _validate_attach(edges: dict, child: str, parent: str, known_ids) -> None:
         hops += 1
 
 
-def _edge(parent, child_slug, parent_slug, set_by) -> dict:
+def _edge(parent, child_slug, parent_slug, set_by, pending=False) -> dict:
     edge = {"parent": parent, "setAt": time.time(), "setBy": set_by}
     if child_slug:
         edge["childSlug"] = child_slug
     if parent_slug:
         edge["parentSlug"] = parent_slug
+    if pending:
+        # GHOST NODE — LAUNCH-PENDING EDGES (module docstring): additive-only
+        # marker, omitted entirely for the common (non-launch-seed) case so
+        # every existing edge's shape is unchanged.
+        edge["launchPending"] = True
     return edge
 
 
 def attach(child, parent, *, known_ids=None, child_slug=None, parent_slug=None,
            set_by=None, path=None) -> dict:
     """Explicit attach — see module docstring. Raises AgentTreeError on
-    self/cycle/two-level/unknown-agent. Returns the edge written."""
+    self/cycle/two-level/unknown-agent. Returns the edge written.
+
+    M-B fix (QA pass 4, 2026-09-26): `known_ids` is used for VALIDATION
+    ONLY (`_validate_attach`) — it is NEVER forwarded to `_write_edges` as a
+    prune roster. A caller's `known_ids` here is very often a PARTIAL
+    roster (e.g. chief-dashboard-server.py's one-time migration passes a
+    LOCAL-MACHINE-ONLY `herdr agent list`; chief_dashboard_views.py's
+    dashboard-attach handler passes whatever FEEDS happens to have cached,
+    which can be stale/incomplete for a remote machine mid-poll) — passing
+    a partial set through as `known_live_ids` let `_prune` read "not in
+    this (partial) set" as "confirmed gone" for every child an unreachable
+    machine alone owns, the exact same failure class as the M1 REGRESSION
+    (QA pass 3) fixed for `mark_children_live`, just via a different call
+    path. `mark_children_live` (roster-complete-aware) is now the ONLY
+    caller that ever prunes a real/pending edge by roster absence — every
+    other write here only ever prunes unconditional tombstone/no-roster
+    staleness (see `_prune`)."""
     path = path or tree_file_path()
     with _locked(path):
         edges = read_edges(path)
         _validate_attach(edges, child, parent, known_ids)
         edges[child] = _edge(parent, child_slug, parent_slug, set_by)
-        _write_edges(path, edges, known_live_ids=known_ids)
+        _write_edges(path, edges)
         return dict(edges[child])
 
 
 def attach_if_absent(child, parent, *, known_ids=None, child_slug=None,
-                     parent_slug=None, set_by=None, path=None) -> dict | None:
+                     parent_slug=None, set_by=None, path=None,
+                     pending=False) -> dict | None:
     """Seeding attach — see module docstring. None (no-op) when `child`
-    already has an edge; otherwise the same validation as attach()."""
+    already has an edge; otherwise the same validation as attach().
+
+    `pending` (GHOST NODE — LAUNCH-PENDING EDGES, module docstring): True
+    marks the written edge `launchPending: true` — for a launch-time seed
+    written before anything confirms the session actually booted. Leave the
+    default False for every seed that already IS proof of life (the
+    worker's own first report, the deliver() fallback, the migration
+    pass).
+
+    M-B fix (QA pass 4, 2026-09-26): same as `attach()` — `known_ids` is
+    VALIDATION-ONLY, never forwarded to `_write_edges` as a prune roster.
+    See `attach()`'s docstring for why (the migration seed's `known_ids` is
+    a local-machine-only roster; QA reproduced a >24h pending Air edge
+    pruned by exactly that local-only migration attach)."""
     path = path or tree_file_path()
     with _locked(path):
         edges = read_edges(path)
         if child in edges:
             return None
         _validate_attach(edges, child, parent, known_ids)
-        edges[child] = _edge(parent, child_slug, parent_slug, set_by)
-        _write_edges(path, edges, known_live_ids=known_ids)
+        edges[child] = _edge(parent, child_slug, parent_slug, set_by, pending=pending)
+        _write_edges(path, edges)
         return dict(edges[child])
 
 
-def detach(child, *, set_by=None, path=None, known_ids=None) -> bool:
+def detach(child, *, set_by=None, path=None) -> bool:
     """Explicit detach — see module docstring's DETACH TOMBSTONE (H2 fix).
     Leaves `child` tombstoned (`parent: None, detached: True`) rather than
     deleting its entry, so a still-running worker's next Stop-hook report
@@ -419,7 +634,14 @@ def detach(child, *, set_by=None, path=None, known_ids=None) -> bool:
     alone"). False (no-op) when `child` has no entry at all, or is already
     tombstoned — idempotent either way. `read_edges()`/`build_agent_tree`
     still show a tombstoned child as unassigned (no parent), and an
-    explicit `attach()` clears the tombstone by overwriting the entry."""
+    explicit `attach()` clears the tombstone by overwriting the entry.
+
+    M-B fix (QA pass 4, 2026-09-26): no `known_ids`/roster parameter at
+    all — detach doesn't validate against one (no `_validate_attach` call),
+    so the old parameter only ever fed `_write_edges` a prune roster, the
+    same general hazard fixed across `attach`/`attach_if_absent`/`rekey_
+    child`/`rekey_children_of_parent`. No production caller ever passed one
+    (grepped clean)."""
     path = path or tree_file_path()
     with _locked(path):
         edges = read_edges(path)
@@ -427,14 +649,164 @@ def detach(child, *, set_by=None, path=None, known_ids=None) -> bool:
         if existing is None or (existing or {}).get("detached"):
             return False
         edges[child] = {"parent": None, "detached": True, "setAt": time.time(), "setBy": set_by}
-        _write_edges(path, edges, known_live_ids=known_ids)
+        _write_edges(path, edges)
         return True
 
 
-def rekey_child(old_id, new_id, *, path=None, known_ids=None) -> bool:
+def remove_child(child, *, path=None) -> bool:
+    """GHOST NODE — LAUNCH-PENDING EDGES (module docstring) — HARD delete of
+    `child`'s entry: unlike `detach()`, this leaves NOTHING behind, not even
+    a tombstone. Only for a session that is KNOWN to have never come alive
+    (a launch with a POSITIVE boot-failure signal) — there is no live
+    process whose env could ever re-seed it, so `detach()`'s sticky-tombstone
+    guard (DETACH TOMBSTONE, module docstring) does not apply and would be
+    semantically wrong here (it would read as "a person explicitly detached
+    a real worker", which never happened).
+
+    L1 fix (QA pass 2, 2026-09-25): only ever deletes an entry that is STILL
+    `launchPending` — never a real dashboard attach, and never a detach
+    tombstone (which has no `launchPending` key to begin with). Without this
+    guard a caller racing a launch-failure report against, say, a PO's
+    dashboard attach landing moments earlier could delete a real edge purely
+    because it still held the stale pre-attach `child` id. False (no-op)
+    when `child` has no entry at all, or its entry is no longer pending —
+    idempotent, safe to call more than once."""
+    path = path or tree_file_path()
+    with _locked(path):
+        edges = read_edges(path)
+        edge = edges.get(child)
+        if not edge or not edge.get("launchPending"):
+            return False
+        del edges[child]
+        _write_edges(path, edges)
+        return True
+
+
+def mark_child_live(child, *, path=None) -> bool:
+    """GHOST NODE — LAUNCH-PENDING EDGES (module docstring) — clear
+    `child`'s `launchPending` marker: call this the moment a caller has
+    ACTUAL evidence the session is alive. `worker-report-to-chief.py`'s
+    `run_hook` calls this for EVERY Stop-hook firing (before `plan_report`'s
+    reportable-turn gate — a hook firing at all IS proof of life, whether or
+    not this particular turn produces a report) and `deliver()` calls it too
+    (only ever runs for a session that produced a real report). False
+    (no-op, never an error) when `child` has no edge yet, or its edge isn't
+    pending — safe to call unconditionally, same idiom as
+    `attach_if_absent`'s own no-op-by-default design.
+
+    H1 REGRESSION NOTE (QA pass 2, 2026-09-25): this alone badly under-covers
+    liveness — most CHIEF_WORKER=1 shared-tree workers go long stretches
+    (often a whole session) without a REPORTABLE turn, and this function
+    can't observe an Air worker at all (its own machine never writes into
+    the Pro's tree). `mark_children_live()` (the roster-based batch sibling,
+    called from `scripts/pane-tick-writer.py`'s ~2-minute heartbeat) is the
+    PRIMARY liveness signal for the ghost-node prune below; this per-call
+    version is a same-turn confirmation for a LOCAL worker, not a substitute
+    for it."""
+    path = path or tree_file_path()
+    with _locked(path):
+        edges = read_edges(path)
+        edge = edges.get(child)
+        if not edge or not edge.get("launchPending"):
+            return False
+        edges[child] = {k: v for k, v in edge.items() if k != "launchPending"}
+        _write_edges(path, edges)
+        return True
+
+
+def mark_children_live(live_ids, roster_complete, *, path=None, now=None) -> list[str]:
+    """Batch `mark_child_live` — the PRIMARY ghost-node liveness signal (H1
+    fix, QA pass 2, 2026-09-25; see `mark_child_live`'s own docstring for
+    why the per-call version alone under-covers this). `scripts/pane-tick-
+    writer.py`'s ~2-minute heartbeat already collects every LIVE
+    `agent_session` id, local + every configured remote machine (the Air) —
+    passing that whole roster here clears `launchPending` for every match
+    (regardless of `roster_complete` — a sighting is a sighting) and, when
+    the roster is trustworthy, also lets `_prune`'s roster-gated rules
+    actually run on a REGULAR ~2-minute cadence, instead of only
+    incidentally whenever some unrelated write happens to occur next.
+
+    `roster_complete` (M1 REGRESSION FIX, QA pass 3, 2026-09-26): True only
+    when `live_ids` reflects EVERY configured machine answering this tick
+    (`pane-tick-writer._herdr_pane_info`'s own return). A caller that passed
+    its roster through on ANY non-empty read — even a PARTIAL one, e.g. the
+    Air machine asleep or its ssh briefly down for one tick — let `_prune`
+    read "not in this roster" as "confirmed gone" for children that machine
+    alone owns (QA reproduced: 11 of 15 real children are Air; one bad tick
+    deleted a >24h pending Air child AND a >30d CONFIRMED Air edge). So:
+    incomplete -> `known_live_ids=None` on the write (clear what we saw,
+    prune nothing — the same "don't know, don't guess" contract as any other
+    caller unsure whether it saw everyone). Complete -> the roster is
+    authoritative even when empty (genuinely nobody alive, not a herdr
+    hiccup silently returning nothing), so it's passed through as-is,
+    enabling a real prune.
+
+    `lastSeenAt` is refreshed (to `now`) for every non-pending child found in
+    a COMPLETE roster only — the fact this heartbeat can also observe a
+    child during a partial-roster tick (e.g. Air itself answered but some
+    OTHER configured machine didn't) is still used to clear `launchPending`
+    above, but is deliberately NOT treated as a fresh "seen" timestamp for
+    the 30-day silence clock (`_prune`), keeping that clock's semantics tied
+    to ticks where absence could also have been trusted.
+
+    L-D correction (QA pass 4, 2026-09-26): this does NOT always perform a
+    disk write any more — `_write_edges`'s own L5 no-op-write skip (QA pass
+    3) means a tick that changes nothing (no pending edge to clear, no
+    child due for its throttled `lastSeenAt` refresh, nothing to prune)
+    leaves the file untouched. What's unconditional is the attempt: this
+    function always goes through `_write_edges` on every call (so pruning
+    still piggybacks on every tick, per the module docstring's design), it
+    just may no-op once inside it.
+
+    L3 correction (QA pass 3, 2026-09-26): this can raise (a genuine lock/
+    disk I/O failure), same as any other locked read-modify-write in this
+    module — it does NOT swallow its own errors. `pane-tick-writer.py`'s
+    heartbeat wraps this call in try/except itself (best-effort from the
+    CALLER's side); a docstring here once claimed "never raises", which was
+    never true of this function in isolation. Returns the ids actually
+    cleared (for tests/observability)."""
+    live_ids = set(live_ids or ())
+    now = now if now is not None else time.time()
+    path = path or tree_file_path()
+    with _locked(path):
+        edges = read_edges(path)
+        cleared = []
+        for child_id in live_ids:
+            edge = edges.get(child_id)
+            if not edge:
+                continue
+            updated = dict(edge)
+            changed = False
+            if updated.get("launchPending"):
+                del updated["launchPending"]
+                cleared.append(child_id)
+                changed = True
+            if roster_complete:
+                prior_last_seen = updated.get("lastSeenAt")
+                # L5 / throttle (QA pass 3, 2026-09-26): at most once per
+                # LAST_SEEN_REFRESH_MIN_INTERVAL_SECONDS per child — see that
+                # constant's own comment for why finer than this is wasted
+                # precision that would also defeat _write_edges's no-op skip.
+                if not isinstance(prior_last_seen, (int, float)) or \
+                        (now - prior_last_seen) >= LAST_SEEN_REFRESH_MIN_INTERVAL_SECONDS:
+                    updated["lastSeenAt"] = now
+                    changed = True
+            if changed:
+                edges[child_id] = updated
+        known_live_ids = live_ids if roster_complete else None
+        _write_edges(path, edges, known_live_ids=known_live_ids)
+        return cleared
+
+
+def rekey_child(old_id, new_id, *, path=None) -> bool:
     """Move `old_id`'s edge to `new_id` (see module docstring). False (no
     change) when there is nothing to move or `new_id` already has its own
-    edge — never overwrites a real edge."""
+    edge — never overwrites a real edge.
+
+    M-B fix (QA pass 4, 2026-09-26): no `known_ids`/roster parameter — same
+    reasoning as `detach()`'s docstring (no validation happens here either,
+    so the old parameter only ever fed `_write_edges` a prune roster; `mark_
+    children_live` is the one roster-pruning caller now)."""
     path = path or tree_file_path()
     with _locked(path):
         edges = read_edges(path)
@@ -443,12 +815,12 @@ def rekey_child(old_id, new_id, *, path=None, known_ids=None) -> bool:
         edge = dict(edges.pop(old_id))
         edge["setAt"] = time.time()
         edges[new_id] = edge
-        _write_edges(path, edges, known_live_ids=known_ids)
+        _write_edges(path, edges)
         return True
 
 
 def rekey_children_of_parent(old_parent_id, new_parent_id, *, set_by=None,
-                             path=None, known_ids=None) -> list[str]:
+                             path=None) -> list[str]:
     """CHIEF RESTART REKEY (module docstring) — move every edge whose
     `parent == old_parent_id` to `parent = new_parent_id`, in one locked
     read-modify-write. Returns the list of child ids rekeyed (empty when
@@ -460,10 +832,17 @@ def rekey_children_of_parent(old_parent_id, new_parent_id, *, set_by=None,
     with no previous session id to rekey FROM (register_self's "previous
     registration had no sessionId" case) and a same-session re-registration
     alike. A tombstone (`parent: None`) never matches a real `old_parent_id`
-    and so is never touched by this. `known_ids` is passed straight through
-    to `_write_edges` for STALE-ENTRY PRUNING (module docstring); omit it
-    (the default) when the caller has no live-agent set on hand — that
-    still prunes stale tombstones, just not stale real edges."""
+    and so is never touched by this.
+
+    M-B fix (QA pass 4, 2026-09-26): no `known_ids`/roster parameter any
+    more — `pane-tick-gate.py`'s `register_self` (this function's one
+    production caller) has no live-agent poll on hand anyway, and forwarding
+    a partial one to `_write_edges` as a prune roster is exactly the M-B
+    hazard fixed across `attach`/`attach_if_absent`/`detach`/`rekey_child`
+    too. A write still prunes stale TOMBSTONES unconditionally (`_prune`
+    doesn't gate that branch on a roster); it just never guesses a real
+    edge is gone from a partial/local-only set any more — only `mark_
+    children_live` does that, and only when its roster is complete."""
     if not old_parent_id or not new_parent_id or old_parent_id == new_parent_id:
         return []
     path = path or tree_file_path()
@@ -479,7 +858,7 @@ def rekey_children_of_parent(old_parent_id, new_parent_id, *, set_by=None,
                 edges[child_id] = new_edge
                 rekeyed.append(child_id)
         if rekeyed:
-            _write_edges(path, edges, known_live_ids=known_ids)
+            _write_edges(path, edges)
         return rekeyed
 
 

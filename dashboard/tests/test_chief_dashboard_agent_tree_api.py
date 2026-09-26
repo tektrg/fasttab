@@ -10,6 +10,7 @@ tree.json.
 import os
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.dirname(HERE)
@@ -118,6 +119,29 @@ check("...tombstone marked detached",
 payload, status = views.agent_tree_detach("never-had-an-edge")
 check("detaching an id with no edge is still ok, not an error",
       (payload, status), ({"ok": True}, 200))
+
+# M-B regression (QA 2026-09-26, reproduced against this dashboard's old
+# forked agent_tree.py): the dashboard roster passed as attach's known_ids
+# is validation-only. An Air worker whose rows are momentarily missing from
+# the roster (Air ssh blip) must keep its edge through dashboard attach/
+# detach, even when that edge (or its launch-pending seed) is old by setAt.
+print("\nattach/detach never prune by the dashboard roster (M-B regression):")
+long_ago = time.time() - 90 * 24 * 3600
+edges = agent_tree.read_edges()
+edges["air-worker"] = {"parent": "chief-a", "setAt": long_ago, "setBy": "test-seed"}
+edges["air-pending"] = {"parent": "chief-a", "setAt": long_ago, "setBy": "test-seed",
+                        "launchPending": True}
+agent_tree._write_edges(agent_tree.tree_file_path(), edges)
+payload, status = views.agent_tree_attach("worker-a2", "chief-a")
+check("attach with Air rows absent from the roster -> 200 ok", (payload.get("ok"), status), (True, 200))
+check("...a 90-day-old live Air worker's edge survives",
+      (agent_tree.read_edges().get("air-worker") or {}).get("parent"), "chief-a")
+check("...a 90-day-old launch-pending Air edge survives",
+      (agent_tree.read_edges().get("air-pending") or {}).get("parent"), "chief-a")
+views.agent_tree_detach("worker-a2")
+check("detach leaves both Air edges intact too",
+      sorted(k for k in ("air-worker", "air-pending") if (agent_tree.read_edges().get(k) or {}).get("parent")),
+      ["air-pending", "air-worker"])
 
 print()
 if fails:

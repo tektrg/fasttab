@@ -330,18 +330,59 @@ def test_prune_never_drops_a_live_edge_without_a_known_live_set():
          "c" in tree.read_edges(p), True)
 
 
-def test_prune_drops_stale_real_edge_when_known_live_set_excludes_it():
-    p = fresh_path("prune-known-ids-drops")
+def test_attach_known_ids_is_validation_only_never_prunes_M_B_fix():
+    """M-B FIX (QA pass 4, 2026-09-26): `attach()`'s `known_ids` is for
+    `_validate_attach` ONLY now — it must NEVER be forwarded to
+    `_write_edges` as a prune roster. Before this fix, a stale real edge
+    excluded from a later `known_ids` set got pruned by a PLAIN attach()
+    call — this test used to assert exactly that (the old, buggy contract);
+    it now asserts the opposite, because an attach()/attach_if_absent()
+    caller's `known_ids` is very often PARTIAL (see the migration test
+    below), and treating it as prune-authoritative is precisely what QA
+    reproduced deleting real Air edges."""
+    p = fresh_path("attach-known-ids-validation-only")
     ids = {"c", "chief"}
     tree.attach("c", "chief", known_ids=ids, path=p)
     edges = tree.read_edges(p)
     edges["c"]["setAt"] = time.time() - tree.EDGE_MAX_AGE_SECONDS - 3600
     _seed_raw(p, edges)
-    # Next write passes a known_ids set that does NOT include "c" -> "c" is
-    # gone (not currently live) and old enough -> pruned.
+    # A later attach() whose known_ids set does NOT include "c" must NOT
+    # prune it — known_ids here is validation-only.
     tree.attach("new-child", "chief", known_ids={"new-child", "chief"}, path=p)
-    check("stale real edge pruned once a known_ids set excludes it",
-         "c" in tree.read_edges(p), False)
+    check("a stale real edge survives even when a later attach()'s "
+         "known_ids excludes it — known_ids is validation-only, never a "
+         "prune roster (M-B fix)",
+         "c" in tree.read_edges(p), True)
+
+
+def test_attach_if_absent_local_only_known_ids_never_prunes_the_migration_bug():
+    """M-B REGRESSION (QA pass 4, 2026-09-26): the exact bug QA reproduced.
+    `chief-dashboard-server.py`'s one-time migration (`_run_agent_tree_
+    migration_once`) queries `herdr agent list` on the LOCAL machine only,
+    then calls `migrate_seed_from_chief(repo_root, known_ids, chief_id)` ->
+    `attach_if_absent(child, chief_id, known_ids=known_ids, ...)` for every
+    worker that reported for this repo. That `known_ids` set structurally
+    can never contain an Air session id — before this fix, `_write_edges`
+    read "Air session not in this (local-only) known_ids" as "confirmed
+    gone", pruning a >24h pending Air child AND a >30-day CONFIRMED Air
+    edge off a single local-only migration attach."""
+    p = fresh_path("attach-if-absent-local-only-migration")
+    tree.attach_if_absent("air-pending", "chief", set_by="launch", path=p, pending=True)
+    tree.attach("air-confirmed", "chief", known_ids={"air-confirmed", "chief"}, path=p)
+    edges = tree.read_edges(p)
+    edges["air-pending"]["setAt"] = time.time() - 25 * 3600  # >24h
+    edges["air-confirmed"]["setAt"] = time.time() - 31 * 24 * 3600  # >30d
+    _seed_raw(p, edges)
+    # A LOCAL-ONLY known_ids set (mirrors the migration's local `herdr agent
+    # list`) — neither Air child is in it, and "chief"/"local-worker" are
+    # the only ids a local-only poll could ever see.
+    LOCAL_ONLY_IDS = {"chief", "local-worker"}
+    tree.attach_if_absent("local-worker", "chief", known_ids=LOCAL_ONLY_IDS, path=p)
+    check("a >24h pending Air child survives a local-only migration attach",
+         "air-pending" in tree.read_edges(p), True)
+    check("...still pending", tree.read_edges(p).get("air-pending", {}).get("launchPending"), True)
+    check("a >30-day CONFIRMED Air child survives the same local-only attach",
+         "air-confirmed" in tree.read_edges(p), True)
 
 
 def test_prune_keeps_stale_real_edge_when_known_live_set_includes_it():
@@ -352,8 +393,357 @@ def test_prune_keeps_stale_real_edge_when_known_live_set_includes_it():
     edges["c"]["setAt"] = time.time() - tree.EDGE_MAX_AGE_SECONDS - 3600
     _seed_raw(p, edges)
     tree.attach_if_absent("new-child", "chief", known_ids=ids, path=p)
-    check("stale-but-still-known-live edge for 'c' is kept",
+    check("stale-but-still-known-live edge for 'c' is kept "
+         "(now true unconditionally post-M-B-fix, not because of inclusion)",
          "c" in tree.read_edges(p), True)
+
+
+def test_detach_and_rekey_never_prune_a_stale_real_edge_M_B_fix():
+    """M-B fix (QA pass 4, 2026-09-26): `detach()`, `rekey_child()` and
+    `rekey_children_of_parent()` no longer accept a `known_ids`/roster
+    parameter at all — they never validated against one, so it only ever
+    fed `_write_edges` a prune roster. A stale, unrelated real edge must
+    survive an ordinary detach/rekey write untouched."""
+    p = fresh_path("detach-rekey-never-prune")
+    ids = {"stale-child", "chief", "other-child", "movable-child",
+          "old-parent", "new-parent"}
+    tree.attach("stale-child", "chief", known_ids=ids, path=p)
+    tree.attach("other-child", "old-parent", known_ids=ids, path=p)
+    tree.attach("movable-child", "old-parent", known_ids=ids, path=p)
+    edges = tree.read_edges(p)
+    edges["stale-child"]["setAt"] = time.time() - tree.EDGE_MAX_AGE_SECONDS - 3600
+    _seed_raw(p, edges)
+    tree.detach("other-child", path=p)
+    check("a stale real edge survives an unrelated detach()",
+         "stale-child" in tree.read_edges(p), True)
+    # movable-child is still attached to old-parent, so this actually
+    # performs a write (rekeyed is non-empty) — unlike a no-op rekey, which
+    # would trivially leave everything untouched either way.
+    rekeyed = tree.rekey_children_of_parent("old-parent", "new-parent", path=p)
+    check("the rekey actually moved something (so this write is a real test)",
+         rekeyed, ["movable-child"])
+    check("...and an unrelated stale edge survives that real write",
+         "stale-child" in tree.read_edges(p), True)
+
+
+# ── GHOST NODE — LAUNCH-PENDING EDGES (QA fix, 2026-09-25) ─────────────────
+
+def test_attach_if_absent_pending_marks_launch_pending():
+    p = fresh_path("pending-marks")
+    edge = tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    check("pending seed returns an edge", edge is not None, True)
+    check("launchPending set true", tree.read_edges(p)["c"].get("launchPending"), True)
+
+
+def test_attach_if_absent_default_not_pending():
+    p = fresh_path("pending-default")
+    tree.attach_if_absent("c", "chief", set_by="deliver-fallback", path=p)
+    check("no pending kwarg -> no launchPending key",
+         "launchPending" in tree.read_edges(p)["c"], False)
+
+
+def test_mark_child_live_clears_pending():
+    p = fresh_path("mark-live")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    changed = tree.mark_child_live("c", path=p)
+    check("mark_child_live reports a change", changed, True)
+    check("launchPending cleared", "launchPending" in tree.read_edges(p)["c"], False)
+    check("parent untouched", tree.read_edges(p)["c"]["parent"], "chief")
+
+
+def test_mark_child_live_noop_when_not_pending():
+    p = fresh_path("mark-live-noop")
+    tree.attach("c", "chief", known_ids={"c", "chief"}, path=p)
+    changed = tree.mark_child_live("c", path=p)
+    check("no-op on an already-confirmed edge", changed, False)
+
+
+def test_mark_child_live_noop_when_absent():
+    p = fresh_path("mark-live-absent")
+    changed = tree.mark_child_live("nobody", path=p)
+    check("no-op when there is no edge at all", changed, False)
+
+
+def test_remove_child_hard_deletes():
+    p = fresh_path("remove-child")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    removed = tree.remove_child("c", path=p)
+    check("remove_child reports a removal", removed, True)
+    check("edge is gone entirely (not a tombstone)", "c" in tree.read_edges(p), False)
+
+
+def test_remove_child_noop_when_absent():
+    p = fresh_path("remove-child-noop")
+    check("no-op when there is no entry", tree.remove_child("nobody", path=p), False)
+
+
+def test_remove_child_is_not_a_tombstone():
+    """A hard-removed child re-seeds cleanly (unlike a detach()ed one, whose
+    tombstone deliberately blocks re-seeding) — proves this is a real
+    delete, not detach() under another name."""
+    p = fresh_path("remove-not-tombstone")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    tree.remove_child("c", path=p)
+    reseeded = tree.attach_if_absent("c", "chief-2", set_by="launch", path=p, pending=True)
+    check("a hard-removed child can be freshly re-seeded", reseeded is not None, True)
+    check("re-seeded under the new parent", tree.read_edges(p)["c"]["parent"], "chief-2")
+
+
+def test_remove_child_refuses_a_confirmed_edge():
+    """L1 fix (QA pass 2, 2026-09-25): remove_child must never delete an
+    entry that is no longer launchPending — a real dashboard attach, or an
+    edge already confirmed live, must never be hard-deletable by a caller
+    that only knows a stale child id."""
+    p = fresh_path("remove-refuses-confirmed")
+    tree.attach("c", "chief", known_ids={"c", "chief"}, path=p)  # a REAL, non-pending attach
+    check("refuses to delete a non-pending (real) edge", tree.remove_child("c", path=p), False)
+    check("edge is untouched", tree.read_edges(p)["c"]["parent"], "chief")
+
+
+def test_remove_child_refuses_a_tombstone():
+    p = fresh_path("remove-refuses-tombstone")
+    tree.attach("c", "chief", known_ids={"c", "chief"}, path=p)
+    tree.detach("c", path=p)
+    check("refuses to delete a detach tombstone", tree.remove_child("c", path=p), False)
+    check("tombstone still present", tree.read_edges(p)["c"]["detached"], True)
+
+
+def test_remove_child_refuses_once_confirmed_live():
+    p = fresh_path("remove-refuses-confirmed-live")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    tree.mark_child_live("c", path=p)  # confirmed — no longer a ghost node candidate
+    check("refuses to delete once launchPending is cleared", tree.remove_child("c", path=p), False)
+    check("edge survives", "c" in tree.read_edges(p), True)
+
+
+# H1 REGRESSION (QA pass 2, 2026-09-25): a launch-pending edge used to age
+# out UNCONDITIONALLY at LAUNCH_PENDING_MAX_AGE_SECONDS — no known_live_ids
+# needed — which pruned perfectly healthy CHIEF_WORKER=1 workers (most never
+# produce a reportable Stop-hook turn) and never re-seeded them, silently
+# reintroducing the "worker not nested" bug this whole feature exists to
+# fix. Confirmed live via QA reproduction. Fixed: SAME gating as the
+# known_live_ids-gated 30-day rule for an ordinary real edge — see the three
+# tests immediately below, mirroring test_prune_never_drops_a_live_edge_
+# without_a_known_live_set / _drops_stale_real_edge_when_known_live_set_
+# excludes_it / _keeps_stale_real_edge_when_known_live_set_includes_it above.
+
+def test_prune_never_drops_a_pending_edge_without_a_known_live_set():
+    p = fresh_path("prune-pending-no-known-ids")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    edges = tree.read_edges(p)
+    edges["c"]["setAt"] = time.time() - tree.LAUNCH_PENDING_MAX_AGE_SECONDS - 3600
+    _seed_raw(p, edges)
+    # No known_live_ids passed — mirrors a write with no roster on hand.
+    tree.attach_if_absent("other", "chief", path=p)
+    check("stale pending edge survives with no known_ids given (H1 fix)",
+         "c" in tree.read_edges(p), True)
+
+
+def test_attach_if_absent_known_ids_never_prunes_a_stale_pending_edge_M_B_fix():
+    """M-B FIX (QA pass 4, 2026-09-26): this used to assert the OLD (buggy)
+    behavior — a plain `attach_if_absent()` call pruning a stale pending
+    edge purely because its OWN `known_ids` (validation-only) excluded it.
+    That is now `mark_children_live`'s job alone, and only when its roster
+    is complete — see `test_attach_if_absent_local_only_known_ids_never_
+    prunes_the_migration_bug` above for the exact QA-reproduced scenario
+    with a real pending Air edge."""
+    p = fresh_path("prune-pending-known-ids-no-longer-drops")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    edges = tree.read_edges(p)
+    edges["c"]["setAt"] = time.time() - tree.LAUNCH_PENDING_MAX_AGE_SECONDS - 3600
+    _seed_raw(p, edges)
+    tree.attach_if_absent("other", "chief", known_ids={"other", "chief"}, path=p)
+    check("a stale pending edge survives a later attach_if_absent() whose "
+         "known_ids excludes it — known_ids is validation-only (M-B fix)",
+         "c" in tree.read_edges(p), True)
+
+
+def test_prune_keeps_stale_pending_edge_when_known_live_set_includes_it():
+    p = fresh_path("prune-pending-known-ids-keeps")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    edges = tree.read_edges(p)
+    edges["c"]["setAt"] = time.time() - tree.LAUNCH_PENDING_MAX_AGE_SECONDS - 3600
+    _seed_raw(p, edges)
+    tree.attach_if_absent("other", "chief", known_ids={"other", "chief", "c"}, path=p)
+    check("stale-but-still-in-roster pending edge is kept",
+         "c" in tree.read_edges(p), True)
+
+
+def test_prune_keeps_fresh_pending_edge():
+    p = fresh_path("prune-pending-fresh")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    tree.attach_if_absent("other", "chief", path=p)
+    check("a fresh (just-seeded) pending edge survives a write",
+         "c" in tree.read_edges(p), True)
+
+
+def test_prune_keeps_stale_pending_edge_once_confirmed_live():
+    """mark_child_live must actually protect the edge from the 24h rule —
+    not just cosmetically clear the flag."""
+    p = fresh_path("prune-pending-confirmed")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    tree.mark_child_live("c", path=p)
+    edges = tree.read_edges(p)
+    edges["c"]["setAt"] = time.time() - tree.LAUNCH_PENDING_MAX_AGE_SECONDS - 3600
+    _seed_raw(p, edges)
+    tree.attach_if_absent("other", "chief", path=p)
+    check("confirmed-live edge survives past the pending window",
+         "c" in tree.read_edges(p), True)
+
+
+def test_mark_children_live_clears_every_match_in_the_roster():
+    p = fresh_path("mark-children-live")
+    tree.attach_if_absent("w1", "chief", set_by="launch", path=p, pending=True)
+    tree.attach_if_absent("w2", "chief", set_by="launch", path=p, pending=True)
+    tree.attach_if_absent("w3", "chief", set_by="launch", path=p, pending=True)
+    cleared = tree.mark_children_live(["w1", "w3", "not-in-tree"], True, path=p)
+    check("clears every id in the roster that was pending", sorted(cleared), ["w1", "w3"])
+    check("w1 confirmed", "launchPending" in tree.read_edges(p)["w1"], False)
+    check("w2 still pending — not in the roster passed", tree.read_edges(p)["w2"].get("launchPending"), True)
+    check("w3 confirmed", "launchPending" in tree.read_edges(p)["w3"], False)
+    check("a COMPLETE roster also stamps lastSeenAt for the child it saw",
+         isinstance(tree.read_edges(p)["w1"].get("lastSeenAt"), (int, float)), True)
+
+
+def test_mark_children_live_gated_prune_runs_with_that_same_roster():
+    """The whole point of the batch version over calling mark_child_live in
+    a loop: it also feeds the SAME roster through to the write as
+    known_live_ids (when the roster is COMPLETE), so the ordinary gated 24h
+    prune actually executes with it — a stale pending edge for a child NOT
+    in the roster is dropped by the very same call that confirms everyone
+    else."""
+    p = fresh_path("mark-children-live-prune")
+    tree.attach_if_absent("live-one", "chief", set_by="launch", path=p, pending=True)
+    tree.attach_if_absent("ghost", "chief", set_by="launch", path=p, pending=True)
+    edges = tree.read_edges(p)
+    edges["ghost"]["setAt"] = time.time() - tree.LAUNCH_PENDING_MAX_AGE_SECONDS - 3600
+    _seed_raw(p, edges)
+    tree.mark_children_live(["live-one"], True, path=p)
+    check("the roster member is confirmed", "launchPending" in tree.read_edges(p)["live-one"], False)
+    check("the stale non-roster ghost is pruned by the SAME call", "ghost" in tree.read_edges(p), False)
+
+
+def test_mark_children_live_incomplete_roster_clears_but_never_prunes():
+    """M1 REGRESSION FIX (QA pass 3, 2026-09-26): a PARTIAL roster (one
+    configured machine down/unreachable this tick, e.g. the Air asleep) must
+    still clear launchPending for whoever it DID see, but must NEVER be
+    treated as known_live_ids for pruning — an incomplete roster excluding a
+    child proves nothing about that child, only that this tick couldn't
+    reach wherever it lives. QA reproduced this exact bug: 11 of 15 real
+    children are Air; one tick where Air's ssh failed deleted BOTH a >24h
+    pending Air child AND a >30-day CONFIRMED Air edge, because the (partial)
+    roster was passed straight through as known_live_ids."""
+    p = fresh_path("mark-children-live-incomplete")
+    tree.attach_if_absent("seen-pending", "chief", set_by="launch", path=p, pending=True)
+    tree.attach_if_absent("air-pending", "chief", set_by="launch", path=p, pending=True)
+    tree.attach("air-confirmed", "chief", known_ids={"air-confirmed", "chief"}, path=p)
+    edges = tree.read_edges(p)
+    edges["air-pending"]["setAt"] = time.time() - 25 * 3600  # >24h
+    edges["air-confirmed"]["setAt"] = time.time() - 31 * 24 * 3600  # >30d, no lastSeenAt yet
+    _seed_raw(p, edges)
+    # Only "seen-pending" is in this tick's roster (Air's machine failed to
+    # answer, so its children are simply absent) — and the roster is marked
+    # INCOMPLETE.
+    cleared = tree.mark_children_live(["seen-pending"], False, path=p)
+    check("still clears the one child actually seen, even on an incomplete tick",
+         cleared, ["seen-pending"])
+    check("...and it's really cleared", "launchPending" in tree.read_edges(p)["seen-pending"], False)
+    check("a >24h pending Air child NOT in the (incomplete) roster survives",
+         "air-pending" in tree.read_edges(p), True)
+    check("...still pending — an incomplete roster clears nothing it didn't see",
+         tree.read_edges(p)["air-pending"].get("launchPending"), True)
+    check("a >30-day CONFIRMED Air edge NOT in the (incomplete) roster survives",
+         "air-confirmed" in tree.read_edges(p), True)
+
+
+def test_mark_children_live_empty_incomplete_roster_does_not_mass_prune():
+    """An EMPTY roster that is also INCOMPLETE (herdr itself unreachable this
+    tick) must not be read as positive proof nobody is alive."""
+    p = fresh_path("mark-children-live-empty-incomplete")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    edges = tree.read_edges(p)
+    edges["c"]["setAt"] = time.time() - tree.LAUNCH_PENDING_MAX_AGE_SECONDS - 3600
+    _seed_raw(p, edges)
+    cleared = tree.mark_children_live([], False, path=p)
+    check("nothing to clear", cleared, [])
+    check("an empty INCOMPLETE roster must NOT mass-prune a stale pending edge",
+         "c" in tree.read_edges(p), True)
+
+
+def test_mark_children_live_empty_complete_roster_does_prune():
+    """An EMPTY roster that IS complete (every machine answered, genuinely
+    nobody alive anywhere) is now trustworthy — unlike an incomplete one,
+    this is positive proof, so the ordinary gated prune runs for real."""
+    p = fresh_path("mark-children-live-empty-complete")
+    tree.attach_if_absent("c", "chief", set_by="launch", path=p, pending=True)
+    edges = tree.read_edges(p)
+    edges["c"]["setAt"] = time.time() - tree.LAUNCH_PENDING_MAX_AGE_SECONDS - 3600
+    _seed_raw(p, edges)
+    cleared = tree.mark_children_live([], True, path=p)
+    check("nothing to clear", cleared, [])
+    check("a genuinely COMPLETE empty roster DOES prune the stale pending edge",
+         "c" in tree.read_edges(p), False)
+
+
+def test_mark_children_live_throttles_last_seen_refresh():
+    """L5 fix (QA pass 3, 2026-09-26): lastSeenAt is refreshed at most once
+    per LAST_SEEN_REFRESH_MIN_INTERVAL_SECONDS per child — a 30-day silence
+    clock does not need per-tick precision, and per-tick precision would
+    defeat _write_edges's no-op-write skip for any tree with a live child."""
+    p = fresh_path("mark-children-live-throttle")
+    tree.attach("w1", "chief", known_ids={"w1", "chief"}, path=p)
+    now = time.time()
+    tree.mark_children_live(["w1"], True, path=p, now=now)
+    first_seen = tree.read_edges(p)["w1"]["lastSeenAt"]
+    check("lastSeenAt stamped on first complete sighting", first_seen, now)
+    # A second sighting 60s later — well under the throttle interval — must
+    # NOT bump the timestamp (and, per L5, must not even rewrite the file).
+    mtime_before = Path(p).stat().st_mtime_ns
+    tree.mark_children_live(["w1"], True, path=p, now=now + 60)
+    check("a sighting inside the throttle window doesn't bump lastSeenAt",
+         tree.read_edges(p)["w1"]["lastSeenAt"], now)
+    check("...and the file wasn't rewritten at all (L5)",
+         Path(p).stat().st_mtime_ns, mtime_before)
+    # A sighting past the throttle interval DOES bump it.
+    later = now + tree.LAST_SEEN_REFRESH_MIN_INTERVAL_SECONDS + 1
+    tree.mark_children_live(["w1"], True, path=p, now=later)
+    check("a sighting past the throttle window bumps lastSeenAt",
+         tree.read_edges(p)["w1"]["lastSeenAt"], later)
+
+
+def test_prune_measures_silence_since_last_seen_not_setat():
+    """M1 fix (QA pass 3, 2026-09-26): the 30-day rule for a CONFIRMED edge
+    must measure time since it was last actually SEEN (lastSeenAt), not just
+    how old the edge is (setAt) — an edge set 40 days ago but seen 2 days ago
+    is not stale; the old age-only rule would have pruned it the instant a
+    roster excluded it, even though it was seen recently."""
+    p = fresh_path("prune-silence-not-age")
+    tree.attach("c", "chief", known_ids={"c", "chief"}, path=p)
+    edges = tree.read_edges(p)
+    edges["c"]["setAt"] = time.time() - 40 * 24 * 3600  # old edge...
+    edges["c"]["lastSeenAt"] = time.time() - 2 * 24 * 3600  # ...but seen 2 days ago
+    _seed_raw(p, edges)
+    # known_live_ids excludes "c" -> the OLD age-only rule would prune it;
+    # the silence-based rule must not, since it was seen well within 30 days.
+    tree.attach_if_absent("other", "chief", known_ids={"c", "chief", "other"}, path=p)
+    check("an old edge seen recently survives a known_live_ids exclusion",
+         "c" in tree.read_edges(p), True)
+
+
+def test_write_edges_skips_a_truly_unchanged_write():
+    """L5 fix (QA pass 3, 2026-09-26): a write whose post-prune content is
+    byte-identical to what's on disk must not touch the file at all — the
+    ~2-minute heartbeat calls mark_children_live on every tick, most of
+    which (once lastSeenAt is throttled) change nothing."""
+    p = fresh_path("write-edges-noop")
+    tree.attach_if_absent("w1", "chief", set_by="launch", path=p, pending=True)
+    mtime_before = Path(p).stat().st_mtime_ns
+    # Nothing in this roster matches "w1" (still pending) and the roster is
+    # complete but empty relative to it — no launchPending clear, no
+    # lastSeenAt stamp (w1 isn't in the roster at all) -> content unchanged.
+    tree.mark_children_live(["someone-else-entirely"], True, path=p)
+    check("a write that changes nothing doesn't touch the file's mtime",
+         Path(p).stat().st_mtime_ns, mtime_before)
 
 
 # ── migration ────────────────────────────────────────────────────────────

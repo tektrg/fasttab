@@ -194,3 +194,33 @@ struct ClaudeDesktopOpenerTests {
         #expect(!opener(linkOpens: false, appOpens: false).openSession(link))
     }
 }
+
+struct StatusOnlyEndedRowTests {
+    /// The board keeps a status-only session's old id as an "ended" row with no pane — after it
+    /// exits, and also after /clear or a resume while the SAME process still runs (new session id,
+    /// same name), which would list it twice. Measured live 2026-09-26: `derived.paneId: ""`.
+    @Test func panelessEndedBoardRowsAreLeftOut() throws {
+        let endedTs = StatusFixtures.serverNow.timeIntervalSince1970 - 60
+        func endedRow(_ rowId: String, paneId: Any?) -> [String: Any] {
+            var derived: [String: Any] = ["label": "command-bar-macos-6d", "rowId": rowId, "ended": true]
+            if let paneId { derived["paneId"] = paneId }
+            return ["rowKind": "session", "rowId": rowId, "status": "ended", "archived": false,
+                    "endedTs": endedTs, "endedNote": "ended", "derived": derived]
+        }
+        let snapshot = try StatusSnapshotBuilder.snapshot(
+            fromJSON: StatusFixtures.data("state-healthy") { object in
+                var board = object["board"] as! [String: Any]
+                board["rows"] = (board["rows"] as! [Any]) + [
+                    endedRow("aaaaaaaa-0000-4000-8000-000000000001", paneId: ""),
+                    endedRow("aaaaaaaa-0000-4000-8000-000000000002", paneId: NSNull()),
+                    endedRow("aaaaaaaa-0000-4000-8000-000000000003", paneId: nil),
+                ]
+                object["board"] = board
+            },
+            fetchedAt: StatusFixtures.serverNow
+        )
+        let ended = snapshot.agents(in: .ended)
+        #expect(!ended.contains { $0.label == "command-bar-macos-6d" })
+        #expect(ended.count == 12)   // the fixture's own ended rows, unchanged
+    }
+}

@@ -2595,10 +2595,50 @@ class Handler(BaseHTTPRequestHandler):
                 pending["route"], pending["method"],
                 status, row_id=pending.get("row_id"))
 
-    def _read_json_body(self):
+    # ---- Unread-body desync guard (found live-testing P3, 2026-09-26) ----
+    # HTTP/1.1 keep-alive reads the next request off the same socket. A
+    # response sent BEFORE the body was read (every early refusal: foreign
+    # Origin, remote-listener 403, wrong Content-Type, 404) left that body
+    # in the socket, and it was then parsed as a second request — with
+    # headers the sender wrote. So a cross-site page's refused text/plain
+    # POST could carry a guard-clean `POST /api/persona/start` (no Origin,
+    # JSON Content-Type) that ran. Fix: any response to a request whose
+    # body wasn't read closes the connection instead.
+
+    def parse_request(self):
+        # One Handler instance serves every request on a keep-alive
+        # connection, so the flag is reset per request.
+        self._request_body_read = False
+        return super().parse_request()
+
+    def _read_request_body(self):
+        """The raw request body (b"" when none), marked as read."""
         length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length else b"{}"
-        return json.loads(raw or b"{}") or {}
+        raw = self.rfile.read(length) if length else b""
+        self._request_body_read = True
+        return raw
+
+    def _request_body_left_unread(self):
+        headers = getattr(self, "headers", None)
+        if headers is None:
+            return False
+        if headers.get("Transfer-Encoding"):
+            return True  # never read here (no chunked support): always close
+        if getattr(self, "_request_body_read", False):
+            return False
+        try:
+            return int(headers.get("Content-Length") or 0) != 0
+        except ValueError:
+            return True
+
+    def end_headers(self):
+        if self._request_body_left_unread():
+            # http.server sets close_connection when it sees this header.
+            self.send_header("Connection", "close")
+        super().end_headers()
+
+    def _read_json_body(self):
+        return json.loads(self._read_request_body() or b"{}") or {}
 
     #: Loopback-only: this server has no auth of its own, so every write
     #: route's real protection is "nothing outside this Mac can reach it."
@@ -2665,8 +2705,7 @@ class Handler(BaseHTTPRequestHandler):
         allowed through regardless of recent failures from whoever else is
         hitting this endpoint; only a WRONG guess is subject to the limiter
         (unchanged otherwise)."""
-        length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length else b""
+        raw = self._read_request_body()
         token = remote_access.parse_login_form(raw)
         if not remote_access.verify_token(token):
             if remote_access.is_login_blocked(self.client_address):

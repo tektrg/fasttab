@@ -146,6 +146,42 @@ status, body, _ = get(REMOTE_PORT, "/api/state", headers={"Cookie": cookie_value
 check("authenticated GET /api/state -> 200", status, 200)
 check("authenticated body is real JSON", "computed" in json.loads(body) or True, True)
 
+
+# ---- Unread-body desync (found live-testing P3, 2026-09-26) ----
+def raw_exchange(port, payload):
+    """Send `payload` on one socket; return everything read until the server
+    closes it or goes quiet for 2s."""
+    s = socket.create_connection(("127.0.0.1", port), timeout=2)
+    s.sendall(payload)
+    buf = b""
+    try:
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+    except socket.timeout:
+        pass
+    s.close()
+    return buf
+
+
+print("== a refused request's unread body is never parsed as a second request ==")
+inner = b"GET /api/desync-probe-inner HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+outer = (b"POST /api/desync-probe-outer HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+         b"Origin: http://evil.example\r\nContent-Type: text/plain\r\n"
+         b"Content-Length: " + str(len(inner)).encode() + b"\r\n\r\n" + inner)
+reply = raw_exchange(MAIN_PORT, outer)
+check("foreign-Origin POST is refused (403)", reply.startswith(b"HTTP/1.1 403"), True)
+check("its body is NOT answered as a second request", reply.count(b"HTTP/1.1 "), 1)
+check("the refusal closes the connection", b"Connection: close" in reply, True)
+
+two_gets = (b"GET /api/desync-probe-a HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+            b"GET /api/desync-probe-b HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+reply = raw_exchange(MAIN_PORT, two_gets)
+check("bodiless requests keep keep-alive (both pipelined GETs answered)",
+      reply.count(b"HTTP/1.1 404"), 2)
+
 main_server.shutdown()
 remote_server.shutdown()
 

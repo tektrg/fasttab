@@ -559,55 +559,46 @@ private struct ExtensionInstallStep: View {
     let onAutoAdvance: () -> Void
 
     private var isExtensionUsable: Bool { !permissions.usableExtensionAppNames.isEmpty }
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 12)
 
-            Image(systemName: "puzzlepiece.extension")
-                .font(.system(size: 38, weight: .light))
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 14)
+            Image(systemName: "puzzlepiece.extension.fill")
+                .font(.system(size: 30, weight: .regular))
+                .foregroundStyle(Color.accentColor)
+                .padding(.bottom, 10)
 
-            Text("Recommended: FastTab extension")
+            Text("Sharper Recents, instant tabs")
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
-                .padding(.bottom, 8)
+                .padding(.bottom, 6)
 
-            Text("Recommended for Chrome, Edge & Brave. It makes tab search instant and skips the macOS permission prompt. Everything still works without it — skip if you prefer.")
+            Text("Add the free FastTab extension to Chrome, Edge or Brave. FastTab works without it — this makes it better.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
-                .padding(.horizontal, 32)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 36)
+                .padding(.bottom, 18)
+
+            OnboardingExtensionBenefitsView()
+                .padding(.horizontal, 44)
                 .padding(.bottom, 20)
 
-            if let storeURL = URL(string: "https://chromewebstore.google.com/detail/\(FastTabExtensionIdentity.id)") {
-                Link("Get the extension", destination: storeURL)
-                    .font(.headline)
-                    .padding(.bottom, 16)
-            }
+            primaryAction
+                .padding(.bottom, 10)
 
             connectionStatus
 
-            HStack(spacing: 14) {
-                Button("Skip") {
-                    onContinue()
-                }
-                .buttonStyle(.plain)
-                .font(.callout)
-                .foregroundStyle(.tertiary)
-
-                Button {
-                    onContinue()
-                } label: {
-                    Label("Continue", systemImage: "arrow.right.circle.fill")
-                        .font(.headline)
-                        .frame(width: 168)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            if !isExtensionUsable {
+                Button("Skip for now", action: onContinue)
+                    .buttonStyle(.plain)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 12)
@@ -630,16 +621,48 @@ private struct ExtensionInstallStep: View {
         }
     }
 
+    /// One prominent action: get the extension, or move on once it's connected.
+    @ViewBuilder
+    private var primaryAction: some View {
+        if isExtensionUsable {
+            Button(action: onContinue) {
+                Label("Continue", systemImage: "arrow.right.circle.fill")
+                    .font(.headline)
+                    .frame(width: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        } else {
+            Button {
+                openURL(FastTabExtensionIdentity.chromeWebStoreURL)
+            } label: {
+                Label("Get the extension", systemImage: "arrow.down.circle.fill")
+                    .font(.headline)
+                    .frame(width: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+    }
+
     private var connectionStatus: some View {
         let connected = isExtensionUsable
-        return HStack(spacing: 8) {
-            Image(systemName: connected ? "checkmark.circle.fill" : "circle.dashed")
-                .foregroundStyle(connected ? Color.green : Color.secondary)
-            Text(connected ? "Connected ✓" : "Waiting for connection…")
-                .font(.callout)
-                .foregroundStyle(connected ? .secondary : .tertiary)
+        return VStack(spacing: 2) {
+            HStack(spacing: 6) {
+                Image(systemName: connected ? "checkmark.circle.fill" : "circle.dashed")
+                    .foregroundStyle(connected ? Color.green : Color.secondary)
+                Text(connected ? "Connected" : "Waiting for the extension…")
+                    .foregroundStyle(connected ? .secondary : .tertiary)
+            }
+            .font(.caption)
+
+            if !connected {
+                Text("Add it in each browser profile you use.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
-        .padding(.bottom, 18)
+        .padding(.bottom, 12)
     }
 }
 
@@ -757,35 +780,39 @@ private struct ShortcutStep: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer()
+            Spacer(minLength: 12)
 
             Image(systemName: "keyboard")
-                .font(.system(size: 42, weight: .light))
+                .font(.system(size: 34, weight: .light))
                 .foregroundStyle(.secondary)
-                .padding(.bottom, 18)
+                .padding(.bottom, 12)
 
             Text(edgeReveal.style == .off ? "Your Shortcut" : "Your Backup Shortcut")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
-                .padding(.bottom, 8)
+                .padding(.bottom, 6)
 
             Text(shortcutStepSubtitle)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-                .padding(.bottom, 24)
+                .padding(.bottom, 16)
 
             ShortcutRecorderView(store: shortcutStore)
-                .padding(.bottom, 10)
+                .padding(.bottom, 8)
 
             Text("You can change this later in Settings…")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-                .padding(.bottom, 18)
+                .padding(.bottom, 14)
 
             automationNote
                 .padding(.horizontal, 40)
-                .padding(.bottom, 36)
+                .padding(.bottom, 16)
+
+            OnboardingIPhoneCard()
+                .padding(.horizontal, 32)
+                .padding(.bottom, 18)
 
             if OnboardingWindowController.shared.isRestartNeededToApplyChoices {
                 Text("FastTab will restart to apply your choices.")

@@ -16,14 +16,15 @@ enum AgentListFixtures {
         canFocus: Bool? = nil,
         hasHookData: Bool = true,
         secondsInStatus: TimeInterval? = 120,
-        actions: AgentActions = .unknown
+        actions: AgentActions = .unknown,
+        paneId: String? = nil
     ) -> AgentSnapshot {
         AgentSnapshot(
             id: id,
             label: label ?? id,
             projectName: project,
             cwd: nil,
-            paneId: "w1:\(id)",
+            paneId: paneId ?? "w1:\(id)",
             section: section,
             statusText: statusText,
             secondsInStatus: secondsInStatus,
@@ -40,9 +41,10 @@ enum AgentListFixtures {
     static func snapshot(
         _ agents: [AgentSnapshot],
         health: StatusFeedHealth = .ok,
-        boardIsCurrent: Bool = true
+        boardIsCurrent: Bool = true,
+        agentTree: AgentTree? = nil
     ) -> StatusSnapshot {
-        StatusSnapshot(agents: agents, health: health, fetchedAt: now, boardIsCurrent: boardIsCurrent)
+        StatusSnapshot(agents: agents, health: health, fetchedAt: now, boardIsCurrent: boardIsCurrent, agentTree: agentTree)
     }
 
     static func presentation(

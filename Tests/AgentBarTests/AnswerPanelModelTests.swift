@@ -123,6 +123,21 @@ struct AnswerPanelModelTests {
         #expect(!model.backOutOfButtons())   // Esc is the panel's again, not swallowed by a card
     }
 
+    @Test func isAnswerBeingSentIsTrueOnlyWhileTheAnswerIsOnItsWay() async {
+        let (model, source, _) = makeRig([blockedQuestion, A.blockedAgent("r", blocker: .permission)])
+        #expect(!model.isAnswerBeingSent(agentID: "q"))
+        model.press(.answer, on: "q")
+        #expect(!model.isAnswerBeingSent(agentID: "q"))   // an open card is not a send
+        model.answer.handle(.digit(1))
+        await source.waitForRequests(1)
+        #expect(model.isAnswerBeingSent(agentID: "q"))
+        #expect(!model.isAnswerBeingSent(agentID: "r"))
+        #expect(!model.isAnswerBeingSent(agentID: "missing"))
+        source.reply(.failed("refused"))
+        await waitUntil { !model.isAnswerBeingSent(agentID: "q") }
+        #expect(!model.isAnswerBeingSent(agentID: "q"))
+    }
+
     @Test func aRowWhoseAnswerIsOnItsWayHasNoUsableButtonsAndTheOtherRowsKeepTheirs() async {
         let (model, source, _) = makeRig([blockedQuestion, A.blockedAgent("r", blocker: .permission)])
         model.press(.answer, on: "q")

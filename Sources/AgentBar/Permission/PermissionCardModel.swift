@@ -264,10 +264,23 @@ final class PermissionCardModel: ObservableObject {
         }
         tracker.settle(currentQuestions: current)
         guard let card else { return }
-        switch agents.first(where: { $0.id == card.agentID })?.blockedOnYou {
-        case .permissionReview?, .permission?: return
-        case .question?, .questionLoading?, .questionNotAnswerable?, nil: close()
+        let agent = agents.first { $0.id == card.agentID }
+        switch agent?.blockedOnYou {
+        case .permissionReview?, .permission?:
+            refreshPaneId(from: agent)
+        case .question?, .questionLoading?, .questionNotAnswerable?, nil:
+            close()
         }
+    }
+
+    /// herdr can reassign a still-live session's pane id while the card sits open (a "pane not
+    /// found" send against a pane the user can see is alive, not a closed one — see the
+    /// AptusFit remote-herdr delivery record, rule R6: identity is the session, not the pane id).
+    /// Keeps `card.paneId` current so a send lands on where the agent's box actually is now;
+    /// nothing else on the card moves off what the pane was read to say.
+    private func refreshPaneId(from agent: AgentSnapshot?) {
+        guard let paneId = agent?.paneId, !paneId.isEmpty, paneId != card?.paneId else { return }
+        card?.paneId = paneId
     }
 
     // MARK: - Transcript

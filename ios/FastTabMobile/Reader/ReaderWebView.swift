@@ -26,26 +26,31 @@ public struct ReaderWebView: UIViewRepresentable {
     public var onTextDeselected: (() -> Void)?
     /// Called when user taps an existing highlight
     public var onHighlightTapped: ((String) -> Void)?
+    /// Called as the user scrolls: `true` to hide the navigation header, `false` to show it.
+    public var onHeaderHiddenChanged: ((Bool) -> Void)?
 
     public init(
         viewModel: ReaderViewModel,
         article: ReaderArticle,
         onTextSelected: ((String, String) -> Void)? = nil,
         onTextDeselected: (() -> Void)? = nil,
-        onHighlightTapped: ((String) -> Void)? = nil
+        onHighlightTapped: ((String) -> Void)? = nil,
+        onHeaderHiddenChanged: ((Bool) -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.article = article
         self.onTextSelected = onTextSelected
         self.onTextDeselected = onTextDeselected
         self.onHighlightTapped = onHighlightTapped
+        self.onHeaderHiddenChanged = onHeaderHiddenChanged
     }
 
     // MARK: - UIViewRepresentable
 
     public func makeCoordinator() -> Coordinator {
         Coordinator(viewModel: viewModel, onTextSelected: onTextSelected,
-                    onTextDeselected: onTextDeselected, onHighlightTapped: onHighlightTapped)
+                    onTextDeselected: onTextDeselected, onHighlightTapped: onHighlightTapped,
+                    onHeaderHiddenChanged: onHeaderHiddenChanged)
     }
 
     public func makeUIView(context: Context) -> WKWebView {
@@ -56,13 +61,10 @@ public struct ReaderWebView: UIViewRepresentable {
 
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = context.coordinator
+        wv.scrollView.delegate = context.coordinator
         wv.scrollView.contentInsetAdjustmentBehavior = .automatic
         wv.isOpaque = true
-        let readerBgColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.078, green: 0.078, blue: 0.078, alpha: 1.0) // #141414
-                : UIColor(red: 0.980, green: 0.980, blue: 0.973, alpha: 1.0) // #FAFAF8
-        }
+        let readerBgColor = DS.Palette.readerPageUIColor
         wv.backgroundColor = readerBgColor
         wv.scrollView.backgroundColor = readerBgColor
 
@@ -182,23 +184,56 @@ public struct ReaderWebView: UIViewRepresentable {
 
 // MARK: - Coordinator
 
-public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, UIScrollViewDelegate {
     weak var webView: WKWebView?
     var lastAppliedFontSize: Int?
     private let viewModel: ReaderViewModel
     private let onTextSelected: ((String, String) -> Void)?
     private let onTextDeselected: (() -> Void)?
     private let onHighlightTapped: ((String) -> Void)?
+    private let onHeaderHiddenChanged: ((Bool) -> Void)?
+
+    // Scroll-direction tracking for header auto-hide
+    private var lastContentOffsetY: CGFloat = 0
+    private var isHeaderHidden = false
+    /// Small dead zone right at the top where the header always stays visible (bounce, pull-to-refresh).
+    private let topRevealThreshold: CGFloat = 8
 
     init(viewModel: ReaderViewModel,
          onTextSelected: ((String, String) -> Void)?,
          onTextDeselected: (() -> Void)?,
-         onHighlightTapped: ((String) -> Void)?) {
+         onHighlightTapped: ((String) -> Void)?,
+         onHeaderHiddenChanged: ((Bool) -> Void)? = nil) {
         self.viewModel = viewModel
         self.lastAppliedFontSize = viewModel.fontSize
         self.onTextSelected = onTextSelected
         self.onTextDeselected = onTextDeselected
         self.onHighlightTapped = onHighlightTapped
+        self.onHeaderHiddenChanged = onHeaderHiddenChanged
+    }
+
+    // MARK: - UIScrollViewDelegate
+
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating else { return }
+
+        let offsetY = scrollView.contentOffset.y
+        let delta = offsetY - lastContentOffsetY
+        lastContentOffsetY = offsetY
+
+        if offsetY <= topRevealThreshold {
+            setHeaderHidden(false)
+        } else if delta > 0 {
+            setHeaderHidden(true)
+        } else if delta < 0 {
+            setHeaderHidden(false)
+        }
+    }
+
+    private func setHeaderHidden(_ hidden: Bool) {
+        guard hidden != isHeaderHidden else { return }
+        isHeaderHidden = hidden
+        onHeaderHiddenChanged?(hidden)
     }
 
     // MARK: - WKScriptMessageHandler

@@ -2,7 +2,8 @@ import Foundation
 import Testing
 @testable import AgentBar
 
-/// A status source that answers stop/close from a script and records the calls.
+/// A status source that answers stop/close from a script, plain-`.sent`s every message
+/// (Compact/Clear), and records every call of both kinds.
 private final class ActionFakeSource: AgentStatusSource, @unchecked Sendable {
     struct Call: Equatable {
         let kind: SessionActionKind
@@ -10,17 +11,27 @@ private final class ActionFakeSource: AgentStatusSource, @unchecked Sendable {
         let confirmed: Bool
     }
 
+    struct SentMessage: Equatable {
+        let rowId: String
+        let text: String
+        let confirmed: Bool
+    }
+
     let updates = AsyncStream<StatusSnapshot> { _ in }
     private let lock = NSLock()
     private var recorded: [Call] = []
+    private var sentMessages: [SentMessage] = []
     private var script: [SessionActionOutcome]
 
-    init(script: [SessionActionOutcome]) { self.script = script }
+    init(script: [SessionActionOutcome] = []) { self.script = script }
 
     var calls: [Call] { lock.withLock { recorded } }
+    var messagesSent: [SentMessage] { lock.withLock { sentMessages } }
 
     func focus(paneId: String) async -> FocusResult { .success }
-    func paneScreen(paneId: String) async -> PaneScreenResult { .failure("unused") }
+    /// A clean prompt, no open picker: the pre-send pane guard `MessageCardModel.sendDirect` does
+    /// before every send (including Compact/Clear) always finds nothing in its way.
+    func paneScreen(paneId: String) async -> PaneScreenResult { .screen(lines: ["⏺ Done.", "", "❯ "], readAt: Date()) }
 
     func answer(paneId: String, choice: AnswerChoice, question: QuestionIdentity) async -> AnswerResult { .failed("unused") }
     func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome {
@@ -28,6 +39,10 @@ private final class ActionFakeSource: AgentStatusSource, @unchecked Sendable {
             recorded.append(Call(kind: kind, rowId: rowId, confirmed: confirmed))
             return script.isEmpty ? .failed("script ran out") : script.removeFirst()
         }
+    }
+    func sendMessage(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
+        lock.withLock { sentMessages.append(SentMessage(rowId: rowId, text: text, confirmed: confirmed)) }
+        return .sent(queued: false)
     }
 }
 
@@ -203,15 +218,29 @@ struct RowActionsModelTests {
 
     // MARK: - Keyboard
 
-    @Test func arrowsWalkTheButtonsAndEnterPressesTheHighlightedOne() async {
-        let (model, source, _) = makeModel(script: [.succeeded])
+    @Test func arrowsWalkTheButtonsAndEnterPressesTheHighlightedOne() {
+        let (model, _, _) = makeModel()
         model.receive(F.snapshot(agents(["a", "b"])))
         #expect(model.moveButtonHighlight(by: 1))
-        #expect(model.highlightedButton == .done)
+        #expect(model.highlightedButton == .park)
         model.activateSelected()
-        await Task.yield()
-        for _ in 0..<200 where source.calls.isEmpty { await Task.yield() }
-        #expect(source.calls == [.init(kind: .stop, rowId: "a", confirmed: false)])
+        #expect(model.presentation.agents.map(\.section) == [.needsYou, .parked])   // Park is local, no round trip
+    }
+
+    /// Done/Close pane moved into the ⋯ menu, so they are no longer on the keyboard's list at all
+    /// (`RowButtonsTests.moreActionsIsAKeyboardStopAfterTheExistingButtons`); the trigger is
+    /// reachable by ←/→ but Enter on it is a deliberate no-op (`RowActionMachine.plan(.moreActions)`
+    /// — a native SwiftUI `Menu` cannot be popped open programmatically from here).
+    @Test func enterOnTheHighlightedMoreActionsTriggerDoesNotOpenItOrSendAnything() {
+        let (model, source, _) = makeModel()
+        model.receive(F.snapshot(agents(["a", "b"])))
+        model.moveButtonHighlight(by: 1)   // park
+        model.moveButtonHighlight(by: 1)   // message
+        model.moveButtonHighlight(by: 1)   // ⋯
+        #expect(model.highlightedButton == .moreActions)
+        model.activateSelected()
+        #expect(source.calls.isEmpty)
+        #expect(model.rowActionStates["a"] == nil)
     }
 
     @Test func enterWithNoHighlightStillSwitchesToTheAgent() {
@@ -228,8 +257,7 @@ struct RowActionsModelTests {
         var activated: [String] = []
         model.onActivate = { activated.append($0.id) }
         model.receive(F.snapshot(agents(["a", "b"])))
-        model.moveButtonHighlight(by: 1)
-        model.moveButtonHighlight(by: 1)
+        model.moveButtonHighlight(by: 1)   // Park is first now that Done lives in the ⋯ menu
         #expect(model.highlightedButton == .park)
         model.activateSelected()
         #expect(activated.isEmpty)
@@ -254,15 +282,21 @@ struct RowActionsModelTests {
         #expect(model.highlightedButton == nil)
     }
 
-    @Test func leftPastTheFirstButtonUnHighlightsAndCancelsAPendingConfirm() async {
+    /// Done is no longer on the keyboard's list (it lives in the ⋯ menu — press it the way a menu
+    /// selection would, `model.press(.done, on:)`), so highlighting a capsule that IS on the list
+    /// (Park here) must not itself disturb a confirmation a menu selection started elsewhere on the
+    /// row. `cancelConfirmation` is row-scoped rather than button-scoped, though (unchanged by this
+    /// task): un-highlighting back to nothing — the same gesture that used to back off the
+    /// confirming Done capsule directly — still cancels whatever confirmation the row has pending,
+    /// same as Esc (`escCancelsAConfirmPromptStartedWithTheMouse` below covers Esc itself).
+    @Test func onlyUnHighlightingAllTheWayOutCancelsAMouseInitiatedConfirmation() async {
         let (model, _, _) = makeModel(script: [.needsConfirmation(reason: "x")])
         model.receive(F.snapshot(agents(["a"])))
-        model.moveButtonHighlight(by: 1)
-        model.activateSelected()
-        for _ in 0..<200 where model.rowActionStates["a"] == .busy(.done) || model.rowActionStates["a"] == nil { await Task.yield() }
+        await model.press(.done, on: "a")?.value   // as if chosen from the row's ⋯ menu
         #expect(model.rowActionStates["a"] == .confirming(.done, reason: "x"))
-        model.moveButtonHighlight(by: -1)
-        #expect(model.highlightedButton == nil)
+        model.moveButtonHighlight(by: 1)   // highlights Park; merely landing on another button is fine
+        #expect(model.rowActionStates["a"] == .confirming(.done, reason: "x"))
+        model.moveButtonHighlight(by: -1)   // un-highlights back to nothing
         #expect(model.rowActionStates["a"] == nil)
     }
 
@@ -282,13 +316,15 @@ struct RowActionsModelTests {
         #expect(model.highlightedButton == nil)
     }
 
-    @Test func aWorkingClaudeRowHighlightsOnlyMessage() {
+    @Test func aWorkingClaudeRowHighlightsMessageThenTheMoreActionsMenuOfCompactAndClear() {
         let (model, _, _) = makeModel()
         model.receive(F.snapshot(agents(["w"], section: .working)))
         model.moveButtonHighlight(by: 1)
         #expect(model.highlightedButton == .message)
         model.moveButtonHighlight(by: 1)
-        #expect(model.highlightedButton == .message)
+        #expect(model.highlightedButton == .moreActions)   // Compact/Clear — no Done/Close pane while working
+        model.moveButtonHighlight(by: 1)
+        #expect(model.highlightedButton == .moreActions)
     }
 
     @Test func workingRowsOfOtherCLIsHaveNoButtonsToHighlight() {
@@ -304,5 +340,46 @@ struct RowActionsModelTests {
         await model.press(.done, on: "a")?.value
         model.resetForShow()
         #expect(model.rowActionStates["a"] == nil)
+    }
+
+    // MARK: - Compact / Clear (⋯ menu quick commands — straight to `sendDirect`, no validator, no confirm)
+
+    @Test func pressingCompactSendsSlashCompactStraightThroughSendDirect() async {
+        let (model, source, _) = makeModel()
+        model.receive(F.snapshot(agents(["a"])))
+        #expect(model.press(.compact, on: "a") == nil)   // fire-and-forget, like every other direct send
+        for _ in 0..<200 where source.messagesSent.isEmpty { await Task.yield() }
+        #expect(source.messagesSent == [.init(rowId: "a", text: "/compact", confirmed: true)])
+    }
+
+    @Test func pressingClearSendsSlashClearStraightThroughSendDirect() async {
+        let (model, source, _) = makeModel()
+        model.receive(F.snapshot(agents(["a"])))
+        #expect(model.press(.clear, on: "a") == nil)
+        for _ in 0..<200 where source.messagesSent.isEmpty { await Task.yield() }
+        #expect(source.messagesSent == [.init(rowId: "a", text: "/clear", confirmed: true)])
+    }
+
+    @Test func compactAndClearAreNotOfferedOnABlockedRow() {
+        let (model, source, _) = makeModel()
+        var blocked = F.agent("a", section: .needsYou)
+        blocked.blocker = .permission
+        model.receive(F.snapshot([blocked]))
+        #expect(model.press(.compact, on: "a") == nil)
+        #expect(model.press(.clear, on: "a") == nil)
+        #expect(source.messagesSent.isEmpty)
+    }
+
+    /// Done and Close pane are menu selections too, but they still go through `RowActionMachine` —
+    /// the dashboard `perform` call, its busy/confirm/completed bookkeeping, all unchanged by the
+    /// menu existing (`doneOnAnIdleAgentStopsItInOnePress` and this file's other Done/Close-pane
+    /// tests already prove that end to end; this just pins that they are reachable the way a menu
+    /// selection reaches them — `model.press(button, on:)` directly, nothing new).
+    @Test func doneAndClosePaneSelectedFromTheMenuStillRouteThroughTheActionMachineNotSendDirect() async {
+        let (model, source, _) = makeModel(script: [.succeeded])
+        model.receive(F.snapshot(agents(["a"])))
+        await model.press(.done, on: "a")?.value
+        #expect(source.calls == [.init(kind: .stop, rowId: "a", confirmed: false)])
+        #expect(source.messagesSent.isEmpty)
     }
 }

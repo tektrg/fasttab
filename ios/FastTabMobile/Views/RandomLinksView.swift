@@ -59,8 +59,7 @@ public struct RandomLinksView: View {
     @State private var hasBuiltInitialDeck = false
     @State private var readerItem: ReaderNavigationItem?
     @State private var moveRequest: RandomCardItem?
-    @State private var toastMessage: String?
-    @State private var showToast = false
+    @State private var toast: String?
     @State private var expandingItemID: String?
     @State private var isExpanding = false
 
@@ -75,10 +74,11 @@ public struct RandomLinksView: View {
                 emptyState
             } else {
                 deckStack
-                    .padding(20)
+                    .padding(DS.Space.gutter)
             }
         }
-        .navigationTitle("Shuffle")
+        .dsCanvas()
+        .navigationTitle("Random")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -124,19 +124,7 @@ public struct RandomLinksView: View {
                 }
             }
         }
-        .overlay(alignment: .bottom) {
-            if showToast, let toastMessage {
-                Text(toastMessage)
-                    .font(.subheadline.weight(.medium))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 9)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                    .padding(.bottom, 24)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .dsToast($toast)
     }
 
     private var deckStack: some View {
@@ -216,33 +204,27 @@ public struct RandomLinksView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: hasAnySourceData ? "checkmark.circle" : "shuffle")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary)
-
+        Group {
             if hasAnySourceData {
-                Text("You've been through today's picks")
-                    .font(.headline)
-                Text("Skipped links come back tomorrow — or right now.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                Button("Shuffle again") {
-                    skipStore.resetToday()
-                    reshuffle()
+                DSEmptyState(
+                    "You've been through today's picks",
+                    systemImage: "checkmark.circle",
+                    message: "Skipped links come back tomorrow — or right now."
+                ) {
+                    Button("Shuffle again") {
+                        skipStore.resetToday()
+                        reshuffle()
+                    }
+                    .buttonStyle(.dsPrimary)
                 }
-                .buttonStyle(.borderedProminent)
             } else {
-                Text("Nothing to shuffle yet")
-                    .font(.headline)
-                Text("Bookmarks and open tabs from your Mac will show up here once they sync.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
+                DSEmptyState(
+                    "Nothing to shuffle yet",
+                    systemImage: "shuffle",
+                    message: "Bookmarks and open tabs from your Mac will show up here once they sync."
+                )
             }
         }
-        .padding(.horizontal, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -336,15 +318,7 @@ public struct RandomLinksView: View {
     }
 
     private func presentToast(_ message: String) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            toastMessage = message
-            showToast = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showToast = false
-            }
-        }
+        toast = message
     }
 
     private func reshuffle() {
@@ -406,25 +380,22 @@ private struct RandomCardView: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: isExpanding ? 0 : 24)
+            RoundedRectangle(cornerRadius: isExpanding ? 0 : DS.Radius.xl, style: .continuous)
                 .fill(
+                    // Text-only tweets sit on the always-dark deck color so the white snippet reads.
                     (preview?.isTweet == true && preview?.image == nil)
-                        ? Color(red: 0.08, green: 0.09, blue: 0.12)
-                        : Color(uiColor: .secondarySystemBackground)
+                        ? DS.Palette.deckTop
+                        : DS.Palette.surfaceMuted
                 )
 
-            if let image = preview?.image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
+            if let preview, let image = preview.image {
+                LinkCardImageView(image: image, preview: preview, compact: false)
                     .frame(width: cardSize.width, height: cardSize.height)
                     .clipped()
             } else if let preview, preview.isTweet, let snippet = preview.snippetText, !snippet.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        Text("𝕏")
-                            .font(.system(size: 20, weight: .black))
-                            .foregroundStyle(.white)
+                VStack(alignment: .leading, spacing: DS.Space.md) {
+                    HStack(spacing: DS.Space.sm) {
+                        LinkCardAvatarView(preview: preview, diameter: 32, glyphColor: .white)
                         VStack(alignment: .leading, spacing: 1) {
                             if let name = preview.authorName, !name.isEmpty {
                                 Text(name)
@@ -441,17 +412,17 @@ private struct RandomCardView: View {
                         }
                     }
                     Text(snippet)
-                        .font(.body)
+                        .font(DS.Font.body)
                         .foregroundStyle(.white.opacity(0.95))
                         .lineLimit(5)
                         .multilineTextAlignment(.leading)
                     Spacer()
                 }
-                .padding(24)
+                .padding(DS.Space.xl)
                 .frame(width: cardSize.width, height: cardSize.height, alignment: .topLeading)
             } else {
                 Image(systemName: "link")
-                    .font(.system(size: 40))
+                    .font(.system(size: DS.IconSize.hero))
                     .foregroundColor(.secondary)
             }
 
@@ -461,23 +432,22 @@ private struct RandomCardView: View {
                 endPoint: .bottom
             )
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
                 Text(item.source.badgeText)
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 8)
+                    .font(DS.Font.tag)
+                    .padding(.horizontal, DS.Space.sm)
                     .padding(.vertical, 3)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(6)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: DS.Radius.xs, style: .continuous))
                 Text(item.title)
                     .font(.title3.weight(.semibold))
                     .foregroundColor(.white)
                     .lineLimit(2)
                 Text(item.url.host ?? item.url.absoluteString)
-                    .font(.caption)
+                    .font(DS.Font.meta)
                     .foregroundColor(.white.opacity(0.85))
                     .lineLimit(1)
             }
-            .padding(20)
+            .padding(DS.Space.xl)
             .opacity(isExpanding ? 0 : 1)
 
             if !isExpanding {
@@ -485,7 +455,7 @@ private struct RandomCardView: View {
             }
         }
         .frame(width: cardSize.width, height: cardSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: isExpanding ? 0 : 24))
+        .clipShape(RoundedRectangle(cornerRadius: isExpanding ? 0 : DS.Radius.xl, style: .continuous))
         .rotationEffect(.degrees((isTop && !isExpanding) ? Double(dragOffset.width / 20) : 0))
         .offset((isTop && !isExpanding) ? dragOffset : .zero)
         .gesture((isTop && !isExpanding) ? dragGesture : nil)
@@ -603,16 +573,16 @@ private struct RandomCardView: View {
     @ViewBuilder
     private var stampOverlay: some View {
         if dragOffset.width > 40 {
-            stampLabel("MOVE TO", color: .blue)
+            stampLabel("MOVE TO", color: DS.Tint.action)
                 .opacity(min(1, (dragOffset.width - 40) / Self.stampFadeDistance))
                 .rotationEffect(.degrees(-15))
-                .padding(24)
+                .padding(DS.Space.xl)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if dragOffset.width < -40 {
-            stampLabel("SKIP", color: .red)
+            stampLabel("SKIP", color: DS.Tint.destructive)
                 .opacity(min(1, (-dragOffset.width - 40) / Self.stampFadeDistance))
                 .rotationEffect(.degrees(15))
-                .padding(24)
+                .padding(DS.Space.xl)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
     }
@@ -621,8 +591,8 @@ private struct RandomCardView: View {
         Text(text)
             .font(.title.bold())
             .foregroundColor(color)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, DS.Space.md)
             .padding(.vertical, 6)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(color, lineWidth: 3))
+            .overlay(RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous).stroke(color, lineWidth: 3))
     }
 }

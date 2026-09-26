@@ -52,7 +52,7 @@ struct CommandProgress: Equatable {
                 stage: .succeeded,
                 symbolName: "checkmark.circle.fill",
                 label: successLabel(for: command.kind),
-                tint: .green,
+                tint: DS.Tint.success,
                 detail: nil
             )
 
@@ -61,7 +61,7 @@ struct CommandProgress: Equatable {
                 stage: .failed,
                 symbolName: "questionmark.circle.fill",
                 label: notFoundLabel(for: command.kind),
-                tint: .orange,
+                tint: DS.Tint.warning,
                 detail: command.statusReason
             )
 
@@ -70,7 +70,7 @@ struct CommandProgress: Equatable {
                 stage: .failed,
                 symbolName: "xmark.circle.fill",
                 label: "Your Mac declined this",
-                tint: .red,
+                tint: DS.Tint.destructive,
                 detail: command.statusReason
             )
 
@@ -88,7 +88,7 @@ struct CommandProgress: Equatable {
                 stage: .waitingForApproval,
                 symbolName: "hand.raised.fill",
                 label: "Waiting for approval on your Mac",
-                tint: .orange,
+                tint: DS.Tint.warning,
                 detail: command.statusReason
             )
 
@@ -108,7 +108,7 @@ struct CommandProgress: Equatable {
                     stage: .waitingToUpload,
                     symbolName: "arrow.up.circle",
                     label: "Waiting to upload from this iPhone",
-                    tint: .orange,
+                    tint: DS.Tint.warning,
                     detail: nil
                 )
             case .uploaded, .acknowledged:
@@ -116,7 +116,7 @@ struct CommandProgress: Equatable {
                     stage: .waitingForMac,
                     symbolName: "clock",
                     label: "Sent — waiting for your Mac",
-                    tint: .blue,
+                    tint: DS.Tint.action,
                     detail: nil
                 )
             }

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import AgentBar
 
-/// The answer card as a multi-question form: when it turns into one, what Submit needs, and that a batch
-/// in progress is never replaced, reopened or closed underneath the user.
+/// The answer card as a multi-question form: when it turns into one, what Submit needs, and that Submit closes
+/// the card at once while the batch runs in the background (its failures reach the footer notice).
 @MainActor
 struct AnswerFormCardModelTests {
     private final class Recorder {
@@ -127,7 +127,8 @@ struct AnswerFormCardModelTests {
         rig.model.clickFormRow(rig.model.card!.form!.otherRow(of: 2), of: 2)
         rig.model.setFormOtherText("something custom", of: 2)
         rig.model.pressSend()
-        await waitUntil { rig.model.card == nil }
+        #expect(rig.model.card == nil)
+        await waitUntil { rig.recorder.answeredAgents == ["a"] }
         #expect(rig.terminal.sent.map(\.choice) == [.select([2]), .select([1]), .text("something custom")])
         #expect(rig.recorder.notices.isEmpty)
         #expect(rig.recorder.answeredAgents == ["a"])
@@ -142,70 +143,57 @@ struct AnswerFormCardModelTests {
         await openAsForm(rig, tab: 1)
         rig.answerEverything()
         rig.model.pressSend()
-        await waitUntil { rig.model.card == nil }
+        await waitUntil { !rig.recorder.notices.isEmpty }
         #expect(rig.terminal.sent.count == 2)
         #expect(rig.recorder.notices.count == 1 && rig.recorder.notices[0].contains("Skipped question 1"))
     }
 
     // MARK: - While the batch runs
 
-    @Test func aRunningBatchShowsProgressAndIsNotReplacedClosedOrEditedByTheDashboard() async {
+    @Test func submitClosesTheCardAtOnceAndTheBatchRunsInTheBackground() async {
         let rig = formRig()
         await openAsForm(rig)
         rig.answerEverything()
         let gate = AsyncGate()
         rig.terminal.beforeAnswer = { count in if count == 1 { await gate.wait() } }
         rig.model.pressSend()
-        await waitUntil { rig.model.card?.form?.sendState == .sending(question: 1) }
-        #expect(rig.model.card?.form?.outcomes == [.landed, .sending, .waiting])
-        #expect(rig.model.card?.hintMode == .formBusy)
+        #expect(rig.model.card == nil)                                                             // dismissed at once, no progress card
+        await waitUntil { rig.terminal.sent.count == 1 }                                           // the batch is held mid-way
+        #expect(rig.model.card == nil)
+        #expect(rig.recorder.answeredAgents.isEmpty)
 
-        let before = rig.model.card
-        rig.model.reconcile(with: [rig.agent(tab: 1)])                                            // the dashboard follows the pane
-        rig.model.reconcile(with: [rig.agent(tab: 2)])
-        rig.model.reconcile(with: [AnswerFixtures.blockedAgent("a", blocker: .questionLoading(nil))])
-        rig.model.reconcile(with: [AnswerFixtures.blockedAgent("a", blocker: nil)])                // the row flaps to "not blocked"
+        for tab in 0..<3 { #expect(rig.model.isAwaiting(rig.agent(tab: tab))) }                   // the row says "sending"
+        rig.model.reconcile(with: [rig.agent(tab: 1)])                                            // the dashboard following the pane opens nothing
         rig.model.reconcile(with: [])
-        #expect(rig.model.card == before)
-
-        rig.model.handle(.escape)                                                                  // esc waits for the end of the batch
-        rig.model.clickFormRow(1, of: 0)                                                           // edits are frozen
         rig.model.pressSend()                                                                      // no second batch
         rig.model.handle(.enter)
-        #expect(rig.model.card == before)
-        #expect(rig.model.open(rig.agent(tab: 1)) == false)                                        // the row is "sending", so no fresh single card
+        #expect(rig.model.card == nil)
+        #expect(rig.model.open(rig.agent(tab: 1)) == false)                                        // the row is "sending", so no fresh card
 
         gate.open()
-        await waitUntil { rig.model.card == nil }
+        await waitUntil { rig.recorder.answeredAgents == ["a"] }
         #expect(rig.terminal.sent.count == 3)
+        #expect(rig.model.card == nil)
     }
 
     // MARK: - When it stops
 
-    @Test func aRefusalKeepsTheCardWithTheExactReportAndNoWayToResend() async {
+    @Test func aRefusalReportsExactlyInTheFooterAndNeverResends() async {
         let rig = formRig()
         await openAsForm(rig)
         rig.answerEverything()
         rig.terminal.refuse(atTab: 1)
         rig.model.pressSend()
-        await waitUntil { rig.model.card?.form?.sendState == .stopped }
-        let form = rig.model.card?.form
-        #expect(form?.outcomes == [.landed, .refused("dashboard: the answer was not accepted"), .notSent("The dashboard refused question 2 (Comes back).")])
-        #expect(form?.report?.contains("Sent: question 1 (Done means).") == true)
-        #expect(rig.recorder.notices == [form?.report ?? ""])
-        #expect(rig.recorder.answeredAgents.isEmpty)
-        #expect(rig.model.card?.hintMode == .formBusy)
-
-        rig.model.pressSend()                                                                      // Submit is gone: nothing is resent
-        rig.model.handle(.enter)
-        rig.model.clickFormRow(1, of: 1)
-        await settleTasks()
-        #expect(rig.terminal.sent.count == 2)
-        rig.model.reconcile(with: [rig.agent(tab: 2)])                                             // the report is not the dashboard's to replace
-        #expect(rig.model.card?.form?.sendState == .stopped)
-
-        rig.model.handle(.escape)
         #expect(rig.model.card == nil)
+        await waitUntil { !rig.recorder.notices.isEmpty }
+        let report = rig.recorder.notices.first ?? ""
+        #expect(report.contains("Sent: question 1 (Done means)."))
+        #expect(report.contains("The dashboard refused question 2 (Comes back)."))
+        #expect(rig.recorder.notices == [report])
+        #expect(rig.recorder.answeredAgents.isEmpty)
+        #expect(rig.model.card == nil)                                                             // no card left showing the stop
+        await settleTasks()
+        #expect(rig.terminal.sent.count == 2)                                                      // nothing was resent
         #expect(!rig.model.isAwaiting(rig.agent(tab: 1)))                                          // the row is free again
     }
 
@@ -215,19 +203,20 @@ struct AnswerFormCardModelTests {
         rig.answerEverything()
         rig.terminal.refuse(atTab: 1)
         rig.model.pressSend()
-        await waitUntil { rig.model.card?.form?.sendState == .stopped }
-        rig.model.handle(.escape)
+        await waitUntil { !rig.recorder.notices.isEmpty }
+        await settleTasks()
+        #expect(rig.model.card == nil)
 
         rig.terminal.refuse(atTab: 99)
         await openAsForm(rig, tab: 1)
         rig.answerEverything()
         rig.model.pressSend()
-        await waitUntil { rig.model.card == nil }
+        await waitUntil { rig.recorder.answeredAgents == ["a"] }
         #expect(rig.terminal.sent.count == 4)   // 2 before, then question 2 and 3 only
         #expect(rig.terminal.tab == 3)
     }
 
-    @Test func aFailureStillReachesTheFooterWhenTheCardWasClosedMeanwhile() async {
+    @Test func aFailureReachesTheFooterEvenWhileTheCardIsClosedAndSomethingElseIsOpen() async {
         let rig = formRig()
         await openAsForm(rig)
         rig.answerEverything()
@@ -235,8 +224,8 @@ struct AnswerFormCardModelTests {
         rig.terminal.beforeAnswer = { count in if count == 1 { await gate.wait() } }
         rig.terminal.refuse(atTab: 1)
         rig.model.pressSend()
-        await waitUntil { rig.model.card?.form?.sendState == .sending(question: 1) }
-        rig.model.close()                                                                          // the panel was dismissed
+        await waitUntil { rig.terminal.sent.count == 1 }
+        rig.model.close()                                                                          // e.g. the panel was dismissed
         gate.open()
         await waitUntil { !rig.recorder.notices.isEmpty }
         #expect(rig.recorder.notices[0].contains("Sent: question 1"))
@@ -279,6 +268,6 @@ struct AnswerFormCardModelTests {
         rig.model.statusSource = nil
         rig.model.pressSend()
         await settleTasks()
-        #expect(rig.model.card?.form?.sendState == .editing)
+        #expect(rig.model.card?.form?.sendState == .editing)   // nothing sent: the card stays for another try
     }
 }

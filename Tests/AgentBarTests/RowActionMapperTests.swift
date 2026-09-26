@@ -110,7 +110,8 @@ struct RowActionMapperTests {
         #expect(stopped.statusText == "Stopped — pane still open")
         #expect(stopped.canFocus)
         #expect(stopped.rowId == StatusFixtures.sessionId(101))
-        #expect(RowButtons.available(for: stopped).map(\.button) == [.closePane])
+        #expect(RowButtons.available(for: stopped).map(\.button) == [.moreActions])
+        #expect(RowButtons.menuItems(for: stopped).map(\.button) == [.closePane])
     }
 
     @Test func anEndedRowWithAnOpenPaneThatWasNotStoppedByUsSaysSo() throws {

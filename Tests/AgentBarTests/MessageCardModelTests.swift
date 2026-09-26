@@ -10,6 +10,10 @@ struct MessageCardModelTests {
     private final class Recorder {
         var notices: [String] = []
         var releasedKeyboard = 0
+        /// Every `sendDirect` outcome (`onDirectSendOutcome`) — this is how a headless send's
+        /// caller (`AgentPanelModel` in the real app) hears about a failure now; `MessageCardModel`
+        /// itself no longer turns one into a notice (see `aFailedSendDirectNeverCallsOnSentDirectAndReportsTheOutcome`).
+        var directOutcomes: [(agentID: String, label: String, text: String, outcome: MessageSendOutcome)] = []
     }
 
     private struct Rig {
@@ -29,6 +33,9 @@ struct MessageCardModelTests {
         model.statusSource = source
         model.onNotice = { recorder.notices.append($0) }
         model.onReleaseKeyboard = { recorder.releasedKeyboard += 1 }
+        model.onDirectSendOutcome = { agentID, label, text, outcome in
+            recorder.directOutcomes.append((agentID, label, text, outcome))
+        }
         return Rig(clock: clock, model: model, source: source, recorder: recorder)
     }
 
@@ -110,6 +117,83 @@ struct MessageCardModelTests {
         #expect(rig.model.sentLabel(for: agent()) == nil)
     }
 
+    // MARK: - sendDirect (Shift+Return routing, no card ever opens)
+
+    @Test func sendDirectNeverOpensACardAndReachesTheRowAsSentOnSuccess() async {
+        let rig = makeRig()
+        var sentAgentIDs: [String] = []
+        var sentTexts: [String] = []
+        rig.model.onSentDirect = { agentID, text in
+            sentAgentIDs.append(agentID)
+            sentTexts.append(text)
+        }
+        #expect(rig.model.sendDirect(to: agent(), text: "fix the login timeout"))
+        #expect(!rig.model.isOpen)   // no card, ever
+        #expect(rig.model.sendingLabel(for: agent()) == "Sending message…")
+        await rig.source.waitForRequests(1)
+        #expect(rig.source.sent == [.init(rowId: "a", text: "fix the login timeout", confirmed: true)])
+        rig.source.reply(.sent(queued: false))
+        await waitUntil { rig.model.sendingLabel(for: agent()) == nil }
+        #expect(rig.model.sentLabel(for: agent()) == "Message sent")
+        #expect(sentAgentIDs == ["a"])
+        #expect(sentTexts == ["fix the login timeout"])
+    }
+
+    /// `sendDirect` has no UI to show a confirm step, so it always sends `confirmed: true`: a busy
+    /// agent must just queue the message on the first attempt, not dead-end asking to try again.
+    @Test func sendDirectToABusyAgentQueuesInsteadOfFailing() async {
+        let rig = makeRig()
+        var sentAgentIDs: [String] = []
+        rig.model.onSentDirect = { agentID, _ in sentAgentIDs.append(agentID) }
+        #expect(rig.model.sendDirect(to: agent(), text: "keep going"))
+        await rig.source.waitForRequests(1)
+        #expect(rig.source.sent == [.init(rowId: "a", text: "keep going", confirmed: true)])
+        rig.source.reply(.sent(queued: true))   // the dashboard queues it behind the agent's current turn
+        await waitUntil { rig.model.sendingLabel(for: agent()) == nil }
+        #expect(rig.model.sentLabel(for: agent()) == "Message queued")
+        #expect(sentAgentIDs == ["a"])
+        #expect(rig.recorder.notices.isEmpty)   // no "not sent, try again" dead end
+    }
+
+    @Test func sendDirectRefusesARowThatCannotTakeAMessage() {
+        let rig = makeRig()
+        #expect(!rig.model.sendDirect(to: agent(section: .ended), text: "hi"))
+        #expect(rig.source.sent.isEmpty)
+    }
+
+    /// `MessageCardModel` itself no longer turns a headless `.failed` reply into a notice — that
+    /// would race a caller that wants to retry it first (`AgentPanelModel.sendDirectMessage`, the
+    /// real app's retry queue). It reports every outcome via `onDirectSendOutcome` instead and
+    /// leaves the decision to the caller.
+    @Test func aFailedSendDirectNeverCallsOnSentDirectAndReportsTheOutcome() async {
+        let rig = makeRig()
+        var calls = 0
+        rig.model.onSentDirect = { _, _ in calls += 1 }
+        #expect(rig.model.sendDirect(to: agent(), text: "hi"))
+        await rig.source.waitForRequests(1)
+        rig.source.reply(.failed("busy"))
+        await waitUntil { !rig.recorder.directOutcomes.isEmpty }
+        #expect(calls == 0)
+        #expect(rig.recorder.notices.isEmpty)
+        #expect(rig.recorder.directOutcomes.count == 1)
+        #expect(rig.recorder.directOutcomes[0].agentID == "a")
+        #expect(rig.recorder.directOutcomes[0].outcome == .failed("busy"))
+    }
+
+    @Test func sendDirectStillReadsThePaneFirstAndRefusesAnOpenPicker() async {
+        let rig = makeRig()
+        let rule = String(repeating: "─", count: 90)
+        rig.source.screen = .screen(lines: [rule, "  ☐ Persist", "  Which one?", "  ❯ 1. A", "    2. B", "    3. Type something.", rule, "  Enter to select"], readAt: F.now)
+        var calls = 0
+        rig.model.onSentDirect = { _, _ in calls += 1 }
+        #expect(rig.model.sendDirect(to: agent(), text: "hi"))
+        await waitUntil { !rig.recorder.directOutcomes.isEmpty }
+        #expect(rig.source.sent.isEmpty)
+        #expect(calls == 0)
+        #expect(rig.recorder.notices.isEmpty)   // reported via onDirectSendOutcome, not a notice, same as any other failed headless send
+        #expect(rig.recorder.directOutcomes[0].outcome == .failed(MessageCard.waitingOnYouText))
+    }
+
     @Test func newlinesAreFlattenedInTheTextThatGoesOut() async {
         let rig = makeRig()
         rig.model.open(agent())
@@ -130,7 +214,7 @@ struct MessageCardModelTests {
     @Test func nothingIsSentForAnEmptySlashOrTooLongDraft() async {
         let rig = makeRig()
         rig.model.open(agent())
-        for draft in ["", "   ", "/clear", String(repeating: "a", count: 2001)] {
+        for draft in ["", "   ", "/help", String(repeating: "a", count: 2001)] {
             rig.model.setDraft(draft)
             rig.model.pressSend()
         }
@@ -138,6 +222,15 @@ struct MessageCardModelTests {
         #expect(rig.source.sent.isEmpty)
         #expect(rig.source.screenReads == 0)
         #expect(rig.model.card?.phase == .editing)
+    }
+
+    /// /compact and /clear (2026-09-22) are the two exceptions: typed into the card itself, not
+    /// just the row menu's shortcuts, they now go through like any other ready draft.
+    @Test func compactAndClearTypedIntoTheCardAreSentLikeAnyOtherDraft() async {
+        let rig = makeRig()
+        rig.model.open(agent())
+        await sendOnce(rig, text: "/compact")
+        #expect(rig.source.sent.first?.text == "/compact")
     }
 
     @Test func escapeIsIgnoredWhileTheMessageIsOnItsWay() async {

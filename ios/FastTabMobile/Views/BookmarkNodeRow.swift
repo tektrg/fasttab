@@ -83,7 +83,7 @@ struct BookmarkNodeRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DS.Space.sm) {
             // Tree indentation: each level pushes the row content right by a
             // fixed step, in place of a DisclosureGroup's native indent.
             Color.clear
@@ -92,19 +92,13 @@ struct BookmarkNodeRow: View {
 
             if node.isFolder {
                 Image(systemName: "folder.fill")
-                    .foregroundStyle(.yellow)
-                    .font(.system(size: 15))
+                    .foregroundStyle(DS.Tint.bookmark)
+                    .font(.system(size: DS.IconSize.row))
                 Text(node.title)
-                    .font(.body.weight(.medium))
+                    .font(DS.Font.body.weight(.medium))
                     .foregroundStyle(.primary)
                 Spacer()
-                Text("\(node.totalCount)")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .clipShape(Capsule())
+                DSCountPill(node.totalCount)
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -112,13 +106,13 @@ struct BookmarkNodeRow: View {
                 Image(systemName: "bookmark")
                     .foregroundStyle(.secondary)
                     .font(.system(size: 14))
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: DS.Space.xxs) {
                     Text(node.title)
-                        .font(.body)
+                        .font(DS.Font.body)
                         .lineLimit(1)
                     if let url = node.url {
                         Text(url)
-                            .font(.caption)
+                            .font(DS.Font.meta)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -169,7 +163,7 @@ struct BookmarkNodeRow: View {
                 } label: {
                     Label("Move", systemImage: "folder")
                 }
-                .tint(.blue)
+                .tint(DS.Tint.action)
             }
         }
         .contextMenu {

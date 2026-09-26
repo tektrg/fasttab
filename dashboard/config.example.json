@@ -1,0 +1,16 @@
+{
+  "_comment": "Copy to ~/.config/agent-dashboard/config.json (or set CHIEF_DASHBOARD_CONFIG_HOME to a directory containing config.json) and edit for your machine. Nothing here is loaded from this example file directly.",
+  "port": 4711,
+  "projectRoots": [
+    "~/01_Project/AptusFit"
+  ],
+  "machines": {
+    "air-m1": {
+      "sshAlias": "trungs-air",
+      "herdrPath": "/Users/wifey/.local/bin/herdr",
+      "label": "Air",
+      "maxParallel": 4,
+      "repoRoot": "/Users/wifey/01_Project/AptusFit"
+    }
+  }
+}

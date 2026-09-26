@@ -35,8 +35,9 @@ struct FormRecordedAnswersCardTests {
         rig.model.clickFormRow(1, of: 1)
         rig.model.clickFormRow(0, of: 2)
         rig.model.pressSend()
-        await waitUntil { rig.model.card?.form?.sendState == .stopped }
-        let report = rig.model.card?.form?.report ?? ""
+        #expect(rig.model.card == nil)   // Submit closes the card at once; the report goes to the footer
+        await waitUntil { !rig.notices.lines.isEmpty }
+        let report = rig.notices.lines.first ?? ""
         #expect(report.hasPrefix("The form was submitted."))
         #expect(report.contains("You chose \"Done returns, Parked stays\" but the terminal recorded \"Back to Needs you (Recommended)\""))
         #expect(!report.contains("Not attempted"))

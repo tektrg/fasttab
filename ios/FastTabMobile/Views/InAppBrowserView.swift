@@ -21,7 +21,7 @@ public struct InAppBrowserView: UIViewControllerRepresentable {
 
         let safariVC = SFSafariViewController(url: url, configuration: configuration)
         safariVC.dismissButtonStyle = .close
-        safariVC.preferredControlTintColor = .systemBlue
+        safariVC.preferredControlTintColor = UIColor(DS.Tint.action)
         return safariVC
     }
 

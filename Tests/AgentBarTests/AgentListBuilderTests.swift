@@ -138,4 +138,46 @@ struct AgentListBuilderTests {
         )
         #expect(presentation.rows.map(\.id) == ["section-2", "agent-p1"])
     }
+
+    // MARK: - A chief that itself needs you keeps its "N needs you" hint
+
+    private func treeNode(_ id: String, isChief: Bool = false, children: [AgentTreeNode] = []) -> AgentTreeNode {
+        AgentTreeNode(
+            id: id, label: id, project: "proj", projectRoot: nil, machine: "local", paneId: "w1:\(id)",
+            alive: true, status: nil, crossProject: false, isChiefMode: isChief, children: children
+        )
+    }
+
+    /// Regression for the bug where a blocked chief's OWN row lost its "N needs you" hint (fixed
+    /// 01de5de, generalized 2026-09-25 when nesting became per-section instead of Needs-you-only):
+    /// a chief shown in Needs you always gets `.chief` nesting, so the hint about its OTHER blocked
+    /// workers renders wherever the chief's row appears — and, since nesting is no longer skipped
+    /// inside Needs you, a blocked worker of a blocked chief now nests under it there too.
+    @Test func aChiefInNeedsYouStillShowsItsBlockedWorkersHint() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [
+            treeNode("c", isChief: true, children: [treeNode("w1"), treeNode("w2")])
+        ], unassigned: [], parentGone: [])
+        let snapshot = F.snapshot([
+            F.agent("c", section: .needsYou),
+            F.agent("w1", section: .needsYou),
+            F.agent("w2", section: .working)
+        ], agentTree: tree)
+        let presentation = AgentListBuilder.presentation(snapshot: snapshot, query: "", frecency: [:], now: F.now)
+
+        guard case .agent(_, let nesting) = presentation.rows.first(where: { $0.id == "agent-c" }) else {
+            Issue.record("expected c's row in Needs you")
+            return
+        }
+        guard case .chief(let hint, _) = nesting else {
+            Issue.record("expected a chief nesting so the hint renders, even though c itself needs you")
+            return
+        }
+        #expect(hint == 1)   // w1 also needs you; w2 doesn't
+
+        // w1 (blocked) now nests directly under c's real row, in Needs you; w2 nests under a
+        // placeholder anchor in Working, since c's own row lives in Needs you instead.
+        #expect(presentation.rows.map(\.id) == [
+            "section-0", "agent-c", "agent-w1", "section-1", "chief-placeholder-1-c", "agent-w2"
+        ])
+    }
 }

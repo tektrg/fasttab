@@ -78,6 +78,62 @@ struct AgentPanelLayoutTests {
         #expect(peeking == AgentPanelMetrics.height(for: F.presentation(F.snapshot((0..<40).map { F.agent("id\($0)") }))))
     }
 
+    @Test func aGrowingSearchFieldAndTheRoutingRowNeverGrowTheWindowWhenTheListIsClamped() {
+        let many = F.presentation(F.snapshot((0..<40).map { F.agent("id\($0)") }))   // list already at its max
+        let plain = AgentPanelMetrics.height(for: many)
+        let growing = AgentPanelMetrics.height(for: many, searchFieldLineCount: AgentPanelMetrics.searchFieldMaxLines, showsRoutingRow: true)
+        #expect(growing == plain)   // borrowed from the list's own budget, not added to the total
+    }
+
+    @Test func aGrowingSearchFieldAndTheRoutingRowNeverGrowTheWindowForAShortListEither() {
+        // Regression: a short list (well under maxListHeight, not scrolling) used to grow the
+        // window because the borrow only kicked in once the list was already clamped at the cap.
+        let few = F.presentation(F.snapshot([F.agent("a"), F.agent("b"), F.agent("c")]))
+        let plain = AgentPanelMetrics.height(for: few)
+        let growing = AgentPanelMetrics.height(for: few, searchFieldLineCount: AgentPanelMetrics.searchFieldMaxLines, showsRoutingRow: true)
+        #expect(growing == plain)   // still absorbed by the content area, not added on top
+    }
+
+    @Test func aGrowingSearchFieldAndTheRoutingRowNeverGrowTheWindowForAFlatMessageStateEither() {
+        // The connecting/feedDown/noAgents/noMatches states use a flat `messageHeight`, untouched
+        // by list clamping entirely, so they need the same unconditional absorption.
+        let plain = AgentPanelMetrics.height(for: .connecting)
+        let growing = AgentPanelMetrics.height(for: .connecting, searchFieldLineCount: AgentPanelMetrics.searchFieldMaxLines, showsRoutingRow: true)
+        #expect(growing == plain)
+    }
+
+    @Test func searchFieldLineCountEstimatesWrappingAndCapsAtTheMax() {
+        #expect(AgentPanelMetrics.searchFieldLineCount(for: "") == 1)
+        #expect(AgentPanelMetrics.searchFieldLineCount(for: "fix the login bug") == 1)
+        let long = String(repeating: "a", count: 500)
+        #expect(AgentPanelMetrics.searchFieldLineCount(for: long) == AgentPanelMetrics.searchFieldMaxLines)
+    }
+
+    @Test func composingCollapsesTheListAndTheBoardNoteToZeroHeight() {
+        // Tab-tagged: the chip already names the target, so the list/status message and any
+        // stale-board note below it are hidden (AgentPanelView) — the window must shrink to
+        // match, not just visually clip.
+        let many = F.presentation(F.snapshot((0..<40).map { F.agent("id\($0)") }))
+        let stale = F.presentation(F.snapshot([F.agent("a")], boardIsCurrent: false))
+        let composingMany = AgentPanelMetrics.height(for: many, isComposing: true)
+        let composingStale = AgentPanelMetrics.height(for: stale, isComposing: true)
+        // + tagChipTopPadding: the chip row's own breathing room, added on top of the field's
+        // usual budget while composing (AgentPanelMetrics.height(for:...)).
+        let floor = AgentPanelMetrics.searchFieldHeight + AgentPanelMetrics.dividerHeight + AgentPanelMetrics.footerHeight
+            + AgentPanelMetrics.tagChipTopPadding
+        #expect(composingMany == floor)
+        #expect(composingStale == floor)   // the board note is suppressed too, not just the list
+    }
+
+    @Test func composingStillGrowsWithALongerTypedMessage() {
+        // The field itself still reserves room for its own text (and the routing row, though
+        // routing can't be active while tagged) even with the body collapsed.
+        let few = F.presentation(F.snapshot([F.agent("a")]))
+        let plain = AgentPanelMetrics.height(for: few, isComposing: true)
+        let growing = AgentPanelMetrics.height(for: few, isComposing: true, searchFieldLineCount: AgentPanelMetrics.searchFieldMaxLines)
+        #expect(growing > plain)
+    }
+
     @Test func peekTextLinesFitInsideTheBody() {
         let body = AgentPanelMetrics.peekBodyHeight()
         let lines = AgentPanelMetrics.peekVisibleLineCount(bodyHeight: body)

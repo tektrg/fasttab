@@ -8,8 +8,8 @@ public struct ReadingFeedCardView: View {
     public let domain: String
     public let badgeText: String
     public let badgeTint: Color
+    public let badgeIcon: String?
     public let subtitle: String?
-    public let fixedWidth: CGFloat?
     /// Reading scroll progress [0.0 – 1.0]. When > 0, shows a thin progress bar at the bottom.
     public let readingProgress: Double
     public let deleteTitle: String
@@ -18,54 +18,41 @@ public struct ReadingFeedCardView: View {
     public let onOpenOnMac: (() -> Void)?
     public let onSaveToBookmarks: (() -> Void)?
     public let onDelete: (() -> Void)?
+    /// Emerging-only: "this isn't something I'd read" — offered as two
+    /// choices (just this link, or the whole website) rather than a single
+    /// destructive delete, since it's teaching the feed, not removing data.
+    public let onMarkNotARead: ((_ wholeWebsite: Bool) -> Void)?
 
     @State private var preview: LinkPreview?
     @State private var isLoadingPreview: Bool = true
 
-    public static let cardBackgroundColor = Color(uiColor: UIColor { traitCollection in
-        if traitCollection.userInterfaceStyle == .dark {
-            // Subtle warm dark charcoal card surface in dark mode (low contrast, elevated gently above the deep black app background)
-            return UIColor(red: 0.095, green: 0.090, blue: 0.086, alpha: 1.0)
-        } else {
-            // Crisp white card surface in light mode
-            return UIColor.white
-        }
-    })
-
-    /// A bit darker of the warm grey background, used for chips and thumbnail placeholders.
-    public static let warmMutedFillColor = Color(uiColor: UIColor { traitCollection in
-        if traitCollection.userInterfaceStyle == .dark {
-            // Subtle warm dark fill in dark mode
-            return UIColor(red: 0.135, green: 0.128, blue: 0.122, alpha: 1.0)
-        } else {
-            // A bit darker of the warm grey background in light mode
-            return UIColor(red: 0.890, green: 0.880, blue: 0.870, alpha: 1.0)
-        }
-    })
+    /// Thumbnail shape: 16:10, wide enough for video frames, tall enough for article art.
+    static let thumbnailAspectRatio: CGFloat = 16.0 / 10.0
 
     public init(
         title: String,
         url: URL,
         domain: String,
         badgeText: String,
-        badgeTint: Color = .blue,
+        badgeTint: Color = DS.Tint.action,
+        badgeIcon: String? = nil,
         subtitle: String? = nil,
-        fixedWidth: CGFloat? = 310,
         readingProgress: Double = 0.0,
         deleteTitle: String = "Delete Link",
         deleteIcon: String = "trash",
         onSelect: @escaping () -> Void,
         onOpenOnMac: (() -> Void)? = nil,
         onSaveToBookmarks: (() -> Void)? = nil,
-        onDelete: (() -> Void)? = nil
+        onDelete: (() -> Void)? = nil,
+        onMarkNotARead: ((_ wholeWebsite: Bool) -> Void)? = nil
     ) {
         self.title = title
         self.url = url
         self.domain = domain
         self.badgeText = badgeText
         self.badgeTint = badgeTint
+        self.badgeIcon = badgeIcon
         self.subtitle = subtitle
-        self.fixedWidth = fixedWidth
         self.readingProgress = readingProgress
         self.deleteTitle = deleteTitle
         self.deleteIcon = deleteIcon
@@ -73,6 +60,7 @@ public struct ReadingFeedCardView: View {
         self.onOpenOnMac = onOpenOnMac
         self.onSaveToBookmarks = onSaveToBookmarks
         self.onDelete = onDelete
+        self.onMarkNotARead = onMarkNotARead
     }
 
     public var body: some View {
@@ -80,58 +68,47 @@ public struct ReadingFeedCardView: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             onSelect()
         } label: {
-            HStack(spacing: 8) {
-                // Left: Full-height thumbnail without fade effect
-                thumbnailView
-                    .frame(width: 96, height: 88)
+            // Vertical card: thumbnail on top, text below. Width comes from the parent
+            // carousel; the title always reserves two lines so cards in a row line up.
+            VStack(alignment: .leading, spacing: 0) {
+                Color.clear
+                    .aspectRatio(Self.thumbnailAspectRatio, contentMode: .fit)
+                    .overlay { thumbnailView }
                     .clipped()
+                    .overlay(alignment: .bottom) { progressBar }
 
-                // Right: Title, URL, Folder Badge Chip (each on separate line)
-                VStack(alignment: .leading, spacing: 2.5) {
+                VStack(alignment: .leading, spacing: DS.Space.xs) {
                     Text(displayTitle)
-                        .font(.subheadline.weight(.semibold))
+                        .font(DS.Font.cardTitle)
                         .foregroundStyle(.primary)
-                        .lineLimit(2)
+                        .lineLimit(2, reservesSpace: true)
                         .multilineTextAlignment(.leading)
 
                     Text(displaySubtitle)
-                        .font(.caption)
+                        .font(DS.Font.meta)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
 
                     if !badgeText.isEmpty {
-                        Text(badgeText)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(badgeTint)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(badgeTint.opacity(0.12))
-                            .clipShape(Capsule())
+                        DSTag(badgeText, tint: badgeTint, systemImage: badgeIcon)
+                            .padding(.top, DS.Space.xxs)
                     }
                 }
-                .padding(.vertical, 8)
-                .padding(.trailing, 12)
-
-                Spacer(minLength: 0)
+                .padding(DS.Space.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(Self.cardBackgroundColor)
-            // Reading progress bar — thin strip at the bottom of the card
-            .overlay(alignment: .bottom) {
-                if readingProgress > 0.01 {
-                    GeometryReader { geo in
-                        Rectangle()
-                            .fill(Color.accentColor.opacity(0.6))
-                            .frame(width: geo.size.width * readingProgress, height: 3)
-                    }
-                    .frame(height: 3)
-                }
+            .background(DS.Palette.surface)
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous)
+                    .strokeBorder(DS.Palette.hairline, lineWidth: 1)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .dsShadow(.card)
+            .contentShape(RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous))
         }
         .buttonStyle(.plain)
-        .frame(width: fixedWidth, height: 88)
+        .accessibilityValue(readingProgress > 0.01 ? "\(Int(readingProgress * 100)) percent read" : "")
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous))
         .contextMenu {
             Button {
                 onSelect()
@@ -169,6 +146,24 @@ public struct ReadingFeedCardView: View {
                 Label("Copy Link", systemImage: "doc.on.doc")
             }
 
+            if let onMarkNotARead {
+                Divider()
+                Menu {
+                    Button {
+                        onMarkNotARead(false)
+                    } label: {
+                        Label("This Link", systemImage: "link")
+                    }
+                    Button {
+                        onMarkNotARead(true)
+                    } label: {
+                        Label("This Website", systemImage: "globe")
+                    }
+                } label: {
+                    Label("Not a Read", systemImage: "hand.thumbsdown")
+                }
+            }
+
             if let onDelete {
                 Divider()
                 Button(role: .destructive) {
@@ -186,87 +181,55 @@ public struct ReadingFeedCardView: View {
     }
 
     private var displayTitle: String {
-        if !title.isEmpty && !title.hasPrefix("http://") && !title.hasPrefix("https://") {
-            return title
-        }
-        if let previewTitle = preview?.title, !previewTitle.isEmpty {
-            return previewTitle
-        }
-        return title
+        LinkPreview.cardTitle(storedTitle: title, preview: preview)
     }
 
     private var displaySubtitle: String {
-        if let preview, preview.isTweet {
-            if let handle = preview.authorHandle, let name = preview.authorName {
-                return "\(name) (\(handle))"
-            } else if let handle = preview.authorHandle {
-                return handle
-            }
-        }
-        return domain
+        preview?.siteSubtitle ?? domain
     }
 
+    /// Reading progress: a thin accent strip along the bottom edge of the thumbnail.
+    @ViewBuilder
+    private var progressBar: some View {
+        if readingProgress > 0.01 {
+            GeometryReader { geo in
+                Rectangle()
+                    .fill(DS.Tint.action)
+                    .frame(width: geo.size.width * min(readingProgress, 1), height: 3)
+            }
+            .frame(height: 3)
+            .background(Color.black.opacity(0.15))
+        }
+    }
+
+    /// Site image (with play / Shorts overlays), else a text tile for an X or Reddit post
+    /// without media, else the generic placeholder.
     @ViewBuilder
     private var thumbnailView: some View {
-        if let image = preview?.image {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-        } else if let preview, preview.isTweet, let snippet = preview.snippetText, !snippet.isEmpty {
-            tweetThumbnailView(preview: preview, snippet: snippet)
+        if let preview, let image = preview.image {
+            LinkCardImageView(image: image, preview: preview)
+        } else if let preview, preview.site == .x || preview.site == .reddit,
+                  let snippet = preview.snippetText, !snippet.isEmpty {
+            LinkCardTextTileView(preview: preview, text: snippet)
         } else {
             ZStack {
-                Self.warmMutedFillColor
+                DS.Palette.surfaceMuted
 
                 if isLoadingPreview {
                     ProgressView()
-                        .controlSize(.mini)
+                        .controlSize(.small)
                 } else {
-                    VStack(spacing: 2) {
+                    VStack(spacing: DS.Space.xs) {
+                        Text(domain.prefix(1).uppercased())
+                            .font(.title.weight(.bold))
+                            .foregroundStyle(.tertiary)
                         Image(systemName: "doc.plaintext")
-                            .font(.system(size: 20))
-                            .foregroundStyle(.secondary.opacity(0.8))
-                        if !domain.isEmpty {
-                            Text(domain.prefix(1).uppercased())
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.tertiary)
-                        }
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
+                    .accessibilityHidden(true)
                 }
             }
-        }
-    }
-
-    private func tweetThumbnailView(preview: LinkPreview, snippet: String) -> some View {
-        ZStack(alignment: .topLeading) {
-            Color(uiColor: UIColor { trait in
-                trait.userInterfaceStyle == .dark
-                    ? UIColor(red: 0.12, green: 0.13, blue: 0.16, alpha: 1.0)
-                    : UIColor(red: 0.93, green: 0.94, blue: 0.96, alpha: 1.0)
-            })
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Text("𝕏")
-                        .font(.system(size: 11, weight: .black))
-                        .foregroundStyle(.primary)
-
-                    if let handle = preview.authorHandle {
-                        Text(handle)
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-
-                Text(snippet)
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.primary.opacity(0.9))
-                    .lineLimit(3)
-                    .multilineTextAlignment(.leading)
-                    .lineSpacing(1.5)
-            }
-            .padding(7)
         }
     }
 }

@@ -5,8 +5,8 @@ import Foundation
 /// An Article post's own text is only a `t.co` link, so oEmbed (tweet text) yields nothing
 /// readable, and the article body is behind X's login wall in a web view. The public
 /// `api.fxtwitter.com` mirror exposes the body as Draft.js blocks, which are rendered here.
-/// This is the ONLY third-party call in the reader; it is made only for Article posts
-/// (`/article/` URLs, or `/status/` posts whose text is just a link).
+/// This is the ONLY third-party call in the reader; it is made only for posts that may be
+/// Articles (`/article/` URLs, or `/status/` posts whose text has a `t.co` link or can't be read).
 enum XArticleExtractor {
 
     // MARK: - URL parsing
@@ -32,6 +32,12 @@ enum XArticleExtractor {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains(where: \.isWhitespace) else { return false }
         return trimmed.hasPrefix("https://t.co/") || trimmed.hasPrefix("http://t.co/")
+    }
+
+    /// True when tweet text contains a `t.co` link — an Article post's text is an optional
+    /// caption followed by one. Plain posts with links match too; `fetch` then returns nil.
+    static func mayLinkToArticle(_ text: String) -> Bool {
+        text.contains("https://t.co/") || text.contains("http://t.co/")
     }
 
     // MARK: - Fetch

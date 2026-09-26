@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Chief Dashboard</title>
+    <script>
+      // Mirrors Mantine's own attribute logic (used once React mounts) so the
+      // page never flashes light-then-dark on a system that's already dark —
+      // this runs before any CSS or React, synchronously, off the same
+      // media query MantineProvider's defaultColorScheme="auto" listens on.
+      (function () {
+        var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.setAttribute("data-mantine-color-scheme", dark ? "dark" : "light");
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

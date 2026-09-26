@@ -110,12 +110,12 @@ struct NewBookmarkFolderSheet: View {
 
                     if containsInvalidChars {
                         Text("Folder names cannot contain \"/\" or \"\\\"")
-                            .font(.caption)
-                            .foregroundStyle(.red)
+                            .font(DS.Font.meta)
+                            .foregroundStyle(DS.Tint.destructive)
                     } else if isDuplicateName {
                         Text("A folder with this name already exists at this location.")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                            .font(DS.Font.meta)
+                            .foregroundStyle(DS.Tint.warning)
                     }
                 } header: {
                     Text("Folder Details")
@@ -123,10 +123,11 @@ struct NewBookmarkFolderSheet: View {
                     if !trimmedName.isEmpty && !containsInvalidChars {
                         let destinationPreview = (selectedParentPath + [trimmedName]).joined(separator: " / ")
                         Text("Location: \(destinationPreview)")
-                            .font(.caption)
+                            .font(DS.Font.meta)
                             .foregroundStyle(.secondary)
                     }
                 }
+                .dsListRow()
 
                 if availableProfiles.count > 1 {
                     Section("Browser Profile") {
@@ -137,6 +138,7 @@ struct NewBookmarkFolderSheet: View {
                         }
                         .pickerStyle(.menu)
                     }
+                    .dsListRow()
                 } else if let onlyProfile = availableProfiles.first {
                     Section("Browser Profile") {
                         HStack {
@@ -146,6 +148,7 @@ struct NewBookmarkFolderSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    .dsListRow()
                 }
 
                 Section("Parent Folder") {
@@ -160,7 +163,9 @@ struct NewBookmarkFolderSheet: View {
                     }
                     .pickerStyle(.menu)
                 }
+                .dsListRow()
             }
+            .dsListStyle()
             .navigationTitle("New Folder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

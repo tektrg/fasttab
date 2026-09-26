@@ -348,6 +348,18 @@ struct PermissionCardModelTests {
         #expect(rig.model.card?.state.highlighted == .deny)
     }
 
+    @Test func aReassignedPaneIdIsPickedUpWhileTheCardStaysOpenSoASendDoesNotHitAStalePane() async {
+        let rig = makeRig()
+        await openReady(rig)
+        // herdr moved this still-live session to a new pane while the card sat open; the dashboard's
+        // next poll reflects it, same box, same agent.
+        rig.model.reconcile(with: [P.agent("a", P.bash, paneId: "w1:a-new")])
+        rig.model.handle(.digit(1))
+        rig.model.handle(.enter)
+        await rig.source.waitForRequests(1)
+        #expect(rig.source.sent == [.init(paneId: "w1:a-new", choice: .allow, permission: P.bash)])
+    }
+
     @Test func theCardClosesWhenTheAgentTurnsIntoAQuestion() async {
         let rig = makeRig()
         await openReady(rig)

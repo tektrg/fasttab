@@ -22,8 +22,7 @@ public struct TabListView: View {
     /// is read back from `LocalCache` so a row is only ever hidden while the
     /// close is genuinely still on its way or genuinely done.
     @State private var pendingCloses: [PendingTabClose] = []
-    @State private var toastMessage: String?
-    @State private var showToast: Bool = false
+    @State private var toast: String?
     @State private var showDeckSwitcher: Bool = false
     /// The tab awaiting a "save as bookmark" destination. Drives the same
     /// `BookmarkMovePicker` the bookmarks tree uses; on confirm the tab's URL
@@ -193,7 +192,7 @@ public struct TabListView: View {
         .safeAreaInset(edge: .bottom) {
             if searchText.isEmpty && !visibleTabs.isEmpty {
                 FloatingTabSortBar(sortMode: $sortMode)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, DS.Space.sm)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -203,7 +202,7 @@ public struct TabListView: View {
                     showDeckSwitcher = true
                 } label: {
                     Image(systemName: "rectangle.stack.fill")
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(DS.Tint.action)
                 }
                 .accessibilityLabel("App Switcher Deck")
             }
@@ -228,43 +227,21 @@ public struct TabListView: View {
                 saveTabAsBookmark(request.tab, to: destination)
             }
         }
-        .overlay(alignment: .bottom) {
-            if showToast, let toastMessage {
-                Text(toastMessage)
-                    .font(.subheadline.weight(.medium))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 9)
-                    .background(.ultraThinMaterial)
-                    // Capsule outside 16pt horizontal padding, so the text
-                    // never sits on the curve.
-                    .clipShape(Capsule())
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 72)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .dsToast($toast, bottomInset: DS.Space.floatingBarClearance)
     }
 
     @ViewBuilder
     private var tabListMainView: some View {
         if visibleTabs.isEmpty {
             ScrollView {
-                VStack(spacing: 12) {
-                    Image(systemName: "macwindow.on.rectangle")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary)
-                    Text("No Open Tabs")
-                        .font(.headline)
-                    Text("Open tabs on your Mac browsers will sync here automatically.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                }
+                DSEmptyState(
+                    "No Open Tabs",
+                    systemImage: "macwindow.on.rectangle",
+                    message: "Open tabs on your Mac browsers will sync here automatically."
+                )
                 .padding(.top, 60)
             }
+            .dsCanvas()
             .refreshable {
                 await SyncConsumer.shared.refreshNow()
             }
@@ -275,7 +252,7 @@ public struct TabListView: View {
                         PendingTabCloseStrip(tracked: trackedCloses) { close in
                             pendingCloses.removeAll { $0.tabID == close.tabID }
                         }
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: DS.Space.sm, leading: DS.Space.gutter, bottom: DS.Space.sm, trailing: DS.Space.gutter))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                     }
@@ -286,39 +263,41 @@ public struct TabListView: View {
                     ForEach(visibleTabs) { tab in
                         tabRow(tab)
                     }
+                    .dsListRow()
                 case .domain:
                     ForEach(tabsByDomain) { group in
                         Section(header: HStack {
                             Text(group.domain)
-                                .font(.subheadline.weight(.semibold))
+                                .font(DS.Font.cardTitle)
                             Spacer()
-                            Text("\(group.tabs.count)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            DSCountPill(group.tabs.count)
                         }) {
                             ForEach(group.tabs) { tab in
                                 tabRow(tab)
                             }
                         }
+                        .dsListRow()
                     }
                 case .windows:
                     ForEach(tabsByBrowserAndWindow) { group in
                         Section(header: HStack {
                             Text(group.browser)
-                                .font(.subheadline.weight(.semibold))
+                                .font(DS.Font.cardTitle)
                             Spacer()
                             Text(group.window)
-                                .font(.caption)
+                                .font(DS.Font.meta)
                                 .foregroundStyle(.secondary)
                         }) {
                             ForEach(group.tabs) { tab in
                                 tabRow(tab)
                             }
                         }
+                        .dsListRow()
                     }
                 }
             }
             .listStyle(.insetGrouped)
+            .dsListStyle()
             .refreshable {
                 await SyncConsumer.shared.refreshNow()
             }
@@ -328,50 +307,43 @@ public struct TabListView: View {
     @ViewBuilder
     private var combinedSearchResultsView: some View {
         if matchingTabs.isEmpty && matchingBookmarks.isEmpty && matchingHistory.isEmpty {
-            VStack(spacing: 12) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.secondary)
-                Text("No Matches for \"\(searchText)\"")
-                    .font(.headline)
-                Text("Check spelling or broaden your search keywords.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+            DSEmptyState(
+                "No Matches for \"\(searchText)\"",
+                systemImage: "magnifyingglass",
+                message: "Check spelling or broaden your search keywords."
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .dsCanvas()
         } else {
             List {
                 if !matchingTabs.isEmpty {
                     Section(header: HStack {
                         Text("Open Tabs")
-                            .font(.subheadline.weight(.semibold))
+                            .font(DS.Font.cardTitle)
                         Spacer()
-                        Text("\(matchingTabs.count)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        DSCountPill(matchingTabs.count)
                     }) {
                         ForEach(matchingTabs) { tab in
                             tabRow(tab, showTypeTag: "Tab")
                         }
                     }
+                    .dsListRow()
                 }
 
                 if !matchingBookmarks.isEmpty {
                     Section(header: HStack {
                         Text("Bookmarks")
-                            .font(.subheadline.weight(.semibold))
+                            .font(DS.Font.cardTitle)
                         Spacer()
-                        Text("\(matchingBookmarks.count)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        DSCountPill(matchingBookmarks.count)
                     }) {
                         ForEach(matchingBookmarks, id: \.item.id) { entry in
-                            HStack(spacing: 10) {
+                            HStack(spacing: DS.Space.md) {
                                 Image(systemName: "bookmark.fill")
-                                    .foregroundStyle(.yellow)
-                                    .font(.system(size: 14))
+                                    .foregroundStyle(DS.Tint.bookmark)
+                                    .font(.system(size: DS.IconSize.row))
 
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: DS.Space.xxs) {
                                     Text(entry.item.title.isEmpty ? entry.item.url : entry.item.title)
                                         .font(.body)
                                         .lineLimit(1)
@@ -383,7 +355,7 @@ public struct TabListView: View {
                                                 .foregroundStyle(.secondary)
                                         }
                                         Text(entry.item.url)
-                                            .font(.caption)
+                                            .font(DS.Font.meta)
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
                                     }
@@ -429,30 +401,29 @@ public struct TabListView: View {
                             }
                         }
                     }
+                    .dsListRow()
                 }
 
                 if !matchingHistory.isEmpty {
                     Section(header: HStack {
                         Text("Recent History")
-                            .font(.subheadline.weight(.semibold))
+                            .font(DS.Font.cardTitle)
                         Spacer()
-                        Text("\(matchingHistory.count)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        DSCountPill(matchingHistory.count)
                     }) {
                         ForEach(matchingHistory, id: \.entry.id) { item in
-                            HStack(spacing: 10) {
+                            HStack(spacing: DS.Space.md) {
                                 Image(systemName: "clock")
                                     .foregroundStyle(.secondary)
-                                    .font(.system(size: 14))
+                                    .font(.system(size: DS.IconSize.row))
 
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: DS.Space.xxs) {
                                     Text(item.entry.title.isEmpty ? item.entry.url : item.entry.title)
                                         .font(.body)
                                         .lineLimit(1)
 
                                     Text(item.entry.url)
-                                        .font(.caption)
+                                        .font(DS.Font.meta)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                 }
@@ -497,21 +468,23 @@ public struct TabListView: View {
                             }
                         }
                     }
+                    .dsListRow()
                 }
             }
             .listStyle(.insetGrouped)
+            .dsListStyle()
         }
     }
 
     @ViewBuilder
     private func tabRow(_ tab: SyncedTab, showTypeTag: String? = nil) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: DS.Space.md) {
             Image(systemName: "globe")
-                .foregroundStyle(Color.accentColor)
-                .font(.system(size: 16))
+                .foregroundStyle(DS.Tint.action)
+                .font(.system(size: DS.IconSize.row))
                 .frame(width: 20)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 HStack(spacing: 6) {
                     Text(tab.title.isEmpty ? tab.url : tab.title)
                         .font(.body)
@@ -540,7 +513,7 @@ public struct TabListView: View {
                         .foregroundStyle(.secondary)
 
                     Text(URL(string: tab.url)?.host() ?? tab.url)
-                        .font(.caption)
+                        .font(DS.Font.meta)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -566,7 +539,7 @@ public struct TabListView: View {
             } label: {
                 Label("Save to Folder", systemImage: "folder")
             }
-            .tint(.blue)
+            .tint(DS.Tint.action)
 
             Button {
                 UIPasteboard.general.string = tab.url
@@ -574,7 +547,7 @@ public struct TabListView: View {
             } label: {
                 Label("Copy", systemImage: "doc.on.doc")
             }
-            .tint(.blue)
+            .tint(DS.Tint.action)
         }
         .contextMenu {
             if let url = URL(string: tab.url) {
@@ -690,15 +663,7 @@ public struct TabListView: View {
     }
 
     private func showToastHUD(message: String) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            toastMessage = message
-            showToast = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showToast = false
-            }
-        }
+        toast = message
     }
 }
 

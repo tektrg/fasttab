@@ -11,6 +11,8 @@ public final class ReaderArticleCache: ObservableObject {
 
     private static let maxEntries = 50
     private static let indexDefaultsKey = "FastTabMobile.readerArticleCacheIndexV1"
+    /// Set once X posts cached before captioned-Article detection have been dropped.
+    private static let xPostsPurgedDefaultsKey = "FastTabMobile.readerArticleCacheXPurgedV1"
 
     // Tier 1: In-memory dictionary for sub-millisecond access
     private var memoryCache: [String: ReaderArticle] = [:]
@@ -32,6 +34,7 @@ public final class ReaderArticleCache: ObservableObject {
 
         try? fileManager.createDirectory(at: self.cacheDirectoryURL, withIntermediateDirectories: true)
         loadIndex()
+        purgeStaleXPostsOnce()
 
         // Evict in-memory tier under system memory pressure (disk tier remains intact)
         memoryWarningObserver = NotificationCenter.default.addObserver(
@@ -163,6 +166,19 @@ public final class ReaderArticleCache: ObservableObject {
             let fileURL = diskFileURL(for: key)
             try? fileManager.removeItem(at: fileURL)
         }
+    }
+
+    /// X Articles posted with a caption used to be cached as caption + cover image, no body.
+    /// Drop every cached X post once so they re-extract with the Article check.
+    private func purgeStaleXPostsOnce() {
+        guard !UserDefaults.standard.bool(forKey: Self.xPostsPurgedDefaultsKey) else { return }
+        for key in accessIndex.keys {
+            guard let url = URL(string: key), ReaderExtractor.isTwitterURL(url) else { continue }
+            accessIndex.removeValue(forKey: key)
+            try? fileManager.removeItem(at: diskFileURL(for: key))
+        }
+        saveIndex()
+        UserDefaults.standard.set(true, forKey: Self.xPostsPurgedDefaultsKey)
     }
 
     private func loadIndex() {

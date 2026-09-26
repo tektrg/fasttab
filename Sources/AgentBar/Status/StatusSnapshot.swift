@@ -23,13 +23,27 @@ struct StatusSnapshot: Equatable, Sendable {
     /// False when the slow delivery-board feed is missing or stale: the Ended
     /// section is then empty and unpushed markers are absent, not "none".
     let boardIsCurrent: Bool
+    /// Who-reports-to-whom, if this dashboard sent it. Nil means the feature is unavailable (an
+    /// older dashboard, or a broken/absent field) — `AgentTreeModel` reads it that way, never as
+    /// an empty tree (a genuinely empty tree still decodes to a non-nil `AgentTree`).
+    let agentTree: AgentTree?
+
+    /// Memberwise init with `agentTree` defaulted to nil, so existing call sites (mostly test
+    /// fixtures built before this field existed) don't all need updating for a field they don't care about.
+    init(agents: [AgentSnapshot], health: StatusFeedHealth, fetchedAt: Date, boardIsCurrent: Bool, agentTree: AgentTree? = nil) {
+        self.agents = agents
+        self.health = health
+        self.fetchedAt = fetchedAt
+        self.boardIsCurrent = boardIsCurrent
+        self.agentTree = agentTree
+    }
 
     static func down(reason: String, at date: Date) -> StatusSnapshot {
-        StatusSnapshot(agents: [], health: .down(reason: reason), fetchedAt: date, boardIsCurrent: false)
+        StatusSnapshot(agents: [], health: .down(reason: reason), fetchedAt: date, boardIsCurrent: false, agentTree: nil)
     }
 
     func replacingAgents(_ newAgents: [AgentSnapshot]) -> StatusSnapshot {
-        StatusSnapshot(agents: newAgents, health: health, fetchedAt: fetchedAt, boardIsCurrent: boardIsCurrent)
+        StatusSnapshot(agents: newAgents, health: health, fetchedAt: fetchedAt, boardIsCurrent: boardIsCurrent, agentTree: agentTree)
     }
 
     func agents(in section: AgentSection) -> [AgentSnapshot] {

@@ -27,9 +27,37 @@ struct MessageDraftValidatorTests {
     }
 
     @Test func aLeadingSlashIsRefusedAsASlashCommand() {
-        #expect(V.check("/clear") == .slashCommand)
-        #expect(V.check("  /compact now") == .slashCommand)
+        #expect(V.check("/help") == .slashCommand)
+        #expect(V.check("  /model opus") == .slashCommand)
         #expect(V.check("\n\n/help") == .slashCommand)   // the first real line leads once breaks collapse
+    }
+
+    // MARK: - /compact and /clear (2026-09-22): the two exceptions the dashboard now also accepts
+
+    @Test func compactAndClearAreReadyExactly() {
+        #expect(V.check("/compact") == .ready(text: "/compact"))
+        #expect(V.check("/clear") == .ready(text: "/clear"))
+        #expect(V.check("  /compact  ") == .ready(text: "/compact"))
+    }
+
+    @Test func compactIsReadyWithTrailingInstructions() {
+        #expect(V.check("/compact keep the plan") == .ready(text: "/compact keep the plan"))
+        #expect(V.check("\n/compact\nkeep the plan\n") == .ready(text: "/compact keep the plan"))
+    }
+
+    /// Asymmetric with `/compact` on purpose, mirroring the dashboard's `is_allowed_slash_command`
+    /// (`_ALLOWED_SLASH_PREFIX` is `/compact ` only): `/clear` must be bare, never with trailing
+    /// text — a client that accepted `/clear starting fresh` as ready would send it and the
+    /// dashboard would then refuse it as a plain (unrecognised) slash command.
+    @Test func clearWithTrailingTextIsStillRefused() {
+        #expect(V.check("/clear starting fresh") == .slashCommand)
+        #expect(V.check("\n/clear\nstarting fresh\n") == .slashCommand)
+    }
+
+    @Test func aWordThatOnlyStartsWithCompactOrClearIsStillASlashCommand() {
+        #expect(V.check("/compactfoo") == .slashCommand)
+        #expect(V.check("/clearish") == .slashCommand)
+        #expect(V.check("/compacting") == .slashCommand)
     }
 
     @Test func aSlashInsideTextIsFine() {

@@ -39,6 +39,9 @@ public struct ReaderView: View {
     // Extraction skeleton phase
     @State private var isLongExtraction: Bool = false
 
+    // Header auto-hide on scroll
+    @State private var isHeaderHidden: Bool = false
+
     public init(url: URL, title: String) {
         _viewModel = StateObject(wrappedValue: ReaderViewModel(url: url, title: title))
     }
@@ -48,7 +51,7 @@ public struct ReaderView: View {
     public var body: some View {
         NavigationStack {
             ZStack {
-                Color(uiColor: .systemBackground).ignoresSafeArea()
+                DS.Palette.readerPage.ignoresSafeArea()
 
                 switch viewModel.loadState {
                 case .idle, .extracting:
@@ -66,7 +69,8 @@ public struct ReaderView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(viewModel.needsSafariReader ? .hidden : .automatic, for: .navigationBar)
+            .toolbar(viewModel.needsSafariReader || isHeaderHidden ? .hidden : .automatic, for: .navigationBar)
+            .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)
             .toolbar {
                 if case .loaded = viewModel.loadState {
                     toolbarContent
@@ -133,7 +137,7 @@ public struct ReaderView: View {
     // MARK: - Loading Skeleton
 
     private var extractingView: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: DS.Space.xl) {
             ProgressView()
             Text(isLongExtraction ? "Rendering article…" : "Extracting article…")
                 .font(.subheadline)
@@ -164,6 +168,9 @@ public struct ReaderView: View {
             },
             onHighlightTapped: { id in
                 tappedHighlightID = id
+            },
+            onHeaderHiddenChanged: { hidden in
+                isHeaderHidden = hidden
             }
         )
         .ignoresSafeArea(edges: .bottom)
@@ -312,15 +319,14 @@ public struct ReaderView: View {
     // MARK: - Font Size Popover
 
     private var fontSizePopover: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: DS.Space.lg) {
             Button {
                 viewModel.decreaseFontSize()
             } label: {
                 Image(systemName: "textformat.size.smaller")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: DS.IconSize.row, weight: .semibold))
                     .frame(width: 36, height: 36)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .clipShape(Circle())
+                    .background(DS.Palette.surfaceMuted, in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(viewModel.fontSize <= 14)
@@ -333,16 +339,15 @@ public struct ReaderView: View {
                 viewModel.increaseFontSize()
             } label: {
                 Image(systemName: "textformat.size.larger")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: DS.IconSize.row, weight: .semibold))
                     .frame(width: 36, height: 36)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .clipShape(Circle())
+                    .background(DS.Palette.surfaceMuted, in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(viewModel.fontSize >= 28)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, DS.Space.lg)
+        .padding(.vertical, DS.Space.md)
         .presentationCompactAdaptation(.popover)
     }
 
@@ -352,23 +357,16 @@ public struct ReaderView: View {
         NavigationStack {
             Group {
                 if viewModel.highlights.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "highlighter")
-                            .font(.system(size: 40))
-                            .foregroundStyle(.tertiary)
-                        Text("No highlights yet")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                        Text("Long-press any text in the article to add a highlight.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                    }
+                    DSEmptyState(
+                        "No highlights yet",
+                        systemImage: "highlighter",
+                        message: "Long-press any text in the article to add a highlight."
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
                         ForEach(viewModel.highlights) { h in
-                            HStack(spacing: 12) {
+                            HStack(spacing: DS.Space.md) {
                                 Circle()
                                     .fill(h.color.swiftUIColor)
                                     .frame(width: 14, height: 14)
@@ -384,9 +382,13 @@ public struct ReaderView: View {
                                 }
                             }
                         }
+                        .dsListRow()
                     }
+                    .dsListStyle()
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .dsCanvas()
             .navigationTitle("Highlights")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

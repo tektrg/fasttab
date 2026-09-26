@@ -88,6 +88,12 @@ final class XArticleExtractorTests: XCTestCase {
         XCTAssertFalse(XArticleExtractor.isLinkOnly(""))
     }
 
+    func testMayLinkToArticleMatchesCaptionedArticlePosts() {
+        XCTAssertTrue(XArticleExtractor.mayLinkToArticle("https://t.co/8CxfhKnGr2"))
+        XCTAssertTrue(XArticleExtractor.mayLinkToArticle("A long caption about the article. https://t.co/Vr3NPgXS3N"))
+        XCTAssertFalse(XArticleExtractor.mayLinkToArticle("just setting up my twttr"))
+    }
+
     @MainActor
     func testOnlyXArticleFailureUsesSafariReader() {
         let vm = ReaderViewModel(url: url, title: "t")

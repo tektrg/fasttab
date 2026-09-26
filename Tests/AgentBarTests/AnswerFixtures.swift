@@ -44,9 +44,10 @@ enum AnswerFixtures {
         _ id: String,
         blocker: AgentBlocker?,
         section: AgentSection = .needsYou,
-        sessionId: String? = "session-1"
+        sessionId: String? = "session-1",
+        paneId: String? = nil
     ) -> AgentSnapshot {
-        var agent = AgentListFixtures.agent(id, label: "agent \(id)", project: "proj", section: section)
+        var agent = AgentListFixtures.agent(id, label: "agent \(id)", project: "proj", section: section, paneId: paneId)
         agent.blocker = blocker
         agent.sessionId = sessionId
         return agent

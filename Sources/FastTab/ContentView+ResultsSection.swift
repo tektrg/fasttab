@@ -208,7 +208,7 @@ extension ContentView {
         let (title, subtitle, icon): (String, String, String) = {
             switch view {
             case .recents:
-                return ("No tabs found", "Open a tab in Chrome or Edge and try again.", "rectangle.stack.badge.magnifyingglass")
+                return ("No tabs found", SearchSource.recentsEmptyHint(enabled: SourceSelectionStore.shared.launchSnapshot), "rectangle.stack.badge.magnifyingglass")
             case .stack:
                 return ("Stack is empty", "Pin a tab to keep it here, or send a link from your iPhone.", "square.stack")
             }

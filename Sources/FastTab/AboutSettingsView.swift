@@ -36,6 +36,19 @@ struct AboutSettingsView: View {
                 }
             }
 
+            Section("Setup") {
+                HStack {
+                    Text("Walk through the setup steps again. Your current settings are kept.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button(OnboardingWindowController.replayMenuTitle) {
+                        OnboardingWindowController.shared.show()
+                    }
+                }
+            }
+
             Section {
                 HStack {
                     Spacer()

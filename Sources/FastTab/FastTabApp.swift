@@ -288,6 +288,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 OnboardingWindowController.shared.show()
             }
+        } else if consumeOpenCommandBarAfterRelaunchRequest() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                AppState.shared.showCommandBar(openedBy: .mouse)
+            }
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
@@ -516,6 +520,10 @@ struct FastTabApp: App {
 
         SettingsLink {
             Text("Settings…")
+        }
+
+        Button(OnboardingWindowController.replayMenuTitle) {
+            OnboardingWindowController.shared.show()
         }
 
         Button("Feedback & Support…") {

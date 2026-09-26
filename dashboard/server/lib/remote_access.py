@@ -29,10 +29,12 @@ Design choices (kept here, not spread across the server):
     refused), in the same config dir as the token so both live under one
     "remote access" folder an operator can find together.
 """
+import hashlib
 import hmac
 import json
 import os
 import secrets
+import stat
 import threading
 import time
 
@@ -40,6 +42,15 @@ import dashboard_config
 
 TOKEN_PATH = os.path.join(dashboard_config.CONFIG_HOME, "remote-token")
 AUDIT_LOG_PATH = os.path.join(dashboard_config.CONFIG_HOME, "remote-audit.jsonl")
+
+#: A Host header value that matched neither a loopback literal nor a
+#: configured `remote.hosts` entry — returned by the server's
+#: `_remote_context()` instead of None so that an unrecognized Host still
+#: requires the full remote-auth gate (QA pass 1: a Host that simply wasn't
+#: the configured ts.net name used to fall through to the SAME unauthenticated
+#: handling as a genuine loopback request for every GET route — the fix
+#: treats "not proven loopback" as "must authenticate", never the reverse).
+UNRECOGNIZED_REMOTE_HOST = "__unrecognized_remote_host__"
 
 SESSION_COOKIE_NAME = "agentbar_remote_session"
 SESSION_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days — a phone stays logged in
@@ -106,13 +117,37 @@ def matched_remote_host(host_header, configured_hosts):
 def load_token():
     """The configured remote token, or None if no token file exists yet
     (remote access can be `enabled: true` before a token is generated —
-    every remote request just gets refused until one is)."""
+    every remote request just gets refused until one is), the file is
+    empty, or the file's permissions are looser than 0600 (group/other
+    read or write bits set). A world/group-readable token file has already
+    leaked the shared secret to any other local account on this Mac — this
+    module must not keep trusting it silently once that happens; treat it
+    the same as "no token configured" until an operator fixes the mode
+    (scripts/remote-token.py always writes 0600)."""
+    try:
+        st = os.stat(TOKEN_PATH)
+    except OSError:
+        return None
+    if stat.S_IMODE(st.st_mode) & 0o077:
+        return None
     try:
         with open(TOKEN_PATH) as f:
             value = f.read().strip()
     except OSError:
         return None
     return value or None
+
+
+def token_fingerprint(token):
+    """A short, non-secret fingerprint of `token` (or None for "no token"),
+    used to bind a session to the token that was live when it was issued —
+    never the raw token itself, so the fingerprint is safe to hold in the
+    in-memory session map and, if ever logged, leaks nothing usable to
+    re-derive the token (sha256 is one-way; this is an equality check, not
+    a place needing anything token-derivation-resistant beyond that)."""
+    if not token:
+        return None
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _client_key(client_address):
@@ -153,26 +188,34 @@ def verify_token(candidate, token=None):
 def create_session(host):
     """New session id bound to `host` (the remote hostname it was issued
     for — a cookie minted for one ts.net name is only ever honoured for
-    requests carrying that same Host, see session_host below)."""
+    requests carrying that same Host, see session_host below) AND to a
+    fingerprint of the token that was live at login time. Rotating the
+    token (scripts/remote-token.py --rotate) changes that fingerprint, so
+    every session issued under the old token stops resolving a host on its
+    very next request — rotation revokes, it doesn't just block future
+    logins (previously documented as a known gap; fixed here)."""
     session_id = secrets.token_urlsafe(32)
     expires_at = time.time() + SESSION_TTL_SECONDS
+    token_fp = token_fingerprint(load_token())
     with _LOCK:
-        _SESSIONS[session_id] = (host, expires_at)
+        _SESSIONS[session_id] = (host, expires_at, token_fp)
     return session_id
 
 
 def session_host(session_id):
     """The host a still-valid session was issued for, or None (missing,
-    expired, or bound to a different host than the caller expects — callers
-    pass the current request's matched host and compare themselves)."""
+    expired, bound to a different host than the caller expects — callers
+    pass the current request's matched host and compare themselves — or
+    issued under a token that has since been rotated/removed)."""
     if not session_id:
         return None
+    current_fp = token_fingerprint(load_token())
     with _LOCK:
         entry = _SESSIONS.get(session_id)
         if not entry:
             return None
-        host, expires_at = entry
-        if time.time() >= expires_at:
+        host, expires_at, token_fp = entry
+        if time.time() >= expires_at or token_fp != current_fp:
             del _SESSIONS[session_id]
             return None
         return host

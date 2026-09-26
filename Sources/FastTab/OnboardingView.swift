@@ -576,7 +576,7 @@ private struct ExtensionInstallStep: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 6)
 
-            Text("Add the free FastTab extension to Chrome, Edge or Brave. FastTab works without it — this makes it better.")
+            Text(subtitle)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -616,6 +616,13 @@ private struct ExtensionInstallStep: View {
         .onChange(of: permissions.usableExtensionAppNames) { _, _ in
             scheduleAutoAdvanceIfConnected()
         }
+    }
+
+    /// Already set up (e.g. replaying onboarding): confirm instead of selling.
+    private var subtitle: String {
+        isExtensionUsable
+            ? "The FastTab extension is set up — here's what it adds."
+            : "Add the free FastTab extension to Chrome, Edge or Brave. FastTab works without it — this makes it better."
     }
 
     /// Advances itself the moment the bridge handshakes — install the

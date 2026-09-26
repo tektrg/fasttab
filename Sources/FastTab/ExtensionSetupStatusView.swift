@@ -58,7 +58,9 @@ struct ExtensionSetupStatusView: View {
     private func hint(_ text: String) -> some View {
         Text(text)
             .font(.caption)
-            .foregroundStyle(.tertiary)
+            // Actionable fix, not decoration: .tertiary is too faint on the
+            // onboarding material, especially in dark mode.
+            .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
     }

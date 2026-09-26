@@ -97,6 +97,23 @@ with tempfile.TemporaryDirectory() as tmp:
     check("only the one valid entry survives",
           sorted(reg["personas"].keys()), ["local:~/01_Project/AptusFit"])
 
+print("\n== resumeWithinDays NaN/Infinity (json.load accepts them) is invalid -> skipped ==")
+with tempfile.TemporaryDirectory() as tmp:
+    # json.dump writes NaN/Infinity/-Infinity literals, exactly what a
+    # hand-edited file can hold and json.load happily parses.
+    path = write_registry(tmp, {
+        "personas": {
+            "local:fake-finite-days": full_persona(name="finite-days", resumeWithinDays=2.5),
+            "local:fake-nan-days": full_persona(name="nan-days", resumeWithinDays=float("nan")),
+            "local:fake-inf-days": full_persona(name="inf-days", resumeWithinDays=float("inf")),
+            "local:fake-neg-inf-days": full_persona(
+                name="neg-inf-days", resumeWithinDays=float("-inf")),
+        },
+    })
+    reg = personas.load_registry(path)
+    check("only the finite resumeWithinDays entry survives",
+          sorted(reg["personas"].keys()), ["local:fake-finite-days"])
+
 print("\n== a persona with no description is a VALID registry entry ... ==")
 with tempfile.TemporaryDirectory() as tmp:
     path = write_registry(tmp, {

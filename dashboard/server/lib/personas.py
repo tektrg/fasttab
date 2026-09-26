@@ -51,6 +51,7 @@ last, never crash the comparison.
 """
 import copy
 import json
+import math
 import os
 import sys
 
@@ -151,8 +152,12 @@ def _normalize_persona(address, raw):
         return None
 
     resume_within_days = raw.get("resumeWithinDays", 3)
-    if isinstance(resume_within_days, bool) or not isinstance(resume_within_days, (int, float)):
-        _warn(address, "'resumeWithinDays' must be a number")
+    # json.load accepts NaN/Infinity: NaN compares False to everything (it
+    # would silently mean "always resume") and Infinity never expires.
+    if isinstance(resume_within_days, bool) or \
+            not isinstance(resume_within_days, (int, float)) or \
+            not math.isfinite(resume_within_days):
+        _warn(address, "'resumeWithinDays' must be a finite number")
         return None
 
     start = raw.get("start", "in-place")

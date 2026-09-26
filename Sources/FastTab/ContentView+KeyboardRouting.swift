@@ -168,6 +168,13 @@ extension ContentView {
         cycleSession.reset()
     }
 
+    /// "Choose Another" on the shortcut-conflict banner: hide the bar and
+    /// open Settings on the Shortcuts tab.
+    func openShortcutSettings() {
+        dismissCommandBar()
+        SettingsNavigator.shared.open(.shortcuts, using: openSettings)
+    }
+
     func moveSelectionForward(includeSearchField: Bool) {
         clearKeyboardSwipe()
         resetPointerSwipe(animated: true)

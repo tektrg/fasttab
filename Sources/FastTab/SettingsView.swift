@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// One entry in the Settings sidebar. Each case's content lives in its own
 /// `*SettingsView` file — this file only owns the sidebar and routing.
@@ -44,6 +45,22 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
     static let advancedTabs: [SettingsTab] = [.searchAliases, .advanced, .license]
 }
 
+/// Lets code outside the Settings window (e.g. the command bar's banners)
+/// open Settings on a specific sidebar tab. `SettingsView` consumes the
+/// request whether it is already open or appears in response.
+@MainActor
+final class SettingsNavigator: ObservableObject {
+    static let shared = SettingsNavigator()
+
+    @Published var requestedTab: SettingsTab?
+
+    func open(_ tab: SettingsTab, using openSettings: OpenSettingsAction) {
+        requestedTab = tab
+        NSApp.activate(ignoringOtherApps: true)
+        openSettings()
+    }
+}
+
 /// Settings window: a sidebar of tabs (mirrors the macOS System Settings
 /// layout) with each tab's content in its own file. Split out once the
 /// previous single scrolling `Form` grew past a dozen sections.
@@ -52,6 +69,7 @@ struct SettingsView: View {
     @EnvironmentObject var licenseService: LicenseService
 
     @State private var selection: SettingsTab? = .general
+    @ObservedObject private var navigator = SettingsNavigator.shared
 
     var body: some View {
         NavigationSplitView {
@@ -62,6 +80,11 @@ struct SettingsView: View {
         }
         .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 220)
         .frame(width: 680, height: 420)
+        .onChange(of: navigator.requestedTab, initial: true) { _, requested in
+            guard let requested else { return }
+            selection = requested
+            navigator.requestedTab = nil
+        }
     }
 
     private var sidebar: some View {

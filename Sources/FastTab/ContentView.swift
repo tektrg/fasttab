@@ -10,7 +10,7 @@ private struct SearchHeaderFrameKey: PreferenceKey {
 }
 struct ContentView: View {
     @Environment(\.colorScheme) var colorScheme
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openSettings) var openSettings
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var licenseService: LicenseService
     @StateObject var updateService = UpdateService.shared
@@ -458,9 +458,9 @@ struct ContentView: View {
                                 icon: "bolt.slash.fill",
                                 tint: .orange,
                                 message: "Shortcut \(ShortcutStore.shared.displayString) unavailable. \(globalShortcutRegistrationIssue)",
-                                actionTitle: "Choose Another"
-                            ) {
-                            }
+                                actionTitle: "Choose Another",
+                                action: openShortcutSettings
+                            )
                             .transition(.move(edge: .top).combined(with: .opacity))
                         }
 

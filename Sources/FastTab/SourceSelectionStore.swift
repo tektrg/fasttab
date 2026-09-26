@@ -26,6 +26,32 @@ enum SearchSource: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Short name for inline copy ("Open a tab in Chrome or Safari…").
+    var shortName: String {
+        switch self {
+        case .chrome: return "Chrome"
+        case .edge:   return "Edge"
+        case .brave:  return "Brave"
+        case .safari: return "Safari"
+        case .finder: return "Finder"
+        }
+    }
+
+    /// Subtitle for the empty Recents view, naming only the sources the
+    /// user actually searches (in `allCases` order).
+    static func recentsEmptyHint(enabled: Set<SearchSource>) -> String {
+        let browserNames = allCases.filter { $0 != .finder && enabled.contains($0) }.map(\.shortName)
+        guard let lastBrowser = browserNames.last else {
+            return enabled.contains(.finder)
+                ? "Open a Finder window and try again."
+                : "Turn on a browser in Settings › Sources."
+        }
+        let list = browserNames.count == 1
+            ? lastBrowser
+            : browserNames.dropLast().joined(separator: ", ") + " or " + lastBrowser
+        return "Open a tab in \(list) and try again."
+    }
+
     /// Bundle ID used for install detection. Finder ships with macOS, so it
     /// has an ID but `isInstalled` always returns true.
     var bundleIdentifier: String {

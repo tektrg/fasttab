@@ -10,18 +10,23 @@ enum ExtensionSocketPath {
     }
 }
 
-/// Beta gate: the browser extension is an opt-in experiment, off by default.
-/// When off, the bridge still listens (so flipping the toggle connects
-/// immediately), but no decorator serves from it — FastTab behaves exactly as
-/// today.
+/// Gate for the companion browser extension. Promoted out of beta: on unless
+/// the user turned it off. When off, the bridge still listens (so flipping
+/// the toggle connects immediately), but no decorator serves from it —
+/// FastTab falls back to AppleScript for Chromium browsers.
+///
+/// Single source of truth for the key + default: Settings' `@AppStorage`
+/// toggle must use `defaultsKey` / `defaultValue` so it shows what runtime
+/// actually does. (The key keeps its historical "Beta" name — renaming it
+/// would reset every existing user's choice.)
 enum ExtensionBetaPreference {
     static let defaultsKey = "FastTab.extensionBeta.enabled.v1"
+    static let defaultValue = true
 
-    static var isEnabled: Bool {
-        if UserDefaults.standard.object(forKey: defaultsKey) == nil {
-            return true // Promoted out of beta, enabled by default
-        }
-        return UserDefaults.standard.bool(forKey: defaultsKey)
+    static var isEnabled: Bool { isEnabled(in: .standard) }
+
+    static func isEnabled(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: defaultsKey) == nil ? defaultValue : defaults.bool(forKey: defaultsKey)
     }
 
     static func setEnabled(_ on: Bool) {

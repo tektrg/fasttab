@@ -9,6 +9,16 @@ struct SafariBackend: BrowserBackend {
     let bundleIdentifier: String = "com.apple.Safari"
 
     static let includeFDADataDefaultsKey = "FastTab.safari.includeFDAData"
+    /// Off until the user opts in (onboarding's Safari step or Settings >
+    /// Advanced): the data needs Full Disk Access, which most users haven't
+    /// granted. Every reader/`@AppStorage` of the key must use this default.
+    static let includeFDADataDefaultValue = false
+
+    static func isFDADataIncluded(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: includeFDADataDefaultsKey) == nil
+            ? includeFDADataDefaultValue
+            : defaults.bool(forKey: includeFDADataDefaultsKey)
+    }
 
     /// Session-level guard for the read-only (`mode=ro`) SQLite fast path. Once a
     /// read-only open fails (e.g. Safari holds an exclusive lock and `.timeout`
@@ -22,7 +32,7 @@ struct SafariBackend: BrowserBackend {
     }
 
     private var fdaEnabled: Bool {
-        UserDefaults.standard.bool(forKey: Self.includeFDADataDefaultsKey)
+        Self.isFDADataIncluded()
     }
 
     // MARK: - Live tabs

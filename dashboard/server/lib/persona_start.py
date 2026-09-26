@@ -219,26 +219,34 @@ def decide_resume(persona, latest_conversation, *, fresh=False,
     return session_id
 
 
-#: {(projects_dir, resolved_folder): (scanned_at_epoch, (id, mtime))}
+#: {(projects_dir, resolved_folder): (scanned_at_monotonic, (id, mtime))}
 _idle_start_scan_cache = {}
 
 
-def idle_start_for(persona, live_session_ids, *, now=None, projects_dir=None):
+def idle_start_for(persona, live_session_ids, *, now=None, monotonic_now=None,
+                   projects_dir=None):
     """GET /api/personas's `idleStart`: "resume" or "fresh". Only a local
     `start: in-place` persona can resume from here (a script persona or a
     remote one is refused by the start endpoint anyway, and this Mac's disk
     says nothing about a remote machine's history). The folder scan is
     reused for `IDLE_START_CACHE_TTL_SEC` — the endpoint is polled, the
-    start path always rescans."""
+    start path always rescans.
+
+    Two clocks on purpose: the cache TTL runs on `monotonic_now`
+    (`time.monotonic`), so a backwards wall-clock step can't pin a stale
+    scan forever; only the transcript-age check uses `now` (`time.time`),
+    because transcript mtimes are wall-clock epochs."""
     if persona.get("start") != "in-place" or \
             persona.get("machine") != herdr_transport.LOCAL_MACHINE:
         return "fresh"
     now = now if now is not None else time.time()
+    monotonic_now = monotonic_now if monotonic_now is not None else time.monotonic()
     projects_dir = projects_dir or claude_projects_dir()
     key = (projects_dir, persona["resolvedFolder"])
     cached = _idle_start_scan_cache.get(key)
-    if cached is None or now - cached[0] > IDLE_START_CACHE_TTL_SEC:
-        cached = (now, latest_conversation_for_folder(persona["resolvedFolder"], projects_dir))
+    if cached is None or monotonic_now - cached[0] > IDLE_START_CACHE_TTL_SEC:
+        cached = (monotonic_now,
+                  latest_conversation_for_folder(persona["resolvedFolder"], projects_dir))
         _idle_start_scan_cache[key] = cached
     resume_id = decide_resume(persona, cached[1], live_session_ids=live_session_ids, now=now)
     return "resume" if resume_id else "fresh"
@@ -368,7 +376,9 @@ class HerdrTabOps:
 class StartGuard:
     """One start per persona at a time, and none within
     `START_COOLDOWN_SEC` of the last successful one. A failed start frees
-    the persona at once (a retry is allowed)."""
+    the persona at once (a retry is allowed). Every `now` passed in is a
+    MONOTONIC reading (`time.monotonic`): a backwards wall-clock step must
+    never read as "just started" and block starts."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -402,14 +412,19 @@ _START_GUARD = StartGuard()
 class StartDeps:
     """Everything `start_persona` reads or calls outside itself. Defaults
     are the real thing; tests override each (a fake registry, herdr, agent
-    roster, clock, projects dir, instructions dir, guard)."""
+    roster, clocks, projects dir, instructions dir, guard).
 
-    def __init__(self, *, registry=None, agent_rows=None, herdr=None, now_fn=None,
-                 projects_dir=None, instructions_dir=None, guard=None):
+    Two clocks: `wall_clock_fn` (epoch seconds) only for comparing against
+    transcript mtimes; `monotonic_fn` for the double-POST guard, which must
+    survive a wall-clock step."""
+
+    def __init__(self, *, registry=None, agent_rows=None, herdr=None, wall_clock_fn=None,
+                 monotonic_fn=None, projects_dir=None, instructions_dir=None, guard=None):
         self.registry = registry
         self.agent_rows = agent_rows
         self.herdr = herdr or HerdrTabOps()
-        self.now_fn = now_fn or time.time
+        self.wall_clock_fn = wall_clock_fn or time.time
+        self.monotonic_fn = monotonic_fn or time.monotonic
         self.projects_dir = projects_dir
         self.instructions_dir = instructions_dir
         self.guard = guard or _START_GUARD
@@ -483,7 +498,7 @@ def _start_persona(body, deps):
         return _refuse(f"{name!r}'s instructions contain control character "
                        f"{control_char!r} — fix them in Settings")
 
-    refusal = deps.guard.claim(name, deps.now_fn())
+    refusal = deps.guard.claim(name, deps.monotonic_fn())
     if refusal:
         return _refuse(refusal)
     succeeded = False
@@ -491,7 +506,7 @@ def _start_persona(body, deps):
         result = _launch(deps, persona, text, fresh, instructions)
         succeeded = result["ok"]
     finally:
-        deps.guard.release(name, deps.now_fn(), succeeded)
+        deps.guard.release(name, deps.monotonic_fn(), succeeded)
     if succeeded:
         print(f"[persona_start] {name!r} address={address!r}: mode={result['mode']} "
               f"pane={result['paneId']}", file=sys.stderr)
@@ -504,7 +519,7 @@ def _launch(deps, persona, text, fresh, instructions):
     live_ids = live_session_ids_for_machine(deps.live_agent_rows(), persona["machine"])
     resume_id = decide_resume(
         persona, latest_conversation_for_folder(persona["resolvedFolder"], deps.projects_dir),
-        fresh=fresh, live_session_ids=live_ids, now=deps.now_fn())
+        fresh=fresh, live_session_ids=live_ids, now=deps.wall_clock_fn())
     instructions_path = write_instructions_file(
         deps.instructions_dir or default_instructions_dir(), persona["name"], instructions)
     command = build_start_command(instructions_path, resume_session_id=resume_id)

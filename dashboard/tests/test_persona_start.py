@@ -151,11 +151,14 @@ def transcript(session_id, mtime, folder=ECHO_RESOLVED, projects_dir=FAKE_PROJEC
     return path
 
 
-def start(body, *, herdr=None, clock=None, registry=REGISTRY, agent_rows=(),
+def start(body, *, herdr=None, clock=None, monotonic=None, registry=REGISTRY, agent_rows=(),
           projects_dir=None, guard=None):
+    """`clock` is the wall clock (transcript ages), `monotonic` the guard's."""
     herdr = herdr if herdr is not None else FakeHerdr()
     deps = ps.StartDeps(registry=registry, agent_rows=list(agent_rows), herdr=herdr,
-                        now_fn=clock or FakeClock(), guard=guard or ps.StartGuard(),
+                        wall_clock_fn=clock or FakeClock(),
+                        monotonic_fn=monotonic or FakeClock(1000.0),
+                        guard=guard or ps.StartGuard(),
                         projects_dir=projects_dir or os.path.join(FAKE_HOME, "empty-projects"),
                         instructions_dir=INSTRUCTIONS_DIR)
     return ps.start_persona(body, deps), herdr
@@ -394,25 +397,34 @@ class ExplodingDeps(ps.StartDeps):
 
 
 result = ps.start_persona({"persona": "test-echo", "text": "hi"}, ExplodingDeps(
-    registry=REGISTRY, herdr=FakeHerdr(), now_fn=FakeClock(), guard=ps.StartGuard(),
+    registry=REGISTRY, herdr=FakeHerdr(), wall_clock_fn=FakeClock(), guard=ps.StartGuard(),
     instructions_dir=INSTRUCTIONS_DIR))
 check("an unexpected exception becomes {ok:false}, never escapes",
       (result.get("ok"), result.get("error", "").startswith("persona start failed")), (False, True))
 
 print("\n== double POST guard ==")
-guard, clock = ps.StartGuard(), FakeClock()
-first, _ = start({"persona": "test-echo", "text": "hi"}, guard=guard, clock=clock)
-second, herdr2 = start({"persona": "test-echo", "text": "hi"}, guard=guard, clock=clock)
+guard, clock = ps.StartGuard(), FakeClock(1000.0)  # the guard's monotonic clock
+first, _ = start({"persona": "test-echo", "text": "hi"}, guard=guard, monotonic=clock)
+second, herdr2 = start({"persona": "test-echo", "text": "hi"}, guard=guard, monotonic=clock)
 check("first start ok", first.get("ok"), True)
 check("an immediate second start is refused",
       (second.get("ok"), "was started" in second.get("error", "")), (False, True))
 check("…without touching herdr", herdr2.calls, [])
-other, _ = start({"persona": "multi-line", "text": "hi"}, guard=guard, clock=clock,
+other, _ = start({"persona": "multi-line", "text": "hi"}, guard=guard, monotonic=clock,
                  registry=multi_reg)
 check("a different persona is not blocked", other.get("ok"), True)
 clock.now += ps.START_COOLDOWN_SEC + 1
-third, _ = start({"persona": "test-echo", "text": "hi"}, guard=guard, clock=clock)
+third, _ = start({"persona": "test-echo", "text": "hi"}, guard=guard, monotonic=clock)
 check("after the cooldown it may start again", third.get("ok"), True)
+
+guard, wall, mono = ps.StartGuard(), FakeClock(), FakeClock(1000.0)
+start({"persona": "test-echo", "text": "hi"}, guard=guard, clock=wall, monotonic=mono)
+wall.now -= 3600  # the wall clock steps back an hour (NTP, manual change)
+mono.now += ps.START_COOLDOWN_SEC + 1
+after_step, _ = start({"persona": "test-echo", "text": "hi"}, guard=guard, clock=wall,
+                      monotonic=mono)
+check("a backwards wall-clock step doesn't block starts (guard is monotonic)",
+      after_step.get("ok"), True)
 
 guard = ps.StartGuard()
 nested = {}
@@ -434,18 +446,29 @@ check("a FAILED start doesn't lock the persona out (retry allowed)",
 print("\n== idleStart (GET /api/personas): cheap, cached, script/remote aware ==")
 idle_projects = os.path.join(FAKE_HOME, "projects-idle")
 ps._idle_start_scan_cache.clear()
-t0 = 1_900_000_000.0
+t0, m0 = 1_900_000_000.0, 5000.0  # wall epoch (transcript ages), monotonic (cache TTL)
+ttl = ps.IDLE_START_CACHE_TTL_SEC
 check("no history -> fresh",
-      ps.idle_start_for(echo_persona, set(), now=t0, projects_dir=idle_projects), "fresh")
+      ps.idle_start_for(echo_persona, set(), now=t0, monotonic_now=m0,
+                        projects_dir=idle_projects), "fresh")
 transcript(UUID_RECENT, t0, projects_dir=idle_projects)
 check("within the cache TTL the old scan is reused",
-      ps.idle_start_for(echo_persona, set(), now=t0 + 5, projects_dir=idle_projects), "fresh")
+      ps.idle_start_for(echo_persona, set(), now=t0 + 5, monotonic_now=m0 + 5,
+                        projects_dir=idle_projects), "fresh")
 check("after the TTL it rescans -> resume",
-      ps.idle_start_for(echo_persona, set(), now=t0 + ps.IDLE_START_CACHE_TTL_SEC + 1,
+      ps.idle_start_for(echo_persona, set(), now=t0 + ttl + 1, monotonic_now=m0 + ttl + 1,
                         projects_dir=idle_projects), "resume")
 check("a live copy of that conversation -> fresh",
-      ps.idle_start_for(echo_persona, {UUID_RECENT}, now=t0 + ps.IDLE_START_CACHE_TTL_SEC + 2,
-                        projects_dir=idle_projects), "fresh")
+      ps.idle_start_for(echo_persona, {UUID_RECENT}, now=t0 + ttl + 2,
+                        monotonic_now=m0 + ttl + 2, projects_dir=idle_projects), "fresh")
+
+ps._idle_start_scan_cache.clear()
+step_projects = os.path.join(FAKE_HOME, "projects-idle-step")
+ps.idle_start_for(echo_persona, set(), now=t0, monotonic_now=m0, projects_dir=step_projects)
+transcript(UUID_RECENT, t0 - 7200, projects_dir=step_projects)
+check("a backwards wall-clock step doesn't pin a stale scan (TTL is monotonic)",
+      ps.idle_start_for(echo_persona, set(), now=t0 - 3600, monotonic_now=m0 + ttl + 1,
+                        projects_dir=step_projects), "resume")
 script_persona = {**echo_persona, "start": "script"}
 remote_persona = {**echo_persona, "machine": "air-m1"}
 check("start:script -> fresh (no scan)",

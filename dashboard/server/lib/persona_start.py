@@ -120,10 +120,14 @@ IDLE_START_CACHE_TTL_SEC = 30
 
 #: Per-call herdr budgets, kept so a whole start (tab create + shell wait +
 #: pane run) stays under AgentBar's 30s `personaStartTimeoutSeconds`.
-#: Worst case (every call times out): 5 + (8 + 2) + 5 + 3 (tab close) = 23s.
-HERDR_CALL_TIMEOUT_SEC = 5
-SHELL_READY_TIMEOUT_MS = 8000
-TAB_CLOSE_TIMEOUT_SEC = 3
+#: Worst case (every call times out): 4 + (16 + 2) + 4 + 2 (tab close) = 28s.
+#: The shell wait gets most of it: measured live 2026-09-26 at load average
+#: ~34, a new tab's zsh drew its first prompt after 6.3-8.2s, so the old 8s
+#: wait refused a real start. The herdr socket calls themselves took
+#: 0.01-0.04s on that same run, so 4s/2s is still ~100x headroom.
+HERDR_CALL_TIMEOUT_SEC = 4
+SHELL_READY_TIMEOUT_MS = 16000
+TAB_CLOSE_TIMEOUT_SEC = 2
 
 #: The new shell's env var holding the message (brief: `$PERSONA_MESSAGE`).
 MESSAGE_ENV_VAR = "PERSONA_MESSAGE"

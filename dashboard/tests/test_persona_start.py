@@ -476,6 +476,10 @@ try:
     total = (ps.HERDR_CALL_TIMEOUT_SEC + shell_wait_budget + ps.HERDR_CALL_TIMEOUT_SEC
              + ps.TAB_CLOSE_TIMEOUT_SEC)
     check("worst case (create + wait + run + close) stays under AgentBar's 30s", total < 30, True)
+    # Live run 2026-09-26 (load ~34): a new tab's zsh took up to 8.2s to draw
+    # its prompt and the old 8s wait refused a real start. Keep ~2x that.
+    check("shell wait allows a slow zsh under load (>= 15s)",
+          ps.SHELL_READY_TIMEOUT_MS >= 15000, True)
     ops.tab_create("/fake-folder", "x", {"PERSONA_MESSAGE": "a=b=c"})
     check("a message with '=' is one --env argument, split only by herdr at the first '='",
           recorded[-1][1][-2:], ["--env", "PERSONA_MESSAGE=a=b=c"])

@@ -12,5 +12,10 @@
       "maxParallel": 4,
       "repoRoot": "/Users/wifey/01_Project/AptusFit"
     }
+  },
+  "remote": {
+    "_comment": "Phase 1a (see server/REMOTE.md): off unless enabled. Generate the token with scripts/remote-token.py — this block only says WHICH Host names may authenticate, never the secret itself.",
+    "enabled": false,
+    "hosts": ["mymac.tailxxxx.ts.net"]
   }
 }

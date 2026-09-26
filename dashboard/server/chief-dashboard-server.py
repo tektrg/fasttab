@@ -195,6 +195,7 @@ from chief_dashboard_views import (  # noqa: E402
 from chief_dashboard_memory import SAMPLER  # noqa: E402
 import chief_dashboard_actions as session_actions  # noqa: E402
 import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, generic)
+import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -2398,6 +2399,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+        # Phase 1a remote access: flush the audit line for this write once
+        # its real outcome (this status) is known — see _reject_foreign_write.
+        pending = getattr(self, "_pending_remote_audit", None)
+        if pending is not None:
+            self._pending_remote_audit = None
+            remote_access.append_audit(
+                pending["host"], pending["route"], pending["method"],
+                status, row_id=pending.get("row_id"))
 
     def _read_json_body(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -2425,16 +2434,116 @@ class Handler(BaseHTTPRequestHandler):
             host = netloc.split(":")[0]
         return host.strip("[]").lower() in cls._LOOPBACK_HOSTNAMES
 
-    def _reject_foreign_write(self):
-        """True (and a 403 already sent) when this write must be refused.
+    # ---- Phase 1a remote access (tailscale serve) -----------------------
+    # A request whose Host is 127.0.0.1/localhost/[::1] never touches any
+    # of this — _remote_context short-circuits to None on the very first
+    # check, so the loopback path below is byte-for-byte what it was
+    # before this phase.
 
-        No Origin header at all — a curl call, or a same-page fetch that
-        never sends one — is NOT foreign; only an explicit cross-origin
-        Origin, or a Host naming something other than this loopback
-        server, counts. Called once at the top of every write method,
-        before any path routing or handler runs.
+    def _remote_context(self):
+        """The configured remote hostname this request's Host header names,
+        or None — None covers four cases identically (no Host header,
+        loopback Host, remote access disabled, or an unrecognized Host),
+        since all four get the pre-existing, unchanged behaviour for that
+        route. The `not host_header` short-circuit also keeps this from
+        reading config.json off disk for a request that could never match
+        anyway (a real remote client always sends a Host)."""
+        host_header = self.headers.get("Host")
+        if not host_header or self._is_loopback_netloc(host_header):
+            return None
+        enabled, hosts = remote_access.load_remote_settings()
+        if not enabled:
+            return None
+        return remote_access.matched_remote_host(host_header, hosts)
+
+    def _remote_authenticated(self, matched_host):
+        auth = self.headers.get("Authorization") or ""
+        if auth.startswith("Bearer "):
+            if remote_access.verify_token(auth[len("Bearer "):].strip()):
+                return True
+        cookies = remote_access.parse_cookies(self.headers.get("Cookie"))
+        session_id = cookies.get(remote_access.SESSION_COOKIE_NAME)
+        return remote_access.session_host(session_id) == matched_host
+
+    def _note_remote_audit_row(self, row_id):
+        pending = getattr(self, "_pending_remote_audit", None)
+        if pending is not None and row_id is not None:
+            pending["row_id"] = row_id
+
+    def _handle_remote_login(self, matched_host):
+        if remote_access.is_login_blocked(self.client_address):
+            self._send_page(remote_access.render_login_page(
+                "Too many attempts — wait a minute and try again."))
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b""
+        token = remote_access.parse_login_form(raw)
+        if not remote_access.verify_token(token):
+            remote_access.record_login_failure(self.client_address)
+            remote_access.append_audit(matched_host, "/remote/login", "POST", 401)
+            self._send_page(remote_access.render_login_page("Invalid token."))
+            return
+        remote_access.clear_login_failures(self.client_address)
+        session_id = remote_access.create_session(matched_host)
+        remote_access.append_audit(matched_host, "/remote/login", "POST", 200)
+        self.send_response(302)
+        self.send_header("Location", "/")
+        self.send_header("Set-Cookie", remote_access.session_cookie_header(session_id))
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _reject_foreign_write(self):
+        """True (and a response already sent) when this write must be
+        refused. Called once at the top of every write method, before any
+        path routing or handler runs.
+
+        Remote Host (matches config.json's `remote.hosts`, tailscale-serve
+        case): auth is required first — an unauthenticated remote request
+        is refused with 401 before Origin is even inspected, since Origin
+        can't be trusted to identify a legitimate caller until one is
+        known. Once authenticated, Origin (when the browser sends one)
+        must equal this exact remote host — a same-page fetch from the
+        phone PWA satisfies that; anything else is CSRF and gets 403.
+
+        Loopback / anything else: unchanged from before this phase — no
+        Origin header at all (a curl call, or a same-page fetch that never
+        sends one) is NOT foreign; only an explicit cross-origin Origin, or
+        a Host naming something other than this loopback server, counts.
         """
         origin = self.headers.get("Origin")
+        remote_host = self._remote_context()
+        if remote_host is not None:
+            # self.path is only read on this branch (a real remote Host was
+            # matched) — the loopback-only unit tests for this method
+            # construct a bare Handler with no real request/socket behind
+            # it, so nothing below this point may assume self.path exists.
+            path = urlparse(self.path).path
+            if path == "/remote/login":
+                self._handle_remote_login(remote_host)
+                return True
+            if not self._remote_authenticated(remote_host):
+                remote_access.append_audit(remote_host, path, self.command, 401)
+                self._send_json({"ok": False, "error": "unauthenticated"}, status=401)
+                return True
+            if origin:
+                try:
+                    origin_host = remote_access.strip_port(urlparse(origin).netloc)
+                except Exception:
+                    origin_host = None
+                if origin_host != remote_host:
+                    remote_access.append_audit(remote_host, path, self.command, 403)
+                    self._send_json(
+                        {"ok": False, "error": "refused: foreign Origin"},
+                        status=403)
+                    return True
+            # Authenticated + CSRF-clean: allow through, and remember what
+            # to audit once the real handler's response status is known
+            # (flushed from _send_json).
+            self._pending_remote_audit = {
+                "host": remote_host, "route": path, "method": self.command,
+            }
+            return False
+
         if origin:
             try:
                 ok = self._is_loopback_netloc(urlparse(origin).netloc)
@@ -2495,6 +2604,25 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        # Phase 1a remote access: on a matched remote Host, EVERY route
+        # (including the SPA shell, static /assets/, and the /api/events
+        # SSE stream) requires auth — unlike loopback, where GET has never
+        # needed any. /remote/login itself must stay reachable unauthed,
+        # or there would be no way to ever get a session.
+        remote_host = self._remote_context()
+        if remote_host is not None:
+            if path == "/remote/login":
+                self._send_page(remote_access.render_login_page())
+                return
+            if not self._remote_authenticated(remote_host):
+                if path.startswith("/api/"):
+                    self._send_json({"ok": False, "error": "unauthenticated"}, status=401)
+                else:
+                    self.send_response(302)
+                    self.send_header("Location", "/remote/login")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                return
         if path == "/" or path == "/index.html":
             self._serve_spa()
         elif path == "/legacy":
@@ -2557,9 +2685,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         if path.startswith("/api/session/"):
+            session_id = path[len("/api/session/"):]
+            self._note_remote_audit_row(session_id)
             try:
                 self._send_json(handle_session_action(
-                    path[len("/api/session/"):], self._read_json_body()))
+                    session_id, self._read_json_body()))
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)}, status=200)
             return
@@ -2613,6 +2743,7 @@ class Handler(BaseHTTPRequestHandler):
             if not pane_id:
                 self._send_json({"ok": False, "error": "missing paneId"}, status=400)
                 return
+            self._note_remote_audit_row(pane_id)
             if path == "/api/focus":
                 result = focus_pane(pane_id)
             elif path == "/api/answer":

@@ -74,19 +74,6 @@ struct AdvancedSettingsView: View {
                             }
                         }
                     }
-
-                    HStack(spacing: 8) {
-                        Text("Safari automation:")
-                            .foregroundStyle(.secondary)
-                        Text(safariAutomationStatusText)
-                            .font(.callout.weight(.medium))
-                        Spacer()
-                        Button("Recheck") {
-                            appState.browserService.recheckSafariAutomation()
-                        }
-                        .controlSize(.small)
-                    }
-                    .font(.caption)
                 }
             }
         }
@@ -136,19 +123,6 @@ struct AdvancedSettingsView: View {
     private func openFullDiskAccessSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
             NSWorkspace.shared.open(url)
-        }
-    }
-
-    private var safariAutomationStatusText: String {
-        switch appState.browserService.safariAutomationStatus {
-        case .notInstalled:
-            return "Safari not installed"
-        case .granted:
-            return "granted"
-        case .denied:
-            return "denied"
-        case .notDetermined:
-            return "not yet requested"
         }
     }
 }

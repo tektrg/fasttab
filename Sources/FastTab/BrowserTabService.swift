@@ -5,13 +5,6 @@ import ApplicationServices
 import FastTabSync
 import CommandBarKit
 
-enum SafariAutomationStatus: String, Sendable {
-    case notInstalled
-    case granted
-    case denied
-    case notDetermined
-}
-
 @MainActor
 class BrowserTabService: ObservableObject {
     @Published var results: [BrowserSearchResult] = []
@@ -21,7 +14,6 @@ class BrowserTabService: ObservableObject {
     @Published private(set) var openTabCount: Int = 0
     @Published private(set) var duplicateTabCount: Int = 0
     @Published private(set) var hasFetchedOpenTabCount: Bool = false
-    @Published private(set) var safariAutomationStatus: SafariAutomationStatus = .notDetermined
 
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "BrowserTabService")
     private var lastActiveTimes: [String: Date] = [:]
@@ -132,16 +124,6 @@ class BrowserTabService: ObservableObject {
             seedFromLegacy: self.lastActiveTimes,
             backendAppNames: backendAppNames
         )
-        self.safariAutomationStatus = enabled.contains(.safari) ? .notDetermined : .notInstalled
-        if enabled.contains(.safari), Self.isSafariInstalled() {
-            Task.detached(priority: .utility) { [weak self] in
-                let status = Self.probeSafariAutomationPrivileged()
-                await MainActor.run {
-                    self?.safariAutomationStatus = status
-                    self?.logger.info("async safariAutomation probed: \(status.rawValue, privacy: .public)")
-                }
-            }
-        }
         logger.info("BrowserTabService init. backends=\(backendAppNames.joined(separator: ","), privacy: .public) frecencyEntries=\(self.frecency.count)")
         startActiveTabPoll()
         observeExtensionTabEvents()
@@ -323,43 +305,6 @@ class BrowserTabService: ObservableObject {
     /// can only ever fail, for a browser that will never have tabs.
     private static func isInstalled(bundleIdentifier: String) -> Bool {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
-    }
-
-    private static func probeSafariAutomation() -> SafariAutomationStatus {
-        guard isSafariInstalled() else { return .notInstalled }
-        return probeSafariAutomationPrivileged()
-    }
-
-    private nonisolated static func probeSafariAutomationPrivileged() -> SafariAutomationStatus {
-        var addrDesc = AEAddressDesc()
-        let bundleID = "com.apple.Safari"
-        let createStatus: OSErr = bundleID.withCString { cstr in
-            AECreateDesc(
-                DescType(typeApplicationBundleID),
-                cstr,
-                Int(strlen(cstr)),
-                &addrDesc
-            )
-        }
-        guard createStatus == noErr else { return .notDetermined }
-        defer { AEDisposeDesc(&addrDesc) }
-
-        let result = AEDeterminePermissionToAutomateTarget(&addrDesc, typeWildCard, typeWildCard, false)
-        switch Int(result) {
-        case Int(noErr):
-            return .granted
-        case Int(errAEEventNotPermitted):
-            return .denied
-        case -1744: // errAEEventWouldRequireUserConsent
-            return .notDetermined
-        default:
-            return .notDetermined
-        }
-    }
-
-    func recheckSafariAutomation() {
-        safariAutomationStatus = Self.probeSafariAutomation()
-        logger.info("recheckSafariAutomation status=\(self.safariAutomationStatus.rawValue, privacy: .public)")
     }
 
     /// Probes whether the running process has Full Disk Access to Safari's

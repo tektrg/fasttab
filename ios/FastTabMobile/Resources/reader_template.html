@@ -520,7 +520,9 @@ function focusHighlight(id) {
       mark.classList.add('reader-highlight-flash');
       setTimeout(function() { mark.classList.remove('reader-highlight-flash'); }, 1400);
     } else {
+      isRestoringScroll = true;
       window.scrollTo(0, 0);
+      setTimeout(function() { isRestoringScroll = false; }, 100);
     }
   }, 50);
 }

@@ -111,6 +111,10 @@ public extension ReaderHighlight {
 /// the title stored on the highlight itself, then the extracted article cache,
 /// then the Last Opened history, then finally the host name of the URL.
 public enum ReaderHighlightTitleResolver {
+    /// Article-cache titles already looked up, keyed by `urlKey`. The cache lookup can hit disk
+    /// and rewrites its access index, too costly to repeat on every carousel re-render.
+    @MainActor private static var cachedTitles: [String: String] = [:]
+
     @MainActor
     public static func resolve(for highlight: ReaderHighlight) -> String {
         if let stored = highlight.title, !stored.isEmpty {
@@ -119,7 +123,11 @@ public enum ReaderHighlightTitleResolver {
         guard let url = highlight.articleURL else {
             return highlight.urlKey
         }
+        if let memo = cachedTitles[highlight.urlKey] {
+            return memo
+        }
         if let cached = ReaderArticleCache.shared.article(for: url)?.title, !cached.isEmpty {
+            cachedTitles[highlight.urlKey] = cached
             return cached
         }
         if let lastOpened = LastOpenedStore.shared.items.first(where: { $0.url == url.absoluteString })?.title,

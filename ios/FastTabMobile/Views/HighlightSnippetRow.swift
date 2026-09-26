@@ -37,13 +37,15 @@ public struct HighlightSnippetRow: View {
         Circle()
             .fill(highlight.color.swiftUIColor)
             .frame(width: 10, height: 10)
+            .accessibilityHidden(true)
     }
 
     private var snippetText: some View {
         Text(highlight.selectedText)
             .font(DS.Font.body)
             .foregroundStyle(.primary)
-            .lineLimit(3)
+            // Cards reserve all 3 lines so every card in the carousel has the same height.
+            .lineLimit(3, reservesSpace: style == .card)
             .multilineTextAlignment(.leading)
     }
 

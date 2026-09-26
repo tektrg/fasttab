@@ -2625,21 +2625,63 @@ class Handler(BaseHTTPRequestHandler):
     # check, so the loopback path below is byte-for-byte what it was
     # before this phase.
 
+    #: Tailscale serve/funnel strips ANY client-supplied copy of these
+    #: headers before forwarding and re-adds its own (see server/REMOTE.md,
+    #: "Auth mechanics" — confirmed against Tailscale's own docs: identity
+    #: headers "will [be] remove[d] for security reasons, to avoid header
+    #: spoofing"). Their presence is proof this request transited tailscale
+    #: serve — used ONLY as that proof, never to identify which user, since
+    #: they are absent for tagged devices and this is a single-user server.
+    _TAILSCALE_PROXY_HEADERS = (
+        "Tailscale-User-Login", "Tailscale-User-Name", "Tailscale-App-Capabilities",
+    )
+
+    def _proxied_via_tailscale(self):
+        return any(self.headers.get(h) for h in self._TAILSCALE_PROXY_HEADERS)
+
     def _remote_context(self):
-        """The configured remote hostname this request's Host header names,
-        or None — None covers four cases identically (no Host header,
-        loopback Host, remote access disabled, or an unrecognized Host),
-        since all four get the pre-existing, unchanged behaviour for that
-        route. The `not host_header` short-circuit also keeps this from
-        reading config.json off disk for a request that could never match
-        anyway (a real remote client always sends a Host)."""
+        """The value to gate this request on, or None for "genuinely
+        loopback — pre-existing, fully unauthenticated behaviour applies."
+
+        QA pass 1 fix (two confirmed bypasses of the remote-auth gate):
+
+        1. Host-header spoofing. `tailscale serve` passes the client's Host
+           header through to this backend UNCHANGED — it does not rewrite it
+           to the backend address. So a remote attacker on the tailnet could
+           set `Host: 127.0.0.1` and be treated as a trusted local caller,
+           skipping auth entirely. Fixed by never trusting a loopback-looking
+           Host when `_proxied_via_tailscale()` proves the request actually
+           came in through the proxy.
+        2. Fail-OPEN on an unrecognized Host. A Host that was simply not one
+           of `remote.hosts` (typo, IP address, any other string) used to
+           return None here — the SAME "no auth needed" value as a real
+           loopback request — so `do_GET` served every route, including
+           `/api/state` and session transcripts, with zero auth to anyone who
+           just avoided sending the configured hostname. Fixed by returning
+           UNRECOGNIZED_REMOTE_HOST (a value nothing is ever authenticated
+           against) instead of None whenever the Host isn't proven loopback,
+           so it goes through the exact same auth gate as a recognized
+           remote host and can never succeed without the real token/session.
+
+        Writes already fail closed here via `_reject_foreign_write`'s
+        loopback-Origin/Host fallback (R20) — this fix brings GET/SSE/static
+        routes up to the same fail-closed posture, which is the only route
+        class this bug affected.
+        """
         host_header = self.headers.get("Host")
-        if not host_header or self._is_loopback_netloc(host_header):
+        proxied = self._proxied_via_tailscale()
+        if not proxied and (not host_header or self._is_loopback_netloc(host_header)):
             return None
         enabled, hosts = remote_access.load_remote_settings()
         if not enabled:
+            # remote.enabled is false: the operator hasn't opted into any of
+            # this, so behave exactly as if this module didn't exist (same
+            # as before this fix) — the fail-closed sentinel below is only
+            # for the case remote access IS switched on but this particular
+            # Host wasn't proven loopback.
             return None
-        return remote_access.matched_remote_host(host_header, hosts)
+        matched = remote_access.matched_remote_host(host_header, hosts)
+        return matched or remote_access.UNRECOGNIZED_REMOTE_HOST
 
     def _remote_authenticated(self, matched_host):
         auth = self.headers.get("Authorization") or ""
@@ -2656,14 +2698,27 @@ class Handler(BaseHTTPRequestHandler):
             pending["row_id"] = row_id
 
     def _handle_remote_login(self, matched_host):
-        if remote_access.is_login_blocked(self.client_address):
-            self._send_page(remote_access.render_login_page(
-                "Too many attempts — wait a minute and try again."))
-            return
+        """Verify the token BEFORE consulting the failure-rate limiter.
+
+        QA pass 1 fix: `client_address` is 127.0.0.1 for EVERY remote
+        request (tailscale serve always proxies in over loopback), so
+        `is_login_blocked` is keyed on the same bucket for every remote
+        caller, not per real attacker — it was checked first, so an
+        attacker sending one wrong-token guess roughly once a minute could
+        keep the shared 60s window perpetually full and lock the real
+        owner's own phone out of ever logging in. A request carrying the
+        actual token proves its sender isn't the guesser being rate-limited,
+        so it must always be allowed through regardless of recent failures
+        from whoever else is hitting this endpoint; only a WRONG guess is
+        subject to the limiter (unchanged otherwise)."""
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b""
         token = remote_access.parse_login_form(raw)
         if not remote_access.verify_token(token):
+            if remote_access.is_login_blocked(self.client_address):
+                self._send_page(remote_access.render_login_page(
+                    "Too many attempts — wait a minute and try again."))
+                return
             remote_access.record_login_failure(self.client_address)
             remote_access.append_audit(matched_host, "/remote/login", "POST", 401)
             self._send_page(remote_access.render_login_page("Invalid token."))

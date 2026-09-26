@@ -120,12 +120,31 @@ check("_remote_context is None on loopback", h._remote_context(), None)
 rejected = h._reject_foreign_write()
 check("loopback write not rejected", rejected, False)
 
-print("== unknown Host (not loopback, not configured remote): unchanged 403 ==")
+print("== unknown Host (not loopback, not configured remote): now requires auth, ==")
+print("   never falls open (QA pass 1 fix — this used to bypass GET auth) ==")
 h = FakeHandler({"Host": "some-other-machine.example"})
-check("_remote_context is None on unmatched Host", h._remote_context(), None)
+check("_remote_context is the unrecognized-host sentinel, never None",
+      h._remote_context(), remote_access.UNRECOGNIZED_REMOTE_HOST)
 rejected = h._reject_foreign_write()
 check("unknown-host write rejected", rejected, True)
-check("unknown-host status is 403", h.response_status, 403)
+check("unknown-host status is 401 (auth gate, not a bare Origin/Host 403)",
+      h.response_status, 401)
+
+h = FakeHandler({"Host": "some-other-machine.example"}, path="/api/state", method="GET")
+h.do_GET()
+check("unknown-host GET /api/state -> 401, never served unauthenticated",
+      h.response_status, 401)
+
+print("== Host-header spoofing: 'Host: 127.0.0.1' proven proxied by a ==")
+print("   Tailscale identity header must NOT be trusted as loopback ==")
+h = FakeHandler({"Host": "127.0.0.1:4711", "Tailscale-User-Login": "attacker@example.com"})
+check("_remote_context is not None when proxying is proven, even with a loopback-looking Host",
+      h._remote_context() is None, False)
+h = FakeHandler({"Host": "127.0.0.1:4711", "Tailscale-User-Login": "attacker@example.com"},
+                 path="/api/state", method="GET")
+h.do_GET()
+check("spoofed-loopback-Host GET /api/state -> 401, never served unauthenticated",
+      h.response_status, 401)
 
 print("== remote Host, GET, unauthenticated: 401 for /api/*, redirect otherwise ==")
 h = FakeHandler({"Host": REMOTE_HOST}, path="/api/state", method="GET")
@@ -219,12 +238,67 @@ for _ in range(remote_access.LOGIN_MAX_FAILURES):
                       body=json.dumps({"token": "still-wrong"}).encode(),
                       client_ip=blocked_ip)
     hh._reject_foreign_write()
-h_blocked = FakeHandler({"Host": REMOTE_HOST}, path="/remote/login", method="POST",
-                         body=json.dumps({"token": TOKEN}).encode(),
-                         client_ip=blocked_ip)
-h_blocked._reject_foreign_write()
-check("blocked even with the correct token after too many failures",
-      b"Too many attempts" in h_blocked.wfile.data, True)
+h_still_wrong = FakeHandler({"Host": REMOTE_HOST}, path="/remote/login", method="POST",
+                             body=json.dumps({"token": "still-wrong"}).encode(),
+                             client_ip=blocked_ip)
+h_still_wrong._reject_foreign_write()
+check("another wrong guess is blocked once the window is full",
+      b"Too many attempts" in h_still_wrong.wfile.data, True)
+
+print("== QA pass 1 fix: client_address is 127.0.0.1 for EVERY remote request ==")
+print("   (tailscale serve always proxies over loopback), so the failure ==")
+print("   window above is GLOBAL, not per-attacker — a real token must ==")
+print("   still get the owner in despite it, or an attacker could lock the ==")
+print("   owner's own phone out indefinitely by trickling wrong guesses ==")
+h_correct_during_block = FakeHandler(
+    {"Host": REMOTE_HOST}, path="/remote/login", method="POST",
+    body=json.dumps({"token": TOKEN}).encode(), client_ip=blocked_ip)
+rejected = h_correct_during_block._reject_foreign_write()
+check("the correct token still logs in during an active lockout window",
+      rejected, True)
+check("correct-token login redirects home (not blocked)",
+      h_correct_during_block.response_status, 302)
+check("correct-token login is NOT the 'too many attempts' page",
+      b"Too many attempts" in h_correct_during_block.wfile.data, False)
+
+print("== token rotation revokes every session already issued (not just ==")
+print("   future logins — previously a documented gap) ==")
+h_login = FakeHandler({"Host": REMOTE_HOST}, path="/remote/login", method="POST",
+                       body=json.dumps({"token": TOKEN}).encode(),
+                       client_ip="203.0.113.90")
+h_login._reject_foreign_write()
+rotate_cookie = h_login.response_headers.get("Set-Cookie", "")
+rotate_session_id = None
+for part in rotate_cookie.split(";"):
+    if part.strip().startswith(f"{remote_access.SESSION_COOKIE_NAME}="):
+        rotate_session_id = part.strip().split("=", 1)[1]
+check("session works before rotation",
+      remote_access.session_host(rotate_session_id), REMOTE_HOST)
+with open(remote_access.TOKEN_PATH, "w") as f:
+    f.write("a-brand-new-rotated-token\n")
+os.chmod(remote_access.TOKEN_PATH, 0o600)
+check("session is invalidated the moment the token file is rotated",
+      remote_access.session_host(rotate_session_id), None)
+h_after_rotate = FakeHandler(
+    {"Host": REMOTE_HOST, "Cookie": f"{remote_access.SESSION_COOKIE_NAME}={rotate_session_id}"},
+    path="/api/state", method="GET")
+h_after_rotate.do_GET()
+check("GET with the pre-rotation cookie is refused after rotation",
+      h_after_rotate.response_status, 401)
+# restore the original token so later assertions in this file (if any were
+# appended after this block) keep using the well-known TOKEN constant.
+with open(remote_access.TOKEN_PATH, "w") as f:
+    f.write(TOKEN + "\n")
+os.chmod(remote_access.TOKEN_PATH, 0o600)
+
+print("== token file permissions: a loosened mode is never trusted ==")
+os.chmod(remote_access.TOKEN_PATH, 0o644)
+check("world-readable token file reads as no token", remote_access.load_token(), None)
+check("verify_token always fails once the file is world-readable",
+      remote_access.verify_token(TOKEN), False)
+os.chmod(remote_access.TOKEN_PATH, 0o600)
+check("token trusted again once mode is restored to 0600",
+      remote_access.load_token(), TOKEN)
 
 print()
 print("== audit log: every remote write attempt above left a JSONL line ==")

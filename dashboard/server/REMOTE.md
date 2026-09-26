@@ -62,25 +62,52 @@ phases).
 - Every remote write attempt (allowed or refused) is appended as one JSON
   line to `~/.config/agent-dashboard/remote-audit.jsonl`
   (`ts`, `host`, `route`, `method`, `rowId` when known, `status`).
-- A request whose `Host` is neither loopback nor a configured remote host
-  gets the pre-existing behaviour: writes are refused (`403`, unchanged),
-  GETs are answered exactly as before (deliberately not tightened here, to
-  avoid regressing anything that already relies on today's Host-blind GET
-  behaviour).
+- A request whose `Host` is neither loopback nor a configured remote host is
+  **refused with `401`** the same as an unauthenticated recognized-remote-host
+  request would be — it is never served as if it were loopback. (QA pass 1,
+  2026-09-26: this used to fall through to the exact same unauthenticated
+  handling as a genuine loopback request for every `GET` route, so anyone
+  reaching the tailscale-served port could read `/api/state`, session
+  transcripts, etc. with zero auth just by NOT sending the configured
+  hostname as `Host`. Writes were already safe — R20's Origin/Host check
+  refused them regardless.)
+- A `Host` that merely *looks* loopback (`127.0.0.1`/`localhost`/`[::1]`) is
+  **not** trusted as loopback when the request also carries a Tailscale
+  identity header (`Tailscale-User-Login`/`-User-Name`/`-App-Capabilities`).
+  `tailscale serve` passes the client's `Host` header through to this
+  backend unchanged — it does not rewrite it to match the backend address —
+  so a remote attacker could otherwise set `Host: 127.0.0.1` and be treated
+  as a trusted local caller. Tailscale strips any client-supplied copy of
+  those three headers and re-adds its own before proxying in, so their mere
+  presence is reliable proof the request transited `tailscale serve` (used
+  only as that proof here, never to identify which tailnet user).
 
 ## Auth mechanics (for anyone auditing this)
 
 - **Token**: one shared secret in `~/.config/agent-dashboard/remote-token`
   (mode 600), generated/rotated by `scripts/remote-token.py`. Compared with
-  `hmac.compare_digest` (constant-time).
+  `hmac.compare_digest` (constant-time). A token file that is missing,
+  empty, or looser than mode 600 (group/other read or write bits set) reads
+  as "no token configured" — it is never trusted, even if the bytes inside
+  are correct, since a leaked-permission file has already leaked the secret.
 - **Session**: `POST /remote/login` exchanges the token for a random
   32-byte session id, held in an in-memory map on the server process (not
   persisted, not HMAC-signed — a restart just costs the phone one
   re-login). Set as an `HttpOnly; Secure; SameSite=Strict` cookie, 30-day
-  `Max-Age`.
-- **Rate limiting**: 5 failed logins per source IP within 60s blocks
-  further attempts from that IP until the window rolls off (in-memory,
-  resets on restart).
+  `Max-Age`. Each session also remembers a fingerprint of the token that was
+  live when it was issued; **rotating the token (`--rotate`) immediately
+  invalidates every session already issued**, not just future logins — the
+  very next request on an old session gets `401` and has to re-login with
+  the new token.
+- **Rate limiting**: 5 failed logins within 60s blocks further wrong-token
+  attempts until the window rolls off (in-memory, resets on restart). This
+  is keyed on the caller's IP, but every remote request arrives from
+  `client_address` `127.0.0.1` (tailscale serve always proxies over
+  loopback) — so in practice the window is shared by every remote caller,
+  not per-attacker. To keep that from letting an attacker lock the real
+  owner out of their own phone, **a request carrying the correct token
+  always succeeds regardless of the window** — only a wrong guess is
+  subject to the limiter.
 - Also acceptable: `Authorization: Bearer <token>` directly, for scripts
   that don't want to carry a cookie jar (the token itself, not a session).
 
@@ -88,6 +115,8 @@ phases).
 
 - Phone-friendly UI, PWA manifest/service worker (phase 2).
 - Push notifications (phase 3).
-- Revoking a single issued session without restarting the server (today:
-  restart clears every session; rotating the token only blocks *future*
-  logins, not sessions already granted).
+- Revoking one single issued session without rotating the shared token or
+  restarting the server (today: restart clears every session; rotating the
+  token now revokes every session at once — see above — but there's still
+  no way to kick out just one stolen/leaked session while leaving others
+  live).

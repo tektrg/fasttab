@@ -119,7 +119,11 @@ be `"resume"`; the folder scan is cached 30s.
 Starts or resumes an idle persona's Claude session in a new herdr tab in
 its registry folder. **Localhost only**: 403 on the remote (tailscale)
 listener even when authenticated. Requires `Content-Type: application/json`
-(400 otherwise).
+(400 otherwise). These early refusals (and the foreign-Origin 403 on every
+write) answer before reading the body, so `Handler.end_headers` closes the
+connection whenever a body was left unread — otherwise keep-alive would
+parse that body as a second, attacker-written request (live-proven
+2026-09-26; `tests/test_remote_listener_integration.py`).
 
 - Request: `{"persona": "<name>", "text": "<first message>", "fresh": true?}`
   — a name, never a path. `text` follows the Send message rules

@@ -61,6 +61,10 @@ final class AutomationPermissionStore: ObservableObject {
     private let sourceSelection: SourceSelectionStore
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "AutomationPermission")
     private var recheckTask: Task<Void, Never>?
+    /// Bumped by each answered `requestAccess`, so a recheck that started
+    /// earlier can't overwrite the fresher answer with a stale probe.
+    private var requestGeneration = 0
+    private var answeredGeneration: [SearchSource: Int] = [:]
     private var extensionStatusSubscription: AnyCancellable?
 
     init(sourceSelection: SourceSelectionStore = .shared, extensionBridge: ExtensionBridge = .shared) {
@@ -87,6 +91,23 @@ final class AutomationPermissionStore: ObservableObject {
         )
     }
 
+    /// Browsers (by `appName`) whose tabs actually come through the extension:
+    /// connected, compatible, and the extension feature switched on.
+    var usableExtensionAppNames: Set<String> {
+        Self.usableExtensionAppNames(
+            extensionEnabled: ExtensionBetaPreference.isEnabled,
+            connectedAppNames: extensionConnectedAppNames
+        )
+    }
+
+    /// The one definition of "extension usable for browser X".
+    nonisolated static func usableExtensionAppNames(
+        extensionEnabled: Bool,
+        connectedAppNames: Set<String>
+    ) -> Set<String> {
+        extensionEnabled ? connectedAppNames : []
+    }
+
     /// Denied sources, minus Chromium browsers whose tabs arrive through the
     /// connected extension instead of Automation (matched per browser).
     nonisolated static func deniedSources(
@@ -95,17 +116,18 @@ final class AutomationPermissionStore: ObservableObject {
         extensionEnabled: Bool,
         extensionConnectedAppNames: Set<String>
     ) -> [SearchSource] {
-        tracked.filter { source in
+        let usable = usableExtensionAppNames(extensionEnabled: extensionEnabled, connectedAppNames: extensionConnectedAppNames)
+        return tracked.filter { source in
             guard statuses[source] == .denied else { return false }
-            guard extensionEnabled,
-                  let spec = ChromiumBrowserSpec.all.first(where: { $0.source == source }) else { return true }
-            return !extensionConnectedAppNames.contains(spec.appName)
+            guard let spec = ChromiumBrowserSpec.all.first(where: { $0.source == source }) else { return true }
+            return !usable.contains(spec.appName)
         }
     }
 
     /// Re-probes every tracked source off the main thread. Never shows a prompt.
     func recheck() {
         let sources = trackedSources
+        let startGeneration = requestGeneration
         recheckTask?.cancel()
         recheckTask = Task { [weak self] in
             var fresh: [SearchSource: AutomationPermissionStatus] = [:]
@@ -113,6 +135,10 @@ final class AutomationPermissionStore: ObservableObject {
                 fresh[source] = await Self.probe(source, askUserIfNeeded: false)
             }
             guard !Task.isCancelled, let self else { return }
+            // Keep answers the user gave after this probe started.
+            for (source, generation) in self.answeredGeneration where generation > startGeneration {
+                fresh[source] = self.statuses[source]
+            }
             self.statuses = fresh
             let summary = fresh.map { "\($0.key.rawValue)=\($0.value.rawValue)" }.sorted().joined(separator: ",")
             self.logger.info("automation recheck: \(summary, privacy: .public)")
@@ -134,6 +160,8 @@ final class AutomationPermissionStore: ObservableObject {
         }
         let status = await Self.promptForPermission(source)
         statuses[source] = status
+        requestGeneration += 1
+        answeredGeneration[source] = requestGeneration
         logger.info("automation request \(source.rawValue, privacy: .public) -> \(status.rawValue, privacy: .public)")
         return status
     }

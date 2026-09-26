@@ -84,9 +84,11 @@ struct AutomationPermissionSection: View {
             case .denied:
                 Button("Fix") { permissions.openAutomationSettings() }
                     .controlSize(.small)
+                    .accessibilityLabel("Fix \(source.displayName) access")
             case .notYetAsked, .appNotRunning:
                 Button("Allow") { Task { await permissions.requestAccess(for: source) } }
                     .controlSize(.small)
+                    .accessibilityLabel("Allow \(source.displayName)")
                     .disabled(permissions.requestInFlight != nil)
             default:
                 EmptyView()
@@ -111,6 +113,7 @@ struct AutomationPermissionSection: View {
                 .font(.callout)
         case .none:
             ProgressView().controlSize(.small)
+                .accessibilityLabel("Checking access")
         }
     }
 }

@@ -162,7 +162,11 @@ struct OnboardingView: View {
                         )
                         .transition(stepTransition)
                     case .extensionInstall:
-                        ExtensionInstallStep(didAutoAdvance: $didAutoAdvancePastExtension, onContinue: advance)
+                        ExtensionInstallStep(
+                            didAutoAdvance: $didAutoAdvancePastExtension,
+                            onContinue: advance,
+                            onAutoAdvance: { advance(ifStillOn: .extensionInstall) }
+                        )
                             .transition(stepTransition)
                     case .safariPermission:
                         SafariPermissionStep(onContinue: advance)
@@ -198,6 +202,13 @@ struct OnboardingView: View {
         withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
             stepIndex = min(clampedStepIndex + 1, count - 1)
         }
+    }
+
+    /// Delayed advances call this so a Continue/Back tapped in the meantime
+    /// wins — otherwise the late advance skips a step or undoes the Back.
+    private func advance(ifStillOn step: OnboardingStep) {
+        guard currentStep == step else { return }
+        advance()
     }
 
     /// Steps back through the live `steps` list, so conditional steps
@@ -541,9 +552,13 @@ private struct SourceRow: View {
 // MARK: - Recommended: browser extension
 
 private struct ExtensionInstallStep: View {
-    @ObservedObject private var extensionBridge = ExtensionBridge.shared
+    @ObservedObject private var permissions = AutomationPermissionStore.shared
     @Binding var didAutoAdvance: Bool
     let onContinue: () -> Void
+    /// Advances only if this step is still showing when the delay fires.
+    let onAutoAdvance: () -> Void
+
+    private var isExtensionUsable: Bool { !permissions.usableExtensionAppNames.isEmpty }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -600,7 +615,7 @@ private struct ExtensionInstallStep: View {
         .onAppear {
             scheduleAutoAdvanceIfConnected()
         }
-        .onChange(of: extensionBridge.status) { _, _ in
+        .onChange(of: permissions.extensionConnectedAppNames) { _, _ in
             scheduleAutoAdvanceIfConnected()
         }
     }
@@ -608,15 +623,15 @@ private struct ExtensionInstallStep: View {
     /// Advances itself the moment the bridge handshakes — install the
     /// extension in Chrome and this step finishes on its own.
     private func scheduleAutoAdvanceIfConnected() {
-        guard !didAutoAdvance, extensionBridge.status.contains(where: { $0.isConnected }) else { return }
+        guard !didAutoAdvance, isExtensionUsable else { return }
         didAutoAdvance = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            onContinue()
+            onAutoAdvance()
         }
     }
 
     private var connectionStatus: some View {
-        let connected = extensionBridge.status.contains(where: { $0.isConnected })
+        let connected = isExtensionUsable
         return HStack(spacing: 8) {
             Image(systemName: connected ? "checkmark.circle.fill" : "circle.dashed")
                 .foregroundStyle(connected ? Color.green : Color.secondary)
@@ -737,7 +752,7 @@ private struct ShortcutStep: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var shortcutStore = ShortcutStore.shared
     @ObservedObject private var edgeReveal = EdgeRevealStore.shared
-    @ObservedObject private var extensionBridge = ExtensionBridge.shared
+    @ObservedObject private var permissions = AutomationPermissionStore.shared
     let onDismiss: (Bool) -> Void
 
     var body: some View {
@@ -810,7 +825,7 @@ private struct ShortcutStep: View {
 
     @ViewBuilder
     private var automationNote: some View {
-        if extensionBridge.status.contains(where: { $0.isConnected }) {
+        if !permissions.usableExtensionAppNames.isEmpty {
             // A connected companion extension covers Chromium tab switching, so
             // the Automation prompt this note warns about never appears for it.
             HStack(alignment: .top, spacing: 8) {

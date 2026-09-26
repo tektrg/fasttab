@@ -86,11 +86,14 @@ final class AutomationPermissionStore: ObservableObject {
                 if self.extensionMismatchedAppNames != mismatched { self.extensionMismatchedAppNames = mismatched }
             }
         // The Settings toggle writes through @AppStorage; follow it without polling.
+        // `didChangeNotification` posts on whichever thread wrote *any* default,
+        // and these closures are main-actor isolated (formed in a @MainActor
+        // init), so Swift 6 traps if they run off main. Hop to main first.
         extensionPreferenceSubscription = NotificationCenter.default
             .publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
             .map { _ in ExtensionBetaPreference.isEnabled }
             .removeDuplicates()
-            .receive(on: DispatchQueue.main)
             .sink { [weak self] enabled in
                 guard let self, self.isExtensionFeatureEnabled != enabled else { return }
                 self.isExtensionFeatureEnabled = enabled

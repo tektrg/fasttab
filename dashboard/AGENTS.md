@@ -123,7 +123,9 @@ listener even when authenticated. Requires `Content-Type: application/json`
 write) answer before reading the body, so `Handler.end_headers` closes the
 connection whenever a body was left unread — otherwise keep-alive would
 parse that body as a second, attacker-written request (live-proven
-2026-09-26; `tests/test_remote_listener_integration.py`).
+2026-09-26; `tests/test_remote_listener_integration.py`). An interim 1xx
+reply (`Expect: 100-continue`'s `100 Continue`, sent before the body
+exists) is exempt; the final reply is still checked.
 
 - Request: `{"persona": "<name>", "text": "<first message>", "fresh": true?}`
   — a name, never a path. `text` follows the Send message rules

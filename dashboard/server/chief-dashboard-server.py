@@ -2609,7 +2609,15 @@ class Handler(BaseHTTPRequestHandler):
         # One Handler instance serves every request on a keep-alive
         # connection, so the flag is reset per request.
         self._request_body_read = False
+        self._response_status = None
         return super().parse_request()
+
+    def send_response_only(self, code, message=None):
+        # Every status line goes through here — send_response AND
+        # handle_expect_100's interim `100 Continue` — so end_headers knows
+        # which reply it is finishing.
+        self._response_status = code
+        super().send_response_only(code, message)
 
     def _read_request_body(self):
         """The raw request body (b"" when none), marked as read."""
@@ -2632,7 +2640,13 @@ class Handler(BaseHTTPRequestHandler):
             return True
 
     def end_headers(self):
-        if self._request_body_left_unread():
+        # A 1xx reply is interim: it goes out before the client sends the
+        # body (`Expect: 100-continue`), so the body is unread by design and
+        # closing there would drop keep-alive for a legitimate POST. The
+        # final reply still runs the check below.
+        status = getattr(self, "_response_status", None)
+        is_interim_reply = status is not None and status < 200
+        if not is_interim_reply and self._request_body_left_unread():
             # http.server sets close_connection when it sees this header.
             self.send_header("Connection", "close")
         super().end_headers()

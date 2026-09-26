@@ -228,6 +228,30 @@ def opencode_state(tail_lines):
     return WAITING
 
 
+# ── herdr agent_status as a fallback for non-Claude panes (P5) ───────────────
+#: herdr's lifecycle word -> the screen state it stands in for. `unknown` is
+#: absent on purpose: it is herdr saying it cannot tell either.
+_SCREEN_STATE_BY_HERDR_STATUS = {
+    "working": ACTIVE, "blocked": NEEDS_HUMAN, "idle": WAITING, "done": WAITING,
+}
+SCREEN_STATE_SOURCE_SCREEN = "screen"
+SCREEN_STATE_SOURCE_HERDR = "herdr"
+
+
+def screen_state_with_herdr_fallback(agent_kind, screen_state, herdr_status):
+    """(screenState, source) for one pane. The screen classifier's answer
+    stands whenever it has one. Only for a NON-Claude agent (OpenCode, …) whose
+    screen reads UNKNOWN / nothing is herdr's own agent_status used — for
+    Claude panes herdr's word is the default this dashboard exists to distrust
+    (hook + screen cover them). source is None when neither has an answer."""
+    if screen_state and screen_state != UNKNOWN:
+        return screen_state, SCREEN_STATE_SOURCE_SCREEN
+    fallback = _SCREEN_STATE_BY_HERDR_STATUS.get(herdr_status)
+    if agent_kind and agent_kind != "claude" and fallback:
+        return fallback, SCREEN_STATE_SOURCE_HERDR
+    return screen_state, (SCREEN_STATE_SOURCE_SCREEN if screen_state else None)
+
+
 # ── Hook vs screen precedence ────────────────────────────────────────────────
 #: Screen reads that PROVE something is drawn right now that no hook event can
 #: contradict: an open prompt, a login wall, a crash banner, a live spinner.

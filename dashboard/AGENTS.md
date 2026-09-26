@@ -108,6 +108,32 @@ AgentBar + this dashboard), `bi` (~/01_Project/ssv-bi-platform),
 `portfolio` (~/01_Project — cross-project questions and anything with no
 persona of its own yet).
 
+## Claude sessions outside herdr (P4) + OpenCode status fallback (P5)
+- `server/lib/claude_sessions.py`, feed `claudeSessions` (3s): reads
+  `~/.claude/sessions/<pid>.json` (override `CLAUDE_SESSIONS_DIR`) — every
+  running Claude Code process writes one. Dead pid, or a pid whose `procStart`
+  (written in UTC) doesn't match `ps`'s start time, is ignored; a bad file is
+  skipped. Local machine only (the Air's folder is not read).
+- A session whose `sessionId` is already a herdr row's `agentSession` is
+  skipped; every other one becomes a paneless **status-only row** in
+  `computed.agents`: `source` `claude-desktop` | `claude-cli` (herdr rows carry
+  `source: "herdr"`), status in hook words (`busy`→`working`,
+  `waiting`→`blocked` + `hookReason` "Input needed", `idle`→`idle`), plus
+  `sessionStatus`, `secondsInStatus`, `pid`, `hostSessionId`, `tmuxTarget`,
+  `openUrl`. Stop/close/relaunch are refused (`assess_row`); message/answer/
+  focus already refuse a row with no pane. A `waiting` one is a `blocked`
+  needsYou row with `paneId: null`, `identity`/`agentSession` = session id,
+  `source`, `openUrl`.
+- `openUrl` (desktop rows only): `claude://code/continue?session=<hostSessionId>`
+  — Claude.app's own handler accepts `local_<id>` there and opens that
+  EXISTING session (falls back to Code home, never creates one). Read from
+  app.asar's `claudeURLHandler`, not exercised live.
+- P5: for a non-Claude herdr agent (`agent` != `claude`, e.g. OpenCode) whose
+  screen reads `UNKNOWN`/nothing, herdr's `agent_status` (`working`/`blocked`/
+  `idle`/`done`; `unknown` ignored) stands in as `screenState`
+  (`pane_screen_signals.screen_state_with_herdr_fallback`); new field
+  `screenStateSource` = `screen` | `herdr` | null. Local rows only.
+
 ## Running it
 ```
 cd dashboard
@@ -132,7 +158,7 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 41 test files, 1212 `PASS` assertions, 0 `FAIL`.
+As of this writing: 42 test files, 1268 `PASS` assertions, 0 `FAIL`.
 
 **`agent_tree.py` is a verbatim copy of AptusFit's `scripts/lib/agent_tree.py`**
 — both write the same `~/.claude/agent-tree.json`, so their prune rules must

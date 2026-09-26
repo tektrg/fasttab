@@ -22,6 +22,7 @@ import classify_pane  # noqa: E402  (scripts/lib/classify_pane.py)
 import chief_dashboard_context  # noqa: E402  (phase 8: context parser)
 import chief_dashboard_herdr as herdr_transport  # noqa: E402  (R2/R3: the one door)
 import chief_dashboard_pass  # noqa: E402  (chief_pass tick: generic script resolution)
+import claude_sessions  # noqa: E402  (P4: non-herdr Claude sessions)
 import dashboard_config  # noqa: E402  (P0 move: config.json + state dir)
 import pane_live_work  # noqa: E402  (sub-agent status lines: live-work evidence)
 import pane_screen_signals  # noqa: E402  (screen fingerprint + motion stamp)
@@ -186,6 +187,9 @@ FEEDS = {
     # Staleness budget is 3x -> FEED BROKEN past 45s; proven flap-free over a
     # 5-minute watch 2026-09-05 before settling here.
     "paneScreen": Feed("paneScreen", refresh_interval_sec=15),
+    # P4: ~/.claude/sessions/<pid>.json — Claude Desktop + non-herdr CLI
+    # sessions (status-only rows). Local files only, so cheap to re-read.
+    "claudeSessions": Feed("claudeSessions", refresh_interval_sec=3),
 }
 
 # R7/R9: one herdr feed + one paneScreen feed PER CONFIGURED MACHINE, so an
@@ -260,6 +264,17 @@ def poll_herdr(machine=herdr_transport.LOCAL_MACHINE):
             agents = agents_resp.get("result", {}).get("agents", [])
             tabs = tabs_resp.get("result", {}).get("tabs", [])
             feed.set_success({"agents": agents, "tabs": tabs}, time.time() - t0)
+        except Exception as e:
+            feed.set_error(e, time.time() - t0)
+        STOP.wait(feed.refresh_interval_sec)
+
+
+def poll_claude_sessions():
+    feed = FEEDS["claudeSessions"]
+    while not STOP.is_set():
+        t0 = time.time()
+        try:
+            feed.set_success(claude_sessions.read_live_sessions(), time.time() - t0)
         except Exception as e:
             feed.set_error(e, time.time() - t0)
         STOP.wait(feed.refresh_interval_sec)
@@ -714,6 +729,7 @@ POLLERS = {
     "paneTick": poll_pane_tick,
     "board": poll_board,
     "paneScreen": poll_pane_screen,
+    "claudeSessions": poll_claude_sessions,
 }
 
 

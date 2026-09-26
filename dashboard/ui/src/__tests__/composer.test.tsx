@@ -171,6 +171,29 @@ describe("Composer", () => {
     unmount();
   });
 
+  test("a plain refusal puts the text back in the box", async () => {
+    stubFetch([{ ok: false, error: "refused: control character '\\x03'" }]);
+    const { host, unmount } = mount([boardRow("a")]);
+    typeInto(host, "keep me");
+    await clickSend(host);
+    expect((host.querySelector("input") as HTMLInputElement).value).toBe(
+      "keep me",
+    );
+    unmount();
+  });
+
+  test("a refusal on one row only (another row got it) leaves the box empty", async () => {
+    stubFetch([
+      { ok: true, state: "message sent" },
+      { ok: false, error: "refused: row b is not live" },
+    ]);
+    const { host, unmount } = mount([boardRow("a"), boardRow("b")]);
+    typeInto(host, "once only");
+    await clickSend(host);
+    expect((host.querySelector("input") as HTMLInputElement).value).toBe("");
+    unmount();
+  });
+
   test("confirm-queue sends the held text, not an empty box", async () => {
     const calls = stubFetch([
       { ok: false, needsConfirm: true, reason: "mid-turn — queues" },

@@ -16,6 +16,11 @@ interface SentRow {
   res: SessionActionResult;
 }
 
+/** Refused up front — the server typed nothing into the pane. */
+function isPlainRefusal(res: SessionActionResult): boolean {
+  return !res.ok && !res.needsConfirm && !isNotSubmitted(res);
+}
+
 interface PendingRow {
   rowId: string;
   label: string;
@@ -121,6 +126,13 @@ export function Composer({
     setBusy(false);
     setReport(done);
     if (need.length > 0) setPending(need);
+    // Every row refused it before typing anything (e.g. a control character):
+    // nothing reached a pane, so the text goes straight back — a refusal must
+    // not cost the typed line. NOT SUBMITTED is excluded on purpose: that text
+    // may still sit in a pane's input, so it stays one deliberate click away.
+    if (need.length === 0 && done.every((r) => isPlainRefusal(r.res))) {
+      setText((current) => (current === "" ? body : current));
+    }
     onDone?.();
   };
 

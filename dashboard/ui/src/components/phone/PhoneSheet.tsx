@@ -1,0 +1,199 @@
+import { useEffect, useRef, useState } from "react";
+import { Badge, Button, Modal } from "@mantine/core";
+import type { BoardProperty, BoardRow } from "../../types";
+import {
+  resolveEndStage,
+  rowActions,
+  rowLabel,
+  sessionAction,
+} from "../../sessionActions";
+import { useVisualViewportOffset } from "../../hooks/useVisualViewportOffset";
+import { PaneScreen } from "../PaneScreen";
+import { RowDetailExtras } from "../RowDetailExtras";
+import { Composer } from "../Composer";
+
+/** Full-screen row detail — the phone equivalent of the desktop RowPanel
+ *  drawer, but modal (a phone has no "board behind it" to keep clickable)
+ *  and built around the two verbs a phone visit actually needs: read what
+ *  happened (last line + terminal peek) and act (Done, Park, or reply).
+ *
+ *  `RowDetailExtras` adds the Review / plan / latest-message cards. */
+export function PhoneSheet({
+  row,
+  properties: _properties,
+  onClose,
+  onToast,
+  onRefetch,
+}: {
+  row: BoardRow | null;
+  properties: BoardProperty[];
+  onClose: () => void;
+  onToast: (msg: string, ok: boolean) => void;
+  onRefetch: () => void;
+}) {
+  const [busy, setBusy] = useState<"done" | "park" | null>(null);
+  // Mirrors the desktop SessionActions two-stage arm/confirm pattern: a
+  // working/blocked/unknown target needs a SECOND press within ~5s before
+  // `confirm:true` is ever sent — a single tap must never force-end or
+  // force-park a busy session (server contract: `SessionActionState
+  // .needsConfirm`).
+  const [armed, setArmed] = useState<"done" | "park" | null>(null);
+  const armTimer = useRef<number | null>(null);
+  const keyboardInset = useVisualViewportOffset();
+
+  useEffect(
+    () => () => {
+      if (armTimer.current) window.clearTimeout(armTimer.current);
+    },
+    [],
+  );
+
+  // A different row opened in the same sheet instance, or this one ended,
+  // must never inherit a still-armed "Confirm" from whatever was open
+  // before it (mirrors the desktop's `setArmed(null)` on row/stage change).
+  useEffect(() => {
+    setArmed(null);
+  }, [row?.rowId, row?.status]);
+
+  const disarm = () => {
+    if (armTimer.current) window.clearTimeout(armTimer.current);
+    armTimer.current = null;
+    setArmed(null);
+  };
+
+  const arm = (name: "done" | "park") => {
+    if (armTimer.current) window.clearTimeout(armTimer.current);
+    setArmed(name);
+    armTimer.current = window.setTimeout(() => setArmed(null), 5000);
+  };
+
+  if (!row) return null;
+
+  const label = rowLabel(row);
+  const paneId = row.derived.paneId ?? null;
+  const ended = row.status === "ended";
+  const lastLine = String(row.values["derived:lastline"] ?? "").trim();
+  const actions = rowActions(row);
+  const endStage = resolveEndStage(actions);
+  const canPark = !!actions?.archive?.enabled;
+  const canUnpark = !!actions?.unarchive?.enabled;
+  const parkVerb = canUnpark ? "unarchive" : "archive";
+  const parkNeedsConfirm = !!actions?.[parkVerb]?.needsConfirm;
+
+  const runDone = async () => {
+    if (!endStage || !endStage.state.enabled || busy) return;
+    if (endStage.state.needsConfirm && armed !== "done") {
+      arm("done");
+      return;
+    }
+    disarm();
+    setBusy("done");
+    const res = await sessionAction(endStage.verb, row.rowId, {
+      confirm: endStage.state.needsConfirm,
+    });
+    setBusy(null);
+    if (res.ok) {
+      onToast(`${endStage.label}: ${res.state ?? "done"}`, true);
+      onRefetch();
+      onClose();
+    } else if (res.needsConfirm && res.reason) {
+      // Server state changed since render — arm with the fresh reason
+      // instead of failing silently, same as the desktop.
+      arm("done");
+      onToast(res.reason, false);
+    } else {
+      onToast(`${endStage.label} refused: ${res.error || res.reason || "?"}`, false);
+    }
+  };
+
+  const runPark = async () => {
+    const verb = parkVerb;
+    if (!actions?.[verb]?.enabled || busy) return;
+    if (parkNeedsConfirm && armed !== "park") {
+      arm("park");
+      return;
+    }
+    disarm();
+    setBusy("park");
+    const res = await sessionAction(verb, row.rowId, { confirm: parkNeedsConfirm });
+    setBusy(null);
+    if (res.ok) {
+      onToast(verb === "archive" ? "parked" : "unparked", true);
+      onRefetch();
+    } else if (res.needsConfirm && res.reason) {
+      arm("park");
+      onToast(res.reason, false);
+    } else {
+      onToast(`refused: ${res.error || res.reason || "?"}`, false);
+    }
+  };
+
+  return (
+    <Modal
+      opened={!!row}
+      onClose={onClose}
+      fullScreen
+      radius={0}
+      transitionProps={{ duration: 160 }}
+      classNames={{ content: "phone-sheet", body: "phone-sheet-body", header: "phone-sheet-head" }}
+      title={
+        <div className="phone-sheet-title">
+          <span>{label}</span>
+          {ended && <span className="ended-badge">ended</span>}
+        </div>
+      }
+    >
+      <div className="phone-sheet-scroll">
+        {paneId && <div className="small phone-sheet-paneid">{paneId}</div>}
+        {lastLine && (
+          <div className="phone-sheet-section">
+            <div className="rp-section-name">last line</div>
+            <div className="rp-lastline">{lastLine}</div>
+          </div>
+        )}
+        <PaneScreen paneId={ended ? null : paneId} />
+        <RowDetailExtras row={row} onToast={onToast} phone />
+      </div>
+
+      <div
+        className="phone-sheet-footer"
+        style={{ transform: keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined }}
+      >
+        {!ended && (
+          <div className="phone-sheet-actions">
+            {endStage && (
+              <Button
+                color={armed === "done" ? "orange" : endStage.verb === "stop" ? "red" : undefined}
+                variant={armed === "done" ? "filled" : "light"}
+                size="sm"
+                disabled={!endStage.state.enabled || busy !== null}
+                loading={busy === "done"}
+                onClick={() => void runDone()}
+              >
+                {armed === "done" ? "Confirm" : "Done"}
+              </Button>
+            )}
+            {(canPark || canUnpark) && (
+              <Button
+                color={armed === "park" ? "orange" : undefined}
+                variant={armed === "park" ? "filled" : "light"}
+                size="sm"
+                disabled={busy !== null}
+                loading={busy === "park"}
+                onClick={() => void runPark()}
+              >
+                {armed === "park" ? "Confirm" : canUnpark ? "Unpark" : "Park"}
+              </Button>
+            )}
+          </div>
+        )}
+        {!ended && paneId && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} />}
+        {ended && (
+          <Badge size="sm" variant="light" color="gray" className="phone-sheet-ended-note">
+            {row.endedNote || "ended — no further action here"}
+          </Badge>
+        )}
+      </div>
+    </Modal>
+  );
+}

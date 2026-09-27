@@ -36,6 +36,7 @@ struct AgentSwitchCoordinatorTests {
         let model: AgentPanelModel
         let source: FakeStatusSource
         let panel: PanelSpy
+        let tmuxSwitcher: TmuxSwitcherSpy
         let coordinator: AgentSwitchCoordinator
     }
 
@@ -51,8 +52,10 @@ struct AgentSwitchCoordinatorTests {
         model.receive(snapshot)
         let source = FakeStatusSource()
         let panel = PanelSpy()
-        return Rig(model: model, source: source, panel: panel,
-                   coordinator: AgentSwitchCoordinator(model: model, statusSource: source, panel: panel.controls))
+        let tmuxSwitcher = TmuxSwitcherSpy()
+        return Rig(model: model, source: source, panel: panel, tmuxSwitcher: tmuxSwitcher,
+                   coordinator: AgentSwitchCoordinator(
+                       model: model, statusSource: source, panel: panel.controls, tmuxSwitcher: tmuxSwitcher))
     }
 
     @Test func successClosesThePanelFocusesThePaneAndRecordsTheSwitch() async {
@@ -92,7 +95,7 @@ struct AgentSwitchCoordinatorTests {
         let hide = rig.panel.controls.hide
         let controls = AgentSwitchCoordinator.PanelControls(
             hide: { hide(); rig.panel.isVisible = true }, show: rig.panel.controls.show, isVisible: rig.panel.controls.isVisible)
-        let coordinator = AgentSwitchCoordinator(model: rig.model, statusSource: rig.source, panel: controls)
+        let coordinator = AgentSwitchCoordinator(model: rig.model, statusSource: rig.source, panel: controls, tmuxSwitcher: rig.tmuxSwitcher)
         await coordinator.switchTo(F.agent("b", section: .working))
         #expect(rig.panel.events == ["hide"])
         #expect(rig.model.footerNotice == .switchFailed("boom"))
@@ -121,7 +124,8 @@ struct AgentSwitchCoordinatorTests {
     }
 
     private func coordinator(_ rig: Rig, opener: DesktopOpenerSpy) -> AgentSwitchCoordinator {
-        AgentSwitchCoordinator(model: rig.model, statusSource: rig.source, panel: rig.panel.controls, desktopOpener: opener)
+        AgentSwitchCoordinator(
+            model: rig.model, statusSource: rig.source, panel: rig.panel.controls, desktopOpener: opener, tmuxSwitcher: rig.tmuxSwitcher)
     }
 
     @Test func aDesktopSessionOpensInClaudeAppAndNeverAsksTheDashboardToFocus() async {
@@ -146,18 +150,51 @@ struct AgentSwitchCoordinatorTests {
         #expect(rig.source.focusedPaneIds.isEmpty)
     }
 
-    @Test func aCliSessionOutsideHerdrKeepsThePanelAndSaysWhereItRuns() async {
+    /// Never runs tmux / herdr: replies with `result` and records what it was asked.
+    @MainActor final class TmuxSwitcherSpy: TmuxSessionSwitching {
+        var result = TmuxSwitchResult.switched
+        private(set) var requests: [(target: String, cwd: String?)] = []
+        func switchTo(tmuxTarget: String, cwd: String?) async -> TmuxSwitchResult {
+            requests.append((tmuxTarget, cwd))
+            return result
+        }
+    }
+
+    private func cliAgent(tmuxTarget: String?) -> AgentSnapshot {
+        AgentSnapshot(
+            id: "c", label: "c", projectName: nil, cwd: "/repo", paneId: nil, section: .needsYou, statusText: "",
+            secondsInStatus: nil, hasUnpushedCommits: false, unpushedText: nil, promptExcerpt: nil,
+            canFocus: true, hasHookData: true, host: .claudeCLI(tmuxTarget: tmuxTarget))
+    }
+
+    @Test func aCliSessionInTmuxIsSwitchedToAndRanked() async {
         let rig = makeRig()
         let opener = DesktopOpenerSpy()
-        let cli = AgentSnapshot(
-            id: "c", label: "c", projectName: nil, cwd: nil, paneId: nil, section: .needsYou, statusText: "",
-            secondsInStatus: nil, hasUnpushedCommits: false, unpushedText: nil, promptExcerpt: nil,
-            canFocus: true, hasHookData: true, host: .claudeCLI(tmuxTarget: "work:@3.%7"))
-        await coordinator(rig, opener: opener).switchTo(cli)
-        #expect(rig.panel.events.isEmpty)
+        rig.model.receive(F.snapshot([F.agent("w1", section: .working), cliAgent(tmuxTarget: "work:@3.%7")]))
+        await coordinator(rig, opener: opener).switchTo(cliAgent(tmuxTarget: "work:@3.%7"))
+        #expect(rig.tmuxSwitcher.requests.map(\.target) == ["work:@3.%7"])
+        #expect(rig.tmuxSwitcher.requests.map(\.cwd) == ["/repo"])
+        #expect(rig.panel.events == ["hide"])
         #expect(opener.openedURLs.isEmpty)
         #expect(rig.source.focusedPaneIds.isEmpty)
-        #expect(rig.model.footerNotice == .switchFailed(AgentSwitchCoordinator.cliSessionMessage(tmuxTarget: "work:@3.%7")))
-        #expect(AgentSwitchCoordinator.cliSessionMessage(tmuxTarget: "work:@3.%7").contains("tmux (work:@3.%7)"))
+        #expect(rig.model.footerNotice == nil)
+        #expect(rig.model.presentation.agents.first?.id == "c")
+    }
+
+    @Test func aCliSessionThatCannotBeSwitchedToReopensThePanelWithTheReason() async {
+        let rig = makeRig()
+        rig.tmuxSwitcher.result = .failed("the tmux session \"work\" is gone (can't find session: work).")
+        await rig.coordinator.switchTo(cliAgent(tmuxTarget: "work:@3.%7"))
+        #expect(rig.panel.events == ["hide", "show"])
+        #expect(rig.model.footerNotice?.text == "Couldn't switch: the tmux session \"work\" is gone (can't find session: work).")
+    }
+
+    @Test func aCliSessionOutsideTmuxKeepsThePanelAndSaysWhereItRuns() async {
+        let rig = makeRig()
+        await rig.coordinator.switchTo(cliAgent(tmuxTarget: nil))
+        #expect(rig.panel.events.isEmpty)
+        #expect(rig.tmuxSwitcher.requests.isEmpty)
+        #expect(rig.source.focusedPaneIds.isEmpty)
+        #expect(rig.model.footerNotice == .switchFailed(AgentSwitchCoordinator.untrackedCliSessionMessage))
     }
 }

@@ -4,6 +4,7 @@ import type { NeedsYouRow, PickerQuestion, QuestionPreview } from "../types";
 import { answerQuestion, fmtAge } from "../api";
 import { ensureNotiPerm } from "../alerts";
 import { KindBadge } from "./Severity";
+import { MarkdownInline } from "./Markdown";
 
 // Phase 5: display-only box for the hook's question preview. Plain text, NO
 // buttons, NO Confirm — the hook copy comes from raw tool input and can never
@@ -42,7 +43,7 @@ function PreviewBox({ p }: { p: QuestionPreview }) {
           ▴
         </Button>
       </Group>
-      <Text mb="xs">{p.question}</Text>
+      <Text mb="xs"><MarkdownInline text={p.question} /></Text>
       <Stack gap={2} mb="xs">
         {p.options.map((o) => (
           <div key={o.index}>
@@ -51,7 +52,7 @@ function PreviewBox({ p }: { p: QuestionPreview }) {
             </Badge>
             {o.description ? (
               <Text size="xs" c="dimmed">
-                {o.description}
+                <MarkdownInline text={o.description} />
               </Text>
             ) : null}
           </div>
@@ -87,6 +88,7 @@ function QuestionBox({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [nextQ, setNextQ] = useState<PickerQuestion | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
   const shown = nextQ ?? q;
 
   if (!expanded) {
@@ -135,7 +137,15 @@ function QuestionBox({
       setSelected([]);
       setText("");
       setNextQ(res.next ?? null);
+      setLastError(null);
       if (!res.next) setExpanded(false);
+    } else {
+      // A toast alone is easy to miss on the phone (it auto-dismisses and
+      // this card stays open expecting another try) — the real server
+      // reason ("answer may not have landed — re-check the pane", "question
+      // changed or gone", etc.) is kept here, next to Confirm & Send, same
+      // as FormCard's persisted result line, instead of only flashing past.
+      setLastError(res.error || "failed — no reason given");
     }
     onToast(
       res.ok
@@ -187,7 +197,7 @@ function QuestionBox({
           “{shown.context}”
         </Text>
       ) : null}
-      <Text mb="xs">{shown.question}</Text>
+      <Text mb="xs"><MarkdownInline text={shown.question} /></Text>
       <Stack gap="xs" mb="sm" align="stretch" className="appr-opts">
         {shown.options
           .filter((o) => !o.other)
@@ -204,7 +214,7 @@ function QuestionBox({
               </Chip>
               {optDesc(o) ? (
                 <Text size="xs" c="dimmed">
-                  {optDesc(o)}
+                  <MarkdownInline text={optDesc(o)} />
                 </Text>
               ) : null}
             </Stack>
@@ -231,11 +241,17 @@ function QuestionBox({
           Confirm &amp; Send
         </Button>
       </Group>
-      <Text size="xs" c="dimmed" mt="xs">
-        Clicking stages only — nothing is sent until Confirm (or Enter in
-        the text field). Free text replaces option picks. The server
-        re-reads the pane fresh and refuses if the question moved on.
-      </Text>
+      {lastError ? (
+        <Text size="xs" c="red" mt="xs">
+          Not sent: {lastError}
+        </Text>
+      ) : (
+        <Text size="xs" c="dimmed" mt="xs">
+          Clicking stages only — nothing is sent until Confirm (or Enter in
+          the text field). Free text replaces option picks. The server
+          re-reads the pane fresh and refuses if the question moved on.
+        </Text>
+      )}
     </Paper>
   );
 }
@@ -301,7 +317,7 @@ export function NeedsYou({
                     <td className="small">{fmtAge(i.sinceSec)}</td>
                     <td>{i.label}</td>
                     <td className="small">{i.paneId ?? ""}</td>
-                    <td className="wrap">{i.detail}</td>
+                    <td className="wrap"><MarkdownInline text={i.detail} /></td>
                   </tr>
                 );
                 // Preview row (hook copy, not yet screen-parsed): display-only,

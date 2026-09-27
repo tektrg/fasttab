@@ -13,14 +13,7 @@ struct BookmarksSettingsView: View {
 
     private var rows: [BookmarkDisplayRow] {
         let all = bookmarkTreeStore.flattenedRows(liveTabs: appState.browserService.cachedLiveTabs)
-        let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return all }
-        let folded = query.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-        return all.filter { row in
-            guard case .bookmark(let item, _, _, _, _) = row else { return false }
-            return item.title.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).contains(folded)
-                || item.url.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).contains(folded)
-        }
+        return BookmarkDisplayRow.filter(all, matching: filterText)
     }
 
     var body: some View {

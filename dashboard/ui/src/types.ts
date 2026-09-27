@@ -61,6 +61,73 @@ export interface QuestionPreview {
   options: { index: number; label: string; description?: string }[];
 }
 
+// Mirrors server/lib/classify_pane.py's parse_permission_block /
+// parse_plan_approval_block (row.permission on a NeedsYouRow, and
+// row.derived.screenPermission on a BoardRow — same object, two field
+// names) and Sources/AgentBar/Permission/PermissionPrompt.swift.
+export interface PermissionOption {
+  index: number;
+  label: string;
+}
+
+export interface PermissionPrompt {
+  /** "Bash", "Write", "Edit"... — always "ExitPlanMode" for a plan box. */
+  tool: string;
+  /** The command/file/args, or a multi-line "path\n+diff" for an edit box. Null for a plan box. */
+  detail: string | null;
+  title: string;
+  options: PermissionOption[];
+  cursorIndex: number | null;
+  /** Additive: "plan" marks an ExitPlanMode approval box; absent/undefined = a plain tool box. */
+  kind?: "plan";
+  /** Plan box only: the plan file named in its footer, verbatim ("~" not expanded), or null. */
+  planPath?: string | null;
+}
+
+// Mirrors server/lib/session_transcript.py's _build_form (GET
+// /api/session/latest's pendingQuestion) and AgentBar's AskUserQuestionExtractor.
+export interface PendingQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface PendingQuestionEntry {
+  header: string;
+  question: string;
+  isMultiSelect: boolean;
+  options: PendingQuestionOption[];
+}
+
+export interface PendingQuestionForm {
+  toolUseId: string;
+  questions: PendingQuestionEntry[];
+}
+
+export interface SessionLatestResponse {
+  ok: boolean;
+  rowId?: string;
+  machine?: string;
+  latestMessage?: string | null;
+  pendingQuestion?: PendingQuestionForm | null;
+  error?: string;
+}
+
+export interface SessionPlanStatus {
+  status: "noPath" | "unreadable" | "text";
+  text?: string;
+  truncated?: boolean;
+  reason?: string;
+}
+
+export interface SessionPlanResponse {
+  ok: boolean;
+  rowId?: string;
+  machine?: string;
+  planPath?: string | null;
+  plan?: SessionPlanStatus;
+  error?: string;
+}
+
 /** A pane STOPPED, waiting for a keystroke — nothing else reaches this list.
  *  `blocked` = permission prompt · `question` = AskUserQuestion picker ·
  *  `feed-broken` = the list cannot see and says so. */
@@ -80,6 +147,9 @@ export interface NeedsYouRow {
   // the sweep's parsed `question` replaces it within one interval and stays
   // the only answerable one.
   questionPreview?: QuestionPreview | null;
+  // A "blocked" row's parsed permission/plan box, or null when unparsable —
+  // always present (never a missing key) on a "blocked" row.
+  permission?: PermissionPrompt | null;
 }
 
 export interface AgentRow {
@@ -112,6 +182,9 @@ export interface AgentRow {
   screenState: string | null;
   screenSignal?: string | null;
   screenQuestion?: PickerQuestion | null;
+  // The open plain yes/no permission box OR ExitPlanMode plan-approval box,
+  // if any (parsed block, or null) — mutually exclusive with screenQuestion.
+  screenPermission?: PermissionPrompt | null;
   // Phase 5/6: server-enriched on /api/state (and copied onto live board
   // rows). Optional — older payloads and stub agents omit them.
   memoryBytes?: number | null;

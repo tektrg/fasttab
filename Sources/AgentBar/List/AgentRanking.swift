@@ -10,7 +10,7 @@ enum AgentRanking {
     ///   (they cannot go on without the user). Beyond that the client's order is
     ///   urgency, and a snapshot does not expose urgency levels, so ties cannot
     ///   be told apart from real differences: keep the client's order as is.
-    /// - Ended: newest first as delivered; frecency would bury the most recent.
+    /// - Ended / Sleeping: newest first as delivered; frecency would bury the most recent.
     static func ordered(
         _ agents: [AgentSnapshot],
         in section: AgentSection,
@@ -20,7 +20,7 @@ enum AgentRanking {
         switch section {
         case .needsYou:
             return agents.filter { $0.blockedOnYou != nil } + agents.filter { $0.blockedOnYou == nil }
-        case .ended:
+        case .ended, .sleeping:
             return agents
         case .working, .parked:
             return orderedByFrecency(agents, frecency: frecency, now: now)

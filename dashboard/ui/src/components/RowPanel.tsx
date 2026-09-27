@@ -13,6 +13,7 @@ import {
 import { CardMenu } from "./CardMenu";
 import { DerivedCell, EditableCell } from "./EditableCell";
 import { PaneScreen } from "./PaneScreen";
+import { RowDetailExtras } from "./RowDetailExtras";
 import { RowMessages } from "./RowMessages";
 
 const WIDTH_KEY = "chief-dashboard-peek-width";
@@ -173,6 +174,7 @@ export function RowPanel({
             />
             <Pulse row={shown} />
             <LastLine row={shown} />
+            <RowDetailExtras row={shown} onToast={onToast} />
             <PaneScreen paneId={paneIdOf(shown)} />
             <Fields row={shown} properties={properties} rowKind={rowKind} onToast={onToast} />
             <Links row={shown} />

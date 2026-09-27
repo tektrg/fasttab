@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import OSLog
 import CommandBarKit
+import IndieSearch
 
 /// Treats macOS Finder as a "browser" so its open windows surface in FastTab
 /// alongside browser tabs. One row per Finder window; sub-tabs within a single

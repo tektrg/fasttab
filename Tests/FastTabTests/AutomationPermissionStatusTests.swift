@@ -33,4 +33,10 @@ struct AutomationPermissionStatusTests {
         )
         #expect(extensionOff == [.chrome, .edge, .finder])
     }
+
+    @Test func extensionUsableOnlyWhenFeatureEnabled() {
+        let connected: Set<String> = ["Google Chrome"]
+        #expect(AutomationPermissionStore.usableExtensionAppNames(extensionEnabled: true, connectedAppNames: connected) == connected)
+        #expect(AutomationPermissionStore.usableExtensionAppNames(extensionEnabled: false, connectedAppNames: connected).isEmpty)
+    }
 }

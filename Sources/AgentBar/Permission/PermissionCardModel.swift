@@ -68,7 +68,9 @@ final class PermissionCardModel: ObservableObject {
     /// reason for the footer, when there is one) when it cannot be decided from here.
     @discardableResult
     func open(_ agent: AgentSnapshot) -> Bool {
-        guard case .permissionReview(let shown)? = agent.blockedOnYou, let paneId = agent.paneId, !paneId.isEmpty else {
+        // A hook request (status-only session) is decided by id; anything else needs its pane.
+        let paneId = agent.paneId ?? ""
+        guard case .permissionReview(let shown)? = agent.blockedOnYou, agent.hookRequest != nil || !paneId.isEmpty else {
             return false
         }
         guard let statusSource else {
@@ -87,6 +89,10 @@ final class PermissionCardModel: ObservableObject {
         close()
         card = PermissionCard(agent: agent, paneId: paneId, prompt: prompt)
         loadContext()
+        if agent.hookRequest != nil {
+            card?.state.resolve(live: prompt, failure: nil)   // the request is the prompt: nothing to read
+            return true
+        }
         loadPlanFileIfNeeded()
         readPane(paneId: paneId, agentID: agent.id, source: statusSource)
         return true
@@ -173,8 +179,17 @@ final class PermissionCardModel: ObservableObject {
         guard let token = tracker.begin(agentID: agentID, tag: choice.flightTag, at: now()) else { return }
         close()
         scheduleExpiry(agentID: agentID, token: token)
+        let hookRequestId = card.hookRequestId
         Task { [weak self] in
-            let result = await statusSource.permission(paneId: paneId, choice: choice, permission: prompt)
+            let result: PermissionResult
+            if let hookRequestId {
+                result = switch await statusSource.answerHookRequest(requestId: hookRequestId, answer: HookAnswer.deciding(choice)) {
+                case .sent: .sent(next: nil)
+                case .failed(let message): .failed(message)
+                }
+            } else {
+                result = await statusSource.permission(paneId: paneId, choice: choice, permission: prompt)
+            }
             self?.finishSend(result, token: token, agentID: agentID, prompt: prompt, choice: choice)
         }
     }
@@ -246,7 +261,8 @@ final class PermissionCardModel: ObservableObject {
     func withoutReviewIfEndpointMissing(_ agents: [AgentSnapshot]) -> [AgentSnapshot] {
         guard let until = endpointMissingUntil, now() < until else { return agents }
         return agents.map { agent in
-            guard case .permissionReview? = agent.blocker else { return agent }
+            // A hook request never goes through /api/permission: its Review stays.
+            guard case .permissionReview? = agent.blocker, agent.hookRequest == nil else { return agent }
             return agent.withBlocker(.permission)
         }
     }
@@ -265,6 +281,11 @@ final class PermissionCardModel: ObservableObject {
         tracker.settle(currentQuestions: current)
         guard let card else { return }
         let agent = agents.first { $0.id == card.agentID }
+        // Another hook request (or none) is a different prompt, whatever its wording: the card was for that one.
+        guard card.hookRequestId == agent?.hookRequest?.requestId else {
+            close()
+            return
+        }
         switch agent?.blockedOnYou {
         case .permissionReview?, .permission?:
             refreshPaneId(from: agent)

@@ -28,6 +28,9 @@ public struct TabListView: View {
     /// `BookmarkMovePicker` the bookmarks tree uses; on confirm the tab's URL
     /// is saved into the picked folder on the tab's own Mac.
     @State private var tabSaveRequest: TabSaveRequest?
+    /// Organize mode: rows show an inline recommended folder + Bookmark button.
+    @State private var isOrganizeMode = false
+    @ObservedObject private var folderRecommender = TabFolderRecommender.shared
 
     public init(device: SyncedDevice? = nil) {
         self.device = device
@@ -91,20 +94,22 @@ public struct TabListView: View {
     private var matchingTabs: [SyncedTab] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
+        let search = SyncSearchQuery(q)
         return visibleTabs.filter { tab in
-            SyncSearchMatcher.matches(query: q, title: tab.title, url: tab.url)
+            search.matches(title: tab.title, url: tab.url)
         }
     }
 
     private var matchingBookmarks: [(blob: SyncedBookmarkBlob, item: SyncedBookmarkItem)] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
+        let search = SyncSearchQuery(q)
 
         var results: [(blob: SyncedBookmarkBlob, item: SyncedBookmarkItem)] = []
         for blob in localCache.state.bookmarkBlobs {
             if let dev = activeDevice, blob.deviceID != dev.id { continue }
             for bm in blob.bookmarks {
-                if SyncSearchMatcher.matches(query: q, title: bm.title, url: bm.url) {
+                if search.matches(title: bm.title, url: bm.url) {
                     results.append((blob, bm))
                 }
             }
@@ -115,12 +120,13 @@ public struct TabListView: View {
     private var matchingHistory: [(slice: SyncedHistorySlice, entry: SyncedHistoryEntry)] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
+        let search = SyncSearchQuery(q)
 
         var results: [(slice: SyncedHistorySlice, entry: SyncedHistoryEntry)] = []
         for slice in localCache.state.historySlices {
             if let dev = activeDevice, slice.deviceID != dev.id { continue }
             for entry in slice.entries {
-                if SyncSearchMatcher.matches(query: q, title: entry.title, url: entry.url) {
+                if search.matches(title: entry.title, url: entry.url) {
                     results.append((slice, entry))
                 }
             }
@@ -197,6 +203,12 @@ public struct TabListView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(isOrganizeMode ? "Done" : "Organize") {
+                    withAnimation { isOrganizeMode.toggle() }
+                }
+                .foregroundStyle(DS.Tint.action)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showDeckSwitcher = true
@@ -517,8 +529,17 @@ public struct TabListView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+
+                if isOrganizeMode, let recommendation = folderRecommender.recommendation(for: tab) {
+                    TabFolderRecommendationChip(recommendation: recommendation) { closeTab in
+                        bookmarkRecommended(tab, into: recommendation, closeTab: closeTab)
+                    }
+                }
             }
             Spacer()
+        }
+        .task(id: isOrganizeMode) {
+            if isOrganizeMode { folderRecommender.requestIfNeeded(for: tab, state: localCache.state) }
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -647,6 +668,12 @@ public struct TabListView: View {
             targetDeviceID: tab.deviceID
         )
         showToastHUD(message: saveAcknowledgement(for: tab))
+    }
+
+    private func bookmarkRecommended(_ tab: SyncedTab, into recommendation: TabFolderRecommendation, closeTab: Bool) {
+        saveTabAsBookmark(tab, to: recommendation.destination)
+        folderRecommender.markBookmarked(tab)
+        if closeTab { requestClose(of: tab) }
     }
 
     private func saveAcknowledgement(for tab: SyncedTab) -> String {

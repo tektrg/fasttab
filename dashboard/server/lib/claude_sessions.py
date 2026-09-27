@@ -20,6 +20,8 @@ import re
 import subprocess
 import time
 
+import hook_permission_summary
+
 SESSIONS_DIR = os.environ.get(
     "CLAUDE_SESSIONS_DIR", os.path.expanduser("~/.claude/sessions"))
 
@@ -148,6 +150,15 @@ def read_live_sessions(sessions_dir=None, pid_alive=_pid_alive,
     return live
 
 
+def read_session_for_pid(pid, sessions_dir=None, pid_alive=_pid_alive):
+    """The live session file of one Claude process, or None. For a caller
+    that can't wait for the next sessions-feed sample (a brand-new session)."""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1 or not pid_alive(pid):
+        return None
+    entry = _parse_session_file(os.path.join(sessions_dir or SESSIONS_DIR, f"{pid}.json"))
+    return entry if entry and entry["pid"] == pid else None
+
+
 def _desktop_open_url(entry):
     host_id = entry.get("hostSessionId")
     if (entry.get("entrypoint") == "claude-desktop" and isinstance(host_id, str)
@@ -161,9 +172,15 @@ def _waiting_reason(entry):
     return (waiting_for[:1].upper() + waiting_for[1:]) if waiting_for else DEFAULT_WAITING_REASON
 
 
-def build_status_only_rows(sessions, herdr_session_ids, now, machine):
+def build_status_only_rows(sessions, herdr_session_ids, now, machine,
+                           hook_requests=None):
     """Agent rows (same keys build_agents_view emits for a herdr pane) for
-    every session NOT already a herdr row. `now` in seconds."""
+    every session NOT already a herdr row. `now` in seconds.
+    `hook_requests`: {session_id: hookRequest} from hook_permissions — a
+    session with one reads `blocked` even before its file says `waiting`.
+    Without one, a `waiting` session carries `transcriptQuestion` (display
+    only, from transcript_pending_question) when its transcript has one."""
+    hook_requests = hook_requests or {}
     rows = []
     for entry in sessions or []:
         session_id = entry.get("sessionId")
@@ -176,6 +193,15 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine):
                              if isinstance(status_ms, (int, float)) else None)
         cwd = entry.get("cwd")
         entrypoint = entry.get("entrypoint") or "unknown"
+        hook_request = hook_requests.get(session_id)
+        hook_reason = _waiting_reason(entry) if status == "waiting" else None
+        transcript_question = entry.get("transcriptQuestion") \
+            if status == "waiting" and not hook_request else None
+        if hook_request:
+            hook_state = "blocked"
+            hook_reason = hook_permission_summary.needs_you_detail(hook_request)
+            # Blocked since the prompt arrived, not since the file's last status.
+            seconds_in_status = hook_request.get("sinceSec", seconds_in_status)
         rows.append({
             "paneId": None,
             "tabId": None,
@@ -196,7 +222,7 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine):
             "backgroundWaitExpired": False,
             "residue": False,
             "agentSession": session_id,
-            "hookReason": _waiting_reason(entry) if status == "waiting" else None,
+            "hookReason": hook_reason,
             "screenState": None,
             "screenSignal": None,
             "screenQuestion": None,
@@ -211,5 +237,10 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine):
             # "session:@window.%pane" when the CLI runs inside tmux, else None.
             "tmuxTarget": entry.get("tmux"),
             "openUrl": _desktop_open_url(entry),
+            # Answerable prompt sent by the PermissionRequest hook, or None.
+            "hookRequest": hook_request,
+            # Read-only: the pending question from the transcript, only when
+            # no hookRequest holds it ({header, question, questionCount}).
+            "transcriptQuestion": transcript_question,
         })
     return rows

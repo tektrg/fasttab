@@ -75,10 +75,10 @@ struct PermissionCardState: Equatable, Sendable {
 
     var choices: [PermissionChoice] { phase == .ready ? prompt.choices : [] }
 
-    /// The action button's words: the highlighted choice, or "Confirm always allow" on its second press.
+    /// The action button's words: the highlighted choice, or its confirm words on the second press.
     var actionTitle: String {
         guard let highlighted else { return "Choose an option" }
-        return isConfirmingAlways ? "Confirm always allow" : highlighted.title
+        return isConfirmingAlways ? highlighted.confirmTitle : highlighted.title
     }
 
     var canSend: Bool { phase == .ready && highlighted != nil }
@@ -150,7 +150,7 @@ struct PermissionCardState: Equatable, Sendable {
 
     private mutating func sendHighlighted() -> Effect {
         guard let choice = highlighted else { return .none }
-        if choice == .allowAlways, !isConfirmingAlways {
+        if choice.grantsForGood, !isConfirmingAlways {
             isConfirmingAlways = true
             return .none
         }

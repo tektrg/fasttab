@@ -2,6 +2,8 @@
 
 import PackageDescription
 
+let indieSearch: Target.Dependency = .product(name: "IndieSearch", package: "IndieLibKit")
+
 let package = Package(
     name: "FastTabPackage",
     platforms: [
@@ -15,12 +17,16 @@ let package = Package(
         .library(name: "FastTabSync", targets: ["FastTabSync"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1")
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
+        // Shared L1 library, sibling checkout (~/01_Project/IndieLibKit on both Macs).
+        // Only its Foundation-only `IndieSearch` product is linked here: the search
+        // folding every app shares (case, accents, đ/ø/ł, width, punctuation).
+        .package(path: "../IndieLibKit")
     ],
     targets: [
         .target(
             name: "FastTabSync",
-            dependencies: []
+            dependencies: [indieSearch]
         ),
         // Reusable command-bar building blocks shared with future apps.
         // No dependencies and no resources on purpose: it links statically into
@@ -34,7 +40,8 @@ let package = Package(
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle"),
                 "FastTabSync",
-                "CommandBarKit"
+                "CommandBarKit",
+                indieSearch
             ]
         ),
         // Pure stdio<->socket relay launched by Chrome's native messaging.
@@ -45,12 +52,12 @@ let package = Package(
         // Read-only agent switcher. Standalone app: no Sparkle, no FastTabSync.
         .executableTarget(
             name: "AgentBar",
-            dependencies: ["CommandBarKit"],
+            dependencies: ["CommandBarKit", indieSearch],
             path: "Sources/AgentBar"
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "CommandBarKit"]
+            dependencies: ["FastTab", "FastTabSync", "CommandBarKit", indieSearch]
         ),
         .testTarget(
             name: "AgentBarTests",

@@ -167,27 +167,7 @@ public struct BookmarkTreeView: View {
     }
 
     private var filteredNodes: [BookmarkTreeNode] {
-        let q = filterText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return treeRootNodes }
-
-        func filterNode(_ node: BookmarkTreeNode) -> BookmarkTreeNode? {
-            if node.isFolder {
-                let matchedChildren = (node.children ?? []).compactMap { filterNode($0) }
-                if !matchedChildren.isEmpty || node.title.lowercased().contains(q) {
-                    var copy = node
-                    copy.children = matchedChildren.isEmpty ? node.children : matchedChildren
-                    copy.totalCount = matchedChildren.isEmpty ? node.totalCount : matchedChildren.reduce(0) { $0 + $1.totalCount }
-                    return copy
-                }
-                return nil
-            } else {
-                let matchesTitle = node.title.lowercased().contains(q)
-                let matchesURL = (node.url ?? "").lowercased().contains(q)
-                return (matchesTitle || matchesURL) ? node : nil
-            }
-        }
-
-        return treeRootNodes.compactMap { filterNode($0) }
+        BookmarkTreeBuilder.filter(treeRootNodes, matching: filterText)
     }
 
     private var allFolderIDs: Set<String> {

@@ -33,7 +33,7 @@ struct TriageState: Equatable, Sendable {
     /// dashboard would look like every agent vanishing.
     @discardableResult
     mutating func observe(_ agents: [AgentSnapshot]) -> Bool {
-        let live = agents.filter { $0.section != .ended }
+        let live = agents.filter { $0.section != .ended && $0.section != .sleeping }
         let liveIDs = Set(live.map(\.id))
         let workingIDs = Set(live.filter { $0.section == .working }.map(\.id))
         let kept = parkedIDs.filter { liveIDs.contains($0) && !workingIDs.contains($0) }

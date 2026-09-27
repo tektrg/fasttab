@@ -162,7 +162,11 @@ struct OnboardingView: View {
                         )
                         .transition(stepTransition)
                     case .extensionInstall:
-                        ExtensionInstallStep(didAutoAdvance: $didAutoAdvancePastExtension, onContinue: advance)
+                        ExtensionInstallStep(
+                            didAutoAdvance: $didAutoAdvancePastExtension,
+                            onContinue: advance,
+                            onAutoAdvance: { advance(ifStillOn: .extensionInstall) }
+                        )
                             .transition(stepTransition)
                     case .safariPermission:
                         SafariPermissionStep(onContinue: advance)
@@ -198,6 +202,13 @@ struct OnboardingView: View {
         withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
             stepIndex = min(clampedStepIndex + 1, count - 1)
         }
+    }
+
+    /// Delayed advances call this so a Continue/Back tapped in the meantime
+    /// wins — otherwise the late advance skips a step or undoes the Back.
+    private func advance(ifStillOn step: OnboardingStep) {
+        guard currentStep == step else { return }
+        advance()
     }
 
     /// Steps back through the live `steps` list, so conditional steps
@@ -541,58 +552,60 @@ private struct SourceRow: View {
 // MARK: - Recommended: browser extension
 
 private struct ExtensionInstallStep: View {
-    @ObservedObject private var extensionBridge = ExtensionBridge.shared
+    @ObservedObject private var permissions = AutomationPermissionStore.shared
     @Binding var didAutoAdvance: Bool
     let onContinue: () -> Void
+    /// Advances only if this step is still showing when the delay fires.
+    let onAutoAdvance: () -> Void
+
+    private var isExtensionUsable: Bool { !permissions.usableExtensionAppNames.isEmpty }
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 12)
 
-            Image(systemName: "puzzlepiece.extension")
-                .font(.system(size: 38, weight: .light))
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 14)
+            Image(systemName: "puzzlepiece.extension.fill")
+                .font(.system(size: 30, weight: .regular))
+                .foregroundStyle(Color.accentColor)
+                .padding(.bottom, 10)
 
-            Text("Recommended: FastTab extension")
+            Text("Sharper Recents, instant tabs")
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
-                .padding(.bottom, 8)
+                .padding(.bottom, 6)
 
-            Text("Recommended for Chrome, Edge & Brave. It makes tab search instant and skips the macOS permission prompt. Everything still works without it — skip if you prefer.")
+            Text(subtitle)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
-                .padding(.horizontal, 32)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 36)
+                .padding(.bottom, 18)
+
+            OnboardingExtensionBenefitsView()
+                .padding(.horizontal, 44)
                 .padding(.bottom, 20)
 
-            if let storeURL = URL(string: "https://chromewebstore.google.com/detail/\(FastTabExtensionIdentity.id)") {
-                Link("Get the extension", destination: storeURL)
-                    .font(.headline)
-                    .padding(.bottom, 16)
+            primaryAction
+                .padding(.bottom, 8)
+
+            if permissions.extensionSetupState == .waiting {
+                Text("Add it in each browser profile you use.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 8)
             }
 
-            connectionStatus
+            ExtensionSetupStatusView()
 
-            HStack(spacing: 14) {
-                Button("Skip") {
-                    onContinue()
-                }
-                .buttonStyle(.plain)
-                .font(.callout)
-                .foregroundStyle(.tertiary)
-
-                Button {
-                    onContinue()
-                } label: {
-                    Label("Continue", systemImage: "arrow.right.circle.fill")
-                        .font(.headline)
-                        .frame(width: 168)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            if !isExtensionUsable {
+                Button("Skip for now", action: onContinue)
+                    .buttonStyle(.plain)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 12)
@@ -600,31 +613,48 @@ private struct ExtensionInstallStep: View {
         .onAppear {
             scheduleAutoAdvanceIfConnected()
         }
-        .onChange(of: extensionBridge.status) { _, _ in
+        .onChange(of: permissions.usableExtensionAppNames) { _, _ in
             scheduleAutoAdvanceIfConnected()
         }
+    }
+
+    /// Already set up (e.g. replaying onboarding): confirm instead of selling.
+    private var subtitle: String {
+        isExtensionUsable
+            ? "The FastTab extension is set up — here's what it adds."
+            : "Add the free FastTab extension to Chrome, Edge or Brave. FastTab works without it — this makes it better."
     }
 
     /// Advances itself the moment the bridge handshakes — install the
     /// extension in Chrome and this step finishes on its own.
     private func scheduleAutoAdvanceIfConnected() {
-        guard !didAutoAdvance, extensionBridge.status.contains(where: { $0.isConnected }) else { return }
+        guard !didAutoAdvance, isExtensionUsable else { return }
         didAutoAdvance = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            onContinue()
+            onAutoAdvance()
         }
     }
 
-    private var connectionStatus: some View {
-        let connected = extensionBridge.status.contains(where: { $0.isConnected })
-        return HStack(spacing: 8) {
-            Image(systemName: connected ? "checkmark.circle.fill" : "circle.dashed")
-                .foregroundStyle(connected ? Color.green : Color.secondary)
-            Text(connected ? "Connected ✓" : "Waiting for connection…")
-                .font(.callout)
-                .foregroundStyle(connected ? .secondary : .tertiary)
+    /// One prominent action for where setup stands: move on once usable,
+    /// switch the setting on when it's installed but turned off, otherwise
+    /// get (or update) the extension.
+    private var primaryAction: some View {
+        let action: (title: String, symbolName: String, perform: () -> Void)
+        switch permissions.extensionSetupState {
+        case .usable:
+            action = ("Continue", "arrow.right.circle.fill", onContinue)
+        case .turnedOff:
+            action = ("Turn on the extension", "power.circle.fill", { permissions.turnOnExtensionFeature() })
+        case .versionMismatch, .waiting:
+            action = ("Get the extension", "arrow.down.circle.fill", { openURL(FastTabExtensionIdentity.chromeWebStoreURL) })
         }
-        .padding(.bottom, 18)
+        return Button(action: action.perform) {
+            Label(action.title, systemImage: action.symbolName)
+                .font(.headline)
+                .frame(width: 200)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
     }
 }
 
@@ -737,40 +767,44 @@ private struct ShortcutStep: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var shortcutStore = ShortcutStore.shared
     @ObservedObject private var edgeReveal = EdgeRevealStore.shared
-    @ObservedObject private var extensionBridge = ExtensionBridge.shared
+    @ObservedObject private var permissions = AutomationPermissionStore.shared
     let onDismiss: (Bool) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer()
+            Spacer(minLength: 12)
 
             Image(systemName: "keyboard")
-                .font(.system(size: 42, weight: .light))
+                .font(.system(size: 34, weight: .light))
                 .foregroundStyle(.secondary)
-                .padding(.bottom, 18)
+                .padding(.bottom, 12)
 
             Text(edgeReveal.style == .off ? "Your Shortcut" : "Your Backup Shortcut")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
-                .padding(.bottom, 8)
+                .padding(.bottom, 6)
 
             Text(shortcutStepSubtitle)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-                .padding(.bottom, 24)
+                .padding(.bottom, 16)
 
             ShortcutRecorderView(store: shortcutStore)
-                .padding(.bottom, 10)
+                .padding(.bottom, 8)
 
             Text("You can change this later in Settings…")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-                .padding(.bottom, 18)
+                .padding(.bottom, 14)
 
             automationNote
                 .padding(.horizontal, 40)
-                .padding(.bottom, 36)
+                .padding(.bottom, 16)
+
+            OnboardingIPhoneCard()
+                .padding(.horizontal, 32)
+                .padding(.bottom, 18)
 
             if OnboardingWindowController.shared.isRestartNeededToApplyChoices {
                 Text("FastTab will restart to apply your choices.")
@@ -810,7 +844,7 @@ private struct ShortcutStep: View {
 
     @ViewBuilder
     private var automationNote: some View {
-        if extensionBridge.status.contains(where: { $0.isConnected }) {
+        if !permissions.usableExtensionAppNames.isEmpty {
             // A connected companion extension covers Chromium tab switching, so
             // the Automation prompt this note warns about never appears for it.
             HStack(alignment: .top, spacing: 8) {

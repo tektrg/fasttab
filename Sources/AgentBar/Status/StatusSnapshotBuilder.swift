@@ -29,8 +29,9 @@ enum StatusSnapshotBuilder {
             serverNow: serverNow,
             limits: .widest   // the list narrows it to the user's window and count
         )
+        let sleeping = SleepingSessionMapper.map(payload.sleepingSessions, serverNow: serverNow)
         return StatusSnapshot(
-            agents: liveAgents + ended,
+            agents: liveAgents + ended + sleeping,
             health: .ok,
             fetchedAt: fetchedAt,
             boardIsCurrent: boardIsCurrent && payload.boardRows != nil,

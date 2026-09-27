@@ -1,5 +1,6 @@
 import Foundation
 import CommandBarKit
+import IndieSearch
 
 struct PendingSlotClose: Codable, Equatable, Sendable {
     let slotID: UUID

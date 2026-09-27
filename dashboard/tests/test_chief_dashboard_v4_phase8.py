@@ -101,6 +101,22 @@ ok, why = act.validate_message_text("x" * 2001)
 check("paste refused", ok, False)
 ok, _ = act.validate_message_text("x" * 2000)
 check("2000 chars allowed", ok, True)
+# Inert sentinels only: a control byte typed into a pane is a keystroke.
+for label, hostile in (("ctrl-C", "hi \x03echo INJECTED"), ("ESC", "hi \x1b[2J"),
+                       ("DEL", "hi\x7f"), ("C1", "hi \x9becho INJECTED")):
+    ok, why = act.validate_message_text(hostile)
+    check(f"{label} refused as a control character",
+          (ok, "control character" in why), (False, True))
+# Tabs are normalized to spaces (AgentBar's TerminalSafeText rule), not refused.
+ok, cleaned = act.validate_message_text("\tcol a\tcol b\t")
+check("tabs become spaces (edges then stripped)", (ok, cleaned), (True, "col a col b"))
+ok, why = act.validate_message_text("a\tb \x03echo INJECTED")
+check("a tab does not excuse another control character",
+      (ok, "control character" in why), (False, True))
+ok, why = act.validate_message_text("\t\t")
+check("tabs only -> empty, refused", (ok, "empty" in why), (False, True))
+check("find_terminal_control_char honours an allowlist",
+      act.find_terminal_control_char("a\nb\tc", allowed="\n\t"), None)
 
 print("== is_allowed_slash_command (used by the server's stuck-retry fallback) ==")
 check("/compact bare", act.is_allowed_slash_command("/compact"), True)

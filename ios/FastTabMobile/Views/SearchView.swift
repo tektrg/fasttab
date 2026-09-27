@@ -118,9 +118,10 @@ public struct SearchView: View {
             filteredByScope = allUnifiedItems.filter { $0.type == .history }
         }
 
+        let search = SyncSearchQuery(trimmed)
         var out: [UnifiedSearchResult] = []
         for item in filteredByScope {
-            if SyncSearchMatcher.matches(query: trimmed, title: item.title, url: item.url) {
+            if search.matches(title: item.title, url: item.url) {
                 out.append(item)
             }
         }

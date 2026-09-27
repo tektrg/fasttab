@@ -1,4 +1,5 @@
 import Foundation
+import FastTabSync
 
 enum BookmarkTreeNode: Identifiable, Equatable, Sendable {
     case folder(BookmarkFolder)
@@ -93,6 +94,21 @@ enum BookmarkDisplayRow: Identifiable, Equatable, Sendable {
         switch self {
         case .folder(_, _, let depth, _, _, _): return depth
         case .bookmark(_, let depth, _, _, _): return depth
+        }
+    }
+}
+
+extension BookmarkDisplayRow {
+    /// The Settings > Bookmarks filter: bookmark rows whose title or URL contains
+    /// every typed word, folded like every other Fast Tab search (`SyncSearchQuery`,
+    /// so "don hang" finds "Đơn hàng"). Folder rows drop out while filtering.
+    /// A query with no letters or digits leaves `rows` unchanged.
+    static func filter(_ rows: [BookmarkDisplayRow], matching query: String) -> [BookmarkDisplayRow] {
+        let searchQuery = SyncSearchQuery(query)
+        guard !searchQuery.words.isEmpty else { return rows }
+        return rows.filter { row in
+            guard case .bookmark(let item, _, _, _, _) = row else { return false }
+            return searchQuery.matches(title: item.title, url: item.url)
         }
     }
 }

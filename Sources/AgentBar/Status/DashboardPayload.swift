@@ -15,13 +15,16 @@ struct DashboardPayload: Decodable {
     let agents: [DashboardAgent]
     let needsYou: [DashboardNeedsYou]
     let boardRows: [DashboardBoardRow]?
+    /// Claude Desktop sessions with no running process (`computed.sleepingSessions`); empty from
+    /// an older dashboard. See `SleepingSessionMapper`.
+    let sleepingSessions: [DashboardSleepingSession]
     /// Who-reports-to-whom, when this dashboard computes it. Nil when the key is absent, null, or
     /// unreadable — all three read as "feature unavailable" (`AgentTreeMapper`, `AgentTreeModel`),
     /// never as an error: an older dashboard simply predates this field.
     let agentTree: AgentTreeWirePayload?
 
     fileprivate enum CodingKeys: String, CodingKey { case serverTimeTs, feeds, computed, board, agentTree }
-    private enum ComputedKeys: String, CodingKey { case agents, needsYou }
+    private enum ComputedKeys: String, CodingKey { case agents, needsYou, sleepingSessions }
     private enum BoardKeys: String, CodingKey { case rows }
 
     init(from decoder: Decoder) throws {
@@ -32,9 +35,11 @@ struct DashboardPayload: Decodable {
         if let computed = try? root.nestedContainer(keyedBy: ComputedKeys.self, forKey: .computed) {
             agents = (computed.lenient(.agents) as LenientArray<DashboardAgent>?)?.elements ?? []
             needsYou = (computed.lenient(.needsYou) as LenientArray<DashboardNeedsYou>?)?.elements ?? []
+            sleepingSessions = (computed.lenient(.sleepingSessions) as LenientArray<DashboardSleepingSession>?)?.elements ?? []
         } else {
             agents = []
             needsYou = []
+            sleepingSessions = []
         }
         if let board = try? root.nestedContainer(keyedBy: BoardKeys.self, forKey: .board) {
             boardRows = (board.lenient(.rows) as LenientArray<DashboardBoardRow>?)?.elements
@@ -153,11 +158,15 @@ struct DashboardAgent: Decodable {
     let openUrl: String?
     /// A Claude CLI row running in tmux: "session:@w.%p".
     let tmuxTarget: String?
+    /// A status-only row's pending hook-bridge prompt (also on its `needsYou` entry).
+    let hookRequest: DashboardHookRequest?
+    /// A waiting status-only row's question read from its transcript (display only; never next to a `hookRequest`).
+    let transcriptQuestion: DashboardTranscriptQuestion?
 
     private enum CodingKeys: String, CodingKey {
         case paneId, label, cwd, hookState, hookSinceSec, hasHookData, residue
         case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
-        case source, openUrl, tmuxTarget
+        case source, openUrl, tmuxTarget, hookRequest, transcriptQuestion
     }
 
     init(from decoder: Decoder) throws {
@@ -179,6 +188,8 @@ struct DashboardAgent: Decodable {
         source = container.lenient(.source)
         openUrl = container.lenient(.openUrl)
         tmuxTarget = container.lenient(.tmuxTarget)
+        hookRequest = container.lenient(.hookRequest)
+        transcriptQuestion = container.lenient(.transcriptQuestion)
     }
 }
 
@@ -198,8 +209,15 @@ struct DashboardNeedsYou: Decodable {
     let permission: DashboardPermission?
     /// A status-only (pane-less) row's Claude session id: how it is matched to its agent row.
     let agentSession: String?
+    /// A status-only entry's prompt held by the dashboard's hook bridge (oldest pending one per session).
+    let hookRequest: DashboardHookRequest?
+    /// A status-only entry's question read from its transcript when no hook request holds it (display only).
+    let transcriptQuestion: DashboardTranscriptQuestion?
 
-    private enum CodingKeys: String, CodingKey { case kind, paneId, detail, sinceSec, question, questionPreview, permission, agentSession }
+    private enum CodingKeys: String, CodingKey {
+        case kind, paneId, detail, sinceSec, question, questionPreview, permission, agentSession, hookRequest
+        case transcriptQuestion
+    }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -211,6 +229,23 @@ struct DashboardNeedsYou: Decodable {
         questionPreview = container.lenient(.questionPreview)
         permission = container.lenient(.permission)
         agentSession = container.lenient(.agentSession)
+        hookRequest = container.lenient(.hookRequest)
+        transcriptQuestion = container.lenient(.transcriptQuestion)
+    }
+}
+
+/// `transcriptQuestion`: the pending AskUserQuestion of a waiting Claude Desktop / CLI session, read by the
+/// dashboard from the session transcript. Shown only — it cannot be answered from AgentBar.
+struct DashboardTranscriptQuestion: Decodable {
+    let header: String?
+    let question: String?
+
+    private enum CodingKeys: String, CodingKey { case header, question }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        header = container.lenient(.header)
+        question = container.lenient(.question)
     }
 }
 

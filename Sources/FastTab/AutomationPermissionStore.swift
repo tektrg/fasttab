@@ -57,19 +57,63 @@ final class AutomationPermissionStore: ObservableObject {
     @Published private(set) var requestInFlight: SearchSource?
     /// Browsers (by `appName`) whose extension is connected on a compatible protocol.
     @Published private(set) var extensionConnectedAppNames: Set<String> = []
+    /// Browsers whose extension is connected on an incompatible protocol.
+    @Published private(set) var extensionMismatchedAppNames: Set<String> = []
+    /// Live mirror of `ExtensionBetaPreference` (Settings > Advanced toggle), so
+    /// anything derived from it re-renders when the user flips it.
+    @Published private(set) var isExtensionFeatureEnabled: Bool = ExtensionBetaPreference.isEnabled
 
     private let sourceSelection: SourceSelectionStore
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "AutomationPermission")
     private var recheckTask: Task<Void, Never>?
+    /// Bumped by each answered `requestAccess`, so a recheck that started
+    /// earlier can't overwrite the fresher answer with a stale probe.
+    private var requestGeneration = 0
+    private var answeredGeneration: [SearchSource: Int] = [:]
     private var extensionStatusSubscription: AnyCancellable?
+    private var extensionPreferenceSubscription: AnyCancellable?
 
     init(sourceSelection: SourceSelectionStore = .shared, extensionBridge: ExtensionBridge = .shared) {
         self.sourceSelection = sourceSelection
         // Bridge publishes `status` on main; mirroring it here re-renders the banner on (dis)connect.
         extensionStatusSubscription = extensionBridge.$status
-            .map { statuses in Set(statuses.filter { $0.isConnected && !$0.versionMismatch }.map(\.appName)) }
+            .sink { [weak self] statuses in
+                let connected = statuses.filter(\.isConnected)
+                let compatible = Set(connected.filter { !$0.versionMismatch }.map(\.appName))
+                let mismatched = Set(connected.filter(\.versionMismatch).map(\.appName))
+                guard let self else { return }
+                if self.extensionConnectedAppNames != compatible { self.extensionConnectedAppNames = compatible }
+                if self.extensionMismatchedAppNames != mismatched { self.extensionMismatchedAppNames = mismatched }
+            }
+        // The Settings toggle writes through @AppStorage; follow it without polling.
+        // `didChangeNotification` posts on whichever thread wrote *any* default,
+        // and these closures are main-actor isolated (formed in a @MainActor
+        // init), so Swift 6 traps if they run off main. Hop to main first.
+        extensionPreferenceSubscription = NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .map { _ in ExtensionBetaPreference.isEnabled }
             .removeDuplicates()
-            .sink { [weak self] connected in self?.extensionConnectedAppNames = connected }
+            .sink { [weak self] enabled in
+                guard let self, self.isExtensionFeatureEnabled != enabled else { return }
+                self.isExtensionFeatureEnabled = enabled
+            }
+    }
+
+    /// Setup progress for onboarding / Settings: tells "not connected" apart
+    /// from "connected but turned off" and "connected on a stale version".
+    var extensionSetupState: ExtensionSetupState {
+        ExtensionSetupState.resolve(
+            extensionEnabled: isExtensionFeatureEnabled,
+            compatibleAppNames: extensionConnectedAppNames,
+            mismatchedAppNames: extensionMismatchedAppNames
+        )
+    }
+
+    /// Switches the extension setting on (same effect as the Settings toggle).
+    func turnOnExtensionFeature() {
+        ExtensionBetaPreference.setEnabled(true)
+        isExtensionFeatureEnabled = true
     }
 
     /// Enabled, installed sources in stable display order — the ones worth a status.
@@ -82,9 +126,26 @@ final class AutomationPermissionStore: ObservableObject {
         Self.deniedSources(
             tracked: trackedSources,
             statuses: statuses,
-            extensionEnabled: ExtensionBetaPreference.isEnabled,
+            extensionEnabled: isExtensionFeatureEnabled,
             extensionConnectedAppNames: extensionConnectedAppNames
         )
+    }
+
+    /// Browsers (by `appName`) whose tabs actually come through the extension:
+    /// connected, compatible, and the extension feature switched on.
+    var usableExtensionAppNames: Set<String> {
+        Self.usableExtensionAppNames(
+            extensionEnabled: isExtensionFeatureEnabled,
+            connectedAppNames: extensionConnectedAppNames
+        )
+    }
+
+    /// The one definition of "extension usable for browser X".
+    nonisolated static func usableExtensionAppNames(
+        extensionEnabled: Bool,
+        connectedAppNames: Set<String>
+    ) -> Set<String> {
+        extensionEnabled ? connectedAppNames : []
     }
 
     /// Denied sources, minus Chromium browsers whose tabs arrive through the
@@ -95,17 +156,18 @@ final class AutomationPermissionStore: ObservableObject {
         extensionEnabled: Bool,
         extensionConnectedAppNames: Set<String>
     ) -> [SearchSource] {
-        tracked.filter { source in
+        let usable = usableExtensionAppNames(extensionEnabled: extensionEnabled, connectedAppNames: extensionConnectedAppNames)
+        return tracked.filter { source in
             guard statuses[source] == .denied else { return false }
-            guard extensionEnabled,
-                  let spec = ChromiumBrowserSpec.all.first(where: { $0.source == source }) else { return true }
-            return !extensionConnectedAppNames.contains(spec.appName)
+            guard let spec = ChromiumBrowserSpec.all.first(where: { $0.source == source }) else { return true }
+            return !usable.contains(spec.appName)
         }
     }
 
     /// Re-probes every tracked source off the main thread. Never shows a prompt.
     func recheck() {
         let sources = trackedSources
+        let startGeneration = requestGeneration
         recheckTask?.cancel()
         recheckTask = Task { [weak self] in
             var fresh: [SearchSource: AutomationPermissionStatus] = [:]
@@ -113,6 +175,10 @@ final class AutomationPermissionStore: ObservableObject {
                 fresh[source] = await Self.probe(source, askUserIfNeeded: false)
             }
             guard !Task.isCancelled, let self else { return }
+            // Keep answers the user gave after this probe started.
+            for (source, generation) in self.answeredGeneration where generation > startGeneration {
+                fresh[source] = self.statuses[source]
+            }
             self.statuses = fresh
             let summary = fresh.map { "\($0.key.rawValue)=\($0.value.rawValue)" }.sorted().joined(separator: ",")
             self.logger.info("automation recheck: \(summary, privacy: .public)")
@@ -134,6 +200,8 @@ final class AutomationPermissionStore: ObservableObject {
         }
         let status = await Self.promptForPermission(source)
         statuses[source] = status
+        requestGeneration += 1
+        answeredGeneration[source] = requestGeneration
         logger.info("automation request \(source.rawValue, privacy: .public) -> \(status.rawValue, privacy: .public)")
         return status
     }

@@ -45,6 +45,9 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// herdr pane, or a status-only Claude Desktop / CLI session (no pane: no Answer, Message,
     /// Done, peek-at-screen; Enter opens Claude.app for a desktop session). See `AgentHost`.
     var host: AgentHost = .herdr
+    /// A status-only session's prompt held by the dashboard's hook bridge: what its Answer / Review card
+    /// shows and answers by id (no pane read). Nil for herdr rows, and when nothing is waiting.
+    var hookRequest: HookRequest? = nil
 
     /// The blocker while the row sits in Needs you. Parking sets a row aside, and
     /// with it the Blocked badge, the answer action and the top-of-section spot.

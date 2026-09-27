@@ -16,6 +16,8 @@ enum FastTabExtensionIdentity {
     /// native messaging host name specified" — this must stay lowercase. Matches
     /// `HOST_NAME` in `extension/background.js` and the manifest file name.
     static let nativeMessagingHostName = "com.trungluong.fasttab"
+    /// Chrome Web Store listing — Edge and Brave install from it too.
+    static let chromeWebStoreURL = URL(string: "https://chromewebstore.google.com/detail/\(id)")!
 }
 
 /// Writes/refreshes Chrome-family native-messaging host manifests so the

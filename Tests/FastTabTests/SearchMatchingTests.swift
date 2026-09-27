@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CommandBarKit
+import IndieSearch
 @testable import FastTab
 
 private func makeResult(

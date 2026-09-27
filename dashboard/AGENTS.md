@@ -18,7 +18,8 @@ move plan; this file is the day-to-day reference for running/testing it.
   session rows; the work-item board itself was retired, not moved), feeds/
   views/actions/memory modules, `chief_dashboard_pass.py` (`GET
   /api/deliver/pass` — see "chief_pass" below), `personas.py` (`GET
-  /api/personas` — see "Jev persona routing" below), and `dashboard_config.py`
+  /api/personas` — see "Jev persona routing" below), `persona_start.py`
+  (`POST /api/persona/start`, same section), and `dashboard_config.py`
   (below).
 - `scripts/restart.sh` — kill-and-relaunch by port ownership, with a
   liveness wait; `scripts/chief-dashboard-watchdog.py` — a 60s probe/
@@ -31,6 +32,8 @@ move plan; this file is the day-to-day reference for running/testing it.
   each file directly: `python3 tests/test_chief_dashboard_views.py`.
 - `ui/` — the React/Vite frontend (separate scope from this move; see its
   own history).
+- `hooks/agentbar-permission-hook.py` — the PermissionRequest hook of the
+  hook answer bridge (see its section below).
 - `chief-question-hook.sh` — a Claude Code hook script (AskUserQuestion
   PreToolUse/PostToolUse) that writes a display-only sidecar file the
   `hookCache` feed reads; install it as a hook in a project's own
@@ -108,6 +111,61 @@ AgentBar + this dashboard), `bi` (~/01_Project/ssv-bi-platform),
 `portfolio` (~/01_Project — cross-project questions and anything with no
 persona of its own yet).
 
+Names are unique among OFFERED personas (hidden/undescribed entries are
+filtered first, then a duplicate name keeps the first in registry order).
+Each row also carries `idleStart`: `"resume"` | `"fresh"` — what a start
+would do right now (see below). Only a local `start: in-place` persona can
+be `"resume"`; the folder scan is cached 30s.
+
+### `POST /api/persona/start` — P3 (`server/lib/persona_start.py`)
+Starts or resumes an idle persona's Claude session in a new herdr tab in
+its registry folder. **Localhost only**: 403 on the remote (tailscale)
+listener even when authenticated. Requires `Content-Type: application/json`
+(400 otherwise). These early refusals (and the foreign-Origin 403 on every
+write) answer before reading the body, so `Handler.end_headers` closes the
+connection whenever a body was left unread — otherwise keep-alive would
+parse that body as a second, attacker-written request (live-proven
+2026-09-26; `tests/test_remote_listener_integration.py`). An interim 1xx
+reply (`Expect: 100-continue`'s `100 Continue`, sent before the body
+exists) is exempt; the final reply is still checked.
+
+- Request: `{"persona": "<name>", "text": "<first message>", "fresh": true?}`
+  — a name, never a path. `text` follows the Send message rules
+  (`validate_message_text`: one line, <= 2000 chars, tabs become spaces
+  like AgentBar's `TerminalSafeText`, no other terminal control
+  characters, no slash command beyond `/clear`/`/compact`). `fresh` must
+  be a JSON bool if sent.
+- Response (always HTTP 200 past the gates above): `{"ok": true, "paneId":
+  "<new pane>", "mode": "started"|"resumed"}` or `{"ok": false, "error":
+  "<reason>"}`. Refused: unknown/hidden/undescribed name, `start: script`
+  or a remote machine (not built yet), a missing folder, a second start of
+  the same persona while one is in flight or within 10s of the last one.
+  If herdr fails after the tab opened, the tab is closed again.
+- The tab is created with `--env PERSONA_MESSAGE=<text>`; once its shell
+  shows output, `herdr pane run` types `claude [--resume <uuid>]
+  --append-system-prompt-file=<file> -- "${PERSONA_MESSAGE:?}"`. No user
+  text is ever typed (no keystroke/quoting/`=word` risk, no shell history,
+  the line stays short); `:?` refuses to run claude if the variable is
+  missing. `PERSONA_MESSAGE` stays in that tab's environment (claude and
+  its tools inherit it). Shell readiness is a heuristic (any visible
+  output, e.g. a MOTD or instant prompt, counts): an rc file that reads
+  the keyboard can swallow the line while the endpoint still says ok. The instructions (global block + known persona names
+  + the persona's `extraInstructions`) go in
+  `<STATE_HOME>/persona-prompts/<name>-<hash>.md` (0600). `--resume <uuid>`
+  only when `idle: resume`, not `fresh`, the folder's newest UUID-named
+  transcript (`~/.claude/projects/<encoded folder>/`, override
+  `CLAUDE_PROJECTS_DIR`) is within `resumeWithinDays`, and that
+  conversation isn't already live (any `computed.agents` row: herdr panes
+  AND the `claudeSessions` feed's non-herdr sessions). Blind spot: a
+  session started seconds ago that no feed has picked up yet — the 10s
+  cooldown covers the dashboard's own starts, not someone else's.
+- Testing a second instance: `AGENTBAR_PERSONAS_FILE=<throwaway
+  personas.json>` + `CHIEF_DASHBOARD_STATE_HOME=<throwaway dir>` +
+  `CHIEF_DASHBOARD_CONFIG_HOME=<throwaway dir>` (keeps the remote listener,
+  default :4712, off) + `scripts/restart.sh --port <free port, not 4711/
+  4712> --detached`; POST only to that port, with a throwaway persona
+  folder.
+
 ## Claude sessions outside herdr (P4) + OpenCode status fallback (P5)
 - `server/lib/claude_sessions.py`, feed `claudeSessions` (3s): reads
   `~/.claude/sessions/<pid>.json` (override `CLAUDE_SESSIONS_DIR`) — every
@@ -124,6 +182,13 @@ persona of its own yet).
   focus already refuse a row with no pane. A `waiting` one is a `blocked`
   needsYou row with `paneId: null`, `identity`/`agentSession` = session id,
   `source`, `openUrl`.
+- `transcriptQuestion` `{header, question, questionCount}` | null (row + its
+  needsYou entry): a `waiting` session's pending AskUserQuestion read from its
+  transcript tail — **display only**, set only when no `hookRequest` holds the
+  prompt (hook not installed, dashboard restarted before the re-send, AgentBar
+  away). `transcript_pending_question.py`, run by the `claudeSessions` feed on
+  `waiting` sessions only: one 256KB tail window, lstat regular files only (no
+  symlinks), cached by (path, mtime, size). Permission boxes have no fallback.
 - `openUrl` (desktop rows only): `claude://code/continue?session=<hostSessionId>`
   — Claude.app's own handler accepts `local_<id>` there and opens that
   EXISTING session (falls back to Code home, never creates one). Read from
@@ -133,6 +198,121 @@ persona of its own yet).
   `idle`/`done`; `unknown` ignored) stands in as `screenState`
   (`pane_screen_signals.screen_state_with_herdr_fallback`); new field
   `screenStateSource` = `screen` | `herdr` | null. Local rows only.
+
+## Sleeping Claude Desktop sessions (`computed.sleepingSessions`)
+Term: **sleeping session** = a Claude Desktop code session with no running
+Claude process (Desktop stops unused ones), so it has no
+`~/.claude/sessions/<pid>.json` and no status-only row. `server/lib/desktop_sessions.py`,
+feed `desktopSessions` (10s).
+- **Stores**: Desktop's own list, `<profile>/claude-code-sessions/<account>/<org>/local_<uuid>.json`
+  (org folders also hold `scheduled-tasks.json`, `archived-sessions.idx`,
+  `deleted_*`, `backlog/` — not sessions, never read). Profiles globbed:
+  `~/Library/Application Support/Claude*/` and `~/.claude-instances/*/`
+  (override `CLAUDE_DESKTOP_SESSION_STORES`, pathsep list). Measured
+  2026-09-27: the RUNNING Desktop is `--user-data-dir=~/.claude-instances/ssv`
+  (~900 files); the default `~/Library/Application Support/Claude` profile is
+  another account, last active ~10 days ago (its data is why `lastActivityAt`
+  first looked stale) — still read, the window filters it. `Claude-3p`, and
+  `~/.claude-instances/ssv-code` (a CLI config dir) have no Desktop list.
+- **Last activity = `lastActivityAt`** (ms; else `createdAt`) — equals the
+  transcript's newest user/assistant message. NOT the transcript's mtime
+  (loading a session appends cost-state/last-prompt lines: month-old sessions
+  read "2 days ago") and NOT the file's mtime (focus/metadata writes). The file
+  is rewritten when `lastActivityAt` changes, so mtime >= it: files older than
+  the window are skipped by `stat` alone; parsed files are cached by (path, mtime).
+  ~0.14s cold, ~0.01s warm on this Mac.
+- **Window**: fixed 14 days (`CLAUDE_DESKTOP_SLEEPING_DAYS`), archived excluded;
+  AgentBar narrows it to its own list/search days. Newest first.
+- **Dedup** (`build_sleeping_sessions`, live wins): dropped when its Desktop id
+  is a live file's `hostSessionId`, or its `cliSessionId` is a live file's
+  `sessionId` or any row's `agentSession` (two live processes can share one
+  `hostSessionId`). Empty until the `claudeSessions` feed has read once
+  (startup), else every running Desktop session would briefly show as sleeping.
+- **Shape**: `{desktopSessionId, cliSessionId, label (title, else folder),
+  cwd, lastActiveTs (s), openUrl}` — `openUrl` is the same
+  `claude://code/continue?session=local_…` a live Desktop row gets. Kept OUT
+  of `computed.agents` (every consumer there assumes a live agent);
+  `feeds.desktopSessions.data` is replaced per response by `{sleepingCount}` so
+  the rows aren't sent twice (~35KB for 14 days). The PWA/remote listener get
+  the same key and ignore it.
+
+## Hook answer bridge (`/api/hook/permission*`) — answer non-herdr prompts from AgentBar
+Contract: `hooks/agentbar-permission-hook.py` (Claude Code `PermissionRequest`
+hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
+`hook_permission_summary.py` (hookRequest view + decision building/validation),
+`hook_permission_routes.py` (routing; the server file only dispatches).
+- `POST /api/hook/permission` (hook) -> `{requestId}` | `{state:"ignored", reason}`
+  (herdr-pane session, bad payload, a background-subagent prompt — payload has
+  `agent_id` — or a session whose file is missing / not `entrypoint` `cli` |
+  `claude-desktop`, e.g. `claude -p` = `sdk-cli`). **Why** (measured 2.1.283):
+  Claude shows those prompts only AFTER every hook returns, so holding them
+  here left the agent stuck on AgentBar alone for up to the hook's 24h. `GET …/<id>/wait?timeout=N` (N ≤ 25,
+  long-poll) -> `{state: pending|answered+decision|resolved|expired}`, 404
+  unknown. `POST …/<id>/answer` (AgentBar) `{behavior:"allow"|"deny",
+  answers?, suggestionIndex?, message?}` -> 200 / 400 (bad answer) / 409 (not
+  pending). All three 404 on the remote listener; writes go through
+  `_reject_foreign_write` as usual.
+- Exposure: a status-only row + its needsYou entry get `hookRequest` (oldest
+  pending per session); the row then reads `blocked`, detail `Question` /
+  `Permission: <tool>`, even before the session file says `waiting`.
+- **Held only while AgentBar is connected** (`server/lib/agentbar_presence.py`):
+  AgentBar sends `X-AgentBar: 1` on every request; "seen" = such a request
+  on the LOCAL listener, or each delivered push of its `/api/events` stream
+  (every ~2s). Not seen in 10s -> register answers `ignored` ("AgentBar not
+  connected"); not seen for 15s -> every pending request resolves
+  `agentbar gone` and its hook exits. Browser tabs / curl without the header
+  never count; a dashboard restart starts "not connected" until AgentBar
+  reconnects. An answer is also refused (409) once the hook process is dead
+  or silent >5s — a /wait whose hook was killed keeps looping server-side,
+  so the store checks `hookPid`. All ages use `time.monotonic()` (wall
+  clock only vs the session file's `statusUpdatedAt`).
+- Hook ignores `HTTP_PROXY` (urllib would otherwise send prompts to a proxy
+  even for 127.0.0.1). A `tool_input` whose AgentBar view can't be built is
+  `ignored` at register (it would have broken `/api/state`). File prompts
+  (Edit/MultiEdit/Write/NotebookEdit) show `- old` / `+ new` lines after
+  the path; a hook row's timer counts from the prompt, not the file status.
+- Hook fails open: any error -> exit 0, no stdout (~0.25s); dashboard down -> re-send (below) or, when not eligible, the same fast exit.
+  Env `AGENTBAR_DASHBOARD_URL` (default :4711). NOT installed anywhere yet;
+  install = `PermissionRequest` matcher `*`, timeout 86400.
+- Gotchas: **first decision wins** — Claude runs hooks in parallel with its
+  own prompt, and whoever answers first wins (a later AgentBar answer is
+  moot). **No signal when answered elsewhere** — the hook is never told; the
+  store infers `resolved` from the session file (`statusUpdatedAt` after the
+  request and status not `waiting` — or `waiting` again from a write >1s after
+  it, i.e. the NEXT prompt; seen ≤3s live), a dead Claude pid, 90s with no
+  `/wait` (10s if the hook never polled once), or 24h age. Parallel subagents
+  can hold several prompts in one session; only main-thread ones register.
+- **Re-send** (2026-09-27 fix: a Desktop question vanished from AgentBar after
+  a dashboard restart — the store is in memory, the hook used to exit on 404).
+  The hook sends its prompt again, with backoff 1→10s, on a `/wait` 404,
+  60s unreachable, dashboard down, or a `retryable` reply ("AgentBar not
+  connected" at register, `agentbar gone` later) — but ONLY while its own
+  session file (`CLAUDE_SESSIONS_DIR`) is an interactive `cli`/`claude-desktop`
+  one still showing THIS prompt (`session_prompt_state.py`, shared by hook and
+  store; a file with no `statusUpdatedAt` counts only while `waiting`), the
+  Claude pid lives, and 23h have not passed. Re-sends carry
+  `reregister: true` + the original `promptStartedAt`; the store holds one
+  only while the (freshly read) session file says `waiting` and not moved on
+  (`prompt no longer waiting` otherwise). A re-send whose request is still
+  pending (hook lost contact >60s) gets that request id back — only when it is
+  the SAME hook (`hookPid`) and prompt (`tool_use_id`, else sha256(tool,
+  input)): another hook with identical input is a new prompt (retried
+  command), and merging it would let the old prompt's answer resolve it.
+  Restart gap: a prompt is back ≤ ~15s after AgentBar reconnects.
+- e2e recipe (never against :4711): run the server with
+  `CHIEF_DASHBOARD_PORT=4713` + scratch `CHIEF_DASHBOARD_STATE_HOME` and
+  `CHIEF_DASHBOARD_CONFIG_HOME` (**:4712 is the live instance's remote
+  listener** when remote access is on — and `restart.sh --port 4712` would
+  kill it), then `claude --setting-sources project --permission-mode default`
+  in a scratch dir whose `.claude/settings.json` registers the hook with
+  `AGENTBAR_DASHBOARD_URL=http://127.0.0.1:4713`. Under
+  `--setting-sources project` an "always allow" answer IS written to
+  `settings.local.json` but not re-read (local settings excluded), so the
+  next run prompts again — a test-setup artifact, not a bug. Nothing is held
+  without an AgentBar client on :4713: simulate one with
+  `curl -sN -H 'X-AgentBar: 1' localhost:4713/api/events > /dev/null`.
+  Wrapping the hook in a shell script for tracing: pass stdin on with
+  `printf '%s'`, never `echo` (sh's echo expands `\n` and corrupts the JSON).
 
 ## Running it
 ```
@@ -148,6 +328,8 @@ scripts/restart.sh                      # production: relaunches inside the
                                          # herdr pane tab-labelled
                                          # chief-dashboard-server (--pane / $CHIEF_DASHBOARD_PANE to override)
 scripts/restart.sh --port 4712 --detached   # testing: no herdr pane needed
+                                         # WARNING: with remote access enabled the LIVE
+                                         # server owns :4712 — this would kill it; use 4713
 scripts/restart.sh --dry-run                # print the plan, touch nothing
 ```
 
@@ -158,7 +340,9 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 42 test files, 1268 `PASS` assertions, 0 `FAIL`.
+As of this writing: 51 test files, ~1810 `PASS` lines, 0 failures
+(`test_chief_dashboard_views.py` prints a heading containing "FAIL-OPEN" —
+not a failure; judge by each file's exit code).
 
 **`agent_tree.py` is a verbatim copy of AptusFit's `scripts/lib/agent_tree.py`**
 — both write the same `~/.claude/agent-tree.json`, so their prune rules must
@@ -168,13 +352,21 @@ copying AptusFit's file over, never by editing this copy alone.
 the retired `agent_tree_routing` test); nothing guards it, so port new
 upstream tests by hand on each sync.
 
-**Never POST to port 4711** (AptusFit's live instance) or restart/kill it.
-All P0-move testing runs on **4712**: GET requests against the real 4711
-data are fine (read-only, harmless), but every write path (`answer`,
+**4711 and 4712 are this repo's own live production instance** (4711 the
+main loopback listener, 4712 its remote-access listener when enabled — see
+"Rules" below) **, not AptusFit's** — the dashboard moved into this repo in
+the P0 move, so AptusFit no longer runs its own copy. **Never POST to
+either port, and never restart/kill by process name** — a same-machine
+write there types real keystrokes into a real pane. Restart only through
+`scripts/restart.sh` (kill-and-relaunch by port ownership, never
+`pkill -f`). All testing runs on other ports (e.g. 4713+ — see the e2e
+recipe above; 4712 is live when remote access is enabled, so a test
+server must not bind it): GET requests against the real 4711 data are
+fine (read-only, harmless), but every write path (`answer`,
 `permission`, `focus`, session actions) is exercised only through the
-`test_*.py` fakes, never live against real panes. `4712`'s server process
-still opens the same board sqlite db as `4711` unless told otherwise (it
-runs `_init_db()` on startup, a write) — export
+`test_*.py` fakes, never live against real panes. A throwaway test
+server's process still opens the same board sqlite db as the live one
+unless told otherwise (it runs `_init_db()` on startup, a write) — export
 `CHIEF_DASHBOARD_STATE_HOME=<some throwaway dir>` before launching it with
 `--detached` so it never touches the live db file.
 

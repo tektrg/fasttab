@@ -1,5 +1,6 @@
 import Foundation
 import CommandBarKit
+import IndieSearch
 
 /// Turns the latest status snapshot into the list the panel shows: state
 /// selection, parking (`TriageState`), the user's list settings, search
@@ -20,7 +21,8 @@ enum AgentListBuilder {
         }
 
         let note = !snapshot.boardIsCurrent
-        let shown = shownAgents(in: snapshot, settings: settings, triage: triage)
+        let isSearching = !searchWords(in: query).isEmpty
+        let shown = shownAgents(in: snapshot, settings: settings, triage: triage, isSearching: isSearching)
         guard !shown.isEmpty else {
             return AgentListPresentation(state: .noAgents, rows: [], showsBoardNote: note)
         }
@@ -32,14 +34,17 @@ enum AgentListBuilder {
 
         return AgentListPresentation(
             state: .list,
-            rows: rows(for: matching, tree: snapshot.agentTree, isSearching: !searchWords(in: query).isEmpty, frecency: frecency, now: now),
+            rows: rows(for: matching, tree: snapshot.agentTree, isSearching: isSearching, frecency: frecency, now: now),
             showsBoardNote: note
         )
     }
 
-    /// The agents the user can see before searching: parking and list settings applied.
-    static func shownAgents(in snapshot: StatusSnapshot, settings: AgentListSettings, triage: TriageState) -> [AgentSnapshot] {
-        settings.applying(to: triage.applying(to: snapshot.agents))
+    /// The agents the user can see: parking and list settings applied. Searching also brings in
+    /// older sleeping sessions (`AgentListSettings.sleepingSearchDays`).
+    static func shownAgents(
+        in snapshot: StatusSnapshot, settings: AgentListSettings, triage: TriageState, isSearching: Bool = false
+    ) -> [AgentSnapshot] {
+        settings.applying(to: triage.applying(to: snapshot.agents), isSearching: isSearching)
     }
 
     /// What is in the Needs you section, whatever the search says. Nil without a
@@ -51,11 +56,14 @@ enum AgentListBuilder {
 
     /// Every query word must appear in the label, project, prompt excerpt or
     /// status text (accent- and case-insensitive). A blank query matches all.
+    /// A sleeping row's status text is only its age ("Sleeping · 2d ago"), so just "Sleeping"
+    /// is searched: otherwise "ag" (…agentbar) or "d" would match every sleeping session via "ago".
     static func agents(_ agents: [AgentSnapshot], matching query: String) -> [AgentSnapshot] {
         let words = searchWords(in: query)
         guard !words.isEmpty else { return agents }
         return agents.filter { agent in
-            let keys = [agent.label, agent.projectName, agent.promptExcerpt, agent.statusText]
+            let statusKey = agent.section == .sleeping ? SleepingSessionMapper.statusPrefix : agent.statusText
+            let keys = [agent.label, agent.projectName, agent.promptExcerpt, statusKey]
                 .compactMap { $0 }
                 .map(foldForMatching)
             return foldedKeys(keys, containAllWordsOf: words)

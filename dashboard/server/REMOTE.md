@@ -71,8 +71,13 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
 
 4. **Log in from the phone**: open `https://<name>.ts.net/` in Safari →
    redirects to `/remote/login` → paste the token from step 1 → sets a
-   30-day session cookie. Add to Home Screen for the fuller PWA experience
-   once a later phase ships the manifest.
+   30-day session cookie. Add to Home Screen for the fuller PWA experience.
+
+   **iOS installed (standalone) PWA has its own, separate cookie jar** from
+   Safari's own tabs — a login done in a Safari tab does NOT carry over to
+   the icon added to the Home Screen, and vice versa. After adding to Home
+   Screen, open the installed app once and log in again there with the same
+   token; it then keeps its own 30-day session independent of Safari's.
 
 ## What changes when `remote.enabled` is true
 

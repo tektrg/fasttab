@@ -1,0 +1,218 @@
+{
+ "serverTimeTs": 1790485057.078458,
+ "feeds": {
+  "hookCache": {
+   "name": "hookCache",
+   "refreshIntervalSec": 2,
+   "warming": false,
+   "lastSuccessTs": 1790485055.289561,
+   "lastAttemptTs": 1790485055.289561,
+   "lastDurationSec": 0.0018570423126220703,
+   "ageSec": 1.7864279747009277,
+   "broken": false,
+   "error": null
+  },
+  "herdr": {
+   "name": "herdr",
+   "refreshIntervalSec": 5,
+   "warming": false,
+   "lastSuccessTs": 1790485054.315274,
+   "lastAttemptTs": 1790485054.315274,
+   "lastDurationSec": 0.022351980209350586,
+   "ageSec": 2.760719060897827,
+   "broken": false,
+   "error": null
+  },
+  "paneTick": {
+   "name": "paneTick",
+   "refreshIntervalSec": 90,
+   "warming": false,
+   "lastSuccessTs": 1790485052.97854,
+   "lastAttemptTs": 1790485052.97854,
+   "lastDurationSec": 0.0011410713195800781,
+   "ageSec": 4.097456932067871,
+   "broken": false,
+   "error": null
+  },
+  "board": {
+   "name": "board",
+   "refreshIntervalSec": 150,
+   "warming": false,
+   "lastSuccessTs": 1790484932.954705,
+   "lastAttemptTs": 1790484932.954705,
+   "lastDurationSec": 10.11227798461914,
+   "ageSec": 124.12129497528076,
+   "broken": false,
+   "error": null
+  },
+  "paneScreen": {
+   "name": "paneScreen",
+   "refreshIntervalSec": 15,
+   "warming": false,
+   "lastSuccessTs": 1790485048.0731149,
+   "lastAttemptTs": 1790485048.0731149,
+   "lastDurationSec": 0.1884291172027588,
+   "ageSec": 9.00288724899292,
+   "broken": false,
+   "error": null
+  },
+  "claudeSessions": {
+   "name": "claudeSessions",
+   "refreshIntervalSec": 3,
+   "warming": false,
+   "lastSuccessTs": 1790485057.0203369,
+   "lastAttemptTs": 1790485057.0203369,
+   "lastDurationSec": 0.07796382904052734,
+   "ageSec": 0.05566835403442383,
+   "broken": false,
+   "error": null
+  },
+  "herdr:air-m1": {
+   "name": "herdr:air-m1",
+   "refreshIntervalSec": 5,
+   "warming": false,
+   "lastSuccessTs": 1790485053.129802,
+   "lastAttemptTs": 1790485053.129802,
+   "lastDurationSec": 0.6292569637298584,
+   "ageSec": 3.9462039470672607,
+   "broken": false,
+   "error": null
+  },
+  "paneScreen:air-m1": {
+   "name": "paneScreen:air-m1",
+   "refreshIntervalSec": 15,
+   "warming": false,
+   "lastSuccessTs": 1790485048.552564,
+   "lastAttemptTs": 1790485048.552564,
+   "lastDurationSec": 0.5937700271606445,
+   "ageSec": 8.523447036743164,
+   "broken": false,
+   "error": null
+  },
+  "machines": {
+   "air-m1": {
+    "status": "ok",
+    "error": null,
+    "ageSec": 3.9486331939697266,
+    "agentCount": 6
+   }
+  }
+ },
+ "computed": {
+  "agents": [
+   {
+    "paneId": null,
+    "tabId": null,
+    "workspaceId": null,
+    "label": "proj-43",
+    "cwd": "/tmp/hookqa1/proj",
+    "focused": false,
+    "hookState": "blocked",
+    "hookSinceSec": 0.5800230503082275,
+    "herdrStatus": null,
+    "disagree": false,
+    "screenUnchangedSec": null,
+    "subagentsRunning": 0,
+    "herdrTurnReported": false,
+    "hasHookData": true,
+    "backgroundWaitExpired": false,
+    "residue": false,
+    "agentSession": "d242bb95-f324-476b-a401-cffd6d021940",
+    "hookReason": "Permission: Bash",
+    "screenState": null,
+    "screenSignal": null,
+    "screenQuestion": null,
+    "screenPermission": null,
+    "hookQuestion": null,
+    "machine": "local",
+    "source": "claude-cli",
+    "sessionStatus": "waiting",
+    "secondsInStatus": 0.5800230503082275,
+    "pid": 97897,
+    "hostSessionId": null,
+    "tmuxTarget": "hookqa1-claude:@822.%822",
+    "openUrl": null,
+    "hookRequest": {
+     "requestId": "hp1-99f0d8db",
+     "kind": "permission",
+     "toolName": "Bash",
+     "createdAt": 1790485056.709764,
+     "sinceSec": 0.3672201633453369,
+     "permission": {
+      "title": "Run a shell command",
+      "detail": "python3 -c \"print('hookqa-one')\"\n\nPrint a test string with Python",
+      "suggestions": [
+       {
+        "index": 0,
+        "label": "Always allow `Bash(python3 -c \"print('hookqa-one')\")` in this project"
+       }
+      ]
+     }
+    },
+    "rowId": "d242bb95-f324-476b-a401-cffd6d021940",
+    "memoryBytes": null,
+    "contextPct": null,
+    "autocompactPct": null,
+    "actions": {
+     "stop": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-cli session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "close": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-cli session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "relaunch": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-cli session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "archive": {
+      "enabled": true,
+      "needsConfirm": false,
+      "reason": "board-only: hides the row, frees nothing"
+     },
+     "unarchive": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "not archived \u2014 nothing to restore"
+     }
+    }
+   }
+  ],
+  "needsYou": [
+   {
+    "kind": "blocked",
+    "urgency": 1,
+    "label": "proj-43",
+    "paneId": null,
+    "detail": "Permission: Bash",
+    "sinceSec": 0.5800230503082275,
+    "identity": "d242bb95-f324-476b-a401-cffd6d021940",
+    "permission": null,
+    "source": "claude-cli",
+    "agentSession": "d242bb95-f324-476b-a401-cffd6d021940",
+    "openUrl": null,
+    "hookRequest": {
+     "requestId": "hp1-99f0d8db",
+     "kind": "permission",
+     "toolName": "Bash",
+     "createdAt": 1790485056.709764,
+     "sinceSec": 0.3672201633453369,
+     "permission": {
+      "title": "Run a shell command",
+      "detail": "python3 -c \"print('hookqa-one')\"\n\nPrint a test string with Python",
+      "suggestions": [
+       {
+        "index": 0,
+        "label": "Always allow `Bash(python3 -c \"print('hookqa-one')\")` in this project"
+       }
+      ]
+     }
+    }
+   }
+  ]
+ }
+}

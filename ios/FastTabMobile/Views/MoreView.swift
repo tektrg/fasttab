@@ -4,6 +4,8 @@ import FastTabSync
 public struct MoreView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var syncConsumer = SyncConsumer.shared
+    @AppStorage(TabBookmarkClosePreference.defaultsKey)
+    private var tabBookmarkClosePreferenceRaw = TabBookmarkClosePreference.ask.rawValue
 
     public init() {}
 
@@ -126,6 +128,15 @@ public struct MoreView: View {
                 }
             }
             .dsListRow()
+
+            if tabBookmarkClosePreferenceRaw != TabBookmarkClosePreference.ask.rawValue {
+                Section(footer: Text("After an Organize-mode Bookmark tap, FastTab currently \(tabBookmarkClosePreferenceRaw == TabBookmarkClosePreference.bookmarkAndClose.rawValue ? "closes" : "keeps") the tab without asking.")) {
+                    Button("Ask Again When Bookmarking Tabs") {
+                        tabBookmarkClosePreferenceRaw = TabBookmarkClosePreference.ask.rawValue
+                    }
+                }
+                .dsListRow()
+            }
 
             Section {
                 Button {

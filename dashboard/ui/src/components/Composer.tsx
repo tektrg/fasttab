@@ -5,6 +5,7 @@ import {
   evaluateMessageBulk,
   isNotSubmitted,
   isQueued,
+  isRefusedBeforeTyping,
   rowLabel,
   sendMessage,
   type SessionActionResult,
@@ -79,11 +80,18 @@ export function Composer({
       );
     } else if (res.needsConfirm) {
       onToast(`confirm needed: ${label}`, false);
-    } else {
+    } else if (isNotSubmitted(res)) {
       onToast(
-        isNotSubmitted(res)
-          ? `NOT SUBMITTED to ${label} — the message did not arrive: ${res.error}`
-          : `refused for ${label}: ${res.error || res.reason || "?"}`,
+        `NOT SUBMITTED to ${label} — the message did not arrive: ${res.error}`,
+        false,
+      );
+    } else if (isRefusedBeforeTyping(res)) {
+      onToast(`refused for ${label}: ${res.error || res.reason || "?"}`, false);
+    } else {
+      // Not provably untyped (mid-sequence error, dropped connection): the
+      // text may have landed, so never word it as a clean refusal.
+      onToast(
+        `send to ${label} failed partway — it may have arrived; look at the pane before retrying: ${res.error || res.reason || "?"}`,
         false,
       );
     }
@@ -121,6 +129,15 @@ export function Composer({
     setBusy(false);
     setReport(done);
     if (need.length > 0) setPending(need);
+    // Every row positively reported `typed:false` (e.g. a control character):
+    // nothing reached a pane, so the text goes straight back — a refusal must
+    // not cost the typed line. Anything else stays out of the box: NOT
+    // SUBMITTED text may still sit in a pane's input, and a mid-sequence
+    // error or dropped connection may have delivered it — a restored box
+    // would double-send on the next Enter.
+    if (need.length === 0 && done.every((r) => isRefusedBeforeTyping(r.res))) {
+      setText((current) => (current === "" ? body : current));
+    }
     onDone?.();
   };
 

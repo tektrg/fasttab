@@ -1,15 +1,46 @@
-import { useCallback } from "react";
-import { Notification } from "@mantine/core";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Notification, TextInput, UnstyledButton } from "@mantine/core";
 import { focusPane, useDashboardState, useToast } from "./api";
 import { useQuestionAlerts, ensureNotiPerm } from "./alerts";
+import { usePhoneLayout } from "./hooks/usePhoneLayout";
 import { FeedStrip } from "./components/FeedStrip";
 import { NeedsYou } from "./components/NeedsYou";
 import { BoardSection } from "./components/BoardSection";
+import { PhoneInbox } from "./components/phone/PhoneInbox";
+import { filterAgents, type SearchableAgent } from "./agentMatch";
+import type { NeedsYouRow } from "./types";
+
+function needsYouSearchable(n: NeedsYouRow): SearchableAgent {
+  return { name: n.label, machine: "local", status: n.detail, latestLine: n.detail };
+}
 
 export default function App() {
   const state = useDashboardState();
   const { toast, show } = useToast();
+  const phone = usePhoneLayout();
   useQuestionAlerts(state?.computed.needsYou);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  // Desktop-only: "/" focuses the search field (unless already typing
+  // somewhere else), Escape clears it — same shortcut convention as most
+  // filterable lists.
+  useEffect(() => {
+    if (phone) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const typing = target && /^(input|textarea|select)$/i.test(target.tagName);
+      if (e.key === "/" && !typing) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      } else if (e.key === "Escape" && target === searchRef.current) {
+        setQuery("");
+        searchRef.current?.blur();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phone]);
 
   const onFocus = useCallback(
     async (paneId: string, label: string) => {
@@ -43,6 +74,41 @@ export default function App() {
 
   const c = state.computed;
 
+  // Phone layout (phase 2a): a completely separate tree, not CSS-hidden
+  // desktop chrome — the table/kanban/bulk-bar/column-menus/view-switcher
+  // are simply never mounted below this width, rather than hidden and
+  // still paying their render/poll cost.
+  if (phone) {
+    return (
+      <div onClick={ensureNotiPerm} className="phone-app">
+        <header>
+          <h1>AGENTBAR</h1>
+          <div className="meta" id="clock">
+            {new Date(state.serverTimeTs * 1000).toLocaleTimeString()} · live
+          </div>
+        </header>
+        <PhoneInbox state={state} onToast={onToast} />
+        {toast && (
+          <Notification
+            id="toast"
+            color={toast.ok ? "green" : "red"}
+            title={toast.ok ? "Done" : "Action failed"}
+            withCloseButton={false}
+            style={{
+              position: "fixed",
+              bottom: "max(16px, calc(env(safe-area-inset-bottom, 0px) + 8px))",
+              left: "max(16px, env(safe-area-inset-left, 0px))",
+              right: "max(16px, env(safe-area-inset-right, 0px))",
+              zIndex: 300,
+            }}
+          >
+            {toast.msg}
+          </Notification>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div onClick={ensureNotiPerm}>
       <header>
@@ -54,14 +120,37 @@ export default function App() {
 
       <FeedStrip state={state} />
 
+      <div className="desktop-search-bar">
+        <TextInput
+          ref={searchRef}
+          value={query}
+          onChange={(e) => setQuery(e.currentTarget.value)}
+          placeholder="Filter agents by name, machine, folder, status… ( / to focus )"
+          size="xs"
+          rightSection={
+            query ? (
+              <UnstyledButton aria-label="clear filter" onClick={() => setQuery("")}>
+                ✕
+              </UnstyledButton>
+            ) : null
+          }
+        />
+      </div>
+
       <section>
         <h2>
           <span>NEEDS YOU</span>
           <span id="needsyou-count" className="small">
-            {c.needsYou.length}
+            {filterAgents(c.needsYou.map((n) => ({ ...needsYouSearchable(n), _n: n })), query).length}
           </span>
         </h2>
-        <NeedsYou rows={c.needsYou} onFocus={onFocus} onToast={onToast} />
+        <NeedsYou
+          rows={filterAgents(c.needsYou.map((n) => ({ ...needsYouSearchable(n), _n: n })), query).map(
+            (x) => x._n as NeedsYouRow,
+          )}
+          onFocus={onFocus}
+          onToast={onToast}
+        />
       </section>
 
       <section>

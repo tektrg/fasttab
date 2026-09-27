@@ -99,7 +99,9 @@ final class AnswerCardModel: ObservableObject {
     /// footer) when it cannot be answered from here.
     @discardableResult
     func open(_ agent: AgentSnapshot) -> Bool {
-        guard case .question? = agent.blockedOnYou, let paneId = agent.paneId, !paneId.isEmpty else {
+        // A hook request (status-only session) is answered by id; anything else needs its pane.
+        let paneId = agent.paneId ?? ""
+        guard case .question? = agent.blockedOnYou, agent.hookRequest != nil || !paneId.isEmpty else {
             return false
         }
         guard statusSource != nil else {
@@ -114,9 +116,11 @@ final class AnswerCardModel: ObservableObject {
         close()
         var opened = AnswerCard(agent: agent, paneId: paneId, question: question)
         if let draft = tracker.takeDraft(agentID: agent.id, for: question.identity) { opened.state.restore(draft) }
+        opened.form = Self.hookForm(agent.hookRequest)
         card = opened
         loadContext()
-        loadPendingFormForCard()
+        // A hook request carries all its questions itself: no transcript read for the form.
+        if agent.hookRequest == nil { loadPendingFormForCard() }
         return true
     }
 
@@ -196,6 +200,14 @@ final class AnswerCardModel: ObservableObject {
         guard let token = tracker.begin(agentID: agentID, at: now()) else { return }
         close()
         scheduleExpiry(agentID: agentID, token: token)
+        if let hookRequest = card.hookRequest {
+            let shown = card.state.question
+            Task { [weak self] in
+                let result = await Self.sendHookAnswer(choice, to: shown, of: hookRequest, source: statusSource)
+                self?.finishSend(result, token: token, agentID: agentID, identity: identity, draft: draft)
+            }
+            return
+        }
         Task { [weak self] in
             // Reading the pane first (read-only) so the question is sent as the dashboard
             // itself reads it; nothing is typed into the pane by this step.
@@ -215,7 +227,7 @@ final class AnswerCardModel: ObservableObject {
         return shown.resolved(against: PaneQuestionReader.identity(in: lines))
     }
 
-    private func finishSend(_ result: AnswerResult, token: Int, agentID: String, identity: QuestionIdentity, draft: AnswerDraft) {
+    func finishSend(_ result: AnswerResult, token: Int, agentID: String, identity: QuestionIdentity, draft: AnswerDraft) {
         switch result {
         case .failed(let message):
             guard tracker.failed(agentID: agentID, token: token, draft: draft) else { return }
@@ -229,7 +241,7 @@ final class AnswerCardModel: ObservableObject {
     }
 
     /// A send with no reply in time frees its row and says so; the answer may still have gone through.
-    private func scheduleExpiry(agentID: String, token: Int) {
+    func scheduleExpiry(agentID: String, token: Int) {
         Task { [weak self] in
             guard let self else { return }
             try? await Task.sleep(for: .seconds(self.sendExpirySeconds))
@@ -279,6 +291,11 @@ final class AnswerCardModel: ObservableObject {
         // A form being sent, or stopped with its report, is not the dashboard's to move or close.
         guard card.form?.isEditable ?? true else { return }
         let agent = agents.first { $0.id == card.agentID }
+        // Another hook request (or none) is a different prompt, whatever its wording: the card was for that one.
+        guard card.hookRequest?.requestId == agent?.hookRequest?.requestId else {
+            close()
+            return
+        }
         switch agent?.blockedOnYou {
         case .question(let question)?:
             follow(question, in: card)

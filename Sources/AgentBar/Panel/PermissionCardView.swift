@@ -201,10 +201,18 @@ struct PermissionCardView: View {
         .background(Color.primary.opacity(0.04))
     }
 
+    /// A hook suggestion's label already names the exact rule ("Always allow `…` in this project"); a pane box's
+    /// "don't ask again" row is prefixed with the tool.
+    static func confirmAlwaysText(_ state: PermissionCardState) -> String {
+        let label = state.highlightedOptionLabel ?? ""
+        if case .allowAlwaysSuggestion? = state.highlighted { return label }
+        return "Always allow \(state.prompt.tool): \(label)"
+    }
+
     /// What "Allow always" would allow for good, in the box's own words, next to the command.
     private func confirmAlwaysLine(_ state: PermissionCardState) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Always allow \(state.prompt.tool): \(state.highlightedOptionLabel ?? "")")
+            Text(Self.confirmAlwaysText(state))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)

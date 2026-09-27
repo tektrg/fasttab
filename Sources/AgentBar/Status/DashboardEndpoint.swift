@@ -19,6 +19,8 @@ struct DashboardEndpoint: Sendable {
     static let answerTimeoutSeconds: TimeInterval = 90
     /// A permission press is one key, then a re-read of the pane (a few seconds).
     static let permissionTimeoutSeconds: TimeInterval = 45
+    /// A hook answer only hands the decision to the waiting hook: no pane involved.
+    static let hookAnswerTimeoutSeconds: TimeInterval = 15
     /// A message types into the pane and re-reads it to see whether it was submitted (2s or more).
     static let messageTimeoutSeconds: TimeInterval = 60
     /// Attach/detach are one write to the dashboard's own tree state, no pane involved: a plain
@@ -34,6 +36,10 @@ struct DashboardEndpoint: Sendable {
     /// or close (`PO_ACTOR` in chief_dashboard_actions.py). AgentBar acts only
     /// on the user's own click, so it speaks as that actor.
     static let sessionActionActor = "po"
+    /// Sent on every request: the dashboard counts AgentBar "connected" only from requests carrying it
+    /// (`dashboard/server/lib/agentbar_presence.py`), and holds a Claude hook prompt only while it is.
+    static let clientHeaderName = "X-AgentBar"
+    static let clientHeaderValue = "1"
 
     let baseURL: URL
 
@@ -128,6 +134,17 @@ struct DashboardEndpoint: Sendable {
         return box
     }
 
+    /// `POST /api/hook/permission/<requestId>/answer`. Nil for an id that is not path-safe (`HookRequest.isPathSafe`).
+    func hookAnswerRequest(requestId: String, answer: HookAnswer) -> URLRequest? {
+        guard HookRequest.isPathSafe(requestId) else { return nil }
+        var request = request(path: "/api/hook/permission/\(requestId)/answer")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.hookAnswerTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: answer.jsonObject, options: [.sortedKeys])
+        return request
+    }
+
     /// `POST /api/session/stop|close`. `confirmed` is sent only when the user
     /// pressed the confirm step, and only then (absent means "not confirmed").
     func sessionActionRequest(_ kind: SessionActionKind, rowId: String, confirmed: Bool) -> URLRequest {
@@ -203,14 +220,20 @@ struct DashboardEndpoint: Sendable {
             URLQueryItem(name: "paneId", value: paneId),
             URLQueryItem(name: "lines", value: String(Self.paneScreenLineCount)),
         ]
-        var request = URLRequest(url: components.url!)
+        var request = Self.agentBarRequest(url: components.url!)
         request.timeoutInterval = Self.paneScreenTimeoutSeconds
         return request
     }
 
     private func request(path: String) -> URLRequest {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
-        request.timeoutInterval = Self.requestTimeoutSeconds
+        Self.agentBarRequest(url: baseURL.appendingPathComponent(path))
+    }
+
+    /// Every dashboard request starts here, so each one identifies AgentBar.
+    private static func agentBarRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = requestTimeoutSeconds
+        request.setValue(clientHeaderValue, forHTTPHeaderField: clientHeaderName)
         return request
     }
 }

@@ -9,8 +9,9 @@ import Foundation
 ///   stays until the user closes it, since by then their eyes are already elsewhere.
 ///   If the panel was reopened in the meantime it is left as is and only gets the notice.
 /// - Status-only rows (`AgentHost`) never reach the dashboard's focus: a Claude Desktop session
-///   opens in Claude.app (`ClaudeDesktopOpening`); a Claude CLI session outside herdr has
-///   nothing AgentBar can switch to, so the panel stays and says where it runs.
+///   opens in Claude.app (`ClaudeDesktopOpening`); a Claude CLI session in tmux is brought
+///   forward by `TmuxSessionSwitching`; one with no tmux target has nothing to switch to, so the
+///   panel stays and says so.
 @MainActor
 final class AgentSwitchCoordinator {
     struct PanelControls {
@@ -24,17 +25,20 @@ final class AgentSwitchCoordinator {
     var statusSource: any AgentStatusSource
     private let panel: PanelControls
     private let desktopOpener: any ClaudeDesktopOpening
+    private let tmuxSwitcher: any TmuxSessionSwitching
 
     init(
         model: AgentPanelModel,
         statusSource: any AgentStatusSource,
         panel: PanelControls,
-        desktopOpener: any ClaudeDesktopOpening = ClaudeDesktopOpener()
+        desktopOpener: any ClaudeDesktopOpening = ClaudeDesktopOpener(),
+        tmuxSwitcher: any TmuxSessionSwitching = TmuxSessionSwitcher()
     ) {
         self.model = model
         self.statusSource = statusSource
         self.panel = panel
         self.desktopOpener = desktopOpener
+        self.tmuxSwitcher = tmuxSwitcher
     }
 
     func switchTo(_ agent: AgentSnapshot) async {
@@ -48,15 +52,19 @@ final class AgentSwitchCoordinator {
             } else {
                 surface(failure: "Claude Desktop could not be opened.")
             }
-        case .claudeCLI(let tmuxTarget):
-            model.reportSwitchFailure(Self.cliSessionMessage(tmuxTarget: tmuxTarget))
+        case .claudeCLI(let tmuxTarget?):
+            panel.hide()
+            switch await tmuxSwitcher.switchTo(tmuxTarget: tmuxTarget, cwd: agent.cwd) {
+            case .switched: model.recordSwitch(to: agent.id)
+            case .failed(let message): surface(failure: message)
+            }
+        case .claudeCLI(nil):
+            model.reportSwitchFailure(Self.untrackedCliSessionMessage)
         }
     }
 
-    static func cliSessionMessage(tmuxTarget: String?) -> String {
-        let place = tmuxTarget.map { "tmux (\($0))" } ?? "a terminal"
-        return "this Claude CLI session runs in \(place), outside herdr — switch to it there."
-    }
+    static let untrackedCliSessionMessage =
+        "this Claude CLI session runs in a terminal outside herdr and tmux — switch to it there."
 
     private func focusPane(of agent: AgentSnapshot) async {
         panel.hide()

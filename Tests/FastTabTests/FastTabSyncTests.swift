@@ -291,11 +291,33 @@ struct FastTabSyncTests {
         #expect(updatedRecord["completedAt"] as? Date == completed.completedAt)
     }
 
-    @Test("SyncSearchMatcher diacritics & word boundary matching")
-    func testSearchMatcher() {
-        #expect(SyncSearchMatcher.matches(query: "fast", title: "FastTab Mac", url: "https://theindie.app"))
-        #expect(SyncSearchMatcher.matches(query: "tab fast", title: "FastTab Mac", url: "https://theindie.app"))
-        #expect(SyncSearchMatcher.matches(query: "indie", title: "FastTab", url: "https://theindie.app"))
-        #expect(!SyncSearchMatcher.matches(query: "chrome", title: "FastTab Safari", url: "https://apple.com"))
+    @Test("SyncSearchQuery: every word in title or URL, any order")
+    func testSearchQueryWords() {
+        func matches(_ query: String, title: String, url: String) -> Bool {
+            SyncSearchQuery(query).matches(title: title, url: url)
+        }
+        #expect(matches("fast", title: "FastTab Mac", url: "https://theindie.app"))
+        #expect(matches("tab fast", title: "FastTab Mac", url: "https://theindie.app"))
+        #expect(matches("indie", title: "FastTab", url: "https://theindie.app"))
+        #expect(matches("fasttab indie", title: "FastTab", url: "https://theindie.app"))
+        #expect(!matches("chrome", title: "FastTab Safari", url: "https://apple.com"))
+        #expect(matches("", title: "Anything", url: ""))
+        #expect(matches("  |  ", title: "Anything", url: ""))
+    }
+
+    /// iOS search shares the Mac's folding (IndieSearch). The old iOS matcher left
+    /// `đ` unfolded, so "don hang" could never find a Vietnamese "Đơn hàng" title.
+    @Test("SyncSearchQuery: Vietnamese đ, accents, case and punctuation are optional")
+    func testSearchQueryFolding() {
+        func matches(_ query: String, title: String) -> Bool {
+            SyncSearchQuery(query).matches(title: title, url: "")
+        }
+        #expect(matches("don hang", title: "Đơn hàng mới"))
+        #expect(matches("đơn", title: "Don hang"))
+        #expect(matches("ĐÀ NẴNG", title: "da nang travel"))
+        #expect(matches("ecommerce", title: "Realtime E-Commerce | Bi Hub"))
+        #expect(matches("e-commerce", title: "ecommerce dashboard"))
+        #expect(matches("INDIE", title: "ｉｎｄｉｅ"))  // full-width letters
+        #expect(!matches("don hang", title: "Dơn"))
     }
 }

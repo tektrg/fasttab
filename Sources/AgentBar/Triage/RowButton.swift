@@ -94,7 +94,7 @@ enum RowButtons {
             moreActionsButton(for: agent)
         case .working:
             messageButton(for: agent) + moreActionsButton(for: agent)
-        case .ended:
+        case .ended, .sleeping:
             []
         }
     }

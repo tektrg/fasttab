@@ -65,8 +65,12 @@ extension AnswerCardModel {
     /// dashboard catches up, and a batch that stops reports to the footer notice.
     private func submitForm() {
         guard let card, let form = card.form?.form, card.form?.canSubmit == true,
-              let choices = card.form?.choices, let statusSource,
-              let token = tracker.begin(agentID: card.agentID, at: now()) else { return }
+              let choices = card.form?.choices, let statusSource else { return }
+        if let hookRequest = card.hookRequest {
+            submitHookForm(hookRequest, card: card, choices: choices, source: statusSource)
+            return
+        }
+        guard let token = tracker.begin(agentID: card.agentID, at: now()) else { return }
         close()
         let agentID = card.agentID
         let fallbackIdentity = card.state.question.identity

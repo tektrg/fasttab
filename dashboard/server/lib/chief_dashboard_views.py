@@ -10,6 +10,8 @@ import time
 import agent_tree  # noqa: E402  (scripts/lib/agent_tree.py — the hierarchy store)
 import chief_dashboard_herdr as herdr_transport
 import claude_sessions  # P4: non-herdr Claude sessions as status-only rows
+import desktop_sessions  # sleeping Claude Desktop sessions (no live process)
+import hook_permissions  # prompts answerable via the PermissionRequest hook
 import pane_screen_signals
 from chief_dashboard_feeds import FEEDS, MACHINES, sanitize_pane_id  # noqa: F401
 from chief_dashboard_feeds import MACHINES_CONFIG_ERROR  # noqa: F401,E402  (surfaced on every /api/state)
@@ -159,7 +161,8 @@ def build_agents_view(feeds_snap):
     claude_sessions_data = (feeds_snap.get("claudeSessions") or {}).get("data")
     rows.extend(claude_sessions.build_status_only_rows(
         claude_sessions_data, herdr_session_ids, now,
-        machine=herdr_transport.LOCAL_MACHINE))
+        machine=herdr_transport.LOCAL_MACHINE,
+        hook_requests=hook_permissions.STORE.exposed_by_session(claude_sessions_data)))
 
     # Hook files with no matching herdr pane. The hook only deletes one on a
     # graceful SessionEnd, so a closed tab or a killed session leaves it behind
@@ -355,7 +358,8 @@ def build_needs_you(feeds_snap, agents):
         age = a["hookSinceSec"]
         if claude_sessions.is_status_only_row(a):
             # P4: no pane, no screen — the session's own `waiting` status is
-            # the whole signal. Answered in its own app, never from here.
+            # the whole signal. Answered in its own app, or — when the
+            # PermissionRequest hook sent it — via `hookRequest`.
             if a["hookState"] == "blocked":
                 row = _row("blocked", label, None, a.get("hookReason")
                            or claude_sessions.DEFAULT_WAITING_REASON, age,
@@ -364,6 +368,8 @@ def build_needs_you(feeds_snap, agents):
                 row["source"] = a["source"]
                 row["agentSession"] = a.get("agentSession")
                 row["openUrl"] = a.get("openUrl")
+                row["hookRequest"] = a.get("hookRequest")
+                row["transcriptQuestion"] = a.get("transcriptQuestion")
                 rows.append(row)
             continue
         screen = a.get("screenState")
@@ -517,6 +523,7 @@ def get_full_state():
     # from two feed keys per machine. Absent entirely when no machine is
     # configured (today's exact shape — no new key for zero machines).
     feeds_snap = dict(feeds_snap)
+    sleeping = _sleeping_sessions(feeds_snap, agents)
     if MACHINES:
         feeds_snap["machines"] = machines_status()
     # A parse error must survive even though it always makes MACHINES falsy
@@ -534,8 +541,27 @@ def get_full_state():
             "residueCount": residue_count,
             "disagreementCount": len(disagreements),
             "needsYou": needs_you,
+            # Claude Desktop sessions with no running process (AgentBar's
+            # "sleeping" rows) — kept out of `agents`: not live, no status.
+            "sleepingSessions": sleeping,
         },
     }
+
+
+def _sleeping_sessions(feeds_snap, agents):
+    """computed.sleepingSessions from the desktopSessions feed. `feeds_snap`
+    (a per-request copy) then carries only the feed's health + a count, so the
+    rows are not sent twice on every push."""
+    desktop_feed = feeds_snap.get("desktopSessions")
+    if not desktop_feed:
+        return []
+    live_sessions = (feeds_snap.get("claudeSessions") or {}).get("data")
+    # Until the live-session feed has read once (startup), every RUNNING
+    # Desktop session would pass the live-wins dedup and show as sleeping.
+    sleeping = ([] if live_sessions is None else
+                desktop_sessions.build_sleeping_sessions(desktop_feed.get("data"), live_sessions, agents))
+    feeds_snap["desktopSessions"] = dict(desktop_feed, data={"sleepingCount": len(sleeping)})
+    return sleeping
 
 
 # ── agent hierarchy (scripts/lib/agent_tree.py): GET /api/agent-tree,

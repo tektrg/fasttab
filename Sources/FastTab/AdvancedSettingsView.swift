@@ -29,10 +29,8 @@ struct AdvancedSettingsView: View {
                         extensionStatusRow(for: spec)
                     }
 
-                    if let storeURL = URL(string: "https://chromewebstore.google.com/detail/\(FastTabExtensionIdentity.id)") {
-                        Link("Install the extension", destination: storeURL)
-                            .font(.callout)
-                    }
+                    Link("Install the extension", destination: FastTabExtensionIdentity.chromeWebStoreURL)
+                        .font(.callout)
                 }
             }
 

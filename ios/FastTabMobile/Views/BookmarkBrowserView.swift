@@ -53,10 +53,10 @@ public struct BookmarkBrowserView: View {
             }
             return allBookmarks
         }
+        let search = SyncSearchQuery(query)
         var matches: [BookmarkRowItem] = []
         for entry in allBookmarks {
-            if SyncSearchMatcher.matches(query: query, target: entry.item.title) ||
-               SyncSearchMatcher.matches(query: query, target: entry.item.url) {
+            if search.matches(title: entry.item.title, url: entry.item.url) {
                 matches.append(entry)
             }
         }

@@ -163,7 +163,8 @@ feed `desktopSessions` (10s).
 - **Dedup** (`build_sleeping_sessions`, live wins): dropped when its Desktop id
   is a live file's `hostSessionId`, or its `cliSessionId` is a live file's
   `sessionId` or any row's `agentSession` (two live processes can share one
-  `hostSessionId`).
+  `hostSessionId`). Empty until the `claudeSessions` feed has read once
+  (startup), else every running Desktop session would briefly show as sleeping.
 - **Shape**: `{desktopSessionId, cliSessionId, label (title, else folder),
   cwd, lastActiveTs (s), openUrl}` — `openUrl` is the same
   `claude://code/continue?session=local_…` a live Desktop row gets. Kept OUT

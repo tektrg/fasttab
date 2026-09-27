@@ -56,11 +56,14 @@ enum AgentListBuilder {
 
     /// Every query word must appear in the label, project, prompt excerpt or
     /// status text (accent- and case-insensitive). A blank query matches all.
+    /// A sleeping row's status text is only its age ("Sleeping · 2d ago"), so just "Sleeping"
+    /// is searched: otherwise "ag" (…agentbar) or "d" would match every sleeping session via "ago".
     static func agents(_ agents: [AgentSnapshot], matching query: String) -> [AgentSnapshot] {
         let words = searchWords(in: query)
         guard !words.isEmpty else { return agents }
         return agents.filter { agent in
-            let keys = [agent.label, agent.projectName, agent.promptExcerpt, agent.statusText]
+            let statusKey = agent.section == .sleeping ? SleepingSessionMapper.statusPrefix : agent.statusText
+            let keys = [agent.label, agent.projectName, agent.promptExcerpt, statusKey]
                 .compactMap { $0 }
                 .map(foldForMatching)
             return foldedKeys(keys, containAllWordsOf: words)

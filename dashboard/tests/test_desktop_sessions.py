@@ -147,6 +147,11 @@ check("one Claude session in two Desktop profiles -> one row (the newest); id-le
 
 print("== get_full_state: computed.sleepingSessions, feed data summarized ==")
 import chief_dashboard_views as views  # noqa: E402
+views.FEEDS["desktopSessions"].set_success(sessions)
+check("live-session feed not read yet (startup) -> no sleeping rows, so running ones never flash as sleeping",
+      (views.get_full_state()["computed"]["sleepingSessions"],
+       views.get_full_state()["feeds"]["desktopSessions"]["data"]),
+      ([], {"sleepingCount": 0}))
 views.FEEDS["claudeSessions"].set_success([{"sessionId": "cli-cli", "hostSessionId": None}])
 views.FEEDS["desktopSessions"].set_success(sessions)
 state = views.get_full_state()

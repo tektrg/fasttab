@@ -126,6 +126,14 @@ struct SleepingSessionListTests {
         #expect(ids(S.presentation(snapshot, query: "ten")).isEmpty)
     }
 
+    @Test func aSleepingRowsAgeIsNotSearchableButTheWordSleepingIs() throws {
+        let snapshot = try S.snapshot(sleeping: [S.entry("aaa", daysAgo: 2, label: "Fix login")])
+        #expect(ids(S.presentation(snapshot, query: "ago")).isEmpty)
+        #expect(ids(S.presentation(snapshot, query: "2d")).isEmpty)
+        #expect(ids(S.presentation(snapshot, query: "sleeping")) == ["cli-aaa"])
+        #expect(ids(S.presentation(snapshot, query: "login")) == ["cli-aaa"])
+    }
+
     @Test func searchNeverNarrowsBelowTheListWindowAndZeroListDaysIsSearchOnly() throws {
         let snapshot = try S.snapshot(sleeping: [S.entry("five", daysAgo: 5, label: "work")])
         var settings = AgentListSettings.standard

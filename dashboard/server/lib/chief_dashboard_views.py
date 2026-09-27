@@ -555,7 +555,10 @@ def _sleeping_sessions(feeds_snap, agents):
     if not desktop_feed:
         return []
     live_sessions = (feeds_snap.get("claudeSessions") or {}).get("data")
-    sleeping = desktop_sessions.build_sleeping_sessions(desktop_feed.get("data"), live_sessions, agents)
+    # Until the live-session feed has read once (startup), every RUNNING
+    # Desktop session would pass the live-wins dedup and show as sleeping.
+    sleeping = ([] if live_sessions is None else
+                desktop_sessions.build_sleeping_sessions(desktop_feed.get("data"), live_sessions, agents))
     feeds_snap["desktopSessions"] = dict(desktop_feed, data={"sleepingCount": len(sleeping)})
     return sleeping
 

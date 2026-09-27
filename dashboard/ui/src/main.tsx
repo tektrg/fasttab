@@ -16,3 +16,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </MantineProvider>
   </React.StrictMode>,
 );
+
+// PWA app-shell cache (phase 2a) — HTTPS only (loopback dev over plain http
+// never registers one; iOS's install prompt needs https anyway, and a
+// service worker on the loopback dev server would only risk masking a
+// local code change behind a stale cache).
+if ("serviceWorker" in navigator && window.location.protocol === "https:") {
+  window.addEventListener("load", () => {
+    void navigator.serviceWorker.register("/sw.js");
+  });
+}

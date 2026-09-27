@@ -307,6 +307,56 @@ os.chmod(remote_access.TOKEN_PATH, 0o600)
 check("token trusted again once mode is restored to 0600",
       remote_access.load_token(), TOKEN)
 
+print("== phase 2a PWA assets: reachable on the remote listener WITHOUT auth ==")
+print("   (manifest/icons/sw.js — iOS install flows fetch these before the ==")
+print("   page's own cookie jar is necessarily involved) — everything else ==")
+print("   on the remote listener still requires a session/token ==")
+_pwa_tmp = tempfile.TemporaryDirectory()
+_orig_ui_dist = _srv.Handler.UI_DIST
+_srv.Handler.UI_DIST = _pwa_tmp.name
+os.makedirs(os.path.join(_pwa_tmp.name, "icons"), exist_ok=True)
+with open(os.path.join(_pwa_tmp.name, "manifest.webmanifest"), "w") as f:
+    f.write('{"name": "AgentBar"}')
+with open(os.path.join(_pwa_tmp.name, "sw.js"), "w") as f:
+    f.write("// sw")
+with open(os.path.join(_pwa_tmp.name, "icons", "icon-192.png"), "wb") as f:
+    f.write(b"\x89PNG-fake-192")
+with open(os.path.join(_pwa_tmp.name, "icons", "icon-512.png"), "wb") as f:
+    f.write(b"\x89PNG-fake-512")
+with open(os.path.join(_pwa_tmp.name, "apple-touch-icon.png"), "wb") as f:
+    f.write(b"\x89PNG-fake-touch")
+try:
+    for pwa_path in _srv.Handler.PWA_PUBLIC_PATHS:
+        h = FakeHandler({}, path=pwa_path, method="GET", remote_listener=True)
+        h.do_GET()
+        check(f"unauth GET {pwa_path} on remote listener -> 200", h.response_status, 200)
+        check(f"{pwa_path} body non-empty", len(h.wfile.data) > 0, True)
+
+    h = FakeHandler({}, path="/manifest.webmanifest", method="GET", remote_listener=True)
+    h.do_GET()
+    check("manifest Content-Type", h.response_headers.get("Content-Type"),
+          "application/manifest+json")
+
+    print("== every other remote-listener route is still gated — the PWA ==")
+    print("   allowlist is exactly those 5 paths, nothing more ==")
+    h = FakeHandler({}, path="/api/state", method="GET", remote_listener=True)
+    h.do_GET()
+    check("unauth GET /api/state on remote listener still 401", h.response_status, 401)
+    h = FakeHandler({}, path="/assets/index.js", method="GET", remote_listener=True)
+    h.do_GET()
+    check("unauth GET /assets/* on remote listener still redirects to login",
+          h.response_status, 302)
+
+    print("== the main (loopback) listener also serves these paths (unchanged ==")
+    print("   loopback behaviour — same route, no auth gate on that listener) ==")
+    h = FakeHandler({}, path="/sw.js", method="GET", remote_listener=False)
+    h.do_GET()
+    check("main listener serves /sw.js", h.response_status, 200)
+finally:
+    _srv.Handler.UI_DIST = _orig_ui_dist
+    _pwa_tmp.cleanup()
+
+print()
 print("== load_remote_settings: port defaults to 4712, honours config override ==")
 enabled, hosts, port = remote_access.load_remote_settings()
 check("enabled from config", enabled, True)

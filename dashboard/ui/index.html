@@ -2,7 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Chief Dashboard</title>
+    <!-- PWA (phase 2a): installable "AgentBar" home-screen app for the phone
+         Needs You inbox. manifest.webmanifest + icons live in ui/public/
+         (copied verbatim to dist/ root by Vite) and are served by
+         chief-dashboard-server.py's Handler.PWA_PUBLIC_PATHS — including,
+         on the remote (Tailscale) listener, WITHOUT the login cookie, since
+         iOS fetches these before a page's own fetch/cookie jar is involved
+         in some install flows. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AgentBar" />
     <script>
       // Mirrors Mantine's own attribute logic (used once React mounts) so the
       // page never flashes light-then-dark on a system that's already dark —

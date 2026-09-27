@@ -59,7 +59,9 @@ describe("phone PWA — iOS-specific CSS", () => {
   // scoped to .phone-app/.phone-sheet-*, because the phone sheet Modal is
   // portalled to the document root and sits outside .phone-app.
   test("every input/textarea/select is >=16px at phone width (no iOS auto-zoom anywhere)", () => {
-    const media = css.match(/@media \(max-width:\s*480px\)\s*\{([\s\S]*?)\n\}/);
+    // 640px, not 480px: must match usePhoneLayout's own breakpoint, since
+    // that's what actually mounts the phone sheet Modal these inputs live in.
+    const media = css.match(/@media \(max-width:\s*640px\)\s*\{([\s\S]*?)\n\}/);
     expect(media).not.toBeNull();
     const block = media![1];
     expect(block).toMatch(/font-size:\s*16px\s*!important/);

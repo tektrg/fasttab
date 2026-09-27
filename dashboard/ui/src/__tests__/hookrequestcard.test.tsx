@@ -202,10 +202,30 @@ describe("alerts for pane-less rows", () => {
     expect(held!.slot).toBe("sess-1");
   });
 
-  test("a different question re-alerts; a bare waiting row does not alert", () => {
+  test("a different question re-alerts; a bare waiting row alerts once as WAITING", () => {
     const other = alertFor(row({ hookRequest: { ...QUESTION, questions: [{ ...QUESTION.questions![0], question: "Other?" }] } }));
     expect(other!.key).not.toBe(alertFor(row({ hookRequest: QUESTION }))!.key);
-    expect(alertFor(row({}))).toBe(null);
+    const waiting = alertFor(row({ kind: "blocked", detail: "waiting" }));
+    expect(waiting!.title).toContain("WAITING");
+    expect(alertFor(row({ kind: "feed-broken" }))).toBe(null);
+  });
+});
+
+describe("alerts for pane rows", () => {
+  const pane = (extra: Partial<NeedsYouRow>) => row({ paneId: "p1", agentSession: null, source: undefined, ...extra });
+  const preview = { title: "Pick", question: "Which DB?", multi: false, options: [{ index: 1, label: "A" }] };
+
+  test("early preview alerts, parsed question keeps the same key", () => {
+    const early = alertFor(pane({ kind: "question", questionPreview: preview }));
+    const parsed = alertFor(pane({ kind: "question", question: { ...preview, options: [] } as never }));
+    expect(early!.key).toBe(parsed!.key);
+  });
+
+  test("terminal permission prompt alerts; unparsed block falls back to detail", () => {
+    const perm = alertFor(pane({ kind: "blocked", permission: { tool: "Bash", detail: "ls", title: "Bash command", options: [], cursorIndex: null } }));
+    expect(perm!.title).toContain("PERMISSION");
+    expect(perm!.body).toContain("ls");
+    expect(alertFor(pane({ kind: "blocked", permission: null, detail: "run /login" }))!.body).toBe("run /login");
   });
 });
 

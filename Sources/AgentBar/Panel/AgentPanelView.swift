@@ -31,7 +31,7 @@ struct AgentPanelView: View {
                     routingMode: model.routingState.map { switch $0 {
                         case .loading: .loading
                         case .confirming: .confirming
-                        case .confirmingPersona: .confirmingPersona
+                        case .confirmingPersona(let pick): pick.effect.refusesDelivery ? .confirmingPersonaRefusal : .confirmingPersona
                         case .startingPersona: .startingPersona
                     } },
                     isTagged: model.taggedAgentID != nil

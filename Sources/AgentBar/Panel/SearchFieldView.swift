@@ -177,7 +177,8 @@ struct SearchFieldView: View {
                 // A persona confirm row (`.confirmingPersona`) claims Tab first, flipping its
                 // delivery mode instead of tagging a row — `togglePersonaDeliveryOverride()` is a
                 // no-op (returns false) whenever that row isn't showing, so every other case falls
-                // through to the plain row-tag exactly as before.
+                // through to the plain row-tag exactly as before (itself a no-op while a persona
+                // start is in flight, so Tab is swallowed there).
                 if model.togglePersonaDeliveryOverride() { return .handled }
                 model.tagSelected()
                 return .handled

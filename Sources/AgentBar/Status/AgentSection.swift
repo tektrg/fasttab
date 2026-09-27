@@ -10,6 +10,9 @@ enum AgentSection: Int, CaseIterable, Comparable, Sendable {
     /// Claude Desktop sessions with no running process (`SleepingSessionMapper`); always last.
     case sleeping
 
+    /// A running session: not Ended, not Sleeping.
+    var isLive: Bool { self != .ended && self != .sleeping }
+
     static func < (lhs: AgentSection, rhs: AgentSection) -> Bool {
         lhs.rawValue < rhs.rawValue
     }

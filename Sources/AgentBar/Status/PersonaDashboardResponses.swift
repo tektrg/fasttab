@@ -8,6 +8,9 @@ struct DashboardPersonaStartResponse: Decodable {
     let mode: String?
     let error: String?
 
+    /// Shown for a 404 instead of its terse "not found": the dashboard predates persona starts.
+    static let endpointMissingMessage = "This dashboard can't start personas yet — update it."
+
     /// The outcome the reply amounts to; nil when it says nothing usable (`ok: true` but missing
     /// `paneId`/a recognized `mode` — the caller turns nil into its own "unreadable reply" text,
     /// same as everywhere else a `nil` decode-result reaches `AgentPanelModel`).

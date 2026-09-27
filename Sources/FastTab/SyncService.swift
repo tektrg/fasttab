@@ -38,6 +38,7 @@ final class SyncService: NSObject, ObservableObject {
     private var lastPublishedBookmarkHashes: [String: String] = [:]
     private var lastPublishedHistoryHashes: [String: String] = [:]
     private var lastPublishedTabOrderHash: String = ""
+    var tabStatsPublishState = TabStatsPublishState()
 
     private var tabDebounceTask: Task<Void, Never>?
     private var syncPollTimer: Timer?
@@ -807,6 +808,8 @@ final class SyncService: NSObject, ObservableObject {
                 lastPublishedBookmarkHashes.removeValue(forKey: deletion.recordID.recordName)
             case SyncedHistorySlice.recordType:
                 lastPublishedHistoryHashes.removeValue(forKey: deletion.recordID.recordName)
+            case SyncedTabStats.recordType:
+                resetTabStatsPublishState()
             default:
                 break
             }
@@ -846,6 +849,7 @@ final class SyncService: NSObject, ObservableObject {
         lastPublishedBookmarkHashes.removeAll()
         lastPublishedHistoryHashes.removeAll()
         lastPublishedTabOrderHash = ""
+        resetTabStatsPublishState()
         pendingRecordsToSave.removeAll()
         serverRecordsByID.removeAll()
     }

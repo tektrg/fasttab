@@ -89,6 +89,7 @@ final class TabActivityRecorder {
             } catch {
                 logger.error("Tab metric log write failed: \(error.localizedDescription, privacy: .public)")
             }
+            SyncService.shared.publishTabStatsIfDue(eventLog: eventLog)
         }
     }
 

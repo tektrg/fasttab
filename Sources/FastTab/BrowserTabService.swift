@@ -1430,6 +1430,7 @@ class BrowserTabService: ObservableObject {
                 self.lastActiveTimes = updatedTimes
                 self.lastAudibleSeenAt = updatedAudibleSeenAt
                 SyncService.shared.requestLiveTabsPublish(authoritativeTabs)
+                TabActivityRecorder.shared.observe(authoritativeTabs)
                 self.logger.info("Authoritative all-browser tab sync published. tabCount=\(authoritativeTabs.count)")
             }
         }

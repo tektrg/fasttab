@@ -66,3 +66,23 @@ struct SyncedTabStatsTests {
         #expect(SyncedTabStats(from: retry) == sampleStats())
     }
 }
+
+@Suite("Tab stats publish gate")
+struct TabStatsPublishGateTests {
+    @Test("Checks at most hourly, and immediately when never checked")
+    func hourlyGate() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        #expect(SyncService.isTabStatsCheckDue(lastCheckedAt: nil, now: now))
+        #expect(!SyncService.isTabStatsCheckDue(lastCheckedAt: now.addingTimeInterval(-59 * 60), now: now))
+        #expect(SyncService.isTabStatsCheckDue(lastCheckedAt: now.addingTimeInterval(-60 * 60), now: now))
+    }
+
+    @Test("Fingerprint changes with the digest and the time zone only")
+    func fingerprint() {
+        let days = [TabDay(day: "2026-09-27", opened: 1)]
+        let same = SyncService.tabStatsFingerprint(days: days, timeZoneID: "UTC")
+        #expect(same == SyncService.tabStatsFingerprint(days: [TabDay(day: "2026-09-27", opened: 1)], timeZoneID: "UTC"))
+        #expect(same != SyncService.tabStatsFingerprint(days: [TabDay(day: "2026-09-27", opened: 2)], timeZoneID: "UTC"))
+        #expect(same != SyncService.tabStatsFingerprint(days: days, timeZoneID: "Asia/Ho_Chi_Minh"))
+    }
+}

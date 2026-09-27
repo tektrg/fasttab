@@ -1,15 +1,9 @@
 import Foundation
 import Testing
-import CommandBarKit
 @testable import AgentBar
 
 struct RouteCandidateBuilderTests {
     typealias F = AgentListFixtures
-
-    private static func visited(daysAgo: Double, count: Double = 1) -> FrecencyEntry {
-        let when = F.now.addingTimeInterval(-daysAgo * 86_400)
-        return FrecencyEntry(count: count, lastVisit: when, cachedScore: count, cachedScoreAt: when)
-    }
 
     // MARK: Sessions — unchanged eligibility rule, new (persona-prefixed, project-less) summary shape
 
@@ -56,14 +50,23 @@ struct RouteCandidateBuilderTests {
         #expect(candidates.isEmpty)
     }
 
-    @Test func sessionsAreCappedAtTheTwelveMostRecentlyActiveByFrecency() {
-        let agents = (0..<15).map { F.agent("w\($0)", section: .working) }
-        let frecency = Dictionary(uniqueKeysWithValues: agents.enumerated().map { offset, agent in
-            (agent.id, Self.visited(daysAgo: Double(14 - offset)))
-        })
-        let candidates = RouteCandidateBuilder.candidates(from: agents, frecency: frecency, now: F.now)
+    @Test func sessionsAreCappedAtTheTwelveMostRecentlyActiveAgents() {
+        // w0 did something longest ago, w14 most recently.
+        let agents = (0..<15).map { F.agent("w\($0)", section: .working, secondsInStatus: TimeInterval(100 * (15 - $0))) }
+        let candidates = RouteCandidateBuilder.candidates(from: agents)
         #expect(candidates.count == 12)
         #expect(candidates.map(\.agentID) == (3..<15).reversed().map { "w\($0)" })
+    }
+
+    @Test func rowsWithNoActivityTimeGoLastAndTiesKeepDashboardOrder() {
+        let agents = [
+            F.agent("unknown", section: .working, secondsInStatus: nil),
+            F.agent("tieA", section: .working, secondsInStatus: 60),
+            F.agent("recent", section: .working, secondsInStatus: 5),
+            F.agent("tieB", section: .working, secondsInStatus: 60)
+        ]
+        let candidates = RouteCandidateBuilder.candidates(from: agents)
+        #expect(candidates.map(\.agentID) == ["recent", "tieA", "tieB", "unknown"])
     }
 
     // MARK: Personas
@@ -76,6 +79,12 @@ struct RouteCandidateBuilderTests {
         let candidates = RouteCandidateBuilder.candidates(from: [], personas: [persona])
         #expect(candidates.map(\.agentID) == ["persona:chief-aptus"])
         #expect(candidates.first?.summary == "chief-aptus — the AptusFit chief. Routes here: AptusFit work. Not for: unrelated projects.")
+    }
+
+    @Test func emptyRoutesHereAndNotForClausesAreLeftOut() {
+        let persona = PersonaFixtures.persona("air-notes", description: "notes", routesWhen: [], notFor: [])
+        let candidates = RouteCandidateBuilder.candidates(from: [], personas: [persona])
+        #expect(candidates.first?.summary == "air-notes — notes.")
     }
 
     @Test func offlinePersonasAreSkipped() {

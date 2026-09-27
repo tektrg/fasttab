@@ -134,50 +134,59 @@ struct PersonaRoutingPanelModelTests {
 
     // MARK: - Live main that can't take a message: never a duplicate session
 
-    /// The persona's main row is live but blocked on a permission box — not message-eligible.
-    private func waitingMainRig() -> Rig {
-        var agent = F.agent("w", label: "chief-aptus main", section: .needsYou)
-        agent.blocker = .permission
-        let persona = PersonaFixtures.persona("chief-aptus", mainRowId: "w", idleStart: .resume)
-        let rig = makeRig(agents: [agent], personas: [persona])
+    private static let waitingNotice = "chief-aptus's main session is waiting on you. Answer it first, or Tab to start a new session."
+    private static let unreachableNotice = "chief-aptus's main session can't take messages here. Tab to start a new session."
+
+    /// A rig whose persona `chief-aptus` has `mainAgent` as its main row, routed with typed text.
+    private func mainRowRig(_ mainAgent: AgentSnapshot) -> Rig {
+        let persona = PersonaFixtures.persona("chief-aptus", mainRowId: mainAgent.id, idleStart: .resume)
+        let rig = makeRig(agents: [mainAgent], personas: [persona])
         rig.client.outcome = .picked(agentID: "persona:chief-aptus", confidence: 0.9)
         rig.model.query = "ship the release"
         return rig
     }
 
+    /// The persona's main row is live but blocked on a permission box — not message-eligible.
+    private static func blockedMain() -> AgentSnapshot {
+        var agent = F.agent("w", label: "chief-aptus main", section: .needsYou)
+        agent.blocker = .permission
+        return agent
+    }
+
     @Test func aBlockedLiveMainShowsWaitingOnYouNotStartOrResume() async {
-        let rig = waitingMainRig()
+        let rig = mainRowRig(Self.blockedMain())
         rig.model.startRouting()
         let pick = await confirmedPersonaPick(rig)
         #expect(pick?.effect == .mainWaitingOnYou)
         #expect(pick?.effect.text == "main session is waiting on you")
     }
 
-    @Test func returnOnAWaitingMainStartsNothingAndKeepsTheTypedText() async {
-        let rig = waitingMainRig()
+    @Test func returnOnAWaitingMainStartsNothingKeepsTheRowAndTheTypedText() async {
+        let rig = mainRowRig(Self.blockedMain())
         rig.model.startRouting()
-        _ = await confirmedPersonaPick(rig)
+        let pick = await confirmedPersonaPick(rig)
         rig.model.activateSelected()
-        #expect(rig.model.routingState == nil)
-        #expect(rig.model.footerNotice?.text == "chief-aptus's main session is waiting on you. Answer it, then send again.")
+        #expect(rig.model.routingState == pick.map { AgentPanelModel.RoutingState.confirmingPersona($0) })
+        #expect(rig.model.footerNotice?.text == Self.waitingNotice)
         #expect(rig.model.query == "ship the release")
         try? await Task.sleep(for: .milliseconds(50))
         #expect(rig.personas.startCalls.isEmpty)
         #expect(rig.source.sent.isEmpty)
     }
 
-    @Test func sendImmediatelyOnAWaitingMainStartsNothingEither() async {
-        let rig = waitingMainRig()
+    @Test func sendImmediatelyOnAWaitingMainShowsTheConfirmRowInsteadOfStarting() async {
+        let rig = mainRowRig(Self.blockedMain())
         rig.model.applyRouting(RoutingSettings(modelID: "~typesafe/jev-latest", afterRouting: .sendImmediately))
         rig.model.startRouting()
-        await waitUntil { rig.model.routingState == nil }
-        #expect(rig.model.footerNotice?.text == "chief-aptus's main session is waiting on you. Answer it, then send again.")
+        let pick = await confirmedPersonaPick(rig)
+        #expect(pick?.effect == .mainWaitingOnYou)
+        #expect(rig.model.footerNotice?.text == Self.waitingNotice)
         try? await Task.sleep(for: .milliseconds(50))
         #expect(rig.personas.startCalls.isEmpty)
     }
 
     @Test func tabOnAWaitingMainStillStartsANewFreshSession() async {
-        let rig = waitingMainRig()
+        let rig = mainRowRig(Self.blockedMain())
         rig.model.startRouting()
         _ = await confirmedPersonaPick(rig)
         #expect(rig.model.togglePersonaDeliveryOverride())
@@ -190,15 +199,79 @@ struct PersonaRoutingPanelModelTests {
         #expect(rig.personas.startCalls == [.init(name: "chief-aptus", text: "ship the release", fresh: true)])
     }
 
+    @Test(arguments: [
+        F.agent("w", label: "chief-aptus main", section: .working, paneId: ""),        // pane-less
+        F.agent("w", label: "chief-aptus main", section: .working, hasHookData: false) // no hook data yet
+    ])
+    func anUnblockedMainThatCantBeMessagedIsUnreachableAndReturnStartsNothing(main: AgentSnapshot) async {
+        let rig = mainRowRig(main)
+        rig.model.startRouting()
+        let pick = await confirmedPersonaPick(rig)
+        #expect(pick?.effect == .mainUnreachable)
+        #expect(pick?.effect.text == "main session can't take messages here · tab to start new")
+
+        rig.model.activateSelected()
+        #expect(rig.model.footerNotice?.text == Self.unreachableNotice)
+        #expect(rig.model.routingState == pick.map { AgentPanelModel.RoutingState.confirmingPersona($0) })
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(rig.personas.startCalls.isEmpty)
+        #expect(rig.source.sent.isEmpty)
+
+        #expect(rig.model.togglePersonaDeliveryOverride())
+        rig.model.activateSelected()
+        await waitUntil { !rig.personas.startCalls.isEmpty }
+        #expect(rig.personas.startCalls == [.init(name: "chief-aptus", text: "ship the release", fresh: true)])
+    }
+
     @Test func anEndedMainRowCountsAsNoMainSession() async {
-        let agent = F.agent("w", label: "chief-aptus main", section: .ended)
-        let persona = PersonaFixtures.persona("chief-aptus", mainRowId: "w", idleStart: .resume)
-        let rig = makeRig(agents: [agent], personas: [persona])
-        rig.client.outcome = .picked(agentID: "persona:chief-aptus", confidence: 0.9)
-        rig.model.query = "ship the release"
+        let rig = mainRowRig(F.agent("w", label: "chief-aptus main", section: .ended))
         rig.model.startRouting()
         let pick = await confirmedPersonaPick(rig)
         #expect(pick?.effect == .resumeLast)
+    }
+
+    // MARK: - Return re-reads the main session
+
+    @Test func aMainThatGotBlockedSinceThePickRedrawsTheRowInsteadOfSending() async {
+        let rig = mainRowRig(F.agent("w", label: "chief-aptus main", section: .working))
+        rig.model.startRouting()
+        let pick = await confirmedPersonaPick(rig)
+        #expect(pick?.effect == .sendToMain)
+
+        rig.model.receive(F.snapshot([Self.blockedMain()]))
+        rig.model.activateSelected()
+        guard case .confirmingPersona(let redrawn) = rig.model.routingState else {
+            Issue.record("expected a persona confirm row"); return
+        }
+        #expect(redrawn.effect == .mainWaitingOnYou)
+        #expect(rig.model.footerNotice == nil)   // redrawn, not yet acted on
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(rig.source.sent.isEmpty)
+        #expect(rig.personas.startCalls.isEmpty)
+
+        rig.model.activateSelected()   // a second Return acts on what the row now says
+        #expect(rig.model.footerNotice?.text == Self.waitingNotice)
+    }
+
+    @Test func aMainThatWentAwaySinceThePickRedrawsToTheIdleStartEffect() async {
+        let rig = mainRowRig(F.agent("w", label: "chief-aptus main", section: .working))
+        rig.model.startRouting()
+        _ = await confirmedPersonaPick(rig)
+
+        rig.model.receive(F.snapshot([]))
+        rig.model.activateSelected()
+        guard case .confirmingPersona(let redrawn) = rig.model.routingState else {
+            Issue.record("expected a persona confirm row"); return
+        }
+        #expect(redrawn.effect == .resumeLast)
+        #expect(rig.personas.startCalls.isEmpty)
+    }
+
+    // MARK: - Footer hint
+
+    @Test func theFooterNeverOffersReturnToSendOnARefusalRow() {
+        #expect(PanelFooterHints.text(for: .init(routingMode: .confirmingPersonaRefusal)) == "tab start new   esc cancel")
+        #expect(PanelFooterHints.text(for: .init(routingMode: .confirmingPersona)) == "↩ send   tab toggle   esc cancel")
     }
 
     // MARK: - Delivery: no live main -> POST /api/persona/start
@@ -279,7 +352,8 @@ struct PersonaRoutingPanelModelTests {
 
     // MARK: - Esc while starting cancels and drops the late reply
 
-    @Test func escWhileStartingCancelsAndDropsTheLateReply() async {
+    /// A rig with a persona start POST held in flight.
+    private func startInFlightRig() async -> Rig {
         let persona = PersonaFixtures.persona("air-notes", idleStart: .fresh)
         let rig = makeRig(personas: [persona])
         rig.personas.gatesStart = true
@@ -289,14 +363,30 @@ struct PersonaRoutingPanelModelTests {
         _ = await confirmedPersonaPick(rig)
         rig.model.activateSelected()
         await waitUntil { rig.personas.pendingStartCount == 1 }
+        return rig
+    }
 
+    @Test func escWhileStartingCancelsTheRowButStillShowsTheLateOutcome() async {
+        let rig = await startInFlightRig()
         #expect(rig.model.backOutOfButtons())
         #expect(rig.model.routingState == nil)
+        rig.model.query = "something new"
 
         rig.personas.resolvePendingStart(with: .started(paneId: "w9:p1"))
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(rig.model.routingState == nil)   // the late reply did not resurrect it
-        #expect(rig.model.footerNotice == nil)
+        await waitUntil { rig.model.footerNotice != nil }
+        #expect(rig.model.footerNotice == .created("Started air-notes"))   // the start happened: say so
+        #expect(rig.model.routingState == nil)   // the late reply did not resurrect the row
+        #expect(rig.model.query == "something new")   // nor wipe what was typed since
+    }
+
+    @Test func aPanelReopenWhileStartingStillShowsALateFailure() async {
+        let rig = await startInFlightRig()
+        rig.model.resetForShow()
+        #expect(rig.model.routingState == nil)
+
+        rig.personas.resolvePendingStart(with: .failed("herdr couldn't create a pane."))
+        await waitUntil { rig.model.footerNotice != nil }
+        #expect(rig.model.footerNotice?.text == "herdr couldn't create a pane.")
     }
 
     // MARK: - No dashboard to start on

@@ -26,7 +26,9 @@ enum PanelFooterHints {
         var isTagged = false
     }
 
-    enum RoutingHintMode { case loading, confirming, confirmingPersona, startingPersona }
+    /// `confirmingPersonaRefusal`: a persona confirm row whose Return delivers nothing
+    /// (`PersonaDeliveryEffect.refusesDelivery`) — Tab is the only way forward.
+    enum RoutingHintMode { case loading, confirming, confirmingPersona, confirmingPersonaRefusal, startingPersona }
 
     static func text(for context: Context) -> String {
         if context.hasDismissibleNotice { return "esc dismiss notice" }
@@ -52,6 +54,7 @@ enum PanelFooterHints {
         case .loading: "esc cancel"
         case .confirming: "↩ send   esc cancel"
         case .confirmingPersona: "↩ send   tab toggle   esc cancel"
+        case .confirmingPersonaRefusal: "tab start new   esc cancel"
         case .startingPersona: "esc cancel"
         }
     }

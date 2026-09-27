@@ -6,10 +6,12 @@ enum PersonaMainSession: Equatable, Sendable {
     case absent
     /// Live and message-eligible right now.
     case ready(agentID: String)
-    /// Live, but it can't take a message right now (blocked on a question or permission, no
-    /// hook data, not addressable). Still the persona's session: starting another one beside it
-    /// would open a duplicate while this one waits on the user.
+    /// Live, but blocked on a question or permission box. Still the persona's session: starting
+    /// another one beside it would open a duplicate while this one waits on the user.
     case waitingOnYou(agentID: String)
+    /// Live, not blocked, but AgentBar can't message it at all (no pane, no hook data yet, not
+    /// addressable). Only an explicit Tab "start new session" delivers anywhere.
+    case unreachable(agentID: String)
 }
 
 /// A Jev pick that landed on a persona rather than a specific session — the confirm row's
@@ -17,10 +19,10 @@ enum PersonaMainSession: Equatable, Sendable {
 struct PersonaPick: Equatable, Sendable {
     let persona: Persona
     let confidence: Double
-    /// The persona's main session, resolved once when the pick lands (same staleness window
-    /// every other pick already tolerates — a `.ready` id is re-resolved against the live
-    /// snapshot at delivery time, same as `RoutingState.confirming`'s `agentID`).
-    let mainSession: PersonaMainSession
+    /// The persona's main session, resolved when the pick lands and again at Return
+    /// (`AgentPanelModel.deliverPersonaPick`): a changed effect updates the confirm row instead of
+    /// acting on what the row no longer says.
+    var mainSession: PersonaMainSession
     /// Tab on the confirm row (`AgentPanelModel.togglePersonaDeliveryOverride`) flips this — the
     /// smallest version of the spec's Tab-tag menu that fits a single confirm row: no separate
     /// menu UI, the effect text alone shows which one will happen.

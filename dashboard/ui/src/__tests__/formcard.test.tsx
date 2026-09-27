@@ -202,6 +202,33 @@ function checkboxLabeled(host: HTMLElement, label: string): HTMLInputElement | n
 }
 
 describe("FormCard", () => {
+  test("renders each option's description under its label (AskUserQuestion label + description)", async () => {
+    stubFetch();
+    const m = mount(
+      <FormCard paneId="w8:p1" form={form()} screenQuestion={screenQuestion()} onToast={() => {}} />,
+    );
+    expect(m.host.textContent).toContain("Rewrite");
+    expect(m.host.textContent).toContain("start clean");
+    expect(m.host.textContent).toContain("Patch");
+    expect(m.host.textContent).toContain("smallest diff");
+    m.unmount();
+  });
+
+  test("an option with no description renders no stray description line", async () => {
+    stubFetch();
+    const noDesc = multiQuestionForm(); // options have no `description` field at all
+    const m = mount(
+      <FormCard
+        paneId="w8:p1"
+        form={noDesc}
+        screenQuestion={multiScreenQuestion()}
+        onToast={() => {}}
+      />,
+    );
+    expect(m.host.textContent).toContain("a.ts");
+    m.unmount();
+  });
+
   test("Submit is disabled until every question is answered", async () => {
     stubFetch();
     const m = mount(

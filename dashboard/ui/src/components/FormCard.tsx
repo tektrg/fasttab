@@ -221,19 +221,31 @@ export function FormCard({
             <Stack gap={4}>
               {q.options.map((o) =>
                 q.isMultiSelect ? (
-                  <Checkbox
-                    key={o.label}
-                    label={o.label}
-                    checked={drafts[qi].selected.includes(o.label)}
-                    onChange={() => toggle(qi, o.label, true)}
-                  />
+                  <div key={o.label}>
+                    <Checkbox
+                      label={o.label}
+                      checked={drafts[qi].selected.includes(o.label)}
+                      onChange={() => toggle(qi, o.label, true)}
+                    />
+                    {o.description ? (
+                      <Text size="xs" c="dimmed" ml={28}>
+                        <MarkdownInline text={o.description} />
+                      </Text>
+                    ) : null}
+                  </div>
                 ) : (
-                  <Radio
-                    key={o.label}
-                    label={o.label}
-                    checked={drafts[qi].selected.includes(o.label)}
-                    onChange={() => toggle(qi, o.label, false)}
-                  />
+                  <div key={o.label}>
+                    <Radio
+                      label={o.label}
+                      checked={drafts[qi].selected.includes(o.label)}
+                      onChange={() => toggle(qi, o.label, false)}
+                    />
+                    {o.description ? (
+                      <Text size="xs" c="dimmed" ml={28}>
+                        <MarkdownInline text={o.description} />
+                      </Text>
+                    ) : null}
+                  </div>
                 ),
               )}
             </Stack>

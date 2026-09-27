@@ -20,6 +20,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const css = readFileSync(join(import.meta.dir, "../index.css"), "utf8");
+const html = readFileSync(join(import.meta.dir, "../../index.html"), "utf8");
 
 describe("phone PWA — iOS-specific CSS", () => {
   test("the phone header gets a safe-area-inset-top allowance", () => {
@@ -51,5 +52,34 @@ describe("phone PWA — iOS-specific CSS", () => {
     expect(css).toMatch(/\.phone-sheet-head\s*\{[^}]*env\(safe-area-inset-right/);
     expect(css).toMatch(/\.phone-sheet-footer\s*\{[^}]*env\(safe-area-inset-left/);
     expect(css).toMatch(/\.phone-sheet-footer\s*\{[^}]*env\(safe-area-inset-right/);
+  });
+
+  // Broad fix: every input/textarea/select at phone width is >=16px, not
+  // just the composer — including Mantine's own input classes, and NOT
+  // scoped to .phone-app/.phone-sheet-*, because the phone sheet Modal is
+  // portalled to the document root and sits outside .phone-app.
+  test("every input/textarea/select is >=16px at phone width (no iOS auto-zoom anywhere)", () => {
+    const media = css.match(/@media \(max-width:\s*480px\)\s*\{([\s\S]*?)\n\}/);
+    expect(media).not.toBeNull();
+    const block = media![1];
+    expect(block).toMatch(/font-size:\s*16px\s*!important/);
+    for (const sel of ["input", "textarea", "select"]) {
+      expect(block).toMatch(new RegExp(`(^|,|\\s)${sel}(,|\\s|\\{)`));
+    }
+    for (const cls of [
+      "mantine-TextInput-input",
+      "mantine-Textarea-input",
+      "mantine-Autocomplete-input",
+      "mantine-Select-input",
+    ]) {
+      expect(block).toContain(`.${cls}`);
+    }
+  });
+
+  test("index.html sets maximum-scale=1 without disabling pinch-zoom", () => {
+    const viewport = html.match(/<meta name="viewport" content="([^"]*)"/);
+    expect(viewport).not.toBeNull();
+    expect(viewport![1]).toMatch(/maximum-scale=1(\.0)?/);
+    expect(viewport![1]).not.toMatch(/user-scalable=no/);
   });
 });

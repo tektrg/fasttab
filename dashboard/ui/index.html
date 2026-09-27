@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- maximum-scale=1 stops iOS Safari's own auto-zoom-on-input-focus
+         (it still allows pinch-to-zoom despite the name — Apple's WebKit
+         only disables that with user-scalable=no, which we do NOT set). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <title>Chief Dashboard</title>
     <!-- PWA (phase 2a): installable "AgentBar" home-screen app for the phone
          Needs You inbox. manifest.webmanifest + icons live in ui/public/

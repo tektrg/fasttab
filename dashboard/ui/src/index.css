@@ -452,6 +452,28 @@ body.rp-resizing .rp-resize { background:var(--blue); }
    existing size. */
 .phone-sheet-footer input { font-size: 16px; }
 
+/* iOS Safari auto-zooms the whole page when focusing ANY text input,
+   textarea, or select whose computed font-size is under 16px — not just
+   the composer above. This must catch every field on phone width
+   regardless of which container it lives in, because the phone sheet is a
+   fullScreen Modal portalled to the document root (not inside .phone-app),
+   so a selector scoped to .phone-app or .phone-sheet-* alone misses it.
+   Covers plain <input>/<textarea>/<select> AND Mantine's own input classes
+   (TextInput/Textarea/Autocomplete/Select all render `.mantine-*-input`),
+   in case a future field skips the bare element selector (e.g. a wrapped
+   custom control). !important beats Mantine's compiled per-component font
+   size, which otherwise wins on specificity. Scoped to phone width via
+   max-width so desktop editing (RowPanel composer, inline board edits)
+   keeps its existing smaller size. */
+@media (max-width: 480px) {
+  input, textarea, select,
+  .mantine-TextInput-input, .mantine-Textarea-input,
+  .mantine-Autocomplete-input, .mantine-Select-input,
+  .mantine-NumberInput-input, .mantine-PasswordInput-input {
+    font-size: 16px !important;
+  }
+}
+
 /* GFM markdown rendering (agent content) — readable at 375px width and in
    both themes; see components/Markdown.tsx. */
 .plan-body, .latest-message, .form-card, .review-card {

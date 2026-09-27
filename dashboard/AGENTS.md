@@ -92,7 +92,7 @@ even upstream (see `chief_dashboard_pass.py`'s module docstring).
 `server/lib/personas.py`. Registry: `~/.config/agentbar/personas.json`
 (override `AGENTBAR_PERSONAS_FILE` — tests, or a second local instance),
 NOT under `~/.config/agent-dashboard/`; AgentBar only edits it through
-dashboard endpoints (P4 — not built yet, hand-edit for now). Missing file
+dashboard endpoints (P4, below — `persona_registry_edit.py` is the one writer). Missing file
 -> empty registry; a malformed file or a single bad persona entry is
 skipped with a stderr log line, never a crash. A persona with an empty
 `description` is a valid registry entry but is never offered (Jev must
@@ -116,6 +116,26 @@ filtered first, then a duplicate name keeps the first in registry order).
 Each row also carries `idleStart`: `"resume"` | `"fresh"` — what a start
 would do right now (see below). Only a local `start: in-place` persona can
 be `"resume"`; the folder scan is cached 30s.
+
+### Settings > Personas endpoints — P4
+All three are **localhost only** (403 on the remote listener); the POST also
+needs `Content-Type: application/json` (same gate as `/api/persona/start`).
+- `GET /api/personas/suggestions` (`persona_suggestions.py`): `[{address,
+  lastActive (epoch s), sessionCount, draftDescription}]`. Recent (30d)
+  transcript cwds -> git root (worktree -> main repo); excludes temp dirs
+  outside home, `scratchpad` paths, home itself, missing folders, existing
+  personas, `hidden`. Draft = AGENTS.md (else CLAUDE.md) opening heading +
+  first paragraph, read-only.
+- `GET /api/personas/registry`: every persona (hidden/undescribed too) with
+  `hidden`/`offered` flags, `globalInstructions`, `defaultGlobalInstructions`,
+  `hiddenSuggestions`.
+- `POST /api/personas` (`persona_registry_edit.py`): `{action: adopt|edit|
+  hide|unhide|remove|setGlobalInstructions, …}` -> `{ok, registry}` or
+  `{ok:false, error}`. `adopt` accepts only a current suggestion's address;
+  `edit`/`remove` take a persona name or address already in the registry;
+  `start`/`startScript` are never editable here; unknown fields in the file
+  are kept. Atomic write (temp + rename, 0600) under one lock; a malformed
+  file is never overwritten. Tests: `tests/test_persona_registry_edit.py`.
 
 ### `POST /api/persona/start` — P3 (`server/lib/persona_start.py`)
 Starts or resumes an idle persona's Claude session in a new herdr tab in

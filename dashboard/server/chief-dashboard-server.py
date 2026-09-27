@@ -202,6 +202,8 @@ import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
 import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook bridge)
 import persona_start  # noqa: E402  (POST /api/persona/start, P3)
+import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
+import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -3047,20 +3049,33 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(personas.get_personas_state())
             except Exception as e:
                 self._send_json({"error": str(e)}, status=400)
+        elif path in ("/api/personas/suggestions", "/api/personas/registry"):
+            # Jev persona routing P4 (Settings > Personas): folder paths and
+            # instructions, so localhost only like every persona write.
+            if self._is_remote_listener():
+                self._send_json({"ok": False, "error": "refused: localhost-only"}, status=403)
+                return
+            try:
+                if path.endswith("/suggestions"):
+                    self._send_json(persona_suggestions.get_suggestions())
+                else:
+                    self._send_json(persona_registry_edit.registry_view())
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=500)
         else:
             self._send_json({"error": "not found"}, status=404)
 
-    def _handle_persona_start(self):
-        """POST /api/persona/start (Jev persona routing P3 — see
-        server/lib/persona_start.py). Localhost only (brief: "Dashboard
-        endpoints"): refused on the remote listener even when
-        authenticated, since starting a Claude session is a local-desk
-        action. Then the Content-Type gate, before the body is parsed: a
-        browser page can't send application/json cross-site without a
-        preflight this dashboard never answers."""
+    def _handle_local_json_post(self, path, handle_body):
+        """Persona writes: POST /api/persona/start (P3, persona_start.py)
+        and POST /api/personas (P4, persona_registry_edit.py). Localhost
+        only (brief: "Dashboard endpoints"): refused on the remote listener
+        even when authenticated — these are local-desk actions. Then the
+        Content-Type gate, before the body is parsed: a browser page can't
+        send application/json cross-site without a preflight this
+        dashboard never answers."""
         if self._is_remote_listener():
             self._send_json(
-                {"ok": False, "error": "refused: /api/persona/start is localhost-only"},
+                {"ok": False, "error": f"refused: {path} is localhost-only"},
                 status=403)
             return
         if not persona_start.is_json_content_type(self.headers.get("Content-Type")):
@@ -3073,7 +3088,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=200)
             return
-        self._send_json(persona_start.start_persona(body))
+        self._send_json(handle_body(body))
 
     def do_POST(self):
         if self._reject_foreign_write():
@@ -3133,7 +3148,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(payload, status=status)
             return
         if path == "/api/persona/start":
-            self._handle_persona_start()
+            self._handle_local_json_post(path, persona_start.start_persona)
+            return
+        if path == "/api/personas":
+            self._handle_local_json_post(path, persona_registry_edit.apply_registry_action)
             return
         # P0 dashboard move: POST /api/worker (chief_dashboard_worker.py —
         # worktree/session spin-up for AptusFit's not-yet-built "Jev

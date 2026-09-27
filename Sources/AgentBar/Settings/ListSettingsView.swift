@@ -42,11 +42,13 @@ struct ListSettingsView: View {
                         Text(days == 0 ? "Never (search only)" : Self.daysLabel(days)).tag(days)
                     }
                 }
+                .disabled(!settings.list.showsClaudeOutsideHerdr)
                 Picker("Include in search", selection: binding(\.sleepingSearchDays)) {
                     ForEach(AgentListSettings.sleepingSearchDaysChoices, id: \.self) { days in
                         Text(Self.daysLabel(days)).tag(days)
                     }
                 }
+                .disabled(!settings.list.showsClaudeOutsideHerdr)
                 Text("Desktop sessions Claude has put to sleep (no running process), by last activity. Listed greyed at the bottom; Enter opens one in Claude Desktop. Needs \"Show Claude Desktop and CLI sessions\" on.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

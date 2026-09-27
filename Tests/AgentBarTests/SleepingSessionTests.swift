@@ -79,6 +79,14 @@ struct SleepingSessionMapperTests {
         let row = try #require(try S.snapshot(sleeping: [entry]).agents.first)
         #expect(row.host == .claudeDesktop(openURL: nil))   // Enter then only activates Claude.app
     }
+
+    @Test func oneClaudeSessionInTwoDesktopProfilesIsOneRowTheNewest() throws {
+        let older = S.entry("shared", daysAgo: 2, label: "Older profile")
+        let newer = S.entry("shared", daysAgo: 1, label: "Newer profile").replacingOccurrences(of: "local_shared", with: "local_other")
+        let snapshot = try S.snapshot(sleeping: [older, newer])
+        #expect(snapshot.agents.map(\.id) == ["cli-shared"])
+        #expect(snapshot.agents.first?.label == "Newer profile")
+    }
 }
 
 struct SleepingSessionListTests {
@@ -128,6 +136,9 @@ struct SleepingSessionListTests {
         settings.sleepingSearchDays = 7
         #expect(S.presentation(snapshot, settings: settings).state == .noAgents)
         #expect(ids(S.presentation(snapshot, query: "work", settings: settings)) == ["cli-five"])
+        // A last-activity stamp at (or past) the server's now is still search-only at 0 days.
+        let justNow = try S.snapshot(sleeping: [S.entry("now", daysAgo: -0.01, label: "work")])
+        #expect(S.presentation(justNow, settings: settings).state == .noAgents)
     }
 
     @Test func hidingClaudeOutsideHerdrHidesSleepingSessionsToo() throws {

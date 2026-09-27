@@ -82,7 +82,7 @@ struct AgentListSettings: Equatable, Sendable {
         return agents.filter { agent in
             if !showsNonClaudePanes && !agent.hasHookData { return false }
             if !showsClaudeOutsideHerdr && !agent.host.isHerdr { return false }
-            if agent.section == .sleeping { return (agent.secondsInStatus ?? .infinity) <= sleepingWindow }
+            if agent.section == .sleeping { return sleepingWindow > 0 && (agent.secondsInStatus ?? .infinity) <= sleepingWindow }
             guard agent.section == .ended else { return true }
             guard (agent.secondsInStatus ?? 0) <= endedWindowSeconds, endedKept < maxEndedRows else { return false }
             endedKept += 1

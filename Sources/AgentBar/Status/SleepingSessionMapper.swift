@@ -34,10 +34,14 @@ struct DashboardSleepingSession: Decodable {
 enum SleepingSessionMapper {
     static let statusPrefix = "Sleeping"
 
+    /// Newest first, one row per id (the newest): the dashboard already dedupes, but two rows with
+    /// one id would break list selection, so it is enforced here too.
     static func map(_ sessions: [DashboardSleepingSession], serverNow: TimeInterval) -> [AgentSnapshot] {
-        sessions
+        var seenIDs = Set<String>()
+        return sessions
             .compactMap { snapshot(for: $0, serverNow: serverNow) }
             .sorted { ($0.secondsInStatus ?? 0) < ($1.secondsInStatus ?? 0) }
+            .filter { seenIDs.insert($0.id).inserted }
     }
 
     /// "Sleeping · 2d ago".

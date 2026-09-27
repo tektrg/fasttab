@@ -42,10 +42,26 @@ struct StatTile: View {
             Text(caption)
                 .font(DS.Font.meta)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Three headline tiles side by side; stacked at accessibility text sizes, where a third of
+/// the card is too narrow for "Tue · 10 AM" or "open, 7-day avg".
+struct StatTileRow<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: DS.Space.sm) { content }
+        } else {
+            HStack(alignment: .top, spacing: DS.Space.md) { content }
+        }
     }
 }
 
@@ -56,25 +72,49 @@ struct StatsCard<Content: View>: View {
     let tint: Color
     let context: String?
     @ViewBuilder let content: Content
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
-            HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
-                Label(title, systemImage: systemImage)
-                    .font(DS.Font.cardTitle)
-                    .foregroundStyle(tint)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: DS.Space.sm)
-                if let context {
-                    Text(context)
-                        .font(DS.Font.meta)
-                        .foregroundStyle(.secondary)
+            // At accessibility sizes the context goes under the title, which would otherwise
+            // hyphenate ("Read-ing") beside it.
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: DS.Space.xxs) { titleLabel; contextText }
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
+                    titleLabel
+                    Spacer(minLength: DS.Space.sm)
+                    contextText
                 }
             }
             content
         }
         .padding(DS.Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var titleLabel: some View {
+        Label(title, systemImage: systemImage)
+            .font(DS.Font.cardTitle)
+            .foregroundStyle(tint)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    @ViewBuilder private var contextText: some View {
+        if let context {
+            Text(context)
+                .font(DS.Font.meta)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+extension View {
+    /// Axis labels stop growing at the largest non-accessibility size: past it, date labels on a
+    /// phone-width chart overlap. The numbers stay readable in the headline tiles above, and
+    /// VoiceOver reads every mark.
+    func statsChartTextSize() -> some View {
+        dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 }
 

@@ -38,7 +38,7 @@ struct TabStatsCard: View {
     }
 
     private var headlineTiles: some View {
-        HStack(spacing: DS.Space.md) {
+        StatTileRow {
             StatTile(
                 value: TabStatsSummary.recentMean(summary.averageOpenByDay, days: Self.headlineDayCount, missingDaysAsZero: false, now: Date(), calendar: .current)
                     .map { StatsStyle.compactNumber($0) } ?? "–",
@@ -74,14 +74,18 @@ struct TabStatsCard: View {
                     startPoint: .top, endPoint: .bottom
                 ))
                 .interpolationMethod(.monotone)
+                .accessibilityHidden(true) // the line carries each day for VoiceOver
             LineMark(x: .value("Day", point.day, unit: .day), y: .value("Open tabs", point.value))
                 .foregroundStyle(DS.Tint.action)
                 .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
                 .interpolationMethod(.monotone)
+                .accessibilityLabel(point.day.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                .accessibilityValue("\(StatsStyle.compactNumber(point.value)) tabs open on average")
         }
         .chartXScale(domain: dayDomain)
         .modifier(DayAxes(domain: dayDomain))
         .frame(height: StatsStyle.chartHeight)
+        .statsChartTextSize()
         .accessibilityLabel("Average open tabs per day")
     }
 
@@ -90,10 +94,13 @@ struct TabStatsCard: View {
             BarMark(x: .value("Day", point.day, unit: .day), y: .value("Opened", point.value), width: .ratio(0.7))
                 .foregroundStyle(DS.Tint.recent.gradient)
                 .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+                .accessibilityLabel(point.day.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                .accessibilityValue("\(Int(point.value)) tabs opened")
         }
         .chartXScale(domain: dayDomain)
         .modifier(DayAxes(domain: dayDomain))
         .frame(height: StatsStyle.compactChartHeight + 16)
+        .statsChartTextSize()
         .accessibilityLabel("Tabs opened per day")
     }
 
@@ -102,6 +109,8 @@ struct TabStatsCard: View {
             BarMark(x: .value("Hour", Double(point.slot)), y: .value("Opened", point.value), width: .fixed(7))
                 .foregroundStyle(point.slot == summary.busiestHour ? DS.Tint.warning : DS.Tint.warning.opacity(0.35))
                 .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+                .accessibilityLabel(StatsStyle.hourLabel(point.slot))
+                .accessibilityValue("\(Int(point.value)) tabs opened")
         }
         .chartXScale(domain: -0.5...23.5)
         .chartXAxis {
@@ -113,6 +122,7 @@ struct TabStatsCard: View {
         }
         .chartYAxis(.hidden)
         .frame(height: StatsStyle.compactChartHeight)
+        .statsChartTextSize()
         .accessibilityLabel("Tabs opened by hour of day")
     }
 }

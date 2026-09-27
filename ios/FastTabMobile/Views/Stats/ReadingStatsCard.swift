@@ -21,7 +21,7 @@ struct ReadingStatsCard: View {
                 )
                 .redacted(reason: isLoaded ? [] : .placeholder)
             } else {
-                HStack(spacing: DS.Space.md) {
+                StatTileRow {
                     StatTile(value: StatsStyle.compactNumber(summary.totalWords), caption: "words read")
                     StatTile(value: "\(summary.finishedCount)", caption: "finished")
                     StatTile(value: "\(summary.highlightCount)", caption: "highlights", tint: DS.Tint.warning)
@@ -76,6 +76,7 @@ struct ReadingStatsCard: View {
             }
         }
         .frame(height: StatsStyle.chartHeight)
+        .statsChartTextSize()
         .accessibilityLabel("Words read per week, by topic")
     }
 }

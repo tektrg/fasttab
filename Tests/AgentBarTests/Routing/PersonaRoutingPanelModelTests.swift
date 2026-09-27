@@ -132,6 +132,75 @@ struct PersonaRoutingPanelModelTests {
         #expect(rig.personas.startCalls.isEmpty)
     }
 
+    // MARK: - Live main that can't take a message: never a duplicate session
+
+    /// The persona's main row is live but blocked on a permission box — not message-eligible.
+    private func waitingMainRig() -> Rig {
+        var agent = F.agent("w", label: "chief-aptus main", section: .needsYou)
+        agent.blocker = .permission
+        let persona = PersonaFixtures.persona("chief-aptus", mainRowId: "w", idleStart: .resume)
+        let rig = makeRig(agents: [agent], personas: [persona])
+        rig.client.outcome = .picked(agentID: "persona:chief-aptus", confidence: 0.9)
+        rig.model.query = "ship the release"
+        return rig
+    }
+
+    @Test func aBlockedLiveMainShowsWaitingOnYouNotStartOrResume() async {
+        let rig = waitingMainRig()
+        rig.model.startRouting()
+        let pick = await confirmedPersonaPick(rig)
+        #expect(pick?.effect == .mainWaitingOnYou)
+        #expect(pick?.effect.text == "main session is waiting on you")
+    }
+
+    @Test func returnOnAWaitingMainStartsNothingAndKeepsTheTypedText() async {
+        let rig = waitingMainRig()
+        rig.model.startRouting()
+        _ = await confirmedPersonaPick(rig)
+        rig.model.activateSelected()
+        #expect(rig.model.routingState == nil)
+        #expect(rig.model.footerNotice?.text == "chief-aptus's main session is waiting on you. Answer it, then send again.")
+        #expect(rig.model.query == "ship the release")
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(rig.personas.startCalls.isEmpty)
+        #expect(rig.source.sent.isEmpty)
+    }
+
+    @Test func sendImmediatelyOnAWaitingMainStartsNothingEither() async {
+        let rig = waitingMainRig()
+        rig.model.applyRouting(RoutingSettings(modelID: "~typesafe/jev-latest", afterRouting: .sendImmediately))
+        rig.model.startRouting()
+        await waitUntil { rig.model.routingState == nil }
+        #expect(rig.model.footerNotice?.text == "chief-aptus's main session is waiting on you. Answer it, then send again.")
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(rig.personas.startCalls.isEmpty)
+    }
+
+    @Test func tabOnAWaitingMainStillStartsANewFreshSession() async {
+        let rig = waitingMainRig()
+        rig.model.startRouting()
+        _ = await confirmedPersonaPick(rig)
+        #expect(rig.model.togglePersonaDeliveryOverride())
+        guard case .confirmingPersona(let toggled) = rig.model.routingState else {
+            Issue.record("expected a persona confirm row"); return
+        }
+        #expect(toggled.effect == .startNew)
+        rig.model.activateSelected()
+        await waitUntil { !rig.personas.startCalls.isEmpty }
+        #expect(rig.personas.startCalls == [.init(name: "chief-aptus", text: "ship the release", fresh: true)])
+    }
+
+    @Test func anEndedMainRowCountsAsNoMainSession() async {
+        let agent = F.agent("w", label: "chief-aptus main", section: .ended)
+        let persona = PersonaFixtures.persona("chief-aptus", mainRowId: "w", idleStart: .resume)
+        let rig = makeRig(agents: [agent], personas: [persona])
+        rig.client.outcome = .picked(agentID: "persona:chief-aptus", confidence: 0.9)
+        rig.model.query = "ship the release"
+        rig.model.startRouting()
+        let pick = await confirmedPersonaPick(rig)
+        #expect(pick?.effect == .resumeLast)
+    }
+
     // MARK: - Delivery: no live main -> POST /api/persona/start
 
     @Test func returnWithNoLiveMainStartsThroughTheDashboardWithFreshFalse() async {

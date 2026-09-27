@@ -203,16 +203,15 @@ final class AgentPanelModel: ObservableObject {
 
     // MARK: - Persona picks
 
-    /// `finishRouting` found a `persona:<name>` pick: resolves whether its main session is live and
-    /// still message-eligible, then either shows the persona confirm row or, under "send
-    /// immediately", delivers straight away.
+    /// `finishRouting` found a `persona:<name>` pick: resolves where its main session stands, then
+    /// either shows the persona confirm row or, under "send immediately", delivers straight away.
     private func resolvePersonaPick(named name: String, personas: [Persona], confidence: Double, afterRouting: AfterRoutingBehavior) {
         guard let persona = personas.first(where: { $0.name == name }) else {
             routingState = nil
             showAnswerNotice("Jev picked a persona that is no longer offered.")
             return
         }
-        let pick = PersonaPick(persona: persona, confidence: confidence, mainAgentID: liveMainAgentID(for: persona))
+        let pick = PersonaPick(persona: persona, confidence: confidence, mainSession: mainSession(of: persona))
         if afterRouting == .sendImmediately {
             deliverPersonaPick(pick)
         } else {
@@ -220,15 +219,17 @@ final class AgentPanelModel: ObservableObject {
         }
     }
 
-    /// The persona's main session's agent id, only if it is still shown and still message-eligible
-    /// right now — the same staleness window a plain session pick already tolerates at confirm time
-    /// (`confirmRoutingIfPending`), just resolved up front here: a persona confirm row needs to know
-    /// this to choose its effect text before the user ever presses Return.
-    private func liveMainAgentID(for persona: Persona) -> String? {
-        guard let mainRowId = persona.mainRowId else { return nil }
-        let agent = presentation.agents.first(where: { $0.rowId == mainRowId }) ?? snapshot?.agents.first(where: { $0.rowId == mainRowId })
-        guard let agent, RowButtons.usableButtons(for: agent).contains(.message) else { return nil }
-        return agent.id
+    /// The persona's main session as shown right now — the same staleness window a plain session
+    /// pick already tolerates at confirm time (`confirmRoutingIfPending`), just resolved up front
+    /// here: a persona confirm row needs to know this to choose its effect text before the user
+    /// ever presses Return. "Live" and "can take a message" are kept apart on purpose: a live main
+    /// session that can't take one must not read as absent, or Return starts a duplicate beside it.
+    private func mainSession(of persona: Persona) -> PersonaMainSession {
+        guard let mainRowId = persona.mainRowId,
+              let agent = presentation.agents.first(where: { $0.rowId == mainRowId }) ?? snapshot?.agents.first(where: { $0.rowId == mainRowId }),
+              agent.section.isLive
+        else { return .absent }
+        return RowButtons.usableButtons(for: agent).contains(.message) ? .ready(agentID: agent.id) : .waitingOnYou(agentID: agent.id)
     }
 
     /// Tab while `.confirmingPersona` is showing: the smallest version of the spec's Tab-tag menu
@@ -251,7 +252,7 @@ final class AgentPanelModel: ObservableObject {
     private func deliverPersonaPick(_ pick: PersonaPick) {
         switch pick.effect {
         case .sendToMain:
-            guard let mainAgentID = pick.mainAgentID,
+            guard case .ready(let mainAgentID) = pick.mainSession,
                   let agent = presentation.agents.first(where: { $0.id == mainAgentID }) ?? snapshot?.agents.first(where: { $0.id == mainAgentID })
             else {
                 routingEpoch += 1
@@ -260,6 +261,11 @@ final class AgentPanelModel: ObservableObject {
                 return
             }
             send(to: agent)
+        case .mainWaitingOnYou:
+            // Starts nothing, and keeps the typed text for a re-send once the main session is free.
+            routingEpoch += 1
+            routingState = nil
+            showAnswerNotice("\(pick.persona.name)'s main session is waiting on you. Answer it, then send again.")
         case .resumeLast:
             startPersonaSession(pick.persona, fresh: false)
         case .startNew:

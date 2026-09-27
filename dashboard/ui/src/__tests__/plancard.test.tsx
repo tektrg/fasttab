@@ -200,4 +200,27 @@ describe("PlanCard", () => {
     expect(m.host.textContent).toContain("the plan file was not found.");
     m.unmount();
   });
+
+  // Threat model: this row can put the agent in auto mode. Two clicks in
+  // the same event-loop turn (a fast real-world double tap on the armed
+  // "Press again to confirm" row) both pass before the loading-driven
+  // disabled re-render commits, so state alone does not stop a second send.
+  test("a same-tick double tap on the armed privilege row sends exactly one POST", async () => {
+    const calls = stubFetch({ ok: true, plan: { status: "noPath" } });
+    const m = mount(
+      <PlanCard rowId="alpha" paneId="w8:p1" permission={planPrompt()} onToast={() => {}} />,
+    );
+    await settle();
+    click(buttonWithText(m.host, "Yes, and use auto mode"));
+    await settle();
+    const confirm = buttonWithText(m.host, "Press again to confirm")!;
+    act(() => {
+      confirm.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      confirm.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    const posts = calls.filter((c) => c.url === "/api/permission");
+    expect(posts.length).toBe(1);
+    m.unmount();
+  });
 });

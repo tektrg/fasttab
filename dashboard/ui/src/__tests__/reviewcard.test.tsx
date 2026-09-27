@@ -162,4 +162,39 @@ describe("ReviewCard", () => {
     expect(m.host.textContent).toContain("permission prompt changed or gone");
     m.unmount();
   });
+
+  // Threat model: a wrong or duplicated keystroke here can approve a
+  // dangerous command. Two clicks in the same event-loop turn (a fast
+  // real-world double tap) both pass before Mantine's `loading`-driven
+  // `disabled` re-render commits, so state alone does not stop a second
+  // POST — confirmed by dispatching both clicks inside one `act()`.
+  test("a same-tick double tap on Allow sends exactly one POST", async () => {
+    const calls = stubFetch({ ok: true });
+    const m = mount(<ReviewCard paneId="w8:p1" permission={bashPrompt()} onToast={() => {}} />);
+    const allow = buttonWithText(m.host, "Allow")!;
+    act(() => {
+      allow.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      allow.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    const posts = calls.filter((c) => c.url === "/api/permission");
+    expect(posts.length).toBe(1);
+    m.unmount();
+  });
+
+  test("a same-tick double tap on Confirm always allow sends exactly one POST", async () => {
+    const calls = stubFetch({ ok: true });
+    const m = mount(<ReviewCard paneId="w8:p1" permission={bashPrompt()} onToast={() => {}} />);
+    click(buttonWithText(m.host, "Allow always"));
+    await settle();
+    const confirm = buttonWithText(m.host, "Confirm always allow")!;
+    act(() => {
+      confirm.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      confirm.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    const posts = calls.filter((c) => c.url === "/api/permission");
+    expect(posts.length).toBe(1);
+    m.unmount();
+  });
 });

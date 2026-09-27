@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Group, Loader, Paper, Stack, Text, Textarea } from "@mantine/core";
 import type { PermissionOption, PermissionPrompt, SessionPlanResponse } from "../types";
 import { answerPermission, fetchSessionPlan } from "../api";
@@ -55,15 +55,22 @@ export function PlanCard({
   const [feedbackText, setFeedbackText] = useState("");
   const [sendingIndex, setSendingIndex] = useState<number | null>(null);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Same-tick double-click guard (see ReviewCard) — `sendingIndex` state
+  // only disables the button on the NEXT render, so a fast double tap could
+  // otherwise fire this privilege-carrying send twice.
+  const inFlight = useRef(false);
 
   const fb = feedbackOption(permission.options);
 
   const send = async (index: number, text?: string) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setSendingIndex(index);
     const res = await answerPermission(paneId, "select", permission, {
       index,
       ...(text ? { text } : {}),
     });
+    inFlight.current = false;
     setSendingIndex(null);
     if (res.ok) {
       setResult({ ok: true, msg: "sent" });

@@ -25,15 +25,15 @@ public struct ReadingFeedView: View {
         localCache.state.devices.first?.id ?? ""
     }
 
-    /// Most recently opened articles that aren't finished yet (progress < 95%).
+    /// Most recently opened article that isn't finished yet (progress < 95%).
     /// Source of truth is `LastOpenedStore` (the "most open"), merged live with
     /// `ReaderReadingProgress` so a just-closed reader updates without a reload.
-    /// Capped at 5 so the floating bar stays a one-line switcher like Tabs'.
+    /// Capped at 1 — a single resume chip, like a one-item switcher.
     private var unfinishedReads: [LastOpenedItem] {
         let finishedThreshold = 0.95
         return lastOpenedStore.items.filter { item in
             effectiveProgress(for: item) < finishedThreshold
-        }.prefix(5).map { $0 }
+        }.prefix(1).map { $0 }
     }
 
     private func effectiveProgress(for item: LastOpenedItem) -> Double {
@@ -590,11 +590,11 @@ public struct ReadingFeedView: View {
     }
 }
 
-/// Bottom floating switcher for unfinished reads — the Read tab's answer to the
-/// Tabs tab's `FloatingTabSortBar`. Same capsule / ultraThinMaterial / border /
-/// shadow styling, but the chips are dynamic: the 5 most recently opened,
-/// not-yet-finished articles. Tapping one reopens the reader, which restores
-/// the saved scroll position via `ReaderViewModel.loadInitialState()`.
+/// Bottom floating switcher for the single most recent unfinished read — the
+/// Read tab's answer to the Tabs tab's `FloatingTabSortBar`. Same capsule /
+/// ultraThinMaterial / border / shadow styling with one resume chip. Tapping
+/// it reopens the reader, which restores the saved scroll position via
+/// `ReaderViewModel.loadInitialState()`.
 public struct FloatingContinueReadingBar: View {
     public let items: [LastOpenedItem]
     public let progress: (LastOpenedItem) -> Double

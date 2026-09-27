@@ -27,6 +27,9 @@ export function PanelessPrompt({
   return null;
 }
 
+/** Said to Claude with a denial (the server default names AgentBar). */
+const WEB_DENY: HookAnswer = { behavior: "deny", message: "The user denied this from the dashboard web UI." };
+
 type SendState = { status: "idle" | "sending" | "sent" } | { status: "error"; error: string };
 
 function useHookSend(requestId: string, onToast: (msg: string, ok: boolean) => void) {
@@ -196,11 +199,16 @@ function HookPermissionCard({ request, onToast }: { request: HookRequest; onToas
             h="auto"
             py={6}
           >
-            {armedSuggestion === s.index ? "Confirm: " : "Allow + "}
-            {s.label}
+            {armedSuggestion === s.index ? "Tap again to save: " : ""}
+            <MarkdownInline text={s.label} />
           </Button>
         ))}
-        <Button color="red" variant="light" disabled={busy} onClick={() => void send({ behavior: "deny" })}>
+        {permission.suggestions.length ? (
+          <Text size="xs" c="dimmed">
+            A rule button allows this now AND saves the rule, so Claude stops asking — it takes a second tap.
+          </Text>
+        ) : null}
+        <Button color="red" variant="light" disabled={busy} onClick={() => void send(WEB_DENY)}>
           Deny
         </Button>
       </Stack>

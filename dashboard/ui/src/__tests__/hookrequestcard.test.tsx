@@ -157,16 +157,17 @@ describe("hook permission", () => {
     expect(document.body.textContent).toContain("echo sentinel");
     click(button("Deny"));
     await settle();
-    expect(calls[0]).toEqual({ url: "/api/hook/permission/hp2-def/answer", body: { behavior: "deny" } });
+    expect(calls[0]).toEqual({ url: "/api/hook/permission/hp2-def/answer", body: { behavior: "deny", message: "The user denied this from the dashboard web UI." } });
   });
 
   test("a permission-rule suggestion needs a second tap", async () => {
     const calls = stubFetch();
     mount(<PanelessPrompt row={row({ hookRequest: PERMISSION })} onToast={() => {}} />);
-    click(button("Allow + Always allow `Bash(echo:*)` in this project"));
+    // The label renders as markdown (the rule in code style, no backticks).
+    click(button("Always allow Bash(echo:*) in this project"));
     await settle();
     expect(calls.length).toBe(0);
-    click(button("Confirm: Always allow `Bash(echo:*)` in this project"));
+    click(button("Tap again to save: Always allow Bash(echo:*) in this project"));
     await settle();
     expect(calls[0].body).toEqual({ behavior: "allow", suggestionIndex: 0 });
   });

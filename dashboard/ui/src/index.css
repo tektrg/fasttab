@@ -298,6 +298,17 @@ body.rp-resizing .rp-resize { background:var(--blue); }
   margin: 0;
   font-size: 12px;
 }
+/* Mantine's Chip label is one fixed-height nowrap line: a long option label
+   ran off the card (and the page) at phone width. Let it wrap. */
+.hook-card .mantine-Chip-root { max-width: 100%; }
+.hook-card .mantine-Chip-label {
+  white-space: normal;
+  height: auto;
+  min-height: var(--chip-size);
+  line-height: 1.35;
+  padding-block: 4px;
+  max-width: 100%;
+}
 .appr-head .appr-step { font-family: var(--font-sans); letter-spacing: 0.4px; }
 .appr-head .appr-title { font-family: var(--font-sans); overflow-wrap: anywhere; }
 .appr-opts .appr-opt { border: 1px solid var(--border); border-radius: var(--radius-nested);

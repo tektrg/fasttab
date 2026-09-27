@@ -28,6 +28,9 @@ public struct TabListView: View {
     /// `BookmarkMovePicker` the bookmarks tree uses; on confirm the tab's URL
     /// is saved into the picked folder on the tab's own Mac.
     @State private var tabSaveRequest: TabSaveRequest?
+    /// Organize mode: rows show an inline recommended folder + Bookmark button.
+    @State private var isOrganizeMode = false
+    @ObservedObject private var folderRecommender = TabFolderRecommender.shared
 
     public init(device: SyncedDevice? = nil) {
         self.device = device
@@ -200,6 +203,12 @@ public struct TabListView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(isOrganizeMode ? "Done" : "Organize") {
+                    withAnimation { isOrganizeMode.toggle() }
+                }
+                .foregroundStyle(DS.Tint.action)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showDeckSwitcher = true
@@ -520,8 +529,17 @@ public struct TabListView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+
+                if isOrganizeMode, let recommendation = folderRecommender.recommendation(for: tab) {
+                    TabFolderRecommendationChip(recommendation: recommendation) { closeTab in
+                        bookmarkRecommended(tab, into: recommendation, closeTab: closeTab)
+                    }
+                }
             }
             Spacer()
+        }
+        .task(id: isOrganizeMode) {
+            if isOrganizeMode { folderRecommender.requestIfNeeded(for: tab, state: localCache.state) }
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -650,6 +668,12 @@ public struct TabListView: View {
             targetDeviceID: tab.deviceID
         )
         showToastHUD(message: saveAcknowledgement(for: tab))
+    }
+
+    private func bookmarkRecommended(_ tab: SyncedTab, into recommendation: TabFolderRecommendation, closeTab: Bool) {
+        saveTabAsBookmark(tab, to: recommendation.destination)
+        folderRecommender.markBookmarked(tab)
+        if closeTab { requestClose(of: tab) }
     }
 
     private func saveAcknowledgement(for tab: SyncedTab) -> String {

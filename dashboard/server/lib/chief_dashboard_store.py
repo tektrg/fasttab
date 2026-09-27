@@ -4,6 +4,7 @@
 The computed dashboard remains owned by chief_dashboard_views.py. This module
 adds the editable column registry and per-session values beside it.
 """
+import contextlib
 import json
 import os
 import re
@@ -183,12 +184,23 @@ class BoardStore:
         self._init_db()
         self._seed_default_views()
 
+    @contextlib.contextmanager
     def _connect(self):
+        """Yield a connection and always close it on exit.
+
+        `with sqlite3.connect(...) as conn` only commits/rolls back — it never
+        closes, so each call used to leave a db + wal handle open until GC
+        (~40 open on the live server 25 min after start, 2026-09-27).
+        """
         conn = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self):
         with self._connect() as conn:

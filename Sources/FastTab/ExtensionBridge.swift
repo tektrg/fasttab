@@ -509,6 +509,13 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         }
     }
 
+    /// Live connections for a browser: one per connected profile, plus any ghosts.
+    func connectionCount(appName: String) -> Int {
+        lock.withLock { registry in
+            registry.connections.values.filter { $0.appName == appName }.count
+        }
+    }
+
     /// Sends an activate/close/setMuted/delete command to the extension owning
     /// `tabID` (or any connection for `appName`) and blocks for the reply (with timeout).
     /// Returns whether the extension confirmed. Blocks the caller — only call from a background

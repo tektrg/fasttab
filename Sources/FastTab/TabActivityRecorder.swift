@@ -17,7 +17,8 @@ enum TabMetric {
     static let gaugeMaxHold: TimeInterval = 10 * 60
 }
 
-/// Turns authoritative live-tab snapshots into `tab.opened` / `tab.closed`
+/// Turns live-tab snapshots (authoritative all-browser fetches, plus live
+/// per-browser extension snapshots) into `tab.opened` / `tab.closed`
 /// counter events and a throttled `tab.openCount` gauge, appended to a local
 /// JSON-lines log (`metrics.jsonl`). Nothing about a tab but its browser is stored.
 ///
@@ -51,22 +52,56 @@ final class TabActivityRecorder {
 
     let eventLog: FileMetricEventLog
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "TabActivity")
-    /// `nil` until the first snapshot after launch, which is only a baseline.
+    /// `nil` until the first authoritative snapshot after launch, which is only a baseline.
     private var lastCounts: TabCounts?
     private var lastGaugeSampleAt: Date?
     private var lastPrunedAt: Date?
+    /// When each browser was last counted from a live extension snapshot.
+    private var lastLiveObservedAt: [String: Date] = [:]
+    /// Browsers in the last authoritative snapshot: the ones the gauge totals.
+    private var gaugeBrowsers: Set<String> = []
 
     init(eventLog: FileMetricEventLog) {
         self.eventLog = eventLog
     }
 
-    /// Feed one authoritative all-browser snapshot. Appends any resulting events
-    /// and then lets the sync layer decide whether to publish a fresh digest.
-    func observe(_ tabs: [BrowserSearchResult], now: Date = Date()) {
-        let counts = Self.tabCounts(of: tabs)
+    /// Feed one authoritative all-browser snapshot whose fetch began at
+    /// `capturedAt`. A browser counted live after that is left out: the fetch
+    /// is older than what we already know, and diffing it would record a
+    /// phantom close and re-open.
+    func observe(_ tabs: [BrowserSearchResult], capturedAt: Date, now: Date = Date()) {
+        let observed = Self.tabCounts(of: tabs)
+        gaugeBrowsers = Set(observed.keys)
+        let current = Self.droppingBrowsersObservedLive(after: capturedAt, from: observed, lastLiveObservedAt: lastLiveObservedAt)
+        record(current: current, now: now)
+    }
+
+    /// Feed one browser's live extension snapshot (`liveTabs` may hold every
+    /// browser; only `browser` is counted). Ignored until an authoritative
+    /// baseline exists, and unless the snapshot is known to cover the whole
+    /// browser (see `isLiveSnapshotComplete`).
+    func observeLiveSnapshot(
+        browser: String,
+        liveTabs: [BrowserSearchResult],
+        authoritativeTabs: [BrowserSearchResult],
+        connectionCount: Int,
+        now: Date = Date()
+    ) {
+        guard lastCounts != nil,
+              Self.isLiveSnapshotComplete(browser: browser, authoritativeTabs: authoritativeTabs, connectionCount: connectionCount),
+              let count = Self.tabCounts(of: liveTabs)[browser] else { return }
+        lastLiveObservedAt[browser] = now
+        gaugeBrowsers.insert(browser)
+        record(current: [browser: count], now: now)
+    }
+
+    /// Diffs `current`, appends the resulting events, then lets the sync layer
+    /// decide whether to publish a fresh digest.
+    private func record(current: TabCounts, now: Date) {
         let step = Self.recordingStep(
             previous: lastCounts,
-            current: counts,
+            current: current,
+            gaugeBrowsers: gaugeBrowsers,
             lastGaugeSampleAt: lastGaugeSampleAt,
             now: now
         )
@@ -74,6 +109,7 @@ final class TabActivityRecorder {
         if step.sampledGauge { lastGaugeSampleAt = now }
         let shouldPrune = lastPrunedAt.map { now.timeIntervalSince($0) >= Self.pruneInterval } ?? true
         if shouldPrune { lastPrunedAt = now }
+        guard !step.events.isEmpty || shouldPrune else { return }
 
         let eventLog = eventLog
         let logger = logger
@@ -128,12 +164,40 @@ final class TabActivityRecorder {
         return (changeByBrowser, nextCounts)
     }
 
+    /// A live extension snapshot comes from ONE connection (one browser
+    /// profile). It covers the whole browser only when that is the sole
+    /// connection and the last authoritative fetch of the browser was served by
+    /// the extension (every tab has a tab ID), which the bridge allows only
+    /// with full profile coverage. Otherwise counts would flap between one
+    /// profile's tabs and all of them.
+    nonisolated static func isLiveSnapshotComplete(
+        browser: String,
+        authoritativeTabs: [BrowserSearchResult],
+        connectionCount: Int
+    ) -> Bool {
+        guard connectionCount == 1 else { return false }
+        let browserTabs = authoritativeTabs.filter { $0.browserName == browser && $0.type == .tab && !$0.isGhost }
+        return !browserTabs.isEmpty && browserTabs.allSatisfy { $0.tabID != nil }
+    }
+
+    nonisolated static func droppingBrowsersObservedLive(
+        after capturedAt: Date,
+        from counts: TabCounts,
+        lastLiveObservedAt: [String: Date]
+    ) -> TabCounts {
+        counts.filter { browser, _ in
+            guard let liveAt = lastLiveObservedAt[browser] else { return true }
+            return liveAt <= capturedAt
+        }
+    }
+
     /// Everything one snapshot records. The first snapshot after launch
     /// (`previous == nil`) only sets the baseline and a gauge sample. The gauge
-    /// is sampled at most every `gaugeSampleInterval`.
+    /// is sampled at most every `gaugeSampleInterval`, whatever the source.
     nonisolated static func recordingStep(
         previous: TabCounts?,
         current: TabCounts,
+        gaugeBrowsers: Set<String>? = nil,
         lastGaugeSampleAt: Date?,
         now: Date
     ) -> RecordingStep {
@@ -154,16 +218,19 @@ final class TabActivityRecorder {
                 events.append(contentsOf: repeatElement(event, count: abs(change)))
             }
         }
-        // An empty snapshot is far more often a failed fetch than a Mac with no
-        // tabs, so it never samples the gauge (it would drag the average to 0).
+        // The gauge totals `gaugeBrowsers` (default: the browsers in `current`)
+        // at their newest counts, so a one-browser live snapshot still samples
+        // the whole Mac. An empty set is far more often a failed fetch than a
+        // Mac with no tabs, so it never samples (it would drag the average to 0).
+        let totalledBrowsers = gaugeBrowsers ?? Set(current.keys)
         let gaugeIsDue = lastGaugeSampleAt.map { now.timeIntervalSince($0) >= gaugeSampleInterval } ?? true
-        let sampledGauge = gaugeIsDue && !current.isEmpty
+        let sampledGauge = gaugeIsDue && !totalledBrowsers.isEmpty
         if sampledGauge {
             events.append(MetricEvent(
                 timestamp: now,
                 subject: TabMetric.allBrowsersSubject,
                 metric: TabMetric.openCount,
-                value: Double(current.values.reduce(0, +))
+                value: Double(totalledBrowsers.reduce(0) { $0 + (nextCounts[$1] ?? 0) })
             ))
         }
         return RecordingStep(events: events, nextCounts: nextCounts, sampledGauge: sampledGauge)

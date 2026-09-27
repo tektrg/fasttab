@@ -1387,6 +1387,7 @@ class BrowserTabService: ObservableObject {
         let cachedTimes = self.lastActiveTimes
         let cachedAudibleSeenAt = self.lastAudibleSeenAt
         let sourceAppBundleIdentifier = self.currentFlowSourceAppBundleIdentifier
+        let refreshStartedAt = Date()
 
         authoritativeLiveTabsRefreshTask = Task.detached(priority: .utility) { [weak self] in
             var updatedTimes = cachedTimes
@@ -1430,7 +1431,7 @@ class BrowserTabService: ObservableObject {
                 self.lastActiveTimes = updatedTimes
                 self.lastAudibleSeenAt = updatedAudibleSeenAt
                 SyncService.shared.requestLiveTabsPublish(authoritativeTabs)
-                TabActivityRecorder.shared.observe(authoritativeTabs)
+                TabActivityRecorder.shared.observe(authoritativeTabs, capturedAt: refreshStartedAt)
                 self.logger.info("Authoritative all-browser tab sync published. tabCount=\(authoritativeTabs.count)")
             }
         }
@@ -1683,6 +1684,12 @@ class BrowserTabService: ObservableObject {
         if lastIssuedQuery.isEmpty {
             rebuildQuickOpenResults()
         }
+        TabActivityRecorder.shared.observeLiveSnapshot(
+            browser: appName,
+            liveTabs: cachedLiveTabs,
+            authoritativeTabs: authoritativeLiveTabSnapshot.tabs,
+            connectionCount: ExtensionBridge.shared.connectionCount(appName: appName)
+        )
     }
 
 

@@ -103,6 +103,58 @@ struct TabActivityRecorderTests {
         #expect(!empty.sampledGauge)
         #expect(empty.events.isEmpty)
     }
+
+    @Test("A live snapshot counts only with one connection and an extension-served authoritative fetch")
+    func liveSnapshotCompleteness() {
+        let extensionServed = [tab("Chrome", "https://a.com", tabID: 1), tab("Chrome", "https://b.com", tabID: 2)]
+        let appleScriptServed = [tab("Chrome", "https://a.com", index: 1)]
+        #expect(TabActivityRecorder.isLiveSnapshotComplete(browser: "Chrome", authoritativeTabs: extensionServed, connectionCount: 1))
+        #expect(!TabActivityRecorder.isLiveSnapshotComplete(browser: "Chrome", authoritativeTabs: extensionServed, connectionCount: 2), "multi-profile: one connection is one profile")
+        #expect(!TabActivityRecorder.isLiveSnapshotComplete(browser: "Chrome", authoritativeTabs: appleScriptServed, connectionCount: 1), "extension not covering every profile")
+        #expect(!TabActivityRecorder.isLiveSnapshotComplete(browser: "Chrome", authoritativeTabs: [], connectionCount: 1))
+    }
+
+    @Test("Live then stale authoritative then repeats: each real open counted exactly once")
+    func liveAndAuthoritativeInterleave() {
+        let fetchStarted = start
+        let liveAt = start.addingTimeInterval(1)
+        // Live snapshot: Chrome 5 -> 6 (one real open), partial (Chrome only).
+        let live = TabActivityRecorder.recordingStep(
+            previous: ["Chrome": 5, "Safari": 3], current: ["Chrome": 6],
+            gaugeBrowsers: ["Chrome", "Safari"], lastGaugeSampleAt: nil, now: liveAt
+        )
+        #expect(live.events.filter { $0.metric == TabMetric.opened }.count == 1)
+        #expect(live.events.first { $0.metric == TabMetric.openCount }?.value == 9, "gauge totals the whole Mac")
+        // An authoritative fetch that started before the live snapshot still says 5.
+        let staleCounts = TabActivityRecorder.droppingBrowsersObservedLive(
+            after: fetchStarted, from: ["Chrome": 5, "Safari": 3], lastLiveObservedAt: ["Chrome": liveAt]
+        )
+        #expect(staleCounts == ["Safari": 3])
+        let stale = TabActivityRecorder.recordingStep(previous: live.nextCounts, current: staleCounts, lastGaugeSampleAt: liveAt, now: liveAt.addingTimeInterval(1))
+        #expect(stale.events.isEmpty, "no phantom close/re-open")
+        // The same live snapshot repeated (window focus), and a fresh authoritative one agreeing.
+        let repeated = TabActivityRecorder.recordingStep(previous: stale.nextCounts, current: ["Chrome": 6], lastGaugeSampleAt: liveAt, now: liveAt.addingTimeInterval(2))
+        #expect(repeated.events.isEmpty)
+        let freshCounts = TabActivityRecorder.droppingBrowsersObservedLive(
+            after: liveAt.addingTimeInterval(3), from: ["Chrome": 6, "Safari": 3], lastLiveObservedAt: ["Chrome": liveAt]
+        )
+        let fresh = TabActivityRecorder.recordingStep(previous: repeated.nextCounts, current: freshCounts, lastGaugeSampleAt: liveAt, now: liveAt.addingTimeInterval(4))
+        #expect(fresh.events.isEmpty)
+    }
+
+    @Test("Frequent live snapshots still sample the gauge at most every 5 minutes")
+    func liveGaugeThrottle() {
+        var lastSample: Date? = nil
+        var counts: TabActivityRecorder.TabCounts = ["Chrome": 5]
+        var samples = 0
+        for second in stride(from: 0, to: 15 * 60, by: 10) {
+            let now = start.addingTimeInterval(TimeInterval(second))
+            let step = TabActivityRecorder.recordingStep(previous: counts, current: ["Chrome": 5 + second % 2], gaugeBrowsers: ["Chrome"], lastGaugeSampleAt: lastSample, now: now)
+            counts = step.nextCounts
+            if step.sampledGauge { lastSample = now; samples += 1 }
+        }
+        #expect(samples == 3)
+    }
 }
 
 @Suite("Tab stats digest builder")

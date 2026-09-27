@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Combine
 import os
 
 /// Whether macOS lets FastTab send Apple Events to one source app
@@ -52,13 +53,23 @@ final class AutomationPermissionStore: ObservableObject {
     static let automationSettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!
 
     @Published private(set) var statuses: [SearchSource: AutomationPermissionStatus] = [:]
+    /// Source whose system prompt is on screen; at most one at a time.
+    @Published private(set) var requestInFlight: SearchSource?
+    /// Browsers (by `appName`) whose extension is connected on a compatible protocol.
+    @Published private(set) var extensionConnectedAppNames: Set<String> = []
 
     private let sourceSelection: SourceSelectionStore
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "AutomationPermission")
     private var recheckTask: Task<Void, Never>?
+    private var extensionStatusSubscription: AnyCancellable?
 
-    init(sourceSelection: SourceSelectionStore = .shared) {
+    init(sourceSelection: SourceSelectionStore = .shared, extensionBridge: ExtensionBridge = .shared) {
         self.sourceSelection = sourceSelection
+        // Bridge publishes `status` on main; mirroring it here re-renders the banner on (dis)connect.
+        extensionStatusSubscription = extensionBridge.$status
+            .map { statuses in Set(statuses.filter { $0.isConnected && !$0.versionMismatch }.map(\.appName)) }
+            .removeDuplicates()
+            .sink { [weak self] connected in self?.extensionConnectedAppNames = connected }
     }
 
     /// Enabled, installed sources in stable display order — the ones worth a status.
@@ -68,7 +79,28 @@ final class AutomationPermissionStore: ObservableObject {
 
     /// Enabled sources the user has explicitly blocked — what the bar banner shows.
     var deniedSources: [SearchSource] {
-        trackedSources.filter { statuses[$0] == .denied }
+        Self.deniedSources(
+            tracked: trackedSources,
+            statuses: statuses,
+            extensionEnabled: ExtensionBetaPreference.isEnabled,
+            extensionConnectedAppNames: extensionConnectedAppNames
+        )
+    }
+
+    /// Denied sources, minus Chromium browsers whose tabs arrive through the
+    /// connected extension instead of Automation (matched per browser).
+    nonisolated static func deniedSources(
+        tracked: [SearchSource],
+        statuses: [SearchSource: AutomationPermissionStatus],
+        extensionEnabled: Bool,
+        extensionConnectedAppNames: Set<String>
+    ) -> [SearchSource] {
+        tracked.filter { source in
+            guard statuses[source] == .denied else { return false }
+            guard extensionEnabled,
+                  let spec = ChromiumBrowserSpec.all.first(where: { $0.source == source }) else { return true }
+            return !extensionConnectedAppNames.contains(spec.appName)
+        }
     }
 
     /// Re-probes every tracked source off the main thread. Never shows a prompt.
@@ -91,13 +123,16 @@ final class AutomationPermissionStore: ObservableObject {
     /// if it hasn't been answered yet. Launches the app hidden first when it
     /// isn't running (macOS can't prompt for a non-running target). A prior
     /// denial can't be re-prompted — callers should then offer
-    /// `openAutomationSettings()`.
+    /// `openAutomationSettings()`. Ignored while another request is in flight.
     @discardableResult
-    func requestAccess(for source: SearchSource) async -> AutomationPermissionStatus {
+    func requestAccess(for source: SearchSource) async -> AutomationPermissionStatus? {
+        guard requestInFlight == nil else { return nil }
+        requestInFlight = source
+        defer { requestInFlight = nil }
         if !Self.isRunning(source) {
             await Self.launchHidden(source)
         }
-        let status = await Self.probe(source, askUserIfNeeded: true)
+        let status = await Self.promptForPermission(source)
         statuses[source] = status
         logger.info("automation request \(source.rawValue, privacy: .public) -> \(status.rawValue, privacy: .public)")
         return status
@@ -109,13 +144,27 @@ final class AutomationPermissionStore: ObservableObject {
 
     // MARK: - Probing
 
-    /// Runs on a background thread: with `askUserIfNeeded` the call blocks
-    /// until the user answers the system prompt.
+    /// Non-prompting check; returns promptly, so a detached task is fine.
     private nonisolated static func probe(_ source: SearchSource, askUserIfNeeded: Bool) async -> AutomationPermissionStatus {
         let bundleID = source.bundleIdentifier
         return await Task.detached(priority: .utility) {
             AutomationPermissionStatus(appleEventResult: determinePermission(bundleID: bundleID, askUserIfNeeded: askUserIfNeeded))
         }.value
+    }
+
+    /// The prompting check blocks until the user answers, so it runs on its own
+    /// thread rather than parking a Swift-concurrency pool thread.
+    private nonisolated static let promptQueue = DispatchQueue(label: "com.trungluong.FastTab.automation-prompt", qos: .userInitiated)
+
+    private nonisolated static func promptForPermission(_ source: SearchSource) async -> AutomationPermissionStatus {
+        let bundleID = source.bundleIdentifier
+        return await withCheckedContinuation { continuation in
+            promptQueue.async {
+                continuation.resume(returning: AutomationPermissionStatus(
+                    appleEventResult: determinePermission(bundleID: bundleID, askUserIfNeeded: true)
+                ))
+            }
+        }
     }
 
     private nonisolated static func determinePermission(bundleID: String, askUserIfNeeded: Bool) -> OSStatus {

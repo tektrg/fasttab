@@ -284,11 +284,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             CloudKitSpike.run()
         }
 
+        // Consumed on every launch (even when onboarding shows) so the one-shot
+        // flag never lingers into a later launch.
+        let openBarAfterRelaunch = consumeOpenCommandBarAfterRelaunchRequest()
         if OnboardingWindowController.shared.isNeeded {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 OnboardingWindowController.shared.show()
             }
-        } else if consumeOpenCommandBarAfterRelaunchRequest() {
+        } else if openBarAfterRelaunch {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 AppState.shared.showCommandBar(openedBy: .mouse)
             }

@@ -41,15 +41,12 @@ enum SearchSource: String, CaseIterable, Identifiable, Sendable {
     /// user actually searches (in `allCases` order).
     static func recentsEmptyHint(enabled: Set<SearchSource>) -> String {
         let browserNames = allCases.filter { $0 != .finder && enabled.contains($0) }.map(\.shortName)
-        guard let lastBrowser = browserNames.last else {
+        guard !browserNames.isEmpty else {
             return enabled.contains(.finder)
                 ? "Open a Finder window and try again."
                 : "Turn on a browser in Settings › Sources."
         }
-        let list = browserNames.count == 1
-            ? lastBrowser
-            : browserNames.dropLast().joined(separator: ", ") + " or " + lastBrowser
-        return "Open a tab in \(list) and try again."
+        return "Open a tab in \(browserNames.joinedAsNaturalList(conjunction: "or")) and try again."
     }
 
     /// Bundle ID used for install detection. Finder ships with macOS, so it
@@ -141,5 +138,13 @@ final class SourceSelectionStore: ObservableObject {
         defaults.set(detected.map { $0.rawValue }.sorted(), forKey: defaultsKey)
         defaults.set(true, forKey: seededKey)
         return detected
+    }
+}
+
+extension Array where Element == String {
+    /// "A", "A and B", "A, B and C" — English copy, no Oxford comma.
+    func joinedAsNaturalList(conjunction: String) -> String {
+        guard let last, count > 1 else { return last ?? "" }
+        return dropLast().joined(separator: ", ") + " \(conjunction) " + last
     }
 }

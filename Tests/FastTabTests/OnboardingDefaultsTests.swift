@@ -32,6 +32,14 @@ struct OnboardingDefaultsTests {
         #expect(SafariBackend.isFDADataIncluded(in: defaults))
     }
 
+    @Test func safariStepOnlyOptsInWithFullDiskAccess() {
+        // Skip never writes, so replaying onboarding keeps the user's setting.
+        #expect(SafariBackend.onboardingFDADataChoice(continued: false, fullDiskAccessGranted: true) == nil)
+        #expect(SafariBackend.onboardingFDADataChoice(continued: false, fullDiskAccessGranted: false) == nil)
+        #expect(SafariBackend.onboardingFDADataChoice(continued: true, fullDiskAccessGranted: false) == nil)
+        #expect(SafariBackend.onboardingFDADataChoice(continued: true, fullDiskAccessGranted: true) == true)
+    }
+
     @Test func recentsEmptyHintNamesEnabledBrowsers() {
         #expect(SearchSource.recentsEmptyHint(enabled: [.chrome]) == "Open a tab in Chrome and try again.")
         #expect(SearchSource.recentsEmptyHint(enabled: [.safari, .chrome, .finder, .brave])

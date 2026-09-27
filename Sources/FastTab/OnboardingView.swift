@@ -689,17 +689,13 @@ private struct SafariPermissionStep: View {
             }
 
             HStack(spacing: 14) {
-                Button("Skip") {
-                    includeSafariFDAData = false
-                    onContinue()
-                }
+                Button("Skip") { finish(continued: false) }
                 .buttonStyle(.plain)
                 .font(.callout)
                 .foregroundStyle(.tertiary)
 
                 Button {
-                    includeSafariFDAData = true
-                    onContinue()
+                    finish(continued: true)
                 } label: {
                     Text("Continue")
                         .font(.headline)
@@ -718,6 +714,14 @@ private struct SafariPermissionStep: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             fdaGrantedNow = appState.browserService.canReadSafariProtectedData()
         }
+    }
+
+    private func finish(continued: Bool) {
+        let granted = continued && appState.browserService.canReadSafariProtectedData()
+        if let choice = SafariBackend.onboardingFDADataChoice(continued: continued, fullDiskAccessGranted: granted) {
+            includeSafariFDAData = choice
+        }
+        onContinue()
     }
 
     private func openFullDiskAccessSettings() {

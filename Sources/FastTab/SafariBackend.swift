@@ -20,6 +20,13 @@ struct SafariBackend: BrowserBackend {
             : defaults.bool(forKey: includeFDADataDefaultsKey)
     }
 
+    /// What onboarding's Safari step should write, or nil to keep the current
+    /// value. Only Continue *with* Full Disk Access opts in; Skip (or Continue
+    /// without access) never touches it, so replaying onboarding keeps settings.
+    static func onboardingFDADataChoice(continued: Bool, fullDiskAccessGranted: Bool) -> Bool? {
+        continued && fullDiskAccessGranted ? true : nil
+    }
+
     /// Session-level guard for the read-only (`mode=ro`) SQLite fast path. Once a
     /// read-only open fails (e.g. Safari holds an exclusive lock and `.timeout`
     /// expires), we stop attempting it and go straight to the WAL-aware copy for

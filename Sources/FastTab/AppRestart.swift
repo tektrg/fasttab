@@ -14,8 +14,14 @@ func restartFastTab(openCommandBarAfterRelaunch: Bool = false) {
     let bundleURL = Bundle.main.bundleURL
     let config = NSWorkspace.OpenConfiguration()
     config.createsNewApplicationInstance = true
-    NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, _ in
+    NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, error in
         DispatchQueue.main.async {
+            // Relaunch failed: keep running, and drop the flag so a later
+            // unrelated launch doesn't pop the bar open.
+            guard error == nil else {
+                UserDefaults.standard.removeObject(forKey: openCommandBarAfterRelaunchKey)
+                return
+            }
             NSApp.terminate(nil)
         }
     }

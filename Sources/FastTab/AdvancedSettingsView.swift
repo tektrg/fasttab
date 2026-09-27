@@ -17,7 +17,7 @@ struct AdvancedSettingsView: View {
     var body: some View {
         Form {
             Section("Browser Extension") {
-                Toggle("Browser extension (recommended)", isOn: $extensionEnabled)
+                Toggle("Use the FastTab extension", isOn: $extensionEnabled)
 
                 if extensionEnabled {
                     Text("Recommended for Chrome, Edge & Brave: reads and switches tabs through a companion extension — instant results, no macOS Automation prompt. Everything still works with it off.")

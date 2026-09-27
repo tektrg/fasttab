@@ -43,7 +43,14 @@ public final class ReaderViewModel: ObservableObject {
         return true
     }
 
-    @Published public var loadState: LoadState = .idle
+    @Published public var loadState: LoadState = .idle {
+        didSet {
+            // Count words as soon as a tracked article is on screen, off the main thread.
+            if case .loaded(let article) = loadState, statsRecorder.isTracked(url) {
+                startWordCountIfNeeded(article)
+            }
+        }
+    }
     /// Current reading scroll progress [0.0 – 1.0]. Not @Published to prevent redundant
     /// SwiftUI view-graph invalidations and main-thread re-renders during active scrolling.
     public var scrollProgress: Double = 0.0

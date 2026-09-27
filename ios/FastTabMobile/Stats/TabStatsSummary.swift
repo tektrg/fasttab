@@ -36,18 +36,26 @@ struct TabStatsSummary: Equatable {
     var busiestWeekday: Int? { openedByWeekday.filter { $0.value > 0 }.max { $0.value < $1.value }?.slot }
     var busiestHour: Int? { openedByHour.filter { $0.value > 0 }.max { $0.value < $1.value }?.slot }
 
-    /// Mean per day over the last `days` complete days (today is partial, so left out), a day
-    /// without data counting as zero. Days before the first data point are not counted, so a
-    /// Mac that started reporting yesterday is not averaged against a week of zeros. Falls back
-    /// to today alone when it is the only day there is.
-    static func recentMean(_ values: [DayValue], days: Int, now: Date, calendar: Calendar) -> Double? {
+    /// Mean per day over the last `days` complete days (today is partial, so left out). Falls
+    /// back to today alone when it is the only day there is.
+    ///
+    /// - `missingDaysAsZero`: true for counts (no data = nothing opened); false for levels like
+    ///   open tabs, where no data means the Mac was off, not that it had zero tabs. Counts skip
+    ///   days before the first data point, so a Mac that started reporting yesterday is not
+    ///   averaged against a week of zeros.
+    static func recentMean(
+        _ values: [DayValue], days: Int, missingDaysAsZero: Bool, now: Date, calendar: Calendar
+    ) -> Double? {
         guard let firstDay = values.first?.day else { return nil }
         let today = calendar.startOfDay(for: now)
         let rangeStart = max(firstDay, calendar.date(byAdding: .day, value: -days, to: today) ?? today)
         let completeDays = values.filter { $0.day >= rangeStart && $0.day < today }
-        let dayCount = calendar.dateComponents([.day], from: rangeStart, to: today).day ?? 0
-        guard dayCount > 0 else { return values.last?.value }
-        return completeDays.map(\.value).reduce(0, +) / Double(dayCount)
+        let total = completeDays.map(\.value).reduce(0, +)
+        if missingDaysAsZero {
+            let dayCount = calendar.dateComponents([.day], from: rangeStart, to: today).day ?? 0
+            return dayCount > 0 ? total / Double(dayCount) : values.last?.value
+        }
+        return completeDays.isEmpty ? values.last?.value : total / Double(completeDays.count)
     }
 
     // MARK: - Building

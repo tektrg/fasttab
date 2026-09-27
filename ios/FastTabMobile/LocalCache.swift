@@ -55,9 +55,19 @@ public struct CachedSyncState: Codable, Sendable {
         self.sentCommands = try container.decodeIfPresent([SyncCommand].self, forKey: .sentCommands) ?? []
         self.lastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
         self.commandDeliveries = try container.decodeIfPresent([String: SyncCommandDelivery].self, forKey: .commandDeliveries) ?? [:]
-        // `try?`: tab stats are the newest model; an entry this build cannot read must never
-        // take the cached tabs and bookmarks down with it.
-        self.tabStats = (try? container.decodeIfPresent([String: SyncedTabStats].self, forKey: .tabStats)) ?? [:]
+        // Per entry: tab stats are the newest model, and one Mac's entry this build cannot read
+        // must drop only that entry, never the cached tabs and bookmarks.
+        self.tabStats = ((try? container.decodeIfPresent([String: SkippingUndecodable<SyncedTabStats>].self, forKey: .tabStats)) ?? [:])
+            .compactMapValues(\.value)
+    }
+}
+
+/// Decodes to `nil` instead of throwing, so one bad element doesn't fail its whole collection.
+private struct SkippingUndecodable<Wrapped: Decodable>: Decodable {
+    let value: Wrapped?
+
+    init(from decoder: Decoder) throws {
+        value = try? Wrapped(from: decoder)
     }
 }
 

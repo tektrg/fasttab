@@ -20,6 +20,40 @@ final class TabStatsCacheTests: XCTestCase {
         XCTAssertTrue(state.tabStats.isEmpty)
     }
 
+    func testOneUnreadableTabStatsEntryDropsOnlyThatEntry() throws {
+        let good = SyncedTabStats(deviceID: "mac-a", timeZoneID: "UTC", days: [TabDay(day: "2026-09-27", opened: 5)])
+        let device = SyncedDevice(id: "mac-a", name: "Mac", modelName: "MacBook", appVersion: "1.0")
+        let encoded = try JSONEncoder().encode(CachedSyncState(devices: [device], tabStats: ["mac-a": good]))
+        var shape = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var tabStats = try XCTUnwrap(shape["tabStats"] as? [String: Any])
+        tabStats["mac-b"] = ["unexpected": true]
+        shape["tabStats"] = tabStats
+
+        let state = try JSONDecoder().decode(CachedSyncState.self, from: JSONSerialization.data(withJSONObject: shape))
+        XCTAssertEqual(state.devices.count, 1)
+        XCTAssertEqual(Array(state.tabStats.keys), ["mac-a"])
+    }
+
+    func testStatsViewModelChartsTheDigestJustSynced() {
+        let cacheURL = temporaryCacheURL()
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+        let cache = LocalCache(customFileURL: cacheURL)
+        let suite = "StatsViewModelTabsTests"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let viewModel = StatsViewModel(
+            recorder: ReadingStatsRecorder(log: InMemoryMetricEventLog(), defaults: defaults),
+            topicResolver: ReadingTopicResolver(defaults: defaults),
+            localCache: cache,
+            calendar: .current
+        )
+        let today = DateFormatter()
+        today.dateFormat = "yyyy-MM-dd"
+        today.locale = Locale(identifier: "en_US_POSIX")
+        cache.updateTabStats(SyncedTabStats(deviceID: "mac-a", timeZoneID: "UTC", days: [TabDay(day: today.string(from: Date()), opened: 7)]))
+        XCTAssertEqual(viewModel.tabs.openedByDay.map(\.value), [7])
+    }
+
     func testTabStatsRoundTripAndAreDroppedWithTheirMac() throws {
         let cacheURL = temporaryCacheURL()
         defer { try? FileManager.default.removeItem(at: cacheURL) }
@@ -85,9 +119,11 @@ final class TabStatsSummaryTests: XCTestCase {
             TabStatsSummary.DayValue(day: calendar.startOfDay(for: date($0)), value: 10)
         }
         // Complete days 09-18...09-21 (4 days): 10 + 0 + 10 + 0.
-        XCTAssertEqual(TabStatsSummary.recentMean(values, days: 7, now: date("2026-09-22"), calendar: calendar), 5)
+        XCTAssertEqual(TabStatsSummary.recentMean(values, days: 7, missingDaysAsZero: true, now: date("2026-09-22"), calendar: calendar), 5)
+        // A level (open tabs): a day without data is the Mac being off, not zero tabs.
+        XCTAssertEqual(TabStatsSummary.recentMean(values, days: 7, missingDaysAsZero: false, now: date("2026-09-22"), calendar: calendar), 10)
         let onlyToday = [TabStatsSummary.DayValue(day: calendar.startOfDay(for: date("2026-09-22")), value: 3)]
-        XCTAssertEqual(TabStatsSummary.recentMean(onlyToday, days: 7, now: date("2026-09-22"), calendar: calendar), 3)
+        XCTAssertEqual(TabStatsSummary.recentMean(onlyToday, days: 7, missingDaysAsZero: true, now: date("2026-09-22"), calendar: calendar), 3)
     }
 
     func testNoDigestsIsEmpty() {

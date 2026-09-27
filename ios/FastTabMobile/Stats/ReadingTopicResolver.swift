@@ -69,8 +69,14 @@ final class ReadingTopicResolver: ObservableObject {
         return folders
     }
 
+    /// Articles inferred per pass. The recommender's queue is shared with the Tabs list's folder
+    /// chips, so stats never park a long batch in front of them; each landed answer triggers a
+    /// recompute, which queues the next few.
+    private static let maxInferencesPerPass = 5
+
     private func inferFolders(for events: [MetricEvent], bookmarkBlobs: [SyncedBookmarkBlob]) {
-        let pending = events.filter { !inFlightArticles.contains($0.subject) }
+        guard inFlightArticles.isEmpty else { return }
+        let pending = Array(events.prefix(Self.maxInferencesPerPass))
         guard !pending.isEmpty, !bookmarkBlobs.isEmpty else { return }
         pending.forEach { inFlightArticles.insert($0.subject) }
         let bookmarks = TabFolderRecommender.scoredBookmarks(in: bookmarkBlobs)

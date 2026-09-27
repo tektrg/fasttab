@@ -19,6 +19,7 @@ final class StatsViewModel: ObservableObject {
     private let localCache: LocalCache
     private let calendar: Calendar
     private var readingEvents: [MetricEvent] = []
+    private var bookmarkBlobs: [SyncedBookmarkBlob]
     private var subscriptions = Set<AnyCancellable>()
     private let logger = Logger(subsystem: "app.theindie.FastTabMobile", category: "StatsViewModel")
 
@@ -36,20 +37,33 @@ final class StatsViewModel: ObservableObject {
         self.topicResolver = topicResolver
         self.localCache = localCache
         self.calendar = calendar
+        self.bookmarkBlobs = localCache.state.bookmarkBlobs
 
+        // `@Published` emits before the new value is stored: always use the emitted value,
+        // never re-read `localCache.state` inside these sinks.
         localCache.$state
             .map(\.tabStats)
             .removeDuplicates()
-            .sink { [weak self] _ in self?.recomputeTabs() }
+            .sink { [weak self] tabStats in self?.recomputeTabs(from: tabStats) }
             .store(in: &subscriptions)
-        // Topics move when an inference lands or when bookmarks sync in.
-        Publishers.Merge(
-            topicResolver.$inferredFolderByArticle.dropFirst().removeDuplicates().map { _ in () },
-            localCache.$state.map(\.bookmarkBlobs).dropFirst().removeDuplicates().map { _ in () }
-        )
-        .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
-        .sink { [weak self] in self?.recomputeReading() }
-        .store(in: &subscriptions)
+        // Topics move when bookmarks sync in (debounced first: a sync burst changes the cache
+        // hundreds of times, and comparing every bookmark each time is not free)...
+        localCache.$state
+            .map(\.bookmarkBlobs)
+            .dropFirst()
+            .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
+            .removeDuplicates()
+            .sink { [weak self] blobs in
+                self?.bookmarkBlobs = blobs
+                self?.recomputeReading()
+            }
+            .store(in: &subscriptions)
+        // ...and when a background inference lands (read back after the debounce, when stored).
+        topicResolver.$inferredFolderByArticle
+            .dropFirst()
+            .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.recomputeReading() }
+            .store(in: &subscriptions)
     }
 
     /// Reloads the reading log from disk. Call when the More tab appears.
@@ -81,13 +95,13 @@ final class StatsViewModel: ObservableObject {
         #endif
         let topics = topicResolver.topicsByArticle(
             for: readingEvents.filter { $0.metric == ReadingMetric.words },
-            bookmarkBlobs: localCache.state.bookmarkBlobs
+            bookmarkBlobs: bookmarkBlobs
         )
         reading = ReadingStatsSummary.make(from: readingEvents, topicsByArticle: topics, now: Date(), calendar: calendar)
     }
 
-    private func recomputeTabs() {
-        var digests = Array(localCache.state.tabStats.values)
+    private func recomputeTabs(from tabStats: [String: SyncedTabStats]) {
+        var digests = Array(tabStats.values)
         #if DEBUG
         if StatsDemoFixture.isEnabled { digests = StatsDemoFixture.tabDigests(now: Date(), calendar: calendar) }
         #endif

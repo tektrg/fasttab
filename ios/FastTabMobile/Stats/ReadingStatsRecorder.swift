@@ -43,6 +43,9 @@ final class ReadingStatsRecorder {
     private var ledger: ReadingProgressLedger
     /// Writes run one after another so the log keeps event order.
     private var lastWrite: Task<Void, Never>?
+    /// After any failed write the in-memory ledger is ahead of the log, so it is not saved again
+    /// this session: the next launch re-credits the lost ground from the last good snapshot.
+    private var hasFailedWrite = false
     private let logger = Logger(subsystem: "app.theindie.FastTabMobile", category: "ReadingStats")
 
     init(
@@ -141,12 +144,13 @@ final class ReadingStatsRecorder {
         let previous = lastWrite
         let log = log
         let logger = logger
-        lastWrite = Task { @MainActor in
+        lastWrite = Task { @MainActor [weak self] in
             await previous?.value
             do {
                 try await write(log)
                 onSuccess()
             } catch {
+                self?.hasFailedWrite = true
                 logger.error("Reading stats write failed: \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -159,7 +163,7 @@ final class ReadingStatsRecorder {
     }
 
     private func saveLedger(_ data: Data?) {
-        guard let data else { return }
+        guard let data, !hasFailedWrite else { return }
         defaults.set(data, forKey: Self.ledgerDefaultsKey)
     }
 

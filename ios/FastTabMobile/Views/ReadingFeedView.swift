@@ -629,6 +629,12 @@ public struct FloatingContinueReadingBar: View {
     public let progress: (LastOpenedItem) -> Double
     public let onSelect: (LastOpenedItem) -> Void
 
+    /// Fetched link previews by item id. The Last Opened cards display
+    /// `LinkPreview.cardTitle` (the site's own title, e.g. a tweet's text) —
+    /// the chip resolves the same way so it never shows a bare domain while
+    /// the card right above it shows a real title.
+    @State private var previews: [String: LinkPreview] = [:]
+
     public init(
         items: [LastOpenedItem],
         title: @escaping (LastOpenedItem) -> String,
@@ -641,12 +647,16 @@ public struct FloatingContinueReadingBar: View {
         self.onSelect = onSelect
     }
 
+    private func label(for item: LastOpenedItem) -> String {
+        LinkPreview.cardTitle(storedTitle: title(item), preview: previews[item.id])
+    }
+
     public var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.xs) {
                 ForEach(items) { item in
                     let pct = min(max(progress(item), 0), 1)
-                    let label = title(item)
+                    let label = label(for: item)
                     Button {
                         UISelectionFeedbackGenerator().selectionChanged()
                         onSelect(item)
@@ -673,6 +683,12 @@ public struct FloatingContinueReadingBar: View {
             }
         }
         .scrollClipDisabled()
+        .task(id: items.map(\.id)) {
+            for item in items {
+                guard let url = item.parsedURL, previews[item.id] == nil else { continue }
+                previews[item.id] = await LinkPreviewLoader.shared.preview(for: url)
+            }
+        }
         .padding(DS.Space.xs)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())

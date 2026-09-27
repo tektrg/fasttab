@@ -68,6 +68,7 @@ header { display:flex; justify-content:space-between; align-items:center; paddin
 header h1 { font-size:14px; margin:0; letter-spacing:-0.2px; font-weight:600; }
 header .meta { color:var(--dim); }
 .feedstrip { display:flex; gap:8px; padding:6px 16px; color:var(--dim); flex-wrap:wrap; align-items:center; }
+.desktop-search-bar { padding: 6px 16px; max-width: 420px; }
 section { margin:12px 16px; border:1px solid var(--border); border-radius:var(--radius-card);
   background:var(--panel); box-shadow:var(--shadow-card); overflow:hidden; }
 section > h2 { font-size:12px; text-transform:uppercase; letter-spacing:0.6px; margin:0; padding:10px 20px;
@@ -358,6 +359,16 @@ body.rp-resizing .rp-resize { background:var(--blue); }
   border-top: 1px solid var(--border); text-align: left;
   transition: transform 120ms cubic-bezier(0.2, 0, 0, 1), background-color 120ms;
 }
+.phone-search-bar {
+  position: sticky; top: 0; z-index: 5; background: var(--bg);
+  display: flex; gap: 8px; align-items: center;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+}
+.phone-search-input { flex: 1; min-width: 0; }
+.phone-search-input input { font-size: 16px; } /* avoid iOS auto-zoom */
+.phone-search-clear { color: var(--dim); padding: 0 4px; }
+.phone-group-toggle { flex: 0 0 auto; }
+.phone-nomatch { margin: 12px; text-align: center; }
 .phone-row:first-of-type { border-top: none; }
 .phone-row:active { transform: scale(0.98); background: var(--color-surface-alt); }
 .phone-row-main { display: flex; align-items: center; gap: 8px; }
@@ -367,9 +378,16 @@ body.rp-resizing .rp-resize { background:var(--blue); }
 
 .phone-sheet-title { display: flex; align-items: center; gap: 8px; }
 .phone-sheet-body { display: flex; flex-direction: column; height: 100%; padding: 0 !important; }
-.phone-sheet-scroll { flex: 1; overflow-y: auto; padding: 12px 16px 16px; }
+.phone-sheet-scroll { flex: 1; overflow-y: auto; padding: 12px 12px 16px; }
 .phone-sheet-paneid { color: var(--dim); margin-bottom: 8px; }
 .phone-sheet-section { margin-bottom: 12px; }
+
+/* Phone content blocks (last message / plan / form / review card): no
+   bordered Paper — edge-to-edge, thin top divider + small section label
+   instead of a box, to maximize width on a 375px screen (desktop keeps the
+   Paper card look via the same `Block` component — see Block.tsx). */
+.phone-block { padding: 10px 0; border-top: 1px solid var(--border); }
+.phone-block:first-child { border-top: none; padding-top: 0; }
 .phone-sheet-footer {
   border-top: 1px solid var(--border); background: var(--panel);
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
@@ -385,3 +403,51 @@ body.rp-resizing .rp-resize { background:var(--blue); }
    scoped to the phone sheet so the desktop RowPanel composer keeps its
    existing size. */
 .phone-sheet-footer input { font-size: 16px; }
+
+/* GFM markdown rendering (agent content) — readable at 375px width and in
+   both themes; see components/Markdown.tsx. */
+.plan-body, .latest-message, .form-card, .review-card {
+  overflow-wrap: anywhere;
+}
+.plan-body h1, .plan-body h2, .plan-body h3,
+.latest-message h1, .latest-message h2, .latest-message h3 {
+  margin: 0.6em 0 0.3em; line-height: 1.25; font-size: 1.05em;
+}
+.plan-body p, .latest-message p { margin: 0.4em 0; }
+.plan-body ul, .plan-body ol, .latest-message ul, .latest-message ol {
+  margin: 0.3em 0; padding-left: 1.4em;
+}
+.md-li { margin: 0.15em 0; }
+.md-li.task-list-item { list-style: none; margin-left: -1.2em; }
+.md-li.task-list-item input[type="checkbox"] { margin-right: 6px; }
+.plan-body blockquote, .latest-message blockquote {
+  margin: 0.4em 0; padding: 2px 10px; border-left: 3px solid var(--border);
+  color: var(--dim);
+}
+.plan-body hr, .latest-message hr {
+  border: none; border-top: 1px solid var(--border); margin: 0.8em 0;
+}
+.md-inline-code {
+  font-family: var(--mono); font-size: 0.9em; padding: 1px 5px;
+  border-radius: 4px; background: var(--color-surface-alt);
+}
+.md-pre {
+  margin: 0.4em 0; padding: 8px 10px; border-radius: var(--radius-small, 6px);
+  background: var(--color-surface-alt); overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.md-pre code {
+  font-family: var(--mono); font-size: 0.85em; white-space: pre;
+  background: none; padding: 0;
+}
+.md-table-scroll {
+  overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0.4em 0;
+  border: 1px solid var(--border); border-radius: var(--radius-small, 6px);
+}
+.md-table { border-collapse: collapse; width: 100%; font-size: 0.92em; }
+.md-table th, .md-table td {
+  padding: 6px 10px; border-bottom: 1px solid var(--border);
+  text-align: left; white-space: nowrap;
+}
+.md-table th { color: var(--dim); font-weight: 600; background: var(--panel); }
+.md-table tr:last-child td { border-bottom: none; }

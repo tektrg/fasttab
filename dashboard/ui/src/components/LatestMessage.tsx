@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Paper, Text } from "@mantine/core";
+import { Text } from "@mantine/core";
 import type { SessionLatestResponse } from "../types";
 import { fetchSessionLatest } from "../api";
 import { Markdown } from "./Markdown";
+import { Block } from "./Block";
 import { FormCard } from "./FormCard";
 
 /** Latest assistant message (`GET /api/session/latest`) plus, when the
@@ -13,10 +14,12 @@ export function LatestMessage({
   rowId,
   paneId,
   onToast,
+  phone,
 }: {
   rowId: string;
   paneId: string | null;
   onToast: (msg: string, ok: boolean) => void;
+  phone?: boolean;
 }) {
   const [latest, setLatest] = useState<SessionLatestResponse | null>(null);
 
@@ -34,26 +37,26 @@ export function LatestMessage({
 
   if (!latest.ok) {
     return (
-      <Paper withBorder radius="xl" shadow="sm" p="sm" className="latest-message">
+      <Block phone={phone} className="latest-message">
         <Text size="xs" c="dimmed">
           {latest.error || "no transcript to show"}
         </Text>
-      </Paper>
+      </Block>
     );
   }
 
   return (
     <>
       {latest.latestMessage && (
-        <Paper withBorder radius="xl" shadow="sm" p="sm" className="latest-message">
+        <Block phone={phone} className="latest-message">
           <Text size="xs" c="dimmed" mb={4}>
             latest message
           </Text>
           <Markdown text={latest.latestMessage} />
-        </Paper>
+        </Block>
       )}
       {latest.pendingQuestion && paneId && (
-        <FormCard paneId={paneId} form={latest.pendingQuestion} onToast={onToast} />
+        <FormCard paneId={paneId} form={latest.pendingQuestion} onToast={onToast} phone={phone} />
       )}
     </>
   );

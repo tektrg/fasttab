@@ -77,3 +77,96 @@ describe("Markdown image / raw HTML handling", () => {
     expect((window as unknown as { __pwned2?: boolean }).__pwned2).toBeUndefined();
   });
 });
+
+describe("Markdown GFM tables", () => {
+  test("a realistic Claude-style table renders headers, alignment, and inline markdown in cells", () => {
+    const md = [
+      "| File | Status | Coverage | Notes |",
+      "| --- | :---: | ---: | :--- |",
+      "| `Markdown.tsx` | **done** | 92% | uses `remark-gfm` |",
+      "| `PhoneInbox.tsx` | *pending* | 10% | needs `filterAgents` |",
+    ].join("\n");
+    const host = render(md);
+    const table = host.querySelector("table.md-table");
+    expect(table).not.toBe(null);
+    const headers = Array.from(host.querySelectorAll("th")).map((th) => th.textContent);
+    expect(headers).toEqual(["File", "Status", "Coverage", "Notes"]);
+    const bodyRows = host.querySelectorAll("tbody tr");
+    expect(bodyRows.length).toBe(2);
+    const firstRowCells = Array.from(bodyRows[0].querySelectorAll("td"));
+    expect(firstRowCells[0].querySelector("code")?.textContent).toBe("Markdown.tsx");
+    expect(firstRowCells[1].querySelector("strong")?.textContent).toBe("done");
+    expect(firstRowCells[3].querySelector("code")?.textContent).toBe("remark-gfm");
+    expect(host.querySelector(".md-table-scroll")).not.toBe(null);
+  });
+
+  test("escaped pipes inside a cell do not split the column", () => {
+    const md = "| A | B |\n| --- | --- |\n| a \\| b | c |";
+    const host = render(md);
+    const cells = host.querySelectorAll("tbody td");
+    expect(cells.length).toBe(2);
+    expect(cells[0].textContent).toBe("a | b");
+  });
+
+  test("a row with a missing cell still renders without throwing", () => {
+    const md = "| A | B | C |\n| --- | --- | --- |\n| only one |";
+    const host = render(md);
+    expect(host.querySelector("table")).not.toBe(null);
+    const cells = host.querySelectorAll("tbody td");
+    expect(cells.length).toBe(3);
+    expect(cells[0].textContent).toBe("only one");
+    expect(cells[1].textContent).toBe("");
+  });
+
+  test("a row with an extra cell does not throw and keeps the header count", () => {
+    const md = "| A | B |\n| --- | --- |\n| x | y | z (extra) |";
+    const host = render(md);
+    const headerCells = host.querySelectorAll("thead th");
+    expect(headerCells.length).toBe(2);
+  });
+});
+
+describe("Markdown GFM: fenced code, task lists, headings, blockquotes", () => {
+  test("a fenced code block renders as monospace inside a scroll container", () => {
+    const md = "```ts\nconst x = 1;\nfunction longLineThatWouldOverflowAPhoneWidthEasily() {}\n```";
+    const host = render(md);
+    const pre = host.querySelector("pre.md-pre");
+    expect(pre).not.toBe(null);
+    expect(pre!.querySelector("code")?.textContent).toContain("const x = 1;");
+  });
+
+  test("task list items render as disabled checkboxes, not literal [x] text", () => {
+    const md = "- [x] done thing\n- [ ] todo thing";
+    const host = render(md);
+    const boxes = host.querySelectorAll('input[type="checkbox"]');
+    expect(boxes.length).toBe(2);
+    expect((boxes[0] as HTMLInputElement).checked).toBe(true);
+    expect((boxes[1] as HTMLInputElement).checked).toBe(false);
+  });
+
+  test("nested lists render nested <ul>/<ol>", () => {
+    const md = "- a\n  - a1\n  - a2\n- b";
+    const host = render(md);
+    const outer = host.querySelector("ul");
+    expect(outer?.querySelector("ul")).not.toBe(null);
+  });
+
+  test("headings demote so agent text never outranks card chrome", () => {
+    const host = render("# Title");
+    expect(host.querySelector("h1")).toBe(null);
+    expect(host.querySelector("h3")).not.toBe(null);
+  });
+
+  test("blockquote and hr render", () => {
+    const host = render("> quoted\n\n---\n");
+    expect(host.querySelector("blockquote")).not.toBe(null);
+    expect(host.querySelector("hr")).not.toBe(null);
+  });
+
+  test("raw HTML embedded in the text still never becomes a real element (GFM path)", () => {
+    const host = render("before\n\n<div>injected</div>\n\nafter");
+    expect(host.querySelector("div")).toBe(null);
+    expect(host.textContent).toContain("before");
+    expect(host.textContent).toContain("after");
+  });
+});

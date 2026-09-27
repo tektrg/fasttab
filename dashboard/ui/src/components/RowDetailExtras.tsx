@@ -15,9 +15,11 @@ import { LatestMessage } from "./LatestMessage";
 export function RowDetailExtras({
   row,
   onToast,
+  phone,
 }: {
   row: BoardRow;
   onToast: (msg: string, ok: boolean) => void;
+  phone?: boolean;
 }) {
   if (row.status === "ended") return null;
   const paneId = row.derived?.paneId ?? null;
@@ -26,11 +28,11 @@ export function RowDetailExtras({
   if (permission && paneId) {
     if (permission.kind === "plan") {
       return (
-        <PlanCard rowId={row.rowId} paneId={paneId} permission={permission} onToast={onToast} />
+        <PlanCard rowId={row.rowId} paneId={paneId} permission={permission} onToast={onToast} phone={phone} />
       );
     }
-    return <ReviewCard paneId={paneId} permission={permission} onToast={onToast} />;
+    return <ReviewCard paneId={paneId} permission={permission} onToast={onToast} phone={phone} />;
   }
 
-  return <LatestMessage rowId={row.rowId} paneId={paneId} onToast={onToast} />;
+  return <LatestMessage rowId={row.rowId} paneId={paneId} onToast={onToast} phone={phone} />;
 }

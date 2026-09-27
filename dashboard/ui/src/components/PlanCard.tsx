@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Group, Loader, Paper, Stack, Text, Textarea } from "@mantine/core";
+import { Button, Group, Loader, Stack, Text, Textarea } from "@mantine/core";
 import type { PermissionOption, PermissionPrompt, SessionPlanResponse } from "../types";
 import { answerPermission, fetchSessionPlan } from "../api";
 import { Markdown } from "./Markdown";
+import { Block } from "./Block";
 
 const PRIVILEGE_RE = /auto mode|auto-accept|bypass permissions/i;
 
@@ -33,11 +34,13 @@ export function PlanCard({
   paneId,
   permission,
   onToast,
+  phone,
 }: {
   rowId: string;
   paneId: string;
   permission: PermissionPrompt;
   onToast: (msg: string, ok: boolean) => void;
+  phone?: boolean;
 }) {
   const [plan, setPlan] = useState<SessionPlanResponse | null>(null);
   useEffect(() => {
@@ -95,7 +98,7 @@ export function PlanCard({
   };
 
   return (
-    <Paper withBorder radius="xl" shadow="sm" p="sm" className="plan-card">
+    <Block phone={phone} className="plan-card">
       <Text size="xs" c="dimmed" mb={4}>
         Plan
       </Text>
@@ -173,6 +176,6 @@ export function PlanCard({
           {result.ok ? "Sent." : `Not sent: ${result.msg}`}
         </Text>
       )}
-    </Paper>
+    </Block>
   );
 }

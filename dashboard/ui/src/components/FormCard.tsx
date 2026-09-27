@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
-import { Button, Checkbox, Group, Paper, Radio, Stack, Text, TextInput } from "@mantine/core";
+import { Button, Checkbox, Group, Radio, Stack, Text, TextInput } from "@mantine/core";
 import type { PendingQuestionForm } from "../types";
 import { answerQuestion } from "../api";
+import { Block } from "./Block";
+import { MarkdownInline } from "./Markdown";
 
 interface Draft {
   selected: string[];
@@ -20,10 +22,12 @@ export function FormCard({
   paneId,
   form,
   onToast,
+  phone,
 }: {
   paneId: string;
   form: PendingQuestionForm;
   onToast: (msg: string, ok: boolean) => void;
+  phone?: boolean;
 }) {
   const [drafts, setDrafts] = useState<Draft[]>(
     form.questions.map(() => ({ selected: [], other: "" })),
@@ -94,16 +98,18 @@ export function FormCard({
   };
 
   return (
-    <Paper withBorder radius="xl" shadow="sm" p="sm" className="form-card">
+    <Block phone={phone} className="form-card">
       <Stack gap="md">
         {form.questions.map((q, qi) => (
           <div key={qi}>
             {q.header && (
               <Text size="xs" c="dimmed">
-                {q.header}
+                <MarkdownInline text={q.header} />
               </Text>
             )}
-            <Text mb="xs">{q.question}</Text>
+            <Text mb="xs">
+              <MarkdownInline text={q.question} />
+            </Text>
             <Stack gap={4}>
               {q.options.map((o) =>
                 q.isMultiSelect ? (
@@ -143,6 +149,6 @@ export function FormCard({
           {result.ok ? "Sent." : `Not sent: ${result.msg}`}
         </Text>
       )}
-    </Paper>
+    </Block>
   );
 }

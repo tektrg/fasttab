@@ -4,6 +4,7 @@ import type { NeedsYouRow, PickerQuestion, QuestionPreview } from "../types";
 import { answerQuestion, fmtAge } from "../api";
 import { ensureNotiPerm } from "../alerts";
 import { KindBadge } from "./Severity";
+import { MarkdownInline } from "./Markdown";
 
 // Phase 5: display-only box for the hook's question preview. Plain text, NO
 // buttons, NO Confirm — the hook copy comes from raw tool input and can never
@@ -42,7 +43,7 @@ function PreviewBox({ p }: { p: QuestionPreview }) {
           ▴
         </Button>
       </Group>
-      <Text mb="xs">{p.question}</Text>
+      <Text mb="xs"><MarkdownInline text={p.question} /></Text>
       <Stack gap={2} mb="xs">
         {p.options.map((o) => (
           <div key={o.index}>
@@ -51,7 +52,7 @@ function PreviewBox({ p }: { p: QuestionPreview }) {
             </Badge>
             {o.description ? (
               <Text size="xs" c="dimmed">
-                {o.description}
+                <MarkdownInline text={o.description} />
               </Text>
             ) : null}
           </div>
@@ -187,7 +188,7 @@ function QuestionBox({
           “{shown.context}”
         </Text>
       ) : null}
-      <Text mb="xs">{shown.question}</Text>
+      <Text mb="xs"><MarkdownInline text={shown.question} /></Text>
       <Stack gap="xs" mb="sm" align="stretch" className="appr-opts">
         {shown.options
           .filter((o) => !o.other)
@@ -204,7 +205,7 @@ function QuestionBox({
               </Chip>
               {optDesc(o) ? (
                 <Text size="xs" c="dimmed">
-                  {optDesc(o)}
+                  <MarkdownInline text={optDesc(o)} />
                 </Text>
               ) : null}
             </Stack>
@@ -301,7 +302,7 @@ export function NeedsYou({
                     <td className="small">{fmtAge(i.sinceSec)}</td>
                     <td>{i.label}</td>
                     <td className="small">{i.paneId ?? ""}</td>
-                    <td className="wrap">{i.detail}</td>
+                    <td className="wrap"><MarkdownInline text={i.detail} /></td>
                   </tr>
                 );
                 // Preview row (hook copy, not yet screen-parsed): display-only,

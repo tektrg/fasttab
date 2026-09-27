@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
-import { Button, Group, Paper, Text } from "@mantine/core";
+import { Button, Group, Text } from "@mantine/core";
 import type { PermissionOption, PermissionPrompt } from "../types";
 import { answerPermission } from "../api";
+import { Block } from "./Block";
+import { MarkdownInline } from "./Markdown";
 
 type Choice = "allow" | "deny" | "allow-always";
 
@@ -36,10 +38,12 @@ export function ReviewCard({
   paneId,
   permission,
   onToast,
+  phone,
 }: {
   paneId: string;
   permission: PermissionPrompt;
   onToast: (msg: string, ok: boolean) => void;
+  phone?: boolean;
 }) {
   const { allow, allowAlways, deny } = reviewChoices(permission);
   const [armed, setArmed] = useState(false);
@@ -73,12 +77,12 @@ export function ReviewCard({
   };
 
   return (
-    <Paper withBorder radius="xl" shadow="sm" p="sm" className="review-card">
+    <Block phone={phone} className="review-card">
       <Text size="xs" c="dimmed" mb={4}>
         {permission.tool}
       </Text>
       <Text mb="xs" style={{ whiteSpace: "pre-wrap" }}>
-        {permission.detail || permission.title}
+        <MarkdownInline text={permission.detail || permission.title} />
       </Text>
       <Group gap="sm">
         {allow && (
@@ -107,6 +111,6 @@ export function ReviewCard({
           {result.ok ? "Sent." : `Not sent: ${result.msg}`}
         </Text>
       )}
-    </Paper>
+    </Block>
   );
 }

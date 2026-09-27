@@ -152,7 +152,7 @@ export function PhoneSheet({
           </div>
         )}
         <PaneScreen paneId={ended ? null : paneId} />
-        <RowDetailExtras row={row} onToast={onToast} />
+        <RowDetailExtras row={row} onToast={onToast} phone />
       </div>
 
       <div

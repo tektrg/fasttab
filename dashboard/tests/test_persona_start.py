@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Direct-run tests for POST /api/persona/start (server/lib/persona_start.py
-+ the server's `_handle_persona_start`) — Jev persona routing P3.
++ the server's `_handle_local_json_post`) — Jev persona routing P3.
 
 SAFETY: everything outside the module is faked — the registry (a temp
 file), herdr (`FakeHerdr` records calls, never runs anything), the home
@@ -558,22 +558,22 @@ _srv.persona_start.start_persona = lambda body: seen_bodies.append(body) or {"ok
 try:
     body = json.dumps({"persona": "test-echo", "text": "hi"}).encode()
     h = FakeHandler({"Content-Type": "application/json"}, body, remote=True)
-    h._handle_persona_start()
+    h._handle_local_json_post("/api/persona/start", _srv.persona_start.start_persona)
     check("remote listener: 403", h.sent[1], 403)
     check("remote listener: says localhost-only", "localhost-only" in h.sent[0]["error"], True)
     check("remote listener: start never called", seen_bodies, [])
 
     h = FakeHandler({"Content-Type": "text/plain"}, body)
-    h._handle_persona_start()
+    h._handle_local_json_post("/api/persona/start", _srv.persona_start.start_persona)
     check("wrong Content-Type: 400, start never called", (h.sent[1], seen_bodies), (400, []))
 
     h = FakeHandler({"Content-Type": "application/json"}, b"{not json")
-    h._handle_persona_start()
+    h._handle_local_json_post("/api/persona/start", _srv.persona_start.start_persona)
     check("bad JSON: {ok:false} (200), start never called",
           (h.sent[0]["ok"], h.sent[1], seen_bodies), (False, 200, []))
 
     h = FakeHandler({"Content-Type": "application/json; charset=utf-8"}, body)
-    h._handle_persona_start()
+    h._handle_local_json_post("/api/persona/start", _srv.persona_start.start_persona)
     check("local + JSON: handed to start_persona", seen_bodies, [{"persona": "test-echo", "text": "hi"}])
     check("local + JSON: its reply is sent as-is", h.sent, ({"ok": True}, 200))
 finally:

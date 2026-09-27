@@ -230,7 +230,7 @@ struct DashboardEndpoint: Sendable {
     }
 
     /// Every dashboard request starts here, so each one identifies AgentBar.
-    private static func agentBarRequest(url: URL) -> URLRequest {
+    static func agentBarRequest(url: URL) -> URLRequest {
         var request = URLRequest(url: url)
         request.timeoutInterval = requestTimeoutSeconds
         request.setValue(clientHeaderValue, forHTTPHeaderField: clientHeaderName)

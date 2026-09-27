@@ -199,6 +199,7 @@ import chief_dashboard_actions as session_actions  # noqa: E402
 import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, generic)
 import personas  # noqa: E402  (Jev persona registry + routing, P1)
 import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
+import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -2808,6 +2809,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                 return
+        if hook_permission_routes.is_hook_path(path):
+            self._send_json(*hook_permission_routes.handle_get(
+                path, parse_qs(parsed.query), self._is_remote_listener()))
+            return
         if path == "/" or path == "/index.html":
             self._serve_spa()
         elif path == "/legacy":
@@ -2881,6 +2886,10 @@ class Handler(BaseHTTPRequestHandler):
         if self._reject_foreign_write():
             return
         path = urlparse(self.path).path
+        if hook_permission_routes.is_hook_path(path):
+            self._send_json(*hook_permission_routes.handle_post(
+                path, self._read_json_body, self._is_remote_listener()))
+            return
         if path.startswith("/api/session/"):
             session_id = path[len("/api/session/"):]
             self._note_remote_audit_row(session_id)

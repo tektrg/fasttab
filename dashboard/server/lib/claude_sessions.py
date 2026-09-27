@@ -20,6 +20,8 @@ import re
 import subprocess
 import time
 
+import hook_permission_summary
+
 SESSIONS_DIR = os.environ.get(
     "CLAUDE_SESSIONS_DIR", os.path.expanduser("~/.claude/sessions"))
 
@@ -161,9 +163,13 @@ def _waiting_reason(entry):
     return (waiting_for[:1].upper() + waiting_for[1:]) if waiting_for else DEFAULT_WAITING_REASON
 
 
-def build_status_only_rows(sessions, herdr_session_ids, now, machine):
+def build_status_only_rows(sessions, herdr_session_ids, now, machine,
+                           hook_requests=None):
     """Agent rows (same keys build_agents_view emits for a herdr pane) for
-    every session NOT already a herdr row. `now` in seconds."""
+    every session NOT already a herdr row. `now` in seconds.
+    `hook_requests`: {session_id: hookRequest} from hook_permissions — a
+    session with one reads `blocked` even before its file says `waiting`."""
+    hook_requests = hook_requests or {}
     rows = []
     for entry in sessions or []:
         session_id = entry.get("sessionId")
@@ -176,6 +182,11 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine):
                              if isinstance(status_ms, (int, float)) else None)
         cwd = entry.get("cwd")
         entrypoint = entry.get("entrypoint") or "unknown"
+        hook_request = hook_requests.get(session_id)
+        hook_reason = _waiting_reason(entry) if status == "waiting" else None
+        if hook_request:
+            hook_state = "blocked"
+            hook_reason = hook_permission_summary.needs_you_detail(hook_request)
         rows.append({
             "paneId": None,
             "tabId": None,
@@ -196,7 +207,7 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine):
             "backgroundWaitExpired": False,
             "residue": False,
             "agentSession": session_id,
-            "hookReason": _waiting_reason(entry) if status == "waiting" else None,
+            "hookReason": hook_reason,
             "screenState": None,
             "screenSignal": None,
             "screenQuestion": None,
@@ -211,5 +222,7 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine):
             # "session:@window.%pane" when the CLI runs inside tmux, else None.
             "tmuxTarget": entry.get("tmux"),
             "openUrl": _desktop_open_url(entry),
+            # Answerable prompt sent by the PermissionRequest hook, or None.
+            "hookRequest": hook_request,
         })
     return rows

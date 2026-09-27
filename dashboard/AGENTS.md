@@ -31,6 +31,8 @@ move plan; this file is the day-to-day reference for running/testing it.
   each file directly: `python3 tests/test_chief_dashboard_views.py`.
 - `ui/` — the React/Vite frontend (separate scope from this move; see its
   own history).
+- `hooks/agentbar-permission-hook.py` — the PermissionRequest hook of the
+  hook answer bridge (see its section below).
 - `chief-question-hook.sh` — a Claude Code hook script (AskUserQuestion
   PreToolUse/PostToolUse) that writes a display-only sidecar file the
   `hookCache` feed reads; install it as a hook in a project's own
@@ -134,6 +136,42 @@ persona of its own yet).
   (`pane_screen_signals.screen_state_with_herdr_fallback`); new field
   `screenStateSource` = `screen` | `herdr` | null. Local rows only.
 
+## Hook answer bridge (`/api/hook/permission*`) — answer non-herdr prompts from AgentBar
+Contract: `hooks/agentbar-permission-hook.py` (Claude Code `PermissionRequest`
+hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
+`hook_permission_summary.py` (hookRequest view + decision building/validation),
+`hook_permission_routes.py` (routing; the server file only dispatches).
+- `POST /api/hook/permission` (hook) -> `{requestId}` | `{state:"ignored"}`
+  (herdr-pane session, or bad payload). `GET …/<id>/wait?timeout=N` (N ≤ 25,
+  long-poll) -> `{state: pending|answered+decision|resolved|expired}`, 404
+  unknown. `POST …/<id>/answer` (AgentBar) `{behavior:"allow"|"deny",
+  answers?, suggestionIndex?, message?}` -> 200 / 400 (bad answer) / 409 (not
+  pending). All three 404 on the remote listener; writes go through
+  `_reject_foreign_write` as usual.
+- Exposure: a status-only row + its needsYou entry get `hookRequest` (oldest
+  pending per session); the row then reads `blocked`, detail `Question` /
+  `Permission: <tool>`, even before the session file says `waiting`.
+- Hook fails open: dashboard down / any error -> exit 0, no stdout (~0.25s).
+  Env `AGENTBAR_DASHBOARD_URL` (default :4711). NOT installed anywhere yet;
+  install = `PermissionRequest` matcher `*`, timeout 86400.
+- Gotchas: **first decision wins** — Claude runs hooks in parallel with its
+  own prompt, and whoever answers first wins (a later AgentBar answer is
+  moot). **No signal when answered elsewhere** — the hook is never told; the
+  store infers `resolved` from the session file (`statusUpdatedAt` after the
+  request, status not `waiting`; seen ≤3s live), a dead Claude pid, 90s with
+  no `/wait`, or 24h age. A dashboard restart drops every pending request (the
+  hook sees 404 and exits; Claude's own prompt still works).
+- e2e recipe (never against :4711): run the server with
+  `CHIEF_DASHBOARD_PORT=4713` + scratch `CHIEF_DASHBOARD_STATE_HOME` and
+  `CHIEF_DASHBOARD_CONFIG_HOME` (**:4712 is the live instance's remote
+  listener** when remote access is on — and `restart.sh --port 4712` would
+  kill it), then `claude --setting-sources project --permission-mode default`
+  in a scratch dir whose `.claude/settings.json` registers the hook with
+  `AGENTBAR_DASHBOARD_URL=http://127.0.0.1:4713`. Under
+  `--setting-sources project` an "always allow" answer IS written to
+  `settings.local.json` but not re-read (local settings excluded), so the
+  next run prompts again — a test-setup artifact, not a bug.
+
 ## Running it
 ```
 cd dashboard
@@ -148,6 +186,8 @@ scripts/restart.sh                      # production: relaunches inside the
                                          # herdr pane tab-labelled
                                          # chief-dashboard-server (--pane / $CHIEF_DASHBOARD_PANE to override)
 scripts/restart.sh --port 4712 --detached   # testing: no herdr pane needed
+                                         # WARNING: with remote access enabled the LIVE
+                                         # server owns :4712 — this would kill it; use 4713
 scripts/restart.sh --dry-run                # print the plan, touch nothing
 ```
 
@@ -158,7 +198,7 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 42 test files, 1268 `PASS` assertions, 0 `FAIL`.
+As of this writing: 46 test files, ~1460 `PASS` lines, 0 `FAIL`.
 
 **`agent_tree.py` is a verbatim copy of AptusFit's `scripts/lib/agent_tree.py`**
 — both write the same `~/.claude/agent-tree.json`, so their prune rules must

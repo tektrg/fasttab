@@ -10,6 +10,7 @@ import time
 import agent_tree  # noqa: E402  (scripts/lib/agent_tree.py — the hierarchy store)
 import chief_dashboard_herdr as herdr_transport
 import claude_sessions  # P4: non-herdr Claude sessions as status-only rows
+import hook_permissions  # prompts answerable via the PermissionRequest hook
 import pane_screen_signals
 from chief_dashboard_feeds import FEEDS, MACHINES, sanitize_pane_id  # noqa: F401
 from chief_dashboard_feeds import MACHINES_CONFIG_ERROR  # noqa: F401,E402  (surfaced on every /api/state)
@@ -159,7 +160,8 @@ def build_agents_view(feeds_snap):
     claude_sessions_data = (feeds_snap.get("claudeSessions") or {}).get("data")
     rows.extend(claude_sessions.build_status_only_rows(
         claude_sessions_data, herdr_session_ids, now,
-        machine=herdr_transport.LOCAL_MACHINE))
+        machine=herdr_transport.LOCAL_MACHINE,
+        hook_requests=hook_permissions.STORE.exposed_by_session(claude_sessions_data)))
 
     # Hook files with no matching herdr pane. The hook only deletes one on a
     # graceful SessionEnd, so a closed tab or a killed session leaves it behind
@@ -355,7 +357,8 @@ def build_needs_you(feeds_snap, agents):
         age = a["hookSinceSec"]
         if claude_sessions.is_status_only_row(a):
             # P4: no pane, no screen — the session's own `waiting` status is
-            # the whole signal. Answered in its own app, never from here.
+            # the whole signal. Answered in its own app, or — when the
+            # PermissionRequest hook sent it — via `hookRequest`.
             if a["hookState"] == "blocked":
                 row = _row("blocked", label, None, a.get("hookReason")
                            or claude_sessions.DEFAULT_WAITING_REASON, age,
@@ -364,6 +367,7 @@ def build_needs_you(feeds_snap, agents):
                 row["source"] = a["source"]
                 row["agentSession"] = a.get("agentSession")
                 row["openUrl"] = a.get("openUrl")
+                row["hookRequest"] = a.get("hookRequest")
                 rows.append(row)
             continue
         screen = a.get("screenState")

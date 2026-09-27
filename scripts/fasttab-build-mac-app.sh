@@ -7,7 +7,10 @@ set -euo pipefail
 # Sparkle.framework; replaces only the executable and re-signs.
 #
 # Usage:
-#   scripts/build-app.sh [--open]
+#   scripts/fasttab-build-mac-app.sh
+#
+# Always relaunches the app after refreshing the bundle. Pass --no-open to
+# skip that (e.g. for scripted builds where nothing should pop to front).
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
@@ -136,7 +139,7 @@ codesign --verify --deep --strict --verbose=2 "${APP}"
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP}/Contents/Info.plist")"
 echo "==> Done. ${APP} refreshed (v${version})"
 
-if [[ "${1:-}" == "--open" ]]; then
+if [[ "${1:-}" != "--no-open" ]]; then
   echo "==> Relaunching app"
   open "${APP}"
 fi

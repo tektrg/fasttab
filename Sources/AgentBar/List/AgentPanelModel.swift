@@ -1068,10 +1068,14 @@ final class AgentPanelModel: ObservableObject {
         case .ignore:
             return nil
         case .park:
-            setParked(true, agentID: agentID)
+            setParked(true, agent: agent)
             return nil
         case .unpark:
-            setParked(false, agentID: agentID)
+            setParked(false, agent: agent)
+            return nil
+        case .peek:
+            selectedAgentID = agentID
+            if peek?.agentID == agentID { closePeek() } else { openPeekOnSelected() }
             return nil
         case .openAnswer:
             guard routingState == nil else { return nil }   // see `activate(agentID:)`: nothing else fires mid-route
@@ -1128,7 +1132,8 @@ final class AgentPanelModel: ObservableObject {
         return TreeRowActions.isPressable(button, on: agent, tree: treeModel.tree)
     }
 
-    private func setParked(_ isParked: Bool, agentID: String) {
+    private func setParked(_ isParked: Bool, agent: AgentSnapshot) {
+        let agentID = agent.id
         let following = AgentSelection.neighbour(of: agentID, in: presentation.selectableAgentIDs)
         rowActionStates[agentID] = nil
         if isParked { triage.park(agentID) } else { triage.unpark(agentID) }
@@ -1139,6 +1144,11 @@ final class AgentPanelModel: ObservableObject {
         // An unparked one stays selected, wherever it lands.
         selectedAgentID = AgentSelection.reconciled(isParked ? following : agentID, in: presentation.selectableAgentIDs)
         highlightedButton = nil
+        // Parking tells the session it's shelved for a while: shrink its context now
+        // rather than let it sit stale until someone resumes it.
+        if isParked {
+            sendDirectMessage(to: agent, text: "/compact")
+        }
     }
 
     private func send(_ kind: SessionActionKind, confirmed: Bool, button: RowButton, agent: AgentSnapshot) -> Task<Void, Never>? {

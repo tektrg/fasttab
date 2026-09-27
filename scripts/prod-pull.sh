@@ -17,7 +17,7 @@ run git push air "$(git rev-parse --abbrev-ref HEAD)"
 
 for app in ${APPS}; do
   case "${app}" in
-    FastTab)  script=build-app.sh ;;
+    FastTab)  script="fasttab-build-mac-app.sh --no-open" ;;
     AgentBar) script=build-agentbar-app.sh ;;
     *) echo "prod-pull: unknown app ${app}" >&2; exit 1 ;;
   esac

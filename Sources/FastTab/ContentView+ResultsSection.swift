@@ -123,6 +123,19 @@ extension ContentView {
         // allowance it budgets for is an estimate — the list takes up whatever
         // is actually left over so the slack never shows as a dead band.
         .frame(minHeight: resultsHeight, maxHeight: .infinity)
+        // The assigned height is only ever a best-effort estimate (see above),
+        // so when it undershoots, the list's true content wants more room than
+        // it was given. `.background` alone doesn't clip to that shortfall —
+        // without this, the overrun renders straight past the panel's rounded
+        // bottom edge instead of being cut off by it (the non-search results
+        // list already had this via its own `.clipped()`; this shared spot
+        // covers every branch above, search included).
+        //
+        // Clips to the *rounded* shape, not just the rectangular bounds
+        // (`.clipped()`): a plain rectangular clip still leaves the last row's
+        // square corners poking out past `CommandBarSurfaceBackground`'s
+        // rounded ones underneath.
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .background(CommandBarSurfaceBackground(cornerRadius: 16))
     }
 

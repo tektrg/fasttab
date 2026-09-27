@@ -329,7 +329,13 @@ body.rp-resizing .rp-resize { background:var(--blue); }
    desktop chrome below ~640px (see usePhoneLayout). Optical/hit-area rules
    follow make-interfaces-feel-better: concentric radii, ≥44px targets,
    scale-on-press, tabular numbers for the clock/ages. ─────────────────── */
+/* apple-mobile-web-app-status-bar-style is "black-translucent" (index.html)
+   so the installed icon draws edge-to-edge UNDER the status bar — without
+   this top inset the sticky header (position:sticky; top:0) sits flush
+   with the screen edge and the clock/title render behind the status bar
+   in standalone mode. Safari tabs ignore this env() (no-op there). */
 .phone-app { -webkit-font-smoothing: antialiased; padding-bottom: env(safe-area-inset-bottom); }
+.phone-app header { padding-top: calc(10px + env(safe-area-inset-top)); }
 .phone-app #clock { font-variant-numeric: tabular-nums; }
 .phone-inbox { padding: 0 0 24px; }
 
@@ -373,3 +379,9 @@ body.rp-resizing .rp-resize { background:var(--blue); }
 }
 .phone-sheet-actions { display: flex; gap: 8px; }
 .phone-sheet-actions button { flex: 1; min-height: 44px; }
+/* iOS Safari auto-zooms the whole page on focus of any text input whose
+   computed font-size is under 16px — Mantine's default TextInput (used by
+   Composer, mounted here for the phone reply box) is 14px. Below 16px only,
+   scoped to the phone sheet so the desktop RowPanel composer keeps its
+   existing size. */
+.phone-sheet-footer input { font-size: 16px; }

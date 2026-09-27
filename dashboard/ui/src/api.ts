@@ -28,6 +28,16 @@ export function fmtAge(sec: number | null | undefined): string {
   return Math.round(s / 86400) + "d";
 }
 
+/** A stale/rotated remote-listener session (see REMOTE.md) makes every
+ *  /api/* call answer 401 instead of the redirect-to-/remote/login that a
+ *  plain page navigation gets — the remote listener only redirects a raw
+ *  page GET, not an XHR/fetch/EventSource one (chief-dashboard-server.py
+ *  `_is_remote_listener`/`_remote_authenticated`). On localhost (no
+ *  `remote.enabled`) this path never fires — auth isn't enforced there. */
+function goToRemoteLogin() {
+  window.location.assign("/remote/login");
+}
+
 /** One SSE subscription to /api/events (2s full state) + a /api/state fetch
  *  on load — identical shape to what the legacy page consumes. */
 export function useDashboardState(): FullState | null {
@@ -35,9 +45,15 @@ export function useDashboardState(): FullState | null {
   useEffect(() => {
     let dead = false;
     fetch("/api/state")
-      .then((r) => r.json())
+      .then((r) => {
+        if (r.status === 401) {
+          goToRemoteLogin();
+          return null;
+        }
+        return r.json();
+      })
       .then((s) => {
-        if (!dead) setState(s);
+        if (!dead && s) setState(s);
       })
       .catch(() => {});
     const es = new EventSource("/api/events");
@@ -46,6 +62,18 @@ export function useDashboardState(): FullState | null {
         setState(JSON.parse(ev.data));
       } catch {
         /* EventSource auto-reconnects */
+      }
+    };
+    es.onerror = () => {
+      // Per the EventSource spec, a non-200 response (our 401 on an
+      // expired/rotated session) fails the connection PERMANENTLY —
+      // readyState lands on CLOSED and the browser does not retry, unlike
+      // every other transient error (which leaves it CONNECTING). Left
+      // alone, the phone would sit frozen on the last-known board forever
+      // with no way back in; treat a CLOSED readyState as "the session is
+      // gone" and send the user to log in again instead.
+      if (!dead && es.readyState === EventSource.CLOSED) {
+        goToRemoteLogin();
       }
     };
     return () => {

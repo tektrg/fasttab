@@ -68,6 +68,7 @@ store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive
 reply = store.register(payload(), (), cli_entry())
 check("no AgentBar -> ignored at once", reply.get("state"), "ignored")
 check("ignored reason says why", "AgentBar not connected" in reply.get("reason", ""), True)
+check("not connected is retryable (the hook re-sends once AgentBar is back)", reply.get("retryable"), True)
 check("nothing held", store._requests, {})
 presence.note_seen()
 rid = store.register(payload(), (), cli_entry()).get("requestId")
@@ -83,7 +84,7 @@ check("12s without AgentBar -> still pending (may be reconnecting)",
 check("new prompt meanwhile is not held", store.register(payload("s2"), (), cli_entry("s2"))["state"], "ignored")
 clock.now += agentbar_presence.GONE_AFTER_SEC
 check("gone 15s+ -> resolved, the hook's /wait returns", store.wait(rid, 0)[0],
-      {"state": "resolved", "reason": hook_permissions.REASON_AGENTBAR_GONE})
+      {"state": "resolved", "reason": hook_permissions.REASON_AGENTBAR_GONE, "retryable": True})
 check("a late answer says why in plain words", store.answer(rid, {"behavior": "allow"})[0]["error"],
       "AgentBar lost its dashboard connection; answer this prompt in Claude.")
 presence.note_seen()

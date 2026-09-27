@@ -208,7 +208,7 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   `ignored` at register (it would have broken `/api/state`). File prompts
   (Edit/MultiEdit/Write/NotebookEdit) show `- old` / `+ new` lines after
   the path; a hook row's timer counts from the prompt, not the file status.
-- Hook fails open: dashboard down / any error -> exit 0, no stdout (~0.25s).
+- Hook fails open: any error -> exit 0, no stdout (~0.25s); dashboard down -> re-send (below) or, when not eligible, the same fast exit.
   Env `AGENTBAR_DASHBOARD_URL` (default :4711). NOT installed anywhere yet;
   install = `PermissionRequest` matcher `*`, timeout 86400.
 - Gotchas: **first decision wins** — Claude runs hooks in parallel with its
@@ -218,8 +218,20 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   request and status not `waiting` — or `waiting` again from a write >1s after
   it, i.e. the NEXT prompt; seen ≤3s live), a dead Claude pid, 90s with no
   `/wait` (10s if the hook never polled once), or 24h age. Parallel subagents
-  can hold several prompts in one session; only main-thread ones register. A dashboard restart drops every pending request (the
-  hook sees 404 and exits; Claude's own prompt still works).
+  can hold several prompts in one session; only main-thread ones register.
+- **Re-send** (2026-09-27 fix: a Desktop question vanished from AgentBar after
+  a dashboard restart — the store is in memory, the hook used to exit on 404).
+  The hook sends its prompt again, with backoff 1→10s, on a `/wait` 404,
+  60s unreachable, dashboard down, or a `retryable` reply ("AgentBar not
+  connected" at register, `agentbar gone` later) — but ONLY while its own
+  session file (`CLAUDE_SESSIONS_DIR`) is an interactive `cli`/`claude-desktop`
+  one still showing THIS prompt (`session_prompt_state.py`, shared by hook and
+  store), the Claude pid lives, and 23h have not passed. Re-sends carry
+  `reregister: true` + the original `promptStartedAt`; the store holds one
+  only while the (freshly read) session file says `waiting` and not moved on
+  (`prompt no longer waiting` otherwise), and dedupes by `tool_use_id`, else
+  sha256(tool, input) — the existing request id is returned, its hook pid
+  replaced. Restart gap: a prompt is back ≤ ~15s after AgentBar reconnects.
 - e2e recipe (never against :4711): run the server with
   `CHIEF_DASHBOARD_PORT=4713` + scratch `CHIEF_DASHBOARD_STATE_HOME` and
   `CHIEF_DASHBOARD_CONFIG_HOME` (**:4712 is the live instance's remote

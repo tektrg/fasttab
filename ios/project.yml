@@ -64,6 +64,8 @@ targets:
           - iCloud.app.theindie.FastTab
         com.apple.developer.icloud-services:
           - CloudKit
+          - KeyValueStorage
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)$(CFBundleIdentifier)
         com.apple.developer.icloud-container-environment: Development
         # Must match `icloud-container-environment` above: a Development
         # container pushes over sandbox APNs, and a mismatch delivers nothing

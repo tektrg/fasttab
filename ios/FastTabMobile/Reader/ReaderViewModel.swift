@@ -48,7 +48,11 @@ public final class ReaderViewModel: ObservableObject {
     /// SwiftUI view-graph invalidations and main-thread re-renders during active scrolling.
     public var scrollProgress: Double = 0.0
     @Published public var highlights: [ReaderHighlight] = []
-    @Published public var fontSize: Int = 18              // pts, CSS variable
+    /// Live mirror of `ReaderReadingSettingsStore.shared.settings`. Mutate through
+    /// `readingSettings` (the store) so changes persist + sync via iCloud KVS.
+    @Published public var readerSettings: ReaderReadingSettings = ReaderReadingSettingsStore.shared.settings
+    /// Backwards-compatible accessor for the article font size in pts (CSS variable).
+    public var fontSize: Int { readerSettings.fontSize }
     @Published public var pendingHighlightToApply: ReaderHighlight? = nil
     @Published public var highlightToRemoveID: String? = nil
     @Published public var pendingClearAllHighlights: Bool = false
@@ -66,6 +70,8 @@ public final class ReaderViewModel: ObservableObject {
     private var progressStore: ReaderReadingProgress { .shared }
     private var highlightStore: ReaderHighlightStore { .shared }
     private var articleCache: ReaderArticleCache { .shared }
+    private var settingsStore: ReaderReadingSettingsStore { .shared }
+    private var settingsCancellable: AnyCancellable?
 
     // MARK: - Init
 
@@ -73,6 +79,10 @@ public final class ReaderViewModel: ObservableObject {
         self.url = url
         self.title = title
         self.focusHighlightID = focusHighlightID
+        self.readerSettings = settingsStore.settings
+        settingsCancellable = settingsStore.$settings
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.readerSettings = $0 }
     }
 
     /// Called from `ReaderView.onAppear` — safe to record history side-effects here.
@@ -173,9 +183,9 @@ public final class ReaderViewModel: ObservableObject {
         pendingClearAllHighlights = true
     }
 
-    // MARK: - Font Size
+    // MARK: - Reading Settings (persisted + iCloud-synced via the store)
 
-    public func increaseFontSize() { fontSize = min(fontSize + 2, 28) }
-    public func decreaseFontSize() { fontSize = max(fontSize - 2, 14) }
+    public func increaseFontSize() { settingsStore.setFontSize(fontSize + 2) }
+    public func decreaseFontSize() { settingsStore.setFontSize(fontSize - 2) }
 }
 

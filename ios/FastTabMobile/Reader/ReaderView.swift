@@ -25,14 +25,15 @@ public struct ReaderView: View {
     @StateObject private var viewModel: ReaderViewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
 
     // Highlight bar state
     @State private var selectedText: String = ""
     @State private var selectedRange: String = ""
     @State private var showHighlightBar: Bool = false
 
-    // Font size sheet
-    @State private var showFontSizeControls: Bool = false
+    // Reading settings sheet
+    @State private var showReadingSettings: Bool = false
 
     // Highlight management sheet
     @State private var showHighlightsSheet: Bool = false
@@ -55,7 +56,7 @@ public struct ReaderView: View {
     public var body: some View {
         NavigationStack {
             ZStack {
-                DS.Palette.readerPage.ignoresSafeArea()
+                readerBackground.ignoresSafeArea()
 
                 switch viewModel.loadState {
                 case .idle, .extracting:
@@ -163,10 +164,19 @@ public struct ReaderView: View {
 
     // MARK: - Reader Content
 
+    /// Native backdrop behind the web view, following the effective background
+    /// (custom light/dark pick + System/Light/Dark mode). Reads the view model's
+    /// mirrored settings so the view refreshes live on every change.
+    private var readerBackground: Color {
+        Color(readerHex: viewModel.readerSettings.effectiveBackgroundHex(
+            systemIsDark: colorScheme == .dark))
+    }
+
     private func readerContent(article: ReaderArticle) -> some View {
         ReaderWebView(
             viewModel: viewModel,
             article: article,
+            systemIsDark: colorScheme == .dark,
             onTextSelected: { text, range in
                 withAnimation(.spring(response: 0.3)) {
                     selectedText = text
@@ -262,17 +272,25 @@ public struct ReaderView: View {
             Divider()
                 .frame(height: 24)
 
-            // Font size
+            // Reading settings (size, font, background)
             Button {
-                showFontSizeControls.toggle()
+                showReadingSettings = true
             } label: {
                 Image(systemName: "textformat.size")
                     .font(.body)
+                    .overlay(alignment: .topTrailing) {
+                        if !viewModel.readerSettings.isDefault {
+                            Circle()
+                                .fill(Color.yellow)
+                                .frame(width: 8, height: 8)
+                                .offset(x: 4, y: -4)
+                        }
+                    }
             }
-            .popover(isPresented: $showFontSizeControls) {
-                fontSizePopover
+            .sheet(isPresented: $showReadingSettings) {
+                ReaderSettingsSheet()
             }
-            .accessibilityLabel("Font size")
+            .accessibilityLabel("Reading settings")
 
             // Highlights list
             Menu {
@@ -346,41 +364,6 @@ public struct ReaderView: View {
         .offset(y: isHeaderHidden ? 120 : 0)
         .opacity(isHeaderHidden ? 0 : 1)
         .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)
-    }
-
-    // MARK: - Font Size Popover
-
-    private var fontSizePopover: some View {
-        HStack(spacing: DS.Space.lg) {
-            Button {
-                viewModel.decreaseFontSize()
-            } label: {
-                Image(systemName: "textformat.size.smaller")
-                    .font(.system(size: DS.IconSize.row, weight: .semibold))
-                    .frame(width: 36, height: 36)
-                    .background(DS.Palette.surfaceMuted, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(viewModel.fontSize <= 14)
-
-            Text("\(viewModel.fontSize) pt")
-                .font(.subheadline.weight(.semibold).monospacedDigit())
-                .frame(minWidth: 52)
-
-            Button {
-                viewModel.increaseFontSize()
-            } label: {
-                Image(systemName: "textformat.size.larger")
-                    .font(.system(size: DS.IconSize.row, weight: .semibold))
-                    .frame(width: 36, height: 36)
-                    .background(DS.Palette.surfaceMuted, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(viewModel.fontSize >= 28)
-        }
-        .padding(.horizontal, DS.Space.lg)
-        .padding(.vertical, DS.Space.md)
-        .presentationCompactAdaptation(.popover)
     }
 
     // MARK: - Highlights Sheet
@@ -477,13 +460,58 @@ private struct ReaderInAppFallbackView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        uiView.navigationDelegate = nil
+        uiView.scrollView.delegate = nil
+        coordinator.invalidate()
+    }
+
     final class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate {
         let viewModel: ReaderViewModel
         weak var webView: WKWebView?
         private var hasRestoredScroll = false
+        private var activeObserver: NSObjectProtocol?
 
         init(viewModel: ReaderViewModel) {
             self.viewModel = viewModel
+            super.init()
+            activeObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.recoverIfBlank()
+            }
+        }
+
+        func invalidate() {
+            if let activeObserver {
+                NotificationCenter.default.removeObserver(activeObserver)
+                self.activeObserver = nil
+            }
+        }
+
+        deinit {
+            if let activeObserver {
+                NotificationCenter.default.removeObserver(activeObserver)
+            }
+        }
+
+        /// iOS kills the web content process on screen lock / long background;
+        /// without this the fallback page stays blank.
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            hasRestoredScroll = false
+            webView.reload()
+        }
+
+        private func recoverIfBlank() {
+            guard let webView else { return }
+            webView.evaluateJavaScript("document.body ? document.body.innerHTML.length : -1") { [weak webView] result, _ in
+                let length = (result as? Int) ?? (result as? NSNumber)?.intValue ?? -1
+                if length <= 0 {
+                    webView?.reload()
+                }
+            }
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {

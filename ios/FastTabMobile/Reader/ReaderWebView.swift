@@ -19,6 +19,9 @@ public struct ReaderWebView: UIViewRepresentable {
 
     public var viewModel: ReaderViewModel
     public let article: ReaderArticle
+    /// Current system appearance from the SwiftUI environment. Changing it
+    /// re-triggers `updateUIView`, which re-resolves the `.system` colour scheme.
+    public var systemIsDark: Bool
 
     /// Called when the user selects text (show highlight bar)
     public var onTextSelected: ((String, String) -> Void)?
@@ -32,6 +35,7 @@ public struct ReaderWebView: UIViewRepresentable {
     public init(
         viewModel: ReaderViewModel,
         article: ReaderArticle,
+        systemIsDark: Bool = false,
         onTextSelected: ((String, String) -> Void)? = nil,
         onTextDeselected: (() -> Void)? = nil,
         onHighlightTapped: ((String) -> Void)? = nil,
@@ -39,6 +43,7 @@ public struct ReaderWebView: UIViewRepresentable {
     ) {
         self.viewModel = viewModel
         self.article = article
+        self.systemIsDark = systemIsDark
         self.onTextSelected = onTextSelected
         self.onTextDeselected = onTextDeselected
         self.onHighlightTapped = onHighlightTapped
@@ -64,9 +69,10 @@ public struct ReaderWebView: UIViewRepresentable {
         wv.scrollView.delegate = context.coordinator
         wv.scrollView.contentInsetAdjustmentBehavior = .automatic
         wv.isOpaque = true
-        let readerBgColor = DS.Palette.readerPageUIColor
-        wv.backgroundColor = readerBgColor
-        wv.scrollView.backgroundColor = readerBgColor
+        let bgColor = UIColor(readerHex: viewModel.readerSettings.effectiveBackgroundHex(
+            systemIsDark: wv.traitCollection.userInterfaceStyle == .dark))
+        wv.backgroundColor = bgColor
+        wv.scrollView.backgroundColor = bgColor
 
         context.coordinator.webView = wv
         loadTemplate(into: wv, coordinator: context.coordinator)
@@ -78,14 +84,26 @@ public struct ReaderWebView: UIViewRepresentable {
             uiView.configuration.userContentController.removeScriptMessageHandler(forName: $0.rawValue)
         }
         uiView.navigationDelegate = nil
+        uiView.scrollView.delegate = nil
+        coordinator.invalidate()
     }
 
     public func updateUIView(_ webView: WKWebView, context: Context) {
-        // Font-size changes — only push via JS when the font size actually changed
-        if context.coordinator.lastAppliedFontSize != viewModel.fontSize {
-            context.coordinator.lastAppliedFontSize = viewModel.fontSize
-            let js = "document.documentElement.style.setProperty('--reader-font-size', '\(viewModel.fontSize)px');"
-            webView.evaluateJavaScript(js, completionHandler: nil)
+        // Reading-settings changes — push the full CSS-var set only when the
+        // resolved signature actually changed (avoids IPC churn while scrolling).
+        let settings = viewModel.readerSettings
+        let theme = ReaderResolvedTheme.resolve(backgroundHex: settings.effectiveBackgroundHex(systemIsDark: systemIsDark))
+        let signature = [
+            "\(settings.fontSize)", settings.fontFamily.rawValue,
+            "\(settings.lineHeight.value)", settings.colorScheme.rawValue,
+            theme.backgroundHex
+        ].joined(separator: "|")
+        if context.coordinator.lastAppliedSettingsSignature != signature {
+            context.coordinator.lastAppliedSettingsSignature = signature
+            let bgColor = UIColor(readerHex: theme.backgroundHex)
+            webView.backgroundColor = bgColor
+            webView.scrollView.backgroundColor = bgColor
+            webView.evaluateJavaScript(Self.settingsJS(settings: settings, theme: theme), completionHandler: nil)
         }
 
         // If viewModel requests a new highlight, apply it safely via JSON payload
@@ -138,12 +156,62 @@ public struct ReaderWebView: UIViewRepresentable {
         let siteName: String
         let content: String
         let fontSize: Int
+        let fontBody: String
+        let fontTitle: String
+        let lineHeight: Double
+        let theme: String
+        let bg: String
+        let fg: String
+        let fgMuted: String
+        let fgMeta: String
+        let link: String
+        let divider: String
+        let codeBg: String
         let initialProgress: Double
         let highlights: [HighlightItem]
         let focusHighlightID: String?
     }
 
+    /// JS that applies the full settings-derived CSS-var set. Shared by the live
+    /// `updateUIView` path; the bootstrap path applies the same values on load.
+    static func settingsJS(settings: ReaderReadingSettings, theme: ReaderResolvedTheme) -> String {
+        func esc(_ s: String) -> String {
+            s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+        }
+        return """
+        (function(){var r=document.documentElement.style;
+        r.setProperty('--reader-font-size','\(settings.fontSize)px');
+        r.setProperty('--reader-font-body','\(esc(settings.fontFamily.cssBodyStack))');
+        r.setProperty('--reader-font-title','\(esc(settings.fontFamily.cssTitleStack))');
+        r.setProperty('--reader-line-height','\(settings.lineHeight.value)');
+        r.setProperty('--bg','\(theme.backgroundHex)');
+        r.setProperty('--fg','\(theme.foregroundHex)');
+        r.setProperty('--fg-muted','\(theme.mutedHex)');
+        r.setProperty('--fg-meta','\(theme.metaHex)');
+        r.setProperty('--link','\(theme.linkHex)');
+        r.setProperty('--divider','\(theme.dividerRGBA)');
+        r.setProperty('--code-bg','\(theme.codeBackgroundRGBA)');
+        document.documentElement.dataset.theme='\(theme.isDark ? "dark" : "light")';})();
+        """
+    }
+
     private func loadTemplate(into webView: WKWebView, coordinator: Coordinator) {
+        Self.loadTemplate(into: webView, viewModel: viewModel, article: article,
+                          focusHighlightID: viewModel.focusHighlightID)
+        // Rebuild the full template on demand: iOS kills the WKWebView content
+        // process when the screen is locked / app is backgrounded for a while,
+        // leaving a blank page. The reload reads fresh progress/highlights/
+        // fontSize from the viewModel so scroll position is restored (and skips
+        // the one-time focus-highlight jump, which already happened).
+        coordinator.reloadHandler = { [weak webView, viewModel, article] in
+            guard let webView else { return }
+            Self.loadTemplate(into: webView, viewModel: viewModel, article: article,
+                              focusHighlightID: nil)
+        }
+    }
+
+    static func loadTemplate(into webView: WKWebView, viewModel: ReaderViewModel, article: ReaderArticle,
+                             focusHighlightID: String? = nil) {
         guard let templateURL = Bundle.main.url(forResource: "reader_template", withExtension: "html") ??
                                 Bundle.main.url(forResource: "reader_template", withExtension: "html", subdirectory: "Resources"),
               var templateHTML = try? String(contentsOf: templateURL, encoding: .utf8) else {
@@ -153,15 +221,31 @@ public struct ReaderWebView: UIViewRepresentable {
         let highlightItems = viewModel.highlights.map {
             ArticleBootstrapData.HighlightItem(id: $0.id, range: $0.serializedRange, color: $0.color.cssRGBA)
         }
+        let settings = viewModel.readerSettings
+        // Best-known appearance at load time; `updateUIView` corrects it right
+        // after if the SwiftUI environment disagrees.
+        let systemIsDark = UITraitCollection.current.userInterfaceStyle == .dark
+        let theme = ReaderResolvedTheme.resolve(backgroundHex: settings.effectiveBackgroundHex(systemIsDark: systemIsDark))
         let bootstrapData = ArticleBootstrapData(
             title: article.title,
             byline: article.byline,
             siteName: article.siteName,
             content: article.content,
-            fontSize: viewModel.fontSize,
+            fontSize: settings.fontSize,
+            fontBody: settings.fontFamily.cssBodyStack,
+            fontTitle: settings.fontFamily.cssTitleStack,
+            lineHeight: settings.lineHeight.value,
+            theme: theme.isDark ? "dark" : "light",
+            bg: theme.backgroundHex,
+            fg: theme.foregroundHex,
+            fgMuted: theme.mutedHex,
+            fgMeta: theme.metaHex,
+            link: theme.linkHex,
+            divider: theme.dividerRGBA,
+            codeBg: theme.codeBackgroundRGBA,
             initialProgress: viewModel.scrollProgress,
             highlights: highlightItems,
-            focusHighlightID: viewModel.focusHighlightID
+            focusHighlightID: focusHighlightID
         )
 
         var jsonString = "{}"
@@ -188,7 +272,7 @@ public struct ReaderWebView: UIViewRepresentable {
 
 public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, UIScrollViewDelegate {
     weak var webView: WKWebView?
-    var lastAppliedFontSize: Int?
+    var lastAppliedSettingsSignature: String?
     private let viewModel: ReaderViewModel
     private let onTextSelected: ((String, String) -> Void)?
     private let onTextDeselected: (() -> Void)?
@@ -200,6 +284,10 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     private var isHeaderHidden = false
     /// Small dead zone right at the top where the header always stays visible (bounce, pull-to-refresh).
     private let topRevealThreshold: CGFloat = 8
+    /// Rebuilds the reader template after the web content process dies.
+    /// Set by `ReaderWebView.loadTemplate(into:coordinator:)`.
+    var reloadHandler: (() -> Void)?
+    private var activeObserver: NSObjectProtocol?
 
     init(viewModel: ReaderViewModel,
          onTextSelected: ((String, String) -> Void)?,
@@ -207,11 +295,50 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
          onHighlightTapped: ((String) -> Void)?,
          onHeaderHiddenChanged: ((Bool) -> Void)? = nil) {
         self.viewModel = viewModel
-        self.lastAppliedFontSize = viewModel.fontSize
+        self.lastAppliedSettingsSignature = nil
         self.onTextSelected = onTextSelected
         self.onTextDeselected = onTextDeselected
         self.onHighlightTapped = onHighlightTapped
         self.onHeaderHiddenChanged = onHeaderHiddenChanged
+        super.init()
+        // Safety net: a blank page can survive without the terminate callback
+        // (suspended renderer, discarded tiles). Re-check content on foreground.
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.recoverIfBlank()
+        }
+    }
+
+    func invalidate() {
+        if let activeObserver {
+            NotificationCenter.default.removeObserver(activeObserver)
+            self.activeObserver = nil
+        }
+        reloadHandler = nil
+    }
+
+    deinit {
+        if let activeObserver {
+            NotificationCenter.default.removeObserver(activeObserver)
+        }
+    }
+
+    /// If the reader body is empty (process died without the terminate
+    /// callback firing), rebuild the template. Otherwise do nothing so we
+    /// never disturb the user's scroll position.
+    private func recoverIfBlank() {
+        guard let webView else { return }
+        webView.evaluateJavaScript(
+            "document.getElementById('reader-body') ? document.getElementById('reader-body').innerHTML.length : -1"
+        ) { [weak self] result, _ in
+            guard let self else { return }
+            if let length = result as? Int, length > 0 { return }
+            if let length = result as? NSNumber, length.intValue > 0 { return }
+            self.reloadHandler?()
+        }
     }
 
     // MARK: - UIScrollViewDelegate
@@ -271,8 +398,14 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
 
     // MARK: - WKNavigationDelegate
 
+    /// iOS terminates the web content process when the screen is locked / the
+    /// app stays backgrounded. Without this the reader stays blank forever.
+    public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        reloadHandler?()
+    }
+
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                          decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         // Block navigations out of the reader template (links should open in Safari)
         if navigationAction.navigationType == .linkActivated,
            let url = navigationAction.request.url {

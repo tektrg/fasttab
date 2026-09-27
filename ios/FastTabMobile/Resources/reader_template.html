@@ -281,10 +281,23 @@ document.getElementById('reader-byline').textContent = article.byline || '';
 document.getElementById('reader-site').textContent   = article.siteName || '';
 document.getElementById('reader-body').innerHTML     = article.content || '';
 
-// Font size from ViewModel
-if (article.fontSize) {
-  document.documentElement.style.setProperty('--reader-font-size', article.fontSize + 'px');
-}
+// Appearance from ViewModel (ReaderReadingSettings): explicit values win over
+// the prefers-color-scheme fallback in <style>, so custom backgrounds apply.
+(function applyReaderSettings(a) {
+  var root = document.documentElement.style;
+  if (a.fontSize)   root.setProperty('--reader-font-size', a.fontSize + 'px');
+  if (a.fontBody)   root.setProperty('--reader-font-body', a.fontBody);
+  if (a.fontTitle)  root.setProperty('--reader-font-title', a.fontTitle);
+  if (a.lineHeight) root.setProperty('--reader-line-height', a.lineHeight);
+  if (a.bg)       root.setProperty('--bg', a.bg);
+  if (a.fg)       root.setProperty('--fg', a.fg);
+  if (a.fgMuted)  root.setProperty('--fg-muted', a.fgMuted);
+  if (a.fgMeta)   root.setProperty('--fg-meta', a.fgMeta);
+  if (a.link)     root.setProperty('--link', a.link);
+  if (a.divider)  root.setProperty('--divider', a.divider);
+  if (a.codeBg)   root.setProperty('--code-bg', a.codeBg);
+  if (a.theme)    document.documentElement.dataset.theme = a.theme;
+})(article);
 
 // ── Progress bar & scroll tracking ────────────────────────────
 var progressBar = document.getElementById('progress-bar');

@@ -4,8 +4,8 @@
 
 Lifecycle of one request (in memory only — a restart loses them all; the
 hook then sees 404 and RE-SENDS the prompt (`reregister`), which is held again
-only while the session file still shows it. The same prompt sent twice —
-same `tool_use_id`, else same tool + input — keeps one request):
+only while the session file still shows it. A re-send of a request still
+pending — same hook, same `tool_use_id` / tool + input — keeps that request):
 
   pending --answer()--> answered   (the hook's /wait returns the decision)
           --sweep()---> resolved   (answered elsewhere / Claude gone / hook gone)
@@ -198,9 +198,8 @@ class HookPermissionStore:
         if reason:
             return {"state": "ignored", "reason": reason, "retryable": reason in RETRYABLE_REASONS}
         with self._cond:
-            existing = self._pending_for_prompt(payload["session_id"], prompt_key(payload))
+            existing = self._pending_resend_of(payload)
             if existing:
-                existing.hook_pid = payload.get("hookPid")
                 existing.claude_pid = payload.get("claudePid")
                 existing.last_wait_at = self._ticks()
                 existing.has_waited = False
@@ -221,9 +220,19 @@ class HookPermissionStore:
             reason = "unreadable tool input"
         return reason
 
-    def _pending_for_prompt(self, session_id, key):
+    def _pending_resend_of(self, payload):
+        """The still-pending request this payload RE-SENDS: same session, same
+        hook process, same prompt. Only the hook that sent a prompt re-sends
+        it; another hook with the same tool + input is a DIFFERENT prompt (a
+        retried command, a parallel identical call) — merging it into the old
+        request would get it resolved as "answered elsewhere" once the old
+        prompt's answer shows in the session file, losing the new one."""
+        if not payload.get("reregister"):
+            return None
+        key, hook_pid = prompt_key(payload), payload.get("hookPid")
         return next((r for r in self._requests.values() if r.state == STATE_PENDING
-                     and r.session_id == session_id and r.prompt_key == key), None)
+                     and r.session_id == payload["session_id"] and r.hook_pid == hook_pid
+                     and r.prompt_key == key), None)
 
     def wait(self, request_id, timeout_sec, sessions_provider=lambda: []):
         """Long-poll: (payload, http_status). Returns as soon as the request

@@ -236,9 +236,12 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   store), the Claude pid lives, and 23h have not passed. Re-sends carry
   `reregister: true` + the original `promptStartedAt`; the store holds one
   only while the (freshly read) session file says `waiting` and not moved on
-  (`prompt no longer waiting` otherwise), and dedupes by `tool_use_id`, else
-  sha256(tool, input) — the existing request id is returned, its hook pid
-  replaced. Restart gap: a prompt is back ≤ ~15s after AgentBar reconnects.
+  (`prompt no longer waiting` otherwise). A re-send whose request is still
+  pending (hook lost contact >60s) gets that request id back — only when it is
+  the SAME hook (`hookPid`) and prompt (`tool_use_id`, else sha256(tool,
+  input)): another hook with identical input is a new prompt (retried
+  command), and merging it would let the old prompt's answer resolve it.
+  Restart gap: a prompt is back ≤ ~15s after AgentBar reconnects.
 - e2e recipe (never against :4711): run the server with
   `CHIEF_DASHBOARD_PORT=4713` + scratch `CHIEF_DASHBOARD_STATE_HOME` and
   `CHIEF_DASHBOARD_CONFIG_HOME` (**:4712 is the live instance's remote

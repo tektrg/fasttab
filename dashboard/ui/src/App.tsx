@@ -94,7 +94,13 @@ export default function App() {
             color={toast.ok ? "green" : "red"}
             title={toast.ok ? "Done" : "Action failed"}
             withCloseButton={false}
-            style={{ position: "fixed", bottom: 16, left: 16, right: 16, zIndex: 300 }}
+            style={{
+              position: "fixed",
+              bottom: "max(16px, calc(env(safe-area-inset-bottom, 0px) + 8px))",
+              left: "max(16px, env(safe-area-inset-left, 0px))",
+              right: "max(16px, env(safe-area-inset-right, 0px))",
+              zIndex: 300,
+            }}
           >
             {toast.msg}
           </Notification>

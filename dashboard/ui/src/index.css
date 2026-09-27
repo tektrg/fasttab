@@ -335,8 +335,14 @@ body.rp-resizing .rp-resize { background:var(--blue); }
    this top inset the sticky header (position:sticky; top:0) sits flush
    with the screen edge and the clock/title render behind the status bar
    in standalone mode. Safari tabs ignore this env() (no-op there). */
-.phone-app { -webkit-font-smoothing: antialiased; padding-bottom: env(safe-area-inset-bottom); }
-.phone-app header { padding-top: calc(10px + env(safe-area-inset-top)); }
+.phone-app {
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  box-sizing: border-box;
+}
+.phone-app header { padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
 .phone-app #clock { font-variant-numeric: tabular-nums; }
 .phone-inbox { padding: 0 0 24px; }
 
@@ -360,7 +366,10 @@ body.rp-resizing .rp-resize { background:var(--blue); }
   transition: transform 120ms cubic-bezier(0.2, 0, 0, 1), background-color 120ms;
 }
 .phone-search-bar {
-  position: sticky; top: 0; z-index: 5; background: var(--bg);
+  /* Sticks to the actual top of the scrolling viewport (not just under the
+     <header>), so once the page scrolls it needs its own top inset or it
+     renders under the notch/status bar in standalone mode. */
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg);
   display: flex; gap: 8px; align-items: center;
   padding: 8px 12px; border-bottom: 1px solid var(--border);
 }
@@ -377,8 +386,21 @@ body.rp-resizing .rp-resize { background:var(--blue); }
 .phone-row-age { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 .phone-sheet-title { display: flex; align-items: center; gap: 8px; }
+/* The Modal is rendered fullScreen at the document root — not inside
+   .phone-app — so it needs its own safe-area insets on every edge rather
+   than inheriting the container's. Top: notch/Dynamic Island behind the
+   title + close button. Left/right: sensor housing / rounded corners in
+   landscape. */
+.phone-sheet-head {
+  padding: max(12px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 12px
+    max(16px, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+}
 .phone-sheet-body { display: flex; flex-direction: column; height: 100%; padding: 0 !important; }
-.phone-sheet-scroll { flex: 1; overflow-y: auto; padding: 12px 12px 16px; }
+.phone-sheet-scroll {
+  flex: 1; overflow-y: auto;
+  padding: 12px max(12px, env(safe-area-inset-right, 0px)) 16px max(12px, env(safe-area-inset-left, 0px));
+}
 .phone-sheet-paneid { color: var(--dim); margin-bottom: 8px; }
 .phone-sheet-section { margin-bottom: 12px; }
 
@@ -390,10 +412,15 @@ body.rp-resizing .rp-resize { background:var(--blue); }
 .phone-block:first-child { border-top: none; padding-top: 0; }
 .phone-sheet-footer {
   border-top: 1px solid var(--border); background: var(--panel);
-  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  padding: 10px max(16px, env(safe-area-inset-right, 0px))
+    calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
   display: flex; flex-direction: column; gap: 8px;
-  /* Translated up (via inline transform) by useVisualViewportOffset when
-     the iOS keyboard opens — see PhoneSheet. */
+  box-sizing: border-box;
+  /* Bottom padding always includes the safe-area inset (home indicator).
+     When the keyboard opens, PhoneSheet translates this whole bar up by
+     the keyboard's height (useVisualViewportOffset) instead of adding to
+     the padding — the keyboard covers the home indicator itself, so the
+     safe-area inset is not also owed on top of the keyboard offset. */
 }
 .phone-sheet-actions { display: flex; gap: 8px; }
 .phone-sheet-actions button { flex: 1; min-height: 44px; }

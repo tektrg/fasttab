@@ -27,6 +27,12 @@ extension CommandBarLayout {
     private static let footerAllowance: CGFloat = 50
     private static let compactFooterAllowance: CGFloat = 90
 
+    /// The gap `mainContent`'s VStack puts between every section — including
+    /// above whichever view fills the footer's slot. Shared with the
+    /// `compactGearRowHeight` budget below: that row is a real VStack child
+    /// like the footer it replaces, so it pays this same gap, not zero.
+    static let interSectionSpacing: CGFloat = 10
+
     /// One results row, including the spacing below it. Sized for the common
     /// case where the metadata line wraps (long URLs push onto a third line),
     /// not just the bare title + single metadata line. Compact rows are taller
@@ -44,6 +50,17 @@ extension CommandBarLayout {
     /// setting. Also the default height ceiling used when sizing around actual
     /// row count.
     static let visibleResultRows: CGFloat = 5
+
+    /// Height of the compact settings row shown in place of the full
+    /// `FooterShortcutBar` when the helper/footer panel is turned off —
+    /// just the gear, right-aligned. A genuine layout row rather than a
+    /// floating overlay: floating it over the results list meant however
+    /// much of the list's own height estimate was off by (see
+    /// `resultsHeight`) showed up as either the gear sitting on top of a
+    /// row, or that row poking out past the panel edge underneath it. A row
+    /// that actually occupies its own reserved space can't collide with
+    /// whatever the list ends up rendering above it.
+    static let compactGearRowHeight: CGFloat = 46
 
     /// Stepper bounds for the quick-open ("recent tabs") item-count setting.
     static let minQuickOpenItemLimit = 3
@@ -140,7 +157,7 @@ extension CommandBarLayout {
         let perRow = rowStyle == .minimal ? minimalResultRowHeight : (compact ? compactResultRowHeight : resultRowHeight)
         var allowance = compact ? compactChromeAllowance : chromeAllowance
         if !showFooter {
-            allowance -= compact ? compactFooterAllowance : footerAllowance
+            allowance -= (compact ? compactFooterAllowance : footerAllowance) - (compactGearRowHeight + interSectionSpacing)
         }
         let available = expandedAllTabsMaxHeight - allowance - surfaceTopInset(for: anchor)
         let fitting = Int((available / perRow).rounded(.down))
@@ -235,7 +252,10 @@ extension CommandBarLayout {
         let width = automaticWidth(for: anchor, rowStyle: rowStyle)
         var allowance = compact ? compactChromeAllowance : chromeAllowance
         if !showFooter {
-            allowance -= compact ? compactFooterAllowance : footerAllowance
+            // Shrinks from the full footer bar down to the compact gear-only
+            // row's height, not to zero — that row still needs to be counted
+            // in the budget (see `compactGearRowHeight`).
+            allowance -= (compact ? compactFooterAllowance : footerAllowance) - (compactGearRowHeight + interSectionSpacing)
         }
         return CGSize(
             width: width,

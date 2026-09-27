@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Builds a fresh release binary and CREATES dist/AgentBar.app from scratch.
-# Unlike build-app.sh (which refreshes a hand-prepared FastTab bundle), AgentBar
+# Unlike fasttab-build-mac-app.sh (which refreshes a hand-prepared FastTab bundle), AgentBar
 # has nothing to preserve: no Sparkle, no entitlements, no provisioning profile.
 #
 # Usage:

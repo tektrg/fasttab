@@ -17,6 +17,9 @@ enum RowButton: Equatable, Sendable {
     case done
     case park
     case unpark
+    /// Opens/closes the pane peek for this row — the button form of the old Space shortcut
+    /// (which only fired with an empty search box; this works regardless).
+    case peek
     case closePane
     case message
     case compact
@@ -37,6 +40,7 @@ enum RowButton: Equatable, Sendable {
         case .done: "Done"
         case .park: "Park"
         case .unpark: "Unpark"
+        case .peek: "Peek"
         case .closePane: "Close pane"
         case .message: "Message"
         case .compact: "Compact"
@@ -57,7 +61,7 @@ enum RowButton: Equatable, Sendable {
         switch self {
         case .done: .stop
         case .closePane: .close
-        case .answer, .review, .openTerminal, .park, .unpark, .message, .compact, .clear, .reportTo, .stopReporting, .moreActions: nil
+        case .answer, .review, .openTerminal, .park, .unpark, .peek, .message, .compact, .clear, .reportTo, .stopReporting, .moreActions: nil
         }
     }
 }
@@ -89,7 +93,8 @@ enum RowButtons {
         case .needsYou:
             needsYouButtons(for: agent)
         case .parked:
-            [RowButtonSpec(button: .unpark, disabledReason: nil)] + messageButton(for: agent) + moreActionsButton(for: agent)
+            [RowButtonSpec(button: .unpark, disabledReason: nil), RowButtonSpec(button: .peek, disabledReason: nil)]
+                + messageButton(for: agent) + moreActionsButton(for: agent)
         case .ended where agent.actions.close.isEnabled:
             moreActionsButton(for: agent)
         case .working:
@@ -158,12 +163,13 @@ enum RowButtons {
     /// offers that in place of Done; Park stays for setting it aside.
     private static func needsYouButtons(for agent: AgentSnapshot) -> [RowButtonSpec] {
         let park = RowButtonSpec(button: .park, disabledReason: nil)
+        let peek = RowButtonSpec(button: .peek, disabledReason: nil)
         switch agent.blockedOnYou {
-        case .question?: return [RowButtonSpec(button: .answer, disabledReason: nil), park]
-        case .questionLoading?: return [RowButtonSpec(button: .answer, disabledReason: readingOptionsReason), park]
-        case .permissionReview?: return [RowButtonSpec(button: .review, disabledReason: nil), park]
-        case .questionNotAnswerable?, .permission?: return [RowButtonSpec(button: .openTerminal, disabledReason: nil), park]
-        case nil: return [park] + messageButton(for: agent) + moreActionsButton(for: agent)
+        case .question?: return [RowButtonSpec(button: .answer, disabledReason: nil), peek, park]
+        case .questionLoading?: return [RowButtonSpec(button: .answer, disabledReason: readingOptionsReason), peek, park]
+        case .permissionReview?: return [RowButtonSpec(button: .review, disabledReason: nil), peek, park]
+        case .questionNotAnswerable?, .permission?: return [RowButtonSpec(button: .openTerminal, disabledReason: nil), peek, park]
+        case nil: return [peek, park] + messageButton(for: agent) + moreActionsButton(for: agent)
         }
     }
 

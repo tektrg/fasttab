@@ -275,27 +275,33 @@ struct ContentView: View {
         return appState.browserService.duplicateTabCount
     }
 
-    /// Settings entry shown when the helper panel (and the gear inside it) is
-    /// hidden: a small pill floating at the surface's bottom-right corner. An
-    /// overlay, so it never moves the results layout around.
+    /// Settings entry shown in place of `FooterShortcutBar` when the helper
+    /// panel (and the gear inside it) is hidden: a compact, right-aligned row
+    /// reserved in `CommandBarLayout.compactGearRowHeight` — real layout
+    /// space, not an overlay, so it can never end up sharing pixels with
+    /// whatever the results list above it actually renders.
     var settingsCornerGear: some View {
-        Button {
-            openSettings()
-        } label: {
-            Image(systemName: "gearshape")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 7)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(.ultraThinMaterial)
-                )
+        HStack {
+            Spacer()
+            Button {
+                openSettings()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(.ultraThinMaterial)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Open Settings")
+            .accessibilityLabel("Open Settings")
         }
-        .buttonStyle(.plain)
-        .help("Open Settings")
-        .accessibilityLabel("Open Settings")
-        .padding([.trailing, .bottom], 10)
+        .frame(height: CommandBarLayout.compactGearRowHeight)
+        .padding(.trailing, 10)
     }
 
     var commandBarAnchor: EdgeRevealStyle {
@@ -452,7 +458,7 @@ struct ContentView: View {
                     // overwhelmed the type-checker ("unable to type-check
                     // this expression in reasonable time"); AnyView gives
                     // each segment a hard type boundary.
-                    let mainContent = VStack(spacing: 10) {
+                    let mainContent = VStack(spacing: CommandBarLayout.interSectionSpacing) {
                         if let globalShortcutRegistrationIssue = appState.globalShortcutRegistrationIssue {
                             PermissionBanner(
                                 icon: "bolt.slash.fill",
@@ -665,6 +671,8 @@ struct ContentView: View {
                                         }
                                     }
                                 }
+                            } else {
+                                settingsCornerGear
                             }
                         } else {
                             PaywallView(
@@ -687,6 +695,16 @@ struct ContentView: View {
                             // the outside made the background hug the (shorter) content
                             // and centered it, leaving an empty band above and below.
                             .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .top)
+                            // `.frame` only *declares* this size to siblings like the
+                            // panel's own black background below — it doesn't force the
+                            // VStack's actual painted content to stay inside it. When the
+                            // results list ends up taller than its chrome-allowance
+                            // estimate (see `CommandBarLayout.resultsHeight`), the excess
+                            // rendered straight past the (correctly-sized) background
+                            // shape instead of being held to the declared box. Clip here,
+                            // once, for the whole surface, rather than chasing it in every
+                            // inner section.
+                            .clipped()
                             .animation(.easeOut(duration: 0.12), value: surfaceSize)
                     )
                     // Deliberately *inside* the notch connector background added
@@ -704,11 +722,6 @@ struct ContentView: View {
                                 depthProgress: revealDepthProgress,
                                 spreadProgress: revealSpreadProgress
                             ))
-                            .overlay(alignment: .bottomTrailing) {
-                                if !showHelperPanel {
-                                    settingsCornerGear
-                                }
-                            }
                     )
                     // Fills the notch-clearance inset above with a small
                     // notch-width (not panel-width) black connector instead of

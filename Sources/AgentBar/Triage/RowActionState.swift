@@ -22,6 +22,8 @@ enum RowActionPlan: Equatable {
     case ignore
     case park
     case unpark
+    /// Peek: opens/closes the pane peek for this row, whichever it currently is.
+    case peek
     case openAnswer
     case openReview
     case openTerminal
@@ -54,6 +56,7 @@ enum RowActionMachine {
         case .message: return .openMessage
         case .park: return .park
         case .unpark: return .unpark
+        case .peek: return .peek
         case .compact: return .sendQuickCommand("/compact")
         case .clear: return .sendQuickCommand("/clear")
         case .reportTo: return .reportToNearestChief

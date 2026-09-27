@@ -88,6 +88,7 @@ function QuestionBox({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [nextQ, setNextQ] = useState<PickerQuestion | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
   const shown = nextQ ?? q;
 
   if (!expanded) {
@@ -136,7 +137,15 @@ function QuestionBox({
       setSelected([]);
       setText("");
       setNextQ(res.next ?? null);
+      setLastError(null);
       if (!res.next) setExpanded(false);
+    } else {
+      // A toast alone is easy to miss on the phone (it auto-dismisses and
+      // this card stays open expecting another try) — the real server
+      // reason ("answer may not have landed — re-check the pane", "question
+      // changed or gone", etc.) is kept here, next to Confirm & Send, same
+      // as FormCard's persisted result line, instead of only flashing past.
+      setLastError(res.error || "failed — no reason given");
     }
     onToast(
       res.ok
@@ -232,11 +241,17 @@ function QuestionBox({
           Confirm &amp; Send
         </Button>
       </Group>
-      <Text size="xs" c="dimmed" mt="xs">
-        Clicking stages only — nothing is sent until Confirm (or Enter in
-        the text field). Free text replaces option picks. The server
-        re-reads the pane fresh and refuses if the question moved on.
-      </Text>
+      {lastError ? (
+        <Text size="xs" c="red" mt="xs">
+          Not sent: {lastError}
+        </Text>
+      ) : (
+        <Text size="xs" c="dimmed" mt="xs">
+          Clicking stages only — nothing is sent until Confirm (or Enter in
+          the text field). Free text replaces option picks. The server
+          re-reads the pane fresh and refuses if the question moved on.
+        </Text>
+      )}
     </Paper>
   );
 }

@@ -1339,11 +1339,47 @@ def answer_pane_question(pane_id, choice, question):
             if len(indices) != 1:
                 raise RuntimeError(
                     "single-select takes exactly one option")
-            # Digit = instant select+submit (spike). Settle confirms the
-            # picker left — or returns the queued Q2 of a multi-question turn.
-            _send_keys(pane_id, str(indices[0]), machine=machine)
-            time.sleep(3)
-            return _settle_after_submit(pane_id, q, machine=machine)
+            # Digit = instant select+submit (spike) — CONFIRMED still true
+            # regardless of where the cursor already sits: live-tested
+            # 2026-09-27 (throwaway local panes, both plain tmux and
+            # `herdr pane send-keys` itself, the identical primitive this
+            # function calls) sending the digit already under the cursor,
+            # with a background subagent actively churning, and with the
+            # target pane defocused in herdr's own UI — every case
+            # submitted instantly. So the picker's own key handling is not
+            # the cause of the 2026-09-27 air-m1:w2:p2M failure (a first
+            # pass at this fix wrongly assumed a same-row no-op; that
+            # theory did not survive testing against the real picker and
+            # was reverted — see the delivery note for the full disproof).
+            #
+            # ONE resend, remote only: a keystroke to a remote (SSH/
+            # Tailscale) pane is the one thing that failure COULD still be
+            # — `herdr pane send-keys` on the far end only confirms it told
+            # the remote herdr daemon to inject the key, not that the key
+            # was actually delivered to that pty before the daemon replied,
+            # so a network hiccup or a momentarily loaded remote daemon can
+            # drop or delay it in a way this function's own exit-code check
+            # never sees, and a local pane's near-zero latency never
+            # exercises. The multi-select branch below already tolerates
+            # this class of hiccup via its toggle-verify retries; single-
+            # select had none. Resending is safe ONLY when
+            # `_settle_after_submit` itself reports the picker is back to
+            # the exact SAME open question (its own `_same_question` gate)
+            # — never on any other failure (pane gone, question changed
+            # underneath us) — so this never risks a double-submit or
+            # answering a different question.
+            for attempt in range(2):
+                _send_keys(pane_id, str(indices[0]), machine=machine)
+                time.sleep(3)
+                try:
+                    return _settle_after_submit(pane_id, q, machine=machine)
+                except RuntimeError as e:
+                    if attempt == 1 or "may not have landed" not in str(e):
+                        raise
+                    _, q_retry = _read_pane_now(pane_id, machine=machine)
+                    if q_retry is None or not _same_question(q_retry, q):
+                        raise RuntimeError(
+                            "question changed or gone — re-check the pane")
         # Multi: park on row 1 first (digits typed from the free-text row
         # APPEND to its text instead of toggling — spike), toggle remotely,
         # verify every check landed, then the Submit+review sequence. Digits

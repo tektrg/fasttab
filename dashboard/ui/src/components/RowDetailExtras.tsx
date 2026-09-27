@@ -34,5 +34,13 @@ export function RowDetailExtras({
     return <ReviewCard paneId={paneId} permission={permission} onToast={onToast} phone={phone} />;
   }
 
-  return <LatestMessage rowId={row.rowId} paneId={paneId} onToast={onToast} phone={phone} />;
+  return (
+    <LatestMessage
+      rowId={row.rowId}
+      paneId={paneId}
+      screenQuestion={row.derived?.screenQuestion}
+      onToast={onToast}
+      phone={phone}
+    />
+  );
 }

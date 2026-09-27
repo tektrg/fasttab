@@ -10,6 +10,32 @@ interface Draft {
   other: string;
 }
 
+/** Strips the markdown syntax characters AskUserQuestion labels are free to
+ *  carry in the raw tool input (`` `code` ``, `**bold**`, `_em_`) and
+ *  collapses whitespace. The terminal renders these with ANSI styling, not
+ *  literal punctuation, so the SCREEN-parsed label never carries the syntax
+ *  chars the transcript's raw copy does — comparing them byte-for-byte
+ *  refused real single-/multi-select answers whenever a label used any
+ *  emphasis (2026-09-27 QA finding). */
+function normalizeLabel(s: string): string {
+  return s.replace(/[`*_]/g, "").replace(/\s+/g, " ").trim();
+}
+
+/** True when `screenLabel` (the terminal's rendering of an option) is the
+ *  same option as `txLabel` (the transcript's raw copy), tolerant of the
+ *  markdown-syntax gap `normalizeLabel` strips AND of the terminal wrapping
+ *  or truncating a long label onto its own line/ellipsis — the parser folds
+ *  a wrapped continuation into `desc`, not `label` (classify_pane.py), and a
+ *  truncated row may end in `…` or `...`. The screen copy is therefore only
+ *  ever a PREFIX of the real label, never the reverse — a genuinely
+ *  different option would not happen to be an exact prefix. */
+function labelsMatch(screenLabel: string, txLabel: string): boolean {
+  const s = normalizeLabel(screenLabel).replace(/(…|\.\.\.)$/, "").trim();
+  const t = normalizeLabel(txLabel);
+  if (!s) return false;
+  return s === t || t.startsWith(s);
+}
+
 /** The multi-question AskUserQuestion form card (`GET
  *  /api/session/latest`'s `pendingQuestion` supplies the labels/options to
  *  RENDER; `screenQuestion` — the sweep's screen-parsed picker, same object
@@ -137,7 +163,7 @@ export function FormCard({
       if (
         current.multi !== q.isMultiSelect ||
         current.options.length < q.options.length ||
-        q.options.some((o, k) => current!.options[k]?.label !== o.label)
+        q.options.some((o, k) => !labelsMatch(current!.options[k]?.label ?? "", o.label))
       ) {
         allOk = false;
         lastError = "question changed or gone — re-check the pane";
@@ -147,8 +173,19 @@ export function FormCard({
         ? { type: "text" as const, value: d.other.trim() }
         : {
             type: "select" as const,
+            // Positional, not by label text: the gate above already proved
+            // `current.options` lines up with `q.options` position-for-
+            // position, and the screen's label is only ever a lossy
+            // (markdown-stripped / wrapped-and-truncated) rendering of the
+            // transcript's — matching by exact label text here silently
+            // dropped a selection whenever the two diverged (same root
+            // cause the gate above had), sending an incomplete answer with
+            // no error at all.
             indices: d.selected
-              .map((label) => current!.options.find((o) => o.label === label)?.index ?? -1)
+              .map((label) => {
+                const pos = q.options.findIndex((o) => o.label === label);
+                return pos >= 0 ? current!.options[pos]?.index ?? -1 : -1;
+              })
               .filter((n) => n > 0),
           };
       const res = await answerQuestion(paneId, choice, current);

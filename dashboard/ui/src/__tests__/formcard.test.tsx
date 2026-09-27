@@ -276,6 +276,90 @@ describe("FormCard", () => {
     m.unmount();
   });
 
+  test("screen label lost the transcript's markdown syntax (backticks/bold): submit still succeeds", async () => {
+    // The transcript's raw AskUserQuestion tool input is free to use
+    // markdown emphasis in a label; the terminal renders it with ANSI
+    // styling, not literal `` ` ``/`*` characters, so classify_pane's
+    // screen parse never carries them. An exact-match gate refused every
+    // such answer (2026-09-27 QA finding).
+    const md = form();
+    md.questions[0].options[0].label = "**Rewrite** it with `git filter-repo`";
+    const screen: PickerQuestion = {
+      ...screenQuestion(),
+      options: [
+        { index: 1, label: "Rewrite it with git filter-repo", checked: false, other: false },
+        { index: 2, label: "Patch", checked: false, other: false },
+      ],
+    };
+    const calls = stubFetch({ ok: true });
+    const m = mount(
+      <FormCard paneId="w8:p1" form={md} screenQuestion={screen} onToast={() => {}} />,
+    );
+    click(radioLabeled(m.host, "**Rewrite** it with `git filter-repo`"));
+    await settle();
+    click(buttonWithText(m.host, "Submit"));
+    await settle();
+    const post = calls.find((c) => c.url === "/api/answer");
+    expect(post).toBeDefined();
+    const body = post!.body as { choice: { type: string; indices?: number[] } };
+    expect(body.choice.indices).toEqual([1]);
+    expect(m.host.textContent).not.toContain("changed or gone");
+    m.unmount();
+  });
+
+  test("screen truncated a long label with an ellipsis: submit still succeeds and sends the right index", async () => {
+    const long = form();
+    long.questions[0].options[0].label =
+      "Rewrite the whole ingestion pipeline from scratch using the new schema";
+    const screen: PickerQuestion = {
+      ...screenQuestion(),
+      options: [
+        { index: 1, label: "Rewrite the whole ingestion pipeline from …", checked: false, other: false },
+        { index: 2, label: "Patch", checked: false, other: false },
+      ],
+    };
+    const calls = stubFetch({ ok: true });
+    const m = mount(
+      <FormCard paneId="w8:p1" form={long} screenQuestion={screen} onToast={() => {}} />,
+    );
+    click(
+      radioLabeled(
+        m.host,
+        "Rewrite the whole ingestion pipeline from scratch using the new schema",
+      ),
+    );
+    await settle();
+    click(buttonWithText(m.host, "Submit"));
+    await settle();
+    const post = calls.find((c) => c.url === "/api/answer");
+    expect(post).toBeDefined();
+    const body = post!.body as { choice: { type: string; indices?: number[] } };
+    expect(body.choice.indices).toEqual([1]);
+    expect(m.host.textContent).not.toContain("changed or gone");
+    m.unmount();
+  });
+
+  test("a genuinely different option (not a prefix/markdown match) still refuses", async () => {
+    const calls = stubFetch({ ok: true });
+    const otherTab: PickerQuestion = {
+      ...screenQuestion(),
+      options: [
+        { index: 1, label: "Yes", checked: false, other: false },
+        { index: 2, label: "No", checked: false, other: false },
+      ],
+    };
+    const m = mount(
+      <FormCard paneId="w8:p1" form={form()} screenQuestion={otherTab} onToast={() => {}} />,
+    );
+    click(radioLabeled(m.host, "Rewrite"));
+    await settle();
+    click(buttonWithText(m.host, "Submit"));
+    await settle();
+    expect(calls.find((c) => c.url === "/api/answer")).toBeUndefined();
+    expect(m.host.textContent).toContain("question changed or gone");
+    m.unmount();
+  });
+
   test("no screenQuestion yet: Submit refuses instead of posting the transcript copy", async () => {
     const calls = stubFetch({ ok: true });
     const m = mount(

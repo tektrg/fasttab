@@ -197,6 +197,19 @@ check("the row WITH hook data (more recently active) wins over one with none",
       personas.main_session_for_persona(aptus, rows_mixed_recency, chief_id=None),
       "has-hook-data")
 
+print("\n== main_session_for_persona: a pane-less (Desktop / plain CLI) row never counts ==")
+rows_with_desktop = [
+    {"agentSession": "herdr-session", "paneId": "w1:p6",
+     "cwd": cwd("01_Project", "AptusFit"), "hookSinceSec": 120},
+    {"agentSession": "desktop-session", "paneId": None,
+     "cwd": cwd("01_Project", "AptusFit"), "hookSinceSec": 5},
+]
+check("the herdr row wins even though the Desktop row is more recently active",
+      personas.main_session_for_persona(aptus, rows_with_desktop, chief_id=None),
+      "herdr-session")
+check("only a Desktop row -> none (AgentBar can't message it)",
+      personas.main_session_for_persona(aptus, rows_with_desktop[1:], chief_id=None), None)
+
 print()
 if fails:
     print(f"FAILED ({len(fails)}):")

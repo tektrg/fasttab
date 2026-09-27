@@ -351,8 +351,11 @@ def main_session_for_persona(persona, rows_for_persona, chief_id):
     known to map to this persona (see `resolve_persona_for_cwd`)."""
     if chief_id:
         return chief_id
+    # Pane-less rows (Claude Desktop, a plain-terminal CLI) can't take a message,
+    # so they never count: otherwise a busy Desktop chat in the folder would make
+    # AgentBar open a new tab for every message.
     exact = [r for r in rows_for_persona
-             if _resolve_path(r.get("cwd")) == persona["resolvedFolder"]]
+             if r.get("paneId") and _resolve_path(r.get("cwd")) == persona["resolvedFolder"]]
     if not exact:
         return None
     exact.sort(key=_recency_key)

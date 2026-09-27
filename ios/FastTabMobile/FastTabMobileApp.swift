@@ -48,6 +48,7 @@ public struct FastTabMobileApp: App {
                 RecentAddedProvider.shared.drainPendingShares()
                 RecentAddedProvider.shared.refresh()
                 EmergingContentProvider.shared.refresh()
+                ReadingStatsRecorder.shared.pruneExpiredEvents()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {

@@ -37,37 +37,48 @@ final class TabFolderRecommender: ObservableObject {
         }
         inFlightURLs.insert(tab.url)
         let bookmarks = Self.bookmarks(onDevice: tab.deviceID, state: state)
-        let previousTask = lastQueuedTask
-        // Serialized: one tab scored at a time keeps embedding/model load low.
-        lastQueuedTask = Task { [weak self] in
-            await previousTask?.value
+        Task { [weak self] in
             guard let self else { return }
-            let result = await self.score(tab: tab, bookmarks: bookmarks)
+            let result = await self.recommendFolder(title: tab.title, url: tab.url, bookmarks: bookmarks)
             self.inFlightURLs.remove(tab.url)
-            self.resultsByURL[tab.url] = .some(result.flatMap {
-                $0.confidence >= TabFolderVoteScorer.minimumConfidence ? $0 : nil
-            })
+            self.resultsByURL[tab.url] = .some(result)
         }
     }
 
-    private func score(tab: SyncedTab, bookmarks: [ScoredBookmark]) async -> TabFolderRecommendation? {
+    /// The existing folder among `bookmarks` that best fits any page, or nil below
+    /// `TabFolderVoteScorer.minimumConfidence` (or when the page is already bookmarked).
+    /// Uncached; callers keep their own results. Serialized with every other request: one page
+    /// scored at a time keeps embedding/model load low.
+    func recommendFolder(title: String, url: String, bookmarks: [ScoredBookmark]) async -> TabFolderRecommendation? {
+        let previousTask = lastQueuedTask
+        let scoring = Task { [weak self] () -> TabFolderRecommendation? in
+            await previousTask?.value
+            guard let self else { return nil }
+            return await self.score(title: title, url: url, bookmarks: bookmarks)
+                .flatMap { $0.confidence >= TabFolderVoteScorer.minimumConfidence ? $0 : nil }
+        }
+        lastQueuedTask = Task { _ = await scoring.value }
+        return await scoring.value
+    }
+
+    private func score(title: String, url: String, bookmarks: [ScoredBookmark]) async -> TabFolderRecommendation? {
         guard !bookmarks.isEmpty,
-              !TabFolderVoteScorer.isAlreadyBookmarked(tabURL: tab.url, bookmarks: bookmarks) else { return nil }
+              !TabFolderVoteScorer.isAlreadyBookmarked(tabURL: url, bookmarks: bookmarks) else { return nil }
         let matcher = titleMatcher
         let voted = await Task.detached(priority: .utility) {
             TabFolderVoteScorer.recommend(
-                tabURL: tab.url,
-                tabTitle: tab.title,
+                tabURL: url,
+                tabTitle: title,
                 bookmarks: bookmarks,
                 isTitleSimilar: matcher.isSimilar
             )
         }.value
         if let voted, voted.confidence >= TabFolderVoteScorer.minimumConfidence { return voted }
-        return await askModelToChooseFolder(tab: tab, bookmarks: bookmarks)
+        return await askModelToChooseFolder(title: title, url: url, bookmarks: bookmarks)
     }
 
     /// Fallback: the on-device model picks among the user's existing folders.
-    private func askModelToChooseFolder(tab: SyncedTab, bookmarks: [ScoredBookmark]) async -> TabFolderRecommendation? {
+    private func askModelToChooseFolder(title: String, url: String, bookmarks: [ScoredBookmark]) async -> TabFolderRecommendation? {
         #if canImport(FoundationModels)
         guard #available(iOS 26.0, *), SystemLanguageModel.default.isAvailable else { return nil }
         var seenFolderKeys = Set<String>()
@@ -80,8 +91,8 @@ final class TabFolderRecommender: ObservableObject {
             .joined(separator: "\n")
         let prompt = """
         Pick the best existing bookmark folder for this web page.
-        Page title: \(tab.title)
-        Page URL: \(tab.url)
+        Page title: \(title)
+        Page URL: \(url)
         Folders:
         \(folderList)
         Reply ONLY as "<folder number>|<confidence 0.0-1.0>". Use low confidence if no folder fits well.
@@ -106,7 +117,12 @@ final class TabFolderRecommender: ObservableObject {
     /// Only the tab's own Mac: `.addBookmark` is executed there, so the folder
     /// must exist in that Mac's bookmark tree.
     private static func bookmarks(onDevice deviceID: String, state: CachedSyncState) -> [ScoredBookmark] {
-        state.bookmarkBlobs.filter { $0.deviceID == deviceID }.flatMap { blob in
+        scoredBookmarks(in: state.bookmarkBlobs.filter { $0.deviceID == deviceID })
+    }
+
+    /// Every bookmark in `blobs`, flattened for scoring.
+    static func scoredBookmarks(in blobs: [SyncedBookmarkBlob]) -> [ScoredBookmark] {
+        blobs.flatMap { blob in
             blob.bookmarks.map {
                 ScoredBookmark(
                     title: $0.title,

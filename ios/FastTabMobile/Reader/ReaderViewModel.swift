@@ -71,6 +71,9 @@ public final class ReaderViewModel: ObservableObject {
     private var highlightStore: ReaderHighlightStore { .shared }
     private var articleCache: ReaderArticleCache { .shared }
     private var settingsStore: ReaderReadingSettingsStore { .shared }
+    private var statsRecorder: ReadingStatsRecorder { .shared }
+    /// Words in the loaded article, counted once per extraction for reading stats.
+    private var articleWordCount: Int?
     private var settingsCancellable: AnyCancellable?
 
     // MARK: - Init
@@ -89,6 +92,7 @@ public final class ReaderViewModel: ObservableObject {
     public func loadInitialState() {
         LastOpenedStore.shared.recordOpened(url: url, title: title)
         scrollProgress = progressStore.progress(for: url)
+        statsRecorder.beginReading(url: url, savedProgress: scrollProgress)
         highlights = highlightStore.highlights(for: url)
 
         // Instant load from cache if previously processed
@@ -113,6 +117,7 @@ public final class ReaderViewModel: ObservableObject {
         do {
             let article = try await ReaderExtractor.shared.extract(url: url)
             articleCache.save(article)
+            articleWordCount = nil
             loadState = .loaded(article)
         } catch {
             loadState = .failed(error)
@@ -144,6 +149,7 @@ public final class ReaderViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             progressStore.set(progress: progress, for: url)
             LastOpenedStore.shared.updateProgress(url: url, progress: progress)
+            recordReadingStats(progress: progress, isFlush: false)
         }
     }
 
@@ -153,6 +159,16 @@ public final class ReaderViewModel: ObservableObject {
         pendingPersistTask = nil
         progressStore.set(progress: scrollProgress, for: url)
         LastOpenedStore.shared.updateProgress(url: url, progress: scrollProgress)
+        recordReadingStats(progress: scrollProgress, isFlush: true)
+    }
+
+    /// Stats only count once the article is on screen: before that, progress is a restored
+    /// position, not reading.
+    private func recordReadingStats(progress: Double, isFlush: Bool) {
+        guard case .loaded(let article) = loadState else { return }
+        let wordCount = articleWordCount ?? article.readingWordCount
+        articleWordCount = wordCount
+        statsRecorder.recordProgress(url: url, title: title, progress: progress, wordCount: wordCount, isFlush: isFlush)
     }
 
     // MARK: - Highlights
@@ -167,6 +183,7 @@ public final class ReaderViewModel: ObservableObject {
             urlString: url.absoluteString
         )
         highlightStore.add(h)
+        statsRecorder.recordHighlight(url: url, title: title)
         highlights = highlightStore.highlights(for: url)
         pendingHighlightToApply = h
     }

@@ -29,6 +29,9 @@ targets:
         product: FastTabSync
       - package: IndieLibKit
         product: IndieLinks
+      # Generic metric events + time bucketing for the More tab's Statistics (FastTabMobile/Stats/).
+      - package: IndieLibKit
+        product: IndieMetrics
       # Portfolio account + sharing (L1 move P5 proof). Linked, but nothing at launch uses
       # them yet: theindie-api does not list the "fasttab" app. See FastTabMobile/Sharing/.
       - package: IndieLibKit

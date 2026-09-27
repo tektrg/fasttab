@@ -3233,6 +3233,14 @@ class Handler(BaseHTTPRequestHandler):
                              or agentbar_presence.is_web_answer_stream(query))
         try:
             while not STOP.is_set():
+                # Remote: auth was checked once at connect; re-check every
+                # push so a token rotation (or session expiry) also ends a
+                # stream that is already open — it would otherwise keep
+                # streaming state and counting as an answer surface. The
+                # phone's EventSource then reconnects, gets 401, logs in.
+                if self._is_remote_listener() and not self._remote_authenticated():
+                    self.close_connection = True  # no Content-Length: only a close ends it
+                    return
                 payload = json.dumps(get_state_with_board(), default=str)
                 chunk = f"data: {payload}\n\n".encode("utf-8")
                 self.wfile.write(chunk)

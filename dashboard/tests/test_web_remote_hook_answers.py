@@ -214,6 +214,30 @@ check("every remote answer attempt audited (401, 403, 400, 200, 409)",
       [e["status"] for e in entries], [401, 403, 400, 200, 409])
 check("audit row names the request id", entries[-1]["rowId"], request_id)
 
+print("== an open phone stream ends once its auth is revoked (token rotated) ==")
+agentbar_presence.PRESENCE = agentbar_presence.AgentBarPresence()
+store._presence = agentbar_presence.PRESENCE
+conn = http.client.HTTPConnection("127.0.0.1", REMOTE_PORT, timeout=10)
+conn.request("GET", "/api/events?answerSurface=web", headers=dict(AUTH, Host="127.0.0.1"))
+resp = conn.getresponse()
+while resp.fp.readline() not in (b"\n", b""):
+    pass
+check("open phone stream counts as a surface", agentbar_presence.PRESENCE.is_connected(), True)
+token_path = os.path.join(CONFIG_HOME, "remote-token")
+with open(token_path, "w") as f:
+    f.write("rotated-" + TOKEN + "\n")
+os.chmod(token_path, 0o600)
+started = time.monotonic()
+try:
+    while resp.fp.readline() != b"":
+        pass
+    ended = True
+except (socket.timeout, TimeoutError):
+    ended = False
+conn.close()
+check("stream closed by the server within one push (<= 4s)",
+      (ended, time.monotonic() - started <= 4), (True, True))
+
 main_server.shutdown()
 if remote_server is not None:
     remote_server.shutdown()

@@ -7,10 +7,13 @@ import type {
   BoardView,
   FullState,
   PaneScreenResponse,
+  PermissionPrompt,
   PickerQuestion,
   PropertyOption,
   PropertyType,
   SessionHistoryResponse,
+  SessionLatestResponse,
+  SessionPlanResponse,
   ViewFilter,
   ViewLayout,
   ViewSort,
@@ -112,6 +115,67 @@ export async function answerQuestion(
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+/** POST /api/permission — Review (Allow / Allow always / Deny) and the plan
+ *  card's "select" (row.index, optional feedback text on the "Tell Claude
+ *  what to change" row). The dashboard re-reads the pane fresh and refuses
+ *  unless `permission` still matches letter-for-letter (server contract,
+ *  chief-dashboard-server.py ~L109-160) — send the exact object the state
+ *  carried, never a hand-built one. */
+export async function answerPermission(
+  paneId: string,
+  choice: "allow" | "deny" | "allow-always" | "select",
+  permission: PermissionPrompt,
+  opts: { index?: number; text?: string } = {},
+): Promise<{ ok: boolean; error?: string; next?: PermissionPrompt | null }> {
+  try {
+    const r = await fetch("/api/permission", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paneId,
+        choice,
+        permission: {
+          tool: permission.tool,
+          detail: permission.detail,
+          title: permission.title,
+          options: permission.options,
+          cursorIndex: permission.cursorIndex,
+          ...(permission.kind !== undefined ? { kind: permission.kind } : {}),
+          ...(permission.planPath !== undefined ? { planPath: permission.planPath } : {}),
+        },
+        ...(opts.index !== undefined ? { index: opts.index } : {}),
+        ...(opts.text !== undefined ? { text: opts.text } : {}),
+      }),
+    });
+    return await r.json();
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** GET /api/session/latest?rowId= — last assistant text + a pending
+ *  multi-question AskUserQuestion form, read from the session's transcript
+ *  (works for a row on a remote machine too — see session_transcript.py). */
+export async function fetchSessionLatest(
+  rowId: string,
+): Promise<SessionLatestResponse> {
+  return requestJson<SessionLatestResponse>(
+    `/api/session/latest?rowId=${encodeURIComponent(rowId)}`,
+    "GET",
+  );
+}
+
+/** GET /api/session/plan?rowId= — the plan file text for a row currently
+ *  blocked on a plan-approval box (re-reads the pane fresh server-side). */
+export async function fetchSessionPlan(
+  rowId: string,
+): Promise<SessionPlanResponse> {
+  return requestJson<SessionPlanResponse>(
+    `/api/session/plan?rowId=${encodeURIComponent(rowId)}`,
+    "GET",
+  );
 }
 
 export async function createProperty(input: {

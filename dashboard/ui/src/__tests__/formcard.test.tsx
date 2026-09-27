@@ -206,4 +206,24 @@ describe("FormCard", () => {
     expect(m.host.textContent).toContain("question changed or gone");
     m.unmount();
   });
+
+  // Threat model: each button types into a real terminal. Two clicks
+  // dispatched in the same event-loop turn (a fast real-world double tap)
+  // land before React re-renders the button as disabled, so `sending`
+  // state alone does not stop a second, duplicate /api/answer POST.
+  test("a same-tick double tap on Submit sends only one round of answers", async () => {
+    const calls = stubFetch({ ok: true });
+    const m = mount(<FormCard paneId="w8:p1" form={form()} onToast={() => {}} />);
+    click(radioLabeled(m.host, "Rewrite"));
+    await settle();
+    const submit = buttonWithText(m.host, "Submit")!;
+    act(() => {
+      submit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      submit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    const posts = calls.filter((c) => c.url === "/api/answer");
+    expect(posts.length).toBe(1);
+    m.unmount();
+  });
 });

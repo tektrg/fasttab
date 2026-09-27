@@ -272,13 +272,21 @@ copying AptusFit's file over, never by editing this copy alone.
 the retired `agent_tree_routing` test); nothing guards it, so port new
 upstream tests by hand on each sync.
 
-**Never POST to port 4711** (AptusFit's live instance) or restart/kill it.
-All P0-move testing runs on **4712**: GET requests against the real 4711
-data are fine (read-only, harmless), but every write path (`answer`,
+**4711 and 4712 are this repo's own live production instance** (4711 the
+main loopback listener, 4712 its remote-access listener when enabled — see
+"Rules" below) **, not AptusFit's** — the dashboard moved into this repo in
+the P0 move, so AptusFit no longer runs its own copy. **Never POST to
+either port, and never restart/kill by process name** — a same-machine
+write there types real keystrokes into a real pane. Restart only through
+`scripts/restart.sh` (kill-and-relaunch by port ownership, never
+`pkill -f`). All testing runs on other ports (e.g. 4713+ — see the e2e
+recipe above; 4712 is live when remote access is enabled, so a test
+server must not bind it): GET requests against the real 4711 data are
+fine (read-only, harmless), but every write path (`answer`,
 `permission`, `focus`, session actions) is exercised only through the
-`test_*.py` fakes, never live against real panes. `4712`'s server process
-still opens the same board sqlite db as `4711` unless told otherwise (it
-runs `_init_db()` on startup, a write) — export
+`test_*.py` fakes, never live against real panes. A throwaway test
+server's process still opens the same board sqlite db as the live one
+unless told otherwise (it runs `_init_db()` on startup, a write) — export
 `CHIEF_DASHBOARD_STATE_HOME=<some throwaway dir>` before launching it with
 `--detached` so it never touches the live db file.
 

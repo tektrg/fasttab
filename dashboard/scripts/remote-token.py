@@ -9,10 +9,12 @@ with loopback access, which stays unauthenticated exactly as before.
 
 Usage:
     python3 scripts/remote-token.py            # generate if missing, else print the existing one
-    python3 scripts/remote-token.py --rotate   # always generate a new one (invalidates old sessions'
-                                                # ability to log in again, but does NOT revoke sessions
-                                                # already issued — see server/lib/remote_access.py's
-                                                # in-memory session store, which only clears on restart)
+    python3 scripts/remote-token.py --rotate   # always generate a new one — this immediately revokes
+                                                # every session already issued too, not just future
+                                                # logins (each session is bound to a fingerprint of the
+                                                # token live when it was issued; a rotated/removed token
+                                                # fails that check on the session's very next request —
+                                                # see server/lib/remote_access.py's `session_is_valid`)
     python3 scripts/remote-token.py --show     # print the current token without changing it
 """
 import argparse

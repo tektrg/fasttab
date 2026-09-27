@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Checkbox, Group, Paper, Radio, Stack, Text, TextInput } from "@mantine/core";
 import type { PendingQuestionForm } from "../types";
 import { answerQuestion } from "../api";
@@ -30,6 +30,11 @@ export function FormCard({
   );
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // React batches same-tick state updates, so `sending` alone cannot stop a
+  // second click dispatched before the disabled-button re-render commits
+  // (proven: two clicks in one event-loop turn otherwise fire two POSTs).
+  // This ref is read-and-set synchronously, ahead of any state update.
+  const inFlight = useRef(false);
 
   const setDraft = (i: number, next: Partial<Draft>) =>
     setDrafts((ds) => ds.map((d, idx) => (idx === i ? { ...d, ...next } : d)));
@@ -51,6 +56,8 @@ export function FormCard({
   const canSubmit = drafts.every(answered) && !sending;
 
   const submit = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setSending(true);
     let allOk = true;
     let lastError = "";
@@ -81,6 +88,7 @@ export function FormCard({
       }
     }
     setSending(false);
+    inFlight.current = false;
     setResult(allOk ? { ok: true, msg: "sent" } : { ok: false, msg: lastError });
     onToast(allOk ? "answers sent" : "not sent: " + lastError, allOk);
   };

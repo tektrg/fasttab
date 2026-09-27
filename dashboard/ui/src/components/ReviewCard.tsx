@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Group, Paper, Text } from "@mantine/core";
 import type { PermissionOption, PermissionPrompt } from "../types";
 import { answerPermission } from "../api";
@@ -45,15 +45,23 @@ export function ReviewCard({
   const [armed, setArmed] = useState(false);
   const [sending, setSending] = useState<Choice | null>(null);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Guards a same-tick double click: `sending` state alone updates only on
+  // the next render, so two clicks dispatched before that commit would
+  // otherwise both pass and fire two POSTs (proven in a test — Mantine's
+  // `loading`-driven `disabled` isn't up yet for the second one).
+  const inFlight = useRef(false);
 
   const send = async (choice: Choice) => {
+    if (inFlight.current) return;
     if (choice === "allow-always" && !armed) {
       setArmed(true);
       return;
     }
+    inFlight.current = true;
     setArmed(false);
     setSending(choice);
     const res = await answerPermission(paneId, choice, permission);
+    inFlight.current = false;
     setSending(null);
     if (res.ok) {
       setResult({ ok: true, msg: "sent" });

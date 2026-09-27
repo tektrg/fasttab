@@ -243,6 +243,39 @@ describe("FormCard", () => {
     m.unmount();
   });
 
+  test("real screen parse (single-select adds a trailing 'Type something' row the transcript never has): submit still succeeds", async () => {
+    // classify_pane.parse_question_block always appends a free-text "Type
+    // something" row after a single-select's real options — the transcript
+    // form's options (built from the raw AskUserQuestion tool input) never
+    // include it. A structural check that demanded equal option COUNTS
+    // between the two refused every single-select submit in production
+    // (caught by hand-tracing the parser's own fixtures, not by this
+    // file's other screenQuestion() helpers, which omit the row).
+    const withOtherRow: PickerQuestion = {
+      ...screenQuestion(),
+      options: [
+        ...screenQuestion().options,
+        { index: 3, label: "Type something.", checked: false, other: true },
+      ],
+      otherIndex: 3,
+    };
+    const calls = stubFetch({ ok: true });
+    const m = mount(
+      <FormCard paneId="w8:p1" form={form()} screenQuestion={withOtherRow} onToast={() => {}} />,
+    );
+    click(radioLabeled(m.host, "Patch"));
+    await settle();
+    click(buttonWithText(m.host, "Submit"));
+    await settle();
+    const post = calls.find((c) => c.url === "/api/answer");
+    expect(post).toBeDefined();
+    const body = post!.body as { choice: { type: string; indices?: number[] } };
+    expect(body.choice.type).toBe("select");
+    expect(body.choice.indices).toEqual([2]); // "Patch" is screen index 2
+    expect(m.host.textContent).not.toContain("changed or gone");
+    m.unmount();
+  });
+
   test("no screenQuestion yet: Submit refuses instead of posting the transcript copy", async () => {
     const calls = stubFetch({ ok: true });
     const m = mount(

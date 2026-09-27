@@ -113,16 +113,32 @@ export function FormCard({
       // against the transcript's `q` (that's the whole reason this card
       // stopped posting it — see the file header), so this is the cheapest
       // structural cross-check available: if the tab actually open on
-      // screen doesn't even have the same select-mode and option COUNT as
-      // the transcript's question at this same position, `current` is not
-      // this question — most likely the terminal already advanced past a
-      // tab the dashboard's stale form still lists first (answered from the
-      // pane directly, or a previous batch's tab order). Sending indices
-      // built from `q.options` against a same-shaped-by-luck but wrong tab
-      // would otherwise silently mis-answer real work with no error at all;
+      // screen doesn't even have the same select-mode and the same real
+      // options (label-for-label, in order) as the transcript's question at
+      // this same position, `current` is not this question — most likely
+      // the terminal already advanced past a tab the dashboard's stale form
+      // still lists first (answered from the pane directly, or a previous
+      // batch's tab order). Sending indices built from a wrong tab would
+      // otherwise silently mis-answer real work with no error at all;
       // refuse instead, same as any other "not the question we think it is"
       // gate in this file.
-      if (current.multi !== q.isMultiSelect || current.options.length !== q.options.length) {
+      //
+      // NOT a straight length check: `current.options` is the SCREEN's
+      // numbering, which always has at least one extra trailing row beyond
+      // the transcript's real options — the free-text "Type something" row
+      // that classify_pane.parse_question_block adds and that never
+      // appears in the AskUserQuestion tool input `q.options` comes from.
+      // A length-equality check here made every single-select question
+      // refuse every time (multi-select happened to pass by coincidence of
+      // how the parser folds its own free-text fallback onto the last real
+      // row) — caught by hand-tracing parse_question_block's own test
+      // fixtures, not by this file's tests (whose screenQuestion() fixtures
+      // don't model the extra row).
+      if (
+        current.multi !== q.isMultiSelect ||
+        current.options.length < q.options.length ||
+        q.options.some((o, k) => current!.options[k]?.label !== o.label)
+      ) {
         allOk = false;
         lastError = "question changed or gone — re-check the pane";
         break;
@@ -132,7 +148,7 @@ export function FormCard({
         : {
             type: "select" as const,
             indices: d.selected
-              .map((label) => q.options.findIndex((o) => o.label === label) + 1)
+              .map((label) => current!.options.find((o) => o.label === label)?.index ?? -1)
               .filter((n) => n > 0),
           };
       const res = await answerQuestion(paneId, choice, current);

@@ -218,6 +218,7 @@ struct PersonaRoutingPanelModelTests {
         #expect(rig.source.sent.isEmpty)
 
         #expect(rig.model.togglePersonaDeliveryOverride())
+        #expect(rig.model.footerNotice == nil)   // the refusal notice described the row Tab just left
         rig.model.activateSelected()
         await waitUntil { !rig.personas.startCalls.isEmpty }
         #expect(rig.personas.startCalls == [.init(name: "chief-aptus", text: "ship the release", fresh: true)])
@@ -253,6 +254,23 @@ struct PersonaRoutingPanelModelTests {
         #expect(rig.model.footerNotice?.text == Self.waitingNotice)
     }
 
+    @Test func aRedrawAtReturnDismissesTheOldRowsRefusalNotice() async {
+        let rig = mainRowRig(Self.blockedMain())
+        rig.model.startRouting()
+        _ = await confirmedPersonaPick(rig)
+        rig.model.activateSelected()
+        #expect(rig.model.footerNotice?.text == Self.waitingNotice)
+
+        rig.model.receive(F.snapshot([F.agent("w", label: "chief-aptus main", section: .working)]))   // answered meanwhile
+        rig.model.activateSelected()
+        guard case .confirmingPersona(let redrawn) = rig.model.routingState else {
+            Issue.record("expected a persona confirm row"); return
+        }
+        #expect(redrawn.effect == .sendToMain)
+        #expect(rig.model.footerNotice == nil)
+        #expect(rig.source.sent.isEmpty)
+    }
+
     @Test func aMainThatWentAwaySinceThePickRedrawsToTheIdleStartEffect() async {
         let rig = mainRowRig(F.agent("w", label: "chief-aptus main", section: .working))
         rig.model.startRouting()
@@ -272,6 +290,7 @@ struct PersonaRoutingPanelModelTests {
     @Test func theFooterNeverOffersReturnToSendOnARefusalRow() {
         #expect(PanelFooterHints.text(for: .init(routingMode: .confirmingPersonaRefusal)) == "tab start new   esc cancel")
         #expect(PanelFooterHints.text(for: .init(routingMode: .confirmingPersona)) == "↩ send   tab toggle   esc cancel")
+        #expect(PanelFooterHints.text(for: .init(routingMode: .startingPersona)) == "esc hide")   // Esc can't take a start back
     }
 
     // MARK: - Delivery: no live main -> POST /api/persona/start
@@ -377,6 +396,45 @@ struct PersonaRoutingPanelModelTests {
         #expect(rig.model.footerNotice == .created("Started air-notes"))   // the start happened: say so
         #expect(rig.model.routingState == nil)   // the late reply did not resurrect the row
         #expect(rig.model.query == "something new")   // nor wipe what was typed since
+    }
+
+    @Test func escWhileStartingThenSuccessClearsTheBoxIfItStillHoldsTheSentText() async {
+        let rig = await startInFlightRig()
+        #expect(rig.model.backOutOfButtons())
+        #expect(rig.model.query == "triage the inbox")
+
+        rig.personas.resolvePendingStart(with: .resumed(paneId: "w9:p1"))
+        await waitUntil { rig.model.footerNotice != nil }
+        #expect(rig.model.footerNotice == .created("Resumed air-notes"))
+        #expect(rig.model.query == "")   // delivered: not left there to be sent twice
+    }
+
+    @Test func escWhileStartingThenFailureKeepsTheSentText() async {
+        let rig = await startInFlightRig()
+        #expect(rig.model.backOutOfButtons())
+        rig.personas.resolvePendingStart(with: .failed("herdr couldn't create a pane."))
+        await waitUntil { rig.model.footerNotice != nil }
+        #expect(rig.model.query == "triage the inbox")
+    }
+
+    @Test func tabWhileStartingIsSwallowedRatherThanTaggingARow() async {
+        // A message-eligible row the typed text matches, so an un-swallowed Tab would tag it.
+        let agent = F.agent("w", label: "triage the inbox helper", section: .working)
+        let persona = PersonaFixtures.persona("air-notes", idleStart: .fresh)
+        let rig = makeRig(agents: [agent], personas: [persona])
+        rig.personas.gatesStart = true
+        rig.client.outcome = .picked(agentID: "persona:air-notes", confidence: 0.9)
+        rig.model.query = "triage the inbox"
+        rig.model.startRouting()
+        _ = await confirmedPersonaPick(rig)
+        rig.model.activateSelected()
+        await waitUntil { rig.personas.pendingStartCount == 1 }
+        #expect(rig.model.selectedAgentID == "w")
+
+        #expect(!rig.model.togglePersonaDeliveryOverride())
+        rig.model.tagSelected()
+        #expect(rig.model.taggedAgentID == nil)
+        #expect(rig.model.routingState == .startingPersona(name: "air-notes"))
     }
 
     @Test func aPanelReopenWhileStartingStillShowsALateFailure() async {

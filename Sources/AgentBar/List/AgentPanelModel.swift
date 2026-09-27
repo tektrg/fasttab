@@ -241,9 +241,16 @@ final class AgentPanelModel: ObservableObject {
     @discardableResult
     func togglePersonaDeliveryOverride() -> Bool {
         guard case .confirmingPersona(var pick) = routingState else { return false }
+        dismissRefusalNotice(leaving: pick)
         pick.forcedStartNew.toggle()
         routingState = .confirmingPersona(pick)
         return true
+    }
+
+    /// A refusal row's notice ("…waiting on you…") describes that row only: once the row changes
+    /// (Tab, or a redraw at Return) it would be stale next to the new effect.
+    private func dismissRefusalNotice(leaving pick: PersonaPick) {
+        if pick.effect.refusesDelivery { dismissFooterNotice() }
     }
 
     /// Return while `.confirmingPersona`, or "send immediately" landing on a persona: sends to the
@@ -254,6 +261,7 @@ final class AgentPanelModel: ObservableObject {
         var pick = shownPick
         pick.mainSession = mainSession(of: pick.persona)
         guard pick.effect == shownPick.effect else {
+            dismissRefusalNotice(leaving: shownPick)
             routingState = .confirmingPersona(pick)
             return
         }
@@ -309,26 +317,30 @@ final class AgentPanelModel: ObservableObject {
             }
             routingState = .startingPersona(name: persona.name)
             let epoch = routingEpoch
+            let typedText = routingText
             Task { [weak self] in
                 let outcome = await personaSource.startPersona(persona.name, text: text, fresh: fresh)
-                self?.finishPersonaStart(outcome, personaName: persona.name, epoch: epoch)
+                self?.finishPersonaStart(outcome, personaName: persona.name, typedText: typedText, epoch: epoch)
             }
         }
     }
 
     /// The `POST /api/persona/start` reply: never auto-retried, whatever it says (spec) — a failure
     /// just shows the reason, the same as every other send failure. The outcome is always shown,
-    /// even after Esc or a panel reopen (like a plain session send: the start happened either way);
-    /// only a reply to the route still on screen clears the row and the typed text.
-    private func finishPersonaStart(_ outcome: PersonaStartOutcome, personaName: String, epoch: Int) {
+    /// even after Esc or a panel reopen (like a plain session send: the start happened either way).
+    /// Only a reply to the route still on screen clears the row. A success clears the box too —
+    /// after Esc only while it still holds the text that was sent (`typedText`), so a delivered
+    /// message isn't left there inviting a re-send, and anything typed since is left alone.
+    private func finishPersonaStart(_ outcome: PersonaStartOutcome, personaName: String, typedText: String, epoch: Int) {
         let isCurrentRoute = epoch == routingEpoch && routingState == .startingPersona(name: personaName)
         if isCurrentRoute { routingState = nil }
+        let clearsSentText = isCurrentRoute || query.trimmingCharacters(in: .whitespacesAndNewlines) == typedText
         switch outcome {
         case .started:
-            if isCurrentRoute { query = "" }
+            if clearsSentText { query = "" }
             showFailureNotice(.created("Started \(personaName)"))
         case .resumed:
-            if isCurrentRoute { query = "" }
+            if clearsSentText { query = "" }
             showFailureNotice(.created("Resumed \(personaName)"))
         case .failed(let reason):
             showAnswerNotice(reason)
@@ -507,9 +519,11 @@ final class AgentPanelModel: ObservableObject {
     /// Tab: tags the selected row if it can take a message (same eligibility `RowButtons` already
     /// gates the Message button with). Re-tagging — arrow to another row, Tab again — just swaps the
     /// target; typed text is untouched. Cancels an in-flight Jev route: the two are mutually
-    /// exclusive, and an explicit tag makes asking Jev redundant. No-op while a card is open, or
-    /// when nothing selectable is message-eligible.
+    /// exclusive, and an explicit tag makes asking Jev redundant. No-op while a card is open, while
+    /// a persona start is in flight (its row stays; the start can't be taken back), or when nothing
+    /// selectable is message-eligible.
     func tagSelected() {
+        if case .startingPersona = routingState { return }
         guard !isCardOpen, let agent = selectedAgent, RowButtons.usableButtons(for: agent).contains(.message) else { return }
         let wasRouting = cancelRoutingIfActive()
         // Same as every card-opening path below: composing hides the list/peek area entirely

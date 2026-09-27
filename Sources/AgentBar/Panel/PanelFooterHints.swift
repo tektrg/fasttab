@@ -55,7 +55,8 @@ enum PanelFooterHints {
         case .confirming: "↩ send   esc cancel"
         case .confirmingPersona: "↩ send   tab toggle   esc cancel"
         case .confirmingPersonaRefusal: "tab start new   esc cancel"
-        case .startingPersona: "esc cancel"
+        // Esc only hides the row: the start is already on its way and its outcome still shows.
+        case .startingPersona: "esc hide"
         }
     }
 

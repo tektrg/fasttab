@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Modal } from "@mantine/core";
 import type { BoardProperty, BoardRow } from "../../types";
 import {
@@ -32,7 +32,40 @@ export function PhoneSheet({
   onRefetch: () => void;
 }) {
   const [busy, setBusy] = useState<"done" | "park" | null>(null);
+  // Mirrors the desktop SessionActions two-stage arm/confirm pattern: a
+  // working/blocked/unknown target needs a SECOND press within ~5s before
+  // `confirm:true` is ever sent — a single tap must never force-end or
+  // force-park a busy session (server contract: `SessionActionState
+  // .needsConfirm`).
+  const [armed, setArmed] = useState<"done" | "park" | null>(null);
+  const armTimer = useRef<number | null>(null);
   const keyboardInset = useVisualViewportOffset();
+
+  useEffect(
+    () => () => {
+      if (armTimer.current) window.clearTimeout(armTimer.current);
+    },
+    [],
+  );
+
+  // A different row opened in the same sheet instance, or this one ended,
+  // must never inherit a still-armed "Confirm" from whatever was open
+  // before it (mirrors the desktop's `setArmed(null)` on row/stage change).
+  useEffect(() => {
+    setArmed(null);
+  }, [row?.rowId, row?.status]);
+
+  const disarm = () => {
+    if (armTimer.current) window.clearTimeout(armTimer.current);
+    armTimer.current = null;
+    setArmed(null);
+  };
+
+  const arm = (name: "done" | "park") => {
+    if (armTimer.current) window.clearTimeout(armTimer.current);
+    setArmed(name);
+    armTimer.current = window.setTimeout(() => setArmed(null), 5000);
+  };
 
   if (!row) return null;
 
@@ -44,35 +77,55 @@ export function PhoneSheet({
   const endStage = resolveEndStage(actions);
   const canPark = !!actions?.archive?.enabled;
   const canUnpark = !!actions?.unarchive?.enabled;
+  const parkVerb = canUnpark ? "unarchive" : "archive";
+  const parkNeedsConfirm = !!actions?.[parkVerb]?.needsConfirm;
 
   const runDone = async () => {
     if (!endStage || !endStage.state.enabled || busy) return;
+    if (endStage.state.needsConfirm && armed !== "done") {
+      arm("done");
+      return;
+    }
+    disarm();
     setBusy("done");
     const res = await sessionAction(endStage.verb, row.rowId, {
       confirm: endStage.state.needsConfirm,
     });
     setBusy(null);
-    onToast(
-      res.ok ? `${endStage.label}: ${res.state ?? "done"}` : `${endStage.label} refused: ${res.error || res.reason || "?"}`,
-      !!res.ok,
-    );
     if (res.ok) {
+      onToast(`${endStage.label}: ${res.state ?? "done"}`, true);
       onRefetch();
       onClose();
+    } else if (res.needsConfirm && res.reason) {
+      // Server state changed since render — arm with the fresh reason
+      // instead of failing silently, same as the desktop.
+      arm("done");
+      onToast(res.reason, false);
+    } else {
+      onToast(`${endStage.label} refused: ${res.error || res.reason || "?"}`, false);
     }
   };
 
   const runPark = async () => {
-    const verb = canUnpark ? "unarchive" : "archive";
+    const verb = parkVerb;
     if (!actions?.[verb]?.enabled || busy) return;
+    if (parkNeedsConfirm && armed !== "park") {
+      arm("park");
+      return;
+    }
+    disarm();
     setBusy("park");
-    const res = await sessionAction(verb, row.rowId, { confirm: false });
+    const res = await sessionAction(verb, row.rowId, { confirm: parkNeedsConfirm });
     setBusy(null);
-    onToast(
-      res.ok ? (verb === "archive" ? "parked" : "unparked") : `refused: ${res.error || res.reason || "?"}`,
-      !!res.ok,
-    );
-    if (res.ok) onRefetch();
+    if (res.ok) {
+      onToast(verb === "archive" ? "parked" : "unparked", true);
+      onRefetch();
+    } else if (res.needsConfirm && res.reason) {
+      arm("park");
+      onToast(res.reason, false);
+    } else {
+      onToast(`refused: ${res.error || res.reason || "?"}`, false);
+    }
   };
 
   return (
@@ -110,25 +163,26 @@ export function PhoneSheet({
           <div className="phone-sheet-actions">
             {endStage && (
               <Button
-                color={endStage.verb === "stop" ? "red" : undefined}
-                variant="light"
+                color={armed === "done" ? "orange" : endStage.verb === "stop" ? "red" : undefined}
+                variant={armed === "done" ? "filled" : "light"}
                 size="sm"
                 disabled={!endStage.state.enabled || busy !== null}
                 loading={busy === "done"}
                 onClick={() => void runDone()}
               >
-                Done{endStage.state.needsConfirm ? " (confirm)" : ""}
+                {armed === "done" ? "Confirm" : "Done"}
               </Button>
             )}
             {(canPark || canUnpark) && (
               <Button
-                variant="light"
+                color={armed === "park" ? "orange" : undefined}
+                variant={armed === "park" ? "filled" : "light"}
                 size="sm"
                 disabled={busy !== null}
                 loading={busy === "park"}
                 onClick={() => void runPark()}
               >
-                {canUnpark ? "Unpark" : "Park"}
+                {armed === "park" ? "Confirm" : canUnpark ? "Unpark" : "Park"}
               </Button>
             )}
           </div>

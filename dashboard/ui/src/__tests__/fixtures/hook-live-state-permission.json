@@ -1,0 +1,220 @@
+{
+ "computed": {
+  "agents": [
+   {
+    "actions": {
+     "archive": {
+      "enabled": true,
+      "needsConfirm": false,
+      "reason": "board-only: hides the row, frees nothing"
+     },
+     "close": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-desktop session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "relaunch": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-desktop session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "stop": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-desktop session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "unarchive": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "not archived \u2014 nothing to restore"
+     }
+    },
+    "agentSession": "qaweb2-42054",
+    "autocompactPct": null,
+    "backgroundWaitExpired": false,
+    "contextPct": null,
+    "cwd": "/scratch/qaweb2",
+    "disagree": false,
+    "focused": false,
+    "hasHookData": true,
+    "herdrStatus": null,
+    "herdrTurnReported": false,
+    "hookQuestion": null,
+    "hookReason": "Permission: Bash",
+    "hookRequest": {
+     "createdAt": 1790526264.138587,
+     "kind": "permission",
+     "permission": {
+      "detail": "echo QA2_SENTINEL_NOOP\n\nqa2 sentinel",
+      "suggestions": [
+       {
+        "index": 0,
+        "label": "Always allow `Bash(echo QA2_SENTINEL:*)` in this project"
+       },
+       {
+        "index": 1,
+        "label": "Switch to auto-accept edits mode for this session"
+       }
+      ],
+      "title": "Run a shell command"
+     },
+     "requestId": "hp2-b760fde6",
+     "sinceSec": 0.20604896545410156,
+     "toolName": "Bash"
+    },
+    "hookSinceSec": 0.20604896545410156,
+    "hookState": "blocked",
+    "hostSessionId": null,
+    "label": "qaweb2",
+    "machine": "local",
+    "memoryBytes": null,
+    "openUrl": null,
+    "paneId": null,
+    "pid": 42054,
+    "residue": false,
+    "rowId": "qaweb2-42054",
+    "screenPermission": null,
+    "screenQuestion": null,
+    "screenSignal": null,
+    "screenState": null,
+    "screenUnchangedSec": null,
+    "secondsInStatus": 0.20604896545410156,
+    "sessionStatus": "waiting",
+    "source": "claude-desktop",
+    "subagentsRunning": 0,
+    "tabId": null,
+    "tmuxTarget": null,
+    "transcriptQuestion": null,
+    "workspaceId": null
+   }
+  ],
+  "disagreementCount": 0,
+  "needsYou": [
+   {
+    "agentSession": "qaweb2-42054",
+    "detail": "Permission: Bash",
+    "hookRequest": {
+     "createdAt": 1790526264.138587,
+     "kind": "permission",
+     "permission": {
+      "detail": "echo QA2_SENTINEL_NOOP\n\nqa2 sentinel",
+      "suggestions": [
+       {
+        "index": 0,
+        "label": "Always allow `Bash(echo QA2_SENTINEL:*)` in this project"
+       },
+       {
+        "index": 1,
+        "label": "Switch to auto-accept edits mode for this session"
+       }
+      ],
+      "title": "Run a shell command"
+     },
+     "requestId": "hp2-b760fde6",
+     "sinceSec": 0.20604896545410156,
+     "toolName": "Bash"
+    },
+    "identity": "qaweb2-42054",
+    "kind": "blocked",
+    "label": "qaweb2",
+    "openUrl": null,
+    "paneId": null,
+    "permission": null,
+    "sinceSec": 0.20604896545410156,
+    "source": "claude-desktop",
+    "transcriptQuestion": null,
+    "urgency": 1
+   }
+  ],
+  "residueCount": 0,
+  "sleepingSessions": []
+ },
+ "feeds": {
+  "board": {
+   "ageSec": null,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": null,
+   "lastDurationSec": null,
+   "lastSuccessTs": null,
+   "name": "board",
+   "refreshIntervalSec": 150,
+   "warming": true
+  },
+  "claudeSessions": {
+   "ageSec": 2.402961015701294,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526261.941231,
+   "lastDurationSec": 0.1171567440032959,
+   "lastSuccessTs": 1790526261.941231,
+   "name": "claudeSessions",
+   "refreshIntervalSec": 3,
+   "warming": false
+  },
+  "desktopSessions": {
+   "ageSec": 8.530502080917358,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526255.813695,
+   "lastDurationSec": 0.002294778823852539,
+   "lastSuccessTs": 1790526255.813695,
+   "name": "desktopSessions",
+   "refreshIntervalSec": 10,
+   "warming": false
+  },
+  "herdr": {
+   "ageSec": 3.1965131759643555,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526261.1475909,
+   "lastDurationSec": 0.23146295547485352,
+   "lastSuccessTs": 1790526261.1475909,
+   "name": "herdr",
+   "refreshIntervalSec": 5,
+   "warming": false
+  },
+  "hookCache": {
+   "ageSec": 0.4814610481262207,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526263.862635,
+   "lastDurationSec": 0.0012981891632080078,
+   "lastSuccessTs": 1790526263.862635,
+   "name": "hookCache",
+   "refreshIntervalSec": 2,
+   "warming": false
+  },
+  "machinesConfigError": null,
+  "paneScreen": {
+   "ageSec": 3.361489772796631,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526260.982697,
+   "lastDurationSec": 0.16916990280151367,
+   "lastSuccessTs": 1790526260.982697,
+   "name": "paneScreen",
+   "refreshIntervalSec": 15,
+   "warming": false
+  },
+  "paneTick": {
+   "ageSec": 8.548680782318115,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526255.795488,
+   "lastDurationSec": 0.0015451908111572266,
+   "lastSuccessTs": 1790526255.795488,
+   "name": "paneTick",
+   "refreshIntervalSec": 90,
+   "warming": false
+  }
+ },
+ "serverTimeTs": 1790526264.34483
+}

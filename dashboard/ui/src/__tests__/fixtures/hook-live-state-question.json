@@ -1,0 +1,294 @@
+{
+ "computed": {
+  "agents": [
+   {
+    "actions": {
+     "archive": {
+      "enabled": true,
+      "needsConfirm": false,
+      "reason": "board-only: hides the row, frees nothing"
+     },
+     "close": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-desktop session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "relaunch": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-desktop session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "stop": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-desktop session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "unarchive": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "not archived \u2014 nothing to restore"
+     }
+    },
+    "agentSession": "qaweb2-42054",
+    "autocompactPct": null,
+    "backgroundWaitExpired": false,
+    "contextPct": null,
+    "cwd": "/scratch/qaweb2",
+    "disagree": false,
+    "focused": false,
+    "hasHookData": true,
+    "herdrStatus": null,
+    "herdrTurnReported": false,
+    "hookQuestion": null,
+    "hookReason": "Question",
+    "hookRequest": {
+     "createdAt": 1790526261.697474,
+     "kind": "question",
+     "questions": [
+      {
+       "header": "Single",
+       "multiSelect": false,
+       "options": [
+        {
+         "description": "a",
+         "label": "Alpha"
+        },
+        {
+         "description": "b",
+         "label": "Beta"
+        }
+       ],
+       "question": "QA2 pick one?"
+      },
+      {
+       "header": "Multi",
+       "multiSelect": true,
+       "options": [
+        {
+         "description": "",
+         "label": "Red"
+        },
+        {
+         "description": "",
+         "label": "Green"
+        },
+        {
+         "description": "",
+         "label": "Blue"
+        }
+       ],
+       "question": "QA2 pick any?"
+      },
+      {
+       "header": "Other",
+       "multiSelect": false,
+       "options": [
+        {
+         "description": "",
+         "label": "Yes"
+        },
+        {
+         "description": "",
+         "label": "No"
+        }
+       ],
+       "question": "QA2 other?"
+      }
+     ],
+     "requestId": "hp1-15b2f06a",
+     "sinceSec": 0.7403430938720703,
+     "toolName": "AskUserQuestion"
+    },
+    "hookSinceSec": 0.7403430938720703,
+    "hookState": "blocked",
+    "hostSessionId": null,
+    "label": "qaweb2",
+    "machine": "local",
+    "memoryBytes": null,
+    "openUrl": null,
+    "paneId": null,
+    "pid": 42054,
+    "residue": false,
+    "rowId": "qaweb2-42054",
+    "screenPermission": null,
+    "screenQuestion": null,
+    "screenSignal": null,
+    "screenState": null,
+    "screenUnchangedSec": null,
+    "secondsInStatus": 0.7403430938720703,
+    "sessionStatus": "waiting",
+    "source": "claude-desktop",
+    "subagentsRunning": 0,
+    "tabId": null,
+    "tmuxTarget": null,
+    "transcriptQuestion": null,
+    "workspaceId": null
+   }
+  ],
+  "disagreementCount": 0,
+  "needsYou": [
+   {
+    "agentSession": "qaweb2-42054",
+    "detail": "Question",
+    "hookRequest": {
+     "createdAt": 1790526261.697474,
+     "kind": "question",
+     "questions": [
+      {
+       "header": "Single",
+       "multiSelect": false,
+       "options": [
+        {
+         "description": "a",
+         "label": "Alpha"
+        },
+        {
+         "description": "b",
+         "label": "Beta"
+        }
+       ],
+       "question": "QA2 pick one?"
+      },
+      {
+       "header": "Multi",
+       "multiSelect": true,
+       "options": [
+        {
+         "description": "",
+         "label": "Red"
+        },
+        {
+         "description": "",
+         "label": "Green"
+        },
+        {
+         "description": "",
+         "label": "Blue"
+        }
+       ],
+       "question": "QA2 pick any?"
+      },
+      {
+       "header": "Other",
+       "multiSelect": false,
+       "options": [
+        {
+         "description": "",
+         "label": "Yes"
+        },
+        {
+         "description": "",
+         "label": "No"
+        }
+       ],
+       "question": "QA2 other?"
+      }
+     ],
+     "requestId": "hp1-15b2f06a",
+     "sinceSec": 0.7403430938720703,
+     "toolName": "AskUserQuestion"
+    },
+    "identity": "qaweb2-42054",
+    "kind": "blocked",
+    "label": "qaweb2",
+    "openUrl": null,
+    "paneId": null,
+    "permission": null,
+    "sinceSec": 0.7403430938720703,
+    "source": "claude-desktop",
+    "transcriptQuestion": null,
+    "urgency": 1
+   }
+  ],
+  "residueCount": 0,
+  "sleepingSessions": []
+ },
+ "feeds": {
+  "board": {
+   "ageSec": null,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": null,
+   "lastDurationSec": null,
+   "lastSuccessTs": null,
+   "name": "board",
+   "refreshIntervalSec": 150,
+   "warming": true
+  },
+  "claudeSessions": {
+   "ageSec": 0.49583911895751953,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526261.941231,
+   "lastDurationSec": 0.1171567440032959,
+   "lastSuccessTs": 1790526261.941231,
+   "name": "claudeSessions",
+   "refreshIntervalSec": 3,
+   "warming": false
+  },
+  "desktopSessions": {
+   "ageSec": 6.6233789920806885,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526255.813695,
+   "lastDurationSec": 0.002294778823852539,
+   "lastSuccessTs": 1790526255.813695,
+   "name": "desktopSessions",
+   "refreshIntervalSec": 10,
+   "warming": false
+  },
+  "herdr": {
+   "ageSec": 1.2894511222839355,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526261.1475909,
+   "lastDurationSec": 0.23146295547485352,
+   "lastSuccessTs": 1790526261.1475909,
+   "name": "herdr",
+   "refreshIntervalSec": 5,
+   "warming": false
+  },
+  "hookCache": {
+   "ageSec": 0.5760579109191895,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526261.860951,
+   "lastDurationSec": 0.0035669803619384766,
+   "lastSuccessTs": 1790526261.860951,
+   "name": "hookCache",
+   "refreshIntervalSec": 2,
+   "warming": false
+  },
+  "machinesConfigError": null,
+  "paneScreen": {
+   "ageSec": 1.4543647766113281,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526260.982697,
+   "lastDurationSec": 0.16916990280151367,
+   "lastSuccessTs": 1790526260.982697,
+   "name": "paneScreen",
+   "refreshIntervalSec": 15,
+   "warming": false
+  },
+  "paneTick": {
+   "ageSec": 6.641556978225708,
+   "broken": false,
+   "data": null,
+   "error": null,
+   "lastAttemptTs": 1790526255.795488,
+   "lastDurationSec": 0.0015451908111572266,
+   "lastSuccessTs": 1790526255.795488,
+   "name": "paneTick",
+   "refreshIntervalSec": 90,
+   "warming": false
+  }
+ },
+ "serverTimeTs": 1790526262.438174
+}

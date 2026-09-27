@@ -126,6 +126,57 @@ final class TabStatsSummaryTests: XCTestCase {
         XCTAssertEqual(TabStatsSummary.recentMean(onlyToday, days: 7, missingDaysAsZero: true, now: date("2026-09-22"), calendar: calendar), 3)
     }
 
+    func testBuddhistCalendarPhoneReadsTheMacsGregorianDates() {
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = TimeZone(identifier: "Asia/Bangkok")!
+        let mac = SyncedTabStats(deviceID: "a", timeZoneID: "Asia/Bangkok", days: [
+            TabDay(day: "2026-09-21", opened: 4, avgOpen: 20, openedByHour: hours([9: 4]))
+        ])
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = buddhist.timeZone
+        let now = gregorian.date(from: DateComponents(year: 2026, month: 9, day: 22, hour: 12))!
+
+        let summary = TabStatsSummary.make(from: [mac], now: now, calendar: buddhist)
+
+        XCTAssertEqual(summary.openedByDay.map(\.value), [4])
+        XCTAssertEqual(summary.openedByDay.first?.day, gregorian.date(from: DateComponents(year: 2026, month: 9, day: 21)))
+        XCTAssertEqual(summary.busiestHour, 9)
+        XCTAssertEqual(TabStatsSummary.dayKey(for: now, calendar: buddhist), "2026-09-22")
+    }
+
+    func testDayKeysRejectMalformedAndImpossibleDates() {
+        for key in ["2026-02-30", "2569-9-21", "21/09/2026", "", "2026-09-21T00:00"] {
+            XCTAssertNil(TabStatsSummary.dayStart(forKey: key, calendar: calendar), key)
+        }
+        XCTAssertEqual(TabStatsSummary.dayStart(forKey: "2026-09-21", calendar: calendar), calendar.startOfDay(for: date("2026-09-21")))
+    }
+
+    /// Hours are the Mac's local hours, summed by index: a spring-forward day on the phone
+    /// (no 2 AM) must not move a Mac's 2 AM tabs into 3 AM.
+    func testHoursKeepTheirIndexOnADaylightSavingDay() {
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = TimeZone(identifier: "America/New_York")!
+        let mac = SyncedTabStats(deviceID: "a", timeZoneID: "Asia/Ho_Chi_Minh", days: [
+            TabDay(day: "2026-03-08", opened: 5, openedByHour: hours([2: 5]))
+        ])
+        let now = newYork.date(from: DateComponents(year: 2026, month: 3, day: 9, hour: 12))!
+
+        let summary = TabStatsSummary.make(from: [mac], now: now, calendar: newYork)
+
+        XCTAssertEqual(summary.busiestHour, 2)
+        XCTAssertEqual(summary.openedByHour.first { $0.slot == 2 }?.value, 5)
+        XCTAssertEqual(summary.openedByHour.count, 24)
+    }
+
+    /// Macs in different time zones meet by calendar date, and their average open tabs add up.
+    func testMacsInDifferentTimeZonesMeetByDate() {
+        let hanoi = SyncedTabStats(deviceID: "a", timeZoneID: "Asia/Ho_Chi_Minh", days: [TabDay(day: "2026-09-21", opened: 3, avgOpen: 12)])
+        let seattle = SyncedTabStats(deviceID: "b", timeZoneID: "America/Los_Angeles", days: [TabDay(day: "2026-09-21", opened: 2, avgOpen: 8)])
+        let summary = TabStatsSummary.make(from: [hanoi, seattle], now: date("2026-09-22"), calendar: calendar)
+        XCTAssertEqual(summary.averageOpenByDay.map(\.value), [20])
+        XCTAssertEqual(summary.openedByDay.map(\.value), [5])
+    }
+
     func testNoDigestsIsEmpty() {
         XCTAssertTrue(TabStatsSummary.make(from: [], now: Date(), calendar: calendar).isEmpty)
     }

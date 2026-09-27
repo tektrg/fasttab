@@ -41,11 +41,6 @@ enum StatsDemoFixture {
     }
 
     static func tabDigests(now: Date, calendar: Calendar) -> [SyncedTabStats] {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
         func days(scale: Double) -> [TabDay] {
             (0..<45).compactMap { daysAgo -> TabDay? in
                 guard let date = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { return nil }
@@ -57,7 +52,7 @@ enum StatsDemoFixture {
                     return Int(Double(opened) * workPeak / 2.2)
                 }
                 return TabDay(
-                    day: formatter.string(from: date), opened: opened, closed: opened,
+                    day: TabStatsSummary.dayKey(for: date, calendar: calendar), opened: opened, closed: opened,
                     avgOpen: (isWeekend ? 18 : 31 + 6 * cos(Double(daysAgo) * 0.3)) * scale,
                     maxOpen: Int(48 * scale), openedByHour: hours
                 )

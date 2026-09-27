@@ -63,11 +63,13 @@ struct TabStatsSummary: Equatable {
     private enum Metric {
         static let averageOpen = "tabs.averageOpen"
         static let opened = "tabs.opened"
-        static let openedInHour = "tabs.openedInHour"
     }
 
-    /// `calendar` places each digest's `yyyy-MM-dd` days; the phone's calendar, so a day reads
-    /// as the same date the Mac wrote.
+    /// `calendar` buckets the days (the phone's, whatever its calendar system). Each Mac's
+    /// `yyyy-MM-dd` key is always a Gregorian date, placed on that date in the phone's time zone.
+    ///
+    /// Macs in different time zones meet by calendar date: Monday on each Mac is Monday here.
+    /// Hours are each Mac's local hours, summed by index ("9 AM" means 9 AM on that Mac).
     static func make(from digests: [SyncedTabStats], now: Date, calendar: Calendar) -> TabStatsSummary {
         let events = digests.flatMap { metricEvents(for: $0, calendar: calendar) }
         guard !events.isEmpty else { return .empty }
@@ -81,50 +83,68 @@ struct TabStatsSummary: Equatable {
                 .points(from: events, calendar: calendar)
                 .compactMap { point in point.bucket.startDate.map { DayValue(day: $0, value: point.value) } }
         }
-        func perSlot(_ metric: String, period: MetricPeriod) -> [SlotValue] {
-            MetricQuery(metric: metric, interval: chartInterval, period: period, reducer: .sum)
-                .points(from: events, calendar: calendar)
-                .compactMap { point in
-                    switch point.bucket {
-                    case .hourOfDay(let slot), .weekday(let slot): return SlotValue(slot: slot, value: point.value)
-                    case .periodStart: return nil
-                    }
-                }
-        }
+        let openedByWeekday = MetricQuery(metric: Metric.opened, interval: chartInterval, period: .weekday, reducer: .sum)
+            .points(from: events, calendar: calendar)
+            .compactMap { point -> SlotValue? in
+                guard case .weekday(let weekday) = point.bucket else { return nil }
+                return SlotValue(slot: weekday, value: point.value)
+            }
 
         return TabStatsSummary(
             averageOpenByDay: perDay(Metric.averageOpen),
             openedByDay: perDay(Metric.opened),
-            openedByWeekday: perSlot(Metric.opened, period: .weekday),
-            openedByHour: perSlot(Metric.openedInHour, period: .hourOfDay)
+            openedByWeekday: openedByWeekday,
+            openedByHour: openedByHour(in: digests, chartInterval: chartInterval, calendar: calendar)
         )
     }
 
+    /// Summed by hour index, not re-timestamped: the Mac's hour 9 stays 9 here, even across a
+    /// daylight-saving day or a Mac in another time zone.
+    private static func openedByHour(in digests: [SyncedTabStats], chartInterval: DateInterval, calendar: Calendar) -> [SlotValue] {
+        var totals = Array(repeating: 0, count: TabDay.hoursPerDay)
+        for tabDay in digests.flatMap(\.days) {
+            guard let dayStart = dayStart(forKey: tabDay.day, calendar: calendar),
+                  chartInterval.start <= dayStart, dayStart < chartInterval.end else { continue }
+            for (hour, count) in tabDay.openedByHour.prefix(TabDay.hoursPerDay).enumerated() { totals[hour] += count }
+        }
+        guard totals.contains(where: { $0 > 0 }) else { return [] }
+        return totals.enumerated().map { SlotValue(slot: $0.offset, value: Double($0.element)) }
+    }
+
     private static func metricEvents(for digest: SyncedTabStats, calendar: Calendar) -> [MetricEvent] {
-        let dayParser = dayFormatter(calendar: calendar)
-        return digest.days.flatMap { tabDay -> [MetricEvent] in
-            guard let dayStart = dayParser.date(from: tabDay.day) else { return [] }
-            func event(_ metric: String, at timestamp: Date = dayStart, value: Double) -> MetricEvent {
-                MetricEvent(timestamp: timestamp, subject: digest.deviceID, metric: metric, value: value)
+        digest.days.flatMap { tabDay -> [MetricEvent] in
+            guard let dayStart = dayStart(forKey: tabDay.day, calendar: calendar) else { return [] }
+            func event(_ metric: String, value: Double) -> MetricEvent {
+                MetricEvent(timestamp: dayStart, subject: digest.deviceID, metric: metric, value: value)
             }
-            var events = [
-                event(Metric.averageOpen, value: tabDay.avgOpen),
-                event(Metric.opened, value: Double(tabDay.opened))
-            ]
-            for (hour, openedCount) in tabDay.openedByHour.enumerated() where openedCount > 0 {
-                guard let hourStart = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: dayStart) else { continue }
-                events.append(event(Metric.openedInHour, at: hourStart, value: Double(openedCount)))
-            }
-            return events
+            return [event(Metric.averageOpen, value: tabDay.avgOpen), event(Metric.opened, value: Double(tabDay.opened))]
         }
     }
 
-    private static func dayFormatter(calendar: Calendar) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
+    // MARK: - Day keys
+
+    /// Start of the Gregorian date `key` (`yyyy-MM-dd`, as the Mac writes it) in `calendar`'s
+    /// time zone. Never read with `calendar` itself: on a Buddhist-calendar phone "2026" would be
+    /// the Buddhist year 2026, five centuries back.
+    static func dayStart(forKey key: String, calendar: Calendar) -> Date? {
+        let parts = key.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0].count == 4, parts[1].count == 2, parts[2].count == 2,
+              let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2]) else { return nil }
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let noonComponents = DateComponents(year: year, month: month, day: day, hour: 12)
+        // Rejects impossible dates (2026-02-30) rather than rolling them into March.
+        guard noonComponents.isValidDate(in: gregorian), let noon = gregorian.date(from: noonComponents) else { return nil }
+        // From noon: in a zone whose clocks skip midnight, the day starts at 1 AM, not the day before.
+        return calendar.startOfDay(for: noon)
+    }
+
+    /// Inverse of `dayStart(forKey:calendar:)`: the Gregorian `yyyy-MM-dd` of `date` in
+    /// `calendar`'s time zone.
+    static func dayKey(for date: Date, calendar: Calendar) -> String {
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let parts = gregorian.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 }

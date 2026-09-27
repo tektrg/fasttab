@@ -66,8 +66,10 @@ final class StatsViewModel: ObservableObject {
             .store(in: &subscriptions)
     }
 
-    /// Reloads the reading log from disk. Call when the More tab appears.
+    /// Reloads the reading log from disk and re-dates the tab charts (a More tab left open past
+    /// midnight would still end on yesterday). Call when the More tab appears.
     func reloadReadingLog() async {
+        recomputeTabs(from: localCache.state.tabStats)
         await recorder.waitForPendingWrites()
         do {
             // Only the charted weeks: topics are resolved (and maybe inferred) per article.

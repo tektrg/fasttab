@@ -367,6 +367,72 @@ check("the settle refusal was logged too (diagnosable without a repeat "
       "settle refused" in log_text and f"pane={PANE_ID!r}" in log_text,
       True)
 
+print("== FormCard bug regression (2026-09-27, 'question changed or gone' "
+      "while the question was still visibly on screen): the client used to "
+      "post the TRANSCRIPT's raw title/question (verbatim AskUserQuestion "
+      "tool-input text) instead of the screen-parsed copy. Fixture below is "
+      "a sanitised real capture (air-m1:w2:p2M, 'Disk gap' picker) — the "
+      "SCREEN render normalizes whitespace/wrapping that the raw transcript "
+      "text never goes through, so the two are never byte-identical even "
+      "though the same question is genuinely still open. The refusal must "
+      "also log posted-vs-fresh so this class of bug is diagnosable ==")
+DISK_GAP_SCREEN = "\n".join([
+    "────────────────────────────────────────",
+    " ☐ Disk gap",
+    "",
+    "│ mbp-m4 is at 23 GB free, and e2e runs refuse below 30 GB. Building "
+    "this branch will use about 5 GB",
+    "│ more, leaving ~18 GB during the tests. How do I get it over the "
+    "line?",
+    "",
+    "❯ 1. Delete 2 more items (Recommended)",
+    "  2. Lower the limit only",
+    "  3. Pause; I'll free space",
+    "  4. Type something.",
+    "────────────────────────────────────────",
+    "  5. Chat about this",
+    "",
+    "Enter to select · ↑/↓ to navigate · Esc to cancel",
+])
+# What FormCard used to post: the raw transcript `question` string, one
+# logical line (no mid-sentence box-border characters, no wrap point) —
+# semantically the same question, textually never equal to the screen's
+# parsed copy above.
+DISK_GAP_TRANSCRIPT_QUESTION = {
+    "title": "Disk gap",
+    "question": (
+        "mbp-m4 is at 23 GB free, and e2e runs refuse below 30 GB. "
+        "Building this branch will use about 5 GB more, leaving ~18 GB "
+        "during the tests. How do I get it over the line?"),
+}
+fake = FakeHerdr([DISK_GAP_SCREEN])
+install_fake(fake)
+_srv.sys.stderr = _log = __import__("io").StringIO()
+try:
+    check_raises(
+        "transcript-shaped question text refuses even though the SAME "
+        "question is still open on screen",
+        lambda: _srv.answer_pane_question(
+            PANE_ID, {"type": "select", "indices": [1]},
+            DISK_GAP_TRANSCRIPT_QUESTION),
+        "question changed or gone")
+finally:
+    _srv.sys.stderr = sys.__stderr__
+check("no key was ever sent — a mismatch refuses before touching the pane",
+      fake.sent_keys, [])
+log_text = _log.getvalue()
+check("mismatch log names the pane", f"pane={PANE_ID!r}" in log_text, True)
+check("mismatch log carries the posted title/question",
+      "posted_title='Disk gap'" in log_text
+      and "posted_question='mbp-m4 is at 23 GB" in log_text, True)
+check("mismatch log carries the FRESH screen-parsed title/question too "
+      "(the pipe-prefixed wrapped copy) — this is what makes the two "
+      "diverge, and is exactly what a PO needs to see to diagnose it",
+      "fresh_title='Disk gap'" in log_text
+      and "fresh_question=" in log_text
+      and "\\u2502" in log_text.encode(
+          "unicode_escape").decode("ascii"), True)
+
 print()
 if fails:
     print(f"{len(fails)} FAILURES")

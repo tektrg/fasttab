@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Text } from "@mantine/core";
-import type { SessionLatestResponse } from "../types";
+import type { PickerQuestion, SessionLatestResponse } from "../types";
 import { fetchSessionLatest } from "../api";
 import { Markdown } from "./Markdown";
 import { Block } from "./Block";
@@ -9,15 +9,21 @@ import { FormCard } from "./FormCard";
 /** Latest assistant message (`GET /api/session/latest`) plus, when the
  *  agent is sitting on an unanswered multi-question AskUserQuestion turn,
  *  the form card. Nothing renders until the fetch settles (no flash of an
- *  empty card); an `ok:false` reply shows its reason instead of nothing. */
+ *  empty card); an `ok:false` reply shows its reason instead of nothing.
+ *  `screenQuestion` is the board sweep's screen-parsed copy of whatever
+ *  picker is CURRENTLY open (`row.derived.screenQuestion`) — passed straight
+ *  through to `FormCard`, which needs it (not the transcript copy here) to
+ *  post an answer the server's fresh re-read will accept. */
 export function LatestMessage({
   rowId,
   paneId,
+  screenQuestion,
   onToast,
   phone,
 }: {
   rowId: string;
   paneId: string | null;
+  screenQuestion?: PickerQuestion | null;
   onToast: (msg: string, ok: boolean) => void;
   phone?: boolean;
 }) {
@@ -56,7 +62,13 @@ export function LatestMessage({
         </Block>
       )}
       {latest.pendingQuestion && paneId && (
-        <FormCard paneId={paneId} form={latest.pendingQuestion} onToast={onToast} phone={phone} />
+        <FormCard
+          paneId={paneId}
+          form={latest.pendingQuestion}
+          screenQuestion={screenQuestion}
+          onToast={onToast}
+          phone={phone}
+        />
       )}
     </>
   );

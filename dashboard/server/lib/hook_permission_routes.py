@@ -4,11 +4,11 @@ Kept out of chief-dashboard-server.py so the server only dispatches.
 
   POST /api/hook/permission              hook -> {requestId} | {state: ignored}
   GET  /api/hook/permission/<id>/wait    hook long-poll (?timeout=N, N <= 25)
-  POST /api/hook/permission/<id>/answer  AgentBar -> {ok, state} | 4xx {error}
+  POST /api/hook/permission/<id>/answer  AgentBar / web UI -> {ok, state} | 4xx {error}
 
-Local listener only: every route answers 404 on the remote (tailscale)
-listener — the hook runs on this Mac, and answering a permission prompt from
-the phone is not in scope.
+On the remote (tailscale) listener only `answer` exists — the phone's web
+remote answers there (authenticated, CSRF-checked and audited like every
+remote write); register and wait stay local (404): the hook runs on this Mac.
 """
 import claude_sessions
 import hook_permissions
@@ -62,6 +62,11 @@ def _parse_timeout(query):
         return hook_permissions.WAIT_MAX_SEC
 
 
+def request_id_of(path):
+    """The request id in a per-request path (audit row), else None."""
+    return _request_route(path)[0]
+
+
 def handle_get(path, query, is_remote, store=None):
     store = store or hook_permissions.STORE
     request_id, action = _request_route(path)
@@ -75,14 +80,14 @@ def handle_post(path, read_body, is_remote, store=None, session_entry=None):
     `session_entry(payload)` finds the hook session's file (tests fake it)."""
     store = store or hook_permissions.STORE
     session_entry = session_entry or _session_entry
-    if is_remote:
+    request_id, action = _request_route(path)
+    if is_remote and action != "answer":
         return NOT_FOUND
     try:
         if path == PREFIX:
             payload = read_body()
             herdr_ids = hook_permissions.herdr_session_ids(_feed_data("herdr"))
             return store.register(payload, herdr_ids, session_entry(payload)), 200
-        request_id, action = _request_route(path)
         if action == "answer":
             return store.answer(request_id, read_body())
     except ValueError as e:  # malformed JSON body

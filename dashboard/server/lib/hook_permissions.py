@@ -28,9 +28,10 @@ until every hook has returned, so holding them here would leave that agent
 stuck on AgentBar alone (up to the hook's 24h timeout). Those are ignored and
 Claude's normal flow runs at once.
 
-Held ONLY while AgentBar is connected (agentbar_presence.py): with no
-AgentBar seen in the last 10s a prompt is ignored, and once AgentBar has been
-gone 15s every pending one is released (`agentbar gone`) so its hook exits.
+Held ONLY while an answer surface is connected (agentbar_presence.py:
+AgentBar, or the web UI incl. the phone's web remote): with none seen in the
+last 10s a prompt is ignored, and once all have been gone 15s every pending
+one is released (`agentbar gone`) so its hook exits (and re-sends later).
 """
 import hashlib
 import itertools
@@ -63,7 +64,7 @@ HOOK_FIRST_WAIT_SEC = 10
 MAX_AGE_SEC = 24 * 3600
 REASON_AGENTBAR_GONE = "agentbar gone"
 REASON_HOOK_SILENT = "hook stopped polling"
-REASON_AGENTBAR_NOT_CONNECTED = "AgentBar not connected (nobody here to answer)"
+REASON_AGENTBAR_NOT_CONNECTED = "AgentBar / web remote not connected (nobody here to answer)"
 REASON_PROMPT_GONE = "prompt no longer waiting"
 #: Outcomes after which the hook may send the same prompt again later
 #: (AgentBar may come back); every other ignore/finish is final for it.
@@ -353,13 +354,14 @@ class HookPermissionStore:
 def _not_pending_message(request):
     """409 text AgentBar shows verbatim in its footer."""
     if request.state == STATE_ANSWERED:
-        return "This prompt was already answered from AgentBar."
+        return "This prompt was already answered from AgentBar or the web remote."
     if request.state_reason == "answered elsewhere":
         return "This prompt was already answered in Claude."
     if request.state_reason == REASON_HOOK_SILENT:
         return "Claude stopped waiting for this answer; answer it in Claude."
     if request.state_reason == REASON_AGENTBAR_GONE:
-        return "AgentBar lost its dashboard connection; answer this prompt in Claude."
+        return ("AgentBar and the web remote lost their dashboard connection; "
+                "answer this prompt in Claude.")
     return f"This prompt is no longer waiting ({request.state_reason or request.state})."
 
 

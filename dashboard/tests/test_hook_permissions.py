@@ -191,7 +191,7 @@ check("bad answer -> 400, still pending", store.answer(rid, {"behavior": "x"})[1
 check("wait(0) on pending", store.wait(rid, 0), ({"state": "pending"}, 200))
 check("answer ok", store.answer(rid, {"behavior": "allow"}), ({"ok": True, "state": "answered"}, 200))
 check("second answer -> 409", store.answer(rid, {"behavior": "deny"}),
-      ({"ok": False, "error": "This prompt was already answered from AgentBar."}, 409))
+      ({"ok": False, "error": "This prompt was already answered from AgentBar or the web remote."}, 409))
 check("wait returns the decision", store.wait(rid, 5),
       ({"state": "answered", "decision": {"behavior": "allow"}}, 200))
 check("unknown wait -> 404", store.wait("nope", 0)[1], 404)

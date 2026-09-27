@@ -46,7 +46,7 @@ struct AgentSectionClassifierTests {
     }
 
     @Test func sectionsAreOrderedForDisplay() {
-        #expect(AgentSection.allCases.sorted() == [.needsYou, .working, .parked, .ended])
-        #expect(AgentSection.allCases.map(\.title) == ["Needs you", "Working", "Parked", "Ended"])
+        #expect(AgentSection.allCases.sorted() == [.needsYou, .working, .parked, .ended, .sleeping])
+        #expect(AgentSection.allCases.map(\.title) == ["Needs you", "Working", "Parked", "Ended", "Sleeping"])
     }
 }

@@ -145,7 +145,7 @@ enum LiveAgentMapper {
             return (asked.isEmpty ? nil : asked) ?? detail ?? screenSignal ?? hookReason ?? "Waiting for your answer"
         case .working:
             return screenSignal ?? hookReason ?? "Working"
-        case .needsYou, .parked, .ended:
+        case .needsYou, .parked, .ended, .sleeping:
             // Finished or idle with no prompt: the last screen line / recap.
             return screenSignal ?? hookReason ?? "Idle"
         }

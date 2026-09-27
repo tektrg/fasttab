@@ -21,7 +21,8 @@ enum AgentListBuilder {
         }
 
         let note = !snapshot.boardIsCurrent
-        let shown = shownAgents(in: snapshot, settings: settings, triage: triage)
+        let isSearching = !searchWords(in: query).isEmpty
+        let shown = shownAgents(in: snapshot, settings: settings, triage: triage, isSearching: isSearching)
         guard !shown.isEmpty else {
             return AgentListPresentation(state: .noAgents, rows: [], showsBoardNote: note)
         }
@@ -33,14 +34,17 @@ enum AgentListBuilder {
 
         return AgentListPresentation(
             state: .list,
-            rows: rows(for: matching, tree: snapshot.agentTree, isSearching: !searchWords(in: query).isEmpty, frecency: frecency, now: now),
+            rows: rows(for: matching, tree: snapshot.agentTree, isSearching: isSearching, frecency: frecency, now: now),
             showsBoardNote: note
         )
     }
 
-    /// The agents the user can see before searching: parking and list settings applied.
-    static func shownAgents(in snapshot: StatusSnapshot, settings: AgentListSettings, triage: TriageState) -> [AgentSnapshot] {
-        settings.applying(to: triage.applying(to: snapshot.agents))
+    /// The agents the user can see: parking and list settings applied. Searching also brings in
+    /// older sleeping sessions (`AgentListSettings.sleepingSearchDays`).
+    static func shownAgents(
+        in snapshot: StatusSnapshot, settings: AgentListSettings, triage: TriageState, isSearching: Bool = false
+    ) -> [AgentSnapshot] {
+        settings.applying(to: triage.applying(to: snapshot.agents), isSearching: isSearching)
     }
 
     /// What is in the Needs you section, whatever the search says. Nil without a

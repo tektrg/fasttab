@@ -8,6 +8,7 @@ extension AgentSection {
         case .working: .green
         case .parked: .indigo
         case .ended: .gray.opacity(0.45)
+        case .sleeping: .clear   // no live status to show
         }
     }
 }

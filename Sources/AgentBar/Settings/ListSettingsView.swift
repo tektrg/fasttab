@@ -36,6 +36,23 @@ struct ListSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Section("Sleeping Claude Desktop sessions") {
+                Picker("Show in list", selection: binding(\.sleepingListDays)) {
+                    ForEach(AgentListSettings.sleepingListDaysChoices, id: \.self) { days in
+                        Text(days == 0 ? "Never (search only)" : Self.daysLabel(days)).tag(days)
+                    }
+                }
+                Picker("Include in search", selection: binding(\.sleepingSearchDays)) {
+                    ForEach(AgentListSettings.sleepingSearchDaysChoices, id: \.self) { days in
+                        Text(Self.daysLabel(days)).tag(days)
+                    }
+                }
+                Text("Desktop sessions Claude has put to sleep (no running process), by last activity. Listed greyed at the bottom; Enter opens one in Claude Desktop. Needs \"Show Claude Desktop and CLI sessions\" on.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("Panel size") {
                 Stepper(value: binding(\.maxVisibleRows), in: AgentListSettings.maxVisibleRowsRange) {
                     HStack {
@@ -56,6 +73,10 @@ struct ListSettingsView: View {
             get: { settings.list[keyPath: keyPath] },
             set: { newValue in settings.updateList { $0[keyPath: keyPath] = newValue } }
         )
+    }
+
+    private static func daysLabel(_ days: Int) -> String {
+        "Last \(days) \(days == 1 ? "day" : "days")"
     }
 
     private static func windowLabel(hours: Int) -> String {

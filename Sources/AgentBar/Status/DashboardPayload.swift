@@ -15,13 +15,16 @@ struct DashboardPayload: Decodable {
     let agents: [DashboardAgent]
     let needsYou: [DashboardNeedsYou]
     let boardRows: [DashboardBoardRow]?
+    /// Claude Desktop sessions with no running process (`computed.sleepingSessions`); empty from
+    /// an older dashboard. See `SleepingSessionMapper`.
+    let sleepingSessions: [DashboardSleepingSession]
     /// Who-reports-to-whom, when this dashboard computes it. Nil when the key is absent, null, or
     /// unreadable — all three read as "feature unavailable" (`AgentTreeMapper`, `AgentTreeModel`),
     /// never as an error: an older dashboard simply predates this field.
     let agentTree: AgentTreeWirePayload?
 
     fileprivate enum CodingKeys: String, CodingKey { case serverTimeTs, feeds, computed, board, agentTree }
-    private enum ComputedKeys: String, CodingKey { case agents, needsYou }
+    private enum ComputedKeys: String, CodingKey { case agents, needsYou, sleepingSessions }
     private enum BoardKeys: String, CodingKey { case rows }
 
     init(from decoder: Decoder) throws {
@@ -32,9 +35,11 @@ struct DashboardPayload: Decodable {
         if let computed = try? root.nestedContainer(keyedBy: ComputedKeys.self, forKey: .computed) {
             agents = (computed.lenient(.agents) as LenientArray<DashboardAgent>?)?.elements ?? []
             needsYou = (computed.lenient(.needsYou) as LenientArray<DashboardNeedsYou>?)?.elements ?? []
+            sleepingSessions = (computed.lenient(.sleepingSessions) as LenientArray<DashboardSleepingSession>?)?.elements ?? []
         } else {
             agents = []
             needsYou = []
+            sleepingSessions = []
         }
         if let board = try? root.nestedContainer(keyedBy: BoardKeys.self, forKey: .board) {
             boardRows = (board.lenient(.rows) as LenientArray<DashboardBoardRow>?)?.elements

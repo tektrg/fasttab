@@ -45,9 +45,13 @@ enum TabStatsDigestBuilder {
         }
     }
 
-    /// `yyyy-MM-dd` in `calendar`, without a locale-sensitive formatter.
+    /// ISO `yyyy-MM-dd` in `calendar`'s time zone, without a locale-sensitive
+    /// formatter. Always Gregorian: a Mac set to the Buddhist or Japanese
+    /// calendar would otherwise write year 2569 or 8, which no reader parses.
     static func dayKey(_ date: Date, calendar: Calendar) -> String {
-        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let parts = gregorian.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 

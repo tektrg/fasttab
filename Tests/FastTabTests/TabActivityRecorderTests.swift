@@ -219,6 +219,20 @@ struct TabStatsDigestBuilderTests {
         #expect(day?.maxOpen == 30)
     }
 
+    @Test("Day keys are Gregorian ISO dates even on a Buddhist or Japanese calendar Mac")
+    func dayKeyIgnoresNonGregorianCalendars() {
+        for identifier in [Calendar.Identifier.buddhist, .japanese] {
+            var localCalendar = Calendar(identifier: identifier)
+            localCalendar.timeZone = calendar.timeZone
+            let days = TabStatsDigestBuilder.days(
+                from: [counter(TabMetric.opened, at: date(26, 23, 59))],
+                calendar: localCalendar,
+                now: date(27, 12)
+            )
+            #expect(days.map(\.day) == ["2026-09-26"])
+        }
+    }
+
     @Test("Only the last 90 days are kept")
     func retentionWindow() {
         let now = date(27, 12)

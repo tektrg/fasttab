@@ -256,8 +256,9 @@ public struct ReaderView: View {
 
     /// Floating bottom control bar. Replaces the old top `toolbarContent` —
     /// close, font size, highlights and the overflow menu all live here.
+    /// Every control is a 44pt tap target (HIG minimum).
     private var bottomControlBar: some View {
-        HStack(spacing: DS.Space.lg) {
+        HStack(spacing: DS.Space.sm) {
             Button {
                 dismiss()
             } label: {
@@ -265,6 +266,7 @@ public struct ReaderView: View {
                     .symbolRenderingMode(.hierarchical)
                     .font(.title3)
                     .foregroundStyle(.secondary)
+                    .readerBarTapTarget()
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close reader")
@@ -286,6 +288,7 @@ public struct ReaderView: View {
                                 .offset(x: 4, y: -4)
                         }
                     }
+                    .readerBarTapTarget()
             }
             .sheet(isPresented: $showReadingSettings) {
                 ReaderSettingsSheet()
@@ -331,6 +334,7 @@ public struct ReaderView: View {
                                 .offset(x: 4, y: -4)
                         }
                     }
+                    .readerBarTapTarget()
             }
 
             // Share / open in Safari / reload
@@ -351,6 +355,7 @@ public struct ReaderView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
+                    .readerBarTapTarget()
             }
             .accessibilityLabel("More actions")
         }
@@ -424,6 +429,16 @@ public struct ReaderView: View {
 }
 
 // MARK: - Bottom Bar Glass
+
+/// 44pt minimum tap target for the floating bottom-bar controls (HIG).
+/// Applied inside the label so badges overlaid on the glyph stay anchored.
+private extension View {
+    func readerBarTapTarget() -> some View {
+        self
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+    }
+}
 
 /// Liquid Glass pill on iOS 26+, regular-material capsule on earlier versions
 /// (deployment target is iOS 17).

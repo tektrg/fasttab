@@ -3,6 +3,7 @@
 import PackageDescription
 
 let indieSearch: Target.Dependency = .product(name: "IndieSearch", package: "IndieLibKit")
+let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -19,8 +20,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
         // Shared L1 library, sibling checkout (~/01_Project/IndieLibKit on both Macs).
-        // Only its Foundation-only `IndieSearch` product is linked here: the search
-        // folding every app shares (case, accents, đ/ø/ł, width, punctuation).
+        // Only Foundation-only products are linked here: `IndieSearch` (the search
+        // folding every app shares) and `IndieMetrics` (tab-activity statistics).
         .package(path: "../IndieLibKit")
     ],
     targets: [
@@ -41,7 +42,8 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 "FastTabSync",
                 "CommandBarKit",
-                indieSearch
+                indieSearch,
+                indieMetrics
             ]
         ),
         // Pure stdio<->socket relay launched by Chrome's native messaging.
@@ -57,7 +59,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "CommandBarKit", indieSearch]
+            dependencies: ["FastTab", "FastTabSync", "CommandBarKit", indieSearch, indieMetrics]
         ),
         .testTarget(
             name: "AgentBarTests",

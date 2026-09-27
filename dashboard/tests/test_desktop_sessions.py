@@ -104,6 +104,23 @@ with tempfile.TemporaryDirectory() as tmp:
     check("missing store folder -> []",
           desktop_sessions.DesktopSessionScanner(store_dirs=["/nonexistent/x"]).scan(now=NOW), [])
 
+print("== DesktopSessionScanner: symlinks, FIFOs, oversized files skipped ==")
+with tempfile.TemporaryDirectory() as tmp:
+    org = write_store(tmp, {"local_ok.json": desktop_file("ok", 1),
+                            "local_big.json": desktop_file("big", 1, title="x" * 2000)})
+    elsewhere = os.path.join(tmp, "elsewhere.json")
+    with open(elsewhere, "w") as f:
+        json.dump(desktop_file("link", 1), f)
+    os.symlink(elsewhere, os.path.join(org, "local_link.json"))
+    os.mkfifo(os.path.join(org, "local_fifo.json"))  # would block open() forever
+    real_max = desktop_sessions.MAX_SESSION_FILE_BYTES
+    desktop_sessions.MAX_SESSION_FILE_BYTES = 1000
+    try:
+        got = desktop_sessions.DesktopSessionScanner(store_dirs=[tmp], window_days=14).scan(now=NOW)
+    finally:
+        desktop_sessions.MAX_SESSION_FILE_BYTES = real_max
+    check("only the plain, normal-sized file is read", [s["desktopSessionId"] for s in got], ["local_ok"])
+
 print("== default_store_dirs: env override ==")
 os.environ[desktop_sessions.STORES_ENV] = os.pathsep.join(["/a", "", "/b"])
 check("override split, blanks dropped", desktop_sessions.default_store_dirs(), ["/a", "/b"])
@@ -120,6 +137,13 @@ check("running by Desktop id / by Claude session id / as a herdr pane -> dropped
       [s["desktopSessionId"] for s in desktop_sessions.build_sleeping_sessions(sessions, live, agents)],
       ["local_asleep", "local_nocli"])
 check("no feed data -> []", desktop_sessions.build_sleeping_sessions(None, None, None), [])
+two_profiles = [{"desktopSessionId": "local_newer", "cliSessionId": "cli-shared", "lastActiveTs": NOW},
+                {"desktopSessionId": "local_older", "cliSessionId": "cli-shared", "lastActiveTs": NOW - 60},
+                {"desktopSessionId": "local_a", "cliSessionId": None, "lastActiveTs": NOW - 90},
+                {"desktopSessionId": "local_b", "cliSessionId": None, "lastActiveTs": NOW - 99}]
+check("one Claude session in two Desktop profiles -> one row (the newest); id-less ones all kept",
+      [s["desktopSessionId"] for s in desktop_sessions.build_sleeping_sessions(two_profiles, [], [])],
+      ["local_newer", "local_a", "local_b"])
 
 print("== get_full_state: computed.sleepingSessions, feed data summarized ==")
 import chief_dashboard_views as views  # noqa: E402

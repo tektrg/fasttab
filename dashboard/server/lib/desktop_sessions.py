@@ -36,6 +36,9 @@ import claude_sessions
 SLEEPING_WINDOW_DAYS = int(os.environ.get("CLAUDE_DESKTOP_SLEEPING_DAYS", "14"))
 SESSION_FILE_PREFIX = "local_"
 SESSION_FILE_SUFFIX = ".json"
+#: Real session files are <= ~250KB (measured 2026-09-27); anything far bigger
+#: is not one, and is never read into memory.
+MAX_SESSION_FILE_BYTES = 4 * 1024 * 1024
 #: Env override (os.pathsep-separated store folders) for tests / a second instance.
 STORES_ENV = "CLAUDE_DESKTOP_SESSION_STORES"
 _DEFAULT_STORE_GLOBS = (
@@ -56,7 +59,8 @@ def default_store_dirs():
 
 def _session_file_paths(store_dir):
     """Every `local_*.json` two folders down (<account>/<org>/), with its
-    mtime. Unreadable folders are skipped."""
+    mtime. Unreadable folders, symlinks and non-regular files (a FIFO would
+    block the poller forever on open) and oversized files are skipped."""
     for account in _subdirs(store_dir):
         for org in _subdirs(account):
             try:
@@ -68,9 +72,13 @@ def _session_file_paths(store_dir):
                 if not (name.startswith(SESSION_FILE_PREFIX) and name.endswith(SESSION_FILE_SUFFIX)):
                     continue
                 try:
-                    yield entry.path, entry.stat().st_mtime
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                    st = entry.stat(follow_symlinks=False)
                 except OSError:
                     continue
+                if st.st_size <= MAX_SESSION_FILE_BYTES:
+                    yield entry.path, st.st_mtime
 
 
 def _subdirs(path):
@@ -147,10 +155,19 @@ def build_sleeping_sessions(desktop_sessions, live_sessions, agent_rows):
     """The Desktop sessions that are NOT running now. A running one is already
     a row (status-only, or a herdr pane): matched by its Desktop id (a live
     file's `hostSessionId`) or its Claude session id (`cliSessionId` == a live
-    file's `sessionId` / any row's `agentSession`). Live wins."""
+    file's `sessionId` / any row's `agentSession`). Live wins. One Claude
+    session can sit in two Desktop profiles (seen 2026-09-27): only the first
+    (newest, input is newest first) is kept, so AgentBar never gets two rows
+    with one id."""
     live_desktop_ids = {s.get("hostSessionId") for s in live_sessions or [] if s.get("hostSessionId")}
     live_session_ids = {s.get("sessionId") for s in live_sessions or [] if s.get("sessionId")}
     live_session_ids |= {r.get("agentSession") for r in agent_rows or [] if r.get("agentSession")}
-    return [s for s in desktop_sessions or []
-            if s["desktopSessionId"] not in live_desktop_ids
-            and not (s.get("cliSessionId") and s["cliSessionId"] in live_session_ids)]
+    sleeping, kept_ids = [], set()
+    for s in desktop_sessions or []:
+        cli_id = s.get("cliSessionId")
+        if s["desktopSessionId"] in live_desktop_ids or (cli_id and (cli_id in live_session_ids or cli_id in kept_ids)):
+            continue
+        if cli_id:
+            kept_ids.add(cli_id)
+        sleeping.append(s)
+    return sleeping

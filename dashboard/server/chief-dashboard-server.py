@@ -1086,8 +1086,28 @@ def _read_pane_now(pane_id, read_lines=_ANSWER_READ_LINES, parser=None,
 
 
 def _send_keys(pane_id, *keys, machine=herdr_transport.LOCAL_MACHINE):
-    _pane_run_raw(["pane", "send-keys", pane_id, *keys],
-                  machine=machine)
+    # Logged (2026-09-27, air-m1:w2:p2M brief): every prior failure on this
+    # path left NO trace — `log_message` below drops every 200-status
+    # request, and `/api/answer` always answers 200 (`ok:false` on a
+    # refusal), so nothing about a failed send ever reached the console.
+    # This is the one choke point every key send goes through (digits,
+    # arrows, enter), so one line here covers the whole picker-answer path.
+    # Real capture: this call reported exit 0 (no HerdrError raised) on a
+    # pane where the digit provably never reached the pty — a real
+    # keystroke typed directly into the same pane, moments later, worked
+    # immediately. So "no exception" is NOT proof of delivery; logging the
+    # attempt is what makes the NEXT one diagnosable, since herdr's own
+    # send-keys has no stronger confirmation to give us.
+    print(f"chief-dashboard-server: send-keys pane={pane_id!r} "
+          f"machine={machine!r} keys={keys!r}", file=sys.stderr)
+    try:
+        _pane_run_raw(["pane", "send-keys", pane_id, *keys],
+                      machine=machine)
+    except Exception as e:
+        print(f"chief-dashboard-server: send-keys pane={pane_id!r} "
+              f"machine={machine!r} keys={keys!r} FAILED: {e}",
+              file=sys.stderr)
+        raise
 
 
 def _type_text(pane_id, text, machine=herdr_transport.LOCAL_MACHINE):
@@ -1234,8 +1254,21 @@ def _settle_after_submit(pane_id, old, machine=herdr_transport.LOCAL_MACHINE):
         lines, q = _read_pane_now(pane_id, machine=machine)
     if ((q is not None and _same_question(q, old))
             or classify_pane.review_screen_open(lines)):
+        # Logged for the same reason as `_send_keys` above: 2026-09-27's
+        # air-m1:w2:p2M brief hit this exact refusal twice, post-fix, on a
+        # pane where every `send-keys` call reported success — yet a real
+        # keystroke typed directly into that pane worked immediately after.
+        # Nothing else on this path leaves a trace (see `_send_keys`), so
+        # without this line a repeat is exactly as undiagnosable as this
+        # one was.
+        print(f"chief-dashboard-server: settle refused pane={pane_id!r} "
+              f"machine={machine!r} old_title={old.get('title')!r} "
+              f"still_same_question={q is not None and _same_question(q, old)!r} "
+              f"review_open={classify_pane.review_screen_open(lines)!r}",
+              file=sys.stderr)
         raise RuntimeError(
-            "answer may not have landed — re-check the pane")
+            "answer may not have landed over the dashboard — try answering "
+            "directly in the pane's own terminal instead")
     return {"next": _wait_for_next(pane_id, old, machine=machine)}
 
 
@@ -1341,45 +1374,36 @@ def answer_pane_question(pane_id, choice, question):
                     "single-select takes exactly one option")
             # Digit = instant select+submit (spike) — CONFIRMED still true
             # regardless of where the cursor already sits: live-tested
-            # 2026-09-27 (throwaway local panes, both plain tmux and
-            # `herdr pane send-keys` itself, the identical primitive this
-            # function calls) sending the digit already under the cursor,
-            # with a background subagent actively churning, and with the
-            # target pane defocused in herdr's own UI — every case
+            # 2026-09-27 on both the Pro AND the Air (throwaway local
+            # panes, plain tmux keys AND `herdr pane send-keys` itself —
+            # the identical primitive this function calls, over the exact
+            # ssh options this function uses), with the digit already
+            # under the cursor, a background subagent actively churning,
+            # the target pane's TAB not the active one in its workspace,
+            # and the pane's real macOS window not frontmost — every case
             # submitted instantly. So the picker's own key handling is not
             # the cause of the 2026-09-27 air-m1:w2:p2M failure (a first
-            # pass at this fix wrongly assumed a same-row no-op; that
-            # theory did not survive testing against the real picker and
-            # was reverted — see the delivery note for the full disproof).
+            # pass at this fix wrongly assumed a same-row no-op, and a
+            # second pass wrongly assumed a resendable network hiccup;
+            # neither survived testing against the real picker and the
+            # real pane, and both were reverted — see the delivery note).
             #
-            # ONE resend, remote only: a keystroke to a remote (SSH/
-            # Tailscale) pane is the one thing that failure COULD still be
-            # — `herdr pane send-keys` on the far end only confirms it told
-            # the remote herdr daemon to inject the key, not that the key
-            # was actually delivered to that pty before the daemon replied,
-            # so a network hiccup or a momentarily loaded remote daemon can
-            # drop or delay it in a way this function's own exit-code check
-            # never sees, and a local pane's near-zero latency never
-            # exercises. The multi-select branch below already tolerates
-            # this class of hiccup via its toggle-verify retries; single-
-            # select had none. Resending is safe ONLY when
-            # `_settle_after_submit` itself reports the picker is back to
-            # the exact SAME open question (its own `_same_question` gate)
-            # — never on any other failure (pane gone, question changed
-            # underneath us) — so this never risks a double-submit or
-            # answering a different question.
-            for attempt in range(2):
-                _send_keys(pane_id, str(indices[0]), machine=machine)
-                time.sleep(3)
-                try:
-                    return _settle_after_submit(pane_id, q, machine=machine)
-                except RuntimeError as e:
-                    if attempt == 1 or "may not have landed" not in str(e):
-                        raise
-                    _, q_retry = _read_pane_now(pane_id, machine=machine)
-                    if q_retry is None or not _same_question(q_retry, q):
-                        raise RuntimeError(
-                            "question changed or gone — re-check the pane")
+            # NO resend: the real capture answered this SAME pane through
+            # this SAME code path TWICE MORE after the resend shipped, and
+            # both attempts still refused identically — resending the
+            # identical digit through the identical delivery mechanism
+            # provably does not help THIS failure, so keeping it was dead
+            # weight (extra latency, false confidence) rather than a fix.
+            # What's actually true, confirmed the same day: a real
+            # keystroke typed directly into that pane's own terminal
+            # landed immediately. So `_send_keys` and `_settle_after_submit`
+            # below are now logged (their own docstrings/comments explain
+            # why) so the NEXT occurrence is diagnosable instead of a
+            # repeat of this investigation, and the refusal below tells the
+            # PO the one thing that is actually known to work.
+            _send_keys(pane_id, str(indices[0]), machine=machine)
+            time.sleep(3)
+            return _settle_after_submit(pane_id, q, machine=machine)
         # Multi: park on row 1 first (digits typed from the free-text row
         # APPEND to its text instead of toggling — spike), toggle remotely,
         # verify every check landed, then the Submit+review sequence. Digits

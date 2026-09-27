@@ -327,43 +327,45 @@ check("question_cursor_on_exit reads True — picker is still open",
       cp.question_cursor_on_exit(CURSOR_ON_SUBMIT.splitlines()), True)
 
 print()
-print("== single-select digit dropped on a remote pane (2026-09-27 "
-      "capture: air-m1:w2:p2M answered twice, 90s apart, both refused "
-      "'answer may not have landed', picker never advanced. A same-row-"
-      "cursor no-op theory was tried FIRST and DISPROVEN by live-testing "
-      "the real picker — 2026-09-27, throwaway local panes, both plain "
-      "tmux and `herdr pane send-keys` itself: sending the digit already "
-      "under the cursor, with a background subagent churning, and with "
-      "the pane defocused in herdr's own UI all submitted instantly. So "
-      "the remaining, unconfirmed but only-still-standing explanation is "
-      "the remote SSH/Tailscale hop itself losing or delaying the odd "
-      "keystroke in a way `herdr pane send-keys`'s own exit code can't "
-      "see (fire-and-forget once the remote daemon accepts the request). "
-      "ONE resend must land it, sending the digit twice total, never "
-      "more ==")
-fake = FakeHerdr([Q1_FRESH] * 7 + [Q2_FRESH])
+print("== single-select: NO resend (2026-09-27 air-m1:w2:p2M brief — a "
+      "resend was tried and shipped, then the SAME pane through this SAME "
+      "code path was answered twice more and still refused identically, "
+      "proving a resend does not help this failure; a real keystroke "
+      "typed directly into that pane's terminal worked immediately). "
+      "Exactly one digit is sent, ordinary case still works ==")
+fake = FakeHerdr([Q1_FRESH, Q1_FRESH, Q1_FRESH, Q2_FRESH])
 install_fake(fake)
 result = _srv.answer_pane_question(
     PANE_ID, {"type": "select", "indices": [1]}, QUESTION_Q1)
-check("digit resent exactly once after the first attempt looked dropped",
-      fake.sent_keys, ["1", "1"])
+check("exactly one digit sent — no resend", fake.sent_keys, ["1"])
 got_next = result.get("next") or {}
-check("second attempt's fresh read shows the picker actually moved on",
-      (got_next.get("title"), got_next.get("question")),
-      ("Versioning", "How should the version bump?"))
+check("picker advanced", got_next.get("title"), "Versioning")
 
 print()
-print("== single-select digit still not landing after the resend: refuses, "
-      "never sent a third time (no infinite retry) ==")
+print("== single-select: digit never lands — refuses immediately, never "
+      "resends, and the refusal points the PO at what's actually known to "
+      "work (typing directly in the pane) instead of a generic retry "
+      "prompt ==")
 fake = FakeHerdr([Q1_FRESH] * 20)
 install_fake(fake)
-check_raises(
-    "gives up after exactly one resend",
-    lambda: _srv.answer_pane_question(
-        PANE_ID, {"type": "select", "indices": [1]}, QUESTION_Q1),
-    "may not have landed")
-check("digit sent exactly twice, never a third blind resend",
-      fake.sent_keys, ["1", "1"])
+_srv.sys.stderr = _log = __import__("io").StringIO()
+try:
+    check_raises(
+        "refuses without ever resending the identical digit",
+        lambda: _srv.answer_pane_question(
+            PANE_ID, {"type": "select", "indices": [1]}, QUESTION_Q1),
+        "try answering directly in the pane's own terminal")
+finally:
+    _srv.sys.stderr = sys.__stderr__
+check("digit sent exactly once, never a blind resend",
+      fake.sent_keys, ["1"])
+log_text = _log.getvalue()
+check("send-keys attempt was logged with the pane id and the key sent",
+      f"pane={PANE_ID!r}" in log_text and "keys=('1',)" in log_text, True)
+check("the settle refusal was logged too (diagnosable without a repeat "
+      "of this investigation)",
+      "settle refused" in log_text and f"pane={PANE_ID!r}" in log_text,
+      True)
 
 print()
 if fails:

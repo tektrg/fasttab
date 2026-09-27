@@ -175,6 +175,11 @@ export interface SessionActionResult {
   reason?: string;
   error?: string;
   needsConfirm?: boolean;
+  /** `false` ONLY when the server positively proved it typed nothing into
+   *  the pane (a pre-send guard refused). Absent on every other failure —
+   *  a mid-sequence error, NOT SUBMITTED, or a dropped connection may all
+   *  have delivered the text. */
+  typed?: boolean;
 }
 
 export async function sessionAction(
@@ -219,6 +224,14 @@ export async function sendMessage(
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+/** Refused before a single keystroke — the server says so (`typed:false`).
+ *  The one failure after which the text may safely go back in the box: any
+ *  other failure (incl. a fetch exception, which carries no `typed`) may
+ *  have delivered it, and a restored box double-sends on the next Enter. */
+export function isRefusedBeforeTyping(res: SessionActionResult): boolean {
+  return !res.ok && res.typed === false;
 }
 
 /** The server's stuck verdict — loud failure, never a soft one. */

@@ -201,6 +201,7 @@ import personas  # noqa: E402  (Jev persona registry + routing, P1)
 import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
 import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook bridge)
+import persona_start  # noqa: E402  (POST /api/persona/start, P3)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -687,6 +688,17 @@ def _picker_or_permission_open(lines, question):
     return None, live_state
 
 
+def _refused_before_typing(error):
+    """A refusal that provably typed nothing into any pane: {ok:false,
+    error, typed:false}. `typed: false` is the ONLY signal the board's
+    Composer uses to put the text back in the box — any other failure
+    (mid-sequence error, dropped connection, NOT SUBMITTED) may already
+    have delivered the text, and restoring it invites a double-send on the
+    next Enter. So mark ONLY returns that happen before the first
+    keystroke; never add it after `_type_text`."""
+    return {"ok": False, "error": error, "typed": False}
+
+
 def _handle_reach_action(action, body, row_id, actor):
     """POST /api/session/message {rowId, actor, text?, confirm?}.
 
@@ -711,7 +723,7 @@ def _handle_reach_action(action, body, row_id, actor):
     ok, cleaned = session_actions.validate_message_text(
         (body or {}).get("text"))
     if not ok:
-        return {"ok": False, "error": cleaned}
+        return _refused_before_typing(cleaned)
     text = cleaned
 
     state = get_full_state()
@@ -720,18 +732,17 @@ def _handle_reach_action(action, body, row_id, actor):
     agent = next((a for a in agents
                   if resolve_agent_row_id(a) == row_id), None)
     if agent is None:
-        return {"ok": False,
-                "error": f"row {row_id} is not live — no agent there "
-                         "to read it"}
+        return _refused_before_typing(
+            f"row {row_id} is not live — no agent there to read it")
     pane_id = agent.get("paneId")
     if not pane_id:
-        return {"ok": False,
-                "error": f"row {row_id} has no pane — nothing to type into"}
+        return _refused_before_typing(
+            f"row {row_id} has no pane — nothing to type into")
     try:
         machine, raw_pane_id = herdr_transport.split_pane_key(
             pane_id, MACHINES)
     except herdr_transport.HerdrError as e:
-        return {"ok": False, "error": f"could not resolve pane machine: {e}"}
+        return _refused_before_typing(f"could not resolve pane machine: {e}")
     label = agent.get("label") or ""
     # No chief refusal here — deliberate (see docstring). The guards below
     # (own pane, dev-servers) still apply to every row including the chief's.
@@ -741,31 +752,31 @@ def _handle_reach_action(action, body, row_id, actor):
     except Exception:
         own = None
     if own and pane_id == own:
-        return {"ok": False,
-                "error": "refused: this is the dashboard server's own pane "
-                         "— there is no agent there to read it"}
+        return _refused_before_typing(
+            "refused: this is the dashboard server's own pane "
+            "— there is no agent there to read it")
     if label in session_actions.DEV_SERVER_LABELS:
-        return {"ok": False,
-                "error": "refused: dev-server panes are out of scope here — "
-                         "no agent there to read it, and the keystrokes "
-                         "would land in Metro"}
+        return _refused_before_typing(
+            "refused: dev-server panes are out of scope here — "
+            "no agent there to read it, and the keystrokes "
+            "would land in Metro")
 
     try:
         lines, question = _read_pane_now(raw_pane_id, machine=machine)
     except Exception as e:
-        return {"ok": False,
-                "error": f"could not read pane {pane_id} fresh — {e}"}
+        return _refused_before_typing(
+            f"could not read pane {pane_id} fresh — {e}")
     blocked, live_state = _picker_or_permission_open(lines, question)
     if blocked == "picker":
-        return {"ok": False,
-                "error": "refused: a question picker is open on that pane — "
-                         "free text would route into it and mis-answer real "
-                         "work. Answer it in the answer panel instead"}
+        return _refused_before_typing(
+            "refused: a question picker is open on that pane — "
+            "free text would route into it and mis-answer real "
+            "work. Answer it in the answer panel instead")
     if blocked == "permission":
-        return {"ok": False,
-                "error": "refused: a permission prompt is open on that "
-                         "pane — free text would land in it. Answer it in "
-                         "the terminal instead"}
+        return _refused_before_typing(
+            "refused: a permission prompt is open on that "
+            "pane — free text would land in it. Answer it in "
+            "the terminal instead")
 
     # Busy is evaluated ONCE, up front: it drives the confirm rule below
     # AND the queued verdict after sending. A mid-turn pane queues input —
@@ -884,17 +895,17 @@ def handle_session_action(action, body):
     row_id = (body or {}).get("rowId")
     actor = (body or {}).get("actor")
     if not row_id:
-        return {"ok": False, "error": "missing rowId"}
+        return _refused_before_typing("missing rowId")
     if action not in ("stop", "close", "relaunch", "archive", "unarchive",
                       "message"):
-        return {"ok": False, "error": "bad action"}
+        return _refused_before_typing("bad action")
     if action in ("archive", "unarchive"):
         ok, why = session_actions.check_actor(
             actor, allowed=session_actions.ARCHIVE_ACTORS)
     else:
         ok, why = session_actions.check_actor(actor)
     if not ok:
-        return {"ok": False, "error": why}
+        return _refused_before_typing(why)
 
     if action in ("archive", "unarchive"):
         # Board-only, and resolved BEFORE any agent lookup on purpose.
@@ -2672,10 +2683,64 @@ class Handler(BaseHTTPRequestHandler):
                 pending["route"], pending["method"],
                 status, row_id=pending.get("row_id"))
 
-    def _read_json_body(self):
+    # ---- Unread-body desync guard (found live-testing P3, 2026-09-26) ----
+    # HTTP/1.1 keep-alive reads the next request off the same socket. A
+    # response sent BEFORE the body was read (every early refusal: foreign
+    # Origin, remote-listener 403, wrong Content-Type, 404) left that body
+    # in the socket, and it was then parsed as a second request — with
+    # headers the sender wrote. So a cross-site page's refused text/plain
+    # POST could carry a guard-clean `POST /api/persona/start` (no Origin,
+    # JSON Content-Type) that ran. Fix: any response to a request whose
+    # body wasn't read closes the connection instead.
+
+    def parse_request(self):
+        # One Handler instance serves every request on a keep-alive
+        # connection, so the flag is reset per request.
+        self._request_body_read = False
+        self._response_status = None
+        return super().parse_request()
+
+    def send_response_only(self, code, message=None):
+        # Every status line goes through here — send_response AND
+        # handle_expect_100's interim `100 Continue` — so end_headers knows
+        # which reply it is finishing.
+        self._response_status = code
+        super().send_response_only(code, message)
+
+    def _read_request_body(self):
+        """The raw request body (b"" when none), marked as read."""
         length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length else b"{}"
-        return json.loads(raw or b"{}") or {}
+        raw = self.rfile.read(length) if length else b""
+        self._request_body_read = True
+        return raw
+
+    def _request_body_left_unread(self):
+        headers = getattr(self, "headers", None)
+        if headers is None:
+            return False
+        if headers.get("Transfer-Encoding"):
+            return True  # never read here (no chunked support): always close
+        if getattr(self, "_request_body_read", False):
+            return False
+        try:
+            return int(headers.get("Content-Length") or 0) != 0
+        except ValueError:
+            return True
+
+    def end_headers(self):
+        # A 1xx reply is interim: it goes out before the client sends the
+        # body (`Expect: 100-continue`), so the body is unread by design and
+        # closing there would drop keep-alive for a legitimate POST. The
+        # final reply still runs the check below.
+        status = getattr(self, "_response_status", None)
+        is_interim_reply = status is not None and status < 200
+        if not is_interim_reply and self._request_body_left_unread():
+            # http.server sets close_connection when it sees this header.
+            self.send_header("Connection", "close")
+        super().end_headers()
+
+    def _read_json_body(self):
+        return json.loads(self._read_request_body() or b"{}") or {}
 
     #: Loopback-only: this server has no auth of its own, so every write
     #: route's real protection is "nothing outside this Mac can reach it."
@@ -2751,8 +2816,7 @@ class Handler(BaseHTTPRequestHandler):
         allowed through regardless of recent failures from whoever else is
         hitting this endpoint; only a WRONG guess is subject to the limiter
         (unchanged otherwise)."""
-        length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length else b""
+        raw = self._read_request_body()
         token = remote_access.parse_login_form(raw)
         if not remote_access.verify_token(token):
             if remote_access.is_login_blocked(self.client_address):
@@ -2974,6 +3038,31 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "not found"}, status=404)
 
+    def _handle_persona_start(self):
+        """POST /api/persona/start (Jev persona routing P3 — see
+        server/lib/persona_start.py). Localhost only (brief: "Dashboard
+        endpoints"): refused on the remote listener even when
+        authenticated, since starting a Claude session is a local-desk
+        action. Then the Content-Type gate, before the body is parsed: a
+        browser page can't send application/json cross-site without a
+        preflight this dashboard never answers."""
+        if self._is_remote_listener():
+            self._send_json(
+                {"ok": False, "error": "refused: /api/persona/start is localhost-only"},
+                status=403)
+            return
+        if not persona_start.is_json_content_type(self.headers.get("Content-Type")):
+            self._send_json(
+                {"ok": False, "error": "Content-Type must be application/json"},
+                status=400)
+            return
+        try:
+            body = self._read_json_body()
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, status=200)
+            return
+        self._send_json(persona_start.start_persona(body))
+
     def do_POST(self):
         if self._reject_foreign_write():
             return
@@ -3029,6 +3118,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             payload, status = agent_tree_detach(body.get("child"))
             self._send_json(payload, status=status)
+            return
+        if path == "/api/persona/start":
+            self._handle_persona_start()
             return
         # P0 dashboard move: POST /api/worker (chief_dashboard_worker.py —
         # worktree/session spin-up for AptusFit's not-yet-built "Jev

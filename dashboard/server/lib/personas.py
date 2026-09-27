@@ -49,7 +49,9 @@ must never become `portfolio`'s main session.
 last hook event — smaller is more recent); rows with no hook data sort
 last, never crash the comparison.
 """
+import copy
 import json
+import math
 import os
 import sys
 
@@ -150,8 +152,12 @@ def _normalize_persona(address, raw):
         return None
 
     resume_within_days = raw.get("resumeWithinDays", 3)
-    if isinstance(resume_within_days, bool) or not isinstance(resume_within_days, (int, float)):
-        _warn(address, "'resumeWithinDays' must be a number")
+    # json.load accepts NaN/Infinity: NaN compares False to everything (it
+    # would silently mean "always resume") and Infinity never expires.
+    if isinstance(resume_within_days, bool) or \
+            not isinstance(resume_within_days, (int, float)) or \
+            not math.isfinite(resume_within_days):
+        _warn(address, "'resumeWithinDays' must be a finite number")
         return None
 
     start = raw.get("start", "in-place")
@@ -179,21 +185,49 @@ def _normalize_persona(address, raw):
     }
 
 
+#: Last successfully-parsed registry per resolved path, keyed by the
+#: (mtime, size) it was read at (QA gap fix, P3: a registry read landing
+#: mid-write — the save is a truncate-then-rewrite, not atomic — must not
+#: blank out every persona for that one unlucky request). A read that
+#: fails to parse reuses this instead of falling back to empty; a read
+#: whose file stat hasn't changed since skips reparsing entirely.
+_last_good_by_path = {}
+
+
 def load_registry(path=None):
     """(globalInstructions, personas: {address: persona}, hidden: [addr]).
 
     Missing file -> empty registry, not an error. Unparseable file, wrong
     top-level shape, or an individual invalid persona entry -> that piece
-    is skipped with a stderr log line; everything else still loads."""
+    is skipped with a stderr log line; everything else still loads. A
+    parse failure reuses the last known-good parse for this path, if any
+    (see `_last_good_by_path`).
+
+    Always returns a fresh deep copy: the cached parse is shared across
+    requests, so a caller mutating what it got back must never corrupt
+    the next caller's registry."""
     path = path or registry_path()
     if not os.path.exists(path):
         return dict(_EMPTY_REGISTRY, personas={}, hidden=[])
+
+    try:
+        stat = os.stat(path)
+    except OSError:
+        stat = None
+    cached = _last_good_by_path.get(path)
+    if stat is not None and cached is not None and \
+            cached["mtime"] == stat.st_mtime and cached["size"] == stat.st_size:
+        return copy.deepcopy(cached["registry"])
 
     try:
         with open(path) as f:
             raw = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         print(f"[personas] could not read/parse {path}: {e}", file=sys.stderr)
+        if cached is not None:
+            print(f"[personas] reusing last-good registry for {path} "
+                  "(read likely landed mid-write)", file=sys.stderr)
+            return copy.deepcopy(cached["registry"])
         return dict(_EMPTY_REGISTRY, personas={}, hidden=[])
 
     if not isinstance(raw, dict):
@@ -219,16 +253,40 @@ def load_registry(path=None):
     hidden_raw = raw.get("hidden")
     hidden = [h for h in hidden_raw if isinstance(h, str)] if isinstance(hidden_raw, list) else []
 
-    return {"globalInstructions": global_instructions, "personas": personas, "hidden": hidden}
+    result = {"globalInstructions": global_instructions, "personas": personas, "hidden": hidden}
+    if stat is not None:
+        _last_good_by_path[path] = {"mtime": stat.st_mtime, "size": stat.st_size,
+                                     "registry": result}
+    return copy.deepcopy(result)
+
+
+#: Addresses already warned about as a shadowed duplicate name — the
+#: warning fires on every GET otherwise (offered_personas runs per request).
+_warned_duplicate_addresses = set()
 
 
 def offered_personas(registry):
     """Personas Jev/`/api/personas` may show: not hidden, and with a saved
     (non-empty) description — brief: "Jev never reads an unreviewed
-    draft"."""
+    draft". Names are unique among what's offered (the start endpoint
+    looks a persona up by name): a duplicate keeps the first one in
+    registry order. Deduped AFTER the hidden/undescribed filter, so a
+    hidden or draft entry can never shadow a listed persona of the same
+    name."""
     hidden = set(registry.get("hidden") or [])
-    return {addr: p for addr, p in (registry.get("personas") or {}).items()
-            if addr not in hidden and (p.get("description") or "").strip()}
+    offered, seen_names = {}, set()
+    for addr, persona in (registry.get("personas") or {}).items():
+        if addr in hidden or not (persona.get("description") or "").strip():
+            continue
+        if persona["name"] in seen_names:
+            if addr not in _warned_duplicate_addresses:
+                _warned_duplicate_addresses.add(addr)
+                _warn(addr, f"duplicate persona name {persona['name']!r} — "
+                            "keeping the first one in registry order")
+            continue
+        seen_names.add(persona["name"])
+        offered[addr] = persona
+    return offered
 
 
 def resolve_persona_for_cwd(personas, machine, cwd):
@@ -303,10 +361,18 @@ def main_session_for_persona(persona, rows_for_persona, chief_id):
 
 def get_personas_state():
     """GET /api/personas's payload: `[{name, address, description,
-    routesWhen, notFor, idle, start, offline, mainRowId, sessionRowIds}]`.
-    `offline` is true only for a configured REMOTE machine currently
-    unreachable (`machines_status()` status "broken") — always false for
-    "local"."""
+    routesWhen, notFor, idle, start, offline, mainRowId, sessionRowIds,
+    idleStart}]`. `offline` is true only for a configured REMOTE machine
+    currently unreachable (`machines_status()` status "broken") — always
+    false for "local". `idleStart` (P3) is `persona_start.idle_start_for`'s
+    verdict — "resume" or "fresh" — so AgentBar can label the confirm row
+    before anyone actually starts anything (cheap: cached per folder, see
+    that function).
+    Imported lazily (inside this function, not at module top) because
+    `persona_start` imports `personas` itself; importing it back at module
+    load time would be a load-order-dependent circular import."""
+    import persona_start  # noqa: E402  (lazy — see docstring)
+
     registry = load_registry()
     personas = offered_personas(registry)
     if not personas:
@@ -327,6 +393,11 @@ def get_personas_state():
     main_chief_by_persona = main_chiefs_by_persona(
         personas, tree.get("chiefs", []), agent_rows)
 
+    live_ids_by_machine = {
+        m: persona_start.live_session_ids_for_machine(agent_rows, m)
+        for m in {p["machine"] for p in personas.values()}
+    }
+
     result = []
     for addr, persona in personas.items():
         rows = sessions_by_persona.get(addr, [])
@@ -342,5 +413,7 @@ def get_personas_state():
             "mainRowId": main_session_for_persona(
                 persona, rows, main_chief_by_persona.get(addr)),
             "sessionRowIds": [resolve_agent_row_id(r) for r in rows],
+            "idleStart": persona_start.idle_start_for(
+                persona, live_ids_by_machine.get(persona["machine"], set())),
         })
     return result

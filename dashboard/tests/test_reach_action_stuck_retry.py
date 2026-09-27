@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Direct-run tests for the `/compact` / `/clear` stuck-retry fallback in
-`_handle_reach_action()` (POST /api/session/message).
+"""Direct-run tests for `_handle_reach_action()` (POST /api/session/message):
+the `/compact` / `/clear` stuck-retry fallback, and the `typed: false`
+marker that tells the board's Composer a refusal typed nothing (the ONLY
+case in which it may put the text back in the box — see the last section).
 
 2026-09-22 added a defensive one-shot esc+enter retry for exactly these two
 allowlisted commands when the input box still reads "stuck" right after the
@@ -196,6 +198,57 @@ result = _srv.handle_session_action("message", BODY)
 check("reports failure", result.get("ok"), False)
 check("no corrective keys sent once a picker is present",
       fake.sent_keys, ["enter"])
+
+print("== typed:false marks ONLY refusals before the first keystroke ==")
+# The Composer restores the text into the box only when every row says
+# typed:false — so a marker on a post-typing failure is a double-send.
+PLAIN_BODY = {"rowId": ROW_ID, "actor": "po", "text": "sentinel note"}
+
+fake = FakeHerdr([IDLE_SCREEN])
+install_fake(fake)
+result = _srv.handle_session_action(
+    "message", dict(PLAIN_BODY, text="sentinel\x03note"))
+check("control-char refusal carries typed:false", result.get("typed"), False)
+check("control-char refusal typed nothing", fake.typed, [])
+
+fake = FakeHerdr([QUESTION_APPEARED_SCREEN])
+install_fake(fake)
+result = _srv.handle_session_action("message", PLAIN_BODY)
+check("open-picker refusal carries typed:false", result.get("typed"), False)
+check("open-picker refusal typed nothing", fake.typed, [])
+
+fake = FakeHerdr([IDLE_SCREEN])
+install_fake(fake)
+result = _srv.handle_session_action(
+    "message", dict(PLAIN_BODY, rowId="not-a-live-row"))
+check("not-live refusal carries typed:false", result.get("typed"), False)
+
+result = _srv.handle_session_action("message", dict(PLAIN_BODY, actor="x"))
+check("bad-actor refusal carries typed:false", result.get("typed"), False)
+
+
+class FailAfterTypingHerdr(FakeHerdr):
+    """Types the text, then the Enter keystroke raises: the text may have
+    landed in the pane, so this must never read as 'nothing typed'."""
+
+    def pane_run_raw(self, args, machine="local", timeout=15):
+        if args[:2] == ["pane", "send-keys"]:
+            raise RuntimeError("sentinel transport drop")
+        return super().pane_run_raw(args, machine, timeout)
+
+
+fake = FailAfterTypingHerdr([IDLE_SCREEN])
+install_fake(fake)
+result = _srv.handle_session_action("message", PLAIN_BODY)
+check("mid-sequence failure reports failure", result.get("ok"), False)
+check("mid-sequence failure is NOT marked typed:false",
+      "typed" in result, False)
+check("mid-sequence failure did type the text", fake.typed, ["sentinel note"])
+
+fake = FakeHerdr([IDLE_SCREEN, "\n".join(["output", "❯ sentinel note"])])
+install_fake(fake)
+result = _srv.handle_session_action("message", PLAIN_BODY)
+check("NOT SUBMITTED is NOT marked typed:false", "typed" in result, False)
 
 if fails:
     print(f"\n{len(fails)} FAILURE(S):")

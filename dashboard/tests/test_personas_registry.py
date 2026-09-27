@@ -97,6 +97,23 @@ with tempfile.TemporaryDirectory() as tmp:
     check("only the one valid entry survives",
           sorted(reg["personas"].keys()), ["local:~/01_Project/AptusFit"])
 
+print("\n== resumeWithinDays NaN/Infinity (json.load accepts them) is invalid -> skipped ==")
+with tempfile.TemporaryDirectory() as tmp:
+    # json.dump writes NaN/Infinity/-Infinity literals, exactly what a
+    # hand-edited file can hold and json.load happily parses.
+    path = write_registry(tmp, {
+        "personas": {
+            "local:fake-finite-days": full_persona(name="finite-days", resumeWithinDays=2.5),
+            "local:fake-nan-days": full_persona(name="nan-days", resumeWithinDays=float("nan")),
+            "local:fake-inf-days": full_persona(name="inf-days", resumeWithinDays=float("inf")),
+            "local:fake-neg-inf-days": full_persona(
+                name="neg-inf-days", resumeWithinDays=float("-inf")),
+        },
+    })
+    reg = personas.load_registry(path)
+    check("only the finite resumeWithinDays entry survives",
+          sorted(reg["personas"].keys()), ["local:fake-finite-days"])
+
 print("\n== a persona with no description is a VALID registry entry ... ==")
 with tempfile.TemporaryDirectory() as tmp:
     path = write_registry(tmp, {
@@ -172,6 +189,40 @@ with tempfile.TemporaryDirectory() as tmp:
     reg = personas.load_registry(path)
     check("blank falls back to the default",
           reg["globalInstructions"], personas.DEFAULT_GLOBAL_INSTRUCTIONS)
+
+print("\n== duplicate names: deduped among OFFERED personas only, first listed wins ==")
+with tempfile.TemporaryDirectory() as tmp:
+    path = write_registry(tmp, {
+        "personas": {
+            # Earlier in registry order but hidden / undescribed: must NOT
+            # shadow the listed persona of the same name further down.
+            "local:~/hidden-first": full_persona(name="dup-hidden"),
+            "local:~/draft-first": full_persona(name="dup-draft", description=""),
+            "local:~/listed-hidden-name": full_persona(name="dup-hidden"),
+            "local:~/listed-draft-name": full_persona(name="dup-draft"),
+            # Two listed personas with one name: the first stays.
+            "local:~/listed-a": full_persona(name="dup-listed"),
+            "local:~/listed-b": full_persona(name="dup-listed"),
+        },
+        "hidden": ["local:~/hidden-first"],
+    })
+    reg = personas.load_registry(path)
+    check("load_registry keeps every valid entry (dedupe is not a registry concern)",
+          len(reg["personas"]), 6)
+    offered = personas.offered_personas(reg)
+    check("offered: hidden/draft entries never shadow a listed same-name persona",
+          sorted(offered.keys()),
+          sorted(["local:~/listed-hidden-name", "local:~/listed-draft-name", "local:~/listed-a"]))
+
+print("\n== load_registry hands out a copy: a caller's mutation never reaches the cache ==")
+with tempfile.TemporaryDirectory() as tmp:
+    path = write_registry(tmp, {"personas": {"local:~/a": full_persona(name="copy-test")}})
+    first = personas.load_registry(path)
+    first["personas"]["local:~/a"]["name"] = "MUTATED"
+    first["hidden"].append("local:~/a")
+    second = personas.load_registry(path)  # cache hit (same mtime + size)
+    check("cached name unchanged", second["personas"]["local:~/a"]["name"], "copy-test")
+    check("cached hidden unchanged", second["hidden"], [])
 
 print("\n== registry_path() honors AGENTBAR_PERSONAS_FILE ==")
 with tempfile.TemporaryDirectory() as tmp:

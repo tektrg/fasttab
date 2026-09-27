@@ -19,6 +19,7 @@ Guard posture, from the brief:
 """
 
 import os
+import re
 import signal
 import subprocess
 import time
@@ -636,6 +637,28 @@ def is_allowed_slash_command(cleaned):
             or cleaned.startswith(_ALLOWED_SLASH_PREFIX))
 
 
+#: Characters a terminal ACTS on instead of displaying: C0 controls
+#: (0x00-0x1F: ctrl-C = 0x03, ctrl-U = 0x15, ESC = 0x1B, ...), DEL (0x7F)
+#: and C1 controls (0x80-0x9F, which some terminals treat like ESC-prefixed
+#: sequences). Shell quoting (`shlex.quote`) does NOT neutralise them: text
+#: typed into a live pane reaches the terminal's line discipline / the
+#: agent's key handler byte by byte before any shell parses a quote, so a
+#: `\x03` interrupts and a `\x15` erases the line no matter how it's quoted.
+_TERMINAL_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def find_terminal_control_char(text, allowed=""):
+    """The first terminal control character in `text` that isn't in
+    `allowed` (e.g. `"\n\t"` for multi-line instructions), or None.
+    Shared by every path that types text into a pane (Send message here,
+    `persona_start.py`'s claude command) — one definition of "unsafe to
+    type"."""
+    for match in _TERMINAL_CONTROL_CHARS_RE.finditer(text or ""):
+        if match.group() not in allowed:
+            return match.group()
+    return None
+
+
 def validate_message_text(text):
     """Refuse text that must never be typed into a pane. Returns
     (ok, cleaned_or_reason): cleaned text on ok, the refusal reason if not.
@@ -653,13 +676,26 @@ def validate_message_text(text):
         is_allowed_slash_command / _ALLOWED_SLASH_BARE for the proof and
         why this stays a narrow allowlist, not a loosened prefix check).
       - over MESSAGE_MAX_CHARS: a paste, not a message.
+      - any other terminal control character (`find_terminal_control_char`):
+        typed into a live pane it is a keystroke (ctrl-C, ctrl-U, ESC...),
+        not text — quoting can't neutralise it.
+
+    Tabs are the one control character NORMALIZED instead of refused: each
+    becomes a space (a pasted tab is almost always spacing, and a refusal
+    would cost the PO the whole message). Same rule as AgentBar's
+    `TerminalSafeText`, so every client sends the same text. Every caller
+    (Send message, persona start) gets this through here.
     """
-    cleaned = (text or "").strip()
+    cleaned = (text or "").replace("\t", " ").strip()
     if not cleaned:
         return False, "refused: empty message — nothing to send"
     if "\n" in cleaned or "\r" in cleaned:
         return False, ("refused: newlines are the submit key in a terminal "
                         "— send one line at a time")
+    control_char = find_terminal_control_char(cleaned)
+    if control_char is not None:
+        return False, (f"refused: control character {control_char!r} — it "
+                       "would act as a keystroke in the pane, not as text")
     if cleaned.startswith("/") and not is_allowed_slash_command(cleaned):
         return False, ("refused: slash commands need the two-enter dance — "
                         "they stay in the terminal")

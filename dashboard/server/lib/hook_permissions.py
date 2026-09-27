@@ -2,8 +2,10 @@
 """Pending Claude Code permission prompts sent by the PermissionRequest hook
 (dashboard/hooks/agentbar-permission-hook.py), answerable from AgentBar.
 
-Lifecycle of one request (in memory only — a restart loses them all, the hook
-then sees 404 and exits, and Claude's own prompt is still on screen):
+Lifecycle of one request (in memory only — a restart loses them all; the
+hook then sees 404 and RE-SENDS the prompt (`reregister`), which is held again
+only while the session file still shows it. A re-send of a request still
+pending — same hook, same `tool_use_id` / tool + input — keeps that request):
 
   pending --answer()--> answered   (the hook's /wait returns the decision)
           --sweep()---> resolved   (answered elsewhere / Claude gone / hook gone)
@@ -30,7 +32,9 @@ Held ONLY while AgentBar is connected (agentbar_presence.py): with no
 AgentBar seen in the last 10s a prompt is ignored, and once AgentBar has been
 gone 15s every pending one is released (`agentbar gone`) so its hook exits.
 """
+import hashlib
 import itertools
+import json
 import os
 import secrets
 import threading
@@ -38,6 +42,7 @@ import time
 
 import agentbar_presence
 import hook_permission_summary as summary
+import session_prompt_state as prompt_state
 
 STATE_PENDING = "pending"
 STATE_ANSWERED = "answered"
@@ -55,16 +60,14 @@ HOOK_LISTENING_GAP_SEC = 5
 #: A registered request whose hook never made its first /wait (it gave up on
 #: a slow register reply) is gone much sooner: a live hook polls at once.
 HOOK_FIRST_WAIT_SEC = 10
-#: A fresh `waiting` write this soon after registering is the SAME prompt's
-#: status landing late; later than this it is the next prompt (the one this
-#: request was for got answered in Claude and the session moved on between
-#: two 3s samples of the sessions feed).
-WAITING_REWRITE_GRACE_SEC = 1.0
-#: Session-file `entrypoint`s whose prompt Claude shows while the hook runs.
-PROMPT_SHOWING_ENTRYPOINTS = frozenset({"cli", "claude-desktop"})
 MAX_AGE_SEC = 24 * 3600
 REASON_AGENTBAR_GONE = "agentbar gone"
 REASON_HOOK_SILENT = "hook stopped polling"
+REASON_AGENTBAR_NOT_CONNECTED = "AgentBar not connected (nobody here to answer)"
+REASON_PROMPT_GONE = "prompt no longer waiting"
+#: Outcomes after which the hook may send the same prompt again later
+#: (AgentBar may come back); every other ignore/finish is final for it.
+RETRYABLE_REASONS = frozenset({REASON_AGENTBAR_NOT_CONNECTED, REASON_AGENTBAR_GONE})
 #: Finished requests linger so a late /wait still reads a state, not 404.
 FINISHED_KEEP_SEC = 600
 
@@ -81,10 +84,33 @@ def _pid_alive(pid):
     return True
 
 
+def prompt_key(payload):
+    """Which prompt this is, stable across re-sends of one hook: Claude's
+    `tool_use_id` when the payload has one, else the tool and its input."""
+    tool_use_id = payload.get("tool_use_id")
+    if isinstance(tool_use_id, str) and tool_use_id:
+        return "tool:" + tool_use_id
+    canonical = json.dumps([payload.get("tool_name"), payload.get("tool_input") or {}],
+                           sort_keys=True, default=str)
+    return "input:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def prompt_started_at(payload, now):
+    """When the prompt came up (wall clock): the hook's `promptStartedAt` —
+    kept across re-sends so "answered elsewhere" and the row's timer still
+    count from the prompt — else now. Anything outside the last 24h -> now."""
+    started = payload.get("promptStartedAt")
+    if isinstance(started, (int, float)) and not isinstance(started, bool) \
+            and now - MAX_AGE_SEC <= started <= now:
+        return float(started)
+    return now
+
+
 class HookRequest:
     def __init__(self, request_id, payload, created_at, created_tick):
         self.request_id = request_id
         self.session_id = payload["session_id"]
+        self.prompt_key = prompt_key(payload)
         self.tool_name = payload["tool_name"]
         self.tool_input = payload.get("tool_input") or {}
         suggestions = payload.get("permission_suggestions")
@@ -129,18 +155,9 @@ def _is_presentable(payload):
 
 
 def _session_moved_on(request, sessions_by_id):
-    """The session's status changed after this request registered: its prompt
-    is gone. `waiting` again counts too once past the rewrite grace — that is
-    the NEXT prompt, the user answered this one in Claude."""
-    entry = sessions_by_id.get(request.session_id)
-    if not entry:
-        return False
-    status_ms = entry.get("statusUpdatedAt")
-    if not isinstance(status_ms, (int, float)) or status_ms / 1000.0 <= request.created_at:
-        return False
-    if entry.get("status") != "waiting":
-        return True
-    return status_ms / 1000.0 - request.created_at > WAITING_REWRITE_GRACE_SEC
+    """The session's status changed after this prompt started: it is gone
+    (answered in Claude, or the NEXT prompt is up)."""
+    return prompt_state.session_moved_on(sessions_by_id.get(request.session_id), request.created_at)
 
 
 def ignore_reason(payload, herdr_session_ids, session_entry):
@@ -154,7 +171,7 @@ def ignore_reason(payload, herdr_session_ids, session_entry):
         return "subagent prompt (Claude shows it only after the hook returns)"
     if not session_entry or session_entry.get("sessionId") != payload["session_id"]:
         return "no live session file for this session"
-    if session_entry.get("entrypoint") not in PROMPT_SHOWING_ENTRYPOINTS:
+    if not prompt_state.shows_own_prompt(session_entry, payload["session_id"]):
         return f"{session_entry.get('entrypoint')} session (no prompt of its own on screen)"
     return None
 
@@ -172,21 +189,50 @@ class HookPermissionStore:
 
     # ---- hook side --------------------------------------------------------
     def register(self, payload, herdr_session_ids=(), session_entry=None):
-        """{requestId} for a new pending request, or {state: "ignored", reason}
-        (see `ignore_reason`)."""
-        reason = ignore_reason(payload, herdr_session_ids, session_entry)
-        if not reason and not self._presence.is_connected():
-            reason = "AgentBar not connected (nobody here to answer)"
-        if not reason and not _is_presentable(payload):
-            reason = "unreadable tool input"
+        """{requestId} for a pending request, or {state: "ignored", reason,
+        retryable}. A re-send (`reregister`, after a dashboard restart or
+        AgentBar coming back) is held only while the session file still shows
+        that prompt; the same prompt sent twice keeps ONE request."""
+        created_at = prompt_started_at(payload, self._clock()) if isinstance(payload, dict) else None
+        reason = self._register_refusal(payload, herdr_session_ids, session_entry, created_at)
         if reason:
-            return {"state": "ignored", "reason": reason}
+            return {"state": "ignored", "reason": reason, "retryable": reason in RETRYABLE_REASONS}
         with self._cond:
+            existing = self._pending_resend_of(payload)
+            if existing:
+                existing.claude_pid = payload.get("claudePid")
+                existing.last_wait_at = self._ticks()
+                existing.has_waited = False
+                return {"requestId": existing.request_id}
             request_id = f"hp{next(self._seq)}-{secrets.token_hex(4)}"
-            self._requests[request_id] = HookRequest(
-                request_id, payload, self._clock(), self._ticks())
+            self._requests[request_id] = HookRequest(request_id, payload, created_at, self._ticks())
             self._cond.notify_all()
         return {"requestId": request_id}
+
+    def _register_refusal(self, payload, herdr_session_ids, session_entry, created_at):
+        reason = ignore_reason(payload, herdr_session_ids, session_entry)
+        if not reason and payload.get("reregister") \
+                and not prompt_state.prompt_still_waiting(session_entry, created_at):
+            reason = REASON_PROMPT_GONE
+        if not reason and not self._presence.is_connected():
+            reason = REASON_AGENTBAR_NOT_CONNECTED
+        if not reason and not _is_presentable(payload):
+            reason = "unreadable tool input"
+        return reason
+
+    def _pending_resend_of(self, payload):
+        """The still-pending request this payload RE-SENDS: same session, same
+        hook process, same prompt. Only the hook that sent a prompt re-sends
+        it; another hook with the same tool + input is a DIFFERENT prompt (a
+        retried command, a parallel identical call) — merging it into the old
+        request would get it resolved as "answered elsewhere" once the old
+        prompt's answer shows in the session file, losing the new one."""
+        if not payload.get("reregister"):
+            return None
+        key, hook_pid = prompt_key(payload), payload.get("hookPid")
+        return next((r for r in self._requests.values() if r.state == STATE_PENDING
+                     and r.session_id == payload["session_id"] and r.hook_pid == hook_pid
+                     and r.prompt_key == key), None)
 
     def wait(self, request_id, timeout_sec, sessions_provider=lambda: []):
         """Long-poll: (payload, http_status). Returns as soon as the request
@@ -217,6 +263,8 @@ class HookPermissionStore:
             payload["decision"] = request.decision
         if request.state_reason:
             payload["reason"] = request.state_reason
+        if request.state_reason in RETRYABLE_REASONS:
+            payload["retryable"] = True
         return payload
 
     # ---- AgentBar side ----------------------------------------------------

@@ -66,6 +66,10 @@ os.environ["CHIEF_DASHBOARD_STATE_HOME"] = STATE_HOME
 os.environ["CHIEF_DASHBOARD_MACHINES"] = "{}"
 os.environ["CHIEF_DASHBOARD_HOST"] = "127.0.0.1"
 os.environ["CHIEF_DASHBOARD_PORT"] = str(MAIN_PORT)
+# Persona start POSTs below must never find a real persona: point the
+# registry at a file that doesn't exist (-> empty registry, every name
+# refused as unknown before any herdr call).
+os.environ["AGENTBAR_PERSONAS_FILE"] = os.path.join(_tmp.name, "no-personas.json")
 
 with open(os.path.join(CONFIG_HOME, "config.json"), "w") as f:
     json.dump({"remote": {"enabled": True, "hosts": [REMOTE_HOST], "port": REMOTE_PORT}}, f)
@@ -145,6 +149,131 @@ check("session cookie issued", bool(cookie_value), True)
 status, body, _ = get(REMOTE_PORT, "/api/state", headers={"Cookie": cookie_value})
 check("authenticated GET /api/state -> 200", status, 200)
 check("authenticated body is real JSON", "computed" in json.loads(body) or True, True)
+
+
+# ---- Unread-body desync (found live-testing P3, 2026-09-26) ----
+def raw_exchange(port, payload):
+    """Send `payload` on one socket; return everything read until the server
+    closes it or goes quiet for 2s."""
+    s = socket.create_connection(("127.0.0.1", port), timeout=2)
+    s.sendall(payload)
+    buf = b""
+    try:
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+    except socket.timeout:
+        pass
+    s.close()
+    return buf
+
+
+print("== a refused request's unread body is never parsed as a second request ==")
+inner = b"GET /api/desync-probe-inner HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+outer = (b"POST /api/desync-probe-outer HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+         b"Origin: http://evil.example\r\nContent-Type: text/plain\r\n"
+         b"Content-Length: " + str(len(inner)).encode() + b"\r\n\r\n" + inner)
+reply = raw_exchange(MAIN_PORT, outer)
+check("foreign-Origin POST is refused (403)", reply.startswith(b"HTTP/1.1 403"), True)
+check("its body is NOT answered as a second request", reply.count(b"HTTP/1.1 "), 1)
+check("the refusal closes the connection", b"Connection: close" in reply, True)
+
+two_gets = (b"GET /api/desync-probe-a HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+            b"GET /api/desync-probe-b HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+reply = raw_exchange(MAIN_PORT, two_gets)
+check("bodiless requests keep keep-alive (both pipelined GETs answered)",
+      reply.count(b"HTTP/1.1 404"), 2)
+
+
+
+def persona_start_request(text):
+    """A guard-clean POST /api/persona/start whose body the handler reads.
+    The persona name never exists (empty registry), so nothing starts."""
+    body = json.dumps({"persona": "no-such-persona-sentinel", "text": text}).encode()
+    head = (b"POST /api/persona/start HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n")
+    return head, body
+
+
+def reply_errors(reply):
+    """The `error` of every JSON body in a raw multi-response reply
+    (responses back to back, each framed by its Content-Length)."""
+    errors = []
+    while reply:
+        head, _, reply = reply.partition(b"\r\n\r\n")
+        length = 0
+        for line in head.split(b"\r\n"):
+            if line.lower().startswith(b"content-length:"):
+                length = int(line.split(b":", 1)[1])
+        body, reply = reply[:length], reply[length:]
+        if body.startswith(b"{"):
+            errors.append(json.loads(body).get("error", ""))
+    return errors
+
+
+print("== a valid POST whose body is read keeps keep-alive ==")
+tab_head, tab_body = persona_start_request("col a\tcol b")
+ctrl_head, ctrl_body = persona_start_request("hi \x03echo INJECTED")
+reply = raw_exchange(MAIN_PORT, tab_head + b"\r\n" + tab_body
+                     + ctrl_head + b"\r\n" + ctrl_body)
+check("both pipelined POSTs answered on one socket", reply.count(b"HTTP/1.1 200"), 2)
+check("neither reply closes the connection", b"Connection: close" in reply, False)
+tab_error, ctrl_error = (reply_errors(reply) + ["", ""])[:2]
+check("a tab is normalized, not refused (gets as far as the persona lookup)",
+      ("unknown persona" in tab_error, "control character" in tab_error), (True, False))
+check("another control character is still refused",
+      "control character" in ctrl_error, True)
+
+print("== Expect: 100-continue on a valid POST keeps keep-alive ==")
+head, body = persona_start_request("hello")
+sock = socket.create_connection(("127.0.0.1", MAIN_PORT), timeout=2)
+sock.sendall(head + b"Expect: 100-continue\r\n\r\n")
+interim = b""
+while b"\r\n\r\n" not in interim:
+    chunk = sock.recv(65536)
+    if not chunk:
+        break
+    interim += chunk
+check("server sends the interim 100 Continue", interim.startswith(b"HTTP/1.1 100"), True)
+check("the 100 Continue does not close the connection",
+      b"Connection: close" in interim, False)
+sock.sendall(body + b"GET /api/desync-probe-after-100 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+rest = b""
+try:
+    while True:
+        chunk = sock.recv(65536)
+        if not chunk:
+            break
+        rest += chunk
+except socket.timeout:
+    pass
+sock.close()
+check("the POST's final reply arrives", rest.startswith(b"HTTP/1.1 200"), True)
+check("a follow-up request on the same socket is answered",
+      rest.count(b"HTTP/1.1 404"), 1)
+
+print("== Expect: 100-continue does not reopen the desync hole ==")
+sock = socket.create_connection(("127.0.0.1", MAIN_PORT), timeout=2)
+sock.sendall(b"POST /api/desync-probe-outer HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+             b"Origin: http://evil.example\r\nContent-Type: text/plain\r\n"
+             b"Expect: 100-continue\r\n"
+             b"Content-Length: " + str(len(inner)).encode() + b"\r\n\r\n" + inner)
+smuggle_reply = b""
+try:
+    while True:
+        chunk = sock.recv(65536)
+        if not chunk:
+            break
+        smuggle_reply += chunk
+except socket.timeout:
+    pass
+sock.close()
+check("the foreign-Origin refusal still closes", b"Connection: close" in smuggle_reply, True)
+check("its body is still never answered as a request",
+      b"desync-probe-inner" in smuggle_reply or smuggle_reply.count(b"HTTP/1.1 404") > 0, False)
 
 main_server.shutdown()
 remote_server.shutdown()

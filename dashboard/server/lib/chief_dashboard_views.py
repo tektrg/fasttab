@@ -369,6 +369,7 @@ def build_needs_you(feeds_snap, agents):
                 row["agentSession"] = a.get("agentSession")
                 row["openUrl"] = a.get("openUrl")
                 row["hookRequest"] = a.get("hookRequest")
+                row["transcriptQuestion"] = a.get("transcriptQuestion")
                 rows.append(row)
             continue
         screen = a.get("screenState")

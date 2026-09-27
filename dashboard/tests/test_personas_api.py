@@ -19,11 +19,16 @@ os.environ["AGENT_TREE_FILE"] = os.path.join(FAKE_HOME, "agent-tree.json")
 os.environ["AGENTBAR_PERSONAS_FILE"] = os.path.join(
     FAKE_HOME, ".config", "agentbar", "personas.json")
 os.environ.setdefault("CHIEF_DASHBOARD_MACHINES", "{}")
+# idleStart reads Claude transcripts — only ever from this fake dir.
+FAKE_PROJECTS_DIR = os.path.join(FAKE_HOME, ".claude", "projects")
+os.environ["CLAUDE_PROJECTS_DIR"] = FAKE_PROJECTS_DIR
 
 sys.path.insert(0, os.path.join(DASHBOARD_ROOT, "server", "lib"))
 import agent_tree  # noqa: E402
 from chief_dashboard_feeds import FEEDS  # noqa: E402
 import personas  # noqa: E402
+import persona_start  # noqa: E402
+import time  # noqa: E402
 
 fails = []
 
@@ -82,6 +87,24 @@ with open(personas.registry_path(), "w") as f:
         },
     }, f)
 
+# ── fake transcripts for idleStart: chief-aptus has a recent UUID-named
+#    conversation (-> "resume"); fasttab-dev's newest is 10 days old, past
+#    resumeWithinDays=3 (-> "fresh"); portfolio has none (-> "fresh"). ──
+def fake_transcript(folder_parts, session_id, age_sec):
+    project_dir = os.path.join(FAKE_PROJECTS_DIR, persona_start.encode_project_dir(
+        personas._resolve_path(cwd(*folder_parts))))
+    os.makedirs(project_dir, exist_ok=True)
+    path = os.path.join(project_dir, session_id + ".jsonl")
+    with open(path, "w") as f:
+        f.write("{}\n")
+    stamp = time.time() - age_sec
+    os.utime(path, (stamp, stamp))
+
+
+fake_transcript(("01_Project", "AptusFit"), "11111111-2222-4333-8444-555555555555", 3600)
+fake_transcript(("01_Project", "command-bar-macos"), "66666666-7777-4888-9999-000000000000",
+                10 * 86400)
+
 # ── fake herdr roster ──
 FEEDS["hookCache"].set_success({})
 FEEDS["paneScreen"].set_success({})
@@ -130,7 +153,17 @@ try:
     check("every row has the documented keys",
           sorted(by_address["local:~/01_Project/AptusFit"].keys()),
           sorted(["name", "address", "description", "routesWhen", "notFor",
-                  "idle", "start", "offline", "mainRowId", "sessionRowIds"]))
+                  "idle", "start", "offline", "mainRowId", "sessionRowIds", "idleStart"]))
+
+    print("\n== idleStart: resume only for a recent, not-live conversation in the exact folder ==")
+    check("chief-aptus: recent transcript -> resume",
+          by_address["local:~/01_Project/AptusFit"]["idleStart"], "resume")
+    check("fasttab-dev: newest transcript past resumeWithinDays -> fresh",
+          by_address["local:~/01_Project/command-bar-macos"]["idleStart"], "fresh")
+    check("portfolio: no transcripts -> fresh",
+          by_address["local:~/01_Project"]["idleStart"], "fresh")
+    check("remote persona: this Mac's disk can't say -> fresh",
+          by_address["air-m1:~/remote-project"]["idleStart"], "fresh")
 
     print("\n== chief-aptus: chief is main; both its sessions counted, not portfolio's ==")
     aptus = by_address["local:~/01_Project/AptusFit"]

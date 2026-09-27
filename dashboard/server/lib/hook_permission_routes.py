@@ -32,13 +32,19 @@ def _live_sessions():
 
 
 def _session_entry(payload):
-    """The session file of the hook's session: the feed's copy, else read
-    straight from the hook's Claude pid (the feed samples every 3s)."""
+    """The session file of the hook's session, read straight from the hook's
+    Claude pid (a re-send is judged on the prompt's CURRENT status; the feed
+    samples only every 3s), else the feed's copy."""
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
+    if not session_id:
+        return None
+    fresh = claude_sessions.read_session_for_pid(payload.get("claudePid"))
+    if fresh and fresh.get("sessionId") == session_id:
+        return fresh
     for entry in _live_sessions():
         if isinstance(entry, dict) and entry.get("sessionId") == session_id:
             return entry
-    return claude_sessions.read_session_for_pid(payload.get("claudePid")) if session_id else None
+    return None
 
 
 def _request_route(path):

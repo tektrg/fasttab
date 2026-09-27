@@ -55,6 +55,10 @@ extension SyncConsumer: CKSyncEngineDelegate {
                         if let slice = SyncedHistorySlice(from: record) {
                             LocalCache.shared.updateHistorySlice(slice)
                         }
+                    case SyncedTabStats.recordType:
+                        if let stats = SyncedTabStats(from: record) {
+                            LocalCache.shared.updateTabStats(stats)
+                        }
                     case SyncCommand.recordType:
                         if let command = SyncCommand(from: record) {
                             LocalCache.shared.updateCommandStatus(
@@ -78,6 +82,7 @@ extension SyncConsumer: CKSyncEngineDelegate {
                         LocalCache.shared.removeDevice(id: recordName)
                         LocalCache.shared.removeBookmarkBlob(id: recordName)
                         LocalCache.shared.removeHistorySlice(id: recordName)
+                        LocalCache.shared.removeTabStats(recordName: recordName)
                     }
                 }
 

@@ -16,6 +16,8 @@ public struct CachedSyncState: Codable, Sendable {
     /// type is the CloudKit wire format shared with macOS: delivery is a purely
     /// local fact about *this* phone's upload, not something the Mac reports.
     public var commandDeliveries: [String: SyncCommandDelivery] = [:]
+    /// Each Mac's recent tab-activity digest, keyed by device id. Charts sum across Macs.
+    public var tabStats: [String: SyncedTabStats] = [:]
 
     public init(
         devices: [SyncedDevice] = [],
@@ -25,7 +27,8 @@ public struct CachedSyncState: Codable, Sendable {
         historySlices: [SyncedHistorySlice] = [],
         sentCommands: [SyncCommand] = [],
         lastSyncedAt: Date? = nil,
-        commandDeliveries: [String: SyncCommandDelivery] = [:]
+        commandDeliveries: [String: SyncCommandDelivery] = [:],
+        tabStats: [String: SyncedTabStats] = [:]
     ) {
         self.devices = devices
         self.tabs = tabs
@@ -35,6 +38,7 @@ public struct CachedSyncState: Codable, Sendable {
         self.sentCommands = sentCommands
         self.lastSyncedAt = lastSyncedAt
         self.commandDeliveries = commandDeliveries
+        self.tabStats = tabStats
     }
 
     /// Hand-written so a cache file written by an *older* build — which has no
@@ -51,6 +55,7 @@ public struct CachedSyncState: Codable, Sendable {
         self.sentCommands = try container.decodeIfPresent([SyncCommand].self, forKey: .sentCommands) ?? []
         self.lastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
         self.commandDeliveries = try container.decodeIfPresent([String: SyncCommandDelivery].self, forKey: .commandDeliveries) ?? [:]
+        self.tabStats = try container.decodeIfPresent([String: SyncedTabStats].self, forKey: .tabStats) ?? [:]
     }
 }
 
@@ -140,6 +145,7 @@ public final class LocalCache: ObservableObject {
         state.tabs.removeAll { $0.deviceID == id }
         state.bookmarkBlobs.removeAll { $0.deviceID == id }
         state.historySlices.removeAll { $0.deviceID == id }
+        state.tabStats.removeValue(forKey: id)
         scheduleSave()
     }
 
@@ -306,6 +312,21 @@ public final class LocalCache: ObservableObject {
     public func removeHistorySlice(id: String) {
         state.historySlices.removeAll { $0.id == id }
         scheduleSave()
+    }
+
+    // MARK: - Tab stats
+
+    public func updateTabStats(_ stats: SyncedTabStats) {
+        state.tabStats[stats.deviceID] = stats
+        state.lastSyncedAt = Date()
+        scheduleSave()
+    }
+
+    /// `recordName` is the deleted CloudKit record's name (`SyncedTabStats.recordName`).
+    public func removeTabStats(recordName: String) {
+        let before = state.tabStats.count
+        state.tabStats = state.tabStats.filter { $0.value.id != recordName }
+        if state.tabStats.count != before { scheduleSave() }
     }
 
     // MARK: - Sent commands

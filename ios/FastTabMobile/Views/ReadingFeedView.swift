@@ -41,6 +41,33 @@ public struct ReadingFeedView: View {
         return max(item.readingProgress, readingProgress.progress(for: url))
     }
 
+    /// Best display title for a resume chip: a real article title when we have
+    /// one, the website (domain) only as a fallback. `LastOpenedItem.title`
+    /// degrades to the bare host when an article was opened without a title
+    /// (e.g. from the Tabs tab), so in that case look the URL up in the feed
+    /// providers, which usually carry the synced bookmark/tab title.
+    private func displayTitle(for item: LastOpenedItem) -> String {
+        let hostFallback = item.domain.isEmpty ? (item.parsedURL?.host() ?? item.url) : item.domain
+        if !item.title.isEmpty && item.title.lowercased() != hostFallback.lowercased() {
+            return item.title
+        }
+        if let url = item.parsedURL {
+            let key = url.absoluteString.lowercased()
+            if let recent = recentProvider.items(filteredByFolder: nil)
+                .first(where: { $0.url.absoluteString.lowercased() == key }),
+               !recent.title.isEmpty {
+                return recent.title
+            }
+            if let emerging = emergingProvider.items
+                .first(where: { $0.url.absoluteString.lowercased() == key }),
+               !emerging.title.isEmpty {
+                return emerging.title
+            }
+        }
+        if !item.title.isEmpty { return item.title }
+        return hostFallback
+    }
+
     public var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: DS.Space.section) {
@@ -75,10 +102,11 @@ public struct ReadingFeedView: View {
             if !unfinishedReads.isEmpty {
                 FloatingContinueReadingBar(
                     items: unfinishedReads,
+                    title: { displayTitle(for: $0) },
                     progress: { effectiveProgress(for: $0) },
                     onSelect: { item in
                         guard let url = item.parsedURL else { return }
-                        openArticle(url: url, title: item.title)
+                        openArticle(url: url, title: displayTitle(for: item))
                     }
                 )
                 .padding(.bottom, DS.Space.sm)
@@ -597,15 +625,18 @@ public struct ReadingFeedView: View {
 /// `ReaderViewModel.loadInitialState()`.
 public struct FloatingContinueReadingBar: View {
     public let items: [LastOpenedItem]
+    public let title: (LastOpenedItem) -> String
     public let progress: (LastOpenedItem) -> Double
     public let onSelect: (LastOpenedItem) -> Void
 
     public init(
         items: [LastOpenedItem],
+        title: @escaping (LastOpenedItem) -> String,
         progress: @escaping (LastOpenedItem) -> Double,
         onSelect: @escaping (LastOpenedItem) -> Void
     ) {
         self.items = items
+        self.title = title
         self.progress = progress
         self.onSelect = onSelect
     }
@@ -614,22 +645,22 @@ public struct FloatingContinueReadingBar: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.xs) {
                 ForEach(items) { item in
-                    let pct = progress(item)
+                    let pct = min(max(progress(item), 0), 1)
+                    let label = title(item)
                     Button {
                         UISelectionFeedbackGenerator().selectionChanged()
                         onSelect(item)
                     } label: {
-                        HStack(spacing: DS.Space.xs) {
-                            Image(systemName: "book.closed")
-                                .font(.system(size: 12, weight: .regular))
-                            Text(item.title.isEmpty ? item.domain : item.title)
+                        HStack(spacing: DS.Space.sm) {
+                            Image(systemName: "book")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundStyle(DS.Tint.action)
+                            Text(label)
                                 .font(.subheadline.weight(.medium))
                                 .lineLimit(1)
-                                .frame(maxWidth: 140, alignment: .leading)
+                                .frame(maxWidth: 240, alignment: .leading)
                             if pct > 0.01 {
-                                Text("\(Int((min(pct, 1) * 100).rounded()))%")
-                                    .font(DS.Font.tag.monospacedDigit())
-                                    .foregroundStyle(.secondary)
+                                ReadingProgressRing(progress: pct)
                             }
                         }
                         .padding(.horizontal, DS.Space.md)
@@ -637,7 +668,7 @@ public struct FloatingContinueReadingBar: View {
                         .foregroundColor(.primary)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Continue reading \(item.title.isEmpty ? item.domain : item.title), \(Int((min(pct, 1) * 100).rounded())) percent read")
+                    .accessibilityLabel("Continue reading \(label), \(Int((pct * 100).rounded())) percent read")
                 }
             }
         }
@@ -661,5 +692,27 @@ public struct FloatingContinueReadingBar: View {
         )
         .dsShadow(.floating)
         .padding(.horizontal, DS.Space.lg)
+    }
+}
+
+/// Thin circular reading-progress ring for the resume chip. Track + tinted
+/// arc, no numbers — VoiceOver still announces the percent via the chip label.
+private struct ReadingProgressRing: View {
+    let progress: Double
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.25), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(
+                    DS.Tint.action,
+                    style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 14, height: 14)
+        .accessibilityHidden(true)
     }
 }

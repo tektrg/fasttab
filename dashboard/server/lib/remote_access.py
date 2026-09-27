@@ -31,11 +31,16 @@ Design choices (kept here, not spread across the server):
     time) so response timing can't leak how many characters matched.
   - Session: the login form exchanges the token for a session id
     (secrets.token_urlsafe(32) — 256 bits, unguessable on its own) held in
-    an in-memory dict {session_id: (expires_at, token_fp)} on this process.
-    Deliberately NOT persisted or HMAC-derived: the token file is already
-    the durable secret, a restart only costs the phone one re-login (a tap),
-    and a plain server-side map avoids a second secret (a cookie-signing
-    key) to generate, store and rotate. Cookie is HttpOnly + Secure +
+    a server-side map {sha256(session_id): (expires_at, token_fp)}. The map
+    is also saved to SESSIONS_PATH (mode 0600, next to the token) so a
+    dashboard restart — ~10x a day — does not log the phone out (it used to:
+    the map was memory-only, and every restart meant re-pasting the token).
+    Only HASHES of session ids are written, so the file is not a cookie
+    jar; a file that is not a private (0600) regular file is ignored, like
+    the token. Rotation still revokes: every entry carries the fingerprint
+    of the token it was issued under. Not HMAC-derived either: a plain
+    server-side map avoids a second secret (a cookie-signing key) to
+    generate, store and rotate. Cookie is HttpOnly + Secure +
     SameSite=Strict so it never reaches page JS and is never sent
     cross-site or over plain HTTP. Sessions are no longer bound to a
     specific `remote.hosts` entry (pass 1's `host` field) — the remote
@@ -67,6 +72,8 @@ import dashboard_config
 
 TOKEN_PATH = os.path.join(dashboard_config.CONFIG_HOME, "remote-token")
 AUDIT_LOG_PATH = os.path.join(dashboard_config.CONFIG_HOME, "remote-audit.jsonl")
+#: Issued phone sessions, so a dashboard restart keeps them (hashed ids only).
+SESSIONS_PATH = os.path.join(dashboard_config.CONFIG_HOME, "remote-sessions.json")
 
 #: `tailscale serve` fronts this port when remote access is enabled — the
 #: main dashboard listener (4711 by default) is never reachable from the
@@ -83,8 +90,9 @@ LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_SECONDS = 60
 
 _LOCK = threading.Lock()
-#: {session_id: (expires_at_epoch, token_fingerprint_at_issue)}
-_SESSIONS = {}
+#: {sha256(session_id): (expires_at_epoch, token_fingerprint_at_issue)},
+#: loaded from SESSIONS_PATH on first use (None = not loaded yet).
+_SESSIONS = None
 #: {client_ip: [failure_epoch, ...]} — pruned to LOGIN_WINDOW_SECONDS on read
 _LOGIN_FAILURES = {}
 
@@ -230,7 +238,9 @@ def create_session():
     expires_at = time.time() + SESSION_TTL_SECONDS
     token_fp = token_fingerprint(load_token())
     with _LOCK:
-        _SESSIONS[session_id] = (expires_at, token_fp)
+        sessions = _loaded_sessions()
+        sessions[_session_key(session_id)] = (expires_at, token_fp)
+        _save_sessions(sessions)
     return session_id
 
 
@@ -242,15 +252,72 @@ def session_valid(session_id):
     if not session_id:
         return False
     current_fp = token_fingerprint(load_token())
+    key = _session_key(session_id)
     with _LOCK:
-        entry = _SESSIONS.get(session_id)
+        sessions = _loaded_sessions()
+        entry = sessions.get(key)
         if not entry:
             return False
         expires_at, token_fp = entry
         if time.time() >= expires_at or token_fp != current_fp:
-            del _SESSIONS[session_id]
+            del sessions[key]
+            _save_sessions(sessions)
             return False
         return True
+
+
+def _session_key(session_id):
+    """What the map (and file) holds for a session: its sha256, never the
+    id itself — reading the file must not yield a usable cookie."""
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
+def _loaded_sessions():
+    """The session map, read from SESSIONS_PATH on first use. Call with
+    _LOCK held. Expired entries are dropped; a missing, unreadable, or
+    non-private file (group/other bits, not a regular file) starts empty."""
+    global _SESSIONS
+    if _SESSIONS is None:
+        _SESSIONS = _read_sessions_file()
+    return _SESSIONS
+
+
+def _read_sessions_file():
+    try:
+        st = os.lstat(SESSIONS_PATH)
+        if not stat.S_ISREG(st.st_mode) or stat.S_IMODE(st.st_mode) & 0o077:
+            return {}
+        with open(SESSIONS_PATH) as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    now = time.time()
+    sessions = {}
+    for key, entry in (raw.items() if isinstance(raw, dict) else ()):
+        if isinstance(key, str) and isinstance(entry, list) and len(entry) == 2 \
+                and isinstance(entry[0], (int, float)) and entry[0] > now \
+                and (entry[1] is None or isinstance(entry[1], str)):
+            sessions[key] = (float(entry[0]), entry[1])
+    return sessions
+
+
+def _save_sessions(sessions):
+    """Atomic, mode-0600 write of the session map. Best-effort: a failed
+    write only means a restart logs the phone out again, never a failed
+    login. Call with _LOCK held."""
+    tmp_path = f"{SESSIONS_PATH}.{os.getpid()}.tmp"
+    try:
+        os.makedirs(os.path.dirname(SESSIONS_PATH), exist_ok=True)
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump({key: list(entry) for key, entry in sessions.items()}, f)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, SESSIONS_PATH)
+    except OSError:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
 
 def parse_cookies(cookie_header):

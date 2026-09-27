@@ -109,9 +109,11 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
   as "no token configured" — it is never trusted, even if the bytes inside
   are correct, since a leaked-permission file has already leaked the secret.
 - **Session**: `POST /remote/login` exchanges the token for a random
-  32-byte session id, held in an in-memory map on the server process (not
-  persisted, not HMAC-signed — a restart just costs the phone one
-  re-login). Set as an `HttpOnly; Secure; SameSite=Strict` cookie, 30-day
+  32-byte session id, held in a server-side map that is also saved to
+  `~/.config/agent-dashboard/remote-sessions.json` (mode 600, sha256 of
+  each id only — the file is not a cookie jar; a file with looser mode is
+  ignored) so a dashboard restart does NOT log the phone out (it used to,
+  ~10x a day). Not HMAC-signed. Set as an `HttpOnly; Secure; SameSite=Strict` cookie, 30-day
   `Max-Age`. Each session also remembers a fingerprint of the token that was
   live when it was issued; **rotating the token (`--rotate`) immediately
   invalidates every session already issued**, not just future logins — the
@@ -138,8 +140,7 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
 - Answering Claude Desktop / CLI prompts works from the phone since
   2026-09-27 (`POST /api/hook/permission/<id>/answer` is the one hook route
   on this listener; see dashboard/AGENTS.md "Hook answer bridge").
-- Revoking one single issued session without rotating the shared token or
-  restarting the server (today: restart clears every session; rotating the
-  token now revokes every session at once — see above — but there's still
-  no way to kick out just one stolen/leaked session while leaving others
-  live).
+- Revoking one single issued session without rotating the shared token
+  (rotation revokes every session at once — see above;
+  since 2026-09-27 a restart no longer does, sessions persist; deleting
+  `remote-sessions.json` while the server is stopped also revokes all).

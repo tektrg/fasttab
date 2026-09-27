@@ -298,6 +298,46 @@ with open(remote_access.TOKEN_PATH, "w") as f:
     f.write(TOKEN + "\n")
 os.chmod(remote_access.TOKEN_PATH, 0o600)
 
+print("== sessions survive a dashboard restart (persisted, hashed, 0600) ==")
+persist_session_id = remote_access.create_session()
+sessions_mode = os.stat(remote_access.SESSIONS_PATH).st_mode & 0o777
+check("sessions file is mode 0600", sessions_mode, 0o600)
+with open(remote_access.SESSIONS_PATH) as f:
+    sessions_text = f.read()
+check("sessions file never holds a raw session id (hashes only)",
+      persist_session_id in sessions_text or (session_id or "") in sessions_text, False)
+remote_access._SESSIONS = None  # = a fresh server process
+check("session still valid after a restart",
+      remote_access.session_valid(persist_session_id), True)
+check("a session revoked by rotation stays revoked after a restart",
+      remote_access.session_valid(rotate_session_id), False)
+with open(remote_access.TOKEN_PATH, "w") as f:
+    f.write("rotated-while-down\n")
+os.chmod(remote_access.TOKEN_PATH, 0o600)
+remote_access._SESSIONS = None
+check("rotation while the server was down revokes a persisted session",
+      remote_access.session_valid(persist_session_id), False)
+with open(remote_access.TOKEN_PATH, "w") as f:
+    f.write(TOKEN + "\n")
+os.chmod(remote_access.TOKEN_PATH, 0o600)
+persist_session_id = remote_access.create_session()
+os.chmod(remote_access.SESSIONS_PATH, 0o644)
+remote_access._SESSIONS = None
+check("a group/world-readable sessions file is ignored (logged out, not trusted)",
+      remote_access.session_valid(persist_session_id), False)
+with open(remote_access.SESSIONS_PATH, "w") as f:
+    f.write("{not json")
+os.chmod(remote_access.SESSIONS_PATH, 0o600)
+remote_access._SESSIONS = None
+check("a corrupt sessions file starts empty, no crash",
+      remote_access.session_valid(persist_session_id), False)
+fresh_session_id = remote_access.create_session()
+check("login still works (and rewrites the file) after a corrupt one",
+      remote_access.session_valid(fresh_session_id), True)
+remote_access._SESSIONS = None
+check("the rewritten file loads on the next restart",
+      remote_access.session_valid(fresh_session_id), True)
+
 print("== token file permissions: a loosened mode is never trusted ==")
 os.chmod(remote_access.TOKEN_PATH, 0o644)
 check("world-readable token file reads as no token", remote_access.load_token(), None)

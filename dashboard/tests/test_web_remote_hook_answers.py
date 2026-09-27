@@ -109,6 +109,8 @@ def sse_client(port, query, headers):
             for _ in range(1):
                 while resp.fp.readline() not in (b"\n", b""):
                     pass
+            # The server marks "seen" right AFTER the write just read.
+            time.sleep(0.1)
         except Exception:
             pass
         finally:
@@ -222,6 +224,10 @@ conn.request("GET", "/api/events?answerSurface=web", headers=dict(AUTH, Host="12
 resp = conn.getresponse()
 while resp.fp.readline() not in (b"\n", b""):
     pass
+# The server marks "seen" right AFTER the write this client just read.
+deadline = time.monotonic() + 1
+while not agentbar_presence.PRESENCE.is_connected() and time.monotonic() < deadline:
+    time.sleep(0.02)
 check("open phone stream counts as a surface", agentbar_presence.PRESENCE.is_connected(), True)
 token_path = os.path.join(CONFIG_HOME, "remote-token")
 with open(token_path, "w") as f:

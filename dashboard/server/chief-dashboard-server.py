@@ -1373,7 +1373,19 @@ def answer_pane_question(pane_id, choice, question):
             or q["question"] != want.get("question")):
         # The feed copy is up to 45s old: the pane may have moved on or been
         # answered from the terminal since. Answering the NEW question with
-        # the OLD choice would silently mis-answer real work.
+        # the OLD choice would silently mis-answer real work. This refusal
+        # also fires whenever the CLIENT posted a title/question that was
+        # never screen-parsed in the first place (e.g. the transcript's raw
+        # AskUserQuestion copy, a different representation of the same
+        # question — see FormCard.tsx's fix note) — logged here, not just
+        # raised, because that class of bug otherwise looks identical to
+        # genuine staleness and is undiagnosable from the client's generic
+        # "question changed or gone" toast alone.
+        print(f"chief-dashboard-server: answer_pane_question mismatch "
+              f"pane={pane_id!r} machine={machine!r} "
+              f"posted_title={want.get('title')!r} fresh_title={q['title']!r} "
+              f"posted_question={want.get('question')!r} "
+              f"fresh_question={q['question']!r}", file=sys.stderr)
         raise RuntimeError("question changed or gone — re-check the pane")
 
     ctype = (choice or {}).get("type")

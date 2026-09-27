@@ -1,5 +1,4 @@
 import Foundation
-import CommandBarKit
 
 /// Turns the shown agent rows, plus the persona registry, into one flat list for Jev to choose
 /// between — see `.claude/briefs/jev-persona-routing.md`, "Routing (AgentBar)". Pure.
@@ -13,14 +12,8 @@ enum RouteCandidateBuilder {
     /// Only rows that can actually take a message today (same rule the Message button uses) become
     /// session candidates; offline personas are never offered. Empty when neither has anything to
     /// offer (`OpenRouterJevClient.route` returns `.none` without a network call for that case).
-    static func candidates(
-        from agents: [AgentSnapshot],
-        personas: [Persona] = [],
-        frecency: [String: FrecencyEntry] = [:],
-        now: Date = Date()
-    ) -> [RouteCandidate] {
-        let personaNameByRowID = personaNameByRowID(personas)
-        return personaCandidates(personas) + sessionCandidates(agents, personaNameByRowID: personaNameByRowID, frecency: frecency, now: now)
+    static func candidates(from agents: [AgentSnapshot], personas: [Persona] = []) -> [RouteCandidate] {
+        personaCandidates(personas) + sessionCandidates(agents, personaNameByRowID: personaNameByRowID(personas))
     }
 
     /// `persona:<name>` → `<name>`; nil for a session pick's plain agent id. The one place that
@@ -34,22 +27,16 @@ enum RouteCandidateBuilder {
         personas
             .filter { !$0.offline }
             .map { persona in
-                let routesWhen = persona.routesWhen.joined(separator: ", ")
-                let notFor = persona.notFor.joined(separator: ", ")
-                let summary = "\(persona.name) — \(persona.description). Routes here: \(routesWhen). Not for: \(notFor)."
+                var summary = "\(persona.name) — \(persona.description)."
+                if !persona.routesWhen.isEmpty { summary += " Routes here: \(persona.routesWhen.joined(separator: ", "))." }
+                if !persona.notFor.isEmpty { summary += " Not for: \(persona.notFor.joined(separator: ", "))." }
                 return RouteCandidate(agentID: "\(personaIDPrefix)\(persona.name)", summary: summary)
             }
     }
 
-    private static func sessionCandidates(
-        _ agents: [AgentSnapshot],
-        personaNameByRowID: [String: String],
-        frecency: [String: FrecencyEntry],
-        now: Date
-    ) -> [RouteCandidate] {
+    private static func sessionCandidates(_ agents: [AgentSnapshot], personaNameByRowID: [String: String]) -> [RouteCandidate] {
         let eligible = agents.filter { RowButtons.usableButtons(for: $0).contains(.message) }
-        let capped = AgentRanking.orderedByFrecency(eligible, frecency: frecency, now: now).prefix(sessionCap)
-        return capped.map { agent in
+        return orderedByActivity(eligible).prefix(sessionCap).map { agent in
             let personaLabel = agent.rowId.flatMap { personaNameByRowID[$0] } ?? "no persona"
             var parts = [personaLabel, agent.label, agent.statusText]
             if let excerpt = agent.promptExcerpt, !excerpt.isEmpty {
@@ -57,6 +44,17 @@ enum RouteCandidateBuilder {
             }
             return RouteCandidate(agentID: agent.id, summary: parts.joined(separator: " · "))
         }
+    }
+
+    /// Most recently active first: `secondsInStatus` (the dashboard's `hookSinceSec`) ascending,
+    /// rows without one last, dashboard order on ties. How long ago the agent itself last did
+    /// something — not how often the user switched to it (frecency), which says nothing about
+    /// which session is on the topic right now.
+    private static func orderedByActivity(_ agents: [AgentSnapshot]) -> [AgentSnapshot] {
+        agents.enumerated().sorted { lhs, rhs in
+            let (lhsSeconds, rhsSeconds) = (lhs.element.secondsInStatus ?? .infinity, rhs.element.secondsInStatus ?? .infinity)
+            return lhsSeconds != rhsSeconds ? lhsSeconds < rhsSeconds : lhs.offset < rhs.offset
+        }.map(\.element)
     }
 
     /// Every row id (main + every other session) a persona claims, reversed to a lookup — a

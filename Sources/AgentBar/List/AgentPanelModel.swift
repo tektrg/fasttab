@@ -152,15 +152,13 @@ final class AgentPanelModel: ObservableObject {
         let epoch = routingEpoch
         let afterRouting = routingSettings.afterRouting
         let personaSource = personaSource
-        let frecency = frecency
-        let asOf = now()
         Task { [weak self] in
             // Nil (unreachable dashboard, timeout, bad reply) reads as "no personas" — sessions-only
             // candidates, same as before personas existed; may also be empty (zero message-eligible
             // agents shown and no personas) — `OpenRouterJevClient.route` returns `.none` for that
             // without a network call.
             let personas = await personaSource?.fetchPersonas() ?? []
-            let candidates = RouteCandidateBuilder.candidates(from: agents, personas: personas, frecency: frecency, now: asOf)
+            let candidates = RouteCandidateBuilder.candidates(from: agents, personas: personas)
             let outcome = await client.route(text: text, candidates: candidates)
             self?.finishRouting(outcome, candidates: candidates, personas: personas, epoch: epoch, afterRouting: afterRouting)
         }
@@ -203,16 +201,15 @@ final class AgentPanelModel: ObservableObject {
 
     // MARK: - Persona picks
 
-    /// `finishRouting` found a `persona:<name>` pick: resolves whether its main session is live and
-    /// still message-eligible, then either shows the persona confirm row or, under "send
-    /// immediately", delivers straight away.
+    /// `finishRouting` found a `persona:<name>` pick: resolves where its main session stands, then
+    /// either shows the persona confirm row or, under "send immediately", delivers straight away.
     private func resolvePersonaPick(named name: String, personas: [Persona], confidence: Double, afterRouting: AfterRoutingBehavior) {
         guard let persona = personas.first(where: { $0.name == name }) else {
             routingState = nil
             showAnswerNotice("Jev picked a persona that is no longer offered.")
             return
         }
-        let pick = PersonaPick(persona: persona, confidence: confidence, mainAgentID: liveMainAgentID(for: persona))
+        let pick = PersonaPick(persona: persona, confidence: confidence, mainSession: mainSession(of: persona))
         if afterRouting == .sendImmediately {
             deliverPersonaPick(pick)
         } else {
@@ -220,15 +217,19 @@ final class AgentPanelModel: ObservableObject {
         }
     }
 
-    /// The persona's main session's agent id, only if it is still shown and still message-eligible
-    /// right now — the same staleness window a plain session pick already tolerates at confirm time
-    /// (`confirmRoutingIfPending`), just resolved up front here: a persona confirm row needs to know
-    /// this to choose its effect text before the user ever presses Return.
-    private func liveMainAgentID(for persona: Persona) -> String? {
-        guard let mainRowId = persona.mainRowId else { return nil }
-        let agent = presentation.agents.first(where: { $0.rowId == mainRowId }) ?? snapshot?.agents.first(where: { $0.rowId == mainRowId })
-        guard let agent, RowButtons.usableButtons(for: agent).contains(.message) else { return nil }
-        return agent.id
+    /// The persona's main session as shown right now — the same staleness window a plain session
+    /// pick already tolerates at confirm time (`confirmRoutingIfPending`), just resolved up front
+    /// here: a persona confirm row needs to know this to choose its effect text before the user
+    /// ever presses Return. "Live" and "can take a message" are kept apart on purpose: a live main
+    /// session that can't take one must not read as absent, or Return starts a duplicate beside it.
+    /// `blocker`, not `blockedOnYou`: a parked row is still stuck on its question.
+    private func mainSession(of persona: Persona) -> PersonaMainSession {
+        guard let mainRowId = persona.mainRowId,
+              let agent = presentation.agents.first(where: { $0.rowId == mainRowId }) ?? snapshot?.agents.first(where: { $0.rowId == mainRowId }),
+              agent.section.isLive
+        else { return .absent }
+        if RowButtons.usableButtons(for: agent).contains(.message) { return .ready(agentID: agent.id) }
+        return agent.blocker != nil ? .waitingOnYou(agentID: agent.id) : .unreachable(agentID: agent.id)
     }
 
     /// Tab while `.confirmingPersona` is showing: the smallest version of the spec's Tab-tag menu
@@ -240,18 +241,33 @@ final class AgentPanelModel: ObservableObject {
     @discardableResult
     func togglePersonaDeliveryOverride() -> Bool {
         guard case .confirmingPersona(var pick) = routingState else { return false }
+        dismissRefusalNotice(leaving: pick)
         pick.forcedStartNew.toggle()
         routingState = .confirmingPersona(pick)
         return true
     }
 
+    /// A refusal row's notice ("…waiting on you…") describes that row only: once the row changes
+    /// (Tab, or a redraw at Return) it would be stale next to the new effect.
+    private func dismissRefusalNotice(leaving pick: PersonaPick) {
+        if pick.effect.refusesDelivery { dismissFooterNotice() }
+    }
+
     /// Return while `.confirmingPersona`, or "send immediately" landing on a persona: sends to the
     /// live main session through the exact same pipeline a plain session pick uses, or starts/resumes
-    /// the persona through the dashboard.
-    private func deliverPersonaPick(_ pick: PersonaPick) {
+    /// the persona through the dashboard. The main session is re-read first: if the effect changed
+    /// since the row was drawn, the row is redrawn and waits for another Return.
+    private func deliverPersonaPick(_ shownPick: PersonaPick) {
+        var pick = shownPick
+        pick.mainSession = mainSession(of: pick.persona)
+        guard pick.effect == shownPick.effect else {
+            dismissRefusalNotice(leaving: shownPick)
+            routingState = .confirmingPersona(pick)
+            return
+        }
         switch pick.effect {
         case .sendToMain:
-            guard let mainAgentID = pick.mainAgentID,
+            guard case .ready(let mainAgentID) = pick.mainSession,
                   let agent = presentation.agents.first(where: { $0.id == mainAgentID }) ?? snapshot?.agents.first(where: { $0.id == mainAgentID })
             else {
                 routingEpoch += 1
@@ -260,11 +276,22 @@ final class AgentPanelModel: ObservableObject {
                 return
             }
             send(to: agent)
+        case .mainWaitingOnYou:
+            refusePersonaDelivery(pick, "\(pick.persona.name)'s main session is waiting on you. Answer it first, or Tab to start a new session.")
+        case .mainUnreachable:
+            refusePersonaDelivery(pick, "\(pick.persona.name)'s main session can't take messages here. Tab to start a new session.")
         case .resumeLast:
             startPersonaSession(pick.persona, fresh: false)
         case .startNew:
             startPersonaSession(pick.persona, fresh: true)
         }
+    }
+
+    /// Starts nothing: keeps (or, under "send immediately", shows) the confirm row and the typed
+    /// text, so Tab can still force a new session.
+    private func refusePersonaDelivery(_ pick: PersonaPick, _ reason: String) {
+        routingState = .confirmingPersona(pick)
+        showAnswerNotice(reason)
     }
 
     /// `POST /api/persona/start`, reached only through `deliverPersonaPick`. Runs the exact same
@@ -290,24 +317,30 @@ final class AgentPanelModel: ObservableObject {
             }
             routingState = .startingPersona(name: persona.name)
             let epoch = routingEpoch
+            let typedText = routingText
             Task { [weak self] in
                 let outcome = await personaSource.startPersona(persona.name, text: text, fresh: fresh)
-                self?.finishPersonaStart(outcome, personaName: persona.name, epoch: epoch)
+                self?.finishPersonaStart(outcome, personaName: persona.name, typedText: typedText, epoch: epoch)
             }
         }
     }
 
     /// The `POST /api/persona/start` reply: never auto-retried, whatever it says (spec) — a failure
-    /// just shows the reason, the same as every other send failure.
-    private func finishPersonaStart(_ outcome: PersonaStartOutcome, personaName: String, epoch: Int) {
-        guard epoch == routingEpoch, case .startingPersona = routingState else { return }
-        routingState = nil
+    /// just shows the reason, the same as every other send failure. The outcome is always shown,
+    /// even after Esc or a panel reopen (like a plain session send: the start happened either way).
+    /// Only a reply to the route still on screen clears the row. A success clears the box too —
+    /// after Esc only while it still holds the text that was sent (`typedText`), so a delivered
+    /// message isn't left there inviting a re-send, and anything typed since is left alone.
+    private func finishPersonaStart(_ outcome: PersonaStartOutcome, personaName: String, typedText: String, epoch: Int) {
+        let isCurrentRoute = epoch == routingEpoch && routingState == .startingPersona(name: personaName)
+        if isCurrentRoute { routingState = nil }
+        let clearsSentText = isCurrentRoute || query.trimmingCharacters(in: .whitespacesAndNewlines) == typedText
         switch outcome {
         case .started:
-            query = ""
+            if clearsSentText { query = "" }
             showFailureNotice(.created("Started \(personaName)"))
         case .resumed:
-            query = ""
+            if clearsSentText { query = "" }
             showFailureNotice(.created("Resumed \(personaName)"))
         case .failed(let reason):
             showAnswerNotice(reason)
@@ -486,9 +519,11 @@ final class AgentPanelModel: ObservableObject {
     /// Tab: tags the selected row if it can take a message (same eligibility `RowButtons` already
     /// gates the Message button with). Re-tagging — arrow to another row, Tab again — just swaps the
     /// target; typed text is untouched. Cancels an in-flight Jev route: the two are mutually
-    /// exclusive, and an explicit tag makes asking Jev redundant. No-op while a card is open, or
-    /// when nothing selectable is message-eligible.
+    /// exclusive, and an explicit tag makes asking Jev redundant. No-op while a card is open, while
+    /// a persona start is in flight (its row stays; the start can't be taken back), or when nothing
+    /// selectable is message-eligible.
     func tagSelected() {
+        if case .startingPersona = routingState { return }
         guard !isCardOpen, let agent = selectedAgent, RowButtons.usableButtons(for: agent).contains(.message) else { return }
         let wasRouting = cancelRoutingIfActive()
         // Same as every card-opening path below: composing hides the list/peek area entirely

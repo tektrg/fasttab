@@ -29,6 +29,12 @@ targets:
         product: FastTabSync
       - package: IndieLibKit
         product: IndieLinks
+      # Portfolio account + sharing (L1 move P5 proof). Linked, but nothing at launch uses
+      # them yet: theindie-api does not list the "fasttab" app. See FastTabMobile/Sharing/.
+      - package: IndieLibKit
+        product: IndieAccount
+      - package: IndieLibKit
+        product: IndieShareSync
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile
       DEVELOPMENT_TEAM: 56S46Y7CKN
@@ -112,6 +118,11 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: FastTabMobileTests
+      # Fake account server, in-memory keychain and share fixtures from IndieLibKit, compiled
+      # in rather than linked: linking a second product that depends on IndieAccount makes
+      # Xcode turn IndieAccount into an embedded framework (same as Parklet's project.yml).
+      - path: ../../IndieLibKit/Sources/IndieAccountTestSupport
+      - path: ../../IndieLibKit/Sources/IndieShareSyncTestSupport
     dependencies:
       - target: FastTabMobile
     settings:

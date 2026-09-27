@@ -186,7 +186,9 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
     func startPersona(_ name: String, text: String, fresh: Bool) async -> PersonaStartOutcome {
         do {
             let request = endpoint.personaStartRequest(persona: name, text: text, fresh: fresh)
-            let (body, _) = try await transport.response(for: request)
+            let (body, statusCode) = try await transport.response(for: request)
+            // A dashboard without the endpoint answers a bare `{"error": "not found"}` 404.
+            if statusCode == 404 { return .failed(DashboardPersonaStartResponse.endpointMissingMessage) }
             let reply = try JSONDecoder().decode(DashboardPersonaStartResponse.self, from: body)
             return reply.outcome ?? .failed("The dashboard sent an unreadable reply. Check whether \(name) started.")
         } catch is DecodingError {

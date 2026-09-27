@@ -318,6 +318,43 @@ describe("FormCard", () => {
     m.unmount();
   });
 
+  test("screenQuestion belongs to a different tab than form.questions[0]: refuses instead of mis-answering", async () => {
+    // The terminal already moved past this tab (answered directly, or a
+    // stale form) — the sweep's screenQuestion is some OTHER open tab, one
+    // that happens to have a different option count/mode than
+    // form.questions[0]. Sending indices built from form.questions[0].options
+    // against it would silently target the wrong options on the wrong tab.
+    const calls = stubFetch({ ok: true });
+    const otherTab: PickerQuestion = {
+      title: "Ship now?",
+      question: "Ship now?",
+      multi: false,
+      options: [
+        { index: 1, label: "Yes", checked: false, other: false },
+        { index: 2, label: "No", checked: false, other: false },
+      ],
+      cursorIndex: 1,
+      otherIndex: null,
+      hasSubmit: false,
+    };
+    const m = mount(
+      <FormCard
+        paneId="w8:p1"
+        form={multiQuestionForm()} // questions[0] is multi-select, 3 options
+        screenQuestion={otherTab} // single-select, 2 options — shape mismatch
+        onToast={() => {}}
+      />,
+    );
+    click(checkboxLabeled(m.host, "a.ts"));
+    click(radioLabeled(m.host, "Yes"));
+    await settle();
+    click(buttonWithText(m.host, "Submit"));
+    await settle();
+    expect(calls.find((c) => c.url === "/api/answer")).toBeUndefined();
+    expect(m.host.textContent).toContain("question changed or gone");
+    m.unmount();
+  });
+
   test("a refusal on any question stops the batch and reports it", async () => {
     stubFetch({ ok: false, error: "question changed or gone — re-check the pane" });
     const m = mount(

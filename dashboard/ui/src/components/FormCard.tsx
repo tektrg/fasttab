@@ -109,6 +109,24 @@ export function FormCard({
         lastError = "question changed or gone — re-check the pane";
         break;
       }
+      // `current`'s title/question text can never be compared byte-for-byte
+      // against the transcript's `q` (that's the whole reason this card
+      // stopped posting it — see the file header), so this is the cheapest
+      // structural cross-check available: if the tab actually open on
+      // screen doesn't even have the same select-mode and option COUNT as
+      // the transcript's question at this same position, `current` is not
+      // this question — most likely the terminal already advanced past a
+      // tab the dashboard's stale form still lists first (answered from the
+      // pane directly, or a previous batch's tab order). Sending indices
+      // built from `q.options` against a same-shaped-by-luck but wrong tab
+      // would otherwise silently mis-answer real work with no error at all;
+      // refuse instead, same as any other "not the question we think it is"
+      // gate in this file.
+      if (current.multi !== q.isMultiSelect || current.options.length !== q.options.length) {
+        allOk = false;
+        lastError = "question changed or gone — re-check the pane";
+        break;
+      }
       const choice = d.other.trim()
         ? { type: "text" as const, value: d.other.trim() }
         : {

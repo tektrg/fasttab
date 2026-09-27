@@ -5,6 +5,7 @@ import { answerQuestion, fmtAge } from "../api";
 import { ensureNotiPerm } from "../alerts";
 import { KindBadge } from "./Severity";
 import { MarkdownInline } from "./Markdown";
+import { PanelessPrompt } from "./HookRequestCard";
 
 // Phase 5: display-only box for the hook's question preview. Plain text, NO
 // buttons, NO Confirm — the hook copy comes from raw tool input and can never
@@ -367,6 +368,23 @@ export function NeedsYou({
                           q={q}
                           onToast={onToast}
                         />
+                      </td>
+                    </tr>,
+                  ];
+                }
+                // Pane-less (Desktop / CLI) row: the hook-held prompt to
+                // answer, or the transcript's question to read.
+                if (!i.paneId && (i.hookRequest || i.transcriptQuestion)) {
+                  return [
+                    main,
+                    <tr
+                      key={key + "::hook"}
+                      className="needsyou-row"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <td></td>
+                      <td colSpan={4} style={{ padding: 0 }}>
+                        <PanelessPrompt row={i} onToast={onToast} />
                       </td>
                     </tr>,
                   ];

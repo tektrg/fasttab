@@ -6,6 +6,7 @@ import type {
   BoardValue,
   BoardView,
   FullState,
+  HookAnswer,
   PaneScreenResponse,
   PermissionPrompt,
   PickerQuestion,
@@ -56,7 +57,10 @@ export function useDashboardState(): FullState | null {
         if (!dead && s) setState(s);
       })
       .catch(() => {});
-    const es = new EventSource("/api/events");
+    // `answerSurface=web`: this build renders and answers hook prompts
+    // (HookRequestCard), so the dashboard may hold them while only this page
+    // — e.g. the phone's web remote — is open (server/lib/agentbar_presence.py).
+    const es = new EventSource("/api/events?answerSurface=web");
     es.onmessage = (ev) => {
       try {
         setState(JSON.parse(ev.data));
@@ -143,6 +147,16 @@ export async function answerQuestion(
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+/** POST /api/hook/permission/<id>/answer — answers a prompt the
+ *  PermissionRequest hook holds for a pane-less (Desktop / CLI) session.
+ *  First decision wins: 409 once answered in Claude or elsewhere. */
+export async function answerHookRequest(
+  requestId: string,
+  answer: HookAnswer,
+): Promise<{ ok: boolean; error?: string }> {
+  return requestJson(`/api/hook/permission/${encodeURIComponent(requestId)}/answer`, "POST", answer);
 }
 
 /** POST /api/permission — Review (Allow / Allow always / Deny) and the plan

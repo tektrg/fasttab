@@ -289,6 +289,15 @@ body.rp-resizing .rp-resize { background:var(--blue); }
    Chrome (header step, footer buttons) is the system UI font via Mantine;
    option labels are short data-ish text and stay inherit (not mono). */
 .appr-card { border-radius: var(--radius-card); }
+/* Hook permission prompt (HookRequestCard): the command / diff, kept readable on a phone. */
+.hook-permission-detail {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0;
+  font-size: 12px;
+}
 .appr-head .appr-step { font-family: var(--font-sans); letter-spacing: 0.4px; }
 .appr-head .appr-title { font-family: var(--font-sans); overflow-wrap: anywhere; }
 .appr-opts .appr-opt { border: 1px solid var(--border); border-radius: var(--radius-nested);

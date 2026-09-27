@@ -91,20 +91,22 @@ public struct TabListView: View {
     private var matchingTabs: [SyncedTab] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
+        let search = SyncSearchQuery(q)
         return visibleTabs.filter { tab in
-            SyncSearchMatcher.matches(query: q, title: tab.title, url: tab.url)
+            search.matches(title: tab.title, url: tab.url)
         }
     }
 
     private var matchingBookmarks: [(blob: SyncedBookmarkBlob, item: SyncedBookmarkItem)] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
+        let search = SyncSearchQuery(q)
 
         var results: [(blob: SyncedBookmarkBlob, item: SyncedBookmarkItem)] = []
         for blob in localCache.state.bookmarkBlobs {
             if let dev = activeDevice, blob.deviceID != dev.id { continue }
             for bm in blob.bookmarks {
-                if SyncSearchMatcher.matches(query: q, title: bm.title, url: bm.url) {
+                if search.matches(title: bm.title, url: bm.url) {
                     results.append((blob, bm))
                 }
             }
@@ -115,12 +117,13 @@ public struct TabListView: View {
     private var matchingHistory: [(slice: SyncedHistorySlice, entry: SyncedHistoryEntry)] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
+        let search = SyncSearchQuery(q)
 
         var results: [(slice: SyncedHistorySlice, entry: SyncedHistoryEntry)] = []
         for slice in localCache.state.historySlices {
             if let dev = activeDevice, slice.deviceID != dev.id { continue }
             for entry in slice.entries {
-                if SyncSearchMatcher.matches(query: q, title: entry.title, url: entry.url) {
+                if search.matches(title: entry.title, url: entry.url) {
                     results.append((slice, entry))
                 }
             }

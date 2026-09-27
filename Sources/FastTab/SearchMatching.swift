@@ -1,7 +1,7 @@
-import CommandBarKit
+import IndieSearch
 import Foundation
 
-/// App-side search helpers built on the kit's folding (`foldForMatching`,
+/// App-side search helpers built on IndieSearch folding (`foldForMatching`,
 /// `searchWords(in:)`, `foldedKeys`): URL match keys, the history SQL predicate,
 /// and history page identity.
 ///
@@ -47,7 +47,7 @@ func foldURLForMatching(_ url: String) -> String {
 /// Accent variants for each folded base letter, e.g. `"a"` maps to
 /// `["à","À","á","Á",…]`. Derived from `accentedSearchCharacters` rather than
 /// hand-listed per letter so the table can't drift out of sync with the folding
-/// rules (CommandBarKit `SearchFolding.swift`).
+/// rules (IndieLibKit `IndieSearch/SearchFolding.swift`).
 private let accentVariantsByBaseLetter: [Character: [Character]] = {
     // Full Vietnamese vowel set plus common European Latin letters.
     let accentedSearchCharacters =

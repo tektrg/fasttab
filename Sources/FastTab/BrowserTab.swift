@@ -1,5 +1,6 @@
 import Foundation
 import CommandBarKit
+import IndieSearch
 
 enum BrowserResultType: String, Codable, Hashable, Sendable {
     case sent

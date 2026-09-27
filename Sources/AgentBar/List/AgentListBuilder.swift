@@ -1,5 +1,6 @@
 import Foundation
 import CommandBarKit
+import IndieSearch
 
 /// Turns the latest status snapshot into the list the panel shows: state
 /// selection, parking (`TriageState`), the user's list settings, search

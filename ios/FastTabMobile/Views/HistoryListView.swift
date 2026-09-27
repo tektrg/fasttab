@@ -40,10 +40,10 @@ public struct HistoryListView: View {
         if query.isEmpty {
             return allHistory
         }
+        let search = SyncSearchQuery(query)
         var matches: [HistoryRowItem] = []
         for item in allHistory {
-            if SyncSearchMatcher.matches(query: query, target: item.entry.title) ||
-               SyncSearchMatcher.matches(query: query, target: item.entry.url) {
+            if search.matches(title: item.entry.title, url: item.entry.url) {
                 matches.append(item)
             }
         }

@@ -4,6 +4,7 @@ import OSLog
 import ApplicationServices
 import FastTabSync
 import CommandBarKit
+import IndieSearch
 
 @MainActor
 class BrowserTabService: ObservableObject {

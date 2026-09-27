@@ -4,6 +4,7 @@ import FastTabSync
 public struct MoreView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var syncConsumer = SyncConsumer.shared
+    @StateObject private var statsViewModel = StatsViewModel()
     @AppStorage(TabBookmarkClosePreference.defaultsKey)
     private var tabBookmarkClosePreferenceRaw = TabBookmarkClosePreference.ask.rawValue
 
@@ -25,6 +26,19 @@ public struct MoreView: View {
 
     public var body: some View {
         List {
+            // Level-1 stats: visible the moment the tab opens, no tap-through.
+            Section {
+                ReadingStatsCard(summary: statsViewModel.reading, isLoaded: statsViewModel.hasLoadedReading)
+            }
+            .listRowInsets(EdgeInsets())
+            .dsListRow()
+
+            Section {
+                TabStatsCard(summary: statsViewModel.tabs)
+            }
+            .listRowInsets(EdgeInsets())
+            .dsListRow()
+
             Section {
                 DataFreshnessBanner(
                     device: localCache.state.devices.first,
@@ -157,6 +171,7 @@ public struct MoreView: View {
         .listStyle(.insetGrouped)
         .dsListStyle()
         .navigationTitle("More")
+        .task { await statsViewModel.reloadReadingLog() }
     }
 }
 

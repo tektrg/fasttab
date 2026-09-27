@@ -201,6 +201,32 @@ public enum BookmarkTreeBuilder {
         return topNodes
     }
 
+    /// The Bookmarks tab filter, folded like the other iOS search screens
+    /// (`SyncSearchQuery`, so "don hang" finds "Đơn hàng"). A bookmark stays when
+    /// its title or URL contains every typed word; a folder stays when its name
+    /// matches or any descendant does, showing only the matching children when
+    /// there are some. A query with no letters or digits returns `nodes` unchanged.
+    public static func filter(_ nodes: [BookmarkTreeNode], matching query: String) -> [BookmarkTreeNode] {
+        let searchQuery = SyncSearchQuery(query)
+        guard !searchQuery.words.isEmpty else { return nodes }
+
+        func filterNode(_ node: BookmarkTreeNode) -> BookmarkTreeNode? {
+            guard node.isFolder else {
+                return searchQuery.matches(title: node.title, url: node.url ?? "") ? node : nil
+            }
+            let matchedChildren = (node.children ?? []).compactMap(filterNode)
+            if matchedChildren.isEmpty {
+                return searchQuery.matches(title: node.title, url: "") ? node : nil
+            }
+            var narrowed = node
+            narrowed.children = matchedChildren
+            narrowed.totalCount = matchedChildren.reduce(0) { $0 + $1.totalCount }
+            return narrowed
+        }
+
+        return nodes.compactMap(filterNode)
+    }
+
     public static func collectAllFolderIDs(from nodes: [BookmarkTreeNode]) -> Set<String> {
         var ids = Set<String>()
         for node in nodes {

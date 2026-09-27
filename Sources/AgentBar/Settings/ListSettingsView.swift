@@ -30,7 +30,7 @@ struct ListSettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Toggle("Show Claude Desktop and CLI sessions", isOn: binding(\.showsClaudeOutsideHerdr))
-                Text("Claude sessions outside herdr (the Claude app, or the CLI in tmux). Status only: no Answer, Message or Done. Enter opens a Claude Desktop session in the app.")
+                Text("Claude sessions outside herdr (the Claude app, or the CLI in tmux). Status only: no Answer, Message or Done. Enter opens a Claude Desktop session in the app, and a tmux session in the terminal already showing it, else a herdr tab (\"tmux:<session>\"), else a new Ghostty/iTerm/Terminal window.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

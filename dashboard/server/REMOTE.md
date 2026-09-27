@@ -116,7 +116,9 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
   live when it was issued; **rotating the token (`--rotate`) immediately
   invalidates every session already issued**, not just future logins — the
   very next request on an old session gets `401` and has to re-login with
-  the new token.
+  the new token. An already-open `/api/events` stream re-checks auth on
+  every push and closes too (it would otherwise keep streaming and keep
+  holding hook prompts as an answer surface).
 - **Rate limiting**: 5 failed logins within 60s blocks further wrong-token
   attempts until the window rolls off (in-memory, resets on restart). This
   is keyed on the caller's IP, but every remote request arrives from

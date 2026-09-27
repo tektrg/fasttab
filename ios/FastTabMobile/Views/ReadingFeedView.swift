@@ -25,6 +25,22 @@ public struct ReadingFeedView: View {
         localCache.state.devices.first?.id ?? ""
     }
 
+    /// Most recently opened articles that aren't finished yet (progress < 95%).
+    /// Source of truth is `LastOpenedStore` (the "most open"), merged live with
+    /// `ReaderReadingProgress` so a just-closed reader updates without a reload.
+    /// Capped at 5 so the floating bar stays a one-line switcher like Tabs'.
+    private var unfinishedReads: [LastOpenedItem] {
+        let finishedThreshold = 0.95
+        return lastOpenedStore.items.filter { item in
+            effectiveProgress(for: item) < finishedThreshold
+        }.prefix(5).map { $0 }
+    }
+
+    private func effectiveProgress(for item: LastOpenedItem) -> Double {
+        guard let url = item.parsedURL else { return item.readingProgress }
+        return max(item.readingProgress, readingProgress.progress(for: url))
+    }
+
     public var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: DS.Space.section) {
@@ -51,10 +67,24 @@ public struct ReadingFeedView: View {
                 Spacer(minLength: 40)
             }
             .padding(.top, 6)
-            .padding(.bottom, 24)
+            .padding(.bottom, unfinishedReads.isEmpty ? 24 : DS.Space.floatingBarClearance)
         }
         .dsCanvas()
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            if !unfinishedReads.isEmpty {
+                FloatingContinueReadingBar(
+                    items: unfinishedReads,
+                    progress: { effectiveProgress(for: $0) },
+                    onSelect: { item in
+                        guard let url = item.parsedURL else { return }
+                        openArticle(url: url, title: item.title)
+                    }
+                )
+                .padding(.bottom, DS.Space.sm)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -88,7 +118,7 @@ public struct ReadingFeedView: View {
                 saveToBookmarkURL = nil
             }
         }
-        .dsToast($toast)
+        .dsToast($toast, bottomInset: unfinishedReads.isEmpty ? DS.Space.xl : DS.Space.floatingBarClearance)
         .onAppear {
             recentProvider.drainPendingShares()
             recentProvider.refresh()
@@ -557,5 +587,79 @@ public struct ReadingFeedView: View {
 
     private func presentToast(_ message: String) {
         toast = message
+    }
+}
+
+/// Bottom floating switcher for unfinished reads — the Read tab's answer to the
+/// Tabs tab's `FloatingTabSortBar`. Same capsule / ultraThinMaterial / border /
+/// shadow styling, but the chips are dynamic: the 5 most recently opened,
+/// not-yet-finished articles. Tapping one reopens the reader, which restores
+/// the saved scroll position via `ReaderViewModel.loadInitialState()`.
+public struct FloatingContinueReadingBar: View {
+    public let items: [LastOpenedItem]
+    public let progress: (LastOpenedItem) -> Double
+    public let onSelect: (LastOpenedItem) -> Void
+
+    public init(
+        items: [LastOpenedItem],
+        progress: @escaping (LastOpenedItem) -> Double,
+        onSelect: @escaping (LastOpenedItem) -> Void
+    ) {
+        self.items = items
+        self.progress = progress
+        self.onSelect = onSelect
+    }
+
+    public var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DS.Space.xs) {
+                ForEach(items) { item in
+                    let pct = progress(item)
+                    Button {
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        onSelect(item)
+                    } label: {
+                        HStack(spacing: DS.Space.xs) {
+                            Image(systemName: "book.closed")
+                                .font(.system(size: 12, weight: .regular))
+                            Text(item.title.isEmpty ? item.domain : item.title)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                                .frame(maxWidth: 140, alignment: .leading)
+                            if pct > 0.01 {
+                                Text("\(Int((min(pct, 1) * 100).rounded()))%")
+                                    .font(DS.Font.tag.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, DS.Space.md)
+                        .padding(.vertical, DS.Space.sm)
+                        .foregroundColor(.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Continue reading \(item.title.isEmpty ? item.domain : item.title), \(Int((min(pct, 1) * 100).rounded())) percent read")
+                }
+            }
+        }
+        .scrollClipDisabled()
+        .padding(DS.Space.xs)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.45),
+                            Color.white.opacity(0.15)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.75
+                )
+        )
+        .dsShadow(.floating)
+        .padding(.horizontal, DS.Space.lg)
     }
 }

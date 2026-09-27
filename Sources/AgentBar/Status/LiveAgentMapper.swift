@@ -74,8 +74,13 @@ enum LiveAgentMapper {
         // Only a status-only row in Needs you answers through the hook bridge; a herdr row keeps its screen path.
         let hookRequest = host.isHerdr || needsYouEntry == nil
             ? nil : HookRequest(needsYouEntry?.hookRequest) ?? HookRequest(agent.hookRequest)
+        // No hook request: the question as read from the transcript, shown but not answerable here.
+        let transcriptQuestion = host.isHerdr || needsYouEntry == nil || hookRequest != nil
+            ? nil : needsYouEntry?.transcriptQuestion ?? agent.transcriptQuestion
+        let askedHeader = hookRequest?.questions.first?.header ?? transcriptQuestion?.header
+        let askedQuestion = hookRequest?.questions.first?.question ?? transcriptQuestion?.question
         let questionText = StatusTextCleaner.singleLine(
-            agent.screenQuestion?.question ?? hookRequest?.questions.first?.question, maxLength: promptExcerptMaxLength
+            agent.screenQuestion?.question ?? askedQuestion, maxLength: promptExcerptMaxLength
         )
         let screenSignal = StatusTextCleaner.singleLine(agent.screenSignal, maxLength: statusTextMaxLength)
         let snapshot = AgentSnapshot(
@@ -87,7 +92,7 @@ enum LiveAgentMapper {
             section: section,
             statusText: statusText(
                 section: section, hasPrompt: hasPrompt, agent: agent, needsYouEntry: needsYouEntry,
-                screenSignal: screenSignal, hookQuestion: hookRequest?.questions.first
+                screenSignal: screenSignal, askedHeader: askedHeader, askedQuestion: askedQuestion
             ),
             secondsInStatus: needsYouEntry?.sinceSec ?? agent.hookSinceSec,
             hasUnpushedCommits: pushText != nil,
@@ -128,7 +133,8 @@ enum LiveAgentMapper {
         agent: DashboardAgent,
         needsYouEntry: DashboardNeedsYou?,
         screenSignal: String?,
-        hookQuestion: FormQuestion?
+        askedHeader: String?,
+        askedQuestion: String?
     ) -> String {
         let hookReason = StatusTextCleaner.singleLine(agent.hookReason, maxLength: statusTextMaxLength)
         switch section {
@@ -138,8 +144,8 @@ enum LiveAgentMapper {
             // it is fresher than the screen line, which is then stale. For a plain
             // permission prompt the screen line is the prompt itself (the hook
             // reason is only generic vendor copy) — same precedence as the dashboard.
-            let title = StatusTextCleaner.singleLine(agent.screenQuestion?.title ?? hookQuestion?.header, maxLength: statusTextMaxLength)
-            let question = StatusTextCleaner.singleLine(agent.screenQuestion?.question ?? hookQuestion?.question, maxLength: statusTextMaxLength)
+            let title = StatusTextCleaner.singleLine(agent.screenQuestion?.title ?? askedHeader, maxLength: statusTextMaxLength)
+            let question = StatusTextCleaner.singleLine(agent.screenQuestion?.question ?? askedQuestion, maxLength: statusTextMaxLength)
             let asked = [title, question].compactMap { $0 }.joined(separator: ": ")
             let detail = StatusTextCleaner.singleLine(needsYouEntry?.detail, maxLength: statusTextMaxLength)
             return (asked.isEmpty ? nil : asked) ?? detail ?? screenSignal ?? hookReason ?? "Waiting for your answer"

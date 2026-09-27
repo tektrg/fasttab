@@ -160,11 +160,13 @@ struct DashboardAgent: Decodable {
     let tmuxTarget: String?
     /// A status-only row's pending hook-bridge prompt (also on its `needsYou` entry).
     let hookRequest: DashboardHookRequest?
+    /// A waiting status-only row's question read from its transcript (display only; never next to a `hookRequest`).
+    let transcriptQuestion: DashboardTranscriptQuestion?
 
     private enum CodingKeys: String, CodingKey {
         case paneId, label, cwd, hookState, hookSinceSec, hasHookData, residue
         case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
-        case source, openUrl, tmuxTarget, hookRequest
+        case source, openUrl, tmuxTarget, hookRequest, transcriptQuestion
     }
 
     init(from decoder: Decoder) throws {
@@ -187,6 +189,7 @@ struct DashboardAgent: Decodable {
         openUrl = container.lenient(.openUrl)
         tmuxTarget = container.lenient(.tmuxTarget)
         hookRequest = container.lenient(.hookRequest)
+        transcriptQuestion = container.lenient(.transcriptQuestion)
     }
 }
 
@@ -208,9 +211,12 @@ struct DashboardNeedsYou: Decodable {
     let agentSession: String?
     /// A status-only entry's prompt held by the dashboard's hook bridge (oldest pending one per session).
     let hookRequest: DashboardHookRequest?
+    /// A status-only entry's question read from its transcript when no hook request holds it (display only).
+    let transcriptQuestion: DashboardTranscriptQuestion?
 
     private enum CodingKeys: String, CodingKey {
         case kind, paneId, detail, sinceSec, question, questionPreview, permission, agentSession, hookRequest
+        case transcriptQuestion
     }
 
     init(from decoder: Decoder) throws {
@@ -224,6 +230,22 @@ struct DashboardNeedsYou: Decodable {
         permission = container.lenient(.permission)
         agentSession = container.lenient(.agentSession)
         hookRequest = container.lenient(.hookRequest)
+        transcriptQuestion = container.lenient(.transcriptQuestion)
+    }
+}
+
+/// `transcriptQuestion`: the pending AskUserQuestion of a waiting Claude Desktop / CLI session, read by the
+/// dashboard from the session transcript. Shown only — it cannot be answered from AgentBar.
+struct DashboardTranscriptQuestion: Decodable {
+    let header: String?
+    let question: String?
+
+    private enum CodingKeys: String, CodingKey { case header, question }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        header = container.lenient(.header)
+        question = container.lenient(.question)
     }
 }
 

@@ -182,6 +182,13 @@ exists) is exempt; the final reply is still checked.
   focus already refuse a row with no pane. A `waiting` one is a `blocked`
   needsYou row with `paneId: null`, `identity`/`agentSession` = session id,
   `source`, `openUrl`.
+- `transcriptQuestion` `{header, question, questionCount}` | null (row + its
+  needsYou entry): a `waiting` session's pending AskUserQuestion read from its
+  transcript tail — **display only**, set only when no `hookRequest` holds the
+  prompt (hook not installed, dashboard restarted before the re-send, AgentBar
+  away). `transcript_pending_question.py`, run by the `claudeSessions` feed on
+  `waiting` sessions only: one 256KB tail window, lstat regular files only (no
+  symlinks), cached by (path, mtime, size). Permission boxes have no fallback.
 - `openUrl` (desktop rows only): `claude://code/continue?session=<hostSessionId>`
   — Claude.app's own handler accepts `local_<id>` there and opens that
   EXISTING session (falls back to Code home, never creates one). Read from
@@ -285,9 +292,12 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   store), the Claude pid lives, and 23h have not passed. Re-sends carry
   `reregister: true` + the original `promptStartedAt`; the store holds one
   only while the (freshly read) session file says `waiting` and not moved on
-  (`prompt no longer waiting` otherwise), and dedupes by `tool_use_id`, else
-  sha256(tool, input) — the existing request id is returned, its hook pid
-  replaced. Restart gap: a prompt is back ≤ ~15s after AgentBar reconnects.
+  (`prompt no longer waiting` otherwise). A re-send whose request is still
+  pending (hook lost contact >60s) gets that request id back — only when it is
+  the SAME hook (`hookPid`) and prompt (`tool_use_id`, else sha256(tool,
+  input)): another hook with identical input is a new prompt (retried
+  command), and merging it would let the old prompt's answer resolve it.
+  Restart gap: a prompt is back ≤ ~15s after AgentBar reconnects.
 - e2e recipe (never against :4711): run the server with
   `CHIEF_DASHBOARD_PORT=4713` + scratch `CHIEF_DASHBOARD_STATE_HOME` and
   `CHIEF_DASHBOARD_CONFIG_HOME` (**:4712 is the live instance's remote
@@ -329,7 +339,7 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 50 test files, ~1780 `PASS` lines, 0 failures
+As of this writing: 51 test files, ~1810 `PASS` lines, 0 failures
 (`test_chief_dashboard_views.py` prints a heading containing "FAIL-OPEN" —
 not a failure; judge by each file's exit code).
 

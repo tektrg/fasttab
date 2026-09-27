@@ -91,17 +91,36 @@ store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive
                                              presence=SwitchablePresence())
 started = clock.now - 30
 first = store.register(payload(promptStartedAt=started), (), session_file())
-again = store.register(payload(promptStartedAt=started, hookPid=5555), (), session_file())
-check("same prompt twice -> one request", again["requestId"], first["requestId"])
-check("the re-send's hook is the one listening now", store._requests[first["requestId"]].hook_pid, 5555)
+again = store.register(payload(promptStartedAt=started, reregister=True), (), session_file(status_at=started + 0.2))
+check("the same hook re-sending its prompt -> one request", again["requestId"], first["requestId"])
 check("timer counts from the prompt, not the re-send",
       store.exposed_by_session([])["s1"]["sinceSec"], 30.0)
-other = store.register(payload(tool_input={"questions": [{**QUESTION_INPUT["questions"][0], "question": "Other?"}]}),
-                       (), session_file())
+other = store.register(payload(tool_input={"questions": [{**QUESTION_INPUT["questions"][0], "question": "Other?"}]},
+                               reregister=True, promptStartedAt=started),
+                       (), session_file(status_at=started + 0.2))
 check("a different prompt -> its own request", other["requestId"] != first["requestId"], True)
+twin = store.register(payload(hookPid=5555), (), session_file())
+check("another hook with the same tool + input (a retried command) -> its own request",
+      twin["requestId"] != first["requestId"], True)
+twin_resend = store.register(payload(hookPid=5555, reregister=True, promptStartedAt=started), (),
+                             session_file(status_at=started + 0.2))
+check("...and its re-send joins ITS request, not the first", twin_resend["requestId"], twin["requestId"])
 by_id_a = store.register(payload("s2", tool_use_id="toolu_1"), (), session_file("s2"))
-by_id_b = store.register(payload("s2", tool_use_id="toolu_1", tool_input={"questions": []}), (), session_file("s2"))
+by_id_b = store.register(payload("s2", tool_use_id="toolu_1", tool_input={"questions": []}, reregister=True,
+                                 promptStartedAt=started), (), session_file("s2", status_at=started + 0.2))
 check("tool_use_id wins over the input hash", by_id_a["requestId"], by_id_b["requestId"])
+
+print("== store: a retried identical prompt is not lost to the old one's answer ==")
+store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True,
+                                             presence=SwitchablePresence())
+old_prompt = store.register(payload(promptStartedAt=clock.now - 10), (), session_file())
+# Answered in Claude, and Claude asks the SAME thing again before any sweep ran.
+new_prompt = store.register(payload(promptStartedAt=clock.now, hookPid=5555), (), session_file())
+store.sweep([session_file(status_at=clock.now + 0.3)])
+check("old prompt resolved as answered elsewhere",
+      store._requests[old_prompt["requestId"]].state_reason, "answered elsewhere")
+check("the new identical prompt stays pending",
+      store._requests[new_prompt["requestId"]].state, hook_permissions.STATE_PENDING)
 
 store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True,
                                              presence=SwitchablePresence())

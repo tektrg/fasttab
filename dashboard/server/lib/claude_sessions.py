@@ -177,7 +177,9 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine,
     """Agent rows (same keys build_agents_view emits for a herdr pane) for
     every session NOT already a herdr row. `now` in seconds.
     `hook_requests`: {session_id: hookRequest} from hook_permissions — a
-    session with one reads `blocked` even before its file says `waiting`."""
+    session with one reads `blocked` even before its file says `waiting`.
+    Without one, a `waiting` session carries `transcriptQuestion` (display
+    only, from transcript_pending_question) when its transcript has one."""
     hook_requests = hook_requests or {}
     rows = []
     for entry in sessions or []:
@@ -193,6 +195,8 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine,
         entrypoint = entry.get("entrypoint") or "unknown"
         hook_request = hook_requests.get(session_id)
         hook_reason = _waiting_reason(entry) if status == "waiting" else None
+        transcript_question = entry.get("transcriptQuestion") \
+            if status == "waiting" and not hook_request else None
         if hook_request:
             hook_state = "blocked"
             hook_reason = hook_permission_summary.needs_you_detail(hook_request)
@@ -235,5 +239,8 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine,
             "openUrl": _desktop_open_url(entry),
             # Answerable prompt sent by the PermissionRequest hook, or None.
             "hookRequest": hook_request,
+            # Read-only: the pending question from the transcript, only when
+            # no hookRequest holds it ({header, question, questionCount}).
+            "transcriptQuestion": transcript_question,
         })
     return rows

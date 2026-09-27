@@ -89,8 +89,9 @@ enum DashboardHookAnswerResponse {
     static func outcome(body: Data, statusCode: Int) -> HookAnswerOutcome {
         let reply = try? JSONDecoder().decode(Reply.self, from: body)
         if (200..<300).contains(statusCode), reply?.ok != false { return .sent }
-        if let error = reply?.error, !error.isEmpty { return .failed(error) }
+        // 404 first: its body is terse ("unknown request" / "not found"), the plain words say more.
         if statusCode == 404 { return .failed(goneMessage) }
+        if let error = reply?.error, !error.isEmpty { return .failed(error) }
         return .failed("The dashboard refused the answer (HTTP \(statusCode)).")
     }
 }

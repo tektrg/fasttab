@@ -221,6 +221,11 @@ struct HookAnswerBodyTests {
         #expect(DashboardHookAnswerResponse.outcome(body: Data(#"{"ok": true}"#.utf8), statusCode: 200) == .sent)
         #expect(DashboardHookAnswerResponse.outcome(body: Data(#"{"error": "not pending"}"#.utf8), statusCode: 409) == .failed("not pending"))
         #expect(DashboardHookAnswerResponse.outcome(body: Data(), statusCode: 404) == .failed(DashboardHookAnswerResponse.goneMessage))
+        // The dashboard's real 404 bodies read as the plain-words message, not "unknown request".
+        #expect(DashboardHookAnswerResponse.outcome(body: Data(#"{"ok": false, "error": "unknown request"}"#.utf8), statusCode: 404)
+            == .failed(DashboardHookAnswerResponse.goneMessage))
+        #expect(DashboardHookAnswerResponse.outcome(body: Data(#"{"error": "not found"}"#.utf8), statusCode: 404)
+            == .failed(DashboardHookAnswerResponse.goneMessage))
         #expect(DashboardHookAnswerResponse.outcome(body: Data(#"{"ok": false}"#.utf8), statusCode: 200)
             == .failed("The dashboard refused the answer (HTTP 200)."))
     }

@@ -104,8 +104,33 @@ def _permission_detail(tool_name, tool_input):
         return _cap(tool_input["plan"], PLAN_DETAIL_MAX_CHARS)
     for key in ("file_path", "notebook_path", "url", "query", "path"):
         if isinstance(tool_input.get(key), str) and tool_input[key]:
-            return _cap(tool_input[key])
+            change = _file_change_text(tool_input)
+            return _cap(f"{tool_input[key]}\n\n{change}" if change else tool_input[key])
     return _cap(json.dumps(tool_input, indent=2, default=str))
+
+
+def _diff_lines(old_text, new_text):
+    lines = [f"- {line}" for line in str(old_text or "").splitlines()]
+    return lines + [f"+ {line}" for line in str(new_text or "").splitlines()]
+
+
+def _file_change_text(tool_input):
+    """What an Edit/MultiEdit/Write/NotebookEdit would change, so a file
+    prompt is never approved on its path alone ("- old" / "+ new" lines)."""
+    if "old_string" in tool_input or "new_string" in tool_input:
+        lines = _diff_lines(tool_input.get("old_string"), tool_input.get("new_string"))
+    elif isinstance(tool_input.get("edits"), list):
+        lines = []
+        for edit in tool_input["edits"]:
+            if isinstance(edit, dict):
+                lines += _diff_lines(edit.get("old_string"), edit.get("new_string")) + [""]
+    elif "content" in tool_input:
+        lines = _diff_lines("", tool_input.get("content"))
+    elif "new_source" in tool_input:
+        lines = _diff_lines("", tool_input.get("new_source"))
+    else:
+        return ""
+    return "\n".join(lines).strip()
 
 
 def _rule_text(rule):

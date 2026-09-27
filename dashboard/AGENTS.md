@@ -155,6 +155,22 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
 - Exposure: a status-only row + its needsYou entry get `hookRequest` (oldest
   pending per session); the row then reads `blocked`, detail `Question` /
   `Permission: <tool>`, even before the session file says `waiting`.
+- **Held only while AgentBar is connected** (`server/lib/agentbar_presence.py`):
+  AgentBar sends `X-AgentBar: 1` on every request; "seen" = such a request
+  on the LOCAL listener, or each delivered push of its `/api/events` stream
+  (every ~2s). Not seen in 10s -> register answers `ignored` ("AgentBar not
+  connected"); not seen for 15s -> every pending request resolves
+  `agentbar gone` and its hook exits. Browser tabs / curl without the header
+  never count; a dashboard restart starts "not connected" until AgentBar
+  reconnects. An answer is also refused (409) once the hook process is dead
+  or silent >5s — a /wait whose hook was killed keeps looping server-side,
+  so the store checks `hookPid`. All ages use `time.monotonic()` (wall
+  clock only vs the session file's `statusUpdatedAt`).
+- Hook ignores `HTTP_PROXY` (urllib would otherwise send prompts to a proxy
+  even for 127.0.0.1). A `tool_input` whose AgentBar view can't be built is
+  `ignored` at register (it would have broken `/api/state`). File prompts
+  (Edit/MultiEdit/Write/NotebookEdit) show `- old` / `+ new` lines after
+  the path; a hook row's timer counts from the prompt, not the file status.
 - Hook fails open: dashboard down / any error -> exit 0, no stdout (~0.25s).
   Env `AGENTBAR_DASHBOARD_URL` (default :4711). NOT installed anywhere yet;
   install = `PermissionRequest` matcher `*`, timeout 86400.
@@ -176,7 +192,11 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   `AGENTBAR_DASHBOARD_URL=http://127.0.0.1:4713`. Under
   `--setting-sources project` an "always allow" answer IS written to
   `settings.local.json` but not re-read (local settings excluded), so the
-  next run prompts again — a test-setup artifact, not a bug.
+  next run prompts again — a test-setup artifact, not a bug. Nothing is held
+  without an AgentBar client on :4713: simulate one with
+  `curl -sN -H 'X-AgentBar: 1' localhost:4713/api/events > /dev/null`.
+  Wrapping the hook in a shell script for tracing: pass stdin on with
+  `printf '%s'`, never `echo` (sh's echo expands `\n` and corrupts the JSON).
 
 ## Running it
 ```
@@ -204,7 +224,9 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 46 test files, ~1460 `PASS` lines, 0 `FAIL`.
+As of this writing: 47 test files, ~1520 `PASS` lines, 0 failures
+(`test_chief_dashboard_views.py` prints a heading containing "FAIL-OPEN" —
+not a failure; judge by each file's exit code).
 
 **`agent_tree.py` is a verbatim copy of AptusFit's `scripts/lib/agent_tree.py`**
 — both write the same `~/.claude/agent-tree.json`, so their prune rules must

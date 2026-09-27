@@ -200,6 +200,7 @@ import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, gene
 import personas  # noqa: E402  (Jev persona registry + routing, P1)
 import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
+import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook bridge)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -2637,6 +2638,15 @@ class Handler(BaseHTTPRequestHandler):
     def _is_remote_listener(self):
         return bool(getattr(getattr(self, "server", None), "remote_listener", False))
 
+    def _note_agentbar_seen(self):
+        """True (and AgentBar marked connected) for AgentBar's own request on
+        the local listener. The hook bridge holds prompts only while it is."""
+        if not agentbar_presence.is_agentbar_request(
+                getattr(self, "headers", None), self._is_remote_listener()):
+            return False
+        agentbar_presence.PRESENCE.note_seen()
+        return True
+
     def _remote_authenticated(self):
         auth = self.headers.get("Authorization") or ""
         if auth.startswith("Bearer "):
@@ -2809,6 +2819,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                 return
+        self._note_agentbar_seen()
         if hook_permission_routes.is_hook_path(path):
             self._send_json(*hook_permission_routes.handle_get(
                 path, parse_qs(parsed.query), self._is_remote_listener()))
@@ -2885,6 +2896,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self._reject_foreign_write():
             return
+        self._note_agentbar_seen()
         path = urlparse(self.path).path
         if hook_permission_routes.is_hook_path(path):
             self._send_json(*hook_permission_routes.handle_post(
@@ -3029,12 +3041,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "keep-alive")
         self.end_headers()
+        is_agentbar = self._note_agentbar_seen()
         try:
             while not STOP.is_set():
                 payload = json.dumps(get_state_with_board(), default=str)
                 chunk = f"data: {payload}\n\n".encode("utf-8")
                 self.wfile.write(chunk)
                 self.wfile.flush()
+                if is_agentbar:  # each delivered push = still connected
+                    agentbar_presence.PRESENCE.note_seen()
                 time.sleep(2)
         except (BrokenPipeError, ConnectionResetError):
             pass

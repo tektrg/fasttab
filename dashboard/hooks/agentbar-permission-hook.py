@@ -34,11 +34,16 @@ RETRY_PAUSE_SEC = 2
 SHELL_NAMES = {"sh", "bash", "zsh", "dash", "fish"}
 
 
+#: No proxies, ever: urllib honours HTTP_PROXY even for 127.0.0.1, which would
+#: send every prompt (commands, file contents) to the proxy host.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _http_json(method, url, body=None, timeout=REGISTER_TIMEOUT_SEC):
     data = json.dumps(body).encode("utf-8") if body is not None else None
     request = urllib.request.Request(
         url, data=data, method=method, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with _OPENER.open(request, timeout=timeout) as response:
         return json.loads(response.read() or b"{}")
 
 

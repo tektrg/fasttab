@@ -25,6 +25,10 @@ main-thread prompt of an interactive CLI or Claude Desktop session. Measured
 until every hook has returned, so holding them here would leave that agent
 stuck on AgentBar alone (up to the hook's 24h timeout). Those are ignored and
 Claude's normal flow runs at once.
+
+Held ONLY while AgentBar is connected (agentbar_presence.py): with no
+AgentBar seen in the last 10s a prompt is ignored, and once AgentBar has been
+gone 15s every pending one is released (`agentbar gone`) so its hook exits.
 """
 import itertools
 import os
@@ -32,6 +36,7 @@ import secrets
 import threading
 import time
 
+import agentbar_presence
 import hook_permission_summary as summary
 
 STATE_PENDING = "pending"
@@ -44,6 +49,9 @@ WAIT_MAX_SEC = 25
 WAIT_RECHECK_SEC = 1.0
 #: No /wait call for this long = the hook process is gone.
 HOOK_SILENT_RESOLVE_SEC = 90
+#: An answer only reaches Claude through a hook sitting in /wait (it re-polls
+#: at once, or 2s after an error): no /wait for longer = nobody to hand it to.
+HOOK_LISTENING_GAP_SEC = 5
 #: A registered request whose hook never made its first /wait (it gave up on
 #: a slow register reply) is gone much sooner: a live hook polls at once.
 HOOK_FIRST_WAIT_SEC = 10
@@ -55,6 +63,8 @@ WAITING_REWRITE_GRACE_SEC = 1.0
 #: Session-file `entrypoint`s whose prompt Claude shows while the hook runs.
 PROMPT_SHOWING_ENTRYPOINTS = frozenset({"cli", "claude-desktop"})
 MAX_AGE_SEC = 24 * 3600
+REASON_AGENTBAR_GONE = "agentbar gone"
+REASON_HOOK_SILENT = "hook stopped polling"
 #: Finished requests linger so a late /wait still reads a state, not 404.
 FINISHED_KEEP_SEC = 600
 
@@ -72,7 +82,7 @@ def _pid_alive(pid):
 
 
 class HookRequest:
-    def __init__(self, request_id, payload, created_at):
+    def __init__(self, request_id, payload, created_at, created_tick):
         self.request_id = request_id
         self.session_id = payload["session_id"]
         self.tool_name = payload["tool_name"]
@@ -82,8 +92,12 @@ class HookRequest:
             if isinstance(suggestions, list) else []
         self.claude_pid = payload.get("claudePid")
         self.hook_pid = payload.get("hookPid")
+        #: Wall clock: compared with the session file's statusUpdatedAt, shown.
         self.created_at = created_at
-        self.last_wait_at = created_at
+        #: Monotonic ticks (every age / deadline): a wall-clock step must not
+        #: stretch a /wait or keep a dead request alive.
+        self.created_tick = created_tick
+        self.last_wait_at = created_tick
         self.has_waited = False
         self.state = STATE_PENDING
         self.state_reason = None
@@ -100,6 +114,18 @@ def _valid_payload(payload):
             and isinstance(payload.get("session_id"), str) and payload["session_id"]
             and isinstance(payload.get("tool_name"), str) and payload["tool_name"]
             and isinstance(payload.get("tool_input") or {}, dict))
+
+
+def _is_presentable(payload):
+    """AgentBar's view of it can be built. Checked once, at register: a
+    tool_input of the wrong shape would otherwise break /api/state for every
+    client for as long as it stayed pending."""
+    try:
+        summary.build_hook_request_view("check", payload["tool_name"], payload.get("tool_input") or {},
+                                        payload.get("permission_suggestions") or [], 0.0, 0.0)
+        return True
+    except Exception:  # noqa: BLE001 — any shape problem = don't hold it
+        return False
 
 
 def _session_moved_on(request, sessions_by_id):
@@ -134,9 +160,12 @@ def ignore_reason(payload, herdr_session_ids, session_entry):
 
 
 class HookPermissionStore:
-    def __init__(self, clock=time.time, pid_alive=_pid_alive):
+    def __init__(self, clock=time.time, ticks=time.monotonic, pid_alive=_pid_alive, presence=None):
         self._clock = clock
+        self._ticks = ticks
         self._pid_alive = pid_alive
+        #: Who can answer: AgentBar's connection (tests pass a fake).
+        self._presence = presence or agentbar_presence.PRESENCE
         self._cond = threading.Condition()
         self._requests = {}
         self._seq = itertools.count(1)
@@ -146,11 +175,16 @@ class HookPermissionStore:
         """{requestId} for a new pending request, or {state: "ignored", reason}
         (see `ignore_reason`)."""
         reason = ignore_reason(payload, herdr_session_ids, session_entry)
+        if not reason and not self._presence.is_connected():
+            reason = "AgentBar not connected (nobody here to answer)"
+        if not reason and not _is_presentable(payload):
+            reason = "unreadable tool input"
         if reason:
             return {"state": "ignored", "reason": reason}
         with self._cond:
             request_id = f"hp{next(self._seq)}-{secrets.token_hex(4)}"
-            self._requests[request_id] = HookRequest(request_id, payload, self._clock())
+            self._requests[request_id] = HookRequest(
+                request_id, payload, self._clock(), self._ticks())
             self._cond.notify_all()
         return {"requestId": request_id}
 
@@ -158,22 +192,22 @@ class HookPermissionStore:
         """Long-poll: (payload, http_status). Returns as soon as the request
         leaves `pending`, else {state: pending} after timeout_sec."""
         timeout_sec = max(0.0, min(float(timeout_sec), WAIT_MAX_SEC))
-        deadline = self._clock() + timeout_sec
+        deadline = self._ticks() + timeout_sec
         while True:
             self.sweep(sessions_provider())
             with self._cond:
                 request = self._requests.get(request_id)
                 if request is None:
                     return {"error": "unknown request"}, 404
-                request.last_wait_at = self._clock()
+                request.last_wait_at = self._ticks()
                 request.has_waited = True
-                remaining = deadline - self._clock()
+                remaining = deadline - self._ticks()
                 if request.state == STATE_PENDING and remaining > 0:
                     self._cond.wait(min(WAIT_RECHECK_SEC, remaining))
-                    request.last_wait_at = self._clock()
+                    request.last_wait_at = self._ticks()
                 if request.state != STATE_PENDING:
                     return self._state_payload(request), 200
-                if self._clock() >= deadline:
+                if self._ticks() >= deadline:
                     return {"state": STATE_PENDING}, 200
 
     @staticmethod
@@ -192,6 +226,10 @@ class HookPermissionStore:
             request = self._requests.get(request_id)
             if request is None:
                 return {"ok": False, "error": "unknown request"}, 404
+            now = self._ticks()
+            if request.state == STATE_PENDING and not self._hook_listening(request, now):
+                request.finish(STATE_RESOLVED, now, reason=REASON_HOOK_SILENT)
+                self._cond.notify_all()
             if request.state != STATE_PENDING:
                 return {"ok": False, "error": _not_pending_message(request)}, 409
             try:
@@ -199,7 +237,7 @@ class HookPermissionStore:
                     request.tool_name, request.tool_input, request.suggestions, body)
             except summary.AnswerRejected as e:
                 return {"ok": False, "error": str(e)}, 400
-            request.finish(STATE_ANSWERED, self._clock(), decision=decision)
+            request.finish(STATE_ANSWERED, now, decision=decision)
             self._cond.notify_all()
         return {"ok": True, "state": STATE_ANSWERED}, 200
 
@@ -208,7 +246,7 @@ class HookPermissionStore:
         """Mark pending requests answered-elsewhere/abandoned; prune old ones.
         `sessions` = the claudeSessions feed's list of session-file dicts."""
         sessions_by_id = {s.get("sessionId"): s for s in sessions or [] if isinstance(s, dict)}
-        now = self._clock()
+        now = self._ticks()
         with self._cond:
             changed = False
             for request_id, request in list(self._requests.items()):
@@ -225,17 +263,28 @@ class HookPermissionStore:
                 self._cond.notify_all()
 
     def _resolve_reason(self, request, sessions_by_id, now):
-        if now - request.created_at > MAX_AGE_SEC:
+        if now - request.created_tick > MAX_AGE_SEC:
             return "expired"
         if _session_moved_on(request, sessions_by_id):
             return "answered elsewhere"
         if not self._pid_alive(request.claude_pid):
             return "claude exited"
+        if self._presence.is_gone():
+            return REASON_AGENTBAR_GONE
+        if not self._pid_alive(request.hook_pid):
+            return REASON_HOOK_SILENT
         if now - request.last_wait_at > HOOK_SILENT_RESOLVE_SEC:
-            return "hook stopped polling"
-        if not request.has_waited and now - request.created_at > HOOK_FIRST_WAIT_SEC:
-            return "hook stopped polling"
+            return REASON_HOOK_SILENT
+        if not request.has_waited and now - request.created_tick > HOOK_FIRST_WAIT_SEC:
+            return REASON_HOOK_SILENT
         return None
+
+    def _hook_listening(self, request, now):
+        """An answer handed over now would reach Claude. A /wait whose hook was
+        killed keeps looping server-side until its timeout, so the hook's pid
+        is the sharper signal; the gap covers a hook between two polls."""
+        return (self._pid_alive(request.hook_pid)
+                and now - request.last_wait_at <= HOOK_LISTENING_GAP_SEC)
 
     def exposed_by_session(self, sessions):
         """{session_id: hookRequest view} — the oldest pending one each."""
@@ -259,6 +308,10 @@ def _not_pending_message(request):
         return "This prompt was already answered from AgentBar."
     if request.state_reason == "answered elsewhere":
         return "This prompt was already answered in Claude."
+    if request.state_reason == REASON_HOOK_SILENT:
+        return "Claude stopped waiting for this answer; answer it in Claude."
+    if request.state_reason == REASON_AGENTBAR_GONE:
+        return "AgentBar lost its dashboard connection; answer this prompt in Claude."
     return f"This prompt is no longer waiting ({request.state_reason or request.state})."
 
 

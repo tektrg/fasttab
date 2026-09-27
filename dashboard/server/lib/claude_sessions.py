@@ -196,6 +196,8 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine,
         if hook_request:
             hook_state = "blocked"
             hook_reason = hook_permission_summary.needs_you_detail(hook_request)
+            # Blocked since the prompt arrived, not since the file's last status.
+            seconds_in_status = hook_request.get("sinceSec", seconds_in_status)
         rows.append({
             "paneId": None,
             "tabId": None,

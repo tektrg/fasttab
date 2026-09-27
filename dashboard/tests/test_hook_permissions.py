@@ -31,6 +31,19 @@ def check(label, got, want):
     print(f"  {'PASS' if ok else 'FAIL'}  {label}")
 
 
+class AgentBarAlwaysConnected:
+    """These checks are about the store itself; the AgentBar-connected guard
+    has its own file (test_agentbar_presence.py)."""
+    def is_connected(self):
+        return True
+
+    def is_gone(self):
+        return False
+
+
+CONNECTED = AgentBarAlwaysConnected()
+
+
 class FakeClock:
     def __init__(self, now=1_790_000_000.0):
         self.now = now
@@ -83,8 +96,22 @@ check("suggestion label names the exact rule", view["permission"]["suggestions"]
       [{"index": 0, "label": "Always allow `Bash(python3 -c:*)` in this project"}])
 check("plan detail", summary.build_hook_request_view(
     "r3", "ExitPlanMode", {"plan": "1. do x"}, [], 0, 0)["permission"]["detail"], "1. do x")
-check("file detail", summary.build_hook_request_view(
-    "r4", "Write", {"file_path": "/a/b.txt", "content": "x"}, [], 0, 0)["permission"]["detail"], "/a/b.txt")
+check("read detail = the path", summary.build_hook_request_view(
+    "r4", "Read", {"file_path": "/a/b.txt"}, [], 0, 0)["permission"]["detail"], "/a/b.txt")
+# A file prompt must never be approved on its path alone.
+check("write detail = path, then the new content", summary.build_hook_request_view(
+    "r4", "Write", {"file_path": "/a/b.txt", "content": "x\ny"}, [], 0, 0)["permission"]["detail"],
+    "/a/b.txt\n\n+ x\n+ y")
+check("edit detail = path, then - old / + new", summary.build_hook_request_view(
+    "r4", "Edit", {"file_path": "/a.py", "old_string": "a = 1", "new_string": "a = 2"}, [], 0, 0
+)["permission"]["detail"], "/a.py\n\n- a = 1\n+ a = 2")
+check("multi-edit detail lists every edit", summary.build_hook_request_view(
+    "r4", "MultiEdit", {"file_path": "/m", "edits": [{"old_string": "a", "new_string": "b"},
+                                                    {"old_string": "c", "new_string": "d"}]}, [], 0, 0
+)["permission"]["detail"], "/m\n\n- a\n+ b\n\n- c\n+ d")
+check("huge edit capped", len(summary.build_hook_request_view(
+    "r4", "Edit", {"file_path": "/a", "old_string": "", "new_string": "z" * 9000}, [], 0, 0
+)["permission"]["detail"]), summary.DETAIL_MAX_CHARS)
 check("detail capped", len(summary.build_hook_request_view(
     "r5", "Bash", {"command": "x" * 5000}, [], 0, 0)["permission"]["detail"]), summary.DETAIL_MAX_CHARS)
 check("setMode label", summary.suggestion_label(
@@ -142,7 +169,7 @@ for label, tool, body in [
 
 print("== store: register / answer / first decision wins ==")
 clock = FakeClock()
-store = hook_permissions.HookPermissionStore(clock=clock, pid_alive=lambda pid: True)
+store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True, presence=CONNECTED)
 check("invalid payload ignored", register(store, {"tool_name": "Bash"})["state"], "ignored")
 check("herdr session ignored", register(store, payload("herdr-sess"), {"herdr-sess"})["state"], "ignored")
 # Measured: Claude shows these prompts only after every hook returned, so
@@ -152,6 +179,10 @@ check("claude -p / SDK run ignored", register(store, payload(), entrypoint="sdk-
 check("no session file ignored", store.register(payload(), (), None)["state"], "ignored")
 check("session file of another session ignored",
       store.register(payload(), (), {"sessionId": "other", "entrypoint": "cli"})["state"], "ignored")
+check("tool_input of the wrong shape ignored (would break /api/state)",
+      [register(store, payload(tool_name="AskUserQuestion", tool_input=bad))["state"]
+       for bad in ({"questions": 5}, {"questions": [{"question": "q", "options": 5}]})],
+      ["ignored", "ignored"])
 check("claude desktop registered", "requestId" in register(store, payload(), entrypoint="claude-desktop"), True)
 rid = register(store, payload())["requestId"]
 check("request id issued", rid.startswith("hp"), True)
@@ -165,8 +196,40 @@ check("wait returns the decision", store.wait(rid, 5),
       ({"state": "answered", "decision": {"behavior": "allow"}}, 200))
 check("unknown wait -> 404", store.wait("nope", 0)[1], 404)
 
+print("== store: an answer needs a hook still listening ==")
+rid_gone = register(store, payload("s-gone"))["requestId"]
+store.wait(rid_gone, 0)
+clock.now += hook_permissions.HOOK_LISTENING_GAP_SEC + 1
+check("hook silent 6s -> answer refused (it would reach nobody)", store.answer(rid_gone, {"behavior": "allow"}),
+      ({"ok": False, "error": "Claude stopped waiting for this answer; answer it in Claude."}, 409))
+check("and the request is released", store._requests[rid_gone].state_reason, "hook stopped polling")
+hook_dead = {"alive": True}
+killed_store = hook_permissions.HookPermissionStore(
+    clock=clock, ticks=clock, presence=CONNECTED,
+    pid_alive=lambda pid: hook_dead["alive"] if pid == 4343 else True)
+rid_killed = register(killed_store, payload("s-killed"))["requestId"]
+killed_store.wait(rid_killed, 0)
+hook_dead["alive"] = False  # hook killed mid-/wait: its server-side loop still runs
+check("hook process dead -> answer refused at once", killed_store.answer(rid_killed, {"behavior": "allow"})[1], 409)
+rid_killed2 = register(killed_store, payload("s-killed2"))["requestId"]
+killed_store.sweep([])
+check("hook process dead -> released by the sweep", killed_store._requests[rid_killed2].state_reason,
+      "hook stopped polling")
+
+print("== store: wall-clock steps don't stretch a /wait ==")
+wall, ticks = FakeClock(), FakeClock(0.0)
+stepped = hook_permissions.HookPermissionStore(clock=wall, ticks=ticks, pid_alive=lambda pid: True,
+                                               presence=CONNECTED)
+rid_step = register(stepped, payload("s-step"))["requestId"]
+stepped.wait(rid_step, 0)
+wall.now -= 3600  # clock set back an hour
+ticks.now += hook_permissions.HOOK_SILENT_RESOLVE_SEC + 1
+stepped.sweep([])
+check("silent hook still resolved after a backward wall step",
+      stepped._requests[rid_step].state_reason, "hook stopped polling")
+
 print("== store: long-poll wakes on answer (real clock) ==")
-live_store = hook_permissions.HookPermissionStore(pid_alive=lambda pid: True)
+live_store = hook_permissions.HookPermissionStore(pid_alive=lambda pid: True, presence=CONNECTED)
 rid = register(live_store, payload())["requestId"]
 threading.Timer(0.3, lambda: live_store.answer(rid, {"behavior": "deny"})).start()
 t0 = time.time()
@@ -175,7 +238,7 @@ check("woken by answer, not by timeout", (result["state"], time.time() - t0 < 2)
 
 print("== store: resolution elsewhere ==")
 clock = FakeClock()
-store = hook_permissions.HookPermissionStore(clock=clock, pid_alive=lambda pid: pid != 999)
+store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: pid != 999, presence=CONNECTED)
 rid_tui = register(store, payload("s-tui"))["requestId"]
 rid_dead = register(store, payload("s-dead", claudePid=999))["requestId"]
 rid_silent = register(store, payload("s-silent"))["requestId"]
@@ -212,7 +275,7 @@ clock.now += hook_permissions.HOOK_SILENT_RESOLVE_SEC + 1
 store.sweep([])
 check("hook silent 90s -> resolved", store._requests[rid_silent].state, "resolved")
 rid_old = register(store, payload("s-old"))["requestId"]
-store._requests[rid_old].created_at -= hook_permissions.MAX_AGE_SEC + 1
+store._requests[rid_old].created_tick -= hook_permissions.MAX_AGE_SEC + 1
 store.sweep([])
 check("older than 24h -> expired", store._requests[rid_old].state, "expired")
 clock.now += hook_permissions.FINISHED_KEEP_SEC + 1
@@ -221,7 +284,7 @@ check("finished requests pruned later", rid_tui in store._requests, False)
 
 print("== store: exposure (oldest pending per session) ==")
 clock = FakeClock()
-store = hook_permissions.HookPermissionStore(clock=clock, pid_alive=lambda pid: True)
+store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True, presence=CONNECTED)
 first = register(store, payload("s-a"))["requestId"]
 clock.now += 1
 register(store, payload("s-a", tool_name="AskUserQuestion", tool_input=QUESTIONS_INPUT))
@@ -233,7 +296,7 @@ store.answer(first, {"behavior": "allow"})
 check("next one exposed after answer", store.exposed_by_session([])["s-a"]["kind"], "question")
 
 print("== routes ==")
-store = hook_permissions.HookPermissionStore(pid_alive=lambda pid: True)
+store = hook_permissions.HookPermissionStore(pid_alive=lambda pid: True, presence=CONNECTED)
 check("is_hook_path", [routes.is_hook_path(p) for p in
       ("/api/hook/permission", "/api/hook/permission/x/wait", "/api/hook/permissionx")], [True, True, False])
 check("remote listener GET -> 404", routes.handle_get("/api/hook/permission/x/wait", {}, True, store)[1], 404)
@@ -273,6 +336,7 @@ def feed(data):
 
 shared = hook_permissions.STORE
 shared._requests.clear()
+shared._presence = CONNECTED
 now_ms = int(time.time() * 1000)
 session_entries = [
     {"pid": os.getpid(), "sessionId": "cli-hook", "cwd": "/x/demo", "kind": "interactive",
@@ -280,7 +344,7 @@ session_entries = [
     {"pid": os.getpid(), "sessionId": "cli-plain", "cwd": "/x/plain", "kind": "interactive",
      "entrypoint": "cli", "name": "plain", "status": "busy", "statusUpdatedAt": now_ms - 10_000},
 ]
-hook_rid = register(shared, payload("cli-hook", claudePid=os.getpid()))["requestId"]
+hook_rid = register(shared, payload("cli-hook", claudePid=os.getpid(), hookPid=os.getpid()))["requestId"]
 snap = {n: feed(None) for n in ("hookCache", "paneTick", "board")}
 snap["hookCache"]["data"] = {}
 snap["herdr"] = feed({"agents": [], "tabs": []})
@@ -290,11 +354,14 @@ agents = {a["agentSession"]: a for a in views.build_agents_view(snap)}
 check("row carries hookRequest", agents["cli-hook"]["hookRequest"]["requestId"], hook_rid)
 check("row reads blocked while hook pending", agents["cli-hook"]["hookState"], "blocked")
 check("row reason names the tool", agents["cli-hook"]["hookReason"], "Permission: Bash")
+check("row timer = since the prompt, not the file's last status",
+      agents["cli-hook"]["secondsInStatus"] < 5 and agents["cli-hook"]["hookSinceSec"] < 5, True)
 check("other row unchanged", (agents["cli-plain"]["hookRequest"], agents["cli-plain"]["hookState"]),
       (None, "working"))
 needs = [r for r in views.build_needs_you(snap, list(agents.values())) if r.get("agentSession") == "cli-hook"]
 check("needsYou entry with hookRequest", (len(needs), needs[0]["hookRequest"]["requestId"]), (1, hook_rid))
 check("needsYou detail", needs[0]["detail"], "Permission: Bash")
+check("needsYou age = since the prompt", needs[0]["sinceSec"] < 5, True)
 shared._requests.clear()
 
 print("== hook script against a real local server ==")
@@ -325,16 +392,21 @@ class HookRouteHandler(BaseHTTPRequestHandler):
             False, self.store, session_entry=cli_entry))
 
 
-HookRouteHandler.store = hook_permissions.HookPermissionStore()
+HookRouteHandler.store = hook_permissions.HookPermissionStore(presence=CONNECTED)
 server = ThreadingHTTPServer(("127.0.0.1", 0), HookRouteHandler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 url = f"http://127.0.0.1:{server.server_address[1]}"
 
 
+#: A proxy that doesn't exist: the hook must never route the prompt through it.
+DEAD_PROXY = "http://127.0.0.1:9"
+
+
 def run_hook(stdin_payload, dashboard_url, answer_body=None, timeout=15):
     proc = subprocess.Popen([sys.executable, HOOK], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True,
-                            env=dict(os.environ, AGENTBAR_DASHBOARD_URL=dashboard_url))
+                            env=dict(os.environ, AGENTBAR_DASHBOARD_URL=dashboard_url,
+                                     HTTP_PROXY=DEAD_PROXY, http_proxy=DEAD_PROXY, NO_PROXY=""))
     proc.stdin.write(json.dumps(stdin_payload))
     proc.stdin.close()
     if answer_body is not None:
@@ -353,7 +425,7 @@ def run_hook(stdin_payload, dashboard_url, answer_body=None, timeout=15):
 hook_stdin = {"session_id": "hook-s1", "tool_name": "AskUserQuestion", "tool_input": QUESTIONS_INPUT,
               "hook_event_name": "PermissionRequest"}
 code, out = run_hook(hook_stdin, url, {"behavior": "allow", "answers": answers})
-check("hook exit 0", code, 0)
+check("hook exit 0 (HTTP_PROXY set, ignored)", code, 0)
 check("hook prints the decision", json.loads(out), {"hookSpecificOutput": {
     "hookEventName": "PermissionRequest",
     "decision": {"behavior": "allow", "updatedInput": {**QUESTIONS_INPUT, "answers": answers}}}})

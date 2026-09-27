@@ -36,6 +36,10 @@ struct DashboardEndpoint: Sendable {
     /// or close (`PO_ACTOR` in chief_dashboard_actions.py). AgentBar acts only
     /// on the user's own click, so it speaks as that actor.
     static let sessionActionActor = "po"
+    /// Sent on every request: the dashboard counts AgentBar "connected" only from requests carrying it
+    /// (`dashboard/server/lib/agentbar_presence.py`), and holds a Claude hook prompt only while it is.
+    static let clientHeaderName = "X-AgentBar"
+    static let clientHeaderValue = "1"
 
     let baseURL: URL
 
@@ -216,14 +220,20 @@ struct DashboardEndpoint: Sendable {
             URLQueryItem(name: "paneId", value: paneId),
             URLQueryItem(name: "lines", value: String(Self.paneScreenLineCount)),
         ]
-        var request = URLRequest(url: components.url!)
+        var request = Self.agentBarRequest(url: components.url!)
         request.timeoutInterval = Self.paneScreenTimeoutSeconds
         return request
     }
 
     private func request(path: String) -> URLRequest {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
-        request.timeoutInterval = Self.requestTimeoutSeconds
+        Self.agentBarRequest(url: baseURL.appendingPathComponent(path))
+    }
+
+    /// Every dashboard request starts here, so each one identifies AgentBar.
+    private static func agentBarRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = requestTimeoutSeconds
+        request.setValue(clientHeaderValue, forHTTPHeaderField: clientHeaderName)
         return request
     }
 }

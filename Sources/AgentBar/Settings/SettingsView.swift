@@ -3,7 +3,7 @@ import SwiftUI
 /// One entry in the Settings sidebar. Each case's content lives in its own
 /// `*SettingsView` file; this file only owns the sidebar and routing.
 enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
-    case general, shortcuts, statusSource, routing, list, about
+    case general, shortcuts, statusSource, routing, personas, list, about
 
     var id: String { rawValue }
 
@@ -13,6 +13,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .shortcuts: "Shortcuts"
         case .statusSource: "Status source"
         case .routing: "Routing"
+        case .personas: "Personas"
         case .list: "List"
         case .about: "About"
         }
@@ -24,6 +25,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .shortcuts: "keyboard"
         case .statusSource: "antenna.radiowaves.left.and.right"
         case .routing: "arrow.triangle.branch"
+        case .personas: "person.2"
         case .list: "list.bullet.rectangle"
         case .about: "info.circle"
         }
@@ -64,6 +66,7 @@ struct SettingsView: View {
         case .shortcuts: ShortcutsSettingsView(settings: settings, actions: actions)
         case .statusSource: StatusSourceSettingsView(settings: settings, connectionTester: connectionTester)
         case .routing: RoutingSettingsView(settings: settings)
+        case .personas: PersonasSettingsView(settings: settings)
         case .list: ListSettingsView(settings: settings)
         case .about: AboutSettingsView()
         }

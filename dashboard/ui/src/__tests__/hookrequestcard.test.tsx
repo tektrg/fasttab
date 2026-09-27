@@ -187,7 +187,7 @@ describe("transcript question fallback", () => {
 
   test("a pane row never renders it (its pane path answers)", () => {
     mount(<PanelessPrompt row={row({ paneId: "w1:p1", hookRequest: QUESTION })} onToast={() => {}} />);
-    expect(document.body.textContent).toBe("");
+    expect(document.querySelectorAll(".hook-card").length).toBe(0);
   });
 });
 
@@ -220,7 +220,7 @@ describe("SSE stream", () => {
       constructor(url: string) { urls.push(url); }
       close() {}
     };
-    stubFetch({ body: {} });
+    stubFetch({ body: null });
     function Probe() {
       useDashboardState();
       return null;

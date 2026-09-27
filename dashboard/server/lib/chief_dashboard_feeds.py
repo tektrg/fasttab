@@ -24,6 +24,7 @@ import chief_dashboard_herdr as herdr_transport  # noqa: E402  (R2/R3: the one d
 import chief_dashboard_pass  # noqa: E402  (chief_pass tick: generic script resolution)
 import claude_sessions  # noqa: E402  (P4: non-herdr Claude sessions)
 import dashboard_config  # noqa: E402  (P0 move: config.json + state dir)
+import desktop_sessions  # noqa: E402  (sleeping Claude Desktop sessions)
 import pane_live_work  # noqa: E402  (sub-agent status lines: live-work evidence)
 import pane_screen_signals  # noqa: E402  (screen fingerprint + motion stamp)
 
@@ -190,6 +191,9 @@ FEEDS = {
     # P4: ~/.claude/sessions/<pid>.json — Claude Desktop + non-herdr CLI
     # sessions (status-only rows). Local files only, so cheap to re-read.
     "claudeSessions": Feed("claudeSessions", refresh_interval_sec=3),
+    # Claude Desktop's own session list (sleeping sessions: no live process).
+    # Stat-filtered + mtime-cached, so cheap; nobody needs it sooner than 10s.
+    "desktopSessions": Feed("desktopSessions", refresh_interval_sec=10),
 }
 
 # R7/R9: one herdr feed + one paneScreen feed PER CONFIGURED MACHINE, so an
@@ -275,6 +279,18 @@ def poll_claude_sessions():
         t0 = time.time()
         try:
             feed.set_success(claude_sessions.read_live_sessions(), time.time() - t0)
+        except Exception as e:
+            feed.set_error(e, time.time() - t0)
+        STOP.wait(feed.refresh_interval_sec)
+
+
+def poll_desktop_sessions():
+    feed = FEEDS["desktopSessions"]
+    scanner = desktop_sessions.DesktopSessionScanner()
+    while not STOP.is_set():
+        t0 = time.time()
+        try:
+            feed.set_success(scanner.scan(), time.time() - t0)
         except Exception as e:
             feed.set_error(e, time.time() - t0)
         STOP.wait(feed.refresh_interval_sec)
@@ -730,6 +746,7 @@ POLLERS = {
     "board": poll_board,
     "paneScreen": poll_pane_screen,
     "claudeSessions": poll_claude_sessions,
+    "desktopSessions": poll_desktop_sessions,
 }
 
 

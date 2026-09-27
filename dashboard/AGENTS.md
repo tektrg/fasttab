@@ -136,6 +136,42 @@ persona of its own yet).
   (`pane_screen_signals.screen_state_with_herdr_fallback`); new field
   `screenStateSource` = `screen` | `herdr` | null. Local rows only.
 
+## Sleeping Claude Desktop sessions (`computed.sleepingSessions`)
+Term: **sleeping session** = a Claude Desktop code session with no running
+Claude process (Desktop stops unused ones), so it has no
+`~/.claude/sessions/<pid>.json` and no status-only row. `server/lib/desktop_sessions.py`,
+feed `desktopSessions` (10s).
+- **Stores**: Desktop's own list, `<profile>/claude-code-sessions/<account>/<org>/local_<uuid>.json`
+  (org folders also hold `scheduled-tasks.json`, `archived-sessions.idx`,
+  `deleted_*`, `backlog/` — not sessions, never read). Profiles globbed:
+  `~/Library/Application Support/Claude*/` and `~/.claude-instances/*/`
+  (override `CLAUDE_DESKTOP_SESSION_STORES`, pathsep list). Measured
+  2026-09-27: the RUNNING Desktop is `--user-data-dir=~/.claude-instances/ssv`
+  (~900 files); the default `~/Library/Application Support/Claude` profile is
+  another account, last active ~10 days ago (its data is why `lastActivityAt`
+  first looked stale) — still read, the window filters it. `Claude-3p`, and
+  `~/.claude-instances/ssv-code` (a CLI config dir) have no Desktop list.
+- **Last activity = `lastActivityAt`** (ms; else `createdAt`) — equals the
+  transcript's newest user/assistant message. NOT the transcript's mtime
+  (loading a session appends cost-state/last-prompt lines: month-old sessions
+  read "2 days ago") and NOT the file's mtime (focus/metadata writes). The file
+  is rewritten when `lastActivityAt` changes, so mtime >= it: files older than
+  the window are skipped by `stat` alone; parsed files are cached by (path, mtime).
+  ~0.14s cold, ~0.01s warm on this Mac.
+- **Window**: fixed 14 days (`CLAUDE_DESKTOP_SLEEPING_DAYS`), archived excluded;
+  AgentBar narrows it to its own list/search days. Newest first.
+- **Dedup** (`build_sleeping_sessions`, live wins): dropped when its Desktop id
+  is a live file's `hostSessionId`, or its `cliSessionId` is a live file's
+  `sessionId` or any row's `agentSession` (two live processes can share one
+  `hostSessionId`).
+- **Shape**: `{desktopSessionId, cliSessionId, label (title, else folder),
+  cwd, lastActiveTs (s), openUrl}` — `openUrl` is the same
+  `claude://code/continue?session=local_…` a live Desktop row gets. Kept OUT
+  of `computed.agents` (every consumer there assumes a live agent);
+  `feeds.desktopSessions.data` is replaced per response by `{sleepingCount}` so
+  the rows aren't sent twice (~35KB for 14 days). The PWA/remote listener get
+  the same key and ignore it.
+
 ## Hook answer bridge (`/api/hook/permission*`) — answer non-herdr prompts from AgentBar
 Contract: `hooks/agentbar-permission-hook.py` (Claude Code `PermissionRequest`
 hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
@@ -224,7 +260,7 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 47 test files, ~1520 `PASS` lines, 0 failures
+As of this writing: 48 test files, ~1540 `PASS` lines, 0 failures
 (`test_chief_dashboard_views.py` prints a heading containing "FAIL-OPEN" —
 not a failure; judge by each file's exit code).
 

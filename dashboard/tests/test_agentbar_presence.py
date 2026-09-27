@@ -60,6 +60,11 @@ check("header on the remote (phone) listener", is_agentbar({"X-AgentBar": "1"}, 
 check("no header (browser tab, curl)", is_agentbar({"User-Agent": "Mozilla"}, False), False)
 check("other value", is_agentbar({"X-AgentBar": "0"}, False), False)
 check("no headers object", is_agentbar(None, False), False)
+is_web = agentbar_presence.is_web_answer_stream
+check("web UI stream ?answerSurface=web", is_web({"answerSurface": ["web"]}), True)
+check("stream without it (old cached build, curl)", is_web({}), False)
+check("other value", is_web({"answerSurface": ["mac"]}), False)
+check("no query", is_web(None), False)
 
 print("== store: hold only while AgentBar is connected ==")
 clock = FakeClock()

@@ -18,6 +18,22 @@ actor InMemoryMetricEventLog: MetricEventStoring {
     }
 }
 
+extension ReadingStatsRecorder {
+    private static let testDefaultsSuite = "FastTabMobileTests.readingStats"
+
+    /// A recorder on an in-memory log and throwaway defaults. Pass it to every `ReaderViewModel`
+    /// a test builds: the default is the app's real reading log (tests run inside the host app).
+    @MainActor
+    static func isolatedForTests(
+        log: InMemoryMetricEventLog = InMemoryMetricEventLog(),
+        isTrackable: @escaping @MainActor (URL) -> Bool = { _ in false }
+    ) -> ReadingStatsRecorder {
+        let defaults = UserDefaults(suiteName: testDefaultsSuite)!
+        defaults.removePersistentDomain(forName: testDefaultsSuite)
+        return ReadingStatsRecorder(log: log, defaults: defaults, isTrackable: isTrackable)
+    }
+}
+
 final class ReadingProgressLedgerTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_000_000)
 

@@ -181,7 +181,7 @@ final class ReaderSettingsTests: XCTestCase {
     // MARK: - ViewModel wiring
 
     func testViewModelMirrorsSharedStoreSettings() {
-        let vm = ReaderViewModel(url: URL(string: "https://example.com/vm-settings")!, title: "T")
+        let vm = ReaderViewModel(url: URL(string: "https://example.com/vm-settings")!, title: "T", statsRecorder: .isolatedForTests())
         XCTAssertEqual(vm.fontSize, ReaderReadingSettingsStore.shared.settings.fontSize)
         XCTAssertEqual(vm.readerSettings, ReaderReadingSettingsStore.shared.settings)
     }
@@ -190,7 +190,7 @@ final class ReaderSettingsTests: XCTestCase {
         let before = ReaderReadingSettingsStore.shared.settings.fontSize
         defer { ReaderReadingSettingsStore.shared.setFontSize(before) }
 
-        let vm = ReaderViewModel(url: URL(string: "https://example.com/vm-steps")!, title: "T")
+        let vm = ReaderViewModel(url: URL(string: "https://example.com/vm-steps")!, title: "T", statsRecorder: .isolatedForTests())
         vm.increaseFontSize()
         XCTAssertEqual(
             ReaderReadingSettingsStore.shared.settings.fontSize,

@@ -96,7 +96,7 @@ final class XArticleExtractorTests: XCTestCase {
 
     @MainActor
     func testOnlyXArticleFailureUsesSafariReader() {
-        let vm = ReaderViewModel(url: url, title: "t")
+        let vm = ReaderViewModel(url: url, title: "t", statsRecorder: .isolatedForTests())
         vm.loadState = .failed(ReaderExtractor.ExtractionError.xArticleUnavailable)
         XCTAssertTrue(vm.needsSafariReader)
         vm.loadState = .failed(ReaderExtractor.ExtractionError.noContent)

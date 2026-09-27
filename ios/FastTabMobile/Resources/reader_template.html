@@ -364,6 +364,31 @@ window.addEventListener('scrollend', function() {
   postProgressToSwift(true);
 }, { passive: true });
 
+// ── Short articles: nothing to scroll, so no scroll progress ever arrives ──
+// Tell Swift whether the content fits the viewport; Swift counts it read after a dwell.
+var lastReportedFits = null;
+function reportContentFitsViewport() {
+  var fits = document.documentElement.scrollHeight - window.innerHeight <= 1;
+  if (fits === lastReportedFits) return;
+  lastReportedFits = fits;
+  try {
+    window.webkit.messageHandlers.contentFitsViewport.postMessage({ fits: fits });
+  } catch(e) {}
+}
+// Swift drops the dwell when the app backgrounds; report again once visible.
+window.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') {
+    lastReportedFits = null;
+  } else {
+    reportContentFitsViewport();
+  }
+});
+window.addEventListener('resize', reportContentFitsViewport);
+if (window.ResizeObserver) {
+  // Images loading and font-size changes move the content height.
+  new ResizeObserver(reportContentFitsViewport).observe(document.documentElement);
+}
+
 // Restore initial scroll position
 function restoreScroll() {
   var progress = article.initialProgress || 0;
@@ -556,6 +581,7 @@ window.addEventListener('DOMContentLoaded', function() {
     // Give layout a tick before restoring scroll
     setTimeout(restoreScroll, 50);
   }
+  setTimeout(reportContentFitsViewport, 50);
   try {
     window.webkit.messageHandlers.ready.postMessage({});
   } catch(e) {}

@@ -257,7 +257,7 @@ final class ReaderTests: XCTestCase {
 
     func testCommitHighlightCapturesTitleAndURL() {
         let url = URL(string: "https://example.com/commit-test")!
-        let vm = ReaderViewModel(url: url, title: "Commit Test Title")
+        let vm = ReaderViewModel(url: url, title: "Commit Test Title", statsRecorder: .isolatedForTests())
 
         vm.commitHighlight(selectedText: "Selected", serializedRange: "{\"start\":0,\"len\":8}", color: .pink)
         defer { ReaderHighlightStore.shared.removeAll(for: url) }
@@ -273,16 +273,16 @@ final class ReaderTests: XCTestCase {
         let navItem = ReaderNavigationItem(url: url, title: "Focus Test", focusHighlightID: "hl-focus-1")
         XCTAssertEqual(navItem.focusHighlightID, "hl-focus-1")
 
-        let vm = ReaderViewModel(url: navItem.url, title: navItem.title, focusHighlightID: navItem.focusHighlightID)
+        let vm = ReaderViewModel(url: navItem.url, title: navItem.title, focusHighlightID: navItem.focusHighlightID, statsRecorder: .isolatedForTests())
         XCTAssertEqual(vm.focusHighlightID, "hl-focus-1")
 
         // Default (no highlight requested) stays nil, so normal scroll restoration still applies.
-        let defaultVM = ReaderViewModel(url: url, title: "Focus Test")
+        let defaultVM = ReaderViewModel(url: url, title: "Focus Test", statsRecorder: .isolatedForTests())
         XCTAssertNil(defaultVM.focusHighlightID)
     }
 
     func testViewModelIsFailedHelper() {
-        let vm = ReaderViewModel(url: URL(string: "https://example.com")!, title: "Test")
+        let vm = ReaderViewModel(url: URL(string: "https://example.com")!, title: "Test", statsRecorder: .isolatedForTests())
         XCTAssertFalse(vm.isFailed)
 
         struct DummyError: Error {}
@@ -360,7 +360,7 @@ final class ReaderTests: XCTestCase {
         )
         ReaderArticleCache.shared.save(article)
 
-        let vm = ReaderViewModel(url: url, title: "Initial Title")
+        let vm = ReaderViewModel(url: url, title: "Initial Title", statsRecorder: .isolatedForTests())
         XCTAssertEqual(vm.loadState, .idle)
 
         // On appear / loadInitialState, article is immediately restored without extraction
@@ -565,7 +565,7 @@ final class ReaderTests: XCTestCase {
         ReaderArticleCache.shared.save(article)
         ReaderReadingProgress.shared.set(progress: 0.72, for: url)
 
-        let vm = ReaderViewModel(url: url, title: "Initial Title")
+        let vm = ReaderViewModel(url: url, title: "Initial Title", statsRecorder: .isolatedForTests())
         XCTAssertEqual(vm.loadState, .idle)
 
         vm.loadInitialState()
@@ -579,7 +579,7 @@ final class ReaderTests: XCTestCase {
 
     func testViewModelUpdateScrollProgressImmediateFlushesToStores() {
         let url = URL(string: "https://example.com/immediate-flush")!
-        let vm = ReaderViewModel(url: url, title: "Immediate Flush Test")
+        let vm = ReaderViewModel(url: url, title: "Immediate Flush Test", statsRecorder: .isolatedForTests())
         LastOpenedStore.shared.recordOpened(url: url, title: "Immediate Flush Test")
 
         vm.updateScrollProgress(0.85, immediate: true)
@@ -591,7 +591,7 @@ final class ReaderTests: XCTestCase {
 
     func testViewModelFlushPendingProgressFlushesDebouncedProgress() {
         let url = URL(string: "https://example.com/flush-pending")!
-        let vm = ReaderViewModel(url: url, title: "Flush Pending Test")
+        let vm = ReaderViewModel(url: url, title: "Flush Pending Test", statsRecorder: .isolatedForTests())
         LastOpenedStore.shared.recordOpened(url: url, title: "Flush Pending Test")
 
         // Without immediate, store has old value immediately
@@ -606,7 +606,7 @@ final class ReaderTests: XCTestCase {
 
     func testRapidScrollUpdatesDoNotInterfereAndLatestPersisted() {
         let url = URL(string: "https://example.com/rapid-scroll")!
-        let vm = ReaderViewModel(url: url, title: "Rapid Scroll Test")
+        let vm = ReaderViewModel(url: url, title: "Rapid Scroll Test", statsRecorder: .isolatedForTests())
         LastOpenedStore.shared.recordOpened(url: url, title: "Rapid Scroll Test")
 
         // Simulate 20 rapid scroll updates

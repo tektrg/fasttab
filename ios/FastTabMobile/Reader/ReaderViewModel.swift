@@ -78,7 +78,12 @@ public final class ReaderViewModel: ObservableObject {
     private var highlightStore: ReaderHighlightStore { .shared }
     private var articleCache: ReaderArticleCache { .shared }
     private var settingsStore: ReaderReadingSettingsStore { .shared }
-    private var statsRecorder: ReadingStatsRecorder { .shared }
+    private let statsRecorder: ReadingStatsRecorder
+    /// How long an article that fits on one screen must stay visible before it counts as read
+    /// to the end. Nothing to scroll means no scroll progress, so this stands in for it; the
+    /// dwell keeps an instant open-and-back from counting.
+    private let fitsOnScreenDwell: Duration
+    private var fitsOnScreenDwellTask: Task<Void, Never>?
     /// Words in the loaded article, counted once per extraction (off the main thread) for stats.
     private var articleWordCount: Int?
     private var wordCountTask: Task<Void, Never>?
@@ -86,10 +91,19 @@ public final class ReaderViewModel: ObservableObject {
 
     // MARK: - Init
 
-    public init(url: URL, title: String, focusHighlightID: String? = nil) {
+    public convenience init(url: URL, title: String, focusHighlightID: String? = nil) {
+        self.init(url: url, title: title, focusHighlightID: focusHighlightID, statsRecorder: nil)
+    }
+
+    /// `statsRecorder` `nil` uses `ReadingStatsRecorder.shared`. Tests pass their own so they
+    /// never write to the real reading log.
+    init(url: URL, title: String, focusHighlightID: String? = nil,
+         statsRecorder: ReadingStatsRecorder?, fitsOnScreenDwell: Duration = .seconds(4)) {
         self.url = url
         self.title = title
         self.focusHighlightID = focusHighlightID
+        self.statsRecorder = statsRecorder ?? .shared
+        self.fitsOnScreenDwell = fitsOnScreenDwell
         self.readerSettings = settingsStore.settings
         settingsCancellable = settingsStore.$settings
             .receive(on: DispatchQueue.main)
@@ -167,7 +181,28 @@ public final class ReaderViewModel: ObservableObject {
 
     /// Flushes any pending progress persistence immediately (e.g. on view dismiss/disappear)
     public func flushPendingProgress() {
+        cancelFitsOnScreenDwell()
         persistProgressNow(statsFlush: true)
+    }
+
+    /// Reported by the reader page whenever its content starts or stops fitting the viewport
+    /// (load, images, font changes, back from background). Fitting for `fitsOnScreenDwell`
+    /// counts as reading to the end.
+    public func contentFitsViewportChanged(_ fits: Bool) {
+        cancelFitsOnScreenDwell()
+        guard fits else { return }
+        let dwell = fitsOnScreenDwell
+        fitsOnScreenDwellTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: dwell)
+            guard !Task.isCancelled, let self else { return }
+            self.fitsOnScreenDwellTask = nil
+            self.updateScrollProgress(1, immediate: true)
+        }
+    }
+
+    private func cancelFitsOnScreenDwell() {
+        fitsOnScreenDwellTask?.cancel()
+        fitsOnScreenDwellTask = nil
     }
 
     private func persistProgressNow(statsFlush: Bool) {

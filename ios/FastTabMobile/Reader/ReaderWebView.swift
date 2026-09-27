@@ -5,6 +5,7 @@ import WebKit
 
 private enum JSMessage: String, CaseIterable {
     case scrollProgress   // { progress: Double }
+    case contentFitsViewport // { fits: Bool } — nothing to scroll (short article)
     case textSelected     // { text: String, range: String }
     case textDeselected   // {}
     case highlightTapped  // { id: String }
@@ -380,6 +381,8 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                     let immediate = body["immediate"] as? Bool ?? false
                     self.viewModel.updateScrollProgress(p, immediate: immediate)
                 }
+            case .contentFitsViewport:
+                self.viewModel.contentFitsViewportChanged(body["fits"] as? Bool ?? false)
             case .textSelected:
                 let text = body["text"] as? String ?? ""
                 let range = body["range"] as? String ?? ""

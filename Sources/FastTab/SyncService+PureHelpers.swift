@@ -188,6 +188,9 @@ extension SyncService {
         case SyncedHistorySlice.recordType:
             guard let intendedHistory = SyncedHistorySlice(from: intendedRecord) else { return nil }
             return intendedHistory.applying(to: serverRecord)
+        case SyncedTabStats.recordType:
+            guard let intendedStats = SyncedTabStats(from: intendedRecord) else { return nil }
+            return intendedStats.applying(to: serverRecord)
         default:
             return nil
         }

@@ -289,7 +289,8 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   connected" at register, `agentbar gone` later) — but ONLY while its own
   session file (`CLAUDE_SESSIONS_DIR`) is an interactive `cli`/`claude-desktop`
   one still showing THIS prompt (`session_prompt_state.py`, shared by hook and
-  store), the Claude pid lives, and 23h have not passed. Re-sends carry
+  store; a file with no `statusUpdatedAt` counts only while `waiting`), the
+  Claude pid lives, and 23h have not passed. Re-sends carry
   `reregister: true` + the original `promptStartedAt`; the store holds one
   only while the (freshly read) session file says `waiting` and not moved on
   (`prompt no longer waiting` otherwise). A re-send whose request is still

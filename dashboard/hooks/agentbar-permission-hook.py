@@ -154,7 +154,7 @@ def may_resend(payload, claude_pid, prompt_started_at, retry_deadline):
     entry = _own_session_file(payload, claude_pid)
     if not session_prompt_state.shows_own_prompt(entry, payload.get("session_id")):
         return False
-    return not session_prompt_state.session_moved_on(entry, prompt_started_at)
+    return session_prompt_state.prompt_may_still_be_up(entry, prompt_started_at)
 
 
 def bridge_prompt(payload, claude_pid):

@@ -40,6 +40,18 @@ def session_moved_on(session_entry, prompt_started_at):
     return status_ms / 1000.0 - prompt_started_at > WAITING_REWRITE_GRACE_SEC
 
 
+def prompt_may_still_be_up(session_entry, prompt_started_at):
+    """Hook side: re-sending this prompt can still help. A file with no
+    statusUpdatedAt can't date a status change, so there only `waiting`
+    counts — else a hook would re-send for up to its whole retry window
+    after the prompt was answered while the dashboard stayed down."""
+    if not isinstance(session_entry, dict):
+        return False
+    if not isinstance(session_entry.get("statusUpdatedAt"), (int, float)):
+        return session_entry.get("status") == "waiting"
+    return not session_moved_on(session_entry, prompt_started_at)
+
+
 def prompt_still_waiting(session_entry, prompt_started_at):
     """The session file says a prompt is up and it is (still) this one."""
     return (isinstance(session_entry, dict) and session_entry.get("status") == "waiting"

@@ -84,6 +84,12 @@ check("Desktop / CLI show their own prompt",
       [prompt_state.shows_own_prompt(session_file(entrypoint=e), "s1") for e in ("claude-desktop", "cli", "sdk-cli")],
       [True, True, False])
 check("another session's file never counts", prompt_state.shows_own_prompt(session_file("other"), "s1"), False)
+check("hook: no statusUpdatedAt -> only `waiting` is worth a re-send",
+      [prompt_state.prompt_may_still_be_up(session_file(status=st), 100.0) for st in ("waiting", "busy", "idle")],
+      [True, False, False])
+check("hook: dated busy after the prompt -> not worth it; dated waiting -> worth it",
+      (prompt_state.prompt_may_still_be_up(session_file("s1", "busy", 101), 100.0),
+       prompt_state.prompt_may_still_be_up(session_file(status_at=100.3), 100.0)), (False, True))
 
 print("== store: dedupe + re-send guard ==")
 clock = FakeClock()
@@ -224,12 +230,14 @@ def wait_for_pending(store, session_id, timeout=8):
 
 
 def finish(proc, timeout=10):
+    # wait() + read(), not communicate(): Python 3.9's communicate() trips over the
+    # already-closed stdin, and the hook must stay testable on /usr/bin/python3 (3.9).
     try:
-        out = proc.communicate(timeout=timeout)[0]
+        proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         proc.kill()
         return "TIMEOUT"
-    return out
+    return proc.stdout.read()
 
 
 answer = {"behavior": "allow", "answers": {"Ship it?": "Yes"}}
@@ -290,6 +298,14 @@ server.server_close()
 t0 = time.time()
 out = finish(start_hook(), timeout=5)
 check("dashboard down + unknown session: fast silent exit", (out, time.time() - t0 < 2), ("", True))
+
+# 6. Dashboard down, session file has no statusUpdatedAt and is no longer waiting: stop at once
+#    (it can't be dated, so "moved on" would never fire and the hook would retry for 23h).
+with open(os.path.join(sessions_dir, f"{MY_PID}.json"), "w") as f:
+    json.dump(session_file("hook-r1", "busy", None, "claude-desktop", pid=MY_PID), f)
+t0 = time.time()
+out = finish(start_hook(), timeout=5)
+check("dashboard down + undated non-waiting session: fast silent exit", (out, time.time() - t0 < 3), ("", True))
 
 print()
 if fails:

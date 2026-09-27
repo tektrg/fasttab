@@ -250,18 +250,35 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   long-poll) -> `{state: pending|answered+decision|resolved|expired}`, 404
   unknown. `POST …/<id>/answer` (AgentBar) `{behavior:"allow"|"deny",
   answers?, suggestionIndex?, message?}` -> 200 / 400 (bad answer) / 409 (not
-  pending). All three 404 on the remote listener; writes go through
-  `_reject_foreign_write` as usual.
+  pending). Register and wait 404 on the remote listener; `answer` is
+  served there too (the phone's web remote answers; auth + CSRF + audit
+  like every remote write, audit `rowId` = request id).
 - Exposure: a status-only row + its needsYou entry get `hookRequest` (oldest
   pending per session); the row then reads `blocked`, detail `Question` /
   `Permission: <tool>`, even before the session file says `waiting`.
+- **Web remote / web UI = an answer surface too** (2026-09-27): the SPA opens
+  `/api/events?answerSurface=web` and renders a pane-less row's `hookRequest`
+  as an answer card (`ui/src/components/HookRequestCard.tsx`, same body as
+  AgentBar) or its `transcriptQuestion` as display-only text, on the phone
+  inbox and the desktop Needs You table. That stream counts as "seen" exactly
+  like AgentBar's (on either listener; the remote one only after auth), so a
+  prompt is held with ONLY the phone open. Gotchas: a stream without the
+  param (an old cached PWA build, curl) never counts — keep the param in
+  `api.ts`; an iOS PWA in the background drops its stream, so its prompts are
+  released after 15s and come back ≤ ~10s after it is reopened (hook re-send
+  backoff); a browser tab of the SPA left open on the Mac also keeps prompts
+  held — harmless, Claude shows its own prompt for every held session. No
+  real push exists yet (plan phase 3); the in-page alert (`alerts.ts`
+  `alertFor`) keys a pane-less row by session + question TEXT, so a re-send
+  after a restart (new request id) or fallback -> hook flip never re-alerts.
 - **Held only while AgentBar is connected** (`server/lib/agentbar_presence.py`):
   AgentBar sends `X-AgentBar: 1` on every request; "seen" = such a request
   on the LOCAL listener, or each delivered push of its `/api/events` stream
   (every ~2s). Not seen in 10s -> register answers `ignored` ("AgentBar not
   connected"); not seen for 15s -> every pending request resolves
   `agentbar gone` and its hook exits. Browser tabs / curl without the header
-  never count; a dashboard restart starts "not connected" until AgentBar
+  never count (the web UI's `answerSurface=web` stream does, above); a
+  dashboard restart starts "not connected" until AgentBar or the web UI
   reconnects. An answer is also refused (409) once the hook process is dead
   or silent >5s — a /wait whose hook was killed keeps looping server-side,
   so the store checks `hookPid`. All ages use `time.monotonic()` (wall

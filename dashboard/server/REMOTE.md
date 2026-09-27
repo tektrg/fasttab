@@ -133,6 +133,9 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
 
 - Phone-friendly UI, PWA manifest/service worker (phase 2).
 - Push notifications (phase 3).
+- Answering Claude Desktop / CLI prompts works from the phone since
+  2026-09-27 (`POST /api/hook/permission/<id>/answer` is the one hook route
+  on this listener; see dashboard/AGENTS.md "Hook answer bridge").
 - Revoking one single issued session without rotating the shared token or
   restarting the server (today: restart clears every session; rotating the
   token now revokes every session at once — see above — but there's still

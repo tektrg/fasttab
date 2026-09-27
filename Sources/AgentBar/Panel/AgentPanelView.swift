@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Panel content: search field, then the list or a status message, then the
-/// optional stale-board note and the footer (a failure notice floats above it). Total height is dictated by
+/// Panel content: the list or a status message, the optional stale-board note, then the search
+/// field and the footer (a failure notice floats above it). Total height is dictated by
 /// `AgentPanelMetrics`. Tab-tagged (`AgentPanelModel.taggedAgentID`): the list/status message and the
 /// board note are both hidden — the target is already chosen (shown as a chip in the search field
 /// itself), so there's nothing left to pick from, and showing it anyway would just be clutter.
@@ -12,12 +12,17 @@ struct AgentPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SearchFieldView(model: model, onClose: onClose)
-            Divider()
-            bodyContent
-            if model.presentation.showsBoardNote, model.taggedAgentID == nil {
-                BoardNoteView()
+            // Search sits at the bottom, just above the footer: the panel is anchored to the screen's
+            // bottom edge and grows upward (`AgentPanelPlacement`), so the box never moves as the list filters.
+            VStack(spacing: 0) {
+                bodyContent
+                if model.presentation.showsBoardNote, model.taggedAgentID == nil {
+                    BoardNoteView()
+                }
             }
+            .overlay(alignment: .bottom) { failureNotice }
+            Divider()
+            SearchFieldView(model: model, onClose: onClose)
             PanelFooterView(
                 notice: model.footerNotice,
                 hintContext: .init(
@@ -40,9 +45,8 @@ struct AgentPanelView: View {
             )
         }
         .frame(width: AgentPanelMetrics.width)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(maxHeight: .infinity, alignment: .bottom)
         .background(.regularMaterial)
-        .overlay(alignment: .bottom) { failureNotice }
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(0.12)))
         .confirmationDialog(
@@ -75,7 +79,10 @@ struct AgentPanelView: View {
             Group {
                 Button("Report to nearest chief", action: model.treeModel.indentSelected).keyboardShortcut("]", modifiers: .command)
                 Button("Stop reporting (Unassigned)", action: model.treeModel.outdentSelected).keyboardShortcut("[", modifiers: .command)
-                Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
+                // Only while the search is empty — otherwise ⌘⌫ belongs to the text field (delete to line start).
+                if model.query.isEmpty {
+                    Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
+                }
             }
             .hidden()
         }
@@ -88,12 +95,11 @@ struct AgentPanelView: View {
         return chief.machineBadge.map { "\(project) (\($0))" } ?? project
     }
 
-    /// A failure stays over the bottom of the body, above the footer, until dismissed.
+    /// A failure stays over the bottom of the body, above the search field, until dismissed.
     @ViewBuilder
     private var failureNotice: some View {
         if let notice = model.footerNotice, notice.isDismissible {
             FooterNoticeView(notice: notice) { model.dismissFooterNotice() }
-                .padding(.bottom, AgentPanelMetrics.footerHeight)
         }
     }
 

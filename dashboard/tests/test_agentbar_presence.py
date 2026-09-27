@@ -67,7 +67,7 @@ presence = agentbar_presence.AgentBarPresence(clock=clock)
 store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True, presence=presence)
 reply = store.register(payload(), (), cli_entry())
 check("no AgentBar -> ignored at once", reply.get("state"), "ignored")
-check("ignored reason says why", "AgentBar not connected" in reply.get("reason", ""), True)
+check("ignored reason says why", "not connected" in reply.get("reason", ""), True)
 check("not connected is retryable (the hook re-sends once AgentBar is back)", reply.get("retryable"), True)
 check("nothing held", store._requests, {})
 presence.note_seen()
@@ -86,7 +86,7 @@ clock.now += agentbar_presence.GONE_AFTER_SEC
 check("gone 15s+ -> resolved, the hook's /wait returns", store.wait(rid, 0)[0],
       {"state": "resolved", "reason": hook_permissions.REASON_AGENTBAR_GONE, "retryable": True})
 check("a late answer says why in plain words", store.answer(rid, {"behavior": "allow"})[0]["error"],
-      "AgentBar lost its dashboard connection; answer this prompt in Claude.")
+      "AgentBar and the web remote lost their dashboard connection; answer this prompt in Claude.")
 presence.note_seen()
 rid2 = store.register(payload("s3"), (), cli_entry("s3")).get("requestId")
 check("AgentBar back -> holds again", bool(rid2), True)

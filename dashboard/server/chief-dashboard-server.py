@@ -3018,7 +3018,7 @@ class Handler(BaseHTTPRequestHandler):
             row_kind = parse_qs(parsed.query).get("rowKind", ["session"])[0]
             self._send_json({"properties": STORE.list_properties(row_kind)})
         elif path == "/api/events":
-            self._serve_sse()
+            self._serve_sse(parse_qs(parsed.query))
         elif path == "/api/links":
             qs = parse_qs(parsed.query)
             work_row_id = qs.get("workRowId", [None])[0]
@@ -3081,6 +3081,7 @@ class Handler(BaseHTTPRequestHandler):
         self._note_agentbar_seen()
         path = urlparse(self.path).path
         if hook_permission_routes.is_hook_path(path):
+            self._note_remote_audit_row(hook_permission_routes.request_id_of(path))
             self._send_json(*hook_permission_routes.handle_post(
                 path, self._read_json_body, self._is_remote_listener()))
             return
@@ -3220,20 +3221,23 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=400)
 
-    def _serve_sse(self):
+    def _serve_sse(self, query=None):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "keep-alive")
         self.end_headers()
-        is_agentbar = self._note_agentbar_seen()
+        # AgentBar, or the web UI that answers hook prompts (phone included):
+        # the hook bridge holds prompts while either one is connected.
+        is_answer_surface = (self._note_agentbar_seen()
+                             or agentbar_presence.is_web_answer_stream(query))
         try:
             while not STOP.is_set():
                 payload = json.dumps(get_state_with_board(), default=str)
                 chunk = f"data: {payload}\n\n".encode("utf-8")
                 self.wfile.write(chunk)
                 self.wfile.flush()
-                if is_agentbar:  # each delivered push = still connected
+                if is_answer_surface:  # each delivered push = still connected
                     agentbar_presence.PRESENCE.note_seen()
                 time.sleep(2)
         except (BrokenPipeError, ConnectionResetError):

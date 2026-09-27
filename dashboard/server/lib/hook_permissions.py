@@ -360,8 +360,8 @@ def _not_pending_message(request):
     if request.state_reason == REASON_HOOK_SILENT:
         return "Claude stopped waiting for this answer; answer it in Claude."
     if request.state_reason == REASON_AGENTBAR_GONE:
-        return ("AgentBar and the web remote lost their dashboard connection; "
-                "answer this prompt in Claude.")
+        return ("AgentBar and the web remote lost their dashboard connection; if Claude "
+                "is still waiting this prompt shows again in a few seconds, else answer it in Claude.")
     return f"This prompt is no longer waiting ({request.state_reason or request.state})."
 
 

@@ -91,7 +91,8 @@ clock.now += agentbar_presence.GONE_AFTER_SEC
 check("gone 15s+ -> resolved, the hook's /wait returns", store.wait(rid, 0)[0],
       {"state": "resolved", "reason": hook_permissions.REASON_AGENTBAR_GONE, "retryable": True})
 check("a late answer says why in plain words", store.answer(rid, {"behavior": "allow"})[0]["error"],
-      "AgentBar and the web remote lost their dashboard connection; answer this prompt in Claude.")
+      "AgentBar and the web remote lost their dashboard connection; if Claude "
+      "is still waiting this prompt shows again in a few seconds, else answer it in Claude.")
 presence.note_seen()
 rid2 = store.register(payload("s3"), (), cli_entry("s3")).get("requestId")
 check("AgentBar back -> holds again", bool(rid2), True)

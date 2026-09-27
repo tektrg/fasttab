@@ -2,13 +2,16 @@ import { useCallback } from "react";
 import { Notification } from "@mantine/core";
 import { focusPane, useDashboardState, useToast } from "./api";
 import { useQuestionAlerts, ensureNotiPerm } from "./alerts";
+import { usePhoneLayout } from "./hooks/usePhoneLayout";
 import { FeedStrip } from "./components/FeedStrip";
 import { NeedsYou } from "./components/NeedsYou";
 import { BoardSection } from "./components/BoardSection";
+import { PhoneInbox } from "./components/phone/PhoneInbox";
 
 export default function App() {
   const state = useDashboardState();
   const { toast, show } = useToast();
+  const phone = usePhoneLayout();
   useQuestionAlerts(state?.computed.needsYou);
 
   const onFocus = useCallback(
@@ -42,6 +45,35 @@ export default function App() {
   }
 
   const c = state.computed;
+
+  // Phone layout (phase 2a): a completely separate tree, not CSS-hidden
+  // desktop chrome — the table/kanban/bulk-bar/column-menus/view-switcher
+  // are simply never mounted below this width, rather than hidden and
+  // still paying their render/poll cost.
+  if (phone) {
+    return (
+      <div onClick={ensureNotiPerm} className="phone-app">
+        <header>
+          <h1>AGENTBAR</h1>
+          <div className="meta" id="clock">
+            {new Date(state.serverTimeTs * 1000).toLocaleTimeString()} · live
+          </div>
+        </header>
+        <PhoneInbox state={state} onToast={onToast} />
+        {toast && (
+          <Notification
+            id="toast"
+            color={toast.ok ? "green" : "red"}
+            title={toast.ok ? "Done" : "Action failed"}
+            withCloseButton={false}
+            style={{ position: "fixed", bottom: 16, left: 16, right: 16, zIndex: 300 }}
+          >
+            {toast.msg}
+          </Notification>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div onClick={ensureNotiPerm}>

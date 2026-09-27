@@ -28,10 +28,12 @@ struct PermissionPrompt: Equatable, Hashable, Sendable {
     let kind: Kind
     /// A plan box: the plan file named in its footer, exactly as drawn (`~` not expanded); nil when the footer is absent.
     let planPath: String?
+    /// A hook request's "always allow" offers (`HookRequest`), one card row each after "Yes"; empty for a pane's box.
+    let hookSuggestions: [HookPermissionSuggestion]
 
     init(
         tool: String, detail: String, title: String, options: [Option], cursorIndex: Int?,
-        kind: Kind = .tool, planPath: String? = nil
+        kind: Kind = .tool, planPath: String? = nil, hookSuggestions: [HookPermissionSuggestion] = []
     ) {
         self.tool = tool
         self.detail = detail
@@ -40,6 +42,7 @@ struct PermissionPrompt: Equatable, Hashable, Sendable {
         self.cursorIndex = cursorIndex
         self.kind = kind
         self.planPath = planPath
+        self.hookSuggestions = hookSuggestions
     }
 
     /// The choices this box offers, in the order the card shows them. The rules are the
@@ -58,12 +61,20 @@ struct PermissionPrompt: Equatable, Hashable, Sendable {
             guard let last = options.last, last.label.hasPrefix("No") else { return nil }
             return last
         case .allowAlways:
+            // A hook request's for-good rows are its suggestions (`.allowAlwaysSuggestion`), whatever their wording.
+            guard hookSuggestions.isEmpty else { return nil }
             return options.first { $0.label.hasPrefix("Yes") && Self.isAlways($0.label) }
+        case .allowAlwaysSuggestion(let index):
+            // Hook rows: "Yes" first, then one row per suggestion, in order (`HookRequest.permissionPrompt`).
+            guard let position = hookSuggestions.firstIndex(where: { $0.index == index }),
+                  options.indices.contains(position + 1) else { return nil }
+            return options[position + 1]
         }
     }
 
     var choices: [PermissionChoice] {
-        PermissionChoice.allCases.filter { option(for: $0) != nil }
+        let all: [PermissionChoice] = [.allow, .allowAlways] + hookSuggestions.map { .allowAlwaysSuggestion($0.index) } + [.deny]
+        return all.filter { option(for: $0) != nil }
     }
 
     /// Who this prompt is, for telling "the same box" from "another one".
@@ -108,16 +119,21 @@ struct PermissionIdentity: Hashable, Sendable {
 }
 
 /// What the user can decide on a permission box.
-enum PermissionChoice: CaseIterable, Equatable, Sendable {
+enum PermissionChoice: CaseIterable, Hashable, Sendable {
     case allow
     case allowAlways
     case deny
+    /// A hook request's "always allow" offer (its `suggestionIndex`); never on a pane's box.
+    case allowAlwaysSuggestion(Int)
+
+    /// The choices a pane's permission box can have (a hook request adds its suggestions: `PermissionPrompt.choices`).
+    static let allCases: [PermissionChoice] = [.allow, .allowAlways, .deny]
 
     /// The word the dashboard's request uses.
     var wireName: String {
         switch self {
         case .allow: "allow"
-        case .allowAlways: "allow-always"
+        case .allowAlways, .allowAlwaysSuggestion: "allow-always"
         case .deny: "deny"
         }
     }
@@ -125,15 +141,23 @@ enum PermissionChoice: CaseIterable, Equatable, Sendable {
     var title: String {
         switch self {
         case .allow: "Allow"
-        case .allowAlways: "Allow always"
+        case .allowAlways, .allowAlwaysSuggestion: "Allow always"
         case .deny: "Deny"
+        }
+    }
+
+    /// Grants more than this one call: needs a second press on the card.
+    var grantsForGood: Bool {
+        switch self {
+        case .allowAlways, .allowAlwaysSuggestion: true
+        case .allow, .deny: false
         }
     }
 
     /// What the row says while this decision is on its way.
     var sendingLabel: String {
         switch self {
-        case .allow, .allowAlways: "Sending approval…"
+        case .allow, .allowAlways, .allowAlwaysSuggestion: "Sending approval…"
         case .deny: "Sending denial…"
         }
     }

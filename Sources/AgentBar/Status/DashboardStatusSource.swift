@@ -120,6 +120,20 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
         }
     }
 
+    func answerHookRequest(requestId: String, answer: HookAnswer) async -> HookAnswerOutcome {
+        guard let request = endpoint.hookAnswerRequest(requestId: requestId, answer: answer) else {
+            return .failed("The dashboard gave this prompt an id AgentBar can't address.")
+        }
+        do {
+            let (body, statusCode) = try await transport.response(for: request)
+            return DashboardHookAnswerResponse.outcome(body: body, statusCode: statusCode)
+        } catch let error as URLError where error.code == .timedOut {
+            return .failed("The dashboard took too long to answer. Check the session in Claude: the answer may have gone through.")
+        } catch {
+            return .failed("Can't reach the status dashboard.")
+        }
+    }
+
     func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome {
         do {
             let request = endpoint.sessionActionRequest(kind, rowId: rowId, confirmed: confirmed)

@@ -12,7 +12,10 @@ struct AnswerCard: Equatable, Sendable {
     }
 
     let agentID: String
+    /// Empty on a hook-request card: a status-only session has no pane (`hookRequest` is answered by id).
     let paneId: String
+    /// Set when the question is a status-only session's prompt held by the dashboard's hook bridge.
+    let hookRequest: HookRequest?
     let label: String
     let projectName: String?
     /// What Copy puts on the pasteboard (see `AgentIdentityText`).
@@ -33,6 +36,7 @@ struct AnswerCard: Equatable, Sendable {
         self.projectName = agent.projectName
         self.identityText = agent.identityText
         self.sessionId = agent.sessionId
+        self.hookRequest = agent.hookRequest
         self.state = AnswerCardState(question: question)
         // No session to read: nothing is loading.
         self.sessionContext = agent.sessionId == nil ? .empty : nil

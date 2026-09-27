@@ -153,11 +153,13 @@ struct DashboardAgent: Decodable {
     let openUrl: String?
     /// A Claude CLI row running in tmux: "session:@w.%p".
     let tmuxTarget: String?
+    /// A status-only row's pending hook-bridge prompt (also on its `needsYou` entry).
+    let hookRequest: DashboardHookRequest?
 
     private enum CodingKeys: String, CodingKey {
         case paneId, label, cwd, hookState, hookSinceSec, hasHookData, residue
         case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
-        case source, openUrl, tmuxTarget
+        case source, openUrl, tmuxTarget, hookRequest
     }
 
     init(from decoder: Decoder) throws {
@@ -179,6 +181,7 @@ struct DashboardAgent: Decodable {
         source = container.lenient(.source)
         openUrl = container.lenient(.openUrl)
         tmuxTarget = container.lenient(.tmuxTarget)
+        hookRequest = container.lenient(.hookRequest)
     }
 }
 
@@ -198,8 +201,12 @@ struct DashboardNeedsYou: Decodable {
     let permission: DashboardPermission?
     /// A status-only (pane-less) row's Claude session id: how it is matched to its agent row.
     let agentSession: String?
+    /// A status-only entry's prompt held by the dashboard's hook bridge (oldest pending one per session).
+    let hookRequest: DashboardHookRequest?
 
-    private enum CodingKeys: String, CodingKey { case kind, paneId, detail, sinceSec, question, questionPreview, permission, agentSession }
+    private enum CodingKeys: String, CodingKey {
+        case kind, paneId, detail, sinceSec, question, questionPreview, permission, agentSession, hookRequest
+    }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -211,6 +218,7 @@ struct DashboardNeedsYou: Decodable {
         questionPreview = container.lenient(.questionPreview)
         permission = container.lenient(.permission)
         agentSession = container.lenient(.agentSession)
+        hookRequest = container.lenient(.hookRequest)
     }
 }
 

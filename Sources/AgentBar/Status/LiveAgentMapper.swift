@@ -71,7 +71,12 @@ enum LiveAgentMapper {
             paneIsInDashboardNeedsYou: needsYouEntry != nil
         )
         let pushText = board.unpushedText(rowId: agent.rowId, paneId: paneId)
-        let questionText = StatusTextCleaner.singleLine(agent.screenQuestion?.question, maxLength: promptExcerptMaxLength)
+        // Only a status-only row in Needs you answers through the hook bridge; a herdr row keeps its screen path.
+        let hookRequest = host.isHerdr || needsYouEntry == nil
+            ? nil : HookRequest(needsYouEntry?.hookRequest) ?? HookRequest(agent.hookRequest)
+        let questionText = StatusTextCleaner.singleLine(
+            agent.screenQuestion?.question ?? hookRequest?.questions.first?.question, maxLength: promptExcerptMaxLength
+        )
         let screenSignal = StatusTextCleaner.singleLine(agent.screenSignal, maxLength: statusTextMaxLength)
         let snapshot = AgentSnapshot(
             id: id,
@@ -81,7 +86,8 @@ enum LiveAgentMapper {
             paneId: host.isHerdr ? paneId : nil,
             section: section,
             statusText: statusText(
-                section: section, hasPrompt: hasPrompt, agent: agent, needsYouEntry: needsYouEntry, screenSignal: screenSignal
+                section: section, hasPrompt: hasPrompt, agent: agent, needsYouEntry: needsYouEntry,
+                screenSignal: screenSignal, hookQuestion: hookRequest?.questions.first
             ),
             secondsInStatus: needsYouEntry?.sinceSec ?? agent.hookSinceSec,
             hasUnpushedCommits: pushText != nil,
@@ -93,10 +99,11 @@ enum LiveAgentMapper {
             sessionId: sessionId,
             // Status-only rows: the dashboard refuses stop/close on them; never offer Done.
             actions: host.isHerdr ? AgentActions(decoded: agent.actions, fallback: .unknown) : .none,
-            // A waiting status-only session is generic Needs you ("Input needed"): nothing AgentBar can
-            // answer or review, and no pane to open, so no blocker (no red button, no corner card).
-            blocker: host.isHerdr ? blocker(for: needsYouEntry) : nil,
-            host: host
+            // A waiting status-only session is generic Needs you ("Input needed") unless the dashboard's hook
+            // bridge holds its prompt: then Answer / Review work on that request (no pane, no screen read).
+            blocker: host.isHerdr ? blocker(for: needsYouEntry) : hookRequest?.blocker,
+            host: host,
+            hookRequest: hookRequest
         )
         return (snapshot, hasPrompt)
     }
@@ -120,7 +127,8 @@ enum LiveAgentMapper {
         hasPrompt: Bool,
         agent: DashboardAgent,
         needsYouEntry: DashboardNeedsYou?,
-        screenSignal: String?
+        screenSignal: String?,
+        hookQuestion: FormQuestion?
     ) -> String {
         let hookReason = StatusTextCleaner.singleLine(agent.hookReason, maxLength: statusTextMaxLength)
         switch section {
@@ -130,8 +138,8 @@ enum LiveAgentMapper {
             // it is fresher than the screen line, which is then stale. For a plain
             // permission prompt the screen line is the prompt itself (the hook
             // reason is only generic vendor copy) — same precedence as the dashboard.
-            let title = StatusTextCleaner.singleLine(agent.screenQuestion?.title, maxLength: statusTextMaxLength)
-            let question = StatusTextCleaner.singleLine(agent.screenQuestion?.question, maxLength: statusTextMaxLength)
+            let title = StatusTextCleaner.singleLine(agent.screenQuestion?.title ?? hookQuestion?.header, maxLength: statusTextMaxLength)
+            let question = StatusTextCleaner.singleLine(agent.screenQuestion?.question ?? hookQuestion?.question, maxLength: statusTextMaxLength)
             let asked = [title, question].compactMap { $0 }.joined(separator: ": ")
             let detail = StatusTextCleaner.singleLine(needsYouEntry?.detail, maxLength: statusTextMaxLength)
             return (asked.isEmpty ? nil : asked) ?? detail ?? screenSignal ?? hookReason ?? "Waiting for your answer"

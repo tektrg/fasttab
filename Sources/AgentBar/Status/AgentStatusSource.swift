@@ -50,6 +50,10 @@ protocol AgentStatusSource: Sendable {
     /// labels included: the dashboard refuses unless the box it reads still equals it. Never call twice for one decision.
     func selectPlanOption(paneId: String, index: Int, text: String?, permission: PermissionPrompt) async -> PermissionResult
 
+    /// Answers a status-only session's prompt held by the dashboard's hook bridge (`HookRequest`), by its id.
+    /// No pane is read or typed into. Never call twice for one decision.
+    func answerHookRequest(requestId: String, answer: HookAnswer) async -> HookAnswerOutcome
+
     /// Stops the agent or closes its pane (the dashboard's ladder). Destructive:
     /// call only for an explicit user press. `confirmed` is true only for the
     /// second press after `.needsConfirmation`.
@@ -74,5 +78,9 @@ extension AgentStatusSource {
 
     func selectPlanOption(paneId: String, index: Int, text: String?, permission: PermissionPrompt) async -> PermissionResult {
         .unsupported("This status source cannot answer a plan from here.")
+    }
+
+    func answerHookRequest(requestId: String, answer: HookAnswer) async -> HookAnswerOutcome {
+        .failed("This status source cannot answer Claude sessions outside herdr.")
     }
 }

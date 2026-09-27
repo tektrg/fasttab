@@ -150,7 +150,7 @@ struct PermissionCardState: Equatable, Sendable {
 
     private mutating func sendHighlighted() -> Effect {
         guard let choice = highlighted else { return .none }
-        if choice == .allowAlways, !isConfirmingAlways {
+        if choice.grantsForGood, !isConfirmingAlways {
             isConfirmingAlways = true
             return .none
         }

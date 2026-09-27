@@ -19,6 +19,8 @@ struct DashboardEndpoint: Sendable {
     static let answerTimeoutSeconds: TimeInterval = 90
     /// A permission press is one key, then a re-read of the pane (a few seconds).
     static let permissionTimeoutSeconds: TimeInterval = 45
+    /// A hook answer only hands the decision to the waiting hook: no pane involved.
+    static let hookAnswerTimeoutSeconds: TimeInterval = 15
     /// A message types into the pane and re-reads it to see whether it was submitted (2s or more).
     static let messageTimeoutSeconds: TimeInterval = 60
     /// Attach/detach are one write to the dashboard's own tree state, no pane involved: a plain
@@ -126,6 +128,17 @@ struct DashboardEndpoint: Sendable {
             box["planPath"] = permission.planPath ?? NSNull()
         }
         return box
+    }
+
+    /// `POST /api/hook/permission/<requestId>/answer`. Nil for an id that is not path-safe (`HookRequest.isPathSafe`).
+    func hookAnswerRequest(requestId: String, answer: HookAnswer) -> URLRequest? {
+        guard HookRequest.isPathSafe(requestId) else { return nil }
+        var request = request(path: "/api/hook/permission/\(requestId)/answer")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.hookAnswerTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: answer.jsonObject, options: [.sortedKeys])
+        return request
     }
 
     /// `POST /api/session/stop|close`. `confirmed` is sent only when the user

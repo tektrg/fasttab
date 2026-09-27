@@ -2566,10 +2566,26 @@ class Handler(BaseHTTPRequestHandler):
                ".js": "text/javascript; charset=utf-8",
                ".css": "text/css; charset=utf-8",
                ".json": "application/json",
+               ".webmanifest": "application/manifest+json",
                ".svg": "image/svg+xml",
                ".png": "image/png",
                ".ico": "image/x-icon"}
 
+    #: Phone 2a (docs/plans/2026-09-26-agentbar-mobile-web.md phase 2): the
+    #: PWA shell assets. iOS fetches manifest/icons/sw.js itself (not
+    #: through the page's own fetch/cookie jar in every install flow), so on
+    #: the remote listener these specific paths are reachable WITHOUT the
+    #: session cookie/token — same as /remote/login. Nothing else on the
+    #: remote listener gets this treatment: nothing sensitive is servable at
+    #: these five paths (static, content-free assets), and every other
+    #: route (including /assets/* and the SPA shell) still requires auth.
+    PWA_PUBLIC_PATHS = {
+        "/manifest.webmanifest": "manifest.webmanifest",
+        "/sw.js": "sw.js",
+        "/icons/icon-192.png": "icons/icon-192.png",
+        "/icons/icon-512.png": "icons/icon-512.png",
+        "/apple-touch-icon.png": "apple-touch-icon.png",
+    }
 
     def log_message(self, fmt, *args):
         # Keep the pane readable; only log non-200s and startup, not every poll.
@@ -2810,6 +2826,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/remote/login":
                 self._send_page(remote_access.render_login_page())
                 return
+            if path in self.PWA_PUBLIC_PATHS:
+                self._serve_file(self.PWA_PUBLIC_PATHS[path])
+                return
             if not self._remote_authenticated():
                 if path.startswith("/api/"):
                     self._send_json({"ok": False, "error": "unauthenticated"}, status=401)
@@ -2830,6 +2849,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_page(PAGE_HTML.encode("utf-8"))
         elif path.startswith("/assets/"):
             self._serve_file(path.lstrip("/"))
+        elif path in self.PWA_PUBLIC_PATHS:
+            self._serve_file(self.PWA_PUBLIC_PATHS[path])
         elif path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()

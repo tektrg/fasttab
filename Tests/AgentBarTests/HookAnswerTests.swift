@@ -355,8 +355,11 @@ struct HookPermissionCardTests {
         let model = permissionModel(source)
         model.open(H.agent(H.permissionRequest))
         model.clickChoice(.allowAlwaysSuggestion(1))
+        // A suggestion may be a mode switch or a directory, not a rule: never titled "Allow always".
+        #expect(model.card?.state.actionTitle == "Allow + change permissions")
         model.pressSend()
         #expect(model.card?.state.isConfirmingAlways == true)
+        #expect(model.card?.state.actionTitle == "Confirm permission change")
         #expect(PermissionCardView.confirmAlwaysText(model.card!.state) == "Always allow reading /tmp")
         await settleTasks()
         #expect(source.sent.isEmpty)

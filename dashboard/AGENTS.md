@@ -141,8 +141,12 @@ Contract: `hooks/agentbar-permission-hook.py` (Claude Code `PermissionRequest`
 hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
 `hook_permission_summary.py` (hookRequest view + decision building/validation),
 `hook_permission_routes.py` (routing; the server file only dispatches).
-- `POST /api/hook/permission` (hook) -> `{requestId}` | `{state:"ignored"}`
-  (herdr-pane session, or bad payload). `GET …/<id>/wait?timeout=N` (N ≤ 25,
+- `POST /api/hook/permission` (hook) -> `{requestId}` | `{state:"ignored", reason}`
+  (herdr-pane session, bad payload, a background-subagent prompt — payload has
+  `agent_id` — or a session whose file is missing / not `entrypoint` `cli` |
+  `claude-desktop`, e.g. `claude -p` = `sdk-cli`). **Why** (measured 2.1.283):
+  Claude shows those prompts only AFTER every hook returns, so holding them
+  here left the agent stuck on AgentBar alone for up to the hook's 24h. `GET …/<id>/wait?timeout=N` (N ≤ 25,
   long-poll) -> `{state: pending|answered+decision|resolved|expired}`, 404
   unknown. `POST …/<id>/answer` (AgentBar) `{behavior:"allow"|"deny",
   answers?, suggestionIndex?, message?}` -> 200 / 400 (bad answer) / 409 (not
@@ -158,8 +162,10 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   own prompt, and whoever answers first wins (a later AgentBar answer is
   moot). **No signal when answered elsewhere** — the hook is never told; the
   store infers `resolved` from the session file (`statusUpdatedAt` after the
-  request, status not `waiting`; seen ≤3s live), a dead Claude pid, 90s with
-  no `/wait`, or 24h age. A dashboard restart drops every pending request (the
+  request and status not `waiting` — or `waiting` again from a write >1s after
+  it, i.e. the NEXT prompt; seen ≤3s live), a dead Claude pid, 90s with no
+  `/wait` (10s if the hook never polled once), or 24h age. Parallel subagents
+  can hold several prompts in one session; only main-thread ones register. A dashboard restart drops every pending request (the
   hook sees 404 and exits; Claude's own prompt still works).
 - e2e recipe (never against :4711): run the server with
   `CHIEF_DASHBOARD_PORT=4713` + scratch `CHIEF_DASHBOARD_STATE_HOME` and

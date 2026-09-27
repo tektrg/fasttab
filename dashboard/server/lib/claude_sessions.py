@@ -150,6 +150,15 @@ def read_live_sessions(sessions_dir=None, pid_alive=_pid_alive,
     return live
 
 
+def read_session_for_pid(pid, sessions_dir=None, pid_alive=_pid_alive):
+    """The live session file of one Claude process, or None. For a caller
+    that can't wait for the next sessions-feed sample (a brand-new session)."""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1 or not pid_alive(pid):
+        return None
+    entry = _parse_session_file(os.path.join(sessions_dir or SESSIONS_DIR, f"{pid}.json"))
+    return entry if entry and entry["pid"] == pid else None
+
+
 def _desktop_open_url(entry):
     host_id = entry.get("hostSessionId")
     if (entry.get("entrypoint") == "claude-desktop" and isinstance(host_id, str)

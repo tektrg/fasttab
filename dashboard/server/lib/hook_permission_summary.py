@@ -18,6 +18,8 @@ KIND_QUESTION = "question"
 KIND_PERMISSION = "permission"
 
 DETAIL_MAX_CHARS = 2000
+#: A plan is approved as a whole: show (nearly) all of it, not the first lines.
+PLAN_DETAIL_MAX_CHARS = 20000
 #: Same cap as /api/answer's free text (_clean_free_text in the server).
 ANSWER_MAX_CHARS = 500
 DEFAULT_DENY_MESSAGE = "Denied from AgentBar."
@@ -99,7 +101,7 @@ def _permission_detail(tool_name, tool_input):
             detail += f"\n\n{tool_input['description']}"
         return _cap(detail)
     if tool_name == PLAN_TOOL and tool_input.get("plan"):
-        return _cap(tool_input["plan"])
+        return _cap(tool_input["plan"], PLAN_DETAIL_MAX_CHARS)
     for key in ("file_path", "notebook_path", "url", "query", "path"):
         if isinstance(tool_input.get(key), str) and tool_input[key]:
             return _cap(tool_input[key])
@@ -133,6 +135,13 @@ def suggestion_label(suggestion):
     return f"{text} {scope}".strip()
 
 
+def is_offerable(suggestion):
+    """AgentBar offers a suggestion only as "allow this AND apply it"; one
+    that would save a DENY rule can't be offered that way (the call would
+    still run), so it is left to Claude's own prompt."""
+    return suggestion.get("behavior") != "deny"
+
+
 def build_hook_request_view(request_id, tool_name, tool_input, suggestions,
                             created_at, now):
     """The `hookRequest` object on a status-only row / its needsYou entry."""
@@ -151,7 +160,7 @@ def build_hook_request_view(request_id, tool_name, tool_input, suggestions,
             "title": _permission_title(tool_name),
             "detail": _permission_detail(tool_name, tool_input),
             "suggestions": [{"index": i, "label": suggestion_label(s)}
-                            for i, s in enumerate(suggestions or [])],
+                            for i, s in enumerate(suggestions or []) if is_offerable(s)],
         }
     return view
 
@@ -196,9 +205,8 @@ def _permission_allow_decision(suggestions, body):
     if index is None:
         return decision
     if isinstance(index, bool) or not isinstance(index, int) \
-            or not 0 <= index < len(suggestions or []):
-        raise AnswerRejected(f"suggestionIndex {index!r} is not one of the "
-                             f"{len(suggestions or [])} suggestions")
+            or not 0 <= index < len(suggestions or []) or not is_offerable(suggestions[index]):
+        raise AnswerRejected(f"suggestionIndex {index!r} is not one of the offered suggestions")
     decision["updatedPermissions"] = [suggestions[index]]
     return decision
 

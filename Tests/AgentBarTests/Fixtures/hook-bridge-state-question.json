@@ -1,0 +1,232 @@
+{
+ "serverTimeTs": 1790485218.485451,
+ "feeds": {
+  "hookCache": {
+   "name": "hookCache",
+   "refreshIntervalSec": 2,
+   "warming": false,
+   "lastSuccessTs": 1790485217.723265,
+   "lastAttemptTs": 1790485217.723265,
+   "lastDurationSec": 0.0014653205871582031,
+   "ageSec": 0.7617878913879395,
+   "broken": false,
+   "error": null
+  },
+  "herdr": {
+   "name": "herdr",
+   "refreshIntervalSec": 5,
+   "warming": false,
+   "lastSuccessTs": 1790485215.8769028,
+   "lastAttemptTs": 1790485215.8769028,
+   "lastDurationSec": 0.041168212890625,
+   "ageSec": 2.608154296875,
+   "broken": false,
+   "error": null
+  },
+  "paneTick": {
+   "name": "paneTick",
+   "refreshIntervalSec": 90,
+   "warming": false,
+   "lastSuccessTs": 1790485213.099632,
+   "lastAttemptTs": 1790485213.099632,
+   "lastDurationSec": 0.0007309913635253906,
+   "ageSec": 5.385426044464111,
+   "broken": false,
+   "error": null
+  },
+  "board": {
+   "name": "board",
+   "refreshIntervalSec": 150,
+   "warming": false,
+   "lastSuccessTs": 1790485078.781794,
+   "lastAttemptTs": 1790485078.781794,
+   "lastDurationSec": 5.934514284133911,
+   "ageSec": 139.70326781272888,
+   "broken": false,
+   "error": null
+  },
+  "paneScreen": {
+   "name": "paneScreen",
+   "refreshIntervalSec": 15,
+   "warming": false,
+   "lastSuccessTs": 1790485213.072274,
+   "lastAttemptTs": 1790485213.072274,
+   "lastDurationSec": 0.12288594245910645,
+   "ageSec": 5.412792921066284,
+   "broken": false,
+   "error": null
+  },
+  "claudeSessions": {
+   "name": "claudeSessions",
+   "refreshIntervalSec": 3,
+   "warming": false,
+   "lastSuccessTs": 1790485215.429346,
+   "lastAttemptTs": 1790485215.429346,
+   "lastDurationSec": 0.09144902229309082,
+   "ageSec": 3.0557219982147217,
+   "broken": false,
+   "error": null
+  },
+  "herdr:air-m1": {
+   "name": "herdr:air-m1",
+   "refreshIntervalSec": 5,
+   "warming": false,
+   "lastSuccessTs": 1790485217.464392,
+   "lastAttemptTs": 1790485217.464392,
+   "lastDurationSec": 0.728348970413208,
+   "ageSec": 1.0206780433654785,
+   "broken": false,
+   "error": null
+  },
+  "paneScreen:air-m1": {
+   "name": "paneScreen:air-m1",
+   "refreshIntervalSec": 15,
+   "warming": false,
+   "lastSuccessTs": 1790485213.669543,
+   "lastAttemptTs": 1790485213.669543,
+   "lastDurationSec": 0.6281239986419678,
+   "ageSec": 4.815528869628906,
+   "broken": false,
+   "error": null
+  },
+  "machines": {
+   "air-m1": {
+    "status": "ok",
+    "error": null,
+    "ageSec": 1.0210559368133545,
+    "agentCount": 6
+   }
+  }
+ },
+ "computed": {
+  "agents": [
+   {
+    "paneId": null,
+    "tabId": null,
+    "workspaceId": null,
+    "label": "proj-43",
+    "cwd": "/tmp/hookqa1/proj",
+    "focused": false,
+    "hookState": "blocked",
+    "hookSinceSec": 16.945082902908325,
+    "herdrStatus": null,
+    "disagree": false,
+    "screenUnchangedSec": null,
+    "subagentsRunning": 0,
+    "herdrTurnReported": false,
+    "hasHookData": true,
+    "backgroundWaitExpired": false,
+    "residue": false,
+    "agentSession": "d242bb95-f324-476b-a401-cffd6d021940",
+    "hookReason": "Question",
+    "screenState": null,
+    "screenSignal": null,
+    "screenQuestion": null,
+    "screenPermission": null,
+    "hookQuestion": null,
+    "machine": "local",
+    "source": "claude-cli",
+    "sessionStatus": "idle",
+    "secondsInStatus": 16.945082902908325,
+    "pid": 97897,
+    "hostSessionId": null,
+    "tmuxTarget": "hookqa1-claude:@822.%822",
+    "openUrl": null,
+    "hookRequest": {
+     "requestId": "hp2-efccc69c",
+     "kind": "question",
+     "toolName": "AskUserQuestion",
+     "createdAt": 1790485218.445327,
+     "sinceSec": 0.03998088836669922,
+     "questions": [
+      {
+       "question": "Which fruit do you want?",
+       "header": "Fruit",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Apple",
+         "description": "red"
+        },
+        {
+         "label": "Pear",
+         "description": "green"
+        }
+       ]
+      }
+     ]
+    },
+    "rowId": "d242bb95-f324-476b-a401-cffd6d021940",
+    "memoryBytes": null,
+    "contextPct": null,
+    "autocompactPct": null,
+    "actions": {
+     "stop": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-cli session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "close": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-cli session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "relaunch": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-cli session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "archive": {
+      "enabled": true,
+      "needsConfirm": false,
+      "reason": "board-only: hides the row, frees nothing"
+     },
+     "unarchive": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "not archived \u2014 nothing to restore"
+     }
+    }
+   }
+  ],
+  "needsYou": [
+   {
+    "kind": "blocked",
+    "urgency": 1,
+    "label": "proj-43",
+    "paneId": null,
+    "detail": "Question",
+    "sinceSec": 16.945082902908325,
+    "identity": "d242bb95-f324-476b-a401-cffd6d021940",
+    "permission": null,
+    "source": "claude-cli",
+    "agentSession": "d242bb95-f324-476b-a401-cffd6d021940",
+    "openUrl": null,
+    "hookRequest": {
+     "requestId": "hp2-efccc69c",
+     "kind": "question",
+     "toolName": "AskUserQuestion",
+     "createdAt": 1790485218.445327,
+     "sinceSec": 0.03998088836669922,
+     "questions": [
+      {
+       "question": "Which fruit do you want?",
+       "header": "Fruit",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Apple",
+         "description": "red"
+        },
+        {
+         "label": "Pear",
+         "description": "green"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

@@ -10,6 +10,7 @@ Local listener only: every route answers 404 on the remote (tailscale)
 listener — the hook runs on this Mac, and answering a permission prompt from
 the phone is not in scope.
 """
+import claude_sessions
 import hook_permissions
 from chief_dashboard_feeds import FEEDS
 
@@ -28,6 +29,16 @@ def _feed_data(name):
 
 def _live_sessions():
     return _feed_data("claudeSessions") or []
+
+
+def _session_entry(payload):
+    """The session file of the hook's session: the feed's copy, else read
+    straight from the hook's Claude pid (the feed samples every 3s)."""
+    session_id = payload.get("session_id") if isinstance(payload, dict) else None
+    for entry in _live_sessions():
+        if isinstance(entry, dict) and entry.get("sessionId") == session_id:
+            return entry
+    return claude_sessions.read_session_for_pid(payload.get("claudePid")) if session_id else None
 
 
 def _request_route(path):
@@ -53,15 +64,18 @@ def handle_get(path, query, is_remote, store=None):
     return store.wait(request_id, _parse_timeout(query), _live_sessions)
 
 
-def handle_post(path, read_body, is_remote, store=None):
-    """`read_body` is called lazily so a 404 never reads the request body."""
+def handle_post(path, read_body, is_remote, store=None, session_entry=None):
+    """`read_body` is called lazily so a 404 never reads the request body.
+    `session_entry(payload)` finds the hook session's file (tests fake it)."""
     store = store or hook_permissions.STORE
+    session_entry = session_entry or _session_entry
     if is_remote:
         return NOT_FOUND
     try:
         if path == PREFIX:
+            payload = read_body()
             herdr_ids = hook_permissions.herdr_session_ids(_feed_data("herdr"))
-            return store.register(read_body(), herdr_ids), 200
+            return store.register(payload, herdr_ids, session_entry(payload)), 200
         request_id, action = _request_route(path)
         if action == "answer":
             return store.answer(request_id, read_body())

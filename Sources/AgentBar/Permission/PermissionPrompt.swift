@@ -138,12 +138,21 @@ enum PermissionChoice: CaseIterable, Hashable, Sendable {
         }
     }
 
+    /// A hook suggestion is not always a rule ("Switch to auto-accept edits mode…", "Always allow access to `/x`…"):
+    /// its row says only that a permission setting changes, the label under it says which.
     var title: String {
         switch self {
         case .allow: "Allow"
-        case .allowAlways, .allowAlwaysSuggestion: "Allow always"
+        case .allowAlways: "Allow always"
+        case .allowAlwaysSuggestion: "Allow + change permissions"
         case .deny: "Deny"
         }
+    }
+
+    /// The action button on the second press of a `grantsForGood` choice.
+    var confirmTitle: String {
+        if case .allowAlwaysSuggestion = self { return "Confirm permission change" }
+        return "Confirm always allow"
     }
 
     /// Grants more than this one call: needs a second press on the card.

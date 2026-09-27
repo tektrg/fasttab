@@ -42,6 +42,41 @@ function playAlert() {
   }
 }
 
+/** What one Needs You row alerts with, or null (nothing to alert on).
+ *  `slot` = the agent (pane, or session for a pane-less Desktop/CLI row);
+ *  `key` = the prompt shown — a new key in the same slot re-alerts. For a
+ *  pane-less row the key is the asked TEXT, not the hook request id, so a
+ *  prompt re-sent after a dashboard restart (new id) or flipping between the
+ *  transcript fallback and the hook request never alerts twice. */
+export function alertFor(
+  i: NeedsYouRow,
+): { slot: string; key: string; title: string; body: string } | null {
+  if (i.paneId) {
+    if (i.kind !== "question" || !i.question) return null;
+    return {
+      slot: i.paneId,
+      key: i.paneId + " :: " + i.question.title + " :: " + i.question.question,
+      title: "QUESTION needs you: " + i.label,
+      body:
+        i.question.question +
+        " (" + i.question.options.filter((o) => !o.other).length + " options)",
+    };
+  }
+  const slot = i.agentSession;
+  if (!slot) return null;
+  const hook = i.hookRequest;
+  const question = hook?.questions?.[0]?.question ?? i.transcriptQuestion?.question;
+  if (question) {
+    return { slot, key: slot + " :: q :: " + question, title: "QUESTION needs you: " + i.label, body: question };
+  }
+  if (hook?.permission) {
+    const body = hook.permission.title + ": " + hook.permission.detail.slice(0, 200);
+    return { slot, key: slot + " :: p :: " + hook.permission.title + " :: " + hook.permission.detail,
+             title: "PERMISSION needs you: " + i.label, body };
+  }
+  return null;
+}
+
 export function useQuestionAlerts(needsYou: NeedsYouRow[] | undefined) {
   const seen = useRef<Record<string, string>>({});
   useEffect(() => {
@@ -50,22 +85,13 @@ export function useQuestionAlerts(needsYou: NeedsYouRow[] | undefined) {
   useEffect(() => {
     if (!needsYou) return;
     for (const i of needsYou) {
-      if (i.kind !== "question" || !i.question || !i.paneId) continue;
-      const key =
-        i.paneId + " :: " + i.question.title + " :: " + i.question.question;
-      if (seen.current[i.paneId] === key) continue;
-      seen.current[i.paneId] = key;
+      const alert = alertFor(i);
+      if (!alert || seen.current[alert.slot] === alert.key) continue;
+      seen.current[alert.slot] = alert.key;
       playAlert();
       try {
         if (window.Notification && Notification.permission === "granted") {
-          new Notification("QUESTION needs you: " + i.label, {
-            body:
-              i.question.question +
-              " (" +
-              i.question.options.filter((o) => !o.other).length +
-              " options)",
-            tag: i.paneId,
-          });
+          new Notification(alert.title, { body: alert.body, tag: alert.slot });
         }
       } catch {
         /* notification failed */

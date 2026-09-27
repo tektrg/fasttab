@@ -150,6 +150,50 @@ export interface NeedsYouRow {
   // A "blocked" row's parsed permission/plan box, or null when unparsable —
   // always present (never a missing key) on a "blocked" row.
   permission?: PermissionPrompt | null;
+  // Pane-less rows only (Claude Desktop / a CLI outside herdr, `source`
+  // "claude-desktop" | "claude-cli"): the session id, the prompt the
+  // PermissionRequest hook holds (answerable here), or — with no hook
+  // request — the question read from the transcript (display only).
+  source?: string;
+  agentSession?: string | null;
+  hookRequest?: HookRequest | null;
+  transcriptQuestion?: TranscriptQuestion | null;
+}
+
+// Mirrors server/lib/hook_permission_summary.py build_hook_request_view.
+export interface HookQuestion {
+  question: string;
+  header: string;
+  multiSelect: boolean;
+  options: { label: string; description: string }[];
+}
+
+export interface HookRequest {
+  requestId: string;
+  kind: "question" | "permission";
+  toolName: string;
+  sinceSec?: number;
+  questions?: HookQuestion[];
+  permission?: {
+    title: string;
+    detail: string;
+    suggestions: { index: number; label: string }[];
+  };
+}
+
+/** POST /api/hook/permission/<id>/answer body (hook_permission_summary.build_decision). */
+export interface HookAnswer {
+  behavior: "allow" | "deny";
+  answers?: Record<string, string>;
+  suggestionIndex?: number;
+  message?: string;
+}
+
+// Mirrors server/lib/transcript_pending_question.py.
+export interface TranscriptQuestion {
+  header: string;
+  question: string;
+  questionCount: number;
 }
 
 export interface AgentRow {

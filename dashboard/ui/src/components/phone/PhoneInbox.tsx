@@ -5,6 +5,7 @@ import { fetchBoard, fmtAge } from "../../api";
 import { rowLabel } from "../../sessionActions";
 import { KindBadge } from "../Severity";
 import { PhoneSheet } from "./PhoneSheet";
+import { PanelessPrompt } from "../HookRequestCard";
 import { filterAgents, type SearchableAgent } from "../../agentMatch";
 import {
   groupByFolder,
@@ -292,15 +293,22 @@ export function PhoneInbox({
         ) : (
           <div>
             {needsYou.map((n) => (
-              <PhoneRow
-                key={(n.paneId ?? n.label) + "::" + n.kind}
-                label={n.label}
-                machine="local"
-                status={n.detail}
-                ageSec={n.sinceSec}
-                kind={n.kind}
-                onTap={() => openForPane(n.paneId)}
-              />
+              <div key={(n.paneId ?? n.agentSession ?? n.label) + "::" + n.kind}>
+                <PhoneRow
+                  label={n.label}
+                  machine="local"
+                  status={n.detail}
+                  ageSec={n.sinceSec}
+                  kind={n.kind}
+                  onTap={() =>
+                    n.source && !n.paneId
+                      ? onToast("Claude Desktop / CLI session — answer below, or in Claude on the Mac", true)
+                      : openForPane(n.paneId)
+                  }
+                />
+                {/* Desktop / CLI session (no pane): its prompt, inline. */}
+                <PanelessPrompt row={n} onToast={onToast} />
+              </div>
             ))}
           </div>
         )}

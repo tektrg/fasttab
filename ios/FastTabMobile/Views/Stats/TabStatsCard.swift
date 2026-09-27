@@ -40,12 +40,12 @@ struct TabStatsCard: View {
     private var headlineTiles: some View {
         HStack(spacing: DS.Space.md) {
             StatTile(
-                value: TabStatsSummary.recentMean(summary.averageOpenByDay, days: Self.headlineDayCount)
+                value: TabStatsSummary.recentMean(summary.averageOpenByDay, days: Self.headlineDayCount, now: Date(), calendar: .current)
                     .map { StatsStyle.compactNumber($0) } ?? "–",
                 caption: "open, 7-day avg"
             )
             StatTile(
-                value: TabStatsSummary.recentMean(summary.openedByDay, days: Self.headlineDayCount)
+                value: TabStatsSummary.recentMean(summary.openedByDay, days: Self.headlineDayCount, now: Date(), calendar: .current)
                     .map { StatsStyle.compactNumber($0) } ?? "–",
                 caption: "opened a day"
             )

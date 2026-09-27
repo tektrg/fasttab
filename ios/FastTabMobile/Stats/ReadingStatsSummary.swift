@@ -35,6 +35,12 @@ struct ReadingStatsSummary: Equatable {
     static let empty = ReadingStatsSummary()
     var isEmpty: Bool { totalWords == 0 && finishedCount == 0 && highlightCount == 0 }
 
+    /// Start of the charted window: the first day of the week `chartedWeekCount - 1` weeks ago.
+    static func windowStart(now: Date, calendar: Calendar) -> Date {
+        let thisWeek = bucketStart(now, period: .week, calendar: calendar).startDate ?? now
+        return calendar.date(byAdding: .weekOfYear, value: -(chartedWeekCount - 1), to: thisWeek) ?? thisWeek
+    }
+
     /// `topicsByArticle`: article subject -> topic (from `ReadingTopicResolver`); missing ones
     /// fall under `ReadingTopicResolver.uncategorized`.
     static func make(
@@ -43,8 +49,7 @@ struct ReadingStatsSummary: Equatable {
         now: Date,
         calendar: Calendar
     ) -> ReadingStatsSummary {
-        let thisWeek = bucketStart(now, period: .week, calendar: calendar).startDate ?? now
-        let windowStart = calendar.date(byAdding: .weekOfYear, value: -(chartedWeekCount - 1), to: thisWeek) ?? thisWeek
+        let windowStart = windowStart(now: now, calendar: calendar)
         let window = DateInterval(start: windowStart, end: max(now, windowStart).addingTimeInterval(1))
 
         let byTopic = MetricGrouping.key { topicsByArticle[$0.subject] ?? ReadingTopicResolver.uncategorized }

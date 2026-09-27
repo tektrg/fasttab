@@ -72,8 +72,9 @@ public final class ReaderViewModel: ObservableObject {
     private var articleCache: ReaderArticleCache { .shared }
     private var settingsStore: ReaderReadingSettingsStore { .shared }
     private var statsRecorder: ReadingStatsRecorder { .shared }
-    /// Words in the loaded article, counted once per extraction for reading stats.
+    /// Words in the loaded article, counted once per extraction (off the main thread) for stats.
     private var articleWordCount: Int?
+    private var wordCountTask: Task<Void, Never>?
     private var settingsCancellable: AnyCancellable?
 
     // MARK: - Init
@@ -118,6 +119,8 @@ public final class ReaderViewModel: ObservableObject {
             let article = try await ReaderExtractor.shared.extract(url: url)
             articleCache.save(article)
             articleWordCount = nil
+            wordCountTask?.cancel()
+            wordCountTask = nil
             loadState = .loaded(article)
         } catch {
             loadState = .failed(error)
@@ -136,7 +139,9 @@ public final class ReaderViewModel: ObservableObject {
     public func updateScrollProgress(_ progress: Double, immediate: Bool = false) {
         scrollProgress = progress
         if immediate {
-            flushPendingProgress()
+            // `immediate` is a finished scroll gesture, not the reader closing: stats still
+            // batch small gains until a real flush.
+            persistProgressNow(statsFlush: false)
         } else {
             schedulePersist(progress: progress)
         }
@@ -155,20 +160,37 @@ public final class ReaderViewModel: ObservableObject {
 
     /// Flushes any pending progress persistence immediately (e.g. on view dismiss/disappear)
     public func flushPendingProgress() {
+        persistProgressNow(statsFlush: true)
+    }
+
+    private func persistProgressNow(statsFlush: Bool) {
         pendingPersistTask?.cancel()
         pendingPersistTask = nil
         progressStore.set(progress: scrollProgress, for: url)
         LastOpenedStore.shared.updateProgress(url: url, progress: scrollProgress)
-        recordReadingStats(progress: scrollProgress, isFlush: true)
+        recordReadingStats(progress: scrollProgress, isFlush: statsFlush)
     }
 
     /// Stats only count once the article is on screen: before that, progress is a restored
-    /// position, not reading.
+    /// position, not reading. Until the word count lands nothing is recorded, and the ledger
+    /// keeps the unrecorded ground for the next update.
     private func recordReadingStats(progress: Double, isFlush: Bool) {
-        guard case .loaded(let article) = loadState else { return }
-        let wordCount = articleWordCount ?? article.readingWordCount
-        articleWordCount = wordCount
+        guard case .loaded(let article) = loadState, statsRecorder.isTracked(url) else { return }
+        guard let wordCount = articleWordCount else {
+            startWordCountIfNeeded(article)
+            return
+        }
         statsRecorder.recordProgress(url: url, title: title, progress: progress, wordCount: wordCount, isFlush: isFlush)
+    }
+
+    private func startWordCountIfNeeded(_ article: ReaderArticle) {
+        guard wordCountTask == nil else { return }
+        wordCountTask = Task { [weak self] in
+            let wordCount = await Task.detached(priority: .utility) { article.readingWordCount }.value
+            guard !Task.isCancelled, let self else { return }
+            self.articleWordCount = wordCount
+            self.recordReadingStats(progress: self.scrollProgress, isFlush: false)
+        }
     }
 
     // MARK: - Highlights

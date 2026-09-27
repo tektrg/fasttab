@@ -12,7 +12,7 @@ import IndieMetrics
 @MainActor
 final class ReadingTopicResolver: ObservableObject {
     static let shared = ReadingTopicResolver(defaults: .standard)
-    static let uncategorized = "Uncategorized"
+    nonisolated static let uncategorized = "Uncategorized"
     private static let inferredDefaultsKey = "FastTabMobile.readingTopicInferredFolderV1"
     /// Articles remembered in the inference cache.
     private static let maxInferredEntries = 3_000

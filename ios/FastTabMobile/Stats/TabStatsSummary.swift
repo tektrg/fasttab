@@ -26,7 +26,7 @@ struct TabStatsSummary: Equatable {
     /// Mean tabs open at once, per day.
     var averageOpenByDay: [DayValue] = []
     var openedByDay: [DayValue] = []
-    /// Tabs opened per weekday / hour of day, over every retained day.
+    /// Tabs opened per weekday / hour of day, over the charted days.
     var openedByWeekday: [SlotValue] = []
     var openedByHour: [SlotValue] = []
 
@@ -36,11 +36,18 @@ struct TabStatsSummary: Equatable {
     var busiestWeekday: Int? { openedByWeekday.filter { $0.value > 0 }.max { $0.value < $1.value }?.slot }
     var busiestHour: Int? { openedByHour.filter { $0.value > 0 }.max { $0.value < $1.value }?.slot }
 
-    /// Mean of the last `days` charted days' values (days without data are skipped).
-    static func recentMean(_ values: [DayValue], days: Int) -> Double? {
-        let recent = values.suffix(days)
-        guard !recent.isEmpty else { return nil }
-        return recent.map(\.value).reduce(0, +) / Double(recent.count)
+    /// Mean per day over the last `days` complete days (today is partial, so left out), a day
+    /// without data counting as zero. Days before the first data point are not counted, so a
+    /// Mac that started reporting yesterday is not averaged against a week of zeros. Falls back
+    /// to today alone when it is the only day there is.
+    static func recentMean(_ values: [DayValue], days: Int, now: Date, calendar: Calendar) -> Double? {
+        guard let firstDay = values.first?.day else { return nil }
+        let today = calendar.startOfDay(for: now)
+        let rangeStart = max(firstDay, calendar.date(byAdding: .day, value: -days, to: today) ?? today)
+        let completeDays = values.filter { $0.day >= rangeStart && $0.day < today }
+        let dayCount = calendar.dateComponents([.day], from: rangeStart, to: today).day ?? 0
+        guard dayCount > 0 else { return values.last?.value }
+        return completeDays.map(\.value).reduce(0, +) / Double(dayCount)
     }
 
     // MARK: - Building
@@ -67,7 +74,7 @@ struct TabStatsSummary: Equatable {
                 .compactMap { point in point.bucket.startDate.map { DayValue(day: $0, value: point.value) } }
         }
         func perSlot(_ metric: String, period: MetricPeriod) -> [SlotValue] {
-            MetricQuery(metric: metric, period: period, reducer: .sum)
+            MetricQuery(metric: metric, interval: chartInterval, period: period, reducer: .sum)
                 .points(from: events, calendar: calendar)
                 .compactMap { point in
                     switch point.bucket {

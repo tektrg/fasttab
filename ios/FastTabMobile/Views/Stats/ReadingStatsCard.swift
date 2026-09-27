@@ -12,7 +12,7 @@ struct ReadingStatsCard: View {
             title: "Reading",
             systemImage: "book.pages",
             tint: DS.Tint.recent,
-            context: "Last \(ReadingStatsSummary.chartedWeekCount) weeks"
+            context: "This iPhone · \(ReadingStatsSummary.chartedWeekCount) weeks"
         ) {
             if summary.isEmpty {
                 StatsEmptyMessage(

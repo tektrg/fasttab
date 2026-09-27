@@ -71,13 +71,23 @@ final class TabStatsSummaryTests: XCTestCase {
         XCTAssertEqual(summary.busiestWeekday, 2) // 2026-09-21 is a Monday
     }
 
-    func testDaysOutsideTheChartedWindowOnlyFeedSlots() {
+    func testDaysOutsideTheChartedWindowAreLeftOut() {
         let mac = SyncedTabStats(deviceID: "a", timeZoneID: "UTC", days: [
             TabDay(day: "2026-06-01", opened: 9, avgOpen: 5, openedByHour: hours([8: 9]))
         ])
         let summary = TabStatsSummary.make(from: [mac], now: date("2026-09-22"), calendar: calendar)
-        XCTAssertTrue(summary.openedByDay.isEmpty)
-        XCTAssertEqual(summary.busiestHour, 8)
+        XCTAssertTrue(summary.isEmpty)
+        XCTAssertNil(summary.busiestHour)
+    }
+
+    func testRecentMeanSkipsTodayAndCountsMissingDaysAsZero() {
+        let values = ["2026-09-18", "2026-09-20", "2026-09-22"].map {
+            TabStatsSummary.DayValue(day: calendar.startOfDay(for: date($0)), value: 10)
+        }
+        // Complete days 09-18...09-21 (4 days): 10 + 0 + 10 + 0.
+        XCTAssertEqual(TabStatsSummary.recentMean(values, days: 7, now: date("2026-09-22"), calendar: calendar), 5)
+        let onlyToday = [TabStatsSummary.DayValue(day: calendar.startOfDay(for: date("2026-09-22")), value: 3)]
+        XCTAssertEqual(TabStatsSummary.recentMean(onlyToday, days: 7, now: date("2026-09-22"), calendar: calendar), 3)
     }
 
     func testNoDigestsIsEmpty() {

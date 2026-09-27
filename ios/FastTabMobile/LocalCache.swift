@@ -55,7 +55,9 @@ public struct CachedSyncState: Codable, Sendable {
         self.sentCommands = try container.decodeIfPresent([SyncCommand].self, forKey: .sentCommands) ?? []
         self.lastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
         self.commandDeliveries = try container.decodeIfPresent([String: SyncCommandDelivery].self, forKey: .commandDeliveries) ?? [:]
-        self.tabStats = try container.decodeIfPresent([String: SyncedTabStats].self, forKey: .tabStats) ?? [:]
+        // `try?`: tab stats are the newest model; an entry this build cannot read must never
+        // take the cached tabs and bookmarks down with it.
+        self.tabStats = (try? container.decodeIfPresent([String: SyncedTabStats].self, forKey: .tabStats)) ?? [:]
     }
 }
 

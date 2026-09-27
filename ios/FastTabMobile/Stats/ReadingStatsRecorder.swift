@@ -32,11 +32,13 @@ final class ReadingStatsRecorder {
     static let logFileName = "reading_metrics.jsonl"
     /// Events older than this are pruned from the log.
     static let retention: TimeInterval = 2 * 365 * 24 * 3600
+    /// Hard cap on stored events, whatever their age (a few MB of JSON lines).
+    static let maxStoredEvents = 50_000
     private static let ledgerDefaultsKey = "FastTabMobile.readingStatsLedgerV1"
 
     let log: any MetricEventStoring
     private let defaults: UserDefaults
-    private let isTrackable: (URL) -> Bool
+    private let isTrackable: @MainActor (URL) -> Bool
     private let now: () -> Date
     private var ledger: ReadingProgressLedger
     /// Writes run one after another so the log keeps event order.
@@ -46,7 +48,7 @@ final class ReadingStatsRecorder {
     init(
         log: any MetricEventStoring,
         defaults: UserDefaults,
-        isTrackable: @escaping (URL) -> Bool = ReadingStatsRecorder.isTrackableRead,
+        isTrackable: @escaping @MainActor (URL) -> Bool = ReadingStatsRecorder.isTrackableRead,
         now: @escaping () -> Date = Date.init
     ) {
         self.log = log
@@ -67,6 +69,9 @@ final class ReadingStatsRecorder {
 
     // MARK: - Recording
 
+    /// Whether activity on `url` counts at all. Check before doing work to feed the recorder.
+    func isTracked(_ url: URL) -> Bool { isTrackable(url) }
+
     /// Call when an article opens, with the progress saved before this session.
     func beginReading(url: URL, savedProgress: Double) {
         guard isTrackable(url) else { return }
@@ -79,7 +84,6 @@ final class ReadingStatsRecorder {
         guard isTrackable(url) else { return }
         let outcome = ledger.advance(articleKey: url.readerCanonicalKey, to: progress, isFlush: isFlush, now: now())
         guard outcome != .nothing else { return }
-        persistLedger()
 
         var events: [MetricEvent] = []
         let wordsRead = (Double(wordCount) * outcome.newlyReadFraction).rounded()
@@ -89,7 +93,13 @@ final class ReadingStatsRecorder {
         if outcome.didFinish {
             events.append(event(ReadingMetric.finished, url: url, title: title, value: 1))
         }
-        append(events)
+        // The high water is saved only after its events land, so a kill or a failed write
+        // leaves the ground uncounted and the next session credits it again.
+        let eventsToWrite = events
+        let ledgerData = try? JSONEncoder().encode(ledger)
+        enqueueWrite({ log in try await log.append(eventsToWrite) }, onSuccess: { [weak self] in
+            self?.saveLedger(ledgerData)
+        })
     }
 
     func recordHighlight(url: URL, title: String) {
@@ -100,7 +110,7 @@ final class ReadingStatsRecorder {
     /// Drops events past `retention`. Cheap enough to run once per launch.
     func pruneExpiredEvents() {
         let cutoff = now().addingTimeInterval(-Self.retention)
-        enqueueWrite { log in try await log.prune(olderThan: cutoff, maxEvents: nil) }
+        enqueueWrite { log in try await log.prune(olderThan: cutoff, maxEvents: Self.maxStoredEvents) }
     }
 
     /// Resolves once every write queued so far has landed. For tests and chart refreshes.
@@ -123,20 +133,33 @@ final class ReadingStatsRecorder {
         enqueueWrite { log in try await log.append(events) }
     }
 
-    private func enqueueWrite(_ write: @escaping @Sendable (any MetricEventStoring) async throws -> Void) {
+    /// `onSuccess` runs on the main actor once `write` has landed.
+    private func enqueueWrite(
+        _ write: @escaping @Sendable (any MetricEventStoring) async throws -> Void,
+        onSuccess: @escaping @MainActor () -> Void = {}
+    ) {
         let previous = lastWrite
         let log = log
         let logger = logger
-        lastWrite = Task {
+        lastWrite = Task { @MainActor in
             await previous?.value
-            do { try await write(log) } catch {
+            do {
+                try await write(log)
+                onSuccess()
+            } catch {
                 logger.error("Reading stats write failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
 
+    /// Queued behind pending writes, so a seed never saves ground whose events are still in flight.
     private func persistLedger() {
-        guard let data = try? JSONEncoder().encode(ledger) else { return }
+        let data = try? JSONEncoder().encode(ledger)
+        enqueueWrite({ _ in }, onSuccess: { [weak self] in self?.saveLedger(data) })
+    }
+
+    private func saveLedger(_ data: Data?) {
+        guard let data else { return }
         defaults.set(data, forKey: Self.ledgerDefaultsKey)
     }
 

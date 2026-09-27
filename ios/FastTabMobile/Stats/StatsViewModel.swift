@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import FastTabSync
 import IndieMetrics
+import OSLog
 
 /// Feeds the More tab's Reading and Tabs charts. Reading comes from this phone's reading log,
 /// Tabs from the Macs' synced digests in `LocalCache`. Recomputes when either changes, or when
@@ -19,12 +20,17 @@ final class StatsViewModel: ObservableObject {
     private let calendar: Calendar
     private var readingEvents: [MetricEvent] = []
     private var subscriptions = Set<AnyCancellable>()
+    private let logger = Logger(subsystem: "app.theindie.FastTabMobile", category: "StatsViewModel")
+
+    convenience init() {
+        self.init(recorder: .shared, topicResolver: .shared, localCache: .shared, calendar: .current)
+    }
 
     init(
-        recorder: ReadingStatsRecorder = .shared,
-        topicResolver: ReadingTopicResolver = .shared,
-        localCache: LocalCache = .shared,
-        calendar: Calendar = .current
+        recorder: ReadingStatsRecorder,
+        topicResolver: ReadingTopicResolver,
+        localCache: LocalCache,
+        calendar: Calendar
     ) {
         self.recorder = recorder
         self.topicResolver = topicResolver
@@ -36,18 +42,27 @@ final class StatsViewModel: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] _ in self?.recomputeTabs() }
             .store(in: &subscriptions)
-        topicResolver.$inferredFolderByArticle
-            .dropFirst()
-            .removeDuplicates()
-            .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.recomputeReading() }
-            .store(in: &subscriptions)
+        // Topics move when an inference lands or when bookmarks sync in.
+        Publishers.Merge(
+            topicResolver.$inferredFolderByArticle.dropFirst().removeDuplicates().map { _ in () },
+            localCache.$state.map(\.bookmarkBlobs).dropFirst().removeDuplicates().map { _ in () }
+        )
+        .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
+        .sink { [weak self] in self?.recomputeReading() }
+        .store(in: &subscriptions)
     }
 
     /// Reloads the reading log from disk. Call when the More tab appears.
     func reloadReadingLog() async {
         await recorder.waitForPendingWrites()
-        readingEvents = (try? await recorder.log.loadEvents()) ?? []
+        do {
+            // Only the charted weeks: topics are resolved (and maybe inferred) per article.
+            let windowStart = ReadingStatsSummary.windowStart(now: Date(), calendar: calendar)
+            readingEvents = try await recorder.log.loadEvents().filter { $0.timestamp >= windowStart }
+        } catch {
+            logger.error("Reading log unreadable: \(error.localizedDescription, privacy: .public)")
+            readingEvents = []
+        }
         #if DEBUG
         if StatsDemoFixture.isEnabled { readingEvents = StatsDemoFixture.readingEvents(now: Date()) }
         #endif

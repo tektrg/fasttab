@@ -27,6 +27,7 @@ import dashboard_config  # noqa: E402  (P0 move: config.json + state dir)
 import desktop_sessions  # noqa: E402  (sleeping Claude Desktop sessions)
 import pane_live_work  # noqa: E402  (sub-agent status lines: live-work evidence)
 import pane_screen_signals  # noqa: E402  (screen fingerprint + motion stamp)
+import transcript_pending_question  # noqa: E402  (waiting session's question, read-only fallback)
 
 #: Env-overridable so a SECOND instance can run from a worktree on a spare
 #: port for live verification without ever touching the real :4711 one
@@ -275,10 +276,12 @@ def poll_herdr(machine=herdr_transport.LOCAL_MACHINE):
 
 def poll_claude_sessions():
     feed = FEEDS["claudeSessions"]
+    pending_questions = transcript_pending_question.PendingQuestionReader()
     while not STOP.is_set():
         t0 = time.time()
         try:
-            feed.set_success(claude_sessions.read_live_sessions(), time.time() - t0)
+            sessions = pending_questions.annotate(claude_sessions.read_live_sessions())
+            feed.set_success(sessions, time.time() - t0)
         except Exception as e:
             feed.set_error(e, time.time() - t0)
         STOP.wait(feed.refresh_interval_sec)

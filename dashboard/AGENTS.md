@@ -126,6 +126,13 @@ persona of its own yet).
   focus already refuse a row with no pane. A `waiting` one is a `blocked`
   needsYou row with `paneId: null`, `identity`/`agentSession` = session id,
   `source`, `openUrl`.
+- `transcriptQuestion` `{header, question, questionCount}` | null (row + its
+  needsYou entry): a `waiting` session's pending AskUserQuestion read from its
+  transcript tail — **display only**, set only when no `hookRequest` holds the
+  prompt (hook not installed, dashboard restarted before the re-send, AgentBar
+  away). `transcript_pending_question.py`, run by the `claudeSessions` feed on
+  `waiting` sessions only: one 256KB tail window, lstat regular files only (no
+  symlinks), cached by (path, mtime, size). Permission boxes have no fallback.
 - `openUrl` (desktop rows only): `claude://code/continue?session=<hostSessionId>`
   — Claude.app's own handler accepts `local_<id>` there and opens that
   EXISTING session (falls back to Code home, never creates one). Read from
@@ -273,7 +280,7 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 48 test files, ~1540 `PASS` lines, 0 failures
+As of this writing: 51 test files, ~1610 `PASS` lines, 0 failures
 (`test_chief_dashboard_views.py` prints a heading containing "FAIL-OPEN" —
 not a failure; judge by each file's exit code).
 

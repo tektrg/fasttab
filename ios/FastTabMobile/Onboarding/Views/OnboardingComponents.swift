@@ -9,6 +9,7 @@ struct OnboardingStepLayout<Content: View, Actions: View>: View {
     let message: String?
     let content: Content
     let actions: Actions
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(
         systemImage: String,
@@ -30,14 +31,17 @@ struct OnboardingStepLayout<Content: View, Actions: View>: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: DS.Space.lg) {
-                    Image(systemName: systemImage)
-                        .font(.system(size: DS.IconSize.hero))
-                        .foregroundStyle(tint)
-                        .symbolRenderingMode(.hierarchical)
-                        .frame(width: 88, height: 88)
-                        .background(tint.opacity(DS.tintFillOpacity), in: Circle())
-                        .padding(.top, DS.Space.xl)
-                        .accessibilityHidden(true)
+                    // Decorative; at accessibility text sizes the pinned buttons
+                    // already take much of the screen, so the words get its room.
+                    if !dynamicTypeSize.isAccessibilitySize {
+                        Image(systemName: systemImage)
+                            .font(.system(size: DS.IconSize.hero))
+                            .foregroundStyle(tint)
+                            .symbolRenderingMode(.hierarchical)
+                            .frame(width: 88, height: 88)
+                            .background(tint.opacity(DS.tintFillOpacity), in: Circle())
+                            .accessibilityHidden(true)
+                    }
 
                     VStack(spacing: DS.Space.sm) {
                         Text(title)
@@ -55,6 +59,7 @@ struct OnboardingStepLayout<Content: View, Actions: View>: View {
                     content
                         .padding(.top, DS.Space.sm)
                 }
+                .padding(.top, DS.Space.xl)
                 .padding(.horizontal, DS.Space.xl)
                 .padding(.bottom, DS.Space.xl)
             }
@@ -132,9 +137,12 @@ struct OnboardingNumberedInstruction: View {
     let systemImage: String
     /// Grows the number badge with Dynamic Type so the digit never clips.
     @ScaledMetric(relativeTo: .body) private var badgeSize: CGFloat = 24
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(spacing: DS.Space.md) {
+        // At accessibility sizes the text needs the whole row: the badge sits on
+        // its first line and the decorative symbol goes.
+        HStack(alignment: dynamicTypeSize.isAccessibilitySize ? .firstTextBaseline : .center, spacing: DS.Space.md) {
             Text("\(number)")
                 .font(DS.Font.control.monospacedDigit())
                 .foregroundStyle(.white)
@@ -144,12 +152,14 @@ struct OnboardingNumberedInstruction: View {
                 .font(DS.Font.body)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: DS.Space.sm)
-            Image(systemName: systemImage)
-                .font(.system(size: DS.IconSize.row + 2))
-                .foregroundStyle(DS.Tint.action)
-                .frame(width: 32, height: 32)
-                .background(DS.Palette.surfaceMuted, in: RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous))
-                .accessibilityHidden(true)
+            if !dynamicTypeSize.isAccessibilitySize {
+                Image(systemName: systemImage)
+                    .font(.system(size: DS.IconSize.row + 2))
+                    .foregroundStyle(DS.Tint.action)
+                    .frame(width: 32, height: 32)
+                    .background(DS.Palette.surfaceMuted, in: RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous))
+                    .accessibilityHidden(true)
+            }
         }
         .accessibilityElement(children: .combine)
     }

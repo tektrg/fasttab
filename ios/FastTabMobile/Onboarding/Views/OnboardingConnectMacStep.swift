@@ -80,10 +80,12 @@ struct OnboardingConnectMacStep: View {
                 ProgressView()
             }
         case .found(let macName, let tabCount):
-            statusRow(title: MacConnectionState.foundLabel(macName: macName, tabCount: tabCount), detail: "Your Mac's tabs and bookmarks are on this iPhone.") {
-                Image(systemName: "checkmark.circle.fill")
+            let mac = localCache.state.connectedMac
+            let isOffline = SyncStatusCopy.macFreshness(device: mac).isOffline
+            statusRow(title: MacConnectionState.foundLabel(macName: macName, tabCount: tabCount), detail: MacConnectionState.foundDetail(mac: mac)) {
+                Image(systemName: isOffline ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
                     .font(.system(size: DS.IconSize.inline))
-                    .foregroundStyle(DS.Tint.success)
+                    .foregroundStyle(isOffline ? DS.Tint.warning : DS.Tint.success)
             }
         case .notFound:
             notFoundCard

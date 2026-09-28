@@ -6,7 +6,7 @@ struct OnboardingDoneStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            systemImage: "checkmark.circle.fill",
+            systemImage: "checkmark.seal.fill",
             tint: DS.Tint.success,
             title: "You're set",
             message: "Here's where everything lives."

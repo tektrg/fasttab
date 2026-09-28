@@ -130,6 +130,20 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(MacConnectionState.foundLabel(macName: "Mac", tabCount: 0), "Found Mac · 0 tabs")
     }
 
+    func testFoundDetailWarnsWhenTheMacHasBeenSilentForADay() {
+        let now = Date()
+        let live = device("mac", lastSeen: now.addingTimeInterval(-60))
+        let asleep = device("mac", lastSeen: now.addingTimeInterval(-2 * 3600))
+        let offline = device("mac", lastSeen: now.addingTimeInterval(-26 * 3600))
+        let allGood = "Your Mac's tabs and bookmarks are on this iPhone."
+
+        XCTAssertEqual(MacConnectionState.foundDetail(mac: live, now: now), allGood)
+        XCTAssertEqual(MacConnectionState.foundDetail(mac: asleep, now: now), allGood, "an asleep laptop is normal")
+        let stale = MacConnectionState.foundDetail(mac: offline, now: now)
+        XCTAssertTrue(stale.hasPrefix("Mac offline"), stale)
+        XCTAssertTrue(stale.contains("Open FastTab on your Mac"), stale)
+    }
+
     // MARK: - Reader demo pick
 
     func testArticleHeuristic() {

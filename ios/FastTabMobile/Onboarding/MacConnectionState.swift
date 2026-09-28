@@ -45,6 +45,17 @@ enum MacConnectionState: Equatable {
         return false
     }
 
+    /// Line under "Found …". A Mac silent for a day or more is still the paired
+    /// Mac, but its tabs are old: say so, matching the Read/Tabs warning banner
+    /// (`SyncWarningPolicy`) that opened this screen.
+    static func foundDetail(mac: SyncedDevice?, now: Date = Date()) -> String {
+        let freshness = SyncStatusCopy.macFreshness(device: mac, now: now)
+        guard mac != nil, freshness.isOffline else {
+            return "Your Mac's tabs and bookmarks are on this iPhone."
+        }
+        return "\(freshness.text). Open FastTab on your Mac to bring its tabs up to date."
+    }
+
     /// "✓ Found Trung's MacBook · 42 tabs"
     static func foundLabel(macName: String, tabCount: Int) -> String {
         let tabs = tabCount == 1 ? "1 tab" : "\(tabCount) tabs"

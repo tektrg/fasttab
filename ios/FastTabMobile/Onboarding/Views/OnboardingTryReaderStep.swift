@@ -13,6 +13,7 @@ struct OnboardingTryReaderStep: View {
 
     @ObservedObject private var localCache = LocalCache.shared
     @State private var readerItem: ReaderNavigationItem?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// The article to demo, fixed on first appearance so the card doesn't swap
     /// under the user's thumb when a sync lands mid-screen.
@@ -36,7 +37,7 @@ struct OnboardingTryReaderStep: View {
             OnboardingPrimaryButton(title: isStandalone ? "Done" : "Continue", action: onContinue)
         }
         .onAppear(perform: pinChoiceOnce)
-        .fullScreenCover(item: $readerItem) { item in
+        .fullScreenCover(item: $readerItem, onDismiss: forgetSampleVisit) { item in
             ReaderView(url: item.url, title: item.title)
         }
     }
@@ -50,7 +51,7 @@ struct OnboardingTryReaderStep: View {
             )
             Text(articleTitle)
                 .font(DS.Font.cardTitle)
-                .lineLimit(3)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 3)
             Text(articleDomain)
                 .font(DS.Font.meta)
                 .foregroundStyle(.secondary)
@@ -78,6 +79,14 @@ struct OnboardingTryReaderStep: View {
         guard !hasPinnedChoice else { return }
         hasPinnedChoice = true
         pinnedTab = useSampleOnly ? nil : ReaderTryoutPicker.pick(from: localCache.state.tabs)
+    }
+
+    /// The bundled sample is a demo, not something the user chose to read: keep
+    /// it out of Last Opened and the "Continue reading" bar on the Read tab. A
+    /// real tab from the user's Mac stays in history like any other read.
+    private func forgetSampleVisit() {
+        guard pinnedTab == nil else { return }
+        LastOpenedStore.shared.remove(url: ReaderSampleArticle.url)
     }
 
     private func openArticle() {

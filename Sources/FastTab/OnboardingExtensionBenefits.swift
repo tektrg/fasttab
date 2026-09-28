@@ -1,6 +1,6 @@
-import SwiftUI
+import Foundation
 
-/// One reason to install the companion extension, shown on the onboarding
+/// Reasons to install the companion extension, shown on the onboarding
 /// extension step. Each claim maps to real extension-only behavior — keep
 /// them true when the extension changes:
 /// - `recents`: `ExtensionBackedBackend` feeds exact `chrome.tabs.onActivated`
@@ -12,13 +12,8 @@ import SwiftUI
 ///   sticky playing tab and the mute toggle.
 /// - `private`: tab switching skips the macOS Automation prompt; the bridge is
 ///   a local Unix socket, nothing leaves the Mac.
-struct OnboardingExtensionBenefit: Identifiable {
-    let id: String
-    let symbolName: String
-    let title: String
-    let detail: String
-
-    static let all: [OnboardingExtensionBenefit] = [
+extension OnboardingBenefit {
+    static let extensionBenefits: [OnboardingBenefit] = [
         .init(
             id: "recents",
             symbolName: "clock.arrow.circlepath",
@@ -44,41 +39,4 @@ struct OnboardingExtensionBenefit: Identifiable {
             detail: "Skips the macOS prompt. Everything stays on your Mac."
         ),
     ]
-}
-
-/// Stacked benefit rows: tinted SF Symbol, bold title, one short line.
-struct OnboardingExtensionBenefitsView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(OnboardingExtensionBenefit.all) { benefit in
-                OnboardingExtensionBenefitRow(benefit: benefit)
-            }
-        }
-    }
-}
-
-private struct OnboardingExtensionBenefitRow: View {
-    let benefit: OnboardingExtensionBenefit
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: benefit.symbolName)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 22, height: 18)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(benefit.title)
-                    .font(.callout.weight(.semibold))
-                Text(benefit.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .combine)
-    }
 }

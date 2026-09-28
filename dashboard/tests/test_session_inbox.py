@@ -48,9 +48,13 @@ class FakeInbox:
     """A Unix socket that records every line one client sends, optionally
     answering with `reply`. Stands in for a Claude session's inbox."""
 
-    def __init__(self, path, reply=None, listen=True):
+    def __init__(self, path, reply=None, listen=True, hang_up=False):
         self.path = path
         self.reply = reply
+        # True = close right after reading (a real session's answer to a bad
+        # token); else stay connected until the client closes, like a real
+        # session does after accepting a message.
+        self.hang_up = hang_up
         self.lines = []
         if os.path.lexists(path):
             os.unlink(path)  # a previous fake's socket file (temp dir only)
@@ -80,6 +84,8 @@ class FakeInbox:
                 buf += chunk
             if self.reply is not None:
                 conn.sendall(self.reply)
+            while not self.hang_up and conn.recv(4096):
+                pass  # hold the line open until the client hangs up
         except OSError:
             pass
         finally:
@@ -278,6 +284,17 @@ result = run_send(box)
 inbox.finish()
 check("session answers an error line -> refused", (result["delivered"], result["error"]),
       (False, session_inbox.REFUSED_BY_SESSION))
+box.close()
+
+box = Sandbox()
+box.write_session(LIVE_PID)
+box.write_key(LIVE_PID)
+inbox = FakeInbox(box.socket_path, hang_up=True)
+result = run_send(box)
+inbox.finish()
+check("session hangs up with no reply (Claude Code's bad-token answer) -> refused, nothing sent",
+      (result["delivered"], result["maybeDelivered"], result["error"]),
+      (False, False, session_inbox.REFUSED_BY_SESSION))
 box.close()
 
 box = Sandbox()

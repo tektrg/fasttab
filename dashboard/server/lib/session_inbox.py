@@ -50,7 +50,8 @@ UNSUPPORTED = ("this Claude Code version's messaging format is not supported "
 UNSAFE_FILES = ("the session's messaging files failed the safety check "
                 "(owner, permissions or type) — nothing was sent")
 CANNOT_CONNECT = "could not reach the session's inbox — nothing was sent"
-REFUSED_BY_SESSION = "the session refused the message"
+REFUSED_BY_SESSION = ("the session refused the message (it hung up on the "
+                      "sign-in) — nothing was sent")
 MAYBE_SENT = ("the connection broke while sending — the message may or may "
               "not have arrived; check the session before re-sending")
 SLASH_REFUSED = ("refused: slash commands don't work here — this session "
@@ -196,10 +197,28 @@ def _wire_lines(token, text):
     return (auth + user).encode("utf-8")
 
 
+def _session_closed_or_refused(sock, reply_wait):
+    """After sending: True when the session turned the message down.
+
+    Claude Code (2.1.283, `[uds-messaging]`) answers a bad auth frame by
+    destroying the connection — no error line — and says nothing on
+    success, keeping the connection open until the client closes it. So
+    silence for `reply_wait` = accepted; the session hanging up (EOF or a
+    reset) or an error line = refused. A hang-up can't be a slow success:
+    the auth check runs synchronously as the first line arrives."""
+    sock.settimeout(reply_wait)
+    try:
+        reply = sock.recv(4096)
+    except socket.timeout:
+        return False  # silence: the normal success
+    except OSError:
+        return True  # reset: the session dropped the connection
+    return not reply or _reply_is_refusal(reply)
+
+
 def _reply_is_refusal(reply):
-    """An error line from the session (bad token, bad format). Anything else,
-    or silence, counts as accepted — so a refusal arriving after
-    REPLY_WAIT_SEC is reported as delivered."""
+    """An error line from the session (bad token, bad format). Any other
+    line counts as accepted."""
     for line in reply.decode("utf-8", errors="replace").splitlines():
         try:
             obj = json.loads(line)
@@ -246,12 +265,7 @@ def send_message(session_id, text, sessions_dir=None, read_sessions=None,
             sock.sendall(payload)
         except OSError:
             return {"delivered": False, "maybeDelivered": True, "error": MAYBE_SENT}
-        sock.settimeout(reply_wait)
-        try:
-            reply = sock.recv(4096)
-        except OSError:
-            reply = b""  # silence (timeout) is the normal success
-        if reply and _reply_is_refusal(reply):
+        if _session_closed_or_refused(sock, reply_wait):
             return _not_sent(REFUSED_BY_SESSION)
         return {"delivered": True, "maybeDelivered": True, "error": None}
     finally:

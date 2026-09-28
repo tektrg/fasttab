@@ -104,6 +104,8 @@ def serve_inbox():
                 if not chunk:
                     break
                 buf += chunk
+            while conn.recv(4096):
+                pass  # a real session stays connected after accepting
         except OSError:
             pass
         conn.close()

@@ -228,8 +228,10 @@ exists) is exempt; the final reply is still checked.
   logged/returned/stored. Rules: resolved by `sessionId` on EVERY send (a
   Desktop resume starts a new pid — never cache one); session file, key and
   socket must be owned by this uid, no symlinks, key mode 0600 and not older
-  than the process (`startedAt`), exactly one key; 4s timeout; an error
-  line back = refused. Same text rules as the pane path (one line,
+  than the process (`startedAt`), exactly one key; 4s timeout. Accepted =
+  0.4s of silence on the open connection; the session hanging up (its
+  answer to a bad token — no error line) or an error line = refused,
+  nothing sent. Same text rules as the pane path (one line,
   `validate_message_text`) plus: **no slash command at all** (it would
   arrive as text), refused while a prompt is pending (`hookRequest`,
   `transcriptQuestion`, `waiting`/`blocked`), `needsConfirm` while `busy`

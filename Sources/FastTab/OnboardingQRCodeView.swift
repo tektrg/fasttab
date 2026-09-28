@@ -19,12 +19,14 @@ struct OnboardingQRCodeView: View {
         }
     }
 
+    private static let context = CIContext()
+
     static func qrImage(for url: URL) -> NSImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(url.absoluteString.utf8)
         filter.correctionLevel = "M"
         guard let output = filter.outputImage,
-              let cgImage = CIContext().createCGImage(output, from: output.extent) else { return nil }
+              let cgImage = context.createCGImage(output, from: output.extent) else { return nil }
         return NSImage(cgImage: cgImage, size: NSSize(width: output.extent.width, height: output.extent.height))
     }
 }

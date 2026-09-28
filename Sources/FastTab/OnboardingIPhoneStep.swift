@@ -12,25 +12,30 @@ enum FastTabIPhoneApp {
 /// `ios/FastTabMobile`:
 /// - `revisit`: Read tab's "Emerging" feed, `EmergingLane.forgotten` (bookmarks
 ///   30+ days old, tabs idle 3+ days — `EmergingContentProvider`), plus the
-///   Shuffle tab (`RandomLinksView`, swipe through open tabs and bookmarks).
-/// - `reader`: "Open in Reader" (`ReaderView`, Readability extraction),
-///   long-press highlights, scroll position restored via `LastOpenedStore`.
+///   Shuffle tab (`RandomLinksView`: random cards from all open tabs and
+///   bookmarks, not only forgotten ones).
+/// - `reader`: "Open in Reader" on tabs, bookmarks, history and feed cards
+///   (`ReaderView`). The phone loads the page itself and runs Readability
+///   (`ReaderExtractor`), so it suits articles — not logged-in pages; hence
+///   "articles", not "any tab". Select text to highlight (`ReaderHighlightBar`);
+///   scroll position restored via `ReaderReadingProgress`.
 /// - `tabs`: Tabs tab + More → Bookmarks/History, with remote tab close.
-/// - `send`: share sheet "Send to Mac" (`DeskQueueView`); a sleeping Mac opens
-///   the link when it wakes.
+/// - `send`: share sheet "Send to Mac" (`FastTabShare`, queue in `DeskQueueView`);
+///   a sleeping Mac opens the link when it wakes (commands expire after 7 days,
+///   `SyncService+CommandDelivery`).
 extension OnboardingBenefit {
     static let iPhoneBenefits: [OnboardingBenefit] = [
         .init(
             id: "revisit",
             symbolName: "arrow.uturn.backward.circle.fill",
             title: "Revisit forgotten tabs",
-            detail: "Resurfaces old bookmarks and tabs left open for days, or shuffle through them."
+            detail: "Resurfaces old bookmarks and tabs left open for days. Or shuffle through all your links."
         ),
         .init(
             id: "reader",
             symbolName: "doc.plaintext.fill",
             title: "Reader mode",
-            detail: "Read any tab as clean text. Highlight passages, pick up where you left off."
+            detail: "Open articles from your tabs as clean text. Highlight passages, pick up where you left off."
         ),
         .init(
             id: "tabs",

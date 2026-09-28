@@ -14,7 +14,7 @@ public struct EmergingTopicsView: View {
     public init() {}
 
     private var activeDeviceID: String {
-        localCache.state.devices.first?.id ?? ""
+        localCache.state.connectedMac?.id ?? ""
     }
 
     private var defaultBrowserName: String {

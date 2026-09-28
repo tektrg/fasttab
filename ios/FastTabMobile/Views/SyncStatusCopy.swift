@@ -70,13 +70,16 @@ enum SyncStatusCopy {
         let tint: Color
         /// True when the Mac's data can no longer be trusted as current.
         let isStale: Bool
+        /// True when there is no Mac, or it has been silent for a day or more:
+        /// no longer "probably asleep", so worth a warning outside More.
+        var isOffline: Bool = false
     }
 
     /// The Mac republishes its device record every 3 minutes while it is awake
-    /// (`SyncService.deviceHeartbeatInterval`). Every threshold below is derived
+    /// (`SyncedDevicePairing.heartbeatInterval`). Every threshold below is derived
     /// from that one number, because a 3-minute signal cannot support finer
     /// claims than "we heard from it recently / we haven't for a while".
-    private static let heartbeatInterval: TimeInterval = 3 * 60
+    private static let heartbeatInterval = SyncedDevicePairing.heartbeatInterval
     /// One heartbeat plus slack for upload and fetch latency.
     private static let liveWindow: TimeInterval = heartbeatInterval + 60
     /// Several missed beats. Below this it is far more likely a network blip
@@ -86,7 +89,7 @@ enum SyncStatusCopy {
 
     static func macFreshness(device: SyncedDevice?, now: Date = Date()) -> MacFreshness {
         guard let device else {
-            return MacFreshness(text: "No Mac connected", tint: .secondary, isStale: true)
+            return MacFreshness(text: "No Mac connected", tint: .secondary, isStale: true, isOffline: true)
         }
 
         let elapsed = now.timeIntervalSince(device.lastSeenAt)
@@ -104,7 +107,7 @@ enum SyncStatusCopy {
             // the user's attention.
             return MacFreshness(text: "Mac may be asleep — last seen \(age)", tint: DS.Tint.warning, isStale: true)
         }
-        return MacFreshness(text: "Mac offline — last seen \(age)", tint: DS.Tint.destructive, isStale: true)
+        return MacFreshness(text: "Mac offline — last seen \(age)", tint: DS.Tint.destructive, isStale: true, isOffline: true)
     }
 
     // MARK: - Counts

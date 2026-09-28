@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import FastTabSync
 
 /// Where a `RandomCardItem` came from — shown as the small badge on each card,
@@ -71,6 +72,7 @@ public struct RandomLinksView: View {
     @ObservedObject private var skipStore = RandomFeedSkipStore.shared
     @ObservedObject private var highlightStore = ReaderHighlightStore.shared
     @ObservedObject private var hiddenStore = RandomFeedHiddenStore.shared
+    private let shuffleSwipeTip = ShuffleSwipeTip()
 
     @State private var deck: [RandomCardItem] = []
     @State private var hasBuiltInitialDeck = false
@@ -90,6 +92,9 @@ public struct RandomLinksView: View {
             if deck.isEmpty {
                 emptyState
             } else {
+                TipView(shuffleSwipeTip)
+                    .fastTabTipStyle()
+                    .padding([.horizontal, .top], DS.Space.gutter)
                 deckStack
                     .padding(DS.Space.gutter)
             }
@@ -255,13 +260,18 @@ public struct RandomLinksView: View {
                     "Nothing to shuffle yet",
                     systemImage: "shuffle",
                     message: "Bookmarks and open tabs from your Mac, and your reader highlights, will show up here."
-                )
+                ) {
+                    if localCache.state.connectedMac == nil {
+                        OnboardingShortcutButton(shortcut: .connectMac)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func handle(_ decision: RandomCardDecision, for item: RandomCardItem) {
+        shuffleSwipeTip.invalidate(reason: .actionPerformed)
         switch decision {
         case .moveTo:
             // Highlights have no folder to move to: swiping right opens them instead.

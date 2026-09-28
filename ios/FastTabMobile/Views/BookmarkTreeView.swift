@@ -257,7 +257,7 @@ public struct BookmarkTreeView: View {
                                 let path = BookmarkTreeBuilder.folderPathComponents(of: node)
                                 let leaves = BookmarkTreeBuilder.collectLeaves(from: node)
                                 let leafSource = leaves.first?.source
-                                let devID = leafSource?.deviceID ?? device?.id ?? localCache.state.devices.first?.id ?? ""
+                                let devID = leafSource?.deviceID ?? device?.id ?? localCache.state.connectedMac?.id ?? ""
                                 let profKey = leafSource.map { "\($0.browserName)|\($0.profileName)" }
                                 newFolderContext = TreeNewFolderContext(profileKey: profKey, parentPath: path, deviceID: devID)
                             }
@@ -281,7 +281,7 @@ public struct BookmarkTreeView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: DS.Space.md) {
                     Button {
-                        let targetDevID = device?.id ?? localCache.state.devices.first?.id ?? ""
+                        let targetDevID = device?.id ?? localCache.state.connectedMac?.id ?? ""
                         newFolderContext = TreeNewFolderContext(deviceID: targetDevID)
                     } label: {
                         Label("New Folder", systemImage: "folder.badge.plus")

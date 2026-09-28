@@ -113,6 +113,14 @@ public final class LastOpenedStore: ObservableObject {
         saveToDisk()
     }
 
+    /// Drops every entry for `url` (same case-insensitive match as `recordOpened`).
+    public func remove(url: URL) {
+        let key = url.absoluteString.lowercased()
+        guard items.contains(where: { $0.url.lowercased() == key }) else { return }
+        items.removeAll { $0.url.lowercased() == key }
+        saveToDisk()
+    }
+
     public func clear() {
         items.removeAll()
         saveToDisk()

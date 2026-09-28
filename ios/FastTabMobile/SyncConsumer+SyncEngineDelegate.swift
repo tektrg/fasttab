@@ -23,6 +23,8 @@ extension SyncConsumer: CKSyncEngineDelegate {
                     // backlog cannot be sent until they exist again.
                     self.ensureZonesExist()
                     self.restorePendingCommandOutbox()
+                    self.ownDeviceServerRecord = nil
+                    self.publishOwnDevice()
                     self.sendPendingChanges()
                 case .signOut:
                     break
@@ -36,6 +38,9 @@ extension SyncConsumer: CKSyncEngineDelegate {
                     let record = modification.record
                     switch record.recordType {
                     case SyncedDevice.recordType:
+                        // Our own heartbeat comes back too; keep its change tag,
+                        // and let the cache drop it (it holds Macs only).
+                        self.retainOwnDeviceRecordIfMine(record)
                         if let device = SyncedDevice(from: record) {
                             LocalCache.shared.updateDevice(device)
                         }
@@ -99,10 +104,11 @@ extension SyncConsumer: CKSyncEngineDelegate {
                 var queuedRetry = false
                 var needsZoneRecreation = false
                 for failedSave in sentChanges.failedRecordSaves {
-                    if let retryRecord = Self.commandRecordForRetry(
+                    if let retryRecord = Self.recordForRetry(
                         intendedRecord: failedSave.record,
                         error: failedSave.error
                     ) {
+                        self.retainOwnDeviceRecordIfMine(retryRecord)
                         self.pendingRecordsToSave[retryRecord.recordID] = retryRecord
                         syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(retryRecord.recordID)])
                         queuedRetry = true
@@ -118,7 +124,7 @@ extension SyncConsumer: CKSyncEngineDelegate {
                             syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(failedSave.record.recordID)])
                         }
                         self.markSyncFailed(failedSave.error, whileDoing: "saving a change")
-                    } else {
+                    } else if !self.abandonRejectedHeartbeat(failedSave.record, error: failedSave.error) {
                         self.abandonUnsendableCommand(failedSave.record, error: failedSave.error)
                         self.markSyncFailed(failedSave.error, whileDoing: "saving a change")
                     }

@@ -17,7 +17,9 @@ public struct DeviceListView: View {
                     "No Macs connected",
                     systemImage: "laptopcomputer.and.iphone",
                     message: "Make sure FastTab is running on your Mac with iCloud sync enabled."
-                )
+                ) {
+                    OnboardingShortcutButton(shortcut: .connectMac)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .listRowBackground(Color.clear)
             } else {

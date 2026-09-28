@@ -17,9 +17,18 @@ public struct HighlightsListView: View {
 
     private var allEntries: [HighlightFeedEntry] {
         let folderTagsByKey = HighlightFolderTags.tagsByArticleKey(from: localCache.state.bookmarkBlobs)
+        // One title lookup per article, not per highlight: a miss in the resolver checks the
+        // disk cache and scans Last Opened, and this runs on every render (each search keystroke).
+        var titlesByKey: [String: String] = [:]
         return HighlightFeedModel.entries(
             from: store.allHighlightsNewestFirst(),
-            articleTitle: { ReaderHighlightTitleResolver.resolve(for: $0) },
+            articleTitle: { highlight in
+                if let stored = highlight.title, !stored.isEmpty { return stored }
+                if let title = titlesByKey[highlight.urlKey] { return title }
+                let title = ReaderHighlightTitleResolver.resolve(for: highlight)
+                titlesByKey[highlight.urlKey] = title
+                return title
+            },
             folderTags: { folderTagsByKey[$0.urlKey] ?? [] }
         )
     }

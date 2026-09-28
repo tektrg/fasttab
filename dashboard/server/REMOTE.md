@@ -121,7 +121,7 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
 - **`POST /api/jev/route`** (2026-09-28): Jev picks the persona for a
   message server-side; the OpenRouter key stays in
   `~/.config/agent-dashboard/openrouter-key` (0600) on the Mac and is never
-  sent to the phone. Rate-limited (1 in flight, 20/min), 8s timeout. It
+  sent to the phone. Rate-limited (1 in flight, 20/min), 8s hard total timeout. It
   sends nothing to any agent — the phone confirms the pick first.
 - **Non-Claude panes are never messaged** (`message_gate.py`): an
   OpenCode/Codex pane's prompts are invisible to the dashboard, so the

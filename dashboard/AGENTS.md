@@ -137,7 +137,7 @@ personas only (no live sessions). Nothing is sent: the client shows the
 pick and the user confirms (AgentBar never auto-sends a persona pick
 either). Both listeners (remote: auth + same-origin + audit like every
 write); JSON Content-Type required; text follows `validate_message_text`;
-only the `text` key. One request in flight, <= 20/min, 8s timeout, never
+only the `text` key. One request in flight, <= 20/min, 8s hard total timeout, never
 retried.
 - **Key**: `~/.config/agent-dashboard/openrouter-key` (`<CONFIG_HOME>/
   openrouter-key`; tests: `AGENT_DASHBOARD_OPENROUTER_KEY_FILE`), a regular

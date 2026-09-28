@@ -28,7 +28,9 @@ difference. AgentBar's user guidance (Settings > Routing, UserDefaults) and
 model override are NOT applied here — the server can't read them.
 
 LIMITS: one request in flight at a time, at most `RATE_LIMIT_PER_WINDOW`
-per `RATE_WINDOW_SEC` (in memory), `TIMEOUT_SEC` per request.
+per `RATE_WINDOW_SEC` (in memory), and `TIMEOUT_SEC` as a HARD total cap on
+the reply (`_post_within_deadline`: urllib's own timeout is per socket read,
+so a slowly trickling reply would never trip it).
 """
 import json
 import os
@@ -52,6 +54,7 @@ RATE_LIMIT_PER_WINDOW = 20
 RATE_WINDOW_SEC = 60
 KEY_FILE_ENV = "AGENT_DASHBOARD_OPENROUTER_KEY_FILE"
 MAX_REPLY_BYTES = 256 * 1024
+READ_CHUNK_BYTES = 16 * 1024
 ALLOWED_BODY_KEYS = {"text"}
 
 
@@ -126,11 +129,54 @@ def build_request_body(text, criteria, model=DEFAULT_MODEL):
 def urllib_post_json(url, headers, body_bytes, timeout):
     """(status, reply bytes). Raises on connection failure / timeout."""
     request = urllib.request.Request(url, data=body_bytes, headers=headers, method="POST")
+    deadline = time.monotonic() + timeout
     try:
         with urllib.request.urlopen(request, timeout=timeout) as resp:
-            return resp.status, resp.read(MAX_REPLY_BYTES)
+            # Chunked, so a trickling body stops at the deadline and the
+            # worker thread (see _post_within_deadline) ends too.
+            chunks, size = [], 0
+            while size < MAX_REPLY_BYTES:
+                chunk = resp.read(min(READ_CHUNK_BYTES, MAX_REPLY_BYTES - size))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+                if time.monotonic() > deadline:
+                    raise TimeoutError("reply took too long")
+            return resp.status, b"".join(chunks)
     except urllib.error.HTTPError as e:
         return e.code, b""
+
+
+def _post_within_deadline(post_fn, args, limiter, total_sec=None):
+    """`post_fn(*args)` on a worker thread: its return value, or
+    TimeoutError once `total_sec` (default TIMEOUT_SEC) has passed — the
+    HARD cap on how long the phone waits. The worker releases the
+    in-flight slot itself when it ends, so a request still trickling in
+    after the cap keeps counting as in flight (no pile-up of stragglers)."""
+    total_sec = TIMEOUT_SEC if total_sec is None else total_sec
+    outcome = {}
+    done = threading.Event()
+
+    def worker():
+        try:
+            outcome["value"] = post_fn(*args)
+        except BaseException as e:  # noqa: BLE001 — re-raised on the caller's thread
+            outcome["error"] = e
+        finally:
+            limiter.release()
+            done.set()
+
+    try:
+        threading.Thread(target=worker, name="jev-route", daemon=True).start()
+    except BaseException:
+        limiter.release()
+        raise
+    if not done.wait(total_sec):
+        raise TimeoutError("Jev routing exceeded its total time")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"]
 
 
 def parse_pick(status, reply_bytes, criteria):
@@ -213,14 +259,14 @@ def route_message(body, deps=None):
         if not criteria:
             raise JevRouteError("No persona to route to — add one in AgentBar Settings > Personas.")
         key = deps.key_fn()
-        deps.limiter.acquire()
+        deps.limiter.acquire()  # released by the worker when the request ends
         try:
-            status, reply = deps.post_fn(
+            status, reply = _post_within_deadline(deps.post_fn, (
                 DECISIONS_URL,
                 {"Content-Type": "application/json", "Accept": "application/json",
                  "Authorization": f"Bearer {key}"},
                 json.dumps(build_request_body(cleaned, criteria)).encode(),
-                TIMEOUT_SEC)
+                TIMEOUT_SEC), deps.limiter)
         except TimeoutError:
             raise JevRouteError("Jev routing timed out.")
         except (OSError, urllib.error.URLError) as e:
@@ -232,8 +278,6 @@ def route_message(body, deps=None):
             # Never let an exception (whose text may hold the request, key
             # included) reach the server's traceback log.
             raise JevRouteError("Jev routing failed before OpenRouter answered.")
-        finally:
-            deps.limiter.release()
         return parse_pick(status, reply, criteria)
     except JevRouteError as e:
         return {"ok": False, "error": str(e)}

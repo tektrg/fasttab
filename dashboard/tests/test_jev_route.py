@@ -172,6 +172,70 @@ limiter = jev_route.RateLimiter()
 jev_route.route_message({"text": "hi"}, deps(FakeNet(raises=OSError("down")), limiter=limiter))
 check("a failed request releases the in-flight slot", limiter._in_flight, False)
 
+print("\n== hard total timeout (a trickling reply never trips urllib's per-read timeout) ==")
+import threading  # noqa: E402
+import time  # noqa: E402
+release_net = threading.Event()
+
+
+def trickling_net(url, headers, body_bytes, timeout):
+    release_net.wait(5)  # stands in for a reply that keeps trickling in
+    return 200, json.dumps({"answers": {"route": {"choice": "persona:fasttab-dev"}}}).encode()
+
+
+saved_timeout = jev_route.TIMEOUT_SEC
+jev_route.TIMEOUT_SEC = 0.2
+try:
+    limiter = jev_route.RateLimiter()
+    started = time.monotonic()
+    result = jev_route.route_message({"text": "hi"}, deps(trickling_net, limiter=limiter))
+    elapsed = time.monotonic() - started
+    check("capped: refused as timed out", (result["ok"], "timed out" in result.get("error", "")), (False, True))
+    check("capped: the phone waits ~the cap, not the reply", elapsed < 1.0, True)
+    check("a straggler still counts as in flight", limiter._in_flight, True)
+    release_net.set()
+    for _ in range(100):
+        if not limiter._in_flight:
+            break
+        time.sleep(0.01)
+    check("the slot frees once the straggler ends", limiter._in_flight, False)
+finally:
+    jev_route.TIMEOUT_SEC = saved_timeout
+
+
+class TricklingResponse:
+    """urlopen's reply object, delivering one byte per read."""
+    status = 200
+
+    def __init__(self):
+        self.reads = 0
+
+    def read(self, n):
+        self.reads += 1
+        time.sleep(0.05)
+        return b"x"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+real_urlopen = jev_route.urllib.request.urlopen
+trickle = TricklingResponse()
+jev_route.urllib.request.urlopen = lambda request, timeout: trickle
+try:
+    raised = None
+    try:
+        jev_route.urllib_post_json("http://127.0.0.1:9/never-called", {}, b"{}", 0.2)
+    except TimeoutError as e:
+        raised = e
+    check("urllib_post_json: a trickling body stops at the deadline", raised is not None, True)
+    check("urllib_post_json: ...after a handful of reads, not the whole reply", trickle.reads < 20, True)
+finally:
+    jev_route.urllib.request.urlopen = real_urlopen
+
 print("\n== drift: same contract as AgentBar's Swift client ==")
 swift_dir = os.path.join(REPO_ROOT, "Sources", "AgentBar", "Routing")
 with open(os.path.join(swift_dir, "OpenRouterJevClient.swift")) as f:

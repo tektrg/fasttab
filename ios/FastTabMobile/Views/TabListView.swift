@@ -195,6 +195,12 @@ public struct TabListView: View {
             }
         }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search tabs, bookmarks, history…")
+        .safeAreaInset(edge: .top, spacing: 0) {
+            // Root Tabs tab only: a per-Mac list pushed from Devices is already scoped.
+            if device == nil {
+                SyncWarningBanner()
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if searchText.isEmpty && !visibleTabs.isEmpty {
                 FloatingTabSortBar(sortMode: $sortMode)
@@ -250,7 +256,11 @@ public struct TabListView: View {
                     "No Open Tabs",
                     systemImage: "macwindow.on.rectangle",
                     message: "Open tabs on your Mac browsers will sync here automatically."
-                )
+                ) {
+                    if localCache.state.connectedMac == nil {
+                        OnboardingShortcutButton(shortcut: .connectMac)
+                    }
+                }
                 .padding(.top, 60)
             }
             .dsCanvas()

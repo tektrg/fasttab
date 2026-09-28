@@ -96,6 +96,9 @@ public struct ReadingFeedView: View {
             .padding(.top, 6)
             .padding(.bottom, unfinishedReads.isEmpty ? 24 : DS.Space.floatingBarClearance)
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            SyncWarningBanner()
+        }
         .dsCanvas()
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
@@ -398,7 +401,9 @@ public struct ReadingFeedView: View {
             systemImage: "plus.square.dashed",
             message: "Save links via the FastTab Share Sheet or sync bookmarks from your Mac.",
             style: .inline
-        )
+        ) {
+            OnboardingShortcutButton(shortcut: .addToShareSheet, prominence: .inline)
+        }
     }
 
     private var emptyEmergingCard: some View {
@@ -408,7 +413,11 @@ public struct ReadingFeedView: View {
             message: "Browse pages on your Mac or iPhone to see connected recommendations here.",
             tint: DS.Tint.emerging,
             style: .inline
-        )
+        ) {
+            if localCache.state.connectedMac == nil {
+                OnboardingShortcutButton(shortcut: .connectMac, prominence: .inline)
+            }
+        }
     }
 
     // MARK: - Deletion Helpers

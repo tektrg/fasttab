@@ -226,7 +226,11 @@ public struct RandomLinksView: View {
                     "Nothing to shuffle yet",
                     systemImage: "shuffle",
                     message: "Bookmarks and open tabs from your Mac will show up here once they sync."
-                )
+                ) {
+                    if localCache.state.connectedMac == nil {
+                        OnboardingShortcutButton(shortcut: .connectMac)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

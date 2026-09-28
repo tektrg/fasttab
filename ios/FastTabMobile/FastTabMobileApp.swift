@@ -6,6 +6,7 @@ public struct FastTabMobileApp: App {
     @UIApplicationDelegateAdaptor(PushNotificationAppDelegate.self) private var pushDelegate
     @StateObject private var syncConsumer = SyncConsumer.shared
     @StateObject private var localCache = LocalCache.shared
+    @StateObject private var onboardingPresenter = OnboardingPresenter.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab = AppTab.read
     /// An article a widget tap asked to open (`WidgetDeepLink.read`).
@@ -56,7 +57,21 @@ public struct FastTabMobileApp: App {
                 guard let link = WidgetDeepLink(url: url) else { return }
                 open(link)
             }
+            .fullScreenCover(item: $onboardingPresenter.fullScreen) { presentation in
+                OnboardingFlowView(route: presentation.route) { exit in
+                    OnboardingCompletionStore().markCompleted()
+                    onboardingPresenter.fullScreen = nil
+                    if exit == .finished { selectedTab = .read }
+                }
+            }
+            .sheet(item: $onboardingPresenter.sheet) { presentation in
+                OnboardingFlowView(route: presentation.route) { _ in
+                    onboardingPresenter.sheet = nil
+                }
+                .presentationDragIndicator(.visible)
+            }
             .onAppear {
+                presentOnboardingOnFirstLaunch()
                 syncConsumer.start()
                 WidgetSnapshotPublisher.shared.start()
                 RecentAddedProvider.shared.drainPendingShares()
@@ -99,7 +114,15 @@ public struct FastTabMobileApp: App {
     }
 }
 
-/// The root tab bar's tabs, so a widget deep link can switch between them.
+private extension FastTabMobileApp {
+    func presentOnboardingOnFirstLaunch() {
+        let hasCachedMac = localCache.state.connectedMac != nil
+        guard OnboardingCompletionStore().resolveLaunchPresentation(hasCachedMac: hasCachedMac) else { return }
+        onboardingPresenter.present(.fullGuide)
+    }
+}
+
+/// The root tab bar's tabs, so a widget deep link or the finished guide can switch between them.
 enum AppTab: Hashable {
     case read, tabs, shuffle, more
 }

@@ -49,6 +49,9 @@ export function PhoneSheet({
   // command queues it (`confirm: true`), only while it is still armed.
   const [quickQueue, setQuickQueue] = useState<QuickCommand | null>(null);
   const armTimer = useRef<number | null>(null);
+  // Same-tick double tap on Compact/Clear: `busy` disables only on the next
+  // render, so both presses would type the command (ReviewCard's guard).
+  const quickInFlight = useRef(false);
   const keyboardInset = useVisualViewportOffset();
 
   useEffect(
@@ -146,7 +149,7 @@ export function PhoneSheet({
   // Compact/Clear: typed like a message (AgentBar's row menu). Clear wipes
   // the session's context, so it always takes a second press first.
   const runQuick = async (cmd: QuickCommand) => {
-    if (busy) return;
+    if (busy || quickInFlight.current) return;
     const queueing = quickQueue === cmd && armed === cmd;
     if (cmd === "clear" && !queueing && armed !== "clear") {
       arm("clear");
@@ -154,8 +157,10 @@ export function PhoneSheet({
     }
     disarm();
     setQuickQueue(null);
+    quickInFlight.current = true;
     setBusy(cmd);
     const res = await sendMessage(row.rowId, `/${cmd}`, { confirm: queueing });
+    quickInFlight.current = false;
     setBusy(null);
     if (res.ok) {
       onToast(isQueued(res) ? `/${cmd} queued — lands when the turn ends` : `/${cmd} sent`, true);

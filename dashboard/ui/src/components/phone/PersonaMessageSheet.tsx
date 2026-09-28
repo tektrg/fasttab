@@ -55,6 +55,9 @@ export function PersonaMessageSheet({
   openedRef.current = opened;
   const choiceRef = useRef({ persona, forceNew });
   choiceRef.current = { persona, forceNew };
+  // Same-tick double tap / Enter + tap: `busy` only disables the buttons on
+  // the next render, so both presses would pass (ReviewCard's guard).
+  const inFlight = useRef(false);
 
   useEffect(() => {
     if (!opened) return;
@@ -102,13 +105,15 @@ export function PersonaMessageSheet({
   const canSubmit = !!chosen && !!effect && hasText && !refusal && busy === null;
 
   const askJev = async () => {
-    if (!hasText || busy) return;
+    if (!hasText || busy || inFlight.current) return;
+    inFlight.current = true;
     setBusy("jev");
     setError(null);
     setJevPick(null);
     const askedText = text;
     const askedChoice = choiceRef.current;
     const res = await routeWithJev(askedText.trim());
+    inFlight.current = false;
     setBusy(null);
     // Stale: the text changed, the sheet closed, or the user picked by hand meanwhile.
     const now = choiceRef.current;
@@ -149,16 +154,18 @@ export function PersonaMessageSheet({
   };
 
   const submit = async () => {
-    if (!canSubmit || !chosen || !effect) return;
+    if (!canSubmit || !chosen || !effect || inFlight.current) return;
     const main = mainSession(chosen, rows);
     if (isStartEffect(effect) && !armedStart) {
       setArmedStart(true);
       return;
     }
+    inFlight.current = true;
     setBusy("send");
     setError(null);
     if (effect === "sendToMain" && main.kind === "ready") await send(main.row, queueReason !== null);
     else if (isStartEffect(effect)) await start();
+    inFlight.current = false;
     setBusy(null);
   };
 

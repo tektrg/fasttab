@@ -138,6 +138,33 @@ describe("PhoneSheet Compact / Clear", () => {
     unmount();
   });
 
+  test("a same-tick double tap on Compact sends once (QA2)", async () => {
+    const calls = stubFetch([{ ok: true, state: "message sent" }, { ok: true, state: "message sent" }]);
+    const unmount = mount(row());
+    act(() => {
+      button("Compact")!.click();
+      button("Compact")!.click();
+    });
+    await settle();
+    expect(messages(calls).length).toBe(1);
+    unmount();
+  });
+
+  test("Clear cancel: an armed Clear times out and sends nothing (QA2)", async () => {
+    const calls = stubFetch([{ ok: true, state: "message sent" }]);
+    const unmount = mount(row());
+    act(() => button("Clear")!.click());
+    expect(button("Confirm clear")).toBeTruthy();
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 5100));
+    });
+    expect(button("Confirm clear")).toBeUndefined();
+    act(() => button("Clear")!.click());
+    await settle();
+    expect(messages(calls)).toEqual([]); // that press only re-armed
+    unmount();
+  }, 8000);
+
   test("no buttons on a waiting row", () => {
     stubFetch([]);
     const unmount = mount(row({ screenState: "NEEDS_HUMAN" }));

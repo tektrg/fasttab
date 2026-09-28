@@ -39,6 +39,10 @@ function goToRemoteLogin() {
   window.location.assign("/remote/login");
 }
 
+/** What a write shows when the remote session expired mid-flow (401). The
+ *  page itself goes to the login once its event stream notices (above). */
+export const LOGGED_OUT_ERROR = "logged out on this phone — log in again, then retry";
+
 /** One SSE subscription to /api/events (2s full state) + a /api/state fetch
  *  on load — identical shape to what the legacy page consumes. */
 export function useDashboardState(): FullState | null {
@@ -380,6 +384,7 @@ async function requestJson<T>(
       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+    if (r.status === 401) return { ok: false, error: LOGGED_OUT_ERROR } as T & { ok: boolean; error?: string };
     const parsed = await r.json();
     return { ok: r.ok && parsed.ok !== false, ...parsed };
   } catch (e) {

@@ -65,6 +65,6 @@ export function isStartEffect(effect: PersonaEffect): boolean {
 export function startRefusal(persona: PersonaSummary): string | null {
   if (persona.offline) return "its machine is offline";
   if (persona.remoteStart === false)
-    return "can't be started from the phone — turn on remoteStart for it on the Mac";
+    return `can't be started from the phone — on the Mac, add "remoteStart": true to it in ~/.config/agentbar/personas.json`;
   return null;
 }

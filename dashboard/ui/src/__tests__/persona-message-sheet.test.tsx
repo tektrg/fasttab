@@ -167,7 +167,7 @@ describe("PersonaMessageSheet", () => {
     pick("desk-only");
     typeMessage("hi");
     expect(button("Start")!.disabled).toBe(true);
-    expect(document.body.textContent).toContain("turn on remoteStart");
+    expect(document.body.textContent).toContain('add "remoteStart": true to it in ~/.config/agentbar/personas.json');
     expect(posts(calls, "/api/persona/start")).toEqual([]);
     unmount();
   });
@@ -284,6 +284,73 @@ describe("PersonaMessageSheet", () => {
     await settle();
     expect(button("Confirm resume")).toBeTruthy(); // armed by the first press only
     expect(posts(calls, "/api/persona/start")).toEqual([]);
+    unmount();
+  });
+
+  test("a same-tick double tap on Send posts once (QA2)", async () => {
+    const calls = stubFetch({ "/api/session/message": { ok: true, state: "message sent" } });
+    const unmount = mount([liveRow("main-1")]);
+    await settle();
+    typeMessage("hi");
+    act(() => {
+      button("Send")!.click();
+      button("Send")!.click();
+    });
+    await settle();
+    expect(posts(calls, "/api/session/message").length).toBe(1);
+    unmount();
+  });
+
+  test("Enter + a tap in the same tick confirm a start once (QA2)", async () => {
+    const calls = stubFetch({ "/api/persona/start": { ok: true, mode: "resumed" } });
+    const unmount = mount([]);
+    await settle();
+    pick("phone-ok");
+    typeMessage("hi");
+    act(() => button("Resume")!.click());
+    const input = document.querySelector('input[aria-label="message"]') as HTMLInputElement;
+    act(() => {
+      button("Confirm resume")!.click();
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await settle();
+    expect(posts(calls, "/api/persona/start").length).toBe(1);
+    unmount();
+  });
+
+  test("Jev network failure: error shown, Ask Jev usable again, no spinner (QA2)", async () => {
+    globalThis.fetch = (async (url: unknown) => {
+      if (String(url) === "/api/personas") return { ok: true, status: 200, json: async () => PERSONAS } as Response;
+      throw new TypeError("Load failed");
+    }) as typeof fetch;
+    const unmount = mount([liveRow("main-1")]);
+    await settle();
+    typeMessage("hi");
+    act(() => button("Ask Jev")!.click());
+    await settle();
+    expect(document.body.textContent).toContain("Load failed");
+    expect(button("Ask Jev")!.disabled).toBe(false);
+    expect(document.querySelector("[data-loading]")).toBeNull();
+    const input = document.querySelector('input[aria-label="message"]') as HTMLInputElement;
+    expect(input.disabled).toBe(false);
+    unmount();
+  });
+
+  test("login expired mid-start: the error shows, the text stays for a retry (QA2)", async () => {
+    globalThis.fetch = (async (url: unknown) => {
+      if (String(url) === "/api/personas") return { ok: true, status: 200, json: async () => PERSONAS } as Response;
+      return { ok: false, status: 401, json: async () => ({ ok: false, error: "unauthenticated" }) } as Response;
+    }) as typeof fetch;
+    const unmount = mount([]);
+    await settle();
+    pick("phone-ok");
+    typeMessage("keep me");
+    act(() => button("Resume")!.click());
+    act(() => button("Confirm resume")!.click());
+    await settle();
+    expect(document.body.textContent).toContain("log in again");
+    const input = document.querySelector('input[aria-label="message"]') as HTMLInputElement;
+    expect(input.value).toBe("keep me");
     unmount();
   });
 

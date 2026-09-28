@@ -200,6 +200,7 @@ import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, gene
 import personas  # noqa: E402  (Jev persona registry + routing, P1)
 import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
+import tui_status_events  # noqa: E402  (OpenCode/Codex status events)
 import session_inbox  # noqa: E402  (message to a Desktop/CLI session)
 import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook bridge)
 import persona_start  # noqa: E402  (POST /api/persona/start, P3)
@@ -447,7 +448,9 @@ def _enrich_agents_for_actions(state, agents):
             ctx = (ctx.get("context") or {})
         except Exception:
             ctx = {}
-        agent["contextPct"] = ctx.get("pct")
+        # OpenCode/Codex report an exact figure (tui_status_events); prefer it.
+        tui_pct = agent.get("tuiContextPercent")
+        agent["contextPct"] = tui_pct if tui_pct is not None else ctx.get("pct")
         agent["autocompactPct"] = ctx.get("autocompactPct")
         try:
             owners = session_actions.owners_of_session(
@@ -3140,6 +3143,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._note_agentbar_seen()
         path = urlparse(self.path).path
+        tui_reply = tui_status_events.handle_post(
+            path, self._read_json_body, self._is_remote_listener())
+        if tui_reply is not None:
+            self._send_json(*tui_reply)
+            return
         if hook_permission_routes.is_hook_path(path):
             self._note_remote_audit_row(hook_permission_routes.request_id_of(path))
             self._send_json(*hook_permission_routes.handle_post(

@@ -14,6 +14,7 @@ import desktop_sessions  # sleeping Claude Desktop sessions (no live process)
 import hook_permissions  # prompts answerable via the PermissionRequest hook
 import message_gate  # non-Claude panes are never typed into
 import pane_screen_signals
+import tui_status_events  # OpenCode/Codex exact status (plugin / hooks)
 from chief_dashboard_feeds import FEEDS, MACHINES, sanitize_pane_id  # noqa: F401
 from chief_dashboard_feeds import MACHINES_CONFIG_ERROR  # noqa: F401,E402  (surfaced on every /api/state)
 from chief_dashboard_feeds import read_hook_question  # noqa: E402  (phase 5: AskUserQuestion preview)
@@ -165,8 +166,6 @@ def build_agents_view(feeds_snap):
     herdr_session_ids = {r["agentSession"] for r in rows if r.get("agentSession")}
     # Non-Claude panes can't take messages (their prompts are invisible):
     # the server refuses them, and every client shows why (message_gate.py).
-    for r in rows:
-        r["messageRefusal"] = message_gate.blind_agent_refusal(r)
     claude_sessions_data = (feeds_snap.get("claudeSessions") or {}).get("data")
     hook_requests = hook_permissions.STORE.exposed_by_session(claude_sessions_data)
     # A local herdr pane's prompt held by the PermissionRequest hook: shown
@@ -174,6 +173,14 @@ def build_agents_view(feeds_snap):
     for r in rows:
         if r["machine"] == herdr_transport.LOCAL_MACHINE:
             r["hookRequest"] = hook_requests.get(r.get("agentSession"))
+    # OpenCode / Codex panes: their own plugin / hook events (fresh only —
+    # stale data is dropped, so the row decays back to its screen reading).
+    tui_status_events.attach_to_rows(
+        rows, tui_status_events.STORE.fresh_entries(), now,
+        local_machine=herdr_transport.LOCAL_MACHINE,
+        herdr_source=claude_sessions.HERDR_SOURCE)
+    for r in rows:
+        r["messageRefusal"] = message_gate.blind_agent_refusal(r)
     rows.extend(claude_sessions.build_status_only_rows(
         claude_sessions_data, herdr_session_ids, now,
         machine=herdr_transport.LOCAL_MACHINE, hook_requests=hook_requests))

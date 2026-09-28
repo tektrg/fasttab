@@ -35,6 +35,9 @@ def blind_agent_refusal(agent):
     if agent.get("source") != HERDR_SOURCE:
         return None
     kind = agent.get("agentKind")
-    if kind == CLAUDE_AGENT_KIND or agent.get("hasHookData"):
+    # OpenCode/Codex status events (`statusSource`) are not a messaging
+    # channel yet (Phase 4): such a row stays refused.
+    if kind == CLAUDE_AGENT_KIND or (agent.get("hasHookData")
+                                     and not agent.get("statusSource")):
         return None
     return BLIND_AGENT_REFUSAL.format(kind=kind or "this agent's")

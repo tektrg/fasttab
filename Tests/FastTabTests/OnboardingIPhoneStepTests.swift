@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import FastTab
+import FastTabSync
 
 /// The onboarding window is a fixed 440×520 with the step dots below the step,
 /// leaving ~494pt for a step. These pin that the iPhone step fits in both of
@@ -11,8 +12,11 @@ struct OnboardingIPhoneStepTests {
     private static let stepWidth: CGFloat = 440
     private static let stepHeightBudget: CGFloat = 494
 
-    private func fittingHeight(downloadURL: URL?) -> CGFloat {
-        let host = NSHostingView(rootView: OnboardingIPhoneStep(downloadURL: downloadURL, onContinue: {})
+    private func fittingHeight(downloadURL: URL?, pairedPhones: [SyncedDevice] = []) -> CGFloat {
+        let defaults = UserDefaults(suiteName: "OnboardingIPhoneStepTests.\(UUID().uuidString)")!
+        let store = PairedPhoneStore(defaults: defaults)
+        store.record(pairedPhones)
+        let host = NSHostingView(rootView: OnboardingIPhoneStep(downloadURL: downloadURL, pairedPhoneStore: store, onContinue: {})
             .frame(width: Self.stepWidth))
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.height
@@ -26,6 +30,12 @@ struct OnboardingIPhoneStepTests {
     @Test func downloadStateFitsTheStepBudget() {
         let height = fittingHeight(downloadURL: URL(string: "https://apps.apple.com/app/id0000000000")!)
         #expect(height <= Self.stepHeightBudget, "download iPhone step is \(height)pt tall")
+    }
+
+    @Test func connectedStateFitsTheStepBudget() {
+        let phone = SyncedDevice(id: "phone-1", name: "iPhone", modelName: "iPhone", appVersion: "1.0", kind: .iphone)
+        let height = fittingHeight(downloadURL: URL(string: "https://apps.apple.com/app/id0000000000")!, pairedPhones: [phone])
+        #expect(height <= Self.stepHeightBudget, "connected iPhone step is \(height)pt tall")
     }
 
     @Test func qrCodeIsBlackOnWhite() throws {

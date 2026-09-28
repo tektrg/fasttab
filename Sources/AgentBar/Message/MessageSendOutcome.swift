@@ -20,7 +20,11 @@ extension DashboardSessionActionResponse {
         if ok == true { return .sent(queued: state?.lowercased().contains("queued") == true) }
         if needsConfirm == true { return .needsConfirmation(reason: reason ?? "") }
         guard let error else { return nil }
-        return Self.leavesTextInInputBox(error) ? .uncertain(MessageSendOutcome.textMayBeInInputBoxWords) : .failed(error)
+        if Self.leavesTextInInputBox(error) { return .uncertain(MessageSendOutcome.textMayBeInInputBoxWords) }
+        // Inbox route (`session_inbox.MAYBE_SENT`): the connection broke after bytes left, so the
+        // message may already be in the session. `.failed` would let a headless send retry it twice.
+        if error.lowercased().contains("may or may not have arrived") { return .uncertain(error) }
+        return .failed(error)
     }
 
     /// The dashboard types the text, presses Return, then checks. When it says the text is stuck (or the sequence broke

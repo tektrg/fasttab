@@ -117,6 +117,23 @@ struct InboxDraftTests {
     }
 }
 
+struct InboxReplyMappingTests {
+    private func outcome(_ json: String) throws -> MessageSendOutcome? {
+        try JSONDecoder().decode(DashboardSessionActionResponse.self, from: Data(json.utf8)).messageOutcome
+    }
+
+    /// `session_inbox.MAYBE_SENT`: bytes left before the break, so it must never be auto-retried.
+    @Test func aBrokenInboxConnectionIsUncertainNotARetryableFailure() throws {
+        let words = "the connection broke while sending — the message may or may not have arrived; check the session before re-sending"
+        #expect(try outcome(#"{"ok": false, "error": "\#(words)"}"#) == .uncertain(words))
+    }
+
+    @Test func aCleanInboxRefusalStaysAFailure() throws {
+        let words = "the session refused the message (it hung up on the sign-in) — nothing was sent"
+        #expect(try outcome(#"{"ok": false, "error": "\#(words)", "typed": false}"#) == .failed(words))
+    }
+}
+
 @MainActor
 struct InboxMessageCardTests {
     typealias I = InboxFixtures

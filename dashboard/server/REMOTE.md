@@ -108,7 +108,9 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
   offline, mainRowId, remoteStart); messaging one goes to its running main
   session through `POST /api/session/message` (same rules as any row).
   `POST /api/persona/start` is served here ONLY for a persona whose
-  registry entry has `"remoteStart": true`, and only with the keys
+  registry entry has `"remoteStart": true` (off by default; no Settings
+  toggle yet — add it to the entry in `~/.config/agentbar/personas.json`
+  on the Mac), and only with the keys
   `persona`/`text`/`fresh` plus `confirm: true`: the registry decides the
   folder and command, so a stolen session can at most start an
   already-trusted persona in its own folder with a message (same text

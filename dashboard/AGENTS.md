@@ -177,9 +177,15 @@ its registry folder. **Remote listener: opt-in per persona** — only for a
 persona whose registry entry has `"remoteStart": true` (default false;
 `persona_remote.start_persona_remote`), after the remote listener's
 auth and foreign-Origin checks; any other name gets `{ok:false, error: "unknown
-persona …"}` (same wording, so the phone can't probe names). The PWA's
-"New session" sheet (`ui/src/components/phone/NewSessionSheet.tsx`, the
-`+` in the phone search bar) uses it. Localhost: every offered persona.
+persona …"}` (same wording, so the phone can't probe names). **Turning it
+on**: no toggle in AgentBar Settings or the web UI yet (2026-09-28) — add
+`"remoteStart": true` to the persona's entry in
+`~/.config/agentbar/personas.json` by hand (read per request, no restart),
+or `POST /api/personas {action: "edit", persona, fields: {remoteStart:
+true}}` on localhost. AgentBar's persona editor keeps the flag on save.
+The PWA's "Message a persona" sheet
+(`ui/src/components/phone/PersonaMessageSheet.tsx`, the `+` in the phone
+search bar) uses it. Localhost: every offered persona.
 The Settings endpoints below stay localhost-only. Requires `Content-Type: application/json`
 (400 otherwise). These early refusals (and the foreign-Origin 403 on every
 write) answer before reading the body, so `Handler.end_headers` closes the

@@ -412,3 +412,38 @@ export async function fetchPaneScreen(
     "GET",
   );
 }
+
+/** GET /api/personas — on the remote listener only personas opted in with
+ *  `remoteStart: true` (name/description/idleStart, no folder paths;
+ *  server/lib/persona_remote.py). Localhost returns every offered persona
+ *  with more fields; only these three are read here. Null on failure. */
+export interface StartablePersona {
+  name: string;
+  description: string;
+  idleStart: "resume" | "fresh";
+}
+
+export async function listStartablePersonas(): Promise<StartablePersona[] | null> {
+  try {
+    const r = await fetch("/api/personas");
+    if (r.status === 401) {
+      goToRemoteLogin();
+      return null;
+    }
+    const parsed = await r.json();
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** POST /api/persona/start — opens a new Claude session for the persona
+ *  (server/lib/persona_start.py). The new row shows up through the normal
+ *  feeds; nothing to refetch here. */
+export async function startPersona(input: {
+  persona: string;
+  text: string;
+  fresh: boolean;
+}): Promise<{ ok: boolean; error?: string; paneId?: string; mode?: "started" | "resumed" }> {
+  return requestJson("/api/persona/start", "POST", input);
+}

@@ -150,6 +150,28 @@ status, body, _ = get(REMOTE_PORT, "/api/state", headers={"Cookie": cookie_value
 check("authenticated GET /api/state -> 200", status, 200)
 check("authenticated body is real JSON", "computed" in json.loads(body) or True, True)
 
+print("== remote listener: persona start (opt-in remoteStart personas only) ==")
+start_body = json.dumps({"persona": "no-such-persona-sentinel", "text": "hi $(echo INJECTED)"}).encode()
+json_hdr = {"Content-Type": "application/json"}
+status, _, _ = post(REMOTE_PORT, "/api/persona/start", body=start_body, headers=json_hdr)
+check("unauthenticated persona start -> 401", status, 401)
+status, body, _ = post(REMOTE_PORT, "/api/persona/start", body=start_body,
+                       headers=dict(json_hdr, Cookie=cookie_value))
+reply = json.loads(body)
+check("authenticated start of a non-opted-in name -> 200 {ok:false, unknown}",
+      (status, reply.get("ok"), "unknown persona" in reply.get("error", "")), (200, False, True))
+status, _, _ = post(REMOTE_PORT, "/api/persona/start", body=start_body,
+                    headers=dict(json_hdr, Cookie=cookie_value, Origin="https://evil.example"))
+check("authenticated + foreign Origin -> 403", status, 403)
+status, _, _ = post(REMOTE_PORT, "/api/persona/start", body=start_body,
+                    headers={"Content-Type": "text/plain", "Cookie": cookie_value})
+check("authenticated + non-JSON -> 400", status, 400)
+status, _, _ = post(REMOTE_PORT, "/api/personas", body=b"{}",
+                    headers=dict(json_hdr, Cookie=cookie_value))
+check("registry edit stays localhost-only remotely (403)", status, 403)
+status, body, _ = get(REMOTE_PORT, "/api/personas", headers={"Cookie": cookie_value})
+check("remote GET /api/personas -> 200 [] (none opted in)", (status, json.loads(body)), (200, []))
+
 
 # ---- Unread-body desync (found live-testing P3, 2026-09-26) ----
 def raw_exchange(port, payload):

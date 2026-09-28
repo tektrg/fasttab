@@ -117,6 +117,10 @@ Each row also carries `idleStart`: `"resume"` | `"fresh"` — what a start
 would do right now (see below). Only a local `start: in-place` persona can
 be `"resume"`; the folder scan is cached 30s.
 
+**Remote listener** (`server/lib/persona_remote.py`): `GET /api/personas`
+returns only offered personas with `"remoteStart": true` in the registry,
+as `[{name, description, idleStart}]` — no address/folder/instructions.
+
 ### Settings > Personas endpoints — P4
 All three are **localhost only** (403 on the remote listener); the POST also
 needs `Content-Type: application/json` (same gate as `/api/persona/start`).
@@ -133,14 +137,21 @@ needs `Content-Type: application/json` (same gate as `/api/persona/start`).
   hide|unhide|remove|setGlobalInstructions, …}` -> `{ok, registry}` or
   `{ok:false, error}`. `adopt` accepts only a current suggestion's address;
   `edit`/`remove` take a persona name or address already in the registry;
+  `remoteStart` (bool) is editable via `edit`;
   `start`/`startScript` are never editable here; unknown fields in the file
   are kept. Atomic write (temp + rename, 0600) under one lock; a malformed
   file is never overwritten. Tests: `tests/test_persona_registry_edit.py`.
 
 ### `POST /api/persona/start` — P3 (`server/lib/persona_start.py`)
 Starts or resumes an idle persona's Claude session in a new herdr tab in
-its registry folder. **Localhost only**: 403 on the remote (tailscale)
-listener even when authenticated. Requires `Content-Type: application/json`
+its registry folder. **Remote listener: opt-in per persona** — only for a
+persona whose registry entry has `"remoteStart": true` (default false;
+`persona_remote.start_persona_remote`), after the remote listener's
+auth and foreign-Origin checks; any other name gets `{ok:false, error: "unknown
+persona …"}` (same wording, so the phone can't probe names). The PWA's
+"New session" sheet (`ui/src/components/phone/NewSessionSheet.tsx`, the
+`+` in the phone search bar) uses it. Localhost: every offered persona.
+The Settings endpoints below stay localhost-only. Requires `Content-Type: application/json`
 (400 otherwise). These early refusals (and the foreign-Origin 403 on every
 write) answer before reading the body, so `Handler.end_headers` closes the
 connection whenever a body was left unread — otherwise keep-alive would

@@ -203,6 +203,7 @@ import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
 import session_inbox  # noqa: E402  (message to a Desktop/CLI session)
 import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook bridge)
 import persona_start  # noqa: E402  (POST /api/persona/start, P3)
+import persona_remote  # noqa: E402  (remoteStart personas on the remote listener)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
 import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
 
@@ -3070,9 +3071,14 @@ class Handler(BaseHTTPRequestHandler):
             # Restored 2026-09-25, generic — see chief_dashboard_pass.py.
             self._send_json(chief_dashboard_pass.get_chief_pass(get_full_state))
         elif path == "/api/personas":
-            # Jev persona routing P1 — see server/lib/personas.py.
+            # Jev persona routing P1 — see server/lib/personas.py. The
+            # remote listener gets only opted-in (remoteStart) personas,
+            # without folder paths — see server/lib/persona_remote.py.
             try:
-                self._send_json(personas.get_personas_state())
+                if self._is_remote_listener():
+                    self._send_json(persona_remote.remote_personas())
+                else:
+                    self._send_json(personas.get_personas_state())
             except Exception as e:
                 self._send_json({"error": str(e)}, status=400)
         elif path in ("/api/personas/suggestions", "/api/personas/registry"):
@@ -3091,15 +3097,19 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "not found"}, status=404)
 
-    def _handle_local_json_post(self, path, handle_body):
+    def _handle_local_json_post(self, path, handle_body, remote_handle_body=None):
         """Persona writes: POST /api/persona/start (P3, persona_start.py)
         and POST /api/personas (P4, persona_registry_edit.py). Localhost
         only (brief: "Dashboard endpoints"): refused on the remote listener
         even when authenticated — these are local-desk actions. Then the
         Content-Type gate, before the body is parsed: a browser page can't
         send application/json cross-site without a preflight this
-        dashboard never answers."""
-        if self._is_remote_listener():
+        dashboard never answers. `remote_handle_body`, when given, serves
+        the remote listener instead of the 403 (it arrives there already
+        authenticated and CSRF-checked by `_reject_foreign_write`)."""
+        if self._is_remote_listener() and remote_handle_body is not None:
+            handle_body = remote_handle_body
+        elif self._is_remote_listener():
             self._send_json(
                 {"ok": False, "error": f"refused: {path} is localhost-only"},
                 status=403)
@@ -3177,7 +3187,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(payload, status=status)
             return
         if path == "/api/persona/start":
-            self._handle_local_json_post(path, persona_start.start_persona)
+            self._handle_local_json_post(path, persona_start.start_persona,
+                                         persona_remote.start_persona_remote)
             return
         if path == "/api/personas":
             self._handle_local_json_post(path, persona_registry_edit.apply_registry_action)

@@ -5,6 +5,7 @@ import { fetchBoard, fmtAge } from "../../api";
 import { rowLabel } from "../../sessionActions";
 import { KindBadge } from "../Severity";
 import { PhoneSheet } from "./PhoneSheet";
+import { NewSessionSheet } from "./NewSessionSheet";
 import { PanelessPrompt } from "../HookRequestCard";
 import { filterAgents, type SearchableAgent } from "../../agentMatch";
 import {
@@ -158,6 +159,7 @@ export function PhoneInbox({
 }) {
   const [board, setBoard] = useState<BoardState | null>(null);
   const [openRowId, setOpenRowId] = useState<string | null>(null);
+  const [newSessionOpen, setNewSessionOpen] = useState(false);
   // Working starts open (the phone's default view is "what's active right
   // now"); Parked/Ended start collapsed — they're for when nothing needs
   // you and you're checking on something specific.
@@ -279,6 +281,14 @@ export function PhoneInbox({
           ]}
           className="phone-group-toggle"
         />
+        <UnstyledButton
+          aria-label="new session"
+          title="New session"
+          className="phone-new-session"
+          onClick={() => setNewSessionOpen(true)}
+        >
+          +
+        </UnstyledButton>
       </div>
 
       <div className="phone-section" data-section="needsyou">
@@ -419,6 +429,11 @@ export function PhoneInbox({
         onClose={() => setOpenRowId(null)}
         onToast={onToast}
         onRefetch={reload}
+      />
+      <NewSessionSheet
+        opened={newSessionOpen}
+        onClose={() => setNewSessionOpen(false)}
+        onToast={onToast}
       />
     </div>
   );

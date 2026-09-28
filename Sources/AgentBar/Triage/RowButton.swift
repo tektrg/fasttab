@@ -164,9 +164,16 @@ enum RowButtons {
         return MessageRoute(agent: agent)
     }
 
+    /// Whether `agent` can take `/compact` / `/clear` right now: message-eligible (not asking
+    /// anything, a Claude agent the dashboard addresses) through a real terminal, never an inbox.
+    /// The one gate for the ⋯ menu's Compact/Clear and Park's automatic `/compact`.
+    static func takesQuickCommands(_ agent: AgentSnapshot) -> Bool {
+        messageRoute(for: agent)?.allowsQuickCommands == true
+    }
+
     /// Compact/Clear need a real terminal: never offered on an inbox route.
     private static func quickCommandItems(for agent: AgentSnapshot) -> [RowButtonSpec] {
-        guard messageRoute(for: agent)?.allowsQuickCommands == true else { return [] }
+        guard takesQuickCommands(agent) else { return [] }
         return [RowButtonSpec(button: .compact, disabledReason: nil), RowButtonSpec(button: .clear, disabledReason: nil)]
     }
 

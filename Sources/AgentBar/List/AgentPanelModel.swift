@@ -1180,9 +1180,11 @@ final class AgentPanelModel: ObservableObject {
         selectedAgentID = AgentSelection.reconciled(isParked ? following : agentID, in: presentation.selectableAgentIDs)
         highlightedButton = nil
         // Parking tells the session it's shelved for a while: shrink its context now
-        // rather than let it sit stale until someone resumes it. Only a terminal can take
-        // `/compact`: an inbox row (or one with no route) still parks, it just isn't compacted.
-        if isParked, MessageRoute(agent: agent)?.allowsQuickCommands == true {
+        // rather than let it sit stale until someone resumes it. Only a row that could take
+        // Compact from its ⋯ menu gets it: an inbox row, one asking something, a non-Claude pane
+        // or one with no route still parks, just uncompacted (sending would fail and retry into
+        // a "Couldn't send … after 3 tries" footer).
+        if isParked, RowButtons.takesQuickCommands(agent) {
             sendDirectMessage(to: agent, text: "/compact")
         }
     }

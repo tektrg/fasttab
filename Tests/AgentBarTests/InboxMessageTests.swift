@@ -188,9 +188,10 @@ struct InboxMessageCardTests {
     }
 }
 
-/// Park compacts a terminal session (`/compact`), but an inbox can't carry a slash command:
-/// `AgentPanelModel.setParked` must still park such a row, just without the compact — else the
-/// headless retry ends in a "Couldn't send … after 3 tries" footer.
+/// Park compacts a terminal session (`/compact`), but only a row that can take it
+/// (`RowButtons.takesQuickCommands`): an inbox, a blocked pane or a non-Claude pane must still
+/// park, just without the compact — else the headless retry ends in a "Couldn't send … after 3
+/// tries" footer.
 @MainActor
 struct InboxParkTests {
     typealias I = InboxFixtures
@@ -225,6 +226,29 @@ struct InboxParkTests {
         #expect(row.section == .parked)
         #expect(model.sendingLabel(for: row) == nil)   // no headless send started
         try await Task.sleep(nanoseconds: 100_000_000)   // longer than every retry delay
+        #expect(source.sent.isEmpty)
+        #expect(model.footerNotice == nil)
+    }
+
+    /// A pane row that is asking something (question/permission) can't take a message: parking it
+    /// must not start a `/compact` that retries into the give-up footer.
+    @Test func parkingABlockedPaneRowParksWithoutSendingCompact() async throws {
+        var blocked = F.agent("a", section: .needsYou)
+        blocked.blocker = .permission
+        let (model, source) = makeModel([blocked])
+        model.press(.park, on: "a")
+        let row = try #require(model.presentation.agents.first)
+        #expect(row.section == .parked)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(source.sent.isEmpty)
+        #expect(model.footerNotice == nil)
+    }
+
+    /// Not a Claude agent (no hook data): no Message, so no `/compact` either.
+    @Test func parkingAPaneRowWithoutHookDataParksWithoutSendingCompact() async throws {
+        let (model, source) = makeModel([F.agent("a", section: .needsYou, hasHookData: false)])
+        model.press(.park, on: "a")
+        try await Task.sleep(nanoseconds: 100_000_000)
         #expect(source.sent.isEmpty)
         #expect(model.footerNotice == nil)
     }

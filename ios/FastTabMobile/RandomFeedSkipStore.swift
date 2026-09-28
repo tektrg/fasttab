@@ -70,3 +70,67 @@ public final class RandomFeedSkipStore: ObservableObject {
         return formatter.string(from: Date())
     }
 }
+
+/// Links and bookmark folders the user told Shuffle never to surface again
+/// ("Don't surface" in the card's long-press menu). Unlike `RandomFeedSkipStore`
+/// this never expires; like it, it stays on this phone.
+@MainActor
+public final class RandomFeedHiddenStore: ObservableObject {
+    public static let shared = RandomFeedHiddenStore()
+
+    private struct Record: Codable {
+        var urls: Set<String> = []
+        /// `"<browser>|<profile>|<folder path>"`; hiding a folder hides its subfolders too.
+        var folders: Set<String> = []
+    }
+
+    @Published private var record = Record()
+
+    private let logger = Logger(subsystem: "app.theindie.FastTab", category: "RandomFeedHiddenStore")
+    private let fileURL: URL
+
+    public init(customFileURL: URL? = nil) {
+        self.fileURL = customFileURL ?? AppGroupContainer.fileURL(forFileNamed: "random_feed_hidden.json")
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode(Record.self, from: data) {
+            record = decoded
+        }
+    }
+
+    nonisolated public static func folderKey(browserName: String, profileName: String, folderPath: String) -> String {
+        "\(browserName)|\(profileName)|\(BookmarkTreeBuilder.splitPath(folderPath).joined(separator: "/"))"
+    }
+
+    public func isHidden(url: URL) -> Bool {
+        record.urls.contains(Self.urlKey(url))
+    }
+
+    public func isHidden(folderKey: String) -> Bool {
+        record.folders.contains { folderKey == $0 || folderKey.hasPrefix($0 + "/") }
+    }
+
+    public func hide(url: URL) {
+        record.urls.insert(Self.urlKey(url))
+        save()
+    }
+
+    public func hide(folderKey: String) {
+        record.folders.insert(folderKey)
+        save()
+    }
+
+    private static func urlKey(_ url: URL) -> String {
+        var s = url.absoluteString.lowercased()
+        if s.hasSuffix("/") { s.removeLast() }
+        return s
+    }
+
+    private func save() {
+        do {
+            try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(record).write(to: fileURL, options: .atomic)
+        } catch {
+            logger.error("Failed to save random feed hidden store: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}

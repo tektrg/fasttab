@@ -60,7 +60,7 @@ extension CommandBarLayout {
     /// row, or that row poking out past the panel edge underneath it. A row
     /// that actually occupies its own reserved space can't collide with
     /// whatever the list ends up rendering above it.
-    static let compactGearRowHeight: CGFloat = 46
+    static let compactGearRowHeight: CGFloat = 16
 
     /// Stepper bounds for the quick-open ("recent tabs") item-count setting.
     static let minQuickOpenItemLimit = 3

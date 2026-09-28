@@ -1333,6 +1333,26 @@ final class AgentPanelModel: ObservableObject {
         return true
     }
 
+    /// The card's "Open agent" button: brings the agent whose card is open to the front, same as
+    /// activating its row. False when no card is open or the agent has since dropped off the list.
+    @discardableResult
+    func openCardAgent() -> Bool {
+        let agentID = answer.card?.agentID ?? permission.card?.agentID ?? message.card?.agentID
+        guard let agentID, let agent = presentation.agents.first(where: { $0.id == agentID }) else { return false }
+        onActivate(agent)
+        return true
+    }
+
+    /// The peek view's "Open agent" button. False if the peeked agent has since dropped off the list.
+    @discardableResult
+    func openPeekAgent() -> Bool {
+        guard let agentID = peek?.agentID, let agent = presentation.agents.first(where: { $0.id == agentID }) else {
+            return false
+        }
+        onActivate(agent)
+        return true
+    }
+
     /// A digit typed while a card is open: picks that option on it (the search box types nothing).
     func handleCardDigit(_ number: Int) {
         if answer.isOpen { answer.handle(.digit(number)) }

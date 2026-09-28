@@ -75,11 +75,9 @@ struct OrderedTabSlotRow: View {
                                 .foregroundStyle(.secondary)
                         }
 
-                        Text(slot.title.isEmpty ? slot.url : slot.title)
+                        HoverMarqueeText(slot.title.isEmpty ? slot.url : slot.title)
                             .font(.system(size: 13, weight: .semibold, design: .default))
                             .foregroundStyle(titleColor)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
 
                         if isFrozen {
                             Text("\(slot.browserName) closed")

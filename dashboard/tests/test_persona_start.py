@@ -253,15 +253,15 @@ check("the tab reached claude as a space",
 print("\n== the shared Send-message rules apply to text ==")
 for label, text, needle in (("newline", "line one\nline two", "newline"),
                             ("carriage return", "a\rb", "newline"),
-                            ("over 2000 chars", "x" * 2001, "limit 2000"),
+                            ("over 8000 chars", "x" * 8001, "limit 8000"),
                             ("slash command", "/help", "slash"),
                             ("blank", "   ", "empty")):
     result, herdr = start({"persona": "test-echo", "text": text})
     check(f"{label}: refused", (result.get("ok"), needle in (result.get("error") or "")),
           (False, True))
     check(f"{label}: herdr never called", herdr.calls, [])
-result, _ = start({"persona": "test-echo", "text": "x" * 2000})
-check("exactly 2000 chars is fine", result.get("ok"), True)
+result, _ = start({"persona": "test-echo", "text": "x" * 8000})
+check("exactly 8000 chars is fine", result.get("ok"), True)
 
 print("\n== control characters in the persona's instructions are refused ==")
 bad_reg = write_registry({f"local:{make_folder('bad-instr')}": persona_entry(

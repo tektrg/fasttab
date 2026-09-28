@@ -196,7 +196,7 @@ exists) is exempt; the final reply is still checked.
   (the phone's second press) — folder/command/args always come from the
   registry. The remote audit line's `rowId` is the persona name.
   `text` follows the Send message rules
-  (`validate_message_text`: one line, <= 2000 chars, tabs become spaces
+  (`validate_message_text`: one line, <= 8000 chars, tabs become spaces
   like AgentBar's `TerminalSafeText`, no other terminal control
   characters, no slash command beyond `/clear`/`/compact`). `fresh` must
   be a JSON bool if sent.

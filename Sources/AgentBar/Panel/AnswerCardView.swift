@@ -11,6 +11,7 @@ struct AnswerCardView: View {
     /// The agent whose details were just copied (for the "Copied" feedback), and the copy action.
     var copiedAgentID: String?
     var onCopy: () -> Void = {}
+    var onOpen: () -> Void = {}
 
     var body: some View {
         if let card = answer.card {
@@ -37,6 +38,7 @@ struct AnswerCardView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            OpenAgentButton(onOpen: onOpen)
             CopyIdentityButton(isCopied: copiedAgentID == card.agentID, showsLabel: true, onCopy: onCopy)
         }
         .padding(.horizontal, 18)

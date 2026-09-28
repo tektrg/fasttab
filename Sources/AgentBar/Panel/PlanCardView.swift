@@ -11,6 +11,7 @@ struct PlanCardView: View {
     let bodyHeight: CGFloat
     var copiedAgentID: String?
     var onCopy: () -> Void = {}
+    var onOpen: () -> Void = {}
 
     static let feedbackFieldHeight: CGFloat = 62
 
@@ -18,7 +19,7 @@ struct PlanCardView: View {
         VStack(alignment: .leading, spacing: 0) {
             AgentCardHeader(
                 label: card.label, projectName: card.projectName, agentID: card.agentID,
-                copiedAgentID: copiedAgentID, onCopy: onCopy
+                copiedAgentID: copiedAgentID, onCopy: onCopy, onOpen: onOpen
             )
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {

@@ -68,12 +68,14 @@ struct CornerCardView: View {
         if model.answer.isOpen {
             AnswerCardView(
                 answer: model.answer, bodyHeight: bodyHeight,
-                copiedAgentID: model.copier.copiedAgentID, onCopy: { model.copyOpenCardIdentity() }
+                copiedAgentID: model.copier.copiedAgentID, onCopy: { model.copyOpenCardIdentity() },
+                onOpen: { model.openCardAgent() }
             )
         } else if model.permission.isOpen {
             PermissionCardView(
                 permission: model.permission, bodyHeight: bodyHeight,
-                copiedAgentID: model.copier.copiedAgentID, onCopy: { model.copyOpenCardIdentity() }
+                copiedAgentID: model.copier.copiedAgentID, onCopy: { model.copyOpenCardIdentity() },
+                onOpen: { model.openCardAgent() }
             )
         } else {
             // The blocker resolved between the machine's effect and this redraw (the next status

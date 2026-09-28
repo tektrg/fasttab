@@ -8,6 +8,7 @@ struct AgentCardHeader: View {
     /// The agent whose details were just copied (for the "Copied" feedback), and the copy action.
     var copiedAgentID: String?
     var onCopy: () -> Void = {}
+    var onOpen: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 8) {
@@ -21,6 +22,7 @@ struct AgentCardHeader: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            OpenAgentButton(onOpen: onOpen)
             CopyIdentityButton(isCopied: copiedAgentID == agentID, showsLabel: true, onCopy: onCopy)
         }
         .padding(.horizontal, 18)

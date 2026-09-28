@@ -603,8 +603,8 @@ def do_relaunch(pane_id, agent_session, machine=herdr_transport.LOCAL_MACHINE):
 
 # ── Phase 8 (v4 reach): pure helpers for Send message ──
 
-#: Free text over 2000 chars is a paste, not a message — refuse it.
-MESSAGE_MAX_CHARS = 2000
+#: Free text over 8000 chars is a paste, not a message — refuse it.
+MESSAGE_MAX_CHARS = 8000
 
 #: A prompt line holding typed-but-unsubmitted text. Claude renders the live
 #: input as `❯ <text>`; opencode's prompt markers vary, hence the set.

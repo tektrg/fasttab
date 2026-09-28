@@ -247,7 +247,7 @@ export interface AgentRow {
   // How a message reaches it: "pane" (typed into herdr) or "inbox" (the
   // session's own peer socket — arrives as a message from another agent, so
   // it can't approve permissions). null/absent = can't be messaged.
-  messageVia?: "pane" | "inbox" | null;
+  messageVia?: "pane" | "inbox" | "wake" | null;
   // herdr's agent tool for a pane row ("claude", "opencode", "codex", …).
   agentKind?: string | null;
   // Set when the server refuses every message to this row (a non-Claude

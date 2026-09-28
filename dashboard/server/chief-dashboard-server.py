@@ -202,6 +202,7 @@ import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
 import tui_status_events  # noqa: E402  (OpenCode/Codex status events)
 import session_inbox  # noqa: E402  (message to a Desktop/CLI session)
+import desktop_wake  # noqa: E402  (message a sleeping Desktop session: wake it first)
 import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook bridge)
 import persona_start  # noqa: E402  (POST /api/persona/start, P3)
 import persona_remote  # noqa: E402  (persona list/start on the remote listener)
@@ -307,6 +308,8 @@ def get_board_state(row_kind="session", view_id=None):
     board = STORE.build_session_board(agents, view_id=view_id)
     _annotate_live_rows(board, agents)
     _annotate_ended_rows(board)
+    desktop_wake.annotate_wakeable_rows(
+        board.get("rows"), state.get("computed", {}).get("sleepingSessions"))
     return board
 
 
@@ -317,6 +320,9 @@ def get_state_with_board():
     state["board"] = STORE.build_session_board(agents)
     _annotate_live_rows(state["board"], agents)
     _annotate_ended_rows(state["board"])
+    desktop_wake.annotate_wakeable_rows(
+        state["board"].get("rows"),
+        state.get("computed", {}).get("sleepingSessions"))
     # Agent hierarchy (scripts/lib/agent_tree.py): same object GET
     # /api/agent-tree returns, folded into every /api/state response and SSE
     # tick so AgentBar never needs a second poll loop. Best-effort: a tree
@@ -715,6 +721,19 @@ def _handle_inbox_message(agent, body, row_id, actor, text):
     prompt is pending, confirm when busy) and the same audit rows."""
     result = session_inbox.deliver_row_message(
         agent, text, bool((body or {}).get("confirm")))
+    return _audit_inbox_result(result, row_id, actor, text)
+
+
+def _handle_sleeping_message(sleeping, body, row_id, actor, text):
+    """The Send-message path for an ENDED row that is a sleeping Claude
+    Desktop session: confirm, wake it (desktop_wake.py), deliver via its
+    inbox. Same response shapes + audit rows as the inbox path."""
+    result = desktop_wake.deliver_to_sleeping(
+        sleeping, text, bool((body or {}).get("confirm")))
+    return _audit_inbox_result(result, row_id, actor, text)
+
+
+def _audit_inbox_result(result, row_id, actor, text):
     if result.get("ok"):
         # Same frozen `reason` shape as the pane path (the history reader
         # parses it); the full body rides in `text`.
@@ -764,6 +783,10 @@ def _handle_reach_action(action, body, row_id, actor):
     agent = next((a for a in agents
                   if resolve_agent_row_id(a) == row_id), None)
     if agent is None:
+        sleeping = desktop_wake.find_sleeping(
+            row_id, state.get("computed", {}).get("sleepingSessions"))
+        if sleeping:
+            return _handle_sleeping_message(sleeping, body, row_id, actor, text)
         return _refused_before_typing(
             f"row {row_id} is not live — no agent there to read it")
     blind = message_gate.blind_agent_refusal(agent)

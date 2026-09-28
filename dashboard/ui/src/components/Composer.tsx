@@ -10,7 +10,7 @@ import {
   sendMessage,
   type SessionActionResult,
 } from "../sessionActions";
-import { INBOX_CAPTION, messagesViaInbox } from "../openInClaude";
+import { INBOX_CAPTION, WAKE_CAPTION, messagesViaInbox, wakesToMessage } from "../openInClaude";
 
 interface SentRow {
   rowId: string;
@@ -208,6 +208,11 @@ export function Composer({
       {anyInbox && (
         <Text size="xs" c="dimmed" mt={4} className="composer-inbox-note">
           {INBOX_CAPTION}
+        </Text>
+      )}
+      {targets.some((m) => wakesToMessage(m.row)) && (
+        <Text size="xs" c="dimmed" mt={4} className="composer-wake-note">
+          {WAKE_CAPTION}
         </Text>
       )}
       {evaled.refused.length > 0 && (

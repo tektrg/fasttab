@@ -38,7 +38,16 @@ export function openInClaudeLink(
   return { href: url, label: "Open in Claude", title: "Opens this session in the Claude app on this Mac" };
 }
 
-/** True when a message to this row goes through the session inbox. */
+export const WAKE_CAPTION = "Asleep — sending wakes it in Claude on the Mac first";
+
+/** True when a message to this row goes through the session inbox — a live
+ *  one, or a sleeping Claude Desktop session the server wakes first ("wake"). */
 export function messagesViaInbox(row: Pick<AgentRow, "messageVia" | "paneId"> | null | undefined): boolean {
-  return !row?.paneId && row?.messageVia === "inbox";
+  return !row?.paneId && (row?.messageVia === "inbox" || row?.messageVia === "wake");
+}
+
+/** An ENDED row that is a sleeping Claude Desktop session: messageable,
+ *  the server wakes it first (server/lib/desktop_wake.py). */
+export function wakesToMessage(row: { status?: string; derived?: Pick<AgentRow, "messageVia" | "paneId"> } | null | undefined): boolean {
+  return row?.status === "ended" && !row.derived?.paneId && row.derived?.messageVia === "wake";
 }

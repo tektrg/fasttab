@@ -1,3 +1,4 @@
+import { wakesToMessage } from "./openInClaude";
 import type { AgentRow, BoardRow, SessionActionState } from "./types";
 import { LOGGED_OUT_ERROR } from "./api";
 
@@ -272,7 +273,7 @@ export function evaluateMessageBulk(rows: BoardRow[]): BulkEval {
   let totalBytes = 0;
   for (const row of rows) {
     totalBytes += rowMemoryBytes(row) ?? 0;
-    if (row.status === "ended") {
+    if (row.status === "ended" && !wakesToMessage(row)) {
       refused.push({
         row,
         state: {

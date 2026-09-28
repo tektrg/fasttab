@@ -12,7 +12,7 @@ import { PaneScreen } from "../PaneScreen";
 import { RowDetailExtras } from "../RowDetailExtras";
 import { Composer } from "../Composer";
 import { OpenInClaudeButton } from "../OpenInClaudeButton";
-import { messagesViaInbox } from "../../openInClaude";
+import { messagesViaInbox, wakesToMessage } from "../../openInClaude";
 import { blindAgentCaption, messageRefusal, takesQuickCommands } from "../../messageGates";
 import { isQueued, sendMessage } from "../../sessionActions";
 
@@ -90,6 +90,8 @@ export function PhoneSheet({
   const blind = messageRefusal(row.derived) !== null;
   const quick = takesQuickCommands(row);
   const ended = row.status === "ended";
+  // A sleeping Claude Desktop session: ended, but the server wakes it to deliver.
+  const wakeable = wakesToMessage(row);
   const lastLine = String(row.values["derived:lastline"] ?? "").trim();
   const actions = rowActions(row);
   const endStage = resolveEndStage(actions);
@@ -257,7 +259,7 @@ export function PhoneSheet({
             ))}
           </div>
         )}
-        {!ended && canMessage && !blind && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} />}
+        {(!ended || wakeable) && canMessage && !blind && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} />}
         {!ended && blind && (
           <div className="phone-sheet-gate-note">{blindAgentCaption(row.derived.agentKind)}</div>
         )}

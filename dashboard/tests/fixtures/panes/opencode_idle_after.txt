@@ -1,0 +1,40 @@
+  ┃
+  ┃  create a file named hello.txt containing hi
+  ┃
+
+     Thought · 4.3s
+
+     Creating hello.txt with your message.
+
+     → Read .
+
+     Thought · 733ms
+
+  ┃
+  ┃  # Wrote hello.txt
+  ┃
+  ┃   1 hi
+  ┃
+
+     Thought · 148ms
+
+     Created hello.txt containing hi.
+
+     ▣  Build · Muse Spark 1.3 Free · 1m 38s
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · Muse Spark 1.3 Free OpenCode Zen
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /tmp/scratch/demo-  15.3K (1% ctrl+p
+   agent-samples/oc                                                         commands

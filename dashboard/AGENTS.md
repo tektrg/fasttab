@@ -250,6 +250,19 @@ exists) is exempt; the final reply is still checked.
   `idle`/`done`; `unknown` ignored) stands in as `screenState`
   (`pane_screen_signals.screen_state_with_herdr_fallback`); new field
   `screenStateSource` = `screen` | `herdr` | null. Local rows only.
+- OpenCode + Codex screen reads: `server/lib/other_tui_screens.py`
+  (`opencode_state`, `codex_state`, `prompt_open`), wired into `classify()` via
+  `pane_screen_signals.other_tui_state`. An open question picker / permission
+  box / Codex trust picker reads `NEEDS_HUMAN` (same as Claude's);
+  `prompt_open(tail)` → `permission` | `question` | None is the gate for
+  answering/messaging. Gotchas (live 2026-09-28): OpenCode's question picker
+  REPLACES its `╹▀` prompt box (so the old check read it `UNKNOWN`); Codex
+  detects by banner / `› Ask Codex…` placeholder / `• Working (… esc to
+  interrupt)`; Codex footer shows no context % (use its rollout
+  `token_count`); a narrow OpenCode footer cuts `15.3K (1%)` to `15.3K (1%`.
+  Permission-box wording for both tools is GUESS (both auto-allowed in-workspace
+  writes). Fixtures: `tests/fixtures/panes/*.txt`; test
+  `tests/test_other_tui_screens.py`.
 
 ## Sleeping Claude Desktop sessions (`computed.sleepingSessions`)
 Term: **sleeping session** = a Claude Desktop code session with no running

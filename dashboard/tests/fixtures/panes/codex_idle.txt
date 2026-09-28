@@ -1,0 +1,19 @@
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0-alpha.6.2)                     │
+│                                                          │
+│ model:     gpt-5.6-sol medium   /model to change         │
+│ directory: /tmp/scratch/…s/…/agent-samples/cx │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: This is GPT-6, a new generation of intelligence. Astra is state-of-the-art in coding, computer use, science, and
+  professional work. Give it a hard problem, a half-formed idea, or anything you've been meaning to build. See where it
+  takes you.
+
+⚠ 1 MCP startup issue · ctrl + t for details
+
+• You have 1 usage limit reset available. Run /usage to use one.
+
+
+› Ask Codex to do anything
+
+  gpt-5.6-sol medium · /tmp/scratch/demo-3…

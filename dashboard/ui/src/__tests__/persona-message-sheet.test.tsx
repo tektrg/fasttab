@@ -216,6 +216,56 @@ describe("PersonaMessageSheet", () => {
     unmount();
   });
 
+  test("closing the sheet drops an armed start: reopening needs both presses again", async () => {
+    const calls = stubFetch({ "/api/persona/start": { ok: true, mode: "started" } });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const render = (opened: boolean) =>
+      act(() => {
+        root.render(
+          <MantineProvider theme={theme}>
+            <PersonaMessageSheet opened={opened} rows={[]} onClose={() => {}} onToast={() => {}} />
+          </MantineProvider>,
+        );
+      });
+    render(true);
+    await settle();
+    pick("phone-ok");
+    typeMessage("hi");
+    act(() => button("Resume")!.click());
+    expect(button("Confirm resume")).toBeTruthy();
+    render(false);
+    await settle();
+    render(true);
+    await settle();
+    pick("phone-ok");
+    expect(button("Confirm resume")).toBeUndefined();
+    act(() => button("Resume")!.click());
+    await settle();
+    expect(posts(calls, "/api/persona/start")).toEqual([]);
+    act(() => root.unmount());
+  });
+
+  test("a held (auto-repeating) Enter never confirms a start", async () => {
+    const calls = stubFetch({ "/api/persona/start": { ok: true, mode: "started" } });
+    const unmount = mount([]);
+    await settle();
+    pick("phone-ok");
+    typeMessage("hi");
+    const input = document.querySelector('input[aria-label="message"]') as HTMLInputElement;
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", repeat: true, bubbles: true }));
+    });
+    await settle();
+    expect(button("Confirm resume")).toBeTruthy(); // armed by the first press only
+    expect(posts(calls, "/api/persona/start")).toEqual([]);
+    unmount();
+  });
+
   test("no persona at all -> points at Settings", async () => {
     stubFetch({}, []);
     const unmount = mount([]);

@@ -20,6 +20,8 @@ Content-Type gate before calling in here.
   opted in gets the same wording as an unknown name, so the phone can't
   probe which names exist. Then hands the SAME registry snapshot to
   `persona_start.start_persona` (no re-read between check and start)."""
+import os
+
 import persona_start
 import personas
 
@@ -61,4 +63,17 @@ def start_persona_remote(body, deps=None):
             return {"ok": False, "error": f"unknown persona {name!r}"}
     deps.registry = registry  # pin the snapshot the check above used
     start_body = {k: v for k, v in body.items() if k != "confirm"}
-    return persona_start.start_persona(start_body, deps)
+    result = persona_start.start_persona(start_body, deps)
+    if isinstance(result.get("error"), str):
+        result = dict(result, error=_without_paths(result["error"], registry))
+    return result
+
+
+def _without_paths(text, registry):
+    """A refusal as the phone may see it: no persona folder, no home path."""
+    for persona in registry.get("personas", {}).values():
+        for path in (persona.get("resolvedFolder"), persona.get("folder")):
+            if path:
+                text = text.replace(path, "its folder")
+    home = os.path.expanduser("~")
+    return text.replace(home + os.sep, "~" + os.sep)

@@ -81,6 +81,12 @@ for label, setup, needle in (
     check(f"{label} key: refused", (result["ok"], needle in result["error"]), (False, True))
     check(f"{label} key: the refusal names where the key goes", KEY_FILE in result["error"], True)
     check(f"{label} key: no network call", net.calls, [])
+write_key(value="sk-or-SENTINEL\nsecond-line")
+net = FakeNet()
+result = jev_route.route_message({"text": "hi"}, deps(net))
+check("a key with a line break inside: refused, no network",
+      (result["ok"], "one line" in result["error"], net.calls), (False, True, []))
+check("...and the refusal never echoes the key", "SENTINEL" in result["error"], False)
 link = os.path.join(_tmp, "key-link")
 write_key()
 os.symlink(KEY_FILE, link)
@@ -123,7 +129,9 @@ for label, net, needle in (
         ("offline persona picked", FakeNet(reply={"answers": {"route": {"choice": "persona:air-only"}}}),
          "unknown agent"),
         ("timeout", FakeNet(raises=TimeoutError("timed out")), "timed out"),
-        ("unreachable", FakeNet(raises=OSError("connection refused")), "could not reach")):
+        ("unreachable", FakeNet(raises=OSError("connection refused")), "could not reach"),
+        ("any other error (its text holds the key)",
+         FakeNet(raises=ValueError(f"bad header Bearer {SENTINEL_KEY}")), "failed before")):
     result = jev_route.route_message({"text": "hi"}, deps(net))
     check(f"{label}: refused", (result["ok"], needle in result.get("error", "")), (False, True))
     check(f"{label}: never leaks the key", SENTINEL_KEY in json.dumps(result), False)

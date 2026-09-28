@@ -89,6 +89,10 @@ def load_openrouter_key(path=None):
         raise JevRouteError(f"Jev routing is off: {shown} can't be read.")
     if not value:
         raise JevRouteError(f"Jev routing is off: {shown} is empty.")
+    # One printable token only: anything else would break the header, and
+    # the resulting exception text would carry the key into the log.
+    if not all(33 <= ord(ch) <= 126 for ch in value):
+        raise JevRouteError(f"Jev routing is off: {shown} must hold just the key, on one line.")
     return value
 
 
@@ -224,6 +228,10 @@ def route_message(body, deps=None):
             if isinstance(reason, TimeoutError) or "timed out" in str(e):
                 raise JevRouteError("Jev routing timed out.")
             raise JevRouteError("Jev routing could not reach OpenRouter.")
+        except Exception:
+            # Never let an exception (whose text may hold the request, key
+            # included) reach the server's traceback log.
+            raise JevRouteError("Jev routing failed before OpenRouter answered.")
         finally:
             deps.limiter.release()
         return parse_pick(status, reply, criteria)

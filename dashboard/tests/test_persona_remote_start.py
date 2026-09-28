@@ -132,6 +132,17 @@ try:
 finally:
     persona_start.start_persona = _real_start
 
+persona_start.start_persona = lambda body, deps=None: {
+    "ok": False, "error": f"'phone-ok''s folder {PHONE_DIR} doesn't exist; home {os.path.expanduser('~')}/x"}
+try:
+    result = persona_remote.start_persona_remote({"persona": "phone-ok", "text": "hi", "confirm": True},
+                                                 persona_start.StartDeps(registry=REG))
+    check("a refusal never shows the phone a folder path",
+          (PHONE_DIR in result["error"], FAKE_HOME in result["error"], "its folder" in result["error"]),
+          (False, False, True))
+finally:
+    persona_start.start_persona = _real_start
+
 result = persona_remote.start_persona_remote({"persona": "phone-ok", "text": "a\nb", "confirm": True},
                                              persona_start.StartDeps(registry=REG))
 check("the shared message rules still apply", (result["ok"], "newline" in result["error"]),

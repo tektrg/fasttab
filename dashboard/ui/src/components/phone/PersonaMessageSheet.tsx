@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Modal, Radio, Switch, TextInput } from "@mantine/core";
 import type { BoardRow } from "../../types";
 import { listPersonas, routeWithJev, startPersona, type PersonaSummary } from "../../api";
@@ -20,6 +20,12 @@ import {
  *    asks to confirm the queue);
  *  - nothing running -> Start/Resume, which needs a second press, and only
  *    for personas the Mac allows (`remoteStart`) — the server checks again. */
+/** "<description> · → <effect>", or why that effect can't happen here. */
+function personaCaption(p: PersonaSummary, effect: PersonaEffect): string {
+  const blocked = isStartEffect(effect) ? startRefusal(p) : null;
+  return `${p.description} · → ${blocked ? `not running — ${blocked}` : EFFECT_TEXT[effect]}`;
+}
+
 export function PersonaMessageSheet({
   opened,
   rows,
@@ -42,12 +48,21 @@ export function PersonaMessageSheet({
   // Second-press states: a start, or queueing into a busy main session.
   const [armedStart, setArmedStart] = useState(false);
   const [queueReason, setQueueReason] = useState<string | null>(null);
+  // Read by the async Jev reply: drop it if the text changed or the sheet closed.
+  const askedTextRef = useRef(text);
+  askedTextRef.current = text;
+  const openedRef = useRef(opened);
+  openedRef.current = opened;
 
   useEffect(() => {
     if (!opened) return;
     let dead = false;
+    // A reopened sheet never inherits a pending confirm or an old Jev pick.
     setError(null);
     setLoadFailed(false);
+    setArmedStart(false);
+    setQueueReason(null);
+    setJevPick(null);
     listPersonas().then((list) => {
       if (dead) return;
       const offered = (list ?? []).filter((p) => !p.offline);
@@ -61,16 +76,17 @@ export function PersonaMessageSheet({
     // `persona` only keeps a still-listed choice; re-list on open only.
   }, [opened]);
 
-  // Any change to what would happen disarms a pending confirm.
-  useEffect(() => {
-    setArmedStart(false);
-    setQueueReason(null);
-  }, [persona, text, forceNew]);
-
   const chosen = personas?.find((p) => p.name === persona);
   const effectOf = (p: PersonaSummary, forced: boolean): PersonaEffect =>
     deriveEffect(mainSession(p, rows), p.idleStart, forced);
   const effect = chosen ? effectOf(chosen, forceNew) : null;
+
+  // Any change to what would happen (incl. the board: the main session
+  // ended or got busy) disarms a pending confirm.
+  useEffect(() => {
+    setArmedStart(false);
+    setQueueReason(null);
+  }, [persona, text, forceNew, effect]);
   const refusal = !chosen || !effect
     ? null
     : effect === "mainWaitingOnYou"
@@ -88,8 +104,10 @@ export function PersonaMessageSheet({
     setBusy("jev");
     setError(null);
     setJevPick(null);
-    const res = await routeWithJev(text.trim());
+    const askedText = text;
+    const res = await routeWithJev(askedText.trim());
     setBusy(null);
+    if (askedTextRef.current !== askedText || !openedRef.current) return; // stale reply
     if (res.ok && res.persona && personas?.some((p) => p.name === res.persona)) {
       setPersona(res.persona);
       setForceNew(false);
@@ -182,7 +200,7 @@ export function PersonaMessageSheet({
                   key={p.name}
                   value={p.name}
                   label={p.name}
-                  description={`${p.description} · → ${EFFECT_TEXT[effectOf(p, false)]}`}
+                  description={personaCaption(p, effectOf(p, false))}
                   className="persona-sheet-item"
                 />
               ))}
@@ -212,8 +230,10 @@ export function PersonaMessageSheet({
           placeholder="Message…"
           aria-label="message"
           enterKeyHint="send"
+          disabled={busy === "jev"}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void submit();
+            // A held Enter auto-repeats: never let it press "confirm" too.
+            if (e.key === "Enter" && !e.repeat) void submit();
           }}
         />
         <div className="phone-sheet-actions">

@@ -243,13 +243,21 @@ public final class ReaderViewModel: ObservableObject {
             selectedText: selectedText,
             color: color,
             serializedRange: serializedRange,
-            title: title,
+            title: highlightTitle,
             urlString: url.absoluteString
         )
         highlightStore.add(h)
         statsRecorder.recordHighlight(url: url, title: title)
         highlights = highlightStore.highlights(for: url)
         pendingHighlightToApply = h
+    }
+
+    /// The opening title can be a bare host (`x.com`); the extracted article's title is the real one.
+    private var highlightTitle: String {
+        guard ReaderHighlightTitleResolver.isPlaceholder(title, for: url),
+              case .loaded(let article) = loadState,
+              !ReaderHighlightTitleResolver.isPlaceholder(article.title, for: url) else { return title }
+        return article.title
     }
 
     public func removeHighlight(id: String) {

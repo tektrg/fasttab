@@ -131,6 +131,15 @@ final class ReaderTests: XCTestCase {
         store.removeAll(for: url)
     }
 
+    func testHostOnlyTitleIsTreatedAsPlaceholder() {
+        let url = URL(string: "https://x.com/someone/status/123")!
+        for placeholder in ["", "  ", "x.com", "X.com", "www.x.com", "https://x.com/someone/status/123"] {
+            XCTAssertTrue(ReaderHighlightTitleResolver.isPlaceholder(placeholder, for: url), placeholder)
+        }
+        XCTAssertFalse(ReaderHighlightTitleResolver.isPlaceholder("Agents work best when the loop is short", for: url))
+        XCTAssertFalse(ReaderHighlightTitleResolver.isPlaceholder("X", for: url))
+    }
+
     func testLastOpenedStorePreservesReadingProgressOnReopen() {
         let store = LastOpenedStore.shared
         let url = URL(string: "https://example.com/preserve")!

@@ -131,13 +131,26 @@ public enum ReaderHighlightTitleResolver {
     /// and rewrites its access index, too costly to repeat on every carousel re-render.
     @MainActor private static var cachedTitles: [String: String] = [:]
 
+    /// True when `title` carries no more than the URL does: empty, the bare host
+    /// (`x.com`, `www.x.com`) or the URL itself. Links opened from lists that only know the
+    /// host (X posts, mostly) pass such a title into the Reader, so it gets stored as-is.
+    public static func isPlaceholder(_ title: String, for url: URL?) -> Bool {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !t.isEmpty else { return true }
+        guard let url else { return false }
+        func bare(_ s: String) -> String { s.hasPrefix("www.") ? String(s.dropFirst(4)) : s }
+        let host = (url.host() ?? "").lowercased()
+        return bare(t) == bare(host) || t == url.absoluteString.lowercased()
+            || t.hasPrefix("http://") || t.hasPrefix("https://")
+    }
+
     @MainActor
     public static func resolve(for highlight: ReaderHighlight) -> String {
-        if let stored = highlight.title, !stored.isEmpty {
+        if let stored = highlight.title, !isPlaceholder(stored, for: highlight.articleURL) {
             return stored
         }
         guard let url = highlight.articleURL else {
-            return highlight.urlKey
+            return highlight.title ?? highlight.urlKey
         }
         if let memo = cachedTitles[highlight.urlKey] {
             return memo
@@ -147,7 +160,7 @@ public enum ReaderHighlightTitleResolver {
             return cached
         }
         if let lastOpened = LastOpenedStore.shared.items.first(where: { $0.url == url.absoluteString })?.title,
-           !lastOpened.isEmpty {
+           !isPlaceholder(lastOpened, for: url) {
             return lastOpened
         }
         return url.host() ?? highlight.urlKey

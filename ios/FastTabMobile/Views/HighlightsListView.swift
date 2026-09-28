@@ -23,7 +23,8 @@ public struct HighlightsListView: View {
         return HighlightFeedModel.entries(
             from: store.allHighlightsNewestFirst(),
             articleTitle: { highlight in
-                if let stored = highlight.title, !stored.isEmpty { return stored }
+                if let stored = highlight.title,
+                   !ReaderHighlightTitleResolver.isPlaceholder(stored, for: highlight.articleURL) { return stored }
                 if let title = titlesByKey[highlight.urlKey] { return title }
                 let title = ReaderHighlightTitleResolver.resolve(for: highlight)
                 titlesByKey[highlight.urlKey] = title

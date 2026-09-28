@@ -99,7 +99,9 @@ _real_rows = persona_start.StartDeps.live_agent_rows
 persona_start.StartDeps.live_agent_rows = lambda self: []
 try:
     # The REAL start_persona: the name lookup refuses before herdr is touched.
-    for name in ("hidden-phone", "draft-phone", "no-such-persona", " phone-ok"):
+    for name in ("hidden-phone", "draft-phone", "no-such-persona", " phone-ok", "phone-ok ",
+                 "PHONE-OK", "Phone-Ok", f"local:{PHONE_DIR}", PHONE_DIR, "../phone-ok",
+                 "phone-ok/../desk-only", "local:~/draft", "phone-ok\n", "phone-ok\x00"):
         result = persona_remote.start_persona_remote({"persona": name, "text": "hi", "confirm": True},
                                                      persona_start.StartDeps(registry=REG))
         check(f"{name!r}: refused as unknown", (result["ok"], "unknown persona" in result["error"]),
@@ -167,6 +169,26 @@ check("edit remoteStart: refused as unknown field", (result["ok"], "remoteStart"
       (False, True))
 check("registry view has no remoteStart", "remoteStart" in persona_registry_edit.registry_view()["personas"][0],
       False)
+
+print("\n== Settings save round-trip: an old file still holding remoteStart ==")
+write_registry({f"local:{DESK_DIR}": entry("desk-only", remoteStart=True),
+                f"local:{PHONE_DIR}": entry("phone-ok", remoteStart="yes")})
+for persona_name in ("desk-only", "phone-ok"):
+    # What AgentBar's Settings editor sends (PersonaDraft.wireFields: every editable field).
+    result = persona_registry_edit.apply_registry_action({
+        "action": "edit", "persona": persona_name, "fields": {
+            "name": persona_name, "description": "Edited $(echo INJECTED).", "routesWhen": ["a"],
+            "notFor": [], "extraInstructions": "", "idle": "resume", "resumeWithinDays": 3}})
+    check(f"{persona_name}: save succeeds with a leftover remoteStart in the file", result["ok"], True)
+with open(REGISTRY_FILE) as f:
+    saved = json.load(f)["personas"]
+check("the leftover key is kept untouched (unknown keys are preserved)",
+      (saved[f"local:{DESK_DIR}"].get("remoteStart"), saved[f"local:{PHONE_DIR}"].get("remoteStart")),
+      (True, "yes"))
+check("the text is stored literally", saved[f"local:{DESK_DIR}"]["description"], "Edited $(echo INJECTED).")
+check("both edited personas stay offered after the save",
+      sorted(p["name"] for p in personas.offered_personas(personas.load_registry(REGISTRY_FILE)).values()),
+      ["desk-only", "phone-ok"])
 
 print("\n== server routes ==")
 _spec = importlib.util.spec_from_file_location(

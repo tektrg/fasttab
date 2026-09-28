@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import FastTabSync
 
 /// Where a `RandomCardItem` came from — shown as the small badge on each card,
@@ -54,6 +55,7 @@ enum RandomCardMenuAction {
 public struct RandomLinksView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var skipStore = RandomFeedSkipStore.shared
+    private let shuffleSwipeTip = ShuffleSwipeTip()
 
     @State private var deck: [RandomCardItem] = []
     @State private var hasBuiltInitialDeck = false
@@ -73,6 +75,9 @@ public struct RandomLinksView: View {
             if deck.isEmpty {
                 emptyState
             } else {
+                TipView(shuffleSwipeTip)
+                    .fastTabTipStyle()
+                    .padding([.horizontal, .top], DS.Space.gutter)
                 deckStack
                     .padding(DS.Space.gutter)
             }
@@ -237,6 +242,7 @@ public struct RandomLinksView: View {
     }
 
     private func handle(_ decision: RandomCardDecision, for item: RandomCardItem) {
+        shuffleSwipeTip.invalidate(reason: .actionPerformed)
         switch decision {
         case .moveTo:
             moveRequest = item

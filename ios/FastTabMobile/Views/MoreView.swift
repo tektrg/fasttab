@@ -1,10 +1,12 @@
 import SwiftUI
+import TipKit
 import FastTabSync
 
 public struct MoreView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var syncConsumer = SyncConsumer.shared
     @StateObject private var statsViewModel = StatsViewModel()
+    private let intelligenceTip = IntelligenceTip()
     @AppStorage(TabBookmarkClosePreference.defaultsKey)
     private var tabBookmarkClosePreferenceRaw = TabBookmarkClosePreference.ask.rawValue
     @AppStorage(ReadingGoal.defaultsKey) private var dailyWordGoal = ReadingGoal.defaultDailyWords
@@ -86,9 +88,15 @@ public struct MoreView: View {
                     }
                 }
 
+                TipView(intelligenceTip)
+                    .fastTabTipStyle()
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+
                 NavigationLink {
                     IntelligenceView()
                         .navigationTitle("Intelligence")
+                        .onAppear { intelligenceTip.invalidate(reason: .actionPerformed) }
                 } label: {
                     MoreRowLabel(
                         systemImage: "sparkles",

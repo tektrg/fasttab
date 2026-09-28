@@ -12,7 +12,9 @@ public struct FastTabMobileApp: App {
     /// An article a widget tap asked to open (`WidgetDeepLink.read`).
     @State private var widgetReaderItem: ReaderNavigationItem?
 
-    public init() {}
+    public init() {
+        FastTabTips.configure(onboardingCompleted: OnboardingCompletionStore().isCompleted)
+    }
 
     public var body: some Scene {
         WindowGroup {
@@ -60,6 +62,7 @@ public struct FastTabMobileApp: App {
             .fullScreenCover(item: $onboardingPresenter.fullScreen) { presentation in
                 OnboardingFlowView(route: presentation.route) { exit in
                     OnboardingCompletionStore().markCompleted()
+                    FastTabTips.isOnboardingCompleted = true
                     onboardingPresenter.fullScreen = nil
                     if exit == .finished { selectedTab = .read }
                 }
@@ -117,7 +120,11 @@ public struct FastTabMobileApp: App {
 private extension FastTabMobileApp {
     func presentOnboardingOnFirstLaunch() {
         let hasCachedMac = localCache.state.connectedMac != nil
-        guard OnboardingCompletionStore().resolveLaunchPresentation(hasCachedMac: hasCachedMac) else { return }
+        let completionStore = OnboardingCompletionStore()
+        let shouldPresentGuide = completionStore.resolveLaunchPresentation(hasCachedMac: hasCachedMac)
+        // An upgrading user was just marked done: let their tips show.
+        FastTabTips.isOnboardingCompleted = completionStore.isCompleted
+        guard shouldPresentGuide else { return }
         onboardingPresenter.present(.fullGuide)
     }
 }

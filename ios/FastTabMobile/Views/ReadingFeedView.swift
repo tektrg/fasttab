@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import FastTabSync
 
 public struct ReadingFeedView: View {
@@ -20,6 +21,8 @@ public struct ReadingFeedView: View {
     private var displayRecentItems: [RecentAddedItem] {
         recentProvider.items(filteredByFolder: selectedFolder)
     }
+
+    private let emergingLanesTip = EmergingLanesTip()
 
     private var activeDeviceID: String {
         localCache.state.connectedMac?.id ?? ""
@@ -259,6 +262,9 @@ public struct ReadingFeedView: View {
                         .padding(.top, DS.Space.xs)
                 }
             } else {
+                TipView(emergingLanesTip)
+                    .fastTabTipStyle()
+                    .padding(.horizontal, DS.Space.gutter)
                 carousel(emergingProvider.items) { item in
                     let (delTitle, delIcon) = emergingDeleteInfo(for: item)
                     ReadingFeedCardView(
@@ -272,6 +278,7 @@ public struct ReadingFeedView: View {
                         deleteTitle: delTitle,
                         deleteIcon: delIcon,
                         onSelect: {
+                            emergingLanesTip.invalidate(reason: .actionPerformed)
                             openArticle(url: item.url, title: item.title)
                         },
                         onOpenOnMac: {

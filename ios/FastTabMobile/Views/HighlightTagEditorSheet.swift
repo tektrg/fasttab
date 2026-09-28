@@ -34,16 +34,23 @@ struct HighlightTagEditorSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                currentTagsSection
-                addTagSection
-                if !entry.folderTags.isEmpty { folderTagsSection }
+                Group {
+                    currentTagsSection
+                    addTagSection
+                    if !entry.folderTags.isEmpty { folderTagsSection }
+                }
+                .dsListRow()
             }
+            .dsListStyle()
             .navigationTitle("Tags")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarButtons }
             .onAppear { isFieldFocused = true }
         }
         .presentationDetents([.medium, .large])
+        // Solid, not the default glass: on a material the selected chips' `Color.primary`
+        // fill turns vibrant grey and no longer reads as a chip.
+        .presentationBackground(DS.Palette.surface)
     }
 
     private var currentTagsSection: some View {

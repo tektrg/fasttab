@@ -97,6 +97,8 @@ struct HighlightActiveFilterBar: View {
             .padding(.horizontal, DS.Space.gutter)
             .padding(.vertical, DS.Space.sm)
         }
-        .background(.bar)
+        // Solid, not a material: over `.bar` the selected chips' `Color.primary` fill turns
+        // vibrant grey and no longer reads as selected.
+        .background(DS.Palette.canvasTop)
     }
 }

@@ -1,85 +1,91 @@
 import SwiftUI
 
-/// All saved highlights across every article, newest first, grouped into one section
-/// per article (section order = that article's most recent highlight). Reached from the
-/// Read tab's "See all" and from More → Highlights.
+/// Every saved highlight in one flat feed, newest first, each shown in full with chips for
+/// its tags, its bookmark folder and its article. Tapping a chip filters the feed (chips AND
+/// together, a parent tag covers its children); search matches text, article and tag names.
+/// Filtering lives in `HighlightFeedModel`. Reached from the Read tab's "See all" and from
+/// More → Highlights.
 public struct HighlightsListView: View {
     @ObservedObject private var store = ReaderHighlightStore.shared
+    @ObservedObject private var localCache = LocalCache.shared
+    @State private var filter = HighlightFeedFilter()
+    @State private var searchText = ""
     @State private var readerItem: ReaderNavigationItem? = nil
+    @State private var taggingEntry: HighlightFeedEntry? = nil
 
     public init() {}
 
-    /// One row per distinct article, each carrying its highlights newest first; rows are
-    /// ordered by their most recent highlight since `store.allHighlightsNewestFirst()` is
-    /// already sorted newest first overall.
-    private struct ArticleGroup: Identifiable {
-        let urlKey: String
-        let title: String
-        let highlights: [ReaderHighlight]
-        var id: String { urlKey }
-    }
-
-    private var groupedByArticle: [ArticleGroup] {
-        var order: [String] = []
-        var buckets: [String: [ReaderHighlight]] = [:]
-        for highlight in store.allHighlightsNewestFirst() {
-            if buckets[highlight.urlKey] == nil {
-                order.append(highlight.urlKey)
-                buckets[highlight.urlKey] = []
-            }
-            buckets[highlight.urlKey, default: []].append(highlight)
-        }
-        return order.map { key in
-            let highlights = buckets[key] ?? []
-            let title = highlights.first.map { ReaderHighlightTitleResolver.resolve(for: $0) } ?? key
-            return ArticleGroup(urlKey: key, title: title, highlights: highlights)
-        }
+    private var allEntries: [HighlightFeedEntry] {
+        let folderTagsByKey = HighlightFolderTags.tagsByArticleKey(from: localCache.state.bookmarkBlobs)
+        return HighlightFeedModel.entries(
+            from: store.allHighlightsNewestFirst(),
+            articleTitle: { ReaderHighlightTitleResolver.resolve(for: $0) },
+            folderTags: { folderTagsByKey[$0.urlKey] ?? [] }
+        )
     }
 
     public var body: some View {
-        Group {
-            if groupedByArticle.isEmpty {
-                DSEmptyState(
-                    "No highlights yet",
-                    systemImage: "highlighter",
-                    message: "Long-press any text in the article reader to add a highlight. They'll show up here."
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .dsCanvas()
-            } else {
-                List {
-                    ForEach(groupedByArticle) { group in
-                        Section(group.title) {
-                            ForEach(group.highlights) { highlight in
-                                HighlightSnippetRow(
-                                    highlight: highlight,
-                                    articleTitle: group.title,
-                                    style: .row
-                                ) {
-                                    open(highlight)
-                                }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        withAnimation {
-                                            store.remove(highlight)
-                                        }
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                            }
-                        }
-                        .dsListRow()
-                    }
-                }
-                .dsListStyle()
+        let entries = allEntries
+        let visibleEntries = HighlightFeedModel.visibleEntries(entries, filter: filter, searchText: searchText)
+        return content(entries: entries, visibleEntries: visibleEntries)
+            .navigationTitle("Highlights")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchText, prompt: "Search highlights, articles, tags")
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if filter.isActive { HighlightActiveFilterBar(filter: $filter) }
             }
+            .sheet(item: $taggingEntry) { entry in
+                HighlightTagEditorSheet(entry: entry, knownTags: HighlightFeedModel.knownTags(in: entries)) { tags in
+                    store.setTags(tags, for: entry.highlight)
+                }
+            }
+            .fullScreenCover(item: $readerItem) { item in
+                ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
+            }
+    }
+
+    @ViewBuilder
+    private func content(entries: [HighlightFeedEntry], visibleEntries: [HighlightFeedEntry]) -> some View {
+        if entries.isEmpty {
+            emptyState("No highlights yet", systemImage: "highlighter",
+                       message: "Long-press any text in the article reader to add a highlight. They'll show up here.")
+        } else if visibleEntries.isEmpty {
+            emptyState("No matching highlights", systemImage: "magnifyingglass",
+                       message: "Try another search, or remove a filter.")
+        } else {
+            List {
+                ForEach(visibleEntries) { entry in
+                    feedRow(entry)
+                }
+                .dsListRow()
+            }
+            .dsListStyle()
         }
-        .navigationTitle("Highlights")
-        .navigationBarTitleDisplayMode(.inline)
-        .fullScreenCover(item: $readerItem) { item in
-            ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
-        }
+    }
+
+    private func feedRow(_ entry: HighlightFeedEntry) -> some View {
+        HighlightFeedRow(entry: entry, filter: $filter) { open(entry.highlight) }
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button(role: .destructive) { delete(entry) } label: { Label("Delete", systemImage: "trash") }
+            }
+            .swipeActions(edge: .leading) {
+                Button { taggingEntry = entry } label: { Label("Tags", systemImage: "tag") }
+                    .tint(DS.Tint.action)
+            }
+            .contextMenu {
+                Button { taggingEntry = entry } label: { Label("Edit Tags", systemImage: "tag") }
+                Button(role: .destructive) { delete(entry) } label: { Label("Delete", systemImage: "trash") }
+            }
+    }
+
+    private func emptyState(_ title: String, systemImage: String, message: String) -> some View {
+        DSEmptyState(title, systemImage: systemImage, message: message)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .dsCanvas()
+    }
+
+    private func delete(_ entry: HighlightFeedEntry) {
+        withAnimation { store.remove(entry.highlight) }
     }
 
     private func open(_ highlight: ReaderHighlight) {

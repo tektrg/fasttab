@@ -36,6 +36,12 @@ targets:
       # them yet: theindie-api does not list the "fasttab" app. See FastTabMobile/Sharing/.
       - package: IndieLibKit
         product: IndieAccount
+      # Tag paths, tag filter (AND + descendants) and tag search for the Highlights feed,
+      # plus text folding for its search. See FastTabMobile/Reader/HighlightFeedModel.swift.
+      - package: IndieLibKit
+        product: IndieTags
+      - package: IndieLibKit
+        product: IndieSearch
       - package: IndieLibKit
         product: IndieShareSync
     settings:

@@ -58,10 +58,14 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
     public let title: String?
     /// Raw article URL captured at highlight time, for opening the highlight later.
     public let urlString: String?
+    /// Tags the user put on this highlight, as `TagPath` display strings (`work/ssv`).
+    /// Bookmark-folder tags are not stored here: `HighlightFolderTags` derives them at read time.
+    public let tags: [String]
 
-    // Explicit CodingKeys so old stored JSON (no `title`/`urlString`) still decodes.
+    // Explicit CodingKeys so old stored JSON (no `title`/`urlString`/`tags`) still decodes.
+    // A decode failure here wipes every highlight on the next save, so new keys must stay optional.
     enum CodingKeys: String, CodingKey {
-        case id, urlKey, selectedText, color, serializedRange, createdAt, title, urlString
+        case id, urlKey, selectedText, color, serializedRange, createdAt, title, urlString, tags
     }
 
     public init(
@@ -72,7 +76,8 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         serializedRange: String,
         createdAt: Date = Date(),
         title: String? = nil,
-        urlString: String? = nil
+        urlString: String? = nil,
+        tags: [String] = []
     ) {
         self.id = id
         self.urlKey = urlKey
@@ -82,6 +87,7 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
         self.title = title
         self.urlString = urlString
+        self.tags = tags
     }
 
     public init(from decoder: Decoder) throws {
@@ -94,6 +100,16 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         title = try c.decodeIfPresent(String.self, forKey: .title)
         urlString = try c.decodeIfPresent(String.self, forKey: .urlString)
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+    }
+
+    /// This highlight with its user tags replaced (fields are `let`, so edits build a copy).
+    public func replacingTags(_ newTags: [String]) -> ReaderHighlight {
+        ReaderHighlight(
+            id: id, urlKey: urlKey, selectedText: selectedText, color: color,
+            serializedRange: serializedRange, createdAt: createdAt,
+            title: title, urlString: urlString, tags: newTags
+        )
     }
 }
 

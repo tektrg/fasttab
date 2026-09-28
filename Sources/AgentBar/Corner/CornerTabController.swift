@@ -93,6 +93,11 @@ final class CornerTabController {
         case .showSummaryTab:
             showSummary()
         case .updateTab(let content):
+            // Another agent blocking too must not pull the card out from under the user mid-answer.
+            if let agentID = cardOpenAgentID, content.cardableAgentIDs.contains(agentID), openCard(agentID) {
+                window.updateCard()
+                return
+            }
             closeCardIfNeeded()
             window.update(content)
         case .showCard(let agentID):
@@ -154,12 +159,13 @@ final class CornerTabController {
     private func showPillIfCardEmpty() {
         guard let agentID = cardOpenAgentID, !model.answer.isOpen, !model.permission.isOpen else { return }
         if model.openCardForCorner(agentID: agentID) { return }
-        if model.isAnswerBeingSent(agentID: agentID) {
+        let summary = panel.summary()
+        if model.isAnswerBeingSent(agentID: agentID), !summary.cardableAgentIDs.contains(where: { $0 != agentID }) {
             send(.dismissed(cardAgentID: agentID))
             return
         }
         closeCardIfNeeded()
-        window.update(panel.summary())
+        window.update(summary)
     }
 
     /// The tab or card is going away. When the main panel is what is opening, its own `resetForShow`

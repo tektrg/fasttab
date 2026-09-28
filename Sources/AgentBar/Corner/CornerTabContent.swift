@@ -14,6 +14,9 @@ struct CornerTabContent: Equatable, Sendable {
     /// `questionLoading`/`questionNotAnswerable`/plain `permission` blocker, which has no card to
     /// show, or when more than one agent is blocked (the corner falls back to the plain pill then).
     var soleCardableAgentID: String?
+    /// Every blocked agent whose blocker has a card, so a card the user already has open in the corner
+    /// stays while another agent blocks too (the pill would take it away mid-answer).
+    var cardableAgentIDs: [String] = []
 
     /// What the tab says when nothing needs the user (or the feed is down).
     static let nothingNeedsYou = CornerTabContent(count: 0, newestName: "")
@@ -49,16 +52,21 @@ struct CornerTabContent: Equatable, Sendable {
         let blocked = needsYou.filter { $0.blocker != nil }
         return CornerTabContent(
             count: needsYou.count, newestName: newest.label, blockedCount: blocked.count,
-            soleCardableAgentID: soleCardableAgentID(among: blocked)
+            soleCardableAgentID: soleCardableAgentID(among: blocked),
+            cardableAgentIDs: blocked.filter(hasCard).map(\.id)
         )
     }
 
     /// `blocked`'s one agent, when it is exactly one and its blocker is answerable/reviewable here.
     private static func soleCardableAgentID(among blocked: [AgentSnapshot]) -> String? {
-        guard blocked.count == 1, let only = blocked.first else { return nil }
-        switch only.blockedOnYou {
-        case .question?, .permissionReview?: return only.id
-        case .questionLoading?, .questionNotAnswerable?, .permission?, nil: return nil
+        guard blocked.count == 1, let only = blocked.first, hasCard(only) else { return nil }
+        return only.id
+    }
+
+    private static func hasCard(_ agent: AgentSnapshot) -> Bool {
+        switch agent.blockedOnYou {
+        case .question?, .permissionReview?: true
+        case .questionLoading?, .questionNotAnswerable?, .permission?, nil: false
         }
     }
 }

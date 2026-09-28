@@ -3103,10 +3103,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, status=404)
 
     def _handle_local_json_post(self, path, handle_body, remote_handle_body=None):
-        """Persona writes: POST /api/persona/start (P3, persona_start.py)
-        and POST /api/personas (P4, persona_registry_edit.py). Localhost
-        only (brief: "Dashboard endpoints"): refused on the remote listener
-        even when authenticated — these are local-desk actions. Then the
+        """JSON POSTs: /api/persona/start (P3, persona_start.py),
+        /api/personas (P4, persona_registry_edit.py) and /api/jev/route
+        (jev_route.py). Localhost only unless `remote_handle_body` is given
+        (persona start: opt-in `remoteStart` personas; Jev route: both
+        listeners); the registry edit stays refused on the remote listener
+        even when authenticated — a local-desk action. Then the
         Content-Type gate, before the body is parsed: a browser page can't
         send application/json cross-site without a preflight this
         dashboard never answers. `remote_handle_body`, when given, serves

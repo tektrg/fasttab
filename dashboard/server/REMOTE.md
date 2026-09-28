@@ -112,7 +112,10 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
   `persona`/`text`/`fresh` plus `confirm: true`: the registry decides the
   folder and command, so a stolen session can at most start an
   already-trusted persona in its own folder with a message (same text
-  rules as a Send). Any other name reads "unknown persona" (no probing).
+  rules as a Send). Listing offered personas' names and descriptions is
+  intended (the phone needs them to message one); a name that isn't
+  opted in — hidden, undescribed, or `remoteStart` off — gets the same
+  "unknown persona" refusal as a made-up one.
   `POST /api/personas` and `GET /api/personas/{registry,suggestions}`
   stay 403 here — editing who may be started is a desk action.
 - **`POST /api/jev/route`** (2026-09-28): Jev picks the persona for a

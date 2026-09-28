@@ -204,6 +204,27 @@ describe("PersonaMessageSheet", () => {
     unmount();
   });
 
+  test("a hand pick made while Jev is thinking wins over the late reply", async () => {
+    let release: (v: unknown) => void = () => {};
+    const gate = new Promise((r) => (release = r));
+    globalThis.fetch = (async (url: unknown) => {
+      if (String(url) === "/api/personas") return { ok: true, status: 200, json: async () => PERSONAS } as Response;
+      await gate;
+      return { ok: true, status: 200, json: async () => ({ ok: true, persona: "running", confidence: 0.9 }) } as Response;
+    }) as typeof fetch;
+    const unmount = mount([liveRow("main-1")]);
+    await settle();
+    typeMessage("hi");
+    act(() => button("Ask Jev")!.click());
+    pick("desk-only");
+    release(null);
+    await settle();
+    const chosen = document.querySelector('input[type="radio"][value="desk-only"]') as HTMLInputElement;
+    expect(chosen.checked).toBe(true);
+    expect(document.body.textContent).not.toContain("Jev picked");
+    unmount();
+  });
+
   test("a Jev failure is shown verbatim, nothing sent", async () => {
     const calls = stubFetch({ "/api/jev/route": { ok: false, error: "Jev routing is off: no OpenRouter key on the Mac." } });
     const unmount = mount([]);

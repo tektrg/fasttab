@@ -53,6 +53,8 @@ export function PersonaMessageSheet({
   askedTextRef.current = text;
   const openedRef = useRef(opened);
   openedRef.current = opened;
+  const choiceRef = useRef({ persona, forceNew });
+  choiceRef.current = { persona, forceNew };
 
   useEffect(() => {
     if (!opened) return;
@@ -105,9 +107,13 @@ export function PersonaMessageSheet({
     setError(null);
     setJevPick(null);
     const askedText = text;
+    const askedChoice = choiceRef.current;
     const res = await routeWithJev(askedText.trim());
     setBusy(null);
-    if (askedTextRef.current !== askedText || !openedRef.current) return; // stale reply
+    // Stale: the text changed, the sheet closed, or the user picked by hand meanwhile.
+    const now = choiceRef.current;
+    if (askedTextRef.current !== askedText || !openedRef.current) return;
+    if (now.persona !== askedChoice.persona || now.forceNew !== askedChoice.forceNew) return;
     if (res.ok && res.persona && personas?.some((p) => p.name === res.persona)) {
       setPersona(res.persona);
       setForceNew(false);

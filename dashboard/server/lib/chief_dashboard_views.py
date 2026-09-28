@@ -477,8 +477,11 @@ def build_needs_you(feeds_snap, agents):
     # Which machine each agent row lives on (the phone showed every Needs
     # You row as "local", even an air-m1 pane). Status-only rows have no
     # pane and are always local.
-    machine_by_pane = {(a.get("paneId") or a.get("paneIdSanitized")): a.get("machine")
-                       for a in agents}
+    machine_by_pane = {}
+    for a in agents:
+        key = a.get("paneId") or a.get("paneIdSanitized")
+        if key:
+            machine_by_pane[key] = a.get("machine")
     for row in rows:
         row["machine"] = (machine_by_pane.get(row.get("paneId"))
                           or herdr_transport.LOCAL_MACHINE)

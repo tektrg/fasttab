@@ -102,6 +102,7 @@ private enum OnboardingStep: Hashable {
     case sources
     case extensionInstall
     case safariPermission
+    case iPhoneApp
     case shortcut
 }
 
@@ -126,6 +127,7 @@ struct OnboardingView: View {
         if selectionStore.enabled.contains(.safari) {
             list.append(.safariPermission)
         }
+        list.append(.iPhoneApp)
         list.append(.shortcut)
         return list
     }
@@ -170,6 +172,9 @@ struct OnboardingView: View {
                             .transition(stepTransition)
                     case .safariPermission:
                         SafariPermissionStep(onContinue: advance)
+                            .transition(stepTransition)
+                    case .iPhoneApp:
+                        OnboardingIPhoneStep(onContinue: advance)
                             .transition(stepTransition)
                     case .shortcut:
                         ShortcutStep(onDismiss: onDismiss)
@@ -569,6 +574,7 @@ private struct ExtensionInstallStep: View {
                 .font(.system(size: 30, weight: .regular))
                 .foregroundStyle(Color.accentColor)
                 .padding(.bottom, 10)
+                .accessibilityHidden(true)
 
             Text("Sharper Recents, instant tabs")
                 .font(.system(size: 20, weight: .bold, design: .rounded))
@@ -585,7 +591,7 @@ private struct ExtensionInstallStep: View {
                 .padding(.horizontal, 36)
                 .padding(.bottom, 18)
 
-            OnboardingExtensionBenefitsView()
+            OnboardingBenefitsView(benefits: OnboardingBenefit.extensionBenefits)
                 .padding(.horizontal, 44)
                 .padding(.bottom, 20)
 
@@ -801,10 +807,6 @@ private struct ShortcutStep: View {
             automationNote
                 .padding(.horizontal, 40)
                 .padding(.bottom, 16)
-
-            OnboardingIPhoneCard()
-                .padding(.horizontal, 32)
-                .padding(.bottom, 18)
 
             if OnboardingWindowController.shared.isRestartNeededToApplyChoices {
                 Text("FastTab will restart to apply your choices.")

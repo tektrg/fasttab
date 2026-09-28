@@ -156,12 +156,60 @@ struct SleepingSessionListTests {
         #expect(ids(S.presentation(snapshot, query: "aaa", settings: settings)).isEmpty)
     }
 
-    @Test func aSleepingRowOffersNoButtonsAndIsNeverParked() throws {
+    @Test func aSleepingRowOffersOnlyOpenInClaudeAndIsNeverParked() throws {
         let row = try #require(try S.snapshot(sleeping: [S.entry("aaa", daysAgo: 1)]).agents.first)
-        #expect(RowButtons.available(for: row).isEmpty)
+        #expect(RowButtons.available(for: row).map(\.button) == [.openInClaude])
         #expect(RowButtons.menuItems(for: row).isEmpty)
+        #expect(!RowButtons.isPressable(.message, on: row))
         var triage = TriageState(parkedIDs: [row.id])
         triage.observe([row])
         #expect(!triage.isParked(row.id))              // not live: forgotten like an ended row
+    }
+}
+
+/// Open in Claude on a sleeping row does exactly what Enter does: `onActivate` (the host wakes it
+/// in Claude.app via its `claude://code/continue` link).
+@MainActor
+struct SleepingOpenInClaudeTests {
+    typealias S = SleepingFixtures
+
+    @Test func pressingOpenInClaudeActivatesTheSleepingRowLikeEnter() throws {
+        let defaults = makeScratchDefaults("sleeping-open-\(UUID().uuidString)")
+        let model = AgentPanelModel(
+            store: FrecencyStore(defaults: defaults),
+            triageStore: TriageStore(defaults: defaults),
+            routedNoteStore: RoutedNoteStore(defaults: defaults),
+            now: { Date(timeIntervalSince1970: S.serverNow) }
+        )
+        var activated: [AgentSnapshot] = []
+        model.onActivate = { activated.append($0) }
+        model.receive(try S.snapshot(sleeping: [S.entry("aaa", daysAgo: 1)]))
+        #expect(model.presentation.agents.map(\.id) == ["cli-aaa"])
+        #expect(model.press(.openInClaude, on: "cli-aaa") == nil)
+        #expect(activated.map(\.id) == ["cli-aaa"])
+        #expect(activated.first?.host == .claudeDesktop(openURL: URL(string: "claude://code/continue?session=local_aaa")))
+    }
+}
+
+/// A sleeping row is greyed, except the selected (hovered/keyboard) one, so its Open in Claude
+/// button doesn't read as disabled. Other greyed kinds keep their shade whether selected or not.
+struct SleepingRowDimmingTests {
+    typealias S = SleepingFixtures
+    typealias F = AgentListFixtures
+
+    @Test func onlyTheSelectedSleepingRowDrawsAtFullOpacity() throws {
+        let row = try #require(try S.snapshot(sleeping: [S.entry("aaa", daysAgo: 1)]).agents.first)
+        #expect(AgentRowView.dimming(of: row, isSelected: false) == 0.55)
+        #expect(AgentRowView.dimming(of: row, isSelected: true) == 1)
+    }
+
+    @Test func otherGreyedRowsKeepTheirShadeWhenSelected() {
+        let guessed = F.agent("g", section: .working, hasHookData: false)
+        let ended = F.agent("e", section: .ended)
+        for isSelected in [false, true] {
+            #expect(AgentRowView.dimming(of: guessed, isSelected: isSelected) == 0.7)
+            #expect(AgentRowView.dimming(of: ended, isSelected: isSelected) == AgentRowView.dimming(of: ended, isSelected: false))
+        }
+        #expect(AgentRowView.dimming(of: F.agent("w", section: .working), isSelected: false) == 1)   // a woken row is not greyed
     }
 }

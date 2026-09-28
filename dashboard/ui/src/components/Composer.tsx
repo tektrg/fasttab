@@ -10,6 +10,7 @@ import {
   sendMessage,
   type SessionActionResult,
 } from "../sessionActions";
+import { INBOX_CAPTION, WAKE_CAPTION, messagesViaInbox, wakesToMessage } from "../openInClaude";
 
 interface SentRow {
   rowId: string;
@@ -69,6 +70,9 @@ export function Composer({
   const targets = evaled.ready;
   const canSend =
     !busy && text.trim().length > 0 && targets.length > 0 && !pending;
+  // Claude Desktop / CLI rows have no pane: say "session", not "pane".
+  const anyInbox = targets.some((m) => messagesViaInbox(m.row.derived));
+  const allInbox = targets.length > 0 && targets.every((m) => messagesViaInbox(m.row.derived));
 
   const announce = (label: string, res: SessionActionResult) => {
     if (res.ok) {
@@ -91,7 +95,7 @@ export function Composer({
       // Not provably untyped (mid-sequence error, dropped connection): the
       // text may have landed, so never word it as a clean refusal.
       onToast(
-        `send to ${label} failed partway — it may have arrived; look at the pane before retrying: ${res.error || res.reason || "?"}`,
+        `send to ${label} failed partway — it may have arrived; check the session before retrying: ${res.error || res.reason || "?"}`,
         false,
       );
     }
@@ -169,12 +173,12 @@ export function Composer({
         <TextInput
           label={
             targets.length > 0
-              ? `Message ${targets.length === 1 ? rowLabel(targets[0].row) : `${targets.length} selected rows`} — not destructive: queues on busy panes`
+              ? `Message ${targets.length === 1 ? rowLabel(targets[0].row) : `${targets.length} selected rows`} — not destructive: queues on busy ${allInbox ? "sessions" : "panes"}`
               : "Message — select rows first"
           }
           placeholder={
             targets.length > 0
-              ? "one line to the pane(s) — Enter sends"
+              ? `one line to the ${allInbox ? "session" : "pane"}${targets.length > 1 ? "s" : ""} — Enter sends`
               : "select one or more rows to enable"
           }
           value={text}
@@ -201,6 +205,16 @@ export function Composer({
           {pending ? `Confirm queue (${pending.length})` : "Send"}
         </Button>
       </Group>
+      {anyInbox && (
+        <Text size="xs" c="dimmed" mt={4} className="composer-inbox-note">
+          {INBOX_CAPTION}
+        </Text>
+      )}
+      {targets.some((m) => wakesToMessage(m.row)) && (
+        <Text size="xs" c="dimmed" mt={4} className="composer-wake-note">
+          {WAKE_CAPTION}
+        </Text>
+      )}
       {evaled.refused.length > 0 && (
         <Text size="xs" c="dimmed" mt={4}>
           {evaled.refused.length} ended{" "}

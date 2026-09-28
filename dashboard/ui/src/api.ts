@@ -39,6 +39,10 @@ function goToRemoteLogin() {
   window.location.assign("/remote/login");
 }
 
+/** What a write shows when the remote session expired mid-flow (401). The
+ *  page itself goes to the login once its event stream notices (above). */
+export const LOGGED_OUT_ERROR = "logged out on this phone — log in again, then retry";
+
 /** One SSE subscription to /api/events (2s full state) + a /api/state fetch
  *  on load — identical shape to what the legacy page consumes. */
 export function useDashboardState(): FullState | null {
@@ -380,6 +384,7 @@ async function requestJson<T>(
       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+    if (r.status === 401) return { ok: false, error: LOGGED_OUT_ERROR } as T & { ok: boolean; error?: string };
     const parsed = await r.json();
     return { ok: r.ok && parsed.ok !== false, ...parsed };
   } catch (e) {
@@ -411,4 +416,51 @@ export async function fetchPaneScreen(
     `/api/pane/screen?paneId=${encodeURIComponent(paneId)}&lines=${lines}`,
     "GET",
   );
+}
+
+/** GET /api/personas — one row per offered persona. The remote listener
+ *  sends only these fields (no folder paths; server/lib/persona_remote.py);
+ *  localhost sends more. `mainRowId` = the persona's running main
+ *  session's row id, if any. Null on failure. */
+export interface PersonaSummary {
+  name: string;
+  description: string;
+  idleStart?: "resume" | "fresh";
+  offline?: boolean;
+  mainRowId?: string | null;
+}
+
+export async function listPersonas(): Promise<PersonaSummary[] | null> {
+  try {
+    const r = await fetch("/api/personas");
+    if (r.status === 401) {
+      goToRemoteLogin();
+      return null;
+    }
+    const parsed = await r.json();
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** POST /api/persona/start — opens a new Claude session for the persona
+ *  (server/lib/persona_start.py). Call only after the user's confirm press:
+ *  the remote listener refuses a start without `confirm: true`. The new row
+ *  shows up through the normal feeds; nothing to refetch here. */
+export async function startPersona(input: {
+  persona: string;
+  text: string;
+  fresh: boolean;
+}): Promise<{ ok: boolean; error?: string; paneId?: string; mode?: "started" | "resumed" }> {
+  return requestJson("/api/persona/start", "POST", { ...input, confirm: true });
+}
+
+/** POST /api/jev/route — the server asks Jev (OpenRouter) which persona a
+ *  message is for; the key stays on the Mac (server/lib/jev_route.py).
+ *  Nothing is sent: the caller shows the pick and waits for a confirm. */
+export async function routeWithJev(
+  text: string,
+): Promise<{ ok: boolean; error?: string; persona?: string; confidence?: number }> {
+  return requestJson("/api/jev/route", "POST", { text });
 }

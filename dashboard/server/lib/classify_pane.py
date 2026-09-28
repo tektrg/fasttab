@@ -495,7 +495,7 @@ def classify(text):
     if tail_nonempty and RUNNING_TOOL_TAIL_RE.match(tail_nonempty[-1].strip()):
         return "ACTIVE", signal
 
-    other_tui = signals.opencode_state(tail)
+    other_tui = signals.other_tui_state(tail)
     if other_tui is not None:
         return other_tui, signal
 

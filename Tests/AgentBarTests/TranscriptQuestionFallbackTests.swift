@@ -36,7 +36,7 @@ struct TranscriptQuestionFallbackTests {
         let row = try #require(try Self.mapped(transcriptQuestion: Self.transcriptQuestion))
         #expect(row.blocker == nil)
         #expect(row.hookRequest == nil)
-        #expect(RowButtons.available(for: row).map(\.button) == [.park])
+        #expect(RowButtons.available(for: row).map(\.button) == [.peek, .park, .openInClaude])
     }
 
     @Test func aHookRequestWinsOverTheTranscriptQuestion() throws {

@@ -91,6 +91,55 @@ final class ReaderTests: XCTestCase {
         XCTAssertTrue(store.highlights(for: url).isEmpty)
     }
 
+    /// Highlights saved before `tags` existed must still load: a decode failure would wipe
+    /// every highlight on the next save.
+    func testHighlightDecodesOldJSONWithoutTags() throws {
+        let oldJSON = Data("""
+        {"https://example.com/old": [{
+            "id": "old-1", "urlKey": "https://example.com/old", "selectedText": "Old text",
+            "color": "blue", "serializedRange": "{}", "createdAt": 700000000,
+            "title": "Old article", "urlString": "https://example.com/old"
+        }]}
+        """.utf8)
+        let decoded = try JSONDecoder().decode([String: [ReaderHighlight]].self, from: oldJSON)
+        let highlight = try XCTUnwrap(decoded["https://example.com/old"]?.first)
+        XCTAssertEqual(highlight.id, "old-1")
+        XCTAssertEqual(highlight.title, "Old article")
+        XCTAssertEqual(highlight.tags, [])
+    }
+
+    func testHighlightTagsRoundTripThroughStoreAndDisk() throws {
+        let store = ReaderHighlightStore.shared
+        let url = URL(string: "https://example.com/tagged")!
+        let highlight = ReaderHighlight(
+            id: "tag-1", urlKey: "https://example.com/tagged", selectedText: "Tagged",
+            color: .yellow, serializedRange: "{}"
+        )
+        store.add(highlight)
+
+        // Tidied, de-duplicated ignoring case, invalid names dropped.
+        store.setTags(["work / ssv", "Work/SSV", "reading", "!!!"], for: highlight)
+        XCTAssertEqual(store.highlights(for: url).first?.tags, ["work/ssv", "reading"])
+        XCTAssertEqual(store.highlights(for: url).first?.selectedText, "Tagged")
+
+        let saved = try XCTUnwrap(UserDefaults.standard.data(forKey: "FastTabMobile.readerHighlightsV1"))
+        let decoded = try JSONDecoder().decode([String: [ReaderHighlight]].self, from: saved)
+        XCTAssertEqual(decoded["https://example.com/tagged"]?.first?.tags, ["work/ssv", "reading"])
+
+        store.setTags([], for: highlight)
+        XCTAssertEqual(store.highlights(for: url).first?.tags, [])
+        store.removeAll(for: url)
+    }
+
+    func testHostOnlyTitleIsTreatedAsPlaceholder() {
+        let url = URL(string: "https://x.com/someone/status/123")!
+        for placeholder in ["", "  ", "x.com", "X.com", "www.x.com", "https://x.com/someone/status/123"] {
+            XCTAssertTrue(ReaderHighlightTitleResolver.isPlaceholder(placeholder, for: url), placeholder)
+        }
+        XCTAssertFalse(ReaderHighlightTitleResolver.isPlaceholder("Agents work best when the loop is short", for: url))
+        XCTAssertFalse(ReaderHighlightTitleResolver.isPlaceholder("X", for: url))
+    }
+
     func testLastOpenedStorePreservesReadingProgressOnReopen() {
         let store = LastOpenedStore.shared
         let url = URL(string: "https://example.com/preserve")!

@@ -2,21 +2,30 @@ import SwiftUI
 import UIKit
 
 /// One highlight's snippet + the article it came from: a colour dot, the highlighted
-/// text (primary line, up to 3 lines), and the resolved article title (secondary line).
+/// text (3 lines on a card, in full as a row), and the resolved article title (secondary line).
 /// Reused both as a carousel card (`.card`) on the Read tab and as a plain list row
-/// (`.row`) in `HighlightsListView`.
+/// (`.row`) in `HighlightsListView` (via `HighlightFeedRow`).
 public struct HighlightSnippetRow: View {
     public enum Style { case card, row }
 
     let highlight: ReaderHighlight
     let articleTitle: String
     let style: Style
+    /// Off in the Highlights feed, where the article is a chip under the row instead.
+    let showsArticleTitle: Bool
     let onSelect: () -> Void
 
-    public init(highlight: ReaderHighlight, articleTitle: String, style: Style, onSelect: @escaping () -> Void) {
+    public init(
+        highlight: ReaderHighlight,
+        articleTitle: String,
+        style: Style,
+        showsArticleTitle: Bool = true,
+        onSelect: @escaping () -> Void
+    ) {
         self.highlight = highlight
         self.articleTitle = articleTitle
         self.style = style
+        self.showsArticleTitle = showsArticleTitle
         self.onSelect = onSelect
     }
 
@@ -40,13 +49,18 @@ public struct HighlightSnippetRow: View {
             .accessibilityHidden(true)
     }
 
+    @ViewBuilder
     private var snippetText: some View {
-        Text(highlight.selectedText)
+        let text = Text(highlight.selectedText)
             .font(DS.Font.body)
             .foregroundStyle(.primary)
-            // Cards reserve all 3 lines so every card in the carousel has the same height.
-            .lineLimit(3, reservesSpace: style == .card)
             .multilineTextAlignment(.leading)
+        switch style {
+        // Cards reserve all 3 lines so every card in the carousel has the same height.
+        case .card: text.lineLimit(3, reservesSpace: true)
+        // The Highlights feed shows the whole highlight.
+        case .row: text.fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var articleTitleText: some View {
@@ -81,7 +95,7 @@ public struct HighlightSnippetRow: View {
                 .padding(.top, 5)
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 snippetText
-                articleTitleText
+                if showsArticleTitle { articleTitleText }
             }
             Spacer(minLength: 0)
         }

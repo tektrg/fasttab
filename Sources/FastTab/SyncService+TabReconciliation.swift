@@ -121,6 +121,11 @@ extension SyncService {
             }
         }
 
+        // Token-independent pickup of phone records: a phone that published
+        // before this Mac build understood them was fetched and dropped then,
+        // and the change token has moved past it.
+        PairedPhoneStore.shared.absorb(allStateRecords)
+
         // Re-read the snapshot after the await: a publish may have refreshed
         // it during the read, and expected must reflect the newest view. The
         // rest of this function is synchronous, so no publish can interleave

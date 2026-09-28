@@ -150,6 +150,70 @@ status, body, _ = get(REMOTE_PORT, "/api/state", headers={"Cookie": cookie_value
 check("authenticated GET /api/state -> 200", status, 200)
 check("authenticated body is real JSON", "computed" in json.loads(body) or True, True)
 
+print("== remote listener: persona start (registered personas only, confirm required) ==")
+start_body = json.dumps({"persona": "no-such-persona-sentinel", "text": "hi $(echo INJECTED)",
+                         "confirm": True}).encode()
+json_hdr = {"Content-Type": "application/json"}
+status, _, _ = post(REMOTE_PORT, "/api/persona/start", body=start_body, headers=json_hdr)
+check("unauthenticated persona start -> 401", status, 401)
+status, body, _ = post(REMOTE_PORT, "/api/persona/start", body=start_body,
+                       headers=dict(json_hdr, Cookie=cookie_value))
+reply = json.loads(body)
+check("authenticated start of an unregistered name -> 200 {ok:false, unknown}",
+      (status, reply.get("ok"), "unknown persona" in reply.get("error", "")), (200, False, True))
+_deadline = time.monotonic() + 3  # the audit line is written just after the reply
+while time.monotonic() < _deadline:
+    with open(remote_access.AUDIT_LOG_PATH) as _f:
+        _starts = [json.loads(l) for l in _f if '"/api/persona/start"' in l]
+    if _starts and _starts[-1]["status"] == 200:
+        break
+    time.sleep(0.02)
+check("audit: the refused start is logged with its name and ok=false (not just HTTP 200)",
+      (_starts[-1]["rowId"], _starts[-1]["status"], _starts[-1]["ok"]),
+      (json.loads(start_body)["persona"], 200, False))
+status, _, _ = post(REMOTE_PORT, "/api/persona/start", body=start_body,
+                    headers=dict(json_hdr, Cookie=cookie_value, Origin="https://evil.example"))
+check("authenticated + foreign Origin -> 403", status, 403)
+status, _, _ = post(REMOTE_PORT, "/api/persona/start", body=start_body,
+                    headers={"Content-Type": "text/plain", "Cookie": cookie_value})
+check("authenticated + non-JSON -> 400", status, 400)
+status, _, _ = post(REMOTE_PORT, "/api/personas", body=b"{}",
+                    headers=dict(json_hdr, Cookie=cookie_value))
+check("registry edit stays localhost-only remotely (403)", status, 403)
+status, body, _ = get(REMOTE_PORT, "/api/personas", headers={"Cookie": cookie_value})
+check("remote GET /api/personas -> 200 [] (none registered)", (status, json.loads(body)), (200, []))
+for label, extra, needle in (("no confirm flag", {"confirm": None}, "confirm"),
+                             ("confirm not a bool", {"confirm": "yes"}, "confirm"),
+                             ("a free-form folder", {"folder": "/tmp/x"}, "unexpected field"),
+                             ("a free-form command", {"command": "echo INJECTED"}, "unexpected field")):
+    remote_body = dict(json.loads(start_body), **extra)
+    if extra.get("confirm", True) is None:
+        remote_body.pop("confirm")
+    status, body, _ = post(REMOTE_PORT, "/api/persona/start", body=json.dumps(remote_body).encode(),
+                           headers=dict(json_hdr, Cookie=cookie_value))
+    reply = json.loads(body)
+    check(f"remote start with {label} -> refused", (status, reply.get("ok"), needle in reply.get("error", "")),
+          (200, False, True))
+for path in ("/api/personas/registry", "/api/personas/suggestions"):
+    status, _, _ = get(REMOTE_PORT, path, headers={"Cookie": cookie_value})
+    check(f"remote GET {path} stays localhost-only (403)", status, 403)
+
+print("== remote listener: POST /api/jev/route ==")
+route_body = json.dumps({"text": "which agent $(echo INJECTED)"}).encode()
+status, _, _ = post(REMOTE_PORT, "/api/jev/route", body=route_body, headers=json_hdr)
+check("unauthenticated jev route -> 401", status, 401)
+status, _, _ = post(REMOTE_PORT, "/api/jev/route", body=route_body,
+                    headers=dict(json_hdr, Cookie=cookie_value, Origin="https://evil.example"))
+check("jev route + foreign Origin -> 403", status, 403)
+status, _, _ = post(REMOTE_PORT, "/api/jev/route", body=route_body,
+                    headers={"Content-Type": "text/plain", "Cookie": cookie_value})
+check("jev route + non-JSON -> 400", status, 400)
+status, body, _ = post(REMOTE_PORT, "/api/jev/route", body=route_body,
+                       headers=dict(json_hdr, Cookie=cookie_value))
+reply = json.loads(body)
+check("authenticated jev route with no persona -> refused, no network",
+      (status, reply.get("ok"), "No persona" in reply.get("error", "")), (200, False, True))
+
 
 # ---- Unread-body desync (found live-testing P3, 2026-09-26) ----
 def raw_exchange(port, payload):

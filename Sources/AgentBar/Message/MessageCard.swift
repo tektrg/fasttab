@@ -20,7 +20,8 @@ struct MessageCard: Equatable, Sendable {
     }
 
     let agentID: String
-    let paneId: String
+    /// Typed into the pane, or through a status-only session's inbox (`MessageRoute`).
+    let route: MessageRoute
     let rowId: String
     let label: String
     let projectName: String?
@@ -39,9 +40,9 @@ struct MessageCard: Equatable, Sendable {
     /// Nil while the transcript is still being read.
     var sessionContext: SessionContext?
 
-    init(agent: AgentSnapshot, paneId: String, rowId: String) {
+    init(agent: AgentSnapshot, route: MessageRoute, rowId: String) {
         self.agentID = agent.id
-        self.paneId = paneId
+        self.route = route
         self.rowId = rowId
         self.label = agent.label
         self.projectName = agent.projectName
@@ -52,7 +53,12 @@ struct MessageCard: Equatable, Sendable {
 
     // MARK: - Reading
 
-    var verdict: MessageDraftValidator.Verdict { MessageDraftValidator.check(draft) }
+    var verdict: MessageDraftValidator.Verdict {
+        MessageDraftValidator.check(draft, allowsQuickCommands: route.allowsQuickCommands)
+    }
+
+    /// One line under the header about how the message travels; nil for a pane.
+    var routeCaption: String? { route.caption }
 
     /// The text a send would put in the agent's input; nil while the draft cannot be sent.
     var sendableText: String? {
@@ -65,7 +71,7 @@ struct MessageCard: Equatable, Sendable {
     /// The line under the field about the draft itself: why it cannot go, or the counter near the cap.
     var draftHint: String? {
         switch verdict {
-        case .slashCommand: MessageDraftValidator.slashCommandHint
+        case .slashCommand: route == .inbox ? MessageRoute.inboxSlashCommandHint : MessageDraftValidator.slashCommandHint
         case .tooLong(let over): MessageDraftValidator.tooLongHint(over: over)
         case .empty, .ready: nil
         }

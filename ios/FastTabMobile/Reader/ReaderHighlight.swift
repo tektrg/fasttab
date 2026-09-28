@@ -58,10 +58,14 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
     public let title: String?
     /// Raw article URL captured at highlight time, for opening the highlight later.
     public let urlString: String?
+    /// Tags the user put on this highlight, as `TagPath` display strings (`work/ssv`).
+    /// Bookmark-folder tags are not stored here: `HighlightFolderTags` derives them at read time.
+    public let tags: [String]
 
-    // Explicit CodingKeys so old stored JSON (no `title`/`urlString`) still decodes.
+    // Explicit CodingKeys so old stored JSON (no `title`/`urlString`/`tags`) still decodes.
+    // A decode failure here wipes every highlight on the next save, so new keys must stay optional.
     enum CodingKeys: String, CodingKey {
-        case id, urlKey, selectedText, color, serializedRange, createdAt, title, urlString
+        case id, urlKey, selectedText, color, serializedRange, createdAt, title, urlString, tags
     }
 
     public init(
@@ -72,7 +76,8 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         serializedRange: String,
         createdAt: Date = Date(),
         title: String? = nil,
-        urlString: String? = nil
+        urlString: String? = nil,
+        tags: [String] = []
     ) {
         self.id = id
         self.urlKey = urlKey
@@ -82,6 +87,7 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
         self.title = title
         self.urlString = urlString
+        self.tags = tags
     }
 
     public init(from decoder: Decoder) throws {
@@ -94,6 +100,16 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         title = try c.decodeIfPresent(String.self, forKey: .title)
         urlString = try c.decodeIfPresent(String.self, forKey: .urlString)
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+    }
+
+    /// This highlight with its user tags replaced (fields are `let`, so edits build a copy).
+    public func replacingTags(_ newTags: [String]) -> ReaderHighlight {
+        ReaderHighlight(
+            id: id, urlKey: urlKey, selectedText: selectedText, color: color,
+            serializedRange: serializedRange, createdAt: createdAt,
+            title: title, urlString: urlString, tags: newTags
+        )
     }
 }
 
@@ -115,13 +131,26 @@ public enum ReaderHighlightTitleResolver {
     /// and rewrites its access index, too costly to repeat on every carousel re-render.
     @MainActor private static var cachedTitles: [String: String] = [:]
 
+    /// True when `title` carries no more than the URL does: empty, the bare host
+    /// (`x.com`, `www.x.com`) or the URL itself. Links opened from lists that only know the
+    /// host (X posts, mostly) pass such a title into the Reader, so it gets stored as-is.
+    public static func isPlaceholder(_ title: String, for url: URL?) -> Bool {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !t.isEmpty else { return true }
+        guard let url else { return false }
+        func bare(_ s: String) -> String { s.hasPrefix("www.") ? String(s.dropFirst(4)) : s }
+        let host = (url.host() ?? "").lowercased()
+        return bare(t) == bare(host) || t == url.absoluteString.lowercased()
+            || t.hasPrefix("http://") || t.hasPrefix("https://")
+    }
+
     @MainActor
     public static func resolve(for highlight: ReaderHighlight) -> String {
-        if let stored = highlight.title, !stored.isEmpty {
+        if let stored = highlight.title, !isPlaceholder(stored, for: highlight.articleURL) {
             return stored
         }
         guard let url = highlight.articleURL else {
-            return highlight.urlKey
+            return highlight.title ?? highlight.urlKey
         }
         if let memo = cachedTitles[highlight.urlKey] {
             return memo
@@ -131,7 +160,7 @@ public enum ReaderHighlightTitleResolver {
             return cached
         }
         if let lastOpened = LastOpenedStore.shared.items.first(where: { $0.url == url.absoluteString })?.title,
-           !lastOpened.isEmpty {
+           !isPlaceholder(lastOpened, for: url) {
             return lastOpened
         }
         return url.host() ?? highlight.urlKey

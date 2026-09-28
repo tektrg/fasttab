@@ -1,4 +1,6 @@
+import { wakesToMessage } from "./openInClaude";
 import type { AgentRow, BoardRow, SessionActionState } from "./types";
+import { LOGGED_OUT_ERROR } from "./api";
 
 /** v3 reclaim (phases 5-6) + v4 reach (phase 8-9): the server decides
  *  eligibility and returns the reason string; the UI only renders it. Never
@@ -220,6 +222,7 @@ export async function sendMessage(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rowId, actor: "po", text, confirm: !!opts.confirm }),
     });
+    if (r.status === 401) return { ok: false, typed: false, error: LOGGED_OUT_ERROR };
     return await r.json();
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -270,7 +273,7 @@ export function evaluateMessageBulk(rows: BoardRow[]): BulkEval {
   let totalBytes = 0;
   for (const row of rows) {
     totalBytes += rowMemoryBytes(row) ?? 0;
-    if (row.status === "ended") {
+    if (row.status === "ended" && !wakesToMessage(row)) {
       refused.push({
         row,
         state: {

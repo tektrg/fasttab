@@ -9,13 +9,6 @@ import FastTabSync
 /// where they can be unit-tested directly, leaving the service itself to hold
 /// state and talk to the network.
 extension SyncService {
-    /// How often this Mac republishes its `SyncedDevice` record so the phone can
-    /// tell "awake" from "asleep". Must stay well under the phone's staleness
-    /// threshold (600s) or a perfectly healthy Mac reports itself asleep. The
-    /// cost is one small record write per interval, which is nothing next to the
-    /// 15s fetch poll that already runs.
-    nonisolated private static let deviceHeartbeatInterval: TimeInterval = 3 * 60
-
     nonisolated static func isIncognitoTab(_ tab: BrowserSearchResult) -> Bool {
         let lowerProfile = (tab.profileName ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         if lowerProfile == "incognito" || lowerProfile == "private" || lowerProfile.hasPrefix("incognito ") || lowerProfile.hasPrefix("private ") {
@@ -151,19 +144,21 @@ extension SyncService {
         return response
     }
 
-    nonisolated static func shouldPublishDeviceHeartbeat(
-        lastPublishedAt: Date?,
-        now: Date,
-        interval: TimeInterval = deviceHeartbeatInterval
-    ) -> Bool {
-        guard let lastPublishedAt else { return true }
-        return now.timeIntervalSince(lastPublishedAt) >= interval
+    /// How often this Mac republishes its `SyncedDevice` record so the phone can
+    /// tell "awake" from "asleep" (`SyncedDevicePairing.heartbeatInterval`, 3
+    /// min). Must stay well under the phone's staleness threshold or a healthy
+    /// Mac reports itself asleep.
+    nonisolated static func shouldPublishDeviceHeartbeat(lastPublishedAt: Date?, now: Date) -> Bool {
+        SyncedDevicePairing.isHeartbeatDue(lastPublishedAt: lastPublishedAt, now: now)
     }
 
     nonisolated static func recordForRetry(
         intendedRecord: CKRecord,
         error: Error
     ) -> CKRecord? {
+        if let cloudKitError = error as? CKError, cloudKitError.code == .unknownItem {
+            return freshInsertForRetry(intendedRecord: intendedRecord)
+        }
         guard let cloudKitError = error as? CKError,
               cloudKitError.code == .serverRecordChanged,
               let serverRecord = cloudKitError.serverRecord,
@@ -191,9 +186,30 @@ extension SyncService {
         case SyncedTabStats.recordType:
             guard let intendedStats = SyncedTabStats(from: intendedRecord) else { return nil }
             return intendedStats.applying(to: serverRecord)
+        case SyncedTabOrder.recordType:
+            guard let intendedOrder = SyncedTabOrder(from: intendedRecord) else { return nil }
+            return intendedOrder.applying(to: serverRecord)
         default:
             return nil
         }
+    }
+
+    /// "recordChangeTag specified, but record not found": the save was built on
+    /// a cached server copy of a record that has since been deleted (positional
+    /// tab names are deleted and later reused). State-zone records are this
+    /// Mac's own published state, so re-inserting without the dead change tag is
+    /// correct. Command records are left alone: a missing one was cleared by the
+    /// phone and must not be resurrected.
+    nonisolated static func freshInsertForRetry(intendedRecord: CKRecord) -> CKRecord? {
+        guard intendedRecord.recordID.zoneID == SyncConstants.stateZoneID else { return nil }
+        let fresh = CKRecord(recordType: intendedRecord.recordType, recordID: intendedRecord.recordID)
+        for key in intendedRecord.allKeys() {
+            fresh[key] = intendedRecord[key]
+        }
+        for key in intendedRecord.encryptedValues.allKeys() {
+            fresh.encryptedValues[key] = intendedRecord.encryptedValues[key]
+        }
+        return fresh
     }
 
     nonisolated static func loadPublishedTabRecordIDs(

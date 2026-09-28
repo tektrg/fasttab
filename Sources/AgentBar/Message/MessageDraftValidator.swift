@@ -44,10 +44,11 @@ enum MessageDraftValidator {
             .joined(separator: " ")
     }
 
-    static func check(_ raw: String) -> Verdict {
+    /// `allowsQuickCommands` false (an inbox route, `MessageRoute`) refuses `/compact` and `/clear` too.
+    static func check(_ raw: String, allowsQuickCommands: Bool = true) -> Verdict {
         let text = sanitized(raw)
         if text.isEmpty { return .empty }
-        if text.hasPrefix("/"), !isAllowedSlashCommand(text) { return .slashCommand }
+        if text.hasPrefix("/"), !(allowsQuickCommands && isAllowedSlashCommand(text)) { return .slashCommand }
         if text.count > maxLength { return .tooLong(over: text.count - maxLength) }
         return .ready(text: text)
     }

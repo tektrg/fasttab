@@ -95,7 +95,42 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
   `403`.
 - Every remote write attempt (allowed or refused) is appended as one JSON
   line to `~/.config/agent-dashboard/remote-audit.jsonl`
-  (`ts`, `route`, `method`, `rowId` when known, `status`).
+  (`ts`, `route`, `method`, `rowId` when known, `status`, `ok` = the
+  reply's own ok flag — a refused write is usually HTTP 200 `ok: false`). For
+  `/api/session/<action>` the `rowId` is the body's row (session id), not
+  the verb (2026-09-28; before that it logged the action name).
+- `POST /api/session/message` from the phone also reaches Claude Desktop /
+  plain-CLI rows (no pane) through the session's own peer inbox
+  (`server/lib/session_inbox.py`, dashboard `AGENTS.md` "Message via
+  inbox") — same login, same-origin rule and audit line as a pane send; the
+  session's peer token never appears in a response or the audit log.
+- **Personas from the phone** (2026-09-28): `GET /api/personas` lists every
+  offered persona WITHOUT folder paths (name, description, idleStart,
+  offline, mainRowId); messaging one goes to its running main
+  session through `POST /api/session/message` (same rules as any row).
+  `POST /api/persona/start` is served here for ANY offered persona
+  (registered in `~/.config/agentbar/personas.json`, not hidden, with a
+  saved description) — no per-persona opt-in (user decision 2026-09-28;
+  a `"remoteStart"` key left in the file is ignored). Only the keys
+  `persona`/`text`/`fresh` plus `confirm: true` are accepted: the registry
+  decides the folder and command. **Accepted risk**: a stolen phone login
+  can start any registered agent in its own folder with a message (same
+  text rules as a Send) — but never an arbitrary program, folder or
+  flag, and never a persona the Mac hasn't registered. Every attempt is
+  in the audit log. Listing offered personas' names and descriptions is
+  intended (the phone needs them to message one); a hidden, undescribed
+  or unregistered name gets the same "unknown persona" refusal as a
+  made-up one, and refusals never show folder paths.
+  `POST /api/personas` and `GET /api/personas/{registry,suggestions}`
+  stay 403 here — editing who may be started is a desk action.
+- **`POST /api/jev/route`** (2026-09-28): Jev picks the persona for a
+  message server-side; the OpenRouter key stays in
+  `~/.config/agent-dashboard/openrouter-key` (0600) on the Mac and is never
+  sent to the phone. Rate-limited (1 in flight, 20/min), 8s hard total timeout. It
+  sends nothing to any agent — the phone confirms the pick first.
+- **Non-Claude panes are never messaged** (`message_gate.py`): an
+  OpenCode/Codex pane's prompts are invisible to the dashboard, so the
+  server refuses messages to them from every client.
 - If the remote listener's port is already in use (another instance, a
   stale process), the dashboard logs a warning and continues running the
   main listener normally — a busy remote port never takes down the board.

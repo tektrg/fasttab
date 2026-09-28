@@ -19,8 +19,10 @@ move plan; this file is the day-to-day reference for running/testing it.
   views/actions/memory modules, `chief_dashboard_pass.py` (`GET
   /api/deliver/pass` — see "chief_pass" below), `personas.py` (`GET
   /api/personas` — see "Jev persona routing" below), `persona_start.py`
-  (`POST /api/persona/start`, same section), and `dashboard_config.py`
-  (below).
+  (`POST /api/persona/start`, same section), `jev_route.py` (`POST
+  /api/jev/route`, same section), `message_gate.py` (non-Claude panes are
+  never messaged — see "Claude sessions outside herdr"), and
+  `dashboard_config.py` (below).
 - `scripts/restart.sh` — kill-and-relaunch by port ownership, with a
   liveness wait; `scripts/chief-dashboard-watchdog.py` — a 60s probe/
   restart-cap script meant for a LaunchAgent (none is installed by this
@@ -117,6 +119,36 @@ Each row also carries `idleStart`: `"resume"` | `"fresh"` — what a start
 would do right now (see below). Only a local `start: in-place` persona can
 be `"resume"`; the folder scan is cached 30s.
 
+**Remote listener** (`server/lib/persona_remote.py`): `GET /api/personas`
+returns every offered persona as `[{name, description, idleStart, offline,
+mainRowId}]` — no address/folder/instructions/routing hints.
+The phone messages a running persona's `mainRowId` through the normal
+`POST /api/session/message` rules, and may START any of them (below). PWA: the "Message a persona" sheet
+(`ui/src/components/phone/PersonaMessageSheet.tsx`, the `+` in the phone
+search bar; effect wording = AgentBar's `PersonaDeliveryEffect`, copied in
+`ui/src/personaDelivery.ts`).
+
+### `POST /api/jev/route` (`server/lib/jev_route.py`, 2026-09-28)
+Jev (OpenRouter Decisions API) picks the persona for a message ON THE
+SERVER, so the phone never holds the key. `{text}` -> `{ok, persona,
+confidence}` | `{ok:false, error}`. Candidates: offered, not-offline
+personas only (no live sessions). Nothing is sent: the client shows the
+pick and the user confirms (AgentBar never auto-sends a persona pick
+either). Both listeners (remote: auth + same-origin + audit like every
+write); JSON Content-Type required; text follows `validate_message_text`;
+only the `text` key. One request in flight, <= 20/min, 8s hard total timeout, never
+retried.
+- **Key**: `~/.config/agent-dashboard/openrouter-key` (`<CONFIG_HOME>/
+  openrouter-key`; tests: `AGENT_DASHBOARD_OPENROUTER_KEY_FILE`), a regular
+  file (no symlink), mode 0600, read per request, never logged/returned.
+  Missing -> `{ok:false}` saying where to put it. AgentBar's own copy is in
+  its Keychain (`KeychainRoutingAPIKeyStore`) — the dashboard can't read it.
+- **Duplication** with `Sources/AgentBar/Routing/OpenRouterJevClient.swift`
+  (instructions, endpoint, default model, persona summary format):
+  `tests/test_jev_route.py` reads the Swift source and fails on drift.
+  AgentBar's Settings > Routing guidance and model override are NOT applied
+  server-side (UserDefaults, unreadable here).
+
 ### Settings > Personas endpoints — P4
 All three are **localhost only** (403 on the remote listener); the POST also
 needs `Content-Type: application/json` (same gate as `/api/persona/start`).
@@ -139,8 +171,17 @@ needs `Content-Type: application/json` (same gate as `/api/persona/start`).
 
 ### `POST /api/persona/start` — P3 (`server/lib/persona_start.py`)
 Starts or resumes an idle persona's Claude session in a new herdr tab in
-its registry folder. **Localhost only**: 403 on the remote (tailscale)
-listener even when authenticated. Requires `Content-Type: application/json`
+its registry folder. **Remote listener: any offered persona** (user
+decision 2026-09-28 — the earlier per-persona `"remoteStart": true` opt-in
+is gone; a leftover key in personas.json is ignored and no longer editable)
+via `persona_remote.start_persona_remote`, after the remote listener's
+auth and foreign-Origin checks; a hidden/undescribed/unregistered name gets
+`{ok:false, error: "unknown persona …"}` (same wording, so the phone can't
+probe names; refusals are path-scrubbed). Security rationale: `server/REMOTE.md`.
+The PWA's "Message a persona" sheet
+(`ui/src/components/phone/PersonaMessageSheet.tsx`, the `+` in the phone
+search bar) uses it. Localhost: every offered persona.
+The Settings endpoints below stay localhost-only. Requires `Content-Type: application/json`
 (400 otherwise). These early refusals (and the foreign-Origin 403 on every
 write) answer before reading the body, so `Handler.end_headers` closes the
 connection whenever a body was left unread — otherwise keep-alive would
@@ -150,7 +191,11 @@ reply (`Expect: 100-continue`'s `100 Continue`, sent before the body
 exists) is exempt; the final reply is still checked.
 
 - Request: `{"persona": "<name>", "text": "<first message>", "fresh": true?}`
-  — a name, never a path. `text` follows the Send message rules
+  — a name, never a path. **Remote listener, stricter**: only the keys
+  `persona`/`text`/`fresh`/`confirm`, and `confirm` must be JSON `true`
+  (the phone's second press) — folder/command/args always come from the
+  registry. The remote audit line's `rowId` is the persona name.
+  `text` follows the Send message rules
   (`validate_message_text`: one line, <= 2000 chars, tabs become spaces
   like AgentBar's `TerminalSafeText`, no other terminal control
   characters, no slash command beyond `/clear`/`/compact`). `fresh` must
@@ -198,8 +243,9 @@ exists) is exempt; the final reply is still checked.
   `source: "herdr"`), status in hook words (`busy`→`working`,
   `waiting`→`blocked` + `hookReason` "Input needed", `idle`→`idle`), plus
   `sessionStatus`, `secondsInStatus`, `pid`, `hostSessionId`, `tmuxTarget`,
-  `openUrl`. Stop/close/relaunch are refused (`assess_row`); message/answer/
-  focus already refuse a row with no pane. A `waiting` one is a `blocked`
+  `openUrl`, `messageVia`. Stop/close/relaunch are refused (`assess_row`);
+  answer/focus refuse a row with no pane; message goes via the inbox (below)
+  or is refused ("has no pane"). A `waiting` one is a `blocked`
   needsYou row with `paneId: null`, `identity`/`agentSession` = session id,
   `source`, `openUrl`.
 - `transcriptQuestion` `{header, question, questionCount}` | null (row + its
@@ -212,12 +258,68 @@ exists) is exempt; the final reply is still checked.
 - `openUrl` (desktop rows only): `claude://code/continue?session=<hostSessionId>`
   — Claude.app's own handler accepts `local_<id>` there and opens that
   EXISTING session (falls back to Code home, never creates one). Read from
-  app.asar's `claudeURLHandler`, not exercised live.
+  app.asar's `claudeURLHandler`, not exercised live. The web UI's "Open in
+  Claude" (`ui/src/openInClaude.ts`) uses it on a Mac browser; a phone gets
+  the generic `https://claude.ai/code` (no per-session web link is recorded
+  locally — the Remote Control URL isn't in any file).
+- **Message via inbox** (`server/lib/session_inbox.py`, 2026-09-28): every
+  row carries `messageVia` — `"pane"` (herdr, typed in), `"inbox"` (a
+  status-only session whose file has `entrypoint` cli|claude-desktop,
+  `peerProtocol: 1` and a `messagingSocketPath`), else null. `POST
+  /api/session/message` on an inbox row (`_handle_inbox_message`) sends
+  over Claude Code's own peer socket: line 1 `{"type":"auth","token":
+  <peerToken>}`, line 2 `{"type":"user","message":{"role":"user","content":
+  <text>}}`. Token from `<pid>.<hash>.key` (0600), read per send, never
+  logged/returned/stored. Rules: resolved by `sessionId` on EVERY send (a
+  Desktop resume starts a new pid — never cache one); session file, key and
+  socket must be owned by this uid, no symlinks, key mode 0600 and not older
+  than the process (`procStart`, else `startedAt` − 60s: Claude writes the
+  key BEFORE `startedAt`, measured up to 12s on Desktop), exactly one key;
+  4s timeout. Accepted =
+  0.4s of silence on the open connection; the session hanging up (its
+  answer to a bad token — no error line) or an error line = refused,
+  nothing sent. Same text rules as the pane path (one line,
+  `validate_message_text`) plus: **no slash command at all** (it would
+  arrive as text), refused while a prompt is pending (`hookRequest`,
+  `transcriptQuestion`, `waiting`/`blocked`), `needsConfirm` while `busy`
+  (then state `queued`). Audited like a pane send (`sent`/`queued`; a
+  may-have-arrived failure logs `failed`). The session shows it as
+  "Another Claude session sent a message: …" — a PEER, not the user: it
+  can't approve permissions or answer questions. **Undocumented protocol**
+  (measured Claude Code 2.1.283): any other `peerProtocol` is refused
+  (`UNSUPPORTED`) rather than guessed. Tests: `tests/test_session_inbox.py`
+  (temp sessions dir + fake Unix socket; never a real session),
+  `tests/test_remote_inbox_message.py` (real HTTP, both listeners).
+- **Non-Claude message gate** (`server/lib/message_gate.py`, 2026-09-28):
+  every herdr row carries `agentKind` (herdr's `agent`: `claude`,
+  `opencode`, `codex`, …) and `messageRefusal` (text | null). `POST
+  /api/session/message` (so Compact/Clear too) refuses a herdr pane whose
+  `agentKind` isn't `claude` (or is missing) and that has no hook data,
+  before any pane read or keystroke — its prompts are invisible, a message
+  could answer one. Strict subset of AgentBar's own gate (it needs
+  `hasHookData` for every send), so AgentBar never sees a new refusal. The
+  PWA shows a caption instead of the Composer on such rows. Tests:
+  `tests/test_message_gate.py`.
+- Every `computed.needsYou` agent row carries `machine` (its agent row's;
+  status-only rows `local`) — the phone showed air-m1 prompts as "local".
 - P5: for a non-Claude herdr agent (`agent` != `claude`, e.g. OpenCode) whose
   screen reads `UNKNOWN`/nothing, herdr's `agent_status` (`working`/`blocked`/
   `idle`/`done`; `unknown` ignored) stands in as `screenState`
   (`pane_screen_signals.screen_state_with_herdr_fallback`); new field
   `screenStateSource` = `screen` | `herdr` | null. Local rows only.
+- OpenCode + Codex screen reads: `server/lib/other_tui_screens.py`
+  (`opencode_state`, `codex_state`, `prompt_open`), wired into `classify()` via
+  `pane_screen_signals.other_tui_state`. An open question picker / permission
+  box / Codex trust picker reads `NEEDS_HUMAN` (same as Claude's);
+  `prompt_open(tail)` → `permission` | `question` | None is the gate for
+  answering/messaging. Gotchas (live 2026-09-28): OpenCode's question picker
+  REPLACES its `╹▀` prompt box (so the old check read it `UNKNOWN`); Codex
+  detects by banner / `› Ask Codex…` placeholder / `• Working (… esc to
+  interrupt)`; Codex footer shows no context % (use its rollout
+  `token_count`); a narrow OpenCode footer cuts `15.3K (1%)` to `15.3K (1%`.
+  Permission-box wording for both tools is GUESS (both auto-allowed in-workspace
+  writes). Fixtures: `tests/fixtures/panes/*.txt`; test
+  `tests/test_other_tui_screens.py`.
 
 ## Sleeping Claude Desktop sessions (`computed.sleepingSessions`)
 Term: **sleeping session** = a Claude Desktop code session with no running
@@ -256,13 +358,13 @@ feed `desktopSessions` (10s).
   the rows aren't sent twice (~35KB for 14 days). The PWA/remote listener get
   the same key and ignore it.
 
-## Hook answer bridge (`/api/hook/permission*`) — answer non-herdr prompts from AgentBar
+## Hook answer bridge (`/api/hook/permission*`) — answer Claude prompts from AgentBar
 Contract: `hooks/agentbar-permission-hook.py` (Claude Code `PermissionRequest`
 hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
 `hook_permission_summary.py` (hookRequest view + decision building/validation),
 `hook_permission_routes.py` (routing; the server file only dispatches).
 - `POST /api/hook/permission` (hook) -> `{requestId}` | `{state:"ignored", reason}`
-  (herdr-pane session, bad payload, a background-subagent prompt — payload has
+  (bad payload, a background-subagent prompt — payload has
   `agent_id` — or a session whose file is missing / not `entrypoint` `cli` |
   `claude-desktop`, e.g. `claude -p` = `sdk-cli`). **Why** (measured 2.1.283):
   Claude shows those prompts only AFTER every hook returns, so holding them
@@ -273,6 +375,11 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   pending). Register and wait 404 on the remote listener; `answer` is
   served there too (the phone's web remote answers; auth + CSRF + audit
   like every remote write, audit `rowId` = request id).
+- **Herdr panes too** (2026-09-28): a herdr pane's Claude writes a `cli`
+  session file, so its prompts are held like any CLI. A local herdr row gets
+  `hookRequest`, and `build_needs_you` then emits ONE `blocked` row carrying
+  it, ahead of any screen reading — the screen misses a picker in a pane
+  scrolled up. No hook request = the old screen path, unchanged.
 - Exposure: a status-only row + its needsYou entry get `hookRequest` (oldest
   pending per session); the row then reads `blocked`, detail `Question` /
   `Permission: <tool>`, even before the session file says `waiting`.

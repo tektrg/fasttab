@@ -12,9 +12,9 @@ struct AnswerCard: Equatable, Sendable {
     }
 
     let agentID: String
-    /// Empty on a hook-request card: a status-only session has no pane (`hookRequest` is answered by id).
+    /// Empty on a hook-request card (`hookRequest` is answered by id, even for a herdr pane).
     let paneId: String
-    /// Set when the question is a status-only session's prompt held by the dashboard's hook bridge.
+    /// Set when the question is a prompt held by the dashboard's hook bridge (status-only session or herdr pane).
     let hookRequest: HookRequest?
     let label: String
     let projectName: String?

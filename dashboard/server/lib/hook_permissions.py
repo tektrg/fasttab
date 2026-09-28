@@ -161,13 +161,13 @@ def _session_moved_on(request, sessions_by_id):
     return prompt_state.session_moved_on(sessions_by_id.get(request.session_id), request.created_at)
 
 
-def ignore_reason(payload, herdr_session_ids, session_entry):
+def ignore_reason(payload, session_entry):
     """Why this hook payload must not be held here (None = register it).
-    `session_entry`: the session file dict for payload's session, or None."""
+    `session_entry`: the session file dict for payload's session, or None.
+    Herdr panes are held too (their Claude writes a `cli` session file): the
+    hook sees the prompt even when the pane is scrolled away from it."""
     if not _valid_payload(payload):
         return "invalid payload"
-    if payload["session_id"] in set(herdr_session_ids):
-        return "herdr pane (answered from its screen)"
     if payload.get("agent_id"):
         return "subagent prompt (Claude shows it only after the hook returns)"
     if not session_entry or session_entry.get("sessionId") != payload["session_id"]:
@@ -189,13 +189,13 @@ class HookPermissionStore:
         self._seq = itertools.count(1)
 
     # ---- hook side --------------------------------------------------------
-    def register(self, payload, herdr_session_ids=(), session_entry=None):
+    def register(self, payload, session_entry=None):
         """{requestId} for a pending request, or {state: "ignored", reason,
         retryable}. A re-send (`reregister`, after a dashboard restart or
         AgentBar coming back) is held only while the session file still shows
         that prompt; the same prompt sent twice keeps ONE request."""
         created_at = prompt_started_at(payload, self._clock()) if isinstance(payload, dict) else None
-        reason = self._register_refusal(payload, herdr_session_ids, session_entry, created_at)
+        reason = self._register_refusal(payload, session_entry, created_at)
         if reason:
             return {"state": "ignored", "reason": reason, "retryable": reason in RETRYABLE_REASONS}
         with self._cond:
@@ -210,8 +210,8 @@ class HookPermissionStore:
             self._cond.notify_all()
         return {"requestId": request_id}
 
-    def _register_refusal(self, payload, herdr_session_ids, session_entry, created_at):
-        reason = ignore_reason(payload, herdr_session_ids, session_entry)
+    def _register_refusal(self, payload, session_entry, created_at):
+        reason = ignore_reason(payload, session_entry)
         if not reason and payload.get("reregister") \
                 and not prompt_state.prompt_still_waiting(session_entry, created_at):
             reason = REASON_PROMPT_GONE
@@ -367,13 +367,3 @@ def _not_pending_message(request):
 
 #: The one store the server uses.
 STORE = HookPermissionStore()
-
-
-def herdr_session_ids(herdr_feed_data):
-    """Session ids herdr already shows (their prompts keep the screen path)."""
-    ids = set()
-    for agent in (herdr_feed_data or {}).get("agents") or []:
-        value = (agent.get("agent_session") or {}).get("value")
-        if value:
-            ids.add(value)
-    return ids

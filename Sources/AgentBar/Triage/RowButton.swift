@@ -22,6 +22,8 @@ enum RowButton: Equatable, Sendable {
     case peek
     case closePane
     case message
+    /// A Claude Desktop row: opens that session in Claude.app (same path as Enter on the row).
+    case openInClaude
     case compact
     case clear
     /// Attaches this row to a chief — the ⋯ menu's equivalent of ⌘] (`AgentTreeModel.indentSelected`):
@@ -43,6 +45,7 @@ enum RowButton: Equatable, Sendable {
         case .peek: "Peek"
         case .closePane: "Close pane"
         case .message: "Message"
+        case .openInClaude: "Open in Claude"
         case .compact: "Compact"
         case .clear: "Clear"
         case .reportTo: "Report to…"
@@ -61,7 +64,8 @@ enum RowButton: Equatable, Sendable {
         switch self {
         case .done: .stop
         case .closePane: .close
-        case .answer, .review, .openTerminal, .park, .unpark, .peek, .message, .compact, .clear, .reportTo, .stopReporting, .moreActions: nil
+        case .answer, .review, .openTerminal, .park, .unpark, .peek, .message, .openInClaude, .compact, .clear, .reportTo,
+             .stopReporting, .moreActions: nil
         }
     }
 }
@@ -71,6 +75,8 @@ struct RowButtonSpec: Equatable, Sendable {
     let button: RowButton
     /// Why the button cannot be pressed (the dashboard's words); nil when usable.
     let disabledReason: String?
+    /// The tooltip of a usable button, when it has something to add (e.g. how a message travels).
+    var hint: String? = nil
 
     var isEnabled: Bool { disabledReason == nil }
 
@@ -94,12 +100,14 @@ enum RowButtons {
             needsYouButtons(for: agent)
         case .parked:
             [RowButtonSpec(button: .unpark, disabledReason: nil), RowButtonSpec(button: .peek, disabledReason: nil)]
-                + messageButton(for: agent) + moreActionsButton(for: agent)
+                + openInClaudeButton(for: agent) + messageButton(for: agent) + moreActionsButton(for: agent)
         case .ended where agent.actions.close.isEnabled:
             moreActionsButton(for: agent)
         case .working:
-            messageButton(for: agent) + moreActionsButton(for: agent)
-        case .ended, .sleeping:
+            openInClaudeButton(for: agent) + messageButton(for: agent) + moreActionsButton(for: agent)
+        case .sleeping:
+            openInClaudeButton(for: agent)   // wakes it, same as Enter; nothing else runs until it does
+        case .ended:
             []
         }
     }
@@ -136,19 +144,36 @@ enum RowButtons {
     /// Claude agent (the dashboard's permission/question guard is blind to other CLIs, so a
     /// message could answer a box it cannot see) that the dashboard can address by row, and that
     /// is not asking anything (a parked row that is still blocked stays "just parked").
+    /// A status-only Claude session gets it too when its inbox can take the message (`MessageRoute`).
     private static func messageButton(for agent: AgentSnapshot) -> [RowButtonSpec] {
-        isMessageEligible(agent) ? [RowButtonSpec(button: .message, disabledReason: nil)] : []
+        guard let route = messageRoute(for: agent) else { return [] }
+        return [RowButtonSpec(button: .message, disabledReason: nil, hint: route.caption)]
+    }
+
+    /// A Claude Desktop row's way into its session in Claude.app (Enter does the same).
+    private static func openInClaudeButton(for agent: AgentSnapshot) -> [RowButtonSpec] {
+        guard case .claudeDesktop = agent.host else { return [] }
+        return [RowButtonSpec(button: .openInClaude, disabledReason: nil)]
     }
 
     /// Same eligibility gate as `messageButton` — Compact/Clear are typed through the same
     /// Message pipeline (`MessageCardModel.sendDirect`), so a row that cannot take a message
     /// cannot take these either.
-    private static func isMessageEligible(_ agent: AgentSnapshot) -> Bool {
-        agent.blocker == nil && agent.rowId != nil && agent.canFocus && agent.hasHookData && agent.paneId?.isEmpty == false
+    private static func messageRoute(for agent: AgentSnapshot) -> MessageRoute? {
+        guard agent.blocker == nil, agent.rowId != nil, agent.canFocus, agent.hasHookData else { return nil }
+        return MessageRoute(agent: agent)
     }
 
+    /// Whether `agent` can take `/compact` / `/clear` right now: message-eligible (not asking
+    /// anything, a Claude agent the dashboard addresses) through a real terminal, never an inbox.
+    /// The one gate for the ⋯ menu's Compact/Clear and Park's automatic `/compact`.
+    static func takesQuickCommands(_ agent: AgentSnapshot) -> Bool {
+        messageRoute(for: agent)?.allowsQuickCommands == true
+    }
+
+    /// Compact/Clear need a real terminal: never offered on an inbox route.
     private static func quickCommandItems(for agent: AgentSnapshot) -> [RowButtonSpec] {
-        guard isMessageEligible(agent) else { return [] }
+        guard takesQuickCommands(agent) else { return [] }
         return [RowButtonSpec(button: .compact, disabledReason: nil), RowButtonSpec(button: .clear, disabledReason: nil)]
     }
 
@@ -169,7 +194,7 @@ enum RowButtons {
         case .questionLoading?: return [RowButtonSpec(button: .answer, disabledReason: readingOptionsReason), peek, park]
         case .permissionReview?: return [RowButtonSpec(button: .review, disabledReason: nil), peek, park]
         case .questionNotAnswerable?, .permission?: return [RowButtonSpec(button: .openTerminal, disabledReason: nil), peek, park]
-        case nil: return [peek, park] + messageButton(for: agent) + moreActionsButton(for: agent)
+        case nil: return [peek, park] + openInClaudeButton(for: agent) + messageButton(for: agent) + moreActionsButton(for: agent)
         }
     }
 

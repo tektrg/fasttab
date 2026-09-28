@@ -1,9 +1,9 @@
 import Foundation
 
-/// A prompt a status-only Claude session (Claude Desktop, or the CLI outside herdr) is waiting on,
+/// A prompt a Claude session (Claude Desktop, the CLI in tmux, or a herdr pane) is waiting on,
 /// as the dashboard's hook bridge holds it: Claude's `PermissionRequest` hook sent it there and waits
-/// for AgentBar's answer (`POST /api/hook/permission/<requestId>/answer`). There is no pane behind it,
-/// so nothing is read off a screen: the request itself is the whole prompt, and the answer goes by id.
+/// for AgentBar's answer (`POST /api/hook/permission/<requestId>/answer`). Nothing is read off a
+/// screen, even when a pane exists: the request itself is the whole prompt, and the answer goes by id.
 struct HookRequest: Equatable, Sendable {
     enum Content: Equatable, Sendable {
         /// AskUserQuestion: every question of the call (one or more), in order.

@@ -1,0 +1,40 @@
+  ┃
+  ┃  Before doing anything, use your question tool to ask me a multiple-choice question about which color I prefer (
+  ┃  red, green, blue). Do nothing else.
+  ┃
+
+     Thought · 6.3s
+
+     I'll ask about your color preference.
+
+     → Asked 1 question
+
+     ▣  Build · Muse Spark 1.3 Free
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Which color do you prefer?
+  ┃
+  ┃  1. Red
+  ┃     Prefer the color red
+  ┃  2. Green
+  ┃     Prefer the color green
+  ┃  3. Blue
+  ┃     Prefer the color blue
+  ┃  4. Type your own answer
+  ┃
+  ┃  ↑↓ select  enter submit  esc dismiss
+  ┃

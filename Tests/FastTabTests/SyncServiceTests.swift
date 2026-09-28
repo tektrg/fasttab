@@ -766,6 +766,44 @@ struct SyncServiceTests {
         #expect(retryRecord["status"] as? String == SyncCommandStatus.done.rawValue)
     }
 
+    @Test("SyncService re-inserts a state record whose cached server copy was deleted")
+    func unknownItemStateRecordRetriesAsFreshInsert() throws {
+        let tab = SyncedTab(
+            id: "tab_reused_position",
+            deviceID: "mac_test",
+            browserName: "Microsoft Edge",
+            title: "Current title",
+            url: "https://example.com/current"
+        )
+        let intendedRecord = tab.toRecord(zoneID: SyncConstants.stateZoneID)
+        let missing = CKError(.unknownItem)
+
+        let retryRecord = try #require(
+            SyncService.recordForRetry(intendedRecord: intendedRecord, error: missing)
+        )
+
+        #expect(retryRecord !== intendedRecord)
+        #expect(retryRecord.recordID == intendedRecord.recordID)
+        #expect(retryRecord.recordChangeTag == nil)
+        #expect(SyncedTab(from: retryRecord)?.title == "Current title")
+        #expect(SyncedTab(from: retryRecord)?.url == "https://example.com/current")
+    }
+
+    @Test("SyncService does not resurrect a command record the phone deleted")
+    func unknownItemCommandRecordIsNotRetried() {
+        let command = SyncCommand(
+            id: "cmd_cleared_by_phone",
+            kind: .openOnMac,
+            targetDeviceID: "mac_1",
+            sourceDeviceName: "iPhone",
+            issuedAt: Date(),
+            expiresAt: Date().addingTimeInterval(3600),
+            payloadJSON: "{}"
+        )
+        let intendedRecord = command.toRecord(zoneID: SyncConstants.commandsZoneID)
+        #expect(SyncService.recordForRetry(intendedRecord: intendedRecord, error: CKError(.unknownItem)) == nil)
+    }
+
     @Test("SyncService retries a synced-tab conflict with the server-backed record")
     func syncedTabConflictAdoptsServerRecord() throws {
         let serverTab = SyncedTab(

@@ -85,6 +85,10 @@ struct MessageCardView: View {
             } else if card.showsLineBreakNote {
                 Text("Line breaks are sent as spaces.")
                     .foregroundStyle(.secondary)
+            } else if let caption = card.routeCaption {
+                // Inbox route (Claude Desktop / CLI): said here so the fixed-height card never grows.
+                Text(caption)
+                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             if let counter = card.counterText {

@@ -21,8 +21,13 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: FastTabMobile
+      # Widget snapshot model + deep links, compiled into both the app and FastTabWidgets.
+      - path: Shared/Widgets
     dependencies:
       - target: FastTabShare
+        embed: true
+        codeSign: true
+      - target: FastTabWidgets
         embed: true
         codeSign: true
       - package: FastTabPackage
@@ -36,8 +41,19 @@ targets:
       # them yet: theindie-api does not list the "fasttab" app. See FastTabMobile/Sharing/.
       - package: IndieLibKit
         product: IndieAccount
+      # Tag paths, tag filter (AND + descendants) and tag search for the Highlights feed,
+      # plus text folding for its search. See FastTabMobile/Reader/HighlightFeedModel.swift.
+      - package: IndieLibKit
+        product: IndieTags
+      - package: IndieLibKit
+        product: IndieSearch
       - package: IndieLibKit
         product: IndieShareSync
+      # YouTube transcripts in the reader (FastTabMobile/Reader/YouTube/) + the power-up gate.
+      - package: IndieLibKit
+        product: IndieTranscripts
+      - package: IndieLibKit
+        product: IndiePowerUps
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile
       DEVELOPMENT_TEAM: 56S46Y7CKN
@@ -64,6 +80,11 @@ targets:
         # Without it a push only lands when the app is already running.
         UIBackgroundModes:
           - remote-notification
+        # `fasttab://` deep links from the home-screen widgets (Shared/Widgets/WidgetDeepLink.swift).
+        CFBundleURLTypes:
+          - CFBundleURLName: app.theindie.FastTabMobile
+            CFBundleURLSchemes:
+              - fasttab
     entitlements:
       path: FastTabMobile/FastTabMobile.entitlements
       properties:
@@ -112,6 +133,41 @@ targets:
         com.apple.developer.icloud-services:
           - CloudKit
         com.apple.developer.icloud-container-environment: Development
+        com.apple.security.application-groups:
+          - group.app.theindie.FastTab
+
+  # Home-screen widgets (tap-to-open only). Reads the snapshot the app writes to the app group.
+  FastTabWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: FastTabWidgets
+      - path: Shared/Widgets
+    dependencies:
+      - package: FastTabPackage
+        product: FastTabSync
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile.Widgets
+      DEVELOPMENT_TEAM: 56S46Y7CKN
+      CODE_SIGN_STYLE: Automatic
+      CODE_SIGN_ENTITLEMENTS: FastTabWidgets/FastTabWidgets.entitlements
+      MARKETING_VERSION: 1.0.0
+      CURRENT_PROJECT_VERSION: 1
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_CFBundleDisplayName: FastTab
+      SWIFT_VERSION: "5.9"
+      ENABLE_USER_SCRIPT_SANDBOXING: NO
+    info:
+      path: FastTabWidgets/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: FastTabWidgets/FastTabWidgets.entitlements
+      properties:
         com.apple.security.application-groups:
           - group.app.theindie.FastTab
 

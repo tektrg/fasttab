@@ -99,7 +99,7 @@ final class AnswerCardModel: ObservableObject {
     /// footer) when it cannot be answered from here.
     @discardableResult
     func open(_ agent: AgentSnapshot) -> Bool {
-        // A hook request (status-only session) is answered by id; anything else needs its pane.
+        // A hook request (status-only session or herdr pane) is answered by id; anything else needs its pane.
         let paneId = agent.paneId ?? ""
         guard case .question? = agent.blockedOnYou, agent.hookRequest != nil || !paneId.isEmpty else {
             return false
@@ -114,7 +114,8 @@ final class AnswerCardModel: ObservableObject {
             return false
         }
         close()
-        var opened = AnswerCard(agent: agent, paneId: paneId, question: question)
+        // A hook request is answered by id only: the card never keeps a pane to read or type into.
+        var opened = AnswerCard(agent: agent, paneId: agent.hookRequest == nil ? paneId : "", question: question)
         if let draft = tracker.takeDraft(agentID: agent.id, for: question.identity) { opened.state.restore(draft) }
         opened.form = Self.hookForm(agent.hookRequest)
         card = opened

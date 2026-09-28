@@ -12,7 +12,9 @@ import chief_dashboard_herdr as herdr_transport
 import claude_sessions  # P4: non-herdr Claude sessions as status-only rows
 import desktop_sessions  # sleeping Claude Desktop sessions (no live process)
 import hook_permissions  # prompts answerable via the PermissionRequest hook
+import message_gate  # non-Claude panes are never typed into
 import pane_screen_signals
+import tui_status_events  # OpenCode/Codex exact status (plugin / hooks)
 from chief_dashboard_feeds import FEEDS, MACHINES, sanitize_pane_id  # noqa: F401
 from chief_dashboard_feeds import MACHINES_CONFIG_ERROR  # noqa: F401,E402  (surfaced on every /api/state)
 from chief_dashboard_feeds import read_hook_question  # noqa: E402  (phase 5: AskUserQuestion preview)
@@ -100,6 +102,8 @@ def build_agents_view(feeds_snap):
             "hookQuestion": read_hook_question(sid) if sid else None,
             "machine": herdr_transport.LOCAL_MACHINE,
             "source": claude_sessions.HERDR_SOURCE,
+            "messageVia": "pane",
+            "agentKind": a.get("agent"),
         })
 
     # Remote rows (R1/R4/R7): one machine at a time, from that machine's OWN
@@ -149,6 +153,8 @@ def build_agents_view(feeds_snap):
                 "hookQuestion": None,
                 "machine": machine,
                 "source": claude_sessions.HERDR_SOURCE,
+                "messageVia": "pane",
+                "agentKind": a.get("agent"),
                 # Local-only facts (R16) degrade to null on a remote row,
                 # never a guessed/borrowed local value.
                 "memoryBytes": None,
@@ -158,11 +164,26 @@ def build_agents_view(feeds_snap):
     # status-only. A session herdr already shows (same agentSession) is skipped
     # — the pane row is the richer one. Local sessions folder only.
     herdr_session_ids = {r["agentSession"] for r in rows if r.get("agentSession")}
+    # Non-Claude panes can't take messages (their prompts are invisible):
+    # the server refuses them, and every client shows why (message_gate.py).
     claude_sessions_data = (feeds_snap.get("claudeSessions") or {}).get("data")
+    hook_requests = hook_permissions.STORE.exposed_by_session(claude_sessions_data)
+    # A local herdr pane's prompt held by the PermissionRequest hook: shown
+    # even when the pane is scrolled away from it (the screen can't see it).
+    for r in rows:
+        if r["machine"] == herdr_transport.LOCAL_MACHINE:
+            r["hookRequest"] = hook_requests.get(r.get("agentSession"))
+    # OpenCode / Codex panes: their own plugin / hook events (fresh only —
+    # stale data is dropped, so the row decays back to its screen reading).
+    tui_status_events.attach_to_rows(
+        rows, tui_status_events.STORE.fresh_entries(), now,
+        local_machine=herdr_transport.LOCAL_MACHINE,
+        herdr_source=claude_sessions.HERDR_SOURCE)
+    for r in rows:
+        r["messageRefusal"] = message_gate.blind_agent_refusal(r)
     rows.extend(claude_sessions.build_status_only_rows(
         claude_sessions_data, herdr_session_ids, now,
-        machine=herdr_transport.LOCAL_MACHINE,
-        hook_requests=hook_permissions.STORE.exposed_by_session(claude_sessions_data)))
+        machine=herdr_transport.LOCAL_MACHINE, hook_requests=hook_requests))
 
     # Hook files with no matching herdr pane. The hook only deletes one on a
     # graceful SessionEnd, so a closed tab or a killed session leaves it behind
@@ -372,6 +393,16 @@ def build_needs_you(feeds_snap, agents):
                 row["transcriptQuestion"] = a.get("transcriptQuestion")
                 rows.append(row)
             continue
+        if a.get("hookRequest"):
+            # A herdr pane whose prompt the hook holds: that wins over the
+            # screen (which misses it when the pane is scrolled up), and is
+            # the pane's only row — never a second screen-read blocker.
+            row = _row("blocked", label, pane_id,
+                       a.get("hookReason") or claude_sessions.DEFAULT_WAITING_REASON, age)
+            row["permission"] = None
+            row["hookRequest"] = a["hookRequest"]
+            rows.append(row)
+            continue
         screen = a.get("screenState")
         signal = a.get("screenSignal")
         # Only a reading at least as new as the hook event may overrule it.
@@ -449,6 +480,18 @@ def build_needs_you(feeds_snap, agents):
             # case a missing key vs. an explicit null.
             row["permission"] = a.get("screenPermission")
             rows.append(row)
+
+    # Which machine each agent row lives on (the phone showed every Needs
+    # You row as "local", even an air-m1 pane). Status-only rows have no
+    # pane and are always local.
+    machine_by_pane = {}
+    for a in agents:
+        key = a.get("paneId") or a.get("paneIdSanitized")
+        if key:
+            machine_by_pane[key] = a.get("machine")
+    for row in rows:
+        row["machine"] = (machine_by_pane.get(row.get("paneId"))
+                          or herdr_transport.LOCAL_MACHINE)
 
     for feed_name, f in feeds_snap.items():
         if "broken" not in f:

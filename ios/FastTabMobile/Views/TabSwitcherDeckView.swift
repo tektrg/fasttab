@@ -52,7 +52,7 @@ struct TabSwitcherDeckView: View {
     }
 
     private var activeDevice: SyncedDevice? {
-        device ?? localCache.state.devices.first
+        device ?? localCache.state.connectedMac
     }
 
     /// Recomputes the filtered visible tabs list. Call this sparingly (on data

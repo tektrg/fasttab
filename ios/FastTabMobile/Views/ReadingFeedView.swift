@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import FastTabSync
 
 public struct ReadingFeedView: View {
@@ -21,8 +22,10 @@ public struct ReadingFeedView: View {
         recentProvider.items(filteredByFolder: selectedFolder)
     }
 
+    private let emergingLanesTip = EmergingLanesTip()
+
     private var activeDeviceID: String {
-        localCache.state.devices.first?.id ?? ""
+        localCache.state.connectedMac?.id ?? ""
     }
 
     /// Most recently opened article that isn't finished yet (progress < 95%).
@@ -95,6 +98,9 @@ public struct ReadingFeedView: View {
             }
             .padding(.top, 6)
             .padding(.bottom, unfinishedReads.isEmpty ? 24 : DS.Space.floatingBarClearance)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            SyncWarningBanner()
         }
         .dsCanvas()
         .navigationBarTitleDisplayMode(.inline)
@@ -256,6 +262,9 @@ public struct ReadingFeedView: View {
                         .padding(.top, DS.Space.xs)
                 }
             } else {
+                TipView(emergingLanesTip)
+                    .fastTabTipStyle()
+                    .padding(.horizontal, DS.Space.gutter)
                 carousel(emergingProvider.items) { item in
                     let (delTitle, delIcon) = emergingDeleteInfo(for: item)
                     ReadingFeedCardView(
@@ -269,6 +278,7 @@ public struct ReadingFeedView: View {
                         deleteTitle: delTitle,
                         deleteIcon: delIcon,
                         onSelect: {
+                            emergingLanesTip.invalidate(reason: .actionPerformed)
                             openArticle(url: item.url, title: item.title)
                         },
                         onOpenOnMac: {
@@ -398,7 +408,9 @@ public struct ReadingFeedView: View {
             systemImage: "plus.square.dashed",
             message: "Save links via the FastTab Share Sheet or sync bookmarks from your Mac.",
             style: .inline
-        )
+        ) {
+            OnboardingShortcutButton(shortcut: .addToShareSheet, prominence: .inline)
+        }
     }
 
     private var emptyEmergingCard: some View {
@@ -408,7 +420,11 @@ public struct ReadingFeedView: View {
             message: "Browse pages on your Mac or iPhone to see connected recommendations here.",
             tint: DS.Tint.emerging,
             style: .inline
-        )
+        ) {
+            if localCache.state.connectedMac == nil {
+                OnboardingShortcutButton(shortcut: .connectMac, prominence: .inline)
+            }
+        }
     }
 
     // MARK: - Deletion Helpers

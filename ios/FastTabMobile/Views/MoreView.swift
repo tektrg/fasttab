@@ -1,12 +1,15 @@
 import SwiftUI
+import TipKit
 import FastTabSync
 
 public struct MoreView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var syncConsumer = SyncConsumer.shared
     @StateObject private var statsViewModel = StatsViewModel()
+    private let intelligenceTip = IntelligenceTip()
     @AppStorage(TabBookmarkClosePreference.defaultsKey)
     private var tabBookmarkClosePreferenceRaw = TabBookmarkClosePreference.ask.rawValue
+    @AppStorage(ReadingGoal.defaultsKey) private var dailyWordGoal = ReadingGoal.defaultDailyWords
 
     public init() {}
 
@@ -39,9 +42,22 @@ public struct MoreView: View {
             .listRowInsets(EdgeInsets())
             .dsListRow()
 
+            Section(footer: Text("Closes the Reading ring widget on your home screen.")) {
+                Stepper(value: $dailyWordGoal, in: ReadingGoal.range, step: ReadingGoal.step) {
+                    HStack {
+                        Text("Daily reading goal")
+                        Spacer()
+                        Text("\(dailyWordGoal.formatted()) words")
+                            .font(DS.Font.body.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .dsListRow()
+
             Section {
                 DataFreshnessBanner(
-                    device: localCache.state.devices.first,
+                    device: localCache.state.connectedMac,
                     lastSyncedAt: localCache.state.lastSyncedAt
                 )
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))
@@ -72,9 +88,15 @@ public struct MoreView: View {
                     }
                 }
 
+                TipView(intelligenceTip)
+                    .fastTabTipStyle()
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+
                 NavigationLink {
                     IntelligenceView()
                         .navigationTitle("Intelligence")
+                        .onAppear { intelligenceTip.invalidate(reason: .actionPerformed) }
                 } label: {
                     MoreRowLabel(
                         systemImage: "sparkles",
@@ -140,6 +162,21 @@ public struct MoreView: View {
                         subtitle: "\(devicesCount) device\(devicesCount == 1 ? "" : "s") synced"
                     )
                 }
+            }
+            .dsListRow()
+
+            Section("Help") {
+                Button {
+                    OnboardingPresenter.shared.present(.fullGuide)
+                } label: {
+                    MoreRowLabel(
+                        systemImage: "sparkles.rectangle.stack",
+                        tint: DS.Tint.action,
+                        title: "Setup Guide",
+                        subtitle: "Connect your Mac, try Reader, set up sharing"
+                    )
+                }
+                .foregroundStyle(.primary)
             }
             .dsListRow()
 

@@ -1,4 +1,5 @@
 import Foundation
+import IndieTags
 
 /// Persists `ReaderHighlight` items per article URL.
 /// Backed by `UserDefaults`, keyed by canonical URL string.
@@ -43,6 +44,18 @@ public final class ReaderHighlightStore: ObservableObject {
     /// already canonical, so it doubles as the store's dictionary key directly.
     public func remove(_ highlight: ReaderHighlight) {
         store[highlight.urlKey]?.removeAll { $0.id == highlight.id }
+        saveToDisk()
+    }
+
+    /// Replaces a highlight's user tags. Paths are tidied and de-duplicated (case and accents
+    /// ignored); anything that is not a valid `TagPath` is dropped.
+    public func setTags(_ tags: [String], for highlight: ReaderHighlight) {
+        guard let index = store[highlight.urlKey]?.firstIndex(where: { $0.id == highlight.id }) else { return }
+        var seenPaths = Set<String>()
+        let cleanedTags = tags.compactMap(TagPath.init)
+            .filter { seenPaths.insert($0.normalizedPath).inserted }
+            .map(\.displayPath)
+        store[highlight.urlKey]?[index] = highlight.replacingTags(cleanedTags)
         saveToDisk()
     }
 

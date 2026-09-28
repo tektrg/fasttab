@@ -142,7 +142,13 @@ public final class LocalCache: ObservableObject {
 
     // MARK: - Mutations
 
+    /// `state.devices` holds Macs only: every "the Mac" lookup on the phone
+    /// (`CachedSyncState.connectedMac`, command targets, freshness banner) relies on it.
+    /// Phones — this one included — publish device records into the same zone
+    /// for two-way pairing; those are dropped here so a phone can never become
+    /// "the Mac".
     public func updateDevice(_ device: SyncedDevice) {
+        guard device.isMac else { return }
         if let idx = state.devices.firstIndex(where: { $0.id == device.id }) {
             state.devices[idx] = device
         } else {

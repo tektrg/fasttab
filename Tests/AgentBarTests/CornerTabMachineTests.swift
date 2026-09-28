@@ -407,6 +407,14 @@ struct BlockedCornerTabContentTests {
         #expect(CornerTabContent.summary(of: rows).soleCardableAgentID == nil)
     }
 
+    @Test func everyBlockedAgentWithACardIsListedSoAnOpenCardCanStay() {
+        let rows = [
+            A.blockedAgent("a", blocker: .question(A.question())), P.agent("b", P.bash),
+            A.blockedAgent("c", blocker: .questionNotAnswerable),
+        ]
+        #expect(CornerTabContent.summary(of: rows).cardableAgentIDs == ["a", "b"])
+    }
+
     @Test func noBlockerIsNotCardable() {
         let content = CornerTabContent.summary(of: [A.blockedAgent("a", blocker: nil)])
         #expect(content.soleCardableAgentID == nil)

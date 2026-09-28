@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import FastTabSync
 
 /// Where a `RandomCardItem` came from — shown as the small badge on each card,
@@ -8,6 +9,7 @@ import FastTabSync
 enum RandomCardSource: Hashable {
     case bookmark(item: SyncedBookmarkItem, source: BookmarkSource)
     case openTab(tab: SyncedTab)
+    case highlight(ReaderHighlight)
 
     var badgeText: String {
         switch self {
@@ -16,7 +18,17 @@ enum RandomCardSource: Hashable {
             return folderPath
         case .openTab(let tab):
             return "Open tab · \(tab.browserName)"
+        case .highlight:
+            return "Highlight"
         }
+    }
+
+    /// Key of the bookmark folder this card lives in, for "Don't surface this folder".
+    /// Nil for tabs, highlights and top-level bookmarks (hiding the root would hide everything).
+    var hiddenFolderKey: String? {
+        guard case .bookmark(let item, let source) = self,
+              let path = item.folderPath, !BookmarkTreeBuilder.splitPath(path).isEmpty else { return nil }
+        return RandomFeedHiddenStore.folderKey(browserName: source.browserName, profileName: source.profileName, folderPath: path)
     }
 
     /// Safari bookmarks are never writable — same gate `BookmarkNodeRow` uses
@@ -49,11 +61,18 @@ enum RandomCardMenuAction {
     case openOnMac
     case openInReader
     case copyURL
+    case copyHighlightText
+    case deleteHighlight
+    case hideLink
+    case hideFolder
 }
 
 public struct RandomLinksView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var skipStore = RandomFeedSkipStore.shared
+    @ObservedObject private var highlightStore = ReaderHighlightStore.shared
+    @ObservedObject private var hiddenStore = RandomFeedHiddenStore.shared
+    private let shuffleSwipeTip = ShuffleSwipeTip()
 
     @State private var deck: [RandomCardItem] = []
     @State private var hasBuiltInitialDeck = false
@@ -73,6 +92,9 @@ public struct RandomLinksView: View {
             if deck.isEmpty {
                 emptyState
             } else {
+                TipView(shuffleSwipeTip)
+                    .fastTabTipStyle()
+                    .padding([.horizontal, .top], DS.Space.gutter)
                 deckStack
                     .padding(DS.Space.gutter)
             }
@@ -122,9 +144,15 @@ public struct RandomLinksView: View {
                 ) { destination in
                     performSave(item, title: tab.title, url: tab.url, deviceID: tab.deviceID, to: destination)
                 }
+            case .highlight:
+                EmptyView()
             }
         }
         .dsToast($toast)
+        // The Shuffle widget mirrors whatever card is on top here.
+        .onChange(of: deck.first?.id) { _, _ in
+            WidgetSnapshotPublisher.shared.shuffleTopCardChanged(deck.first)
+        }
     }
 
     private var deckStack: some View {
@@ -178,7 +206,7 @@ public struct RandomLinksView: View {
             isExpanding = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
-            readerItem = ReaderNavigationItem(url: item.url, title: item.title)
+            readerItem = readerNavigationItem(for: item)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 isExpanding = false
                 expandingItemID = nil
@@ -201,6 +229,16 @@ public struct RandomLinksView: View {
 
     private var hasAnySourceData: Bool {
         !localCache.state.bookmarkBlobs.isEmpty || !localCache.state.tabs.isEmpty
+            || !highlightStore.allHighlightsNewestFirst().isEmpty
+    }
+
+    /// A highlight card opens its article scrolled to that highlight.
+    private func readerNavigationItem(for item: RandomCardItem) -> ReaderNavigationItem {
+        if case .highlight(let highlight) = item.source {
+            LastOpenedStore.shared.recordOpened(url: item.url, title: item.title)
+            return ReaderNavigationItem(url: item.url, title: item.title, focusHighlightID: highlight.id)
+        }
+        return ReaderNavigationItem(url: item.url, title: item.title)
     }
 
     private var emptyState: some View {
@@ -221,17 +259,27 @@ public struct RandomLinksView: View {
                 DSEmptyState(
                     "Nothing to shuffle yet",
                     systemImage: "shuffle",
-                    message: "Bookmarks and open tabs from your Mac will show up here once they sync."
-                )
+                    message: "Bookmarks and open tabs from your Mac, and your reader highlights, will show up here."
+                ) {
+                    if localCache.state.connectedMac == nil {
+                        OnboardingShortcutButton(shortcut: .connectMac)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func handle(_ decision: RandomCardDecision, for item: RandomCardItem) {
+        shuffleSwipeTip.invalidate(reason: .actionPerformed)
         switch decision {
         case .moveTo:
-            moveRequest = item
+            // Highlights have no folder to move to: swiping right opens them instead.
+            if case .highlight = item.source {
+                readerItem = readerNavigationItem(for: item)
+            } else {
+                moveRequest = item
+            }
         case .skip:
             skipStore.skip(item.id)
             deck.removeAll { $0.id == item.id }
@@ -270,10 +318,28 @@ public struct RandomLinksView: View {
         case .moveBookmark:
             moveRequest = item
         case .openInReader:
-            readerItem = ReaderNavigationItem(url: item.url, title: item.title)
+            readerItem = readerNavigationItem(for: item)
         case .copyURL:
             UIPasteboard.general.string = item.url.absoluteString
             presentToast("URL Copied")
+        case .copyHighlightText:
+            guard case .highlight(let highlight) = item.source else { return }
+            UIPasteboard.general.string = highlight.selectedText
+            presentToast("Highlight Copied")
+        case .hideLink:
+            hiddenStore.hide(url: item.url)
+            presentToast("Won't surface this link again")
+            deck.removeAll { hiddenStore.isHidden(url: $0.url) }
+        case .hideFolder:
+            guard let key = item.source.hiddenFolderKey else { return }
+            hiddenStore.hide(folderKey: key)
+            presentToast("Won't surface this folder again")
+            deck.removeAll { $0.source.hiddenFolderKey.map(hiddenStore.isHidden(folderKey:)) ?? false }
+        case .deleteHighlight:
+            guard case .highlight(let highlight) = item.source else { return }
+            highlightStore.remove(highlight)
+            presentToast("Highlight deleted")
+            deck.removeAll { $0.id == item.id }
         }
     }
 
@@ -328,6 +394,13 @@ public struct RandomLinksView: View {
     }
 
     private func buildPool() -> [RandomCardItem] {
+        collectPool().filter { item in
+            !hiddenStore.isHidden(url: item.url)
+                && !(item.source.hiddenFolderKey.map(hiddenStore.isHidden(folderKey:)) ?? false)
+        }
+    }
+
+    private func collectPool() -> [RandomCardItem] {
         var items: [RandomCardItem] = []
 
         for blob in localCache.state.bookmarkBlobs {
@@ -357,6 +430,18 @@ public struct RandomLinksView: View {
             ))
         }
 
+        for highlight in highlightStore.allHighlightsNewestFirst() {
+            guard let url = highlight.articleURL else { continue }
+            let id = "highlight|\(highlight.id)"
+            guard !skipStore.isSkipped(id) else { continue }
+            items.append(RandomCardItem(
+                id: id,
+                title: ReaderHighlightTitleResolver.resolve(for: highlight),
+                url: url,
+                source: .highlight(highlight)
+            ))
+        }
+
         return items
     }
 }
@@ -382,13 +467,16 @@ private struct RandomCardView: View {
         ZStack(alignment: .bottomLeading) {
             RoundedRectangle(cornerRadius: isExpanding ? 0 : DS.Radius.xl, style: .continuous)
                 .fill(
+                    isHighlight ? DS.Palette.deckTop :
                     // Text-only tweets sit on the always-dark deck color so the white snippet reads.
                     (preview?.isTweet == true && preview?.image == nil)
                         ? DS.Palette.deckTop
                         : DS.Palette.surfaceMuted
                 )
 
-            if let preview, let image = preview.image {
+            if case .highlight(let highlight) = item.source {
+                highlightQuote(highlight)
+            } else if let preview, let image = preview.image {
                 LinkCardImageView(image: image, preview: preview, compact: false)
                     .frame(width: cardSize.width, height: cardSize.height)
                     .clipped()
@@ -465,6 +553,7 @@ private struct RandomCardView: View {
             }
         }
         .task(id: item.id) {
+            guard !isHighlight else { return }
             preview = await LinkPreviewLoader.shared.preview(for: item.url)
         }
     }
@@ -494,7 +583,35 @@ private struct RandomCardView: View {
             Label("Copy URL", systemImage: "doc.on.doc")
         }
 
+        Menu {
+            Button {
+                onMenuAction(.hideLink)
+            } label: {
+                Label(isHighlight ? "This Article" : "This Link", systemImage: "link")
+            }
+            if let folderPath = (item.source.hiddenFolderKey != nil) ? item.source.badgeText : nil {
+                Button {
+                    onMenuAction(.hideFolder)
+                } label: {
+                    Label("Folder “\(folderPath)”", systemImage: "folder")
+                }
+            }
+        } label: {
+            Label("Don't Surface…", systemImage: "eye.slash")
+        }
+
         switch item.source {
+        case .highlight:
+            Button {
+                onMenuAction(.copyHighlightText)
+            } label: {
+                Label("Copy Highlight", systemImage: "text.quote")
+            }
+            Button(role: .destructive) {
+                onMenuAction(.deleteHighlight)
+            } label: {
+                Label("Delete Highlight", systemImage: "trash")
+            }
         case .bookmark:
             if item.source.isWritableBookmark {
                 Button {
@@ -525,6 +642,29 @@ private struct RandomCardView: View {
                 Label("Close Tab on Mac", systemImage: "xmark.circle")
             }
         }
+    }
+
+    private var isHighlight: Bool {
+        if case .highlight = item.source { return true }
+        return false
+    }
+
+    /// The highlighted passage as a pull quote, with a bar in the highlight's own colour.
+    private func highlightQuote(_ highlight: ReaderHighlight) -> some View {
+        HStack(alignment: .top, spacing: DS.Space.md) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color(uiColor: highlight.color.uiColor.withAlphaComponent(1)))
+                .frame(width: 4)
+            Text(highlight.selectedText)
+                .font(.title3.weight(.medium))
+                .foregroundStyle(.white.opacity(0.95))
+                .lineLimit(9)
+                .multilineTextAlignment(.leading)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(DS.Space.xl)
+        .padding(.top, DS.Space.xl)
+        .frame(width: cardSize.width, height: cardSize.height, alignment: .topLeading)
     }
 
     private var dragGesture: some Gesture {
@@ -573,7 +713,7 @@ private struct RandomCardView: View {
     @ViewBuilder
     private var stampOverlay: some View {
         if dragOffset.width > 40 {
-            stampLabel("MOVE TO", color: DS.Tint.action)
+            stampLabel(isHighlight ? "OPEN" : "MOVE TO", color: DS.Tint.action)
                 .opacity(min(1, (dragOffset.width - 40) / Self.stampFadeDistance))
                 .rotationEffect(.degrees(-15))
                 .padding(DS.Space.xl)

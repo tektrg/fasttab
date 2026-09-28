@@ -398,6 +398,21 @@ body.rp-resizing .rp-resize { background:var(--blue); }
 .phone-search-input input { font-size: 16px; } /* avoid iOS auto-zoom */
 .phone-search-clear { color: var(--dim); padding: 0 4px; }
 .phone-group-toggle { flex: 0 0 auto; }
+.phone-new-session {
+  flex: 0 0 auto; width: 44px; height: 36px; border-radius: 8px;
+  border: 1px solid var(--border); text-align: center; font-size: 20px; line-height: 1;
+}
+.persona-sheet-list { display: flex; flex-direction: column; gap: 12px; }
+.persona-sheet-empty { margin: 12px 0; }
+.persona-sheet-error { margin-top: 12px; color: var(--mantine-color-red-6); }
+.persona-sheet-note, .persona-sheet-jev { margin-top: 12px; font-size: 13px; color: var(--dim); }
+.persona-sheet-jev { color: inherit; }
+/* 375px: the switch label + Ask Jev + "Confirm resume" (Mantine buttons
+   never wrap their label) don't fit one row, so the switch gets its own. */
+.persona-sheet-actions { flex-wrap: wrap; }
+.persona-sheet-fresh { flex: 1 0 100%; align-self: center; }
+.phone-sheet-quick { display: flex; gap: 8px; }
+.phone-sheet-gate-note { font-size: 12px; color: var(--dim); }
 .phone-nomatch { margin: 12px; text-align: center; }
 .phone-row:first-of-type { border-top: none; }
 .phone-row:active { transform: scale(0.98); background: var(--color-surface-alt); }
@@ -444,7 +459,9 @@ body.rp-resizing .rp-resize { background:var(--blue); }
      safe-area inset is not also owed on top of the keyboard offset. */
 }
 .phone-sheet-actions { display: flex; gap: 8px; }
-.phone-sheet-actions button { flex: 1; min-height: 44px; }
+/* `a`: Open in Claude is a Mantine Button rendered as a link — same size
+   and 44px touch target as its button neighbours. */
+.phone-sheet-actions button, .phone-sheet-actions a { flex: 1; min-height: 44px; }
 /* iOS Safari auto-zooms the whole page on focus of any text input whose
    computed font-size is under 16px — Mantine's default TextInput (used by
    Composer, mounted here for the phone reply box) is 14px. Below 16px only,

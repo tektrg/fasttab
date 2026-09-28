@@ -15,6 +15,8 @@ Formats, both verified live 2026-09-06 inside the tail the feed reads:
                                       at 29% was auto-compacting while one at
                                       53% showed no countdown)
   opencode `144.8K (14%)`           -> tokensK=144.8, pct=14, source="opencode"
+  Codex    none — its footer (0.154 alpha) shows model + cwd only, no
+           context reading; Codex context % needs the rollout file instead.
 
 Take the LAST match in the tail — the status line is at the bottom and older
 frames scroll above it. No match -> every field None. NEVER coerce to 0: a 0
@@ -32,8 +34,10 @@ _CLAUDE_PCT_RE = re.compile(r"(\d{1,3})%\s+context\b")
 #: genuinely close to the ceiling. Coexists with the `% context` line.
 _AUTOCOMPACT_RE = re.compile(r"(\d{1,3})%\s+until auto-compact\b")
 
-#: `144.8K (14%)` (opencode's status line).
-_OPENCODE_RE = re.compile(r"(\d+(?:\.\d+)?)K\s+\((\d{1,3})%\)")
+#: `144.8K (14%)` (opencode's status line). The `)` is optional: a narrow
+#: pane cuts it (`15.3K (1% ctrl+p`, live 2026-09-28); the `%` still ends
+#: the digits, so the number is whole.
+_OPENCODE_RE = re.compile(r"(\d+(?:\.\d+)?)K\s+\((\d{1,3})%\)?")
 
 
 def parse_context(tail_text):

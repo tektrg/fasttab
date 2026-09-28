@@ -44,6 +44,12 @@ DEFAULT_WAITING_REASON = "Input needed"
 DESKTOP_SESSION_ID_RE = re.compile(r"^local_[A-Za-z0-9-]{1,64}$")
 DESKTOP_CONTINUE_URL = "claude://code/continue?session={}"
 
+#: Peer-messaging inbox (session_inbox.py): the entrypoints that have one and
+#: the only wire protocol spoken there. Anything else = not messageable (a
+#: Claude Code update may change the undocumented format).
+INBOX_ENTRYPOINTS = frozenset({"claude-desktop", "cli"})
+SUPPORTED_PEER_PROTOCOL = 1
+
 
 def is_status_only_row(agent_row):
     """True for a row built here (no pane: no stop/close/focus/answer)."""
@@ -80,11 +86,36 @@ def _same_process_start(recorded, ps_lstart):
     the recorded one. Unparseable -> True (liveness alone decides)."""
     try:
         actual_epoch = time.mktime(time.strptime(_normalize_ws(ps_lstart), _LSTART_FORMAT))
-        recorded_struct = time.strptime(_normalize_ws(recorded), _LSTART_FORMAT)
     except (ValueError, OverflowError):
         return True
-    readings = (calendar.timegm(recorded_struct), time.mktime(recorded_struct))
+    readings = _proc_start_readings(recorded)
+    if not readings:
+        return True
     return any(abs(r - actual_epoch) <= _PROC_START_TOLERANCE_SEC for r in readings)
+
+
+def _proc_start_readings(recorded):
+    """The two instants a `procStart` string can name (as UTC, as local
+    time), or () when it doesn't parse."""
+    try:
+        recorded_struct = time.strptime(_normalize_ws(recorded), _LSTART_FORMAT)
+        return (calendar.timegm(recorded_struct), time.mktime(recorded_struct))
+    except (TypeError, ValueError, OverflowError):
+        return ()
+
+
+def recorded_process_start(entry):
+    """Epoch seconds (whole) the process of this session file started, from
+    its `procStart`, or None. Claude Code writes UTC (measured); with a
+    `startedAt`, the latest reading not after it wins — a process starts
+    before it records anything, so a local reading can't pass for UTC."""
+    readings = _proc_start_readings((entry or {}).get("procStart"))
+    started_ms = (entry or {}).get("startedAt")
+    if not readings or not isinstance(started_ms, (int, float)):
+        return readings[0] if readings else None
+    plausible = [r for r in readings
+                 if r <= started_ms / 1000.0 + _PROC_START_TOLERANCE_SEC]
+    return max(plausible) if plausible else None
 
 
 def _proc_start_by_pid(pids):
@@ -157,6 +188,15 @@ def read_session_for_pid(pid, sessions_dir=None, pid_alive=_pid_alive):
         return None
     entry = _parse_session_file(os.path.join(sessions_dir or SESSIONS_DIR, f"{pid}.json"))
     return entry if entry and entry["pid"] == pid else None
+
+
+def supports_inbox(entry):
+    """True when a session file advertises the inbox session_inbox speaks."""
+    entry = entry or {}
+    socket_path = entry.get("messagingSocketPath")
+    return (entry.get("entrypoint") in INBOX_ENTRYPOINTS
+            and entry.get("peerProtocol") == SUPPORTED_PEER_PROTOCOL
+            and isinstance(socket_path, str) and bool(socket_path))
 
 
 def _desktop_open_url(entry):
@@ -237,6 +277,9 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine,
             # "session:@window.%pane" when the CLI runs inside tmux, else None.
             "tmuxTarget": entry.get("tmux"),
             "openUrl": _desktop_open_url(entry),
+            # How a PO message reaches it: "inbox" (session_inbox.py, the
+            # session's peer socket) or None. Herdr rows say "pane".
+            "messageVia": "inbox" if supports_inbox(entry) else None,
             # Answerable prompt sent by the PermissionRequest hook, or None.
             "hookRequest": hook_request,
             # Read-only: the pending question from the transcript, only when

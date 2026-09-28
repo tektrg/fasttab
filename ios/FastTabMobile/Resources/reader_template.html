@@ -247,6 +247,54 @@
   ::selection {
     background: rgba(0, 113, 227, 0.25);
   }
+  /* ── YouTube transcript (TranscriptArticleBuilder + corner player) ── */
+  .ft-transcript-paragraph {
+    border-radius: 8px;
+    margin-left: -8px; margin-right: -8px;
+    padding: 4px 8px;
+    transition: background-color 0.3s ease;
+  }
+  .ft-transcript-paragraph.ft-current { background: var(--code-bg); }
+  .ft-ts {
+    font: 600 0.72em -apple-system, sans-serif;
+    font-variant-numeric: tabular-nums;
+    color: var(--link);
+    background: transparent;
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    padding: 1px 6px;
+    margin-right: 4px;
+    vertical-align: 0.1em;
+    -webkit-user-select: none; user-select: none;
+  }
+  #ft-player-box {
+    display: none;
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 8px);
+    right: 12px;
+    width: 160px; height: 90px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    z-index: 50;
+  }
+  #ft-player-box.ft-visible { display: block; }
+  #ft-player-box iframe { width: 100%; height: 100%; border: 0; }
+  #ft-live-pill {
+    display: none;
+    position: fixed;
+    left: 50%; transform: translateX(-50%);
+    bottom: calc(env(safe-area-inset-bottom) + 84px);
+    font: 600 14px -apple-system, sans-serif;
+    color: #fff;
+    background: var(--link);
+    border: 0; border-radius: 999px;
+    padding: 8px 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    z-index: 51;
+  }
+  #ft-live-pill.ft-visible { display: block; }
 </style>
 </head>
 <body>
@@ -594,6 +642,135 @@ window.addEventListener('load', function() {
     restoreScroll();
   }
 });
+
+// ── YouTube transcript: corner player + follow-along ──────────
+// Only on transcript pages (ReaderArticle.youtubeVideoID). Paragraphs and timestamps carry
+// data-start-ms (TranscriptArticleBuilder). While the video plays and we are "following",
+// the current paragraph is highlighted and scrolled near the top; a manual scroll stops
+// following and shows "Back to live".
+(function setUpTranscriptPlayer() {
+  var videoID = article.youtubeVideoID;
+  if (!videoID) return;
+  var paragraphs = Array.prototype.slice.call(document.querySelectorAll('.ft-transcript-paragraph'));
+  var starts = paragraphs.map(function(p) { return parseInt(p.dataset.startMs, 10) || 0; });
+  var player = null, playerReady = false, pendingSeekMs = null, pollTimer = null;
+  var following = true, currentIndex = -1, visible = false;
+
+  var box = document.createElement('div');
+  box.id = 'ft-player-box';
+  box.innerHTML = '<div id="ft-player"></div>';
+  document.body.appendChild(box);
+  var pill = document.createElement('button');
+  pill.id = 'ft-live-pill';
+  pill.type = 'button';
+  pill.textContent = 'Back to live';
+  document.body.appendChild(pill);
+
+  function indexAt(ms) {
+    var lo = 0, hi = starts.length - 1, found = 0;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (starts[mid] <= ms) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+    }
+    return found;
+  }
+
+  function scrollToCurrent() {
+    var p = paragraphs[currentIndex];
+    if (!p) return;
+    var top = p.getBoundingClientRect().top + window.scrollY - 16;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }
+
+  function showParagraph(index, forceScroll) {
+    if (index !== currentIndex) {
+      if (paragraphs[currentIndex]) paragraphs[currentIndex].classList.remove('ft-current');
+      currentIndex = index;
+      if (paragraphs[index]) paragraphs[index].classList.add('ft-current');
+      if (following) scrollToCurrent();
+    } else if (forceScroll && following) {
+      scrollToCurrent();
+    }
+  }
+
+  function setFollowing(on) {
+    following = on;
+    pill.classList.toggle('ft-visible', !on && visible);
+    if (on) scrollToCurrent();
+  }
+
+  function tick() {
+    if (!player || !playerReady || !player.getCurrentTime) return;
+    showParagraph(indexAt(player.getCurrentTime() * 1000), false);
+  }
+  function startPolling() { if (!pollTimer) pollTimer = setInterval(tick, 250); }
+  function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+  function loadPlayer() {
+    if (player) return;
+    function create() {
+      player = new YT.Player('ft-player', {
+        host: 'https://www.youtube-nocookie.com',
+        videoId: videoID,
+        width: 160, height: 90,
+        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, enablejsapi: 1 },
+        events: {
+          onReady: function() {
+            playerReady = true;
+            if (pendingSeekMs !== null) { player.seekTo(pendingSeekMs / 1000, true); player.playVideo(); pendingSeekMs = null; }
+          },
+          onStateChange: function(e) {
+            if (e.data === YT.PlayerState.PLAYING) startPolling(); else { stopPolling(); tick(); }
+          }
+        }
+      });
+    }
+    if (window.YT && window.YT.Player) { create(); return; }
+    window.onYouTubeIframeAPIReady = create;
+    var script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(script);
+  }
+
+  function setVisible(on, fromPage) {
+    if (on === visible) return;
+    visible = on;
+    box.classList.toggle('ft-visible', on);
+    if (on) { loadPlayer(); } else {
+      stopPolling();
+      if (player && playerReady) player.pauseVideo();
+      pill.classList.remove('ft-visible');
+    }
+    if (fromPage) {
+      try { window.webkit.messageHandlers.videoVisibility.postMessage({ visible: on }); } catch(e) {}
+    }
+  }
+  // Called by ReaderWebView when the "Show video" toolbar button toggles.
+  window.ftSetVideoVisible = function(on) { setVisible(!!on, false); };
+
+  function seek(ms) {
+    setVisible(true, true);
+    showParagraph(indexAt(ms), false);
+    setFollowing(true);
+    if (player && playerReady) { player.seekTo(ms / 1000, true); player.playVideo(); }
+    else { pendingSeekMs = ms; }
+  }
+
+  document.addEventListener('click', function(e) {
+    var ts = e.target.closest && e.target.closest('.ft-ts');
+    if (!ts) return;
+    e.preventDefault();
+    seek(parseInt(ts.dataset.startMs, 10) || 0);
+  });
+  pill.addEventListener('click', function() { setFollowing(true); });
+
+  // Only a person's scroll stops following: touch drags and wheel, never our scrollTo.
+  function userScrolled() { if (visible && following) setFollowing(false); }
+  window.addEventListener('touchmove', userScrolled, { passive: true });
+  window.addEventListener('wheel', userScrolled, { passive: true });
+
+  if (article.videoVisible) setVisible(true, false);
+})();
 </script>
 </body>
 </html>

@@ -200,8 +200,14 @@ import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, gene
 import personas  # noqa: E402  (Jev persona registry + routing, P1)
 import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
+import tui_status_events  # noqa: E402  (OpenCode/Codex status events)
+import session_inbox  # noqa: E402  (message to a Desktop/CLI session)
+import desktop_wake  # noqa: E402  (message a sleeping Desktop session: wake it first)
 import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook bridge)
 import persona_start  # noqa: E402  (POST /api/persona/start, P3)
+import persona_remote  # noqa: E402  (persona list/start on the remote listener)
+import message_gate  # noqa: E402  (non-Claude panes are never typed into)
+import jev_route  # noqa: E402  (POST /api/jev/route — pick a persona server-side)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
 import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
 
@@ -302,6 +308,8 @@ def get_board_state(row_kind="session", view_id=None):
     board = STORE.build_session_board(agents, view_id=view_id)
     _annotate_live_rows(board, agents)
     _annotate_ended_rows(board)
+    desktop_wake.annotate_wakeable_rows(
+        board.get("rows"), state.get("computed", {}).get("sleepingSessions"))
     return board
 
 
@@ -312,6 +320,9 @@ def get_state_with_board():
     state["board"] = STORE.build_session_board(agents)
     _annotate_live_rows(state["board"], agents)
     _annotate_ended_rows(state["board"])
+    desktop_wake.annotate_wakeable_rows(
+        state["board"].get("rows"),
+        state.get("computed", {}).get("sleepingSessions"))
     # Agent hierarchy (scripts/lib/agent_tree.py): same object GET
     # /api/agent-tree returns, folded into every /api/state response and SSE
     # tick so AgentBar never needs a second poll loop. Best-effort: a tree
@@ -443,7 +454,9 @@ def _enrich_agents_for_actions(state, agents):
             ctx = (ctx.get("context") or {})
         except Exception:
             ctx = {}
-        agent["contextPct"] = ctx.get("pct")
+        # OpenCode/Codex report an exact figure (tui_status_events); prefer it.
+        tui_pct = agent.get("tuiContextPercent")
+        agent["contextPct"] = tui_pct if tui_pct is not None else ctx.get("pct")
         agent["autocompactPct"] = ctx.get("autocompactPct")
         try:
             owners = session_actions.owners_of_session(
@@ -701,6 +714,42 @@ def _refused_before_typing(error):
     return {"ok": False, "error": error, "typed": False}
 
 
+def _handle_inbox_message(agent, body, row_id, actor, text):
+    """The Send-message path for a Claude Desktop / plain CLI row (no pane):
+    delivered through the session's own peer inbox (session_inbox.py), with
+    the pane path's rules (one line, no slash command, refused while a
+    prompt is pending, confirm when busy) and the same audit rows."""
+    result = session_inbox.deliver_row_message(
+        agent, text, bool((body or {}).get("confirm")))
+    return _audit_inbox_result(result, row_id, actor, text)
+
+
+def _handle_sleeping_message(sleeping, body, row_id, actor, text):
+    """The Send-message path for an ENDED row that is a sleeping Claude
+    Desktop session: confirm, wake it (desktop_wake.py), deliver via its
+    inbox. Same response shapes + audit rows as the inbox path."""
+    result = desktop_wake.deliver_to_sleeping(
+        sleeping, text, bool((body or {}).get("confirm")))
+    return _audit_inbox_result(result, row_id, actor, text)
+
+
+def _audit_inbox_result(result, row_id, actor, text):
+    if result.get("ok"):
+        # Same frozen `reason` shape as the pane path (the history reader
+        # parses it); the full body rides in `text`.
+        queued = result.get("state") == "queued"
+        try:
+            STORE.log_session_action(
+                row_id, "message", actor,
+                (STORE.QUEUED_REASON_PREFIX if queued else "") + text[:80],
+                text=text, status="queued" if queued else "sent")
+        except Exception:
+            pass
+    elif result.get("error") and result.get("typed") is not False:
+        _log_failed_attempt(row_id, "message", actor, result["error"], text)
+    return result
+
+
 def _handle_reach_action(action, body, row_id, actor):
     """POST /api/session/message {rowId, actor, text?, confirm?}.
 
@@ -734,9 +783,18 @@ def _handle_reach_action(action, body, row_id, actor):
     agent = next((a for a in agents
                   if resolve_agent_row_id(a) == row_id), None)
     if agent is None:
+        sleeping = desktop_wake.find_sleeping(
+            row_id, state.get("computed", {}).get("sleepingSessions"))
+        if sleeping:
+            return _handle_sleeping_message(sleeping, body, row_id, actor, text)
         return _refused_before_typing(
             f"row {row_id} is not live — no agent there to read it")
+    blind = message_gate.blind_agent_refusal(agent)
+    if blind:
+        return _refused_before_typing(blind)
     pane_id = agent.get("paneId")
+    if not pane_id and session_inbox.message_via(agent) == "inbox":
+        return _handle_inbox_message(agent, body, row_id, actor, text)
     if not pane_id:
         return _refused_before_typing(
             f"row {row_id} has no pane — nothing to type into")
@@ -2693,9 +2751,11 @@ class Handler(BaseHTTPRequestHandler):
         pending = getattr(self, "_pending_remote_audit", None)
         if pending is not None:
             self._pending_remote_audit = None
+            reply_ok = obj.get("ok") if isinstance(obj, dict) else None
             remote_access.append_audit(
                 pending["route"], pending["method"],
-                status, row_id=pending.get("row_id"))
+                status, row_id=pending.get("row_id"),
+                ok=reply_ok if isinstance(reply_ok, bool) else None)
 
     # ---- Unread-body desync guard (found live-testing P3, 2026-09-26) ----
     # HTTP/1.1 keep-alive reads the next request off the same socket. A
@@ -3044,9 +3104,14 @@ class Handler(BaseHTTPRequestHandler):
             # Restored 2026-09-25, generic — see chief_dashboard_pass.py.
             self._send_json(chief_dashboard_pass.get_chief_pass(get_full_state))
         elif path == "/api/personas":
-            # Jev persona routing P1 — see server/lib/personas.py.
+            # Jev persona routing P1 — see server/lib/personas.py. The
+            # remote listener gets every offered persona WITHOUT folder
+            # paths — see persona_remote.py.
             try:
-                self._send_json(personas.get_personas_state())
+                if self._is_remote_listener():
+                    self._send_json(persona_remote.remote_personas())
+                else:
+                    self._send_json(personas.get_personas_state())
             except Exception as e:
                 self._send_json({"error": str(e)}, status=400)
         elif path in ("/api/personas/suggestions", "/api/personas/registry"):
@@ -3065,15 +3130,21 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "not found"}, status=404)
 
-    def _handle_local_json_post(self, path, handle_body):
-        """Persona writes: POST /api/persona/start (P3, persona_start.py)
-        and POST /api/personas (P4, persona_registry_edit.py). Localhost
-        only (brief: "Dashboard endpoints"): refused on the remote listener
-        even when authenticated — these are local-desk actions. Then the
+    def _handle_local_json_post(self, path, handle_body, remote_handle_body=None):
+        """JSON POSTs: /api/persona/start (P3, persona_start.py),
+        /api/personas (P4, persona_registry_edit.py) and /api/jev/route
+        (jev_route.py). Localhost only unless `remote_handle_body` is given
+        (persona start: any offered persona, confirm required; Jev route: both
+        listeners); the registry edit stays refused on the remote listener
+        even when authenticated — a local-desk action. Then the
         Content-Type gate, before the body is parsed: a browser page can't
         send application/json cross-site without a preflight this
-        dashboard never answers."""
-        if self._is_remote_listener():
+        dashboard never answers. `remote_handle_body`, when given, serves
+        the remote listener instead of the 403 (it arrives there already
+        authenticated and CSRF-checked by `_reject_foreign_write`)."""
+        if self._is_remote_listener() and remote_handle_body is not None:
+            handle_body = remote_handle_body
+        elif self._is_remote_listener():
             self._send_json(
                 {"ok": False, "error": f"refused: {path} is localhost-only"},
                 status=403)
@@ -3088,6 +3159,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=200)
             return
+        persona_name = body.get("persona") if isinstance(body, dict) else None
+        self._note_remote_audit_row(persona_name if isinstance(persona_name, str) else None)
         self._send_json(handle_body(body))
 
     def do_POST(self):
@@ -3095,17 +3168,25 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._note_agentbar_seen()
         path = urlparse(self.path).path
+        tui_reply = tui_status_events.handle_post(
+            path, self._read_json_body, self._is_remote_listener())
+        if tui_reply is not None:
+            self._send_json(*tui_reply)
+            return
         if hook_permission_routes.is_hook_path(path):
             self._note_remote_audit_row(hook_permission_routes.request_id_of(path))
             self._send_json(*hook_permission_routes.handle_post(
                 path, self._read_json_body, self._is_remote_listener()))
             return
         if path.startswith("/api/session/"):
-            session_id = path[len("/api/session/"):]
-            self._note_remote_audit_row(session_id)
+            action = path[len("/api/session/"):]
+            self._note_remote_audit_row(action)
             try:
-                self._send_json(handle_session_action(
-                    session_id, self._read_json_body()))
+                body = self._read_json_body()
+                # Audit the row acted on, not just the verb.
+                row_id = body.get("rowId") if isinstance(body, dict) else None
+                self._note_remote_audit_row(row_id if isinstance(row_id, str) else None)
+                self._send_json(handle_session_action(action, body))
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)}, status=200)
             return
@@ -3148,10 +3229,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(payload, status=status)
             return
         if path == "/api/persona/start":
-            self._handle_local_json_post(path, persona_start.start_persona)
+            self._handle_local_json_post(path, persona_start.start_persona,
+                                         persona_remote.start_persona_remote)
             return
         if path == "/api/personas":
             self._handle_local_json_post(path, persona_registry_edit.apply_registry_action)
+            return
+        if path == jev_route.ROUTE_PATH:
+            # Both listeners: the phone has no OpenRouter key of its own.
+            self._handle_local_json_post(path, jev_route.route_message,
+                                         jev_route.route_message)
             return
         # P0 dashboard move: POST /api/worker (chief_dashboard_worker.py —
         # worktree/session spin-up for AptusFit's not-yet-built "Jev

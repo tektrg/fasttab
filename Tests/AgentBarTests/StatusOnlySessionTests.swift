@@ -146,9 +146,9 @@ struct StatusOnlyMapperTests {
 struct StatusOnlyRowActionTests {
     typealias S = StatusOnlyFixtures
 
-    @Test func aWaitingDesktopRowOffersParkOnly() {
+    @Test func aWaitingDesktopRowOffersParkPeekAndOpenInClaudeOnly() {
         let row = S.desktopAgent()
-        #expect(RowButtons.available(for: row).map(\.button) == [.park])
+        #expect(RowButtons.available(for: row).map(\.button) == [.peek, .park, .openInClaude])
         #expect(RowButtons.menuItems(for: row).filter(\.isEnabled).isEmpty)
         for button in [RowButton.answer, .review, .openTerminal, .message, .compact, .clear, .done, .closePane] {
             #expect(!RowButtons.isPressable(button, on: row), "\(button) must not be pressable")
@@ -156,9 +156,10 @@ struct StatusOnlyRowActionTests {
         #expect(RowButtons.isPressable(.park, on: row))
     }
 
-    @Test func aWorkingOrParkedDesktopRowHasNoMessageOrDone() {
-        #expect(RowButtons.available(for: S.desktopAgent(section: .working)).isEmpty)
-        #expect(RowButtons.available(for: S.desktopAgent(section: .parked)).map(\.button) == [.unpark])
+    /// Without an inbox (`messagesViaInbox` false) a status-only row still takes no message.
+    @Test func aWorkingOrParkedDesktopRowWithoutAnInboxHasNoMessageOrDone() {
+        #expect(RowButtons.available(for: S.desktopAgent(section: .working)).map(\.button) == [.openInClaude])
+        #expect(RowButtons.available(for: S.desktopAgent(section: .parked)).map(\.button) == [.unpark, .peek, .openInClaude])
     }
 
     @Test func aWaitingDesktopRowIsNeedsYouButNotACornerCard() {

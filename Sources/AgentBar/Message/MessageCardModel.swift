@@ -67,14 +67,14 @@ final class MessageCardModel: ObservableObject {
     @discardableResult
     func open(_ agent: AgentSnapshot) -> Bool {
         guard RowButtons.usableButtons(for: agent).contains(.message),
-              let paneId = agent.paneId, let rowId = agent.rowId, !inFlight.contains(agent.id)
+              let route = MessageRoute(agent: agent), let rowId = agent.rowId, !inFlight.contains(agent.id)
         else { return false }
         guard statusSource != nil else {
             onNotice(Self.noSourceMessage)
             return false
         }
         close()
-        card = MessageCard(agent: agent, paneId: paneId, rowId: rowId)
+        card = MessageCard(agent: agent, route: route, rowId: rowId)
         loadContext()
         return true
     }
@@ -117,7 +117,7 @@ final class MessageCardModel: ObservableObject {
         self.card = card
         inFlight.insert(card.agentID)
         objectWillChange.send()
-        let request = Request(agentID: card.agentID, label: card.label, paneId: card.paneId, rowId: card.rowId, text: text, confirmed: confirmed, notesOnSend: false)
+        let request = Request(agentID: card.agentID, label: card.label, route: card.route, rowId: card.rowId, text: text, confirmed: confirmed, notesOnSend: false)
         let epoch = epoch
         Task { [weak self] in
             let outcome = await Self.deliver(request, via: statusSource)
@@ -139,12 +139,12 @@ final class MessageCardModel: ObservableObject {
     @discardableResult
     func sendDirect(to agent: AgentSnapshot, text: String) -> Bool {
         guard RowButtons.usableButtons(for: agent).contains(.message),
-              let statusSource, let paneId = agent.paneId, let rowId = agent.rowId,
+              let statusSource, let route = MessageRoute(agent: agent), let rowId = agent.rowId,
               !inFlight.contains(agent.id)
         else { return false }
         inFlight.insert(agent.id)
         objectWillChange.send()
-        let request = Request(agentID: agent.id, label: agent.label, paneId: paneId, rowId: rowId, text: text, confirmed: true, notesOnSend: true)
+        let request = Request(agentID: agent.id, label: agent.label, route: route, rowId: rowId, text: text, confirmed: true, notesOnSend: true)
         let epoch = epoch
         Task { [weak self] in
             let outcome = await Self.deliver(request, via: statusSource)
@@ -158,7 +158,7 @@ final class MessageCardModel: ObservableObject {
     private struct Request: Sendable {
         let agentID: String
         let label: String
-        let paneId: String
+        let route: MessageRoute
         let rowId: String
         let text: String
         let confirmed: Bool
@@ -166,9 +166,21 @@ final class MessageCardModel: ObservableObject {
         let notesOnSend: Bool
     }
 
-    /// Reads the pane first: typed text would answer a question picker or a permission box.
+    /// Reads the pane first: typed text would answer a question picker or a permission box. An inbox
+    /// route has no pane to read (the dashboard refuses while the session shows a prompt) and never
+    /// carries a slash command (e.g. Park's `/compact`): that fails here, nothing is sent.
     private static func deliver(_ request: Request, via source: any AgentStatusSource) async -> MessageSendOutcome {
-        switch await source.paneScreen(paneId: request.paneId) {
+        let paneId: String
+        switch request.route {
+        case .inbox:
+            if MessageDraftValidator.check(request.text, allowsQuickCommands: false) == .slashCommand {
+                return .failed(MessageRoute.inboxSlashCommandHint)
+            }
+            return await source.sendMessage(rowId: request.rowId, text: request.text, confirmed: request.confirmed)
+        case .pane(let id):
+            paneId = id
+        }
+        switch await source.paneScreen(paneId: paneId) {
         case .failure(let reason):
             return .failed("Couldn't check the terminal first (\(reason)). Nothing was sent.")
         case .screen(let lines, _):

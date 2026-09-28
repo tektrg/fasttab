@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code PermissionRequest hook: lets AgentBar answer a permission
-prompt or an AskUserQuestion for a Claude session that has no herdr pane
-(Claude Desktop, a plain terminal).
+prompt or an AskUserQuestion for an interactive Claude session (Claude
+Desktop, a plain terminal, or a herdr pane — even one scrolled away from it).
 
 Sends the prompt to the dashboard, long-polls for AgentBar's answer, prints
 Claude's `hookSpecificOutput` decision. Claude's own prompt stays on screen

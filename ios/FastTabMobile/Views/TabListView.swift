@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import FastTabSync
 
 public enum TabSortMode: String, CaseIterable, Identifiable {
@@ -22,6 +23,7 @@ public struct TabListView: View {
     /// is read back from `LocalCache` so a row is only ever hidden while the
     /// close is genuinely still on its way or genuinely done.
     @State private var pendingCloses: [PendingTabClose] = []
+    private let swipeToCloseTabTip = SwipeToCloseTabTip()
     @State private var toast: String?
     @State private var showDeckSwitcher: Bool = false
     /// The tab awaiting a "save as bookmark" destination. Drives the same
@@ -37,7 +39,7 @@ public struct TabListView: View {
     }
 
     private var activeDevice: SyncedDevice? {
-        device ?? localCache.state.devices.first
+        device ?? localCache.state.connectedMac
     }
 
     private var visibleTabs: [SyncedTab] {
@@ -202,6 +204,12 @@ public struct TabListView: View {
             }
         }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search tabs, bookmarks, history…")
+        .safeAreaInset(edge: .top, spacing: 0) {
+            // Root Tabs tab only: a per-Mac list pushed from Devices is already scoped.
+            if device == nil {
+                SyncWarningBanner()
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if searchText.isEmpty && !visibleTabs.isEmpty {
                 FloatingTabSortBar(sortMode: $sortMode)
@@ -257,7 +265,11 @@ public struct TabListView: View {
                     "No Open Tabs",
                     systemImage: "macwindow.on.rectangle",
                     message: "Open tabs on your Mac browsers will sync here automatically."
-                )
+                ) {
+                    if localCache.state.connectedMac == nil {
+                        OnboardingShortcutButton(shortcut: .connectMac)
+                    }
+                }
                 .padding(.top, 60)
             }
             .dsCanvas()
@@ -276,6 +288,12 @@ public struct TabListView: View {
                         .listRowSeparator(.hidden)
                     }
                 }
+
+                TipView(swipeToCloseTabTip)
+                    .fastTabTipStyle()
+                    .listRowInsets(EdgeInsets(top: DS.Space.sm, leading: 0, bottom: DS.Space.sm, trailing: 0))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
 
                 switch sortMode {
                 case .recent:
@@ -633,6 +651,7 @@ public struct TabListView: View {
     /// one new command can appear — or none, when the payload could not be
     /// encoded, which is why the row is never hidden before an id is in hand.
     private func requestClose(of tab: SyncedTab) {
+        swipeToCloseTabTip.invalidate(reason: .actionPerformed)
         let knownCommandIDs = Set(localCache.state.sentCommands.map(\.id))
         SyncConsumer.shared.sendCloseTab(tab)
 

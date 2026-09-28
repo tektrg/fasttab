@@ -90,6 +90,14 @@ check("procStart a day off is a different process",
                                           time.strftime(_fmt, time.localtime(_t))), False)
 check("unparseable procStart -> liveness decides",
       claude_sessions._same_process_start("garbage", "also garbage"), True)
+check("recorded_process_start reads procStart as UTC",
+      claude_sessions.recorded_process_start({"procStart": time.strftime(_fmt, time.gmtime(_t))}), _t)
+check("recorded_process_start: startedAt rules out a reading after it",
+      claude_sessions.recorded_process_start({"procStart": time.strftime(_fmt, time.gmtime(_t)),
+                                              "startedAt": (_t + 30) * 1000}), _t)
+check("recorded_process_start: missing / garbage -> None",
+      (claude_sessions.recorded_process_start({}), claude_sessions.recorded_process_start({"procStart": "x"})),
+      (None, None))
 check("missing folder -> empty list, not an error",
       claude_sessions.read_live_sessions("/nonexistent/claude-sessions"), [])
 check("real ps: own pid is read back",

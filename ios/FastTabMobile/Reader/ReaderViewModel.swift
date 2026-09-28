@@ -43,6 +43,16 @@ public final class ReaderViewModel: ObservableObject {
         return true
     }
 
+    /// Why a YouTube transcript couldn't be shown; the view shows it with "Open in YouTube".
+    var transcriptFailure: TranscriptReaderError? {
+        guard case .failed(let error) = loadState else { return nil }
+        return error as? TranscriptReaderError
+    }
+
+    /// Corner YouTube player on a transcript page. The page reports changes it makes itself
+    /// (a timestamp tap opens it) through `videoVisibilityChanged`.
+    @Published var isVideoVisible = false
+
     @Published public var loadState: LoadState = .idle {
         didSet {
             // Count words as soon as a tracked article is on screen, off the main thread.
@@ -88,6 +98,8 @@ public final class ReaderViewModel: ObservableObject {
     private var articleWordCount: Int?
     private var wordCountTask: Task<Void, Never>?
     private var settingsCancellable: AnyCancellable?
+    private let route: ReaderContentRoute
+    private let transcriptLoader: YouTubeTranscriptLoader
 
     // MARK: - Init
 
@@ -98,7 +110,10 @@ public final class ReaderViewModel: ObservableObject {
     /// `statsRecorder` `nil` uses `ReadingStatsRecorder.shared`. Tests pass their own so they
     /// never write to the real reading log.
     init(url: URL, title: String, focusHighlightID: String? = nil,
-         statsRecorder: ReadingStatsRecorder?, fitsOnScreenDwell: Duration = .seconds(4)) {
+         statsRecorder: ReadingStatsRecorder?, fitsOnScreenDwell: Duration = .seconds(4),
+         transcriptLoader: YouTubeTranscriptLoader? = nil) {
+        self.route = ReaderContentRoute.route(for: url)
+        self.transcriptLoader = transcriptLoader ?? .live
         self.url = url
         self.title = title
         self.focusHighlightID = focusHighlightID
@@ -118,7 +133,7 @@ public final class ReaderViewModel: ObservableObject {
         highlights = highlightStore.highlights(for: url)
 
         // Instant load from cache if previously processed
-        if case .idle = loadState, let cached = articleCache.article(for: url) {
+        if case .idle = loadState, let cached = cachedArticle() {
             loadState = .loaded(cached)
         }
     }
@@ -128,7 +143,7 @@ public final class ReaderViewModel: ObservableObject {
     public func extractIfNeeded(force: Bool = false) async {
         if !force {
             if case .loaded = loadState { return }
-            if let cached = articleCache.article(for: url) {
+            if let cached = cachedArticle() {
                 loadState = .loaded(cached)
                 return
             }
@@ -137,7 +152,7 @@ public final class ReaderViewModel: ObservableObject {
 
         loadState = .extracting
         do {
-            let article = try await ReaderExtractor.shared.extract(url: url)
+            let article = try await loadArticle()
             articleCache.save(article)
             articleWordCount = nil
             wordCountTask?.cancel()
@@ -146,6 +161,31 @@ public final class ReaderViewModel: ObservableObject {
         } catch {
             loadState = .failed(error)
         }
+    }
+
+    private func loadArticle() async throws -> ReaderArticle {
+        switch route {
+        case .article:
+            return try await ReaderExtractor.shared.extract(url: url)
+        case .youtubeTranscript(let videoID):
+            do {
+                return try await transcriptLoader.article(url: url, videoID: videoID, title: title)
+            } catch {
+                throw TranscriptReaderError(error)
+            }
+        }
+    }
+
+    /// The cache entry, unless it came from the other pipeline (a Readability page cached
+    /// for a YouTube link before transcripts existed).
+    private func cachedArticle() -> ReaderArticle? {
+        guard let cached = articleCache.article(for: url) else { return nil }
+        let isTranscriptRoute = route != .article
+        return (cached.youtubeVideoID != nil) == isTranscriptRoute ? cached : nil
+    }
+
+    func videoVisibilityChanged(_ visible: Bool) {
+        if isVideoVisible != visible { isVideoVisible = visible }
     }
 
     /// Forces re-extraction of the article from the web, updating the cache.
@@ -243,13 +283,21 @@ public final class ReaderViewModel: ObservableObject {
             selectedText: selectedText,
             color: color,
             serializedRange: serializedRange,
-            title: title,
+            title: highlightTitle,
             urlString: url.absoluteString
         )
         highlightStore.add(h)
         statsRecorder.recordHighlight(url: url, title: title)
         highlights = highlightStore.highlights(for: url)
         pendingHighlightToApply = h
+    }
+
+    /// The opening title can be a bare host (`x.com`); the extracted article's title is the real one.
+    private var highlightTitle: String {
+        guard ReaderHighlightTitleResolver.isPlaceholder(title, for: url),
+              case .loaded(let article) = loadState,
+              !ReaderHighlightTitleResolver.isPlaceholder(article.title, for: url) else { return title }
+        return article.title
     }
 
     public func removeHighlight(id: String) {

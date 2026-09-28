@@ -26,6 +26,8 @@ import hashlib
 import os
 import re
 
+from other_tui_screens import codex_state, opencode_state, prompt_open  # noqa: F401 (re-exported)
+
 #: What the screen classifier can return. Kept here so consumers (liveness,
 #: dashboard, watchers) import names instead of retyping strings.
 ACTIVE = "ACTIVE"
@@ -213,19 +215,13 @@ def not_logged_in_index(tail_lines):
     return None
 
 
-# ── OpenCode ─────────────────────────────────────────────────────────────────
-#: The bottom edge of OpenCode's prompt box. Claude Code never draws it.
-_OPENCODE_PROMPT_EDGE_RE = re.compile(r'^\s*╹▀{5,}')
-_OPENCODE_BUSY_RE = re.compile(r'\besc interrupt\b')
+# ── OpenCode / Codex ─────────────────────────────────────────────────────────
+#: Screen reads for the other agent TUIs live in other_tui_screens.py.
 
 
-def opencode_state(tail_lines):
-    """ACTIVE / WAITING for an OpenCode pane, or None if this is not one."""
-    if not any(_OPENCODE_PROMPT_EDGE_RE.match(l) for l in tail_lines):
-        return None
-    if any(_OPENCODE_BUSY_RE.search(l) for l in tail_lines[-6:]):
-        return ACTIVE
-    return WAITING
+def other_tui_state(tail_lines):
+    """OpenCode's or Codex's screen state, or None when the pane is neither."""
+    return opencode_state(tail_lines) or codex_state(tail_lines)
 
 
 # ── herdr agent_status as a fallback for non-Claude panes (P5) ───────────────

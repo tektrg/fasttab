@@ -96,32 +96,32 @@ clock = FakeClock()
 store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True,
                                              presence=SwitchablePresence())
 started = clock.now - 30
-first = store.register(payload(promptStartedAt=started), (), session_file())
-again = store.register(payload(promptStartedAt=started, reregister=True), (), session_file(status_at=started + 0.2))
+first = store.register(payload(promptStartedAt=started), session_file())
+again = store.register(payload(promptStartedAt=started, reregister=True), session_file(status_at=started + 0.2))
 check("the same hook re-sending its prompt -> one request", again["requestId"], first["requestId"])
 check("timer counts from the prompt, not the re-send",
       store.exposed_by_session([])["s1"]["sinceSec"], 30.0)
 other = store.register(payload(tool_input={"questions": [{**QUESTION_INPUT["questions"][0], "question": "Other?"}]},
                                reregister=True, promptStartedAt=started),
-                       (), session_file(status_at=started + 0.2))
+                       session_file(status_at=started + 0.2))
 check("a different prompt -> its own request", other["requestId"] != first["requestId"], True)
-twin = store.register(payload(hookPid=5555), (), session_file())
+twin = store.register(payload(hookPid=5555), session_file())
 check("another hook with the same tool + input (a retried command) -> its own request",
       twin["requestId"] != first["requestId"], True)
-twin_resend = store.register(payload(hookPid=5555, reregister=True, promptStartedAt=started), (),
+twin_resend = store.register(payload(hookPid=5555, reregister=True, promptStartedAt=started),
                              session_file(status_at=started + 0.2))
 check("...and its re-send joins ITS request, not the first", twin_resend["requestId"], twin["requestId"])
-by_id_a = store.register(payload("s2", tool_use_id="toolu_1"), (), session_file("s2"))
+by_id_a = store.register(payload("s2", tool_use_id="toolu_1"), session_file("s2"))
 by_id_b = store.register(payload("s2", tool_use_id="toolu_1", tool_input={"questions": []}, reregister=True,
-                                 promptStartedAt=started), (), session_file("s2", status_at=started + 0.2))
+                                 promptStartedAt=started), session_file("s2", status_at=started + 0.2))
 check("tool_use_id wins over the input hash", by_id_a["requestId"], by_id_b["requestId"])
 
 print("== store: a retried identical prompt is not lost to the old one's answer ==")
 store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True,
                                              presence=SwitchablePresence())
-old_prompt = store.register(payload(promptStartedAt=clock.now - 10), (), session_file())
+old_prompt = store.register(payload(promptStartedAt=clock.now - 10), session_file())
 # Answered in Claude, and Claude asks the SAME thing again before any sweep ran.
-new_prompt = store.register(payload(promptStartedAt=clock.now, hookPid=5555), (), session_file())
+new_prompt = store.register(payload(promptStartedAt=clock.now, hookPid=5555), session_file())
 store.sweep([session_file(status_at=clock.now + 0.3)])
 check("old prompt resolved as answered elsewhere",
       store._requests[old_prompt["requestId"]].state_reason, "answered elsewhere")
@@ -131,18 +131,18 @@ check("the new identical prompt stays pending",
 store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True,
                                              presence=SwitchablePresence())
 resend = payload(promptStartedAt=started, reregister=True)
-reply = store.register(resend, (), session_file("s1", "busy", started + 5))
+reply = store.register(resend, session_file("s1", "busy", started + 5))
 check("re-send after it was answered in Claude -> ignored for good",
       (reply["state"], reply["reason"], reply["retryable"]),
       ("ignored", hook_permissions.REASON_PROMPT_GONE, False))
-reply = store.register(resend, (), session_file(status_at=started + 20))
+reply = store.register(resend, session_file(status_at=started + 20))
 check("re-send while the NEXT prompt is up -> ignored", reply.get("reason"), hook_permissions.REASON_PROMPT_GONE)
-reply = store.register(resend, (), session_file(status_at=started + 0.2))
+reply = store.register(resend, session_file(status_at=started + 0.2))
 check("re-send while still waiting -> held", "requestId" in reply, True)
 check("held re-send keeps the prompt's start time",
       store._requests[reply["requestId"]].created_at, started)
 check("a first send needs no `waiting` yet (the status lands a moment later)",
-      "requestId" in store.register(payload("s3"), (), session_file("s3", "busy", started - 60)), True)
+      "requestId" in store.register(payload("s3"), session_file("s3", "busy", started - 60)), True)
 check("promptStartedAt in the future -> now",
       hook_permissions.prompt_started_at({"promptStartedAt": clock.now + 60}, clock.now), clock.now)
 check("promptStartedAt not a number -> now",
@@ -150,9 +150,9 @@ check("promptStartedAt not a number -> now",
 
 store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True,
                                              presence=SwitchablePresence(connected=False))
-check("AgentBar not connected -> retryable", store.register(payload(), (), session_file()).get("retryable"), True)
+check("AgentBar not connected -> retryable", store.register(payload(), session_file()).get("retryable"), True)
 check("subagent prompt -> not retryable",
-      store.register(payload(agent_id="a1"), (), session_file()).get("retryable"), False)
+      store.register(payload(agent_id="a1"), session_file()).get("retryable"), False)
 
 print("== hook script: re-sends against a real local server ==")
 sessions_dir = tempfile.mkdtemp(prefix="hook-resend-sessions-")

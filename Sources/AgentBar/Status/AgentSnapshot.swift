@@ -48,6 +48,9 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// A status-only session's prompt held by the dashboard's hook bridge: what its Answer / Review card
     /// shows and answers by id (no pane read). Nil for herdr rows, and when nothing is waiting.
     var hookRequest: HookRequest? = nil
+    /// A status-only session that takes a message through its peer inbox right now (dashboard
+    /// `messageVia: "inbox"`, and not waiting on a prompt). See `MessageRoute`.
+    var messagesViaInbox: Bool = false
 
     /// The blocker while the row sits in Needs you. Parking sets a row aside, and
     /// with it the Blocked badge, the answer action and the top-of-section spot.

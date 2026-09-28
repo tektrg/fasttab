@@ -59,12 +59,8 @@ export function isStartEffect(effect: PersonaEffect): boolean {
   return effect === "resumeLast" || effect === "startNew";
 }
 
-/** Why this persona can't be started from here, else null. The remote
- *  listener starts only personas with `remoteStart: true`; localhost omits
- *  the field and starts any offered persona. */
+/** Why this persona can't be started from here, else null. Both
+ *  listeners start any offered persona (the server checks again). */
 export function startRefusal(persona: PersonaSummary): string | null {
-  if (persona.offline) return "its machine is offline";
-  if (persona.remoteStart === false)
-    return `can't be started from the phone — on the Mac, add "remoteStart": true to it in ~/.config/agentbar/personas.json`;
-  return null;
+  return persona.offline ? "its machine is offline" : null;
 }

@@ -174,11 +174,6 @@ def _normalize_persona(address, raw):
         _warn(address, "'startScript' must be a string")
         return None
 
-    remote_start = raw.get("remoteStart", False)
-    if not isinstance(remote_start, bool):
-        _warn(address, "'remoteStart' must be true or false")
-        return None
-
     return {
         "address": address, "machine": machine, "folder": folder,
         "resolvedFolder": _resolve_path(folder),
@@ -186,7 +181,7 @@ def _normalize_persona(address, raw):
         "routesWhen": list(routes_when), "notFor": list(not_for),
         "extraInstructions": extra_instructions, "idle": idle,
         "resumeWithinDays": resume_within_days, "start": start,
-        "startScript": start_script, "remoteStart": remote_start,
+        "startScript": start_script,
     }
 
 

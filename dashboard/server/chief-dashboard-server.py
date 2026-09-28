@@ -204,7 +204,7 @@ import tui_status_events  # noqa: E402  (OpenCode/Codex status events)
 import session_inbox  # noqa: E402  (message to a Desktop/CLI session)
 import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook bridge)
 import persona_start  # noqa: E402  (POST /api/persona/start, P3)
-import persona_remote  # noqa: E402  (remoteStart personas on the remote listener)
+import persona_remote  # noqa: E402  (persona list/start on the remote listener)
 import message_gate  # noqa: E402  (non-Claude panes are never typed into)
 import jev_route  # noqa: E402  (POST /api/jev/route — pick a persona server-side)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
@@ -3081,7 +3081,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/personas":
             # Jev persona routing P1 — see server/lib/personas.py. The
             # remote listener gets every offered persona WITHOUT folder
-            # paths, each flagged remoteStart — see persona_remote.py.
+            # paths — see persona_remote.py.
             try:
                 if self._is_remote_listener():
                     self._send_json(persona_remote.remote_personas())
@@ -3109,7 +3109,7 @@ class Handler(BaseHTTPRequestHandler):
         """JSON POSTs: /api/persona/start (P3, persona_start.py),
         /api/personas (P4, persona_registry_edit.py) and /api/jev/route
         (jev_route.py). Localhost only unless `remote_handle_body` is given
-        (persona start: opt-in `remoteStart` personas; Jev route: both
+        (persona start: any offered persona, confirm required; Jev route: both
         listeners); the registry edit stays refused on the remote listener
         even when authenticated — a local-desk action. Then the
         Content-Type gate, before the body is parsed: a browser page can't

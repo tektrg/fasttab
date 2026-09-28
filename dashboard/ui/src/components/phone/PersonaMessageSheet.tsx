@@ -18,8 +18,8 @@ import {
  *  or started on the pick alone, same as AgentBar's confirm row:
  *  - running main session -> the normal Send message path (a busy session
  *    asks to confirm the queue);
- *  - nothing running -> Start/Resume, which needs a second press, and only
- *    for personas the Mac allows (`remoteStart`) — the server checks again. */
+ *  - nothing running -> Start/Resume, which needs a second press (any
+ *    registered persona; the server checks the name again). */
 /** "<description> · → <effect>", or why that effect can't happen here. */
 function personaCaption(p: PersonaSummary, effect: PersonaEffect): string {
   const blocked = isStartEffect(effect) ? startRefusal(p) : null;

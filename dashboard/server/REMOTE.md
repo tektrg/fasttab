@@ -105,19 +105,21 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
   session's peer token never appears in a response or the audit log.
 - **Personas from the phone** (2026-09-28): `GET /api/personas` lists every
   offered persona WITHOUT folder paths (name, description, idleStart,
-  offline, mainRowId, remoteStart); messaging one goes to its running main
+  offline, mainRowId); messaging one goes to its running main
   session through `POST /api/session/message` (same rules as any row).
-  `POST /api/persona/start` is served here ONLY for a persona whose
-  registry entry has `"remoteStart": true` (off by default; no Settings
-  toggle yet — add it to the entry in `~/.config/agentbar/personas.json`
-  on the Mac), and only with the keys
-  `persona`/`text`/`fresh` plus `confirm: true`: the registry decides the
-  folder and command, so a stolen session can at most start an
-  already-trusted persona in its own folder with a message (same text
-  rules as a Send). Listing offered personas' names and descriptions is
-  intended (the phone needs them to message one); a name that isn't
-  opted in — hidden, undescribed, or `remoteStart` off — gets the same
-  "unknown persona" refusal as a made-up one.
+  `POST /api/persona/start` is served here for ANY offered persona
+  (registered in `~/.config/agentbar/personas.json`, not hidden, with a
+  saved description) — no per-persona opt-in (user decision 2026-09-28;
+  a `"remoteStart"` key left in the file is ignored). Only the keys
+  `persona`/`text`/`fresh` plus `confirm: true` are accepted: the registry
+  decides the folder and command. **Accepted risk**: a stolen phone login
+  can start any registered agent in its own folder with a message (same
+  text rules as a Send) — but never an arbitrary program, folder or
+  flag, and never a persona the Mac hasn't registered. Every attempt is
+  in the audit log. Listing offered personas' names and descriptions is
+  intended (the phone needs them to message one); a hidden, undescribed
+  or unregistered name gets the same "unknown persona" refusal as a
+  made-up one, and refusals never show folder paths.
   `POST /api/personas` and `GET /api/personas/{registry,suggestions}`
   stay 403 here — editing who may be started is a desk action.
 - **`POST /api/jev/route`** (2026-09-28): Jev picks the persona for a

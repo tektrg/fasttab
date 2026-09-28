@@ -420,16 +420,14 @@ export async function fetchPaneScreen(
 
 /** GET /api/personas — one row per offered persona. The remote listener
  *  sends only these fields (no folder paths; server/lib/persona_remote.py);
- *  localhost sends more and no `remoteStart` (every persona is startable
- *  there). `mainRowId` = the persona's running main session's row id, if
- *  any. Null on failure. */
+ *  localhost sends more. `mainRowId` = the persona's running main
+ *  session's row id, if any. Null on failure. */
 export interface PersonaSummary {
   name: string;
   description: string;
   idleStart?: "resume" | "fresh";
   offline?: boolean;
   mainRowId?: string | null;
-  remoteStart?: boolean;
 }
 
 export async function listPersonas(): Promise<PersonaSummary[] | null> {

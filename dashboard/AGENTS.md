@@ -121,10 +121,9 @@ be `"resume"`; the folder scan is cached 30s.
 
 **Remote listener** (`server/lib/persona_remote.py`): `GET /api/personas`
 returns every offered persona as `[{name, description, idleStart, offline,
-mainRowId, remoteStart}]` — no address/folder/instructions/routing hints.
+mainRowId}]` — no address/folder/instructions/routing hints.
 The phone messages a running persona's `mainRowId` through the normal
-`POST /api/session/message` rules; `remoteStart` says whether it may START
-one (below). PWA: the "Message a persona" sheet
+`POST /api/session/message` rules, and may START any of them (below). PWA: the "Message a persona" sheet
 (`ui/src/components/phone/PersonaMessageSheet.tsx`, the `+` in the phone
 search bar; effect wording = AgentBar's `PersonaDeliveryEffect`, copied in
 `ui/src/personaDelivery.ts`).
@@ -166,23 +165,19 @@ needs `Content-Type: application/json` (same gate as `/api/persona/start`).
   hide|unhide|remove|setGlobalInstructions, …}` -> `{ok, registry}` or
   `{ok:false, error}`. `adopt` accepts only a current suggestion's address;
   `edit`/`remove` take a persona name or address already in the registry;
-  `remoteStart` (bool) is editable via `edit`;
   `start`/`startScript` are never editable here; unknown fields in the file
   are kept. Atomic write (temp + rename, 0600) under one lock; a malformed
   file is never overwritten. Tests: `tests/test_persona_registry_edit.py`.
 
 ### `POST /api/persona/start` — P3 (`server/lib/persona_start.py`)
 Starts or resumes an idle persona's Claude session in a new herdr tab in
-its registry folder. **Remote listener: opt-in per persona** — only for a
-persona whose registry entry has `"remoteStart": true` (default false;
-`persona_remote.start_persona_remote`), after the remote listener's
-auth and foreign-Origin checks; any other name gets `{ok:false, error: "unknown
-persona …"}` (same wording, so the phone can't probe names). **Turning it
-on**: no toggle in AgentBar Settings or the web UI yet (2026-09-28) — add
-`"remoteStart": true` to the persona's entry in
-`~/.config/agentbar/personas.json` by hand (read per request, no restart),
-or `POST /api/personas {action: "edit", persona, fields: {remoteStart:
-true}}` on localhost. AgentBar's persona editor keeps the flag on save.
+its registry folder. **Remote listener: any offered persona** (user
+decision 2026-09-28 — the earlier per-persona `"remoteStart": true` opt-in
+is gone; a leftover key in personas.json is ignored and no longer editable)
+via `persona_remote.start_persona_remote`, after the remote listener's
+auth and foreign-Origin checks; a hidden/undescribed/unregistered name gets
+`{ok:false, error: "unknown persona …"}` (same wording, so the phone can't
+probe names; refusals are path-scrubbed). Security rationale: `server/REMOTE.md`.
 The PWA's "Message a persona" sheet
 (`ui/src/components/phone/PersonaMessageSheet.tsx`, the `+` in the phone
 search bar) uses it. Localhost: every offered persona.

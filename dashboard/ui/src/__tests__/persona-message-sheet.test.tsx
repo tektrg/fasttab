@@ -19,9 +19,10 @@ afterEach(() => {
 });
 
 const PERSONAS = [
-  { name: "running", description: "Has a main session.", idleStart: "fresh", mainRowId: "main-1", remoteStart: false },
-  { name: "phone-ok", description: "Startable.", idleStart: "resume", mainRowId: null, remoteStart: true },
-  { name: "desk-only", description: "Not startable remotely.", idleStart: "fresh", mainRowId: null, remoteStart: false },
+  { name: "running", description: "Has a main session.", idleStart: "fresh", mainRowId: "main-1" },
+  { name: "phone-ok", description: "Startable.", idleStart: "resume", mainRowId: null },
+  { name: "fresh-one", description: "Starts fresh.", idleStart: "fresh", mainRowId: null },
+  { name: "away", description: "Machine is off.", idleStart: "fresh", mainRowId: null, offline: true },
 ];
 
 function liveRow(rowId: string, extra: Partial<BoardRow["derived"]> = {}): BoardRow {
@@ -137,7 +138,7 @@ describe("PersonaMessageSheet", () => {
     unmount();
   });
 
-  test("not running + remoteStart: Start needs a confirm press, then posts confirm:true", async () => {
+  test("not running: Resume needs a confirm press, then posts confirm:true", async () => {
     const calls = stubFetch({ "/api/persona/start": { ok: true, mode: "resumed" } });
     const toasts: string[] = [];
     const unmount = mount([], () => {}, (m) => toasts.push(m));
@@ -160,15 +161,30 @@ describe("PersonaMessageSheet", () => {
     unmount();
   });
 
-  test("not running, remoteStart off: no Start, says why", async () => {
-    const calls = stubFetch({});
+  test("not running, any registered persona: Start is offered (no per-persona opt-in)", async () => {
+    const calls = stubFetch({ "/api/persona/start": { ok: true, mode: "started" } });
     const unmount = mount([]);
     await settle();
-    pick("desk-only");
+    pick("fresh-one");
     typeMessage("hi");
-    expect(button("Start")!.disabled).toBe(true);
-    expect(document.body.textContent).toContain('add "remoteStart": true to it in ~/.config/agentbar/personas.json');
-    expect(posts(calls, "/api/persona/start")).toEqual([]);
+    expect(button("Start")!.disabled).toBe(false);
+    act(() => button("Start")!.click());
+    await settle();
+    expect(posts(calls, "/api/persona/start")).toEqual([]); // armed, nothing sent
+    act(() => button("Confirm start")!.click());
+    await settle();
+    expect(posts(calls, "/api/persona/start")[0]?.body).toEqual({
+      persona: "fresh-one", text: "hi", fresh: true, confirm: true,
+    });
+    unmount();
+  });
+
+  test("machine offline: the persona isn't offered", async () => {
+    stubFetch({});
+    const unmount = mount([]);
+    await settle();
+    expect(document.querySelector('input[type="radio"][value="away"]')).toBeNull();
+    expect(document.querySelector('input[type="radio"][value="fresh-one"]')).toBeTruthy();
     unmount();
   });
 
@@ -216,10 +232,10 @@ describe("PersonaMessageSheet", () => {
     await settle();
     typeMessage("hi");
     act(() => button("Ask Jev")!.click());
-    pick("desk-only");
+    pick("fresh-one");
     release(null);
     await settle();
-    const chosen = document.querySelector('input[type="radio"][value="desk-only"]') as HTMLInputElement;
+    const chosen = document.querySelector('input[type="radio"][value="fresh-one"]') as HTMLInputElement;
     expect(chosen.checked).toBe(true);
     expect(document.body.textContent).not.toContain("Jev picked");
     unmount();

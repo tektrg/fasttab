@@ -77,12 +77,23 @@ check("absent remoteStart defaults to false", by_name["desk-only"]["remoteStart"
 check("a non-bool remoteStart skips the entry", "bad-flag" in by_name, False)
 
 print("\n== remote GET /api/personas payload ==")
-listed = persona_remote.remote_personas(REG, agent_rows=[])
-check("only offered + opted-in personas", [p["name"] for p in listed], ["phone-ok"])
-check("only name/description/idleStart", sorted(listed[0]), ["description", "idleStart", "name"])
+STATE_ROWS = [  # what personas.get_personas_state() returns locally
+    {"name": "phone-ok", "address": f"local:{PHONE_DIR}", "description": "phone-ok does test things.",
+     "routesWhen": ["x"], "notFor": [], "idle": "fresh", "start": "in-place", "offline": False,
+     "mainRowId": "row-1", "sessionRowIds": ["row-1", "row-2"], "idleStart": "fresh"},
+    {"name": "desk-only", "address": f"local:{DESK_DIR}", "description": "desk-only does test things.",
+     "routesWhen": [], "notFor": [], "idle": "resume", "start": "in-place", "offline": False,
+     "mainRowId": None, "sessionRowIds": [], "idleStart": "resume"},
+]
+listed = persona_remote.remote_personas(REG, personas_state=STATE_ROWS)
+check("every offered persona is listed (messaging needs them all)",
+      [p["name"] for p in listed], ["phone-ok", "desk-only"])
+check("remoteStart marks the startable ones", [p["remoteStart"] for p in listed], [True, False])
+check("only the phone's fields", sorted(listed[0]),
+      ["description", "idleStart", "mainRowId", "name", "offline", "remoteStart"])
+check("mainRowId carried", listed[0]["mainRowId"], "row-1")
 check("no folder path leaks", FAKE_HOME in json.dumps(listed), False)
-check("nothing opted in -> []", persona_remote.remote_personas(
-    write_registry({f"local:{DESK_DIR}": entry("desk-only")}), agent_rows=[]), [])
+check("no personas -> []", persona_remote.remote_personas(REG, personas_state=[]), [])
 
 print("\n== remote start: opt-in gate ==")
 calls = []
@@ -94,21 +105,34 @@ try:
         return persona_remote.start_persona_remote(body, persona_start.StartDeps(registry=REG))
 
     for name in ("desk-only", "hidden-phone", "draft-phone", "no-such-persona", " phone-ok"):
-        result = remote_start({"persona": name, "text": "hi"})
+        result = remote_start({"persona": name, "text": "hi", "confirm": True})
         check(f"{name!r}: refused as unknown", (result["ok"], "unknown persona" in result["error"]),
               (False, True))
         check(f"{name!r}: start never called", calls, [])
-    result = remote_start({"persona": "phone-ok", "text": "hi $(echo INJECTED)", "fresh": True})
+    for label, body, needle in (
+            ("no confirm", {"persona": "phone-ok", "text": "hi"}, "confirm"),
+            ("confirm false", {"persona": "phone-ok", "text": "hi", "confirm": False}, "confirm"),
+            ("confirm truthy non-bool", {"persona": "phone-ok", "text": "hi", "confirm": 1}, "confirm"),
+            ("extra folder", {"persona": "phone-ok", "text": "hi", "confirm": True,
+                              "folder": "/tmp"}, "unexpected field"),
+            ("extra args", {"persona": "phone-ok", "text": "hi", "confirm": True,
+                            "args": ["--dangerously-skip-permissions"]}, "unexpected field"),
+            ("not an object", ["phone-ok"], "JSON object")):
+        result = remote_start(body)
+        check(f"{label}: refused", (result["ok"], needle in result["error"]), (False, True))
+        check(f"{label}: start never called", calls, [])
+    result = remote_start({"persona": "phone-ok", "text": "hi $(echo INJECTED)", "fresh": True,
+                           "confirm": True})
     check("opted-in persona: handed to start_persona", result, {"ok": True})
-    check("same body passed through", calls[0][0],
+    check("same body passed through, minus confirm", calls[0][0],
           {"persona": "phone-ok", "text": "hi $(echo INJECTED)", "fresh": True})
     check("start uses the same registry snapshot", calls[0][1], REG)
-    result = remote_start({"text": "hi"})
+    result = remote_start({"text": "hi", "confirm": True})
     check("missing name falls through to the shared validation", len(calls), 1)
 finally:
     persona_start.start_persona = _real_start
 
-result = persona_remote.start_persona_remote({"persona": "phone-ok", "text": "a\nb"},
+result = persona_remote.start_persona_remote({"persona": "phone-ok", "text": "a\nb", "confirm": True},
                                              persona_start.StartDeps(registry=REG))
 check("the shared message rules still apply", (result["ok"], "newline" in result["error"]),
       (False, True))
@@ -192,7 +216,8 @@ try:
     h._remote_authenticated = lambda: True
     h.do_GET()
     check("remote GET /api/personas -> remote list", h.sent,
-          ([{"name": "phone-ok", "description": "phone-ok does test things.", "idleStart": "fresh"}], 200))
+          ([{"name": "local-view", "description": None, "idleStart": None, "offline": None,
+             "mainRowId": None, "remoteStart": False}], 200))
     h = FakeHandler({}, remote=False, path="/api/personas")
     h.do_GET()
     check("local GET /api/personas unchanged", h.sent[0][0]["name"], "local-view")

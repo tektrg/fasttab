@@ -204,6 +204,8 @@ import session_inbox  # noqa: E402  (message to a Desktop/CLI session)
 import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook bridge)
 import persona_start  # noqa: E402  (POST /api/persona/start, P3)
 import persona_remote  # noqa: E402  (remoteStart personas on the remote listener)
+import message_gate  # noqa: E402  (non-Claude panes are never typed into)
+import jev_route  # noqa: E402  (POST /api/jev/route — pick a persona server-side)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
 import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
 
@@ -761,6 +763,9 @@ def _handle_reach_action(action, body, row_id, actor):
     if agent is None:
         return _refused_before_typing(
             f"row {row_id} is not live — no agent there to read it")
+    blind = message_gate.blind_agent_refusal(agent)
+    if blind:
+        return _refused_before_typing(blind)
     pane_id = agent.get("paneId")
     if not pane_id and session_inbox.message_via(agent) == "inbox":
         return _handle_inbox_message(agent, body, row_id, actor, text)
@@ -3124,6 +3129,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=200)
             return
+        persona_name = body.get("persona") if isinstance(body, dict) else None
+        self._note_remote_audit_row(persona_name if isinstance(persona_name, str) else None)
         self._send_json(handle_body(body))
 
     def do_POST(self):
@@ -3192,6 +3199,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/personas":
             self._handle_local_json_post(path, persona_registry_edit.apply_registry_action)
+            return
+        if path == jev_route.ROUTE_PATH:
+            # Both listeners: the phone has no OpenRouter key of its own.
+            self._handle_local_json_post(path, jev_route.route_message,
+                                         jev_route.route_message)
             return
         # P0 dashboard move: POST /api/worker (chief_dashboard_worker.py —
         # worktree/session spin-up for AptusFit's not-yet-built "Jev

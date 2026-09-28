@@ -12,6 +12,7 @@ import chief_dashboard_herdr as herdr_transport
 import claude_sessions  # P4: non-herdr Claude sessions as status-only rows
 import desktop_sessions  # sleeping Claude Desktop sessions (no live process)
 import hook_permissions  # prompts answerable via the PermissionRequest hook
+import message_gate  # non-Claude panes are never typed into
 import pane_screen_signals
 from chief_dashboard_feeds import FEEDS, MACHINES, sanitize_pane_id  # noqa: F401
 from chief_dashboard_feeds import MACHINES_CONFIG_ERROR  # noqa: F401,E402  (surfaced on every /api/state)
@@ -101,6 +102,7 @@ def build_agents_view(feeds_snap):
             "machine": herdr_transport.LOCAL_MACHINE,
             "source": claude_sessions.HERDR_SOURCE,
             "messageVia": "pane",
+            "agentKind": a.get("agent"),
         })
 
     # Remote rows (R1/R4/R7): one machine at a time, from that machine's OWN
@@ -151,6 +153,7 @@ def build_agents_view(feeds_snap):
                 "machine": machine,
                 "source": claude_sessions.HERDR_SOURCE,
                 "messageVia": "pane",
+                "agentKind": a.get("agent"),
                 # Local-only facts (R16) degrade to null on a remote row,
                 # never a guessed/borrowed local value.
                 "memoryBytes": None,
@@ -160,6 +163,10 @@ def build_agents_view(feeds_snap):
     # status-only. A session herdr already shows (same agentSession) is skipped
     # — the pane row is the richer one. Local sessions folder only.
     herdr_session_ids = {r["agentSession"] for r in rows if r.get("agentSession")}
+    # Non-Claude panes can't take messages (their prompts are invisible):
+    # the server refuses them, and every client shows why (message_gate.py).
+    for r in rows:
+        r["messageRefusal"] = message_gate.blind_agent_refusal(r)
     claude_sessions_data = (feeds_snap.get("claudeSessions") or {}).get("data")
     hook_requests = hook_permissions.STORE.exposed_by_session(claude_sessions_data)
     # A local herdr pane's prompt held by the PermissionRequest hook: shown
@@ -466,6 +473,15 @@ def build_needs_you(feeds_snap, agents):
             # case a missing key vs. an explicit null.
             row["permission"] = a.get("screenPermission")
             rows.append(row)
+
+    # Which machine each agent row lives on (the phone showed every Needs
+    # You row as "local", even an air-m1 pane). Status-only rows have no
+    # pane and are always local.
+    machine_by_pane = {(a.get("paneId") or a.get("paneIdSanitized")): a.get("machine")
+                       for a in agents}
+    for row in rows:
+        row["machine"] = (machine_by_pane.get(row.get("paneId"))
+                          or herdr_transport.LOCAL_MACHINE)
 
     for feed_name, f in feeds_snap.items():
         if "broken" not in f:

@@ -19,8 +19,10 @@ move plan; this file is the day-to-day reference for running/testing it.
   views/actions/memory modules, `chief_dashboard_pass.py` (`GET
   /api/deliver/pass` — see "chief_pass" below), `personas.py` (`GET
   /api/personas` — see "Jev persona routing" below), `persona_start.py`
-  (`POST /api/persona/start`, same section), and `dashboard_config.py`
-  (below).
+  (`POST /api/persona/start`, same section), `jev_route.py` (`POST
+  /api/jev/route`, same section), `message_gate.py` (non-Claude panes are
+  never messaged — see "Claude sessions outside herdr"), and
+  `dashboard_config.py` (below).
 - `scripts/restart.sh` — kill-and-relaunch by port ownership, with a
   liveness wait; `scripts/chief-dashboard-watchdog.py` — a 60s probe/
   restart-cap script meant for a LaunchAgent (none is installed by this
@@ -118,8 +120,35 @@ would do right now (see below). Only a local `start: in-place` persona can
 be `"resume"`; the folder scan is cached 30s.
 
 **Remote listener** (`server/lib/persona_remote.py`): `GET /api/personas`
-returns only offered personas with `"remoteStart": true` in the registry,
-as `[{name, description, idleStart}]` — no address/folder/instructions.
+returns every offered persona as `[{name, description, idleStart, offline,
+mainRowId, remoteStart}]` — no address/folder/instructions/routing hints.
+The phone messages a running persona's `mainRowId` through the normal
+`POST /api/session/message` rules; `remoteStart` says whether it may START
+one (below). PWA: the "Message a persona" sheet
+(`ui/src/components/phone/PersonaMessageSheet.tsx`, the `+` in the phone
+search bar; effect wording = AgentBar's `PersonaDeliveryEffect`, copied in
+`ui/src/personaDelivery.ts`).
+
+### `POST /api/jev/route` (`server/lib/jev_route.py`, 2026-09-28)
+Jev (OpenRouter Decisions API) picks the persona for a message ON THE
+SERVER, so the phone never holds the key. `{text}` -> `{ok, persona,
+confidence}` | `{ok:false, error}`. Candidates: offered, not-offline
+personas only (no live sessions). Nothing is sent: the client shows the
+pick and the user confirms (AgentBar never auto-sends a persona pick
+either). Both listeners (remote: auth + same-origin + audit like every
+write); JSON Content-Type required; text follows `validate_message_text`;
+only the `text` key. One request in flight, <= 20/min, 8s timeout, never
+retried.
+- **Key**: `~/.config/agent-dashboard/openrouter-key` (`<CONFIG_HOME>/
+  openrouter-key`; tests: `AGENT_DASHBOARD_OPENROUTER_KEY_FILE`), a regular
+  file (no symlink), mode 0600, read per request, never logged/returned.
+  Missing -> `{ok:false}` saying where to put it. AgentBar's own copy is in
+  its Keychain (`KeychainRoutingAPIKeyStore`) — the dashboard can't read it.
+- **Duplication** with `Sources/AgentBar/Routing/OpenRouterJevClient.swift`
+  (instructions, endpoint, default model, persona summary format):
+  `tests/test_jev_route.py` reads the Swift source and fails on drift.
+  AgentBar's Settings > Routing guidance and model override are NOT applied
+  server-side (UserDefaults, unreadable here).
 
 ### Settings > Personas endpoints — P4
 All three are **localhost only** (403 on the remote listener); the POST also
@@ -161,7 +190,11 @@ reply (`Expect: 100-continue`'s `100 Continue`, sent before the body
 exists) is exempt; the final reply is still checked.
 
 - Request: `{"persona": "<name>", "text": "<first message>", "fresh": true?}`
-  — a name, never a path. `text` follows the Send message rules
+  — a name, never a path. **Remote listener, stricter**: only the keys
+  `persona`/`text`/`fresh`/`confirm`, and `confirm` must be JSON `true`
+  (the phone's second press) — folder/command/args always come from the
+  registry. The remote audit line's `rowId` is the persona name.
+  `text` follows the Send message rules
   (`validate_message_text`: one line, <= 2000 chars, tabs become spaces
   like AgentBar's `TerminalSafeText`, no other terminal control
   characters, no slash command beyond `/clear`/`/compact`). `fresh` must
@@ -256,6 +289,18 @@ exists) is exempt; the final reply is still checked.
   (`UNSUPPORTED`) rather than guessed. Tests: `tests/test_session_inbox.py`
   (temp sessions dir + fake Unix socket; never a real session),
   `tests/test_remote_inbox_message.py` (real HTTP, both listeners).
+- **Non-Claude message gate** (`server/lib/message_gate.py`, 2026-09-28):
+  every herdr row carries `agentKind` (herdr's `agent`: `claude`,
+  `opencode`, `codex`, …) and `messageRefusal` (text | null). `POST
+  /api/session/message` (so Compact/Clear too) refuses a herdr pane whose
+  `agentKind` isn't `claude` (or is missing) and that has no hook data,
+  before any pane read or keystroke — its prompts are invisible, a message
+  could answer one. Strict subset of AgentBar's own gate (it needs
+  `hasHookData` for every send), so AgentBar never sees a new refusal. The
+  PWA shows a caption instead of the Composer on such rows. Tests:
+  `tests/test_message_gate.py`.
+- Every `computed.needsYou` agent row carries `machine` (its agent row's;
+  status-only rows `local`) — the phone showed air-m1 prompts as "local".
 - P5: for a non-Claude herdr agent (`agent` != `claude`, e.g. OpenCode) whose
   screen reads `UNKNOWN`/nothing, herdr's `agent_status` (`working`/`blocked`/
   `idle`/`done`; `unknown` ignored) stands in as `screenState`

@@ -103,6 +103,26 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
   (`server/lib/session_inbox.py`, dashboard `AGENTS.md` "Message via
   inbox") — same login, same-origin rule and audit line as a pane send; the
   session's peer token never appears in a response or the audit log.
+- **Personas from the phone** (2026-09-28): `GET /api/personas` lists every
+  offered persona WITHOUT folder paths (name, description, idleStart,
+  offline, mainRowId, remoteStart); messaging one goes to its running main
+  session through `POST /api/session/message` (same rules as any row).
+  `POST /api/persona/start` is served here ONLY for a persona whose
+  registry entry has `"remoteStart": true`, and only with the keys
+  `persona`/`text`/`fresh` plus `confirm: true`: the registry decides the
+  folder and command, so a stolen session can at most start an
+  already-trusted persona in its own folder with a message (same text
+  rules as a Send). Any other name reads "unknown persona" (no probing).
+  `POST /api/personas` and `GET /api/personas/{registry,suggestions}`
+  stay 403 here — editing who may be started is a desk action.
+- **`POST /api/jev/route`** (2026-09-28): Jev picks the persona for a
+  message server-side; the OpenRouter key stays in
+  `~/.config/agent-dashboard/openrouter-key` (0600) on the Mac and is never
+  sent to the phone. Rate-limited (1 in flight, 20/min), 8s timeout. It
+  sends nothing to any agent — the phone confirms the pick first.
+- **Non-Claude panes are never messaged** (`message_gate.py`): an
+  OpenCode/Codex pane's prompts are invisible to the dashboard, so the
+  server refuses messages to them from every client.
 - If the remote listener's port is already in use (another instance, a
   stale process), the dashboard logs a warning and continues running the
   main listener normally — a busy remote port never takes down the board.

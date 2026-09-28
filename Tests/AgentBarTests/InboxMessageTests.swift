@@ -253,6 +253,35 @@ struct InboxParkTests {
         #expect(model.footerNotice == nil)
     }
 
+    /// Unpark never types anything: the session resumes with whatever context it has. (A blocked
+    /// row, so Park itself sends nothing and Unpark isn't held behind Park's own "Message sent".)
+    @Test func unparkingSendsNothing() async throws {
+        var blocked = F.agent("a", section: .needsYou)
+        blocked.blocker = .permission
+        let (model, source) = makeModel([blocked])
+        model.press(.park, on: "a")
+        model.press(.unpark, on: "a")
+        #expect(model.presentation.agents.first?.section == .needsYou)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(source.sent.isEmpty)
+        #expect(model.footerNotice == nil)
+    }
+
+    /// Compact is decided once, at Park: a row parked while asking something is not compacted
+    /// later when it stops asking (it was just answered — its context is fresh, and typing into it
+    /// unasked would surprise whoever answered it).
+    @Test func aRowParkedWhileBlockedIsNotCompactedWhenItLaterStopsAsking() async throws {
+        var blocked = F.agent("a", section: .needsYou)
+        blocked.blocker = .permission
+        let (model, source) = makeModel([blocked])
+        model.press(.park, on: "a")
+        model.receive(F.snapshot([F.agent("a", section: .needsYou)]))
+        #expect(model.presentation.agents.first?.section == .parked)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(source.sent.isEmpty)
+        #expect(model.footerNotice == nil)
+    }
+
     @Test func parkingARowWithNoMessageRouteParksWithoutSendingCompact() async throws {
         let (model, source) = makeModel([StatusOnlyFixtures.desktopAgent()])
         model.press(.park, on: StatusOnlyFixtures.desktopSession)

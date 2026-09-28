@@ -407,7 +407,10 @@ body.rp-resizing .rp-resize { background:var(--blue); }
 .persona-sheet-error { margin-top: 12px; color: var(--mantine-color-red-6); }
 .persona-sheet-note, .persona-sheet-jev { margin-top: 12px; font-size: 13px; color: var(--dim); }
 .persona-sheet-jev { color: inherit; }
-.persona-sheet-fresh { flex: 1; align-self: center; }
+/* 375px: the switch label + Ask Jev + "Confirm resume" (Mantine buttons
+   never wrap their label) don't fit one row, so the switch gets its own. */
+.persona-sheet-actions { flex-wrap: wrap; }
+.persona-sheet-fresh { flex: 1 0 100%; align-self: center; }
 .phone-sheet-quick { display: flex; gap: 8px; }
 .phone-sheet-gate-note { font-size: 12px; color: var(--dim); }
 .phone-nomatch { margin: 12px; text-align: center; }

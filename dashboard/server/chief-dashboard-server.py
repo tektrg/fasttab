@@ -3077,8 +3077,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(chief_dashboard_pass.get_chief_pass(get_full_state))
         elif path == "/api/personas":
             # Jev persona routing P1 — see server/lib/personas.py. The
-            # remote listener gets only opted-in (remoteStart) personas,
-            # without folder paths — see server/lib/persona_remote.py.
+            # remote listener gets every offered persona WITHOUT folder
+            # paths, each flagged remoteStart — see persona_remote.py.
             try:
                 if self._is_remote_listener():
                     self._send_json(persona_remote.remote_personas())

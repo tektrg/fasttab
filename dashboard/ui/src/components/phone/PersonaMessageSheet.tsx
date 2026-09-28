@@ -242,7 +242,7 @@ export function PersonaMessageSheet({
             if (e.key === "Enter" && !e.repeat) void submit();
           }}
         />
-        <div className="phone-sheet-actions">
+        <div className="phone-sheet-actions persona-sheet-actions">
           <Switch
             checked={forceNew}
             onChange={(e) => setForceNew(e.currentTarget.checked)}

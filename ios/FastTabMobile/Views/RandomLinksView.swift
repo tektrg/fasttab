@@ -144,6 +144,10 @@ public struct RandomLinksView: View {
                         ? (isTarget ? 1.0 : 0.0)
                         : 1.0
 
+        // The Shuffle widget mirrors whatever card is on top here.
+        .onChange(of: deck.first?.id) { _, _ in
+            WidgetSnapshotPublisher.shared.shuffleTopCardChanged(deck.first)
+        }
                     RandomCardView(
                         item: item,
                         isTop: isTop,

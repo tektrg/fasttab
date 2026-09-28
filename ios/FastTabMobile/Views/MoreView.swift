@@ -7,6 +7,7 @@ public struct MoreView: View {
     @StateObject private var statsViewModel = StatsViewModel()
     @AppStorage(TabBookmarkClosePreference.defaultsKey)
     private var tabBookmarkClosePreferenceRaw = TabBookmarkClosePreference.ask.rawValue
+    @AppStorage(ReadingGoal.defaultsKey) private var dailyWordGoal = ReadingGoal.defaultDailyWords
 
     public init() {}
 
@@ -37,6 +38,19 @@ public struct MoreView: View {
                 TabStatsCard(summary: statsViewModel.tabs)
             }
             .listRowInsets(EdgeInsets())
+            .dsListRow()
+
+            Section(footer: Text("Closes the Reading ring widget on your home screen.")) {
+                Stepper(value: $dailyWordGoal, in: ReadingGoal.range, step: ReadingGoal.step) {
+                    HStack {
+                        Text("Daily reading goal")
+                        Spacer()
+                        Text("\(dailyWordGoal.formatted()) words")
+                            .font(DS.Font.body.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             .dsListRow()
 
             Section {

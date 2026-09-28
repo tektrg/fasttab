@@ -7,18 +7,22 @@ public struct FastTabMobileApp: App {
     @StateObject private var syncConsumer = SyncConsumer.shared
     @StateObject private var localCache = LocalCache.shared
     @Environment(\.scenePhase) private var scenePhase
+    @State private var selectedTab = AppTab.read
+    /// An article a widget tap asked to open (`WidgetDeepLink.read`).
+    @State private var widgetReaderItem: ReaderNavigationItem?
 
     public init() {}
 
     public var body: some Scene {
         WindowGroup {
-            TabView {
+            TabView(selection: $selectedTab) {
                 NavigationStack {
                     ReadingFeedView()
                 }
                 .tabItem {
                     Label("Read", systemImage: "newspaper")
                 }
+                .tag(AppTab.read)
 
                 NavigationStack {
                     TabListView()
@@ -27,6 +31,7 @@ public struct FastTabMobileApp: App {
                 .tabItem {
                     Label("Tabs", systemImage: "macwindow.on.rectangle")
                 }
+                .tag(AppTab.tabs)
 
                 NavigationStack {
                     RandomLinksView()
@@ -34,6 +39,7 @@ public struct FastTabMobileApp: App {
                 .tabItem {
                     Label("Shuffle", systemImage: "shuffle")
                 }
+                .tag(AppTab.shuffle)
 
                 NavigationStack {
                     MoreView()
@@ -41,10 +47,18 @@ public struct FastTabMobileApp: App {
                 .tabItem {
                     Label("More", systemImage: "ellipsis.circle")
                 }
+                .tag(AppTab.more)
             }
-
+            .fullScreenCover(item: $widgetReaderItem) { item in
+                ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
+            }
+            .onOpenURL { url in
+                guard let link = WidgetDeepLink(url: url) else { return }
+                open(link)
+            }
             .onAppear {
                 syncConsumer.start()
+                WidgetSnapshotPublisher.shared.start()
                 RecentAddedProvider.shared.drainPendingShares()
                 RecentAddedProvider.shared.refresh()
                 EmergingContentProvider.shared.refresh()
@@ -57,18 +71,37 @@ public struct FastTabMobileApp: App {
                     RecentAddedProvider.shared.refresh()
                     EmergingContentProvider.shared.refresh()
                     LastOpenedStore.shared.loadFromDisk()
+                    WidgetSnapshotPublisher.shared.reloadReading()
 
                     Task { await syncConsumer.refreshNow() }
                     syncConsumer.startForegroundRefresh()
                 case .background:
                     syncConsumer.stopForegroundRefresh()
                     localCache.flushPendingSave()
+                    WidgetSnapshotPublisher.shared.flushPendingWrite()
                 default:
                     syncConsumer.stopForegroundRefresh()
                 }
             }
         }
     }
+
+    private func open(_ link: WidgetDeepLink) {
+        switch link {
+        case .read(let url, let title, let highlightID):
+            LastOpenedStore.shared.recordOpened(url: url, title: title)
+            widgetReaderItem = ReaderNavigationItem(url: url, title: title, focusHighlightID: highlightID)
+        case .stats:
+            selectedTab = .more
+        case .tabs:
+            selectedTab = .tabs
+        }
+    }
+}
+
+/// The root tab bar's tabs, so a widget deep link can switch between them.
+enum AppTab: Hashable {
+    case read, tabs, shuffle, more
 }
 
 extension URL: @retroactive Identifiable {

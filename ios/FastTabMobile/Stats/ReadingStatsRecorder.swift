@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import NaturalLanguage
 import OSLog
 import IndieMetrics
@@ -47,6 +48,8 @@ final class ReadingStatsRecorder {
     /// this session: the next launch re-credits the lost ground from the last good snapshot.
     private var hasFailedWrite = false
     private let logger = Logger(subsystem: "app.theindie.FastTabMobile", category: "ReadingStats")
+    /// Fires after each write lands in the log, so the Reading ring widget can refresh.
+    let writesLanded = PassthroughSubject<Void, Never>()
 
     init(
         log: any MetricEventStoring,
@@ -149,6 +152,7 @@ final class ReadingStatsRecorder {
             do {
                 try await write(log)
                 onSuccess()
+                self?.writesLanded.send()
             } catch {
                 self?.hasFailedWrite = true
                 logger.error("Reading stats write failed: \(error.localizedDescription, privacy: .public)")

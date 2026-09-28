@@ -352,16 +352,20 @@ def clear_session_cookie_header():
     return f"{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
 
 
-def append_audit(route, method, status, row_id=None):
+def append_audit(route, method, status, row_id=None, ok=None):
     """One JSONL line per remote write attempt (allowed or refused) to
-    AUDIT_LOG_PATH. Best-effort: a write failure here must never break the
-    request it's auditing, so I/O errors are swallowed."""
+    AUDIT_LOG_PATH. `ok` is the JSON reply's own `ok` (None when the reply
+    has none): most write routes answer a refusal with HTTP 200
+    `{ok: false}`, so `status` alone can't tell a persona start that ran
+    from one that was refused. Best-effort: a write failure here must never
+    break the request it's auditing, so I/O errors are swallowed."""
     entry = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "route": route,
         "method": method,
         "rowId": row_id,
         "status": status,
+        "ok": ok,
     }
     try:
         os.makedirs(os.path.dirname(AUDIT_LOG_PATH), exist_ok=True)

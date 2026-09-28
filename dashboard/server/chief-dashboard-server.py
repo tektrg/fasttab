@@ -2728,9 +2728,11 @@ class Handler(BaseHTTPRequestHandler):
         pending = getattr(self, "_pending_remote_audit", None)
         if pending is not None:
             self._pending_remote_audit = None
+            reply_ok = obj.get("ok") if isinstance(obj, dict) else None
             remote_access.append_audit(
                 pending["route"], pending["method"],
-                status, row_id=pending.get("row_id"))
+                status, row_id=pending.get("row_id"),
+                ok=reply_ok if isinstance(reply_ok, bool) else None)
 
     # ---- Unread-body desync guard (found live-testing P3, 2026-09-26) ----
     # HTTP/1.1 keep-alive reads the next request off the same socket. A

@@ -184,6 +184,8 @@ while len([e for e in audit_lines() if e["route"] == PATH]) < 3 and time.monoton
 entries = [e for e in audit_lines() if e["route"] == PATH]
 check("every remote attempt audited (401, 403, 200)", [e["status"] for e in entries], [401, 403, 200])
 check("audit row names the session row", entries[-1].get("rowId"), SESSION_ID)
+check("audit row records the reply's ok (sent)", entries[-1].get("ok"), True)
+check("a 401/403 gate refusal carries no reply ok", [e.get("ok") for e in entries[:2]], [None, None])
 check("peer token not in the audit log", PEER_TOKEN in json.dumps(audit_lines()), False)
 
 print("== local listener (AgentBar) ==")

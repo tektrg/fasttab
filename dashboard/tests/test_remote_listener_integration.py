@@ -161,6 +161,16 @@ status, body, _ = post(REMOTE_PORT, "/api/persona/start", body=start_body,
 reply = json.loads(body)
 check("authenticated start of an unregistered name -> 200 {ok:false, unknown}",
       (status, reply.get("ok"), "unknown persona" in reply.get("error", "")), (200, False, True))
+_deadline = time.monotonic() + 3  # the audit line is written just after the reply
+while time.monotonic() < _deadline:
+    with open(remote_access.AUDIT_LOG_PATH) as _f:
+        _starts = [json.loads(l) for l in _f if '"/api/persona/start"' in l]
+    if _starts and _starts[-1]["status"] == 200:
+        break
+    time.sleep(0.02)
+check("audit: the refused start is logged with its name and ok=false (not just HTTP 200)",
+      (_starts[-1]["rowId"], _starts[-1]["status"], _starts[-1]["ok"]),
+      (json.loads(start_body)["persona"], 200, False))
 status, _, _ = post(REMOTE_PORT, "/api/persona/start", body=start_body,
                     headers=dict(json_hdr, Cookie=cookie_value, Origin="https://evil.example"))
 check("authenticated + foreign Origin -> 403", status, 403)

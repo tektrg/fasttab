@@ -95,7 +95,8 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
   `403`.
 - Every remote write attempt (allowed or refused) is appended as one JSON
   line to `~/.config/agent-dashboard/remote-audit.jsonl`
-  (`ts`, `route`, `method`, `rowId` when known, `status`). For
+  (`ts`, `route`, `method`, `rowId` when known, `status`, `ok` = the
+  reply's own ok flag — a refused write is usually HTTP 200 `ok: false`). For
   `/api/session/<action>` the `rowId` is the body's row (session id), not
   the verb (2026-09-28; before that it logged the action name).
 - `POST /api/session/message` from the phone also reaches Claude Desktop /

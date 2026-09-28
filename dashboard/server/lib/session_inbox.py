@@ -40,8 +40,13 @@ INBOX_SOURCES = frozenset({"claude-desktop", "claude-cli"})
 SEND_TIMEOUT_SEC = 4.0
 #: After sending, how long to listen for an error reply before calling it sent.
 REPLY_WAIT_SEC = 0.4
-#: A key file may be written a moment before `startedAt` is recorded.
-KEY_CLOCK_SLACK_SEC = 5
+#: A key is written after the process starts (`procStart`, whole seconds)
+#: but BEFORE `startedAt` is recorded — measured 2.1.283: up to 12s before on
+#: Claude Desktop (startedAt lands 0.4-34s after the process starts). So the
+#: process start is the "not older than the process" line; `startedAt` minus
+#: this slack is only the fallback for a file without `procStart`.
+PROC_START_SLACK_SEC = 1
+STARTED_AT_SLACK_SEC = 60
 _KEY_NAME_RE = re.compile(r"^(\d+)\.([0-9a-f]{16,128})\.key$")
 
 NOT_RUNNING = "that session is not running any more — nothing was sent"
@@ -126,7 +131,7 @@ def _key_path(sessions_dir, entry):
     process (a recycled pid's leftovers) don't count; two candidates is
     ambiguous and refused."""
     pid = entry["pid"]
-    started_ms = entry.get("startedAt")
+    not_before = _key_not_before(entry)
     candidates = []
     for path in glob.glob(os.path.join(glob.escape(sessions_dir), f"{pid}.*.key")):
         match = _KEY_NAME_RE.match(os.path.basename(path))
@@ -134,15 +139,26 @@ def _key_path(sessions_dir, entry):
             continue
         if not _is_safe_regular_file(path, private=True):
             return None
-        if isinstance(started_ms, (int, float)):
+        if not_before is not None:
             try:
                 key_mtime = os.lstat(path).st_mtime
             except OSError:  # vanished since the glob
                 return None
-            if key_mtime < started_ms / 1000.0 - KEY_CLOCK_SLACK_SEC:
+            if key_mtime < not_before:
                 continue
         candidates.append(path)
     return candidates[0] if len(candidates) == 1 else None
+
+
+def _key_not_before(entry):
+    """Epoch seconds a key of this process can't be older than, or None."""
+    proc_start = claude_sessions.recorded_process_start(entry)
+    if proc_start is not None:
+        return proc_start - PROC_START_SLACK_SEC
+    started_ms = entry.get("startedAt")
+    if isinstance(started_ms, (int, float)):
+        return started_ms / 1000.0 - STARTED_AT_SLACK_SEC
+    return None
 
 
 def _read_token(key_path):

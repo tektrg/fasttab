@@ -86,11 +86,36 @@ def _same_process_start(recorded, ps_lstart):
     the recorded one. Unparseable -> True (liveness alone decides)."""
     try:
         actual_epoch = time.mktime(time.strptime(_normalize_ws(ps_lstart), _LSTART_FORMAT))
-        recorded_struct = time.strptime(_normalize_ws(recorded), _LSTART_FORMAT)
     except (ValueError, OverflowError):
         return True
-    readings = (calendar.timegm(recorded_struct), time.mktime(recorded_struct))
+    readings = _proc_start_readings(recorded)
+    if not readings:
+        return True
     return any(abs(r - actual_epoch) <= _PROC_START_TOLERANCE_SEC for r in readings)
+
+
+def _proc_start_readings(recorded):
+    """The two instants a `procStart` string can name (as UTC, as local
+    time), or () when it doesn't parse."""
+    try:
+        recorded_struct = time.strptime(_normalize_ws(recorded), _LSTART_FORMAT)
+        return (calendar.timegm(recorded_struct), time.mktime(recorded_struct))
+    except (TypeError, ValueError, OverflowError):
+        return ()
+
+
+def recorded_process_start(entry):
+    """Epoch seconds (whole) the process of this session file started, from
+    its `procStart`, or None. Claude Code writes UTC (measured); with a
+    `startedAt`, the latest reading not after it wins — a process starts
+    before it records anything, so a local reading can't pass for UTC."""
+    readings = _proc_start_readings((entry or {}).get("procStart"))
+    started_ms = (entry or {}).get("startedAt")
+    if not readings or not isinstance(started_ms, (int, float)):
+        return readings[0] if readings else None
+    plausible = [r for r in readings
+                 if r <= started_ms / 1000.0 + _PROC_START_TOLERANCE_SEC]
+    return max(plausible) if plausible else None
 
 
 def _proc_start_by_pid(pids):

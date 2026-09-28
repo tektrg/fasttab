@@ -18,6 +18,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 
 DASHBOARD_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _state_tmp = tempfile.TemporaryDirectory()
@@ -241,6 +242,46 @@ def stale_key(b):
 
 
 unsafe_case("key older than the process (recycled pid leftover)", stale_key)
+
+
+# procStart must name THIS process (read_live_sessions checks it against ps).
+LIVE_PROC_START = time.mktime(time.strptime(
+    claude_sessions._proc_start_by_pid([LIVE_PID])[LIVE_PID], "%a %b %d %H:%M:%S %Y"))
+LIVE_PROC_START_TEXT = time.strftime("%a %b %d %H:%M:%S %Y",
+                                     time.gmtime(LIVE_PROC_START))  # Claude writes UTC
+
+
+def key_before_proc_start(b):
+    path = b.write_key(LIVE_PID)
+    os.utime(path, (LIVE_PROC_START - 3600, LIVE_PROC_START - 3600))
+    b.write_session(LIVE_PID, procStart=LIVE_PROC_START_TEXT,
+                    startedAt=int((LIVE_PROC_START + 2) * 1000))
+
+
+unsafe_case("key older than procStart (recycled pid leftover)", key_before_proc_start)
+
+print("== real Desktop timing: key written after the process starts, before startedAt ==")
+
+
+def desktop_timing_send(**session_fields):
+    box = Sandbox()
+    path = box.write_key(LIVE_PID)
+    key_mtime = LIVE_PROC_START + 8
+    os.utime(path, (key_mtime, key_mtime))
+    box.write_session(LIVE_PID, startedAt=int((key_mtime + 12) * 1000), **session_fields)
+    inbox = FakeInbox(box.socket_path)
+    result = run_send(box)
+    lines = inbox.finish()
+    box.close()
+    return result["delivered"], lines == expected_lines("hello there")
+
+
+# Measured 2.1.283 (Claude Desktop): key 0.3-22s after procStart but up to
+# 12s BEFORE startedAt — the old 5s startedAt slack refused these for good.
+check("key 8s after procStart, 12s before startedAt -> delivered",
+      desktop_timing_send(procStart=LIVE_PROC_START_TEXT), (True, True))
+check("no procStart, key 12s before startedAt -> delivered (60s fallback slack)",
+      desktop_timing_send(), (True, True))
 
 
 def key_without_token(b):

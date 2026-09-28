@@ -97,10 +97,10 @@ check("/compacting still refused", ok, False)
 ok, cleaned = act.validate_message_text("  /compact  ")
 check("/compact strips surrounding whitespace and is accepted",
       (ok, cleaned), (True, "/compact"))
-ok, why = act.validate_message_text("x" * 2001)
+ok, why = act.validate_message_text("x" * 8001)
 check("paste refused", ok, False)
-ok, _ = act.validate_message_text("x" * 2000)
-check("2000 chars allowed", ok, True)
+ok, _ = act.validate_message_text("x" * 8000)
+check("8000 chars allowed", ok, True)
 # Inert sentinels only: a control byte typed into a pane is a keystroke.
 for label, hostile in (("ctrl-C", "hi \x03echo INJECTED"), ("ESC", "hi \x1b[2J"),
                        ("DEL", "hi\x7f"), ("C1", "hi \x9becho INJECTED")):

@@ -11,12 +11,13 @@ struct PermissionCardView: View {
     /// The agent whose details were just copied (for the "Copied" feedback), and the copy action.
     var copiedAgentID: String?
     var onCopy: () -> Void = {}
+    var onOpen: () -> Void = {}
 
     var body: some View {
         if let card = permission.card, let plan = card.plan {
             PlanCardView(
                 permission: permission, card: card, plan: plan, bodyHeight: bodyHeight,
-                copiedAgentID: copiedAgentID, onCopy: onCopy
+                copiedAgentID: copiedAgentID, onCopy: onCopy, onOpen: onOpen
             )
         } else if let card = permission.card {
             VStack(alignment: .leading, spacing: 0) {
@@ -42,6 +43,7 @@ struct PermissionCardView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            OpenAgentButton(onOpen: onOpen)
             CopyIdentityButton(isCopied: copiedAgentID == card.agentID, showsLabel: true, onCopy: onCopy)
         }
         .padding(.horizontal, 18)

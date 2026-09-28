@@ -300,8 +300,8 @@ struct ContentView: View {
             .help("Open Settings")
             .accessibilityLabel("Open Settings")
         }
-        .frame(height: CommandBarLayout.compactGearRowHeight)
-        .padding(.trailing, 10)
+        .padding(.trailing, 12)
+        .padding(.bottom, 8)
     }
 
     var commandBarAnchor: EdgeRevealStyle {
@@ -672,7 +672,9 @@ struct ContentView: View {
                                     }
                                 }
                             } else {
-                                settingsCornerGear
+                                // Small bottom strip only; the gear itself floats
+                                // over it (overlay on `sizedContent`, below).
+                                Color.clear.frame(height: CommandBarLayout.compactGearRowHeight)
                             }
                         } else {
                             PaywallView(
@@ -705,6 +707,14 @@ struct ContentView: View {
                             // once, for the whole surface, rather than chasing it in every
                             // inner section.
                             .clipped()
+                            // Floating corner gear when the helper panel is off. Added
+                            // after the clip so it can never be cut off; sits in the
+                            // bottom strip reserved by `compactGearRowHeight`.
+                            .overlay(alignment: .bottomTrailing) {
+                                if showHelperPanel == false && licenseService.snapshot.allowsCommandBarUtility {
+                                    settingsCornerGear
+                                }
+                            }
                             .animation(.easeOut(duration: 0.12), value: surfaceSize)
                     )
                     // Deliberately *inside* the notch connector background added

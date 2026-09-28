@@ -112,7 +112,8 @@ struct AgentPanelView: View {
                     maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
                 ),
                 copiedAgentID: model.copier.copiedAgentID,
-                onCopy: { model.copyOpenCardIdentity() }
+                onCopy: { model.copyOpenCardIdentity() },
+                onOpen: { model.openCardAgent() }
             )
         } else if model.permission.isOpen {
             PermissionCardView(
@@ -121,7 +122,8 @@ struct AgentPanelView: View {
                     maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
                 ),
                 copiedAgentID: model.copier.copiedAgentID,
-                onCopy: { model.copyOpenCardIdentity() }
+                onCopy: { model.copyOpenCardIdentity() },
+                onOpen: { model.openCardAgent() }
             )
         } else if model.message.isOpen {
             MessageCardView(
@@ -130,14 +132,16 @@ struct AgentPanelView: View {
                     maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
                 ),
                 copiedAgentID: model.copier.copiedAgentID,
-                onCopy: { model.copyOpenCardIdentity() }
+                onCopy: { model.copyOpenCardIdentity() },
+                onOpen: { model.openCardAgent() }
             )
         } else if let peek = model.peek {
             PanePeekView(
                 peek: peek,
                 bodyHeight: AgentPanelMetrics.peekBodyHeight(
                     maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
-                )
+                ),
+                onOpen: { model.openPeekAgent() }
             )
         } else if model.taggedAgentID != nil {
             // Composing: the target is already chosen (the chip in the search field), so the

@@ -327,12 +327,18 @@ private struct ResultRowView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text(result.title)
-                    .font(.system(size: 13, weight: .semibold, design: .default))
-                    .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
-                    .lineLimit(isCompact ? 2 : 1)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
+                Group {
+                    if isCompact {
+                        Text(result.title)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    } else {
+                        HoverMarqueeText(result.title)
+                    }
+                }
+                .font(.system(size: 13, weight: .semibold, design: .default))
+                .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             // Wraps at the narrow edge-anchored width, where the type
@@ -437,11 +443,9 @@ private struct ResultRowView: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            Text(result.title)
+            HoverMarqueeText(result.title)
                 .font(.system(size: 13, weight: .semibold, design: .default))
                 .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
         }
         .clipped()
     }

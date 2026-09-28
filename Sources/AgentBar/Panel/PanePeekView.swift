@@ -6,6 +6,7 @@ import SwiftUI
 struct PanePeekView: View {
     let peek: PanePeek
     let bodyHeight: CGFloat
+    var onOpen: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,6 +29,7 @@ struct PanePeekView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            OpenAgentButton(onOpen: onOpen)
         }
         .padding(.horizontal, 18)
         .frame(height: AgentPanelMetrics.peekHeaderHeight)

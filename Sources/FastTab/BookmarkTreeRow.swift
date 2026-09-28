@@ -95,11 +95,9 @@ struct BookmarkTreeRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(item.title)
+                        HoverMarqueeText(item.title)
                             .font(.system(size: 13, weight: .regular))
                             .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
 
                         if isDeleting {
                             HStack(spacing: 3) {

@@ -100,6 +100,7 @@ def build_agents_view(feeds_snap):
             "hookQuestion": read_hook_question(sid) if sid else None,
             "machine": herdr_transport.LOCAL_MACHINE,
             "source": claude_sessions.HERDR_SOURCE,
+            "messageVia": "pane",
         })
 
     # Remote rows (R1/R4/R7): one machine at a time, from that machine's OWN
@@ -149,6 +150,7 @@ def build_agents_view(feeds_snap):
                 "hookQuestion": None,
                 "machine": machine,
                 "source": claude_sessions.HERDR_SOURCE,
+                "messageVia": "pane",
                 # Local-only facts (R16) degrade to null on a remote row,
                 # never a guessed/borrowed local value.
                 "memoryBytes": None,

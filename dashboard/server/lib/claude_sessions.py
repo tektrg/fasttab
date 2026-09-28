@@ -44,6 +44,12 @@ DEFAULT_WAITING_REASON = "Input needed"
 DESKTOP_SESSION_ID_RE = re.compile(r"^local_[A-Za-z0-9-]{1,64}$")
 DESKTOP_CONTINUE_URL = "claude://code/continue?session={}"
 
+#: Peer-messaging inbox (session_inbox.py): the entrypoints that have one and
+#: the only wire protocol spoken there. Anything else = not messageable (a
+#: Claude Code update may change the undocumented format).
+INBOX_ENTRYPOINTS = frozenset({"claude-desktop", "cli"})
+SUPPORTED_PEER_PROTOCOL = 1
+
 
 def is_status_only_row(agent_row):
     """True for a row built here (no pane: no stop/close/focus/answer)."""
@@ -159,6 +165,15 @@ def read_session_for_pid(pid, sessions_dir=None, pid_alive=_pid_alive):
     return entry if entry and entry["pid"] == pid else None
 
 
+def supports_inbox(entry):
+    """True when a session file advertises the inbox session_inbox speaks."""
+    entry = entry or {}
+    socket_path = entry.get("messagingSocketPath")
+    return (entry.get("entrypoint") in INBOX_ENTRYPOINTS
+            and entry.get("peerProtocol") == SUPPORTED_PEER_PROTOCOL
+            and isinstance(socket_path, str) and bool(socket_path))
+
+
 def _desktop_open_url(entry):
     host_id = entry.get("hostSessionId")
     if (entry.get("entrypoint") == "claude-desktop" and isinstance(host_id, str)
@@ -237,6 +252,9 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine,
             # "session:@window.%pane" when the CLI runs inside tmux, else None.
             "tmuxTarget": entry.get("tmux"),
             "openUrl": _desktop_open_url(entry),
+            # How a PO message reaches it: "inbox" (session_inbox.py, the
+            # session's peer socket) or None. Herdr rows say "pane".
+            "messageVia": "inbox" if supports_inbox(entry) else None,
             # Answerable prompt sent by the PermissionRequest hook, or None.
             "hookRequest": hook_request,
             # Read-only: the pending question from the transcript, only when

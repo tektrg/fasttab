@@ -200,6 +200,7 @@ import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, gene
 import personas  # noqa: E402  (Jev persona registry + routing, P1)
 import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
+import session_inbox  # noqa: E402  (message to a Desktop/CLI session)
 import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook bridge)
 import persona_start  # noqa: E402  (POST /api/persona/start, P3)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
@@ -701,6 +702,29 @@ def _refused_before_typing(error):
     return {"ok": False, "error": error, "typed": False}
 
 
+def _handle_inbox_message(agent, body, row_id, actor, text):
+    """The Send-message path for a Claude Desktop / plain CLI row (no pane):
+    delivered through the session's own peer inbox (session_inbox.py), with
+    the pane path's rules (one line, no slash command, refused while a
+    prompt is pending, confirm when busy) and the same audit rows."""
+    result = session_inbox.deliver_row_message(
+        agent, text, bool((body or {}).get("confirm")))
+    if result.get("ok"):
+        # Same frozen `reason` shape as the pane path (the history reader
+        # parses it); the full body rides in `text`.
+        queued = result.get("state") == "queued"
+        try:
+            STORE.log_session_action(
+                row_id, "message", actor,
+                (STORE.QUEUED_REASON_PREFIX if queued else "") + text[:80],
+                text=text, status="queued" if queued else "sent")
+        except Exception:
+            pass
+    elif result.get("error") and result.get("typed") is not False:
+        _log_failed_attempt(row_id, "message", actor, result["error"], text)
+    return result
+
+
 def _handle_reach_action(action, body, row_id, actor):
     """POST /api/session/message {rowId, actor, text?, confirm?}.
 
@@ -737,6 +761,8 @@ def _handle_reach_action(action, body, row_id, actor):
         return _refused_before_typing(
             f"row {row_id} is not live — no agent there to read it")
     pane_id = agent.get("paneId")
+    if not pane_id and session_inbox.message_via(agent) == "inbox":
+        return _handle_inbox_message(agent, body, row_id, actor, text)
     if not pane_id:
         return _refused_before_typing(
             f"row {row_id} has no pane — nothing to type into")
@@ -3101,11 +3127,14 @@ class Handler(BaseHTTPRequestHandler):
                 path, self._read_json_body, self._is_remote_listener()))
             return
         if path.startswith("/api/session/"):
-            session_id = path[len("/api/session/"):]
-            self._note_remote_audit_row(session_id)
+            action = path[len("/api/session/"):]
+            self._note_remote_audit_row(action)
             try:
-                self._send_json(handle_session_action(
-                    session_id, self._read_json_body()))
+                body = self._read_json_body()
+                # Audit the row acted on, not just the verb.
+                row_id = body.get("rowId") if isinstance(body, dict) else None
+                self._note_remote_audit_row(row_id if isinstance(row_id, str) else None)
+                self._send_json(handle_session_action(action, body))
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)}, status=200)
             return

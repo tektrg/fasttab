@@ -1,6 +1,7 @@
 import Foundation
 import CloudKit
 import OSLog
+import UIKit
 import FastTabSync
 
 @MainActor
@@ -12,7 +13,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
     public let deviceID: String
     public let deviceName: String
 
-    private var syncEngine: CKSyncEngine?
+    var syncEngine: CKSyncEngine?
     private let container: CKContainer
     private let database: CKDatabase
     private let stateFileURL: URL
@@ -28,6 +29,14 @@ public final class SyncConsumer: NSObject, ObservableObject {
 
     private var accountChangeObserver: NSObjectProtocol?
     private var hasStarted = false
+
+    /// When this phone last queued its own `SyncedDevice` heartbeat — the
+    /// record the Mac reads to say "iPhone connected". See
+    /// SyncConsumer+DeviceHeartbeat.swift.
+    var lastDevicePublishAt: Date?
+    /// Server copy of this phone's device record, so a heartbeat updates it in
+    /// place instead of colliding with it as a blind insert.
+    var ownDeviceServerRecord: CKRecord?
 
     /// Drives the periodic pull while the app is on screen. Only alive between
     /// `startForegroundRefresh()` and `stopForegroundRefresh()`.
@@ -61,7 +70,9 @@ public final class SyncConsumer: NSObject, ObservableObject {
             self.deviceID = newID
         }
 
-        self.deviceName = "iPhone"
+        // Generic "iPhone" on iOS 16+ without the device-name entitlement;
+        // still the right label, and the user's own name if ever granted.
+        self.deviceName = UIDevice.current.name
         self.container = CKContainer(identifier: SyncConstants.containerIdentifier)
         self.database = container.privateCloudDatabase
         self.stateFileURL = AppGroupContainer.fileURL(forFileNamed: Self.stateFileName)
@@ -250,6 +261,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
     /// without the user having to pull to refresh. A send with nothing queued
     /// never touches the network.
     private func pollForRemoteChanges() async {
+        publishOwnDeviceIfDue()
         await performSend(visibility: .silent)
         await performFetch(visibility: .silent)
     }
@@ -284,6 +296,9 @@ public final class SyncConsumer: NSObject, ObservableObject {
         // Pull-to-refresh doubles as "retry everything": re-arm anything the
         // outbox still holds in case the engine's pending changes were lost.
         restorePendingCommandOutbox()
+        // Launch, every return to the foreground, and pull-to-refresh: the
+        // moments the phone is demonstrably in use, so the Mac should know.
+        publishOwnDevice()
         await performSend(visibility: .userInitiated)
         await performFetch(visibility: .userInitiated)
     }
@@ -589,6 +604,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
 
     func confirmUpload(of record: CKRecord) {
         pendingRecordsToSave.removeValue(forKey: record.recordID)
+        retainOwnDeviceRecordIfMine(record)
         guard record.recordType == SyncCommand.recordType else { return }
 
         let commandID = record.recordID.recordName
@@ -628,23 +644,35 @@ public final class SyncConsumer: NSObject, ObservableObject {
 
     // MARK: - Pure helpers
 
-    /// iOS only ever writes `SyncCommand` records, so a lost optimistic-
-    /// concurrency race just means re-applying our fields onto the server copy.
-    /// Same shape as macOS `SyncService.recordForRetry`.
-    nonisolated static func commandRecordForRetry(
+    /// iOS writes two record types: `SyncCommand`s and its own `SyncedDevice`
+    /// heartbeat. A lost optimistic-concurrency race just means re-applying our
+    /// fields onto the server copy. Same shape as macOS
+    /// `SyncService.recordForRetry`.
+    nonisolated static func recordForRetry(
         intendedRecord: CKRecord,
         error: Error
     ) -> CKRecord? {
-        guard let cloudKitError = error as? CKError,
-              cloudKitError.code == .serverRecordChanged,
+        guard let cloudKitError = error as? CKError else { return nil }
+        if cloudKitError.code == .unknownItem {
+            // The cached server copy was deleted: re-insert the heartbeat
+            // fresh. Commands are never resurrected — a missing one was cleared.
+            guard let intendedDevice = SyncedDevice(from: intendedRecord) else { return nil }
+            return intendedDevice.toRecord(zoneID: intendedRecord.recordID.zoneID)
+        }
+        guard cloudKitError.code == .serverRecordChanged,
               let serverRecord = cloudKitError.serverRecord,
               serverRecord.recordID == intendedRecord.recordID,
-              intendedRecord.recordType == SyncCommand.recordType,
-              serverRecord.recordType == SyncCommand.recordType,
-              let intendedCommand = SyncCommand(from: intendedRecord) else {
+              serverRecord.recordType == intendedRecord.recordType else {
             return nil
         }
-        return intendedCommand.applying(to: serverRecord)
+        switch intendedRecord.recordType {
+        case SyncCommand.recordType:
+            return SyncCommand(from: intendedRecord)?.applying(to: serverRecord)
+        case SyncedDevice.recordType:
+            return SyncedDevice(from: intendedRecord)?.applying(to: serverRecord)
+        default:
+            return nil
+        }
     }
 
     /// Pending saves the record provider cannot satisfy. Returning `nil` from

@@ -11,6 +11,7 @@ import FastTabSync
 /// Settings does not care about, and `SettingsView`'s `Form` is already long.
 struct SyncSettingsSection: View {
     @ObservedObject private var syncService = SyncService.shared
+    @ObservedObject private var pairedPhoneStore = PairedPhoneStore.shared
 
     /// Re-read every 30s so "Last synced 2m ago" does not go stale while the
     /// window sits open. Only ticks while this section is on screen.
@@ -40,6 +41,8 @@ struct SyncSettingsSection: View {
             if let pendingChangesPhrase = SyncStatusPresentation.pendingChangesPhrase(count: syncService.pendingChangeCount) {
                 detailLine(pendingChangesPhrase, symbolName: "arrow.up.circle", tint: .secondary)
             }
+
+            pairedPhoneRows
 
             Text("FastTab syncs your open tabs, bookmarks, and history through your own private iCloud account. Nothing passes through anyone else's server.")
                 .font(.caption)
@@ -90,6 +93,20 @@ struct SyncSettingsSection: View {
             .help(status.severity == .blocked
                   ? "Sign in to iCloud first."
                   : "Upload anything waiting, then check for changes from your other devices.")
+        }
+    }
+
+    /// "iPhone connected" — one line per phone that checked in within the
+    /// pairing window (`SyncedDevicePairing.phonePairingWindow`).
+    @ViewBuilder
+    private var pairedPhoneRows: some View {
+        let phones = SyncedDevicePairing.pairedPhones(in: pairedPhoneStore.phones, now: now)
+        if phones.isEmpty {
+            detailLine(SyncStatusPresentation.noPairedPhoneLine, symbolName: "iphone.slash", tint: .secondary)
+        } else {
+            ForEach(phones) { phone in
+                detailLine(SyncStatusPresentation.pairedPhoneLine(phone, now: now), symbolName: "iphone", tint: .green)
+            }
         }
     }
 

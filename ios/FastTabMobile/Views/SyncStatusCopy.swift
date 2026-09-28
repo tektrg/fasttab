@@ -73,10 +73,10 @@ enum SyncStatusCopy {
     }
 
     /// The Mac republishes its device record every 3 minutes while it is awake
-    /// (`SyncService.deviceHeartbeatInterval`). Every threshold below is derived
+    /// (`SyncedDevicePairing.heartbeatInterval`). Every threshold below is derived
     /// from that one number, because a 3-minute signal cannot support finer
     /// claims than "we heard from it recently / we haven't for a while".
-    private static let heartbeatInterval: TimeInterval = 3 * 60
+    private static let heartbeatInterval = SyncedDevicePairing.heartbeatInterval
     /// One heartbeat plus slack for upload and fetch latency.
     private static let liveWindow: TimeInterval = heartbeatInterval + 60
     /// Several missed beats. Below this it is far more likely a network blip

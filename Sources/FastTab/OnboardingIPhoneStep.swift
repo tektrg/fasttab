@@ -1,4 +1,5 @@
 import SwiftUI
+import FastTabSync
 
 /// Where people get the FastTab iPhone companion (`ios/FastTabMobile`).
 /// `nil` until it has a public App Store or TestFlight link — the onboarding
@@ -53,10 +54,12 @@ extension OnboardingBenefit {
 }
 
 /// Onboarding step introducing the iPhone app, laid out like the extension
-/// step. With a download link it offers the link plus a QR code to scan;
-/// without one (today) it says "Coming soon" and just continues.
+/// step. Once an iPhone has checked in over sync it says "Connected"; otherwise,
+/// with a download link it offers the link plus a QR code to scan, and without
+/// one (today) it says "Coming soon" and just continues.
 struct OnboardingIPhoneStep: View {
     var downloadURL: URL? = FastTabIPhoneApp.downloadURL
+    @ObservedObject var pairedPhoneStore: PairedPhoneStore = .shared
     let onContinue: () -> Void
 
     var body: some View {
@@ -88,13 +91,35 @@ struct OnboardingIPhoneStep: View {
                 .padding(.horizontal, 44)
                 .padding(.bottom, 20)
 
-            if let downloadURL {
-                downloadActions(for: downloadURL)
-            } else {
-                comingSoonActions
+            // Re-evaluated periodically so a phone that checks in while this
+            // step is on screen flips it to "Connected" without a click.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                if let phone = pairedPhoneStore.mostRecentPhone(now: context.date) {
+                    connectedActions(phone: phone, now: context.date)
+                } else if let downloadURL {
+                    downloadActions(for: downloadURL)
+                } else {
+                    comingSoonActions
+                }
             }
 
             Spacer(minLength: 12)
+        }
+    }
+
+    private func connectedActions(phone: SyncedDevice, now: Date) -> some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 2) {
+                Label("Connected to your iPhone", systemImage: "checkmark.circle.fill")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.green)
+                Text(SyncStatusPresentation.pairedPhoneLine(phone, now: now))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
+            continueButton
         }
     }
 

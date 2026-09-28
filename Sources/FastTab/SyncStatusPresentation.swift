@@ -115,6 +115,15 @@ struct SyncStatusPresentation: Equatable {
             : "\(count) changes waiting to upload"
     }
 
+    // MARK: - Paired Phones
+
+    /// Settings > Sync row for one paired phone, e.g. "iPhone · last seen 2m ago".
+    nonisolated static func pairedPhoneLine(_ phone: SyncedDevice, now: Date = Date()) -> String {
+        "\(phone.name) · last seen \(relativeTimeLabel(from: phone.lastSeenAt, to: now))"
+    }
+
+    nonisolated static let noPairedPhoneLine = "No iPhone connected yet"
+
     // MARK: - Relative Time
 
     /// Compact, glanceable age. Coarser than `RelativeDateTimeFormatter` on

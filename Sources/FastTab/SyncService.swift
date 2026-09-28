@@ -235,7 +235,8 @@ final class SyncService: NSObject, ObservableObject {
             name: deviceName,
             modelName: deviceModel,
             lastSeenAt: publishedAt,
-            appVersion: appVersion
+            appVersion: appVersion,
+            kind: .mac
         )
 
         let recordID = CKRecord.ID(recordName: device.id, zoneID: SyncConstants.stateZoneID)
@@ -803,6 +804,10 @@ final class SyncService: NSObject, ObservableObject {
             lastPublishedTabContentHash = ""
         }
 
+        PairedPhoneStore.shared.forget(recordNames: deletions
+            .filter { $0.recordType == SyncedDevice.recordType }
+            .map(\.recordID.recordName))
+
         for deletion in deletions {
             switch deletion.recordType {
             case SyncedBookmarkBlob.recordType:
@@ -894,6 +899,7 @@ extension SyncService: CKSyncEngineDelegate {
                         }
                     }
                 }
+                PairedPhoneStore.shared.absorb(fetchedChanges.modifications.map(\.record))
                 self.applyFetchedDeletions(fetchedChanges.deletions)
 
             case .sentRecordZoneChanges(let sentChanges):

@@ -10,6 +10,7 @@ import {
   sendMessage,
   type SessionActionResult,
 } from "../sessionActions";
+import { INBOX_CAPTION, messagesViaInbox } from "../openInClaude";
 
 interface SentRow {
   rowId: string;
@@ -201,6 +202,11 @@ export function Composer({
           {pending ? `Confirm queue (${pending.length})` : "Send"}
         </Button>
       </Group>
+      {targets.some((m) => messagesViaInbox(m.row.derived)) && (
+        <Text size="xs" c="dimmed" mt={4} className="composer-inbox-note">
+          {INBOX_CAPTION}
+        </Text>
+      )}
       {evaled.refused.length > 0 && (
         <Text size="xs" c="dimmed" mt={4}>
           {evaled.refused.length} ended{" "}

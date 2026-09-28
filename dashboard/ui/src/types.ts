@@ -238,6 +238,16 @@ export interface AgentRow {
   // "N% until auto-compact" countdown — a badge, not a column.
   contextPct?: number | null;
   autocompactPct?: number | null;
+  // Where the row lives: "herdr" (a pane) or, for a pane-less status-only
+  // row, "claude-desktop" | "claude-cli". Absent on older payloads.
+  source?: string;
+  // How a message reaches it: "pane" (typed into herdr) or "inbox" (the
+  // session's own peer socket — arrives as a message from another agent, so
+  // it can't approve permissions). null/absent = can't be messaged.
+  messageVia?: "pane" | "inbox" | null;
+  // Claude Desktop rows only: claude://code/continue?session=local_… (opens
+  // that existing session in Claude.app on this Mac).
+  openUrl?: string | null;
 }
 
 export type PropertyType =

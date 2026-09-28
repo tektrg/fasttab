@@ -11,6 +11,8 @@ import { useVisualViewportOffset } from "../../hooks/useVisualViewportOffset";
 import { PaneScreen } from "../PaneScreen";
 import { RowDetailExtras } from "../RowDetailExtras";
 import { Composer } from "../Composer";
+import { OpenInClaudeButton } from "../OpenInClaudeButton";
+import { messagesViaInbox } from "../../openInClaude";
 
 /** Full-screen row detail — the phone equivalent of the desktop RowPanel
  *  drawer, but modal (a phone has no "board behind it" to keep clickable)
@@ -71,6 +73,8 @@ export function PhoneSheet({
 
   const label = rowLabel(row);
   const paneId = row.derived.paneId ?? null;
+  // A Claude Desktop / CLI row has no pane but may take messages via its inbox.
+  const canMessage = !!paneId || messagesViaInbox(row.derived);
   const ended = row.status === "ended";
   const lastLine = String(row.values["derived:lastline"] ?? "").trim();
   const actions = rowActions(row);
@@ -173,6 +177,7 @@ export function PhoneSheet({
                 {armed === "done" ? "Confirm" : "Done"}
               </Button>
             )}
+            <OpenInClaudeButton row={row.derived} size="sm" />
             {(canPark || canUnpark) && (
               <Button
                 color={armed === "park" ? "orange" : undefined}
@@ -187,7 +192,7 @@ export function PhoneSheet({
             )}
           </div>
         )}
-        {!ended && paneId && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} />}
+        {!ended && canMessage && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} />}
         {ended && (
           <Badge size="sm" variant="light" color="gray" className="phone-sheet-ended-note">
             {row.endedNote || "ended — no further action here"}

@@ -10,6 +10,7 @@ import {
   rowLabel,
   rowMemoryBytes,
 } from "../sessionActions";
+import { OpenInClaudeButton } from "./OpenInClaudeButton";
 import { CardMenu } from "./CardMenu";
 import { DerivedCell, EditableCell } from "./EditableCell";
 import { PaneScreen } from "./PaneScreen";
@@ -231,6 +232,7 @@ function Header({
             Open pane
           </Button>
         )}
+        {!ended && <OpenInClaudeButton row={row.derived} />}
         <CardMenu row={row} onToast={onToast} onDone={onRefetch} />
       </div>
     </div>

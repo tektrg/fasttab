@@ -16,7 +16,7 @@ public struct HighlightsListView: View {
     public init() {}
 
     private var allEntries: [HighlightFeedEntry] {
-        let folderTagsByKey = HighlightFolderTags.tagsByArticleKey(from: localCache.state.bookmarkBlobs)
+        let folderTagsByKey = HighlightFolderTags.memoizedTagsByArticleKey(from: localCache.state.bookmarkBlobs)
         // One title lookup per article, not per highlight: a miss in the resolver checks the
         // disk cache and scans Last Opened, and this runs on every render (each search keystroke).
         var titlesByKey: [String: String] = [:]
@@ -41,7 +41,14 @@ public struct HighlightsListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "Search highlights, articles, tags")
             .safeAreaInset(edge: .top, spacing: 0) {
-                if filter.isActive { HighlightActiveFilterBar(filter: $filter) }
+                if HighlightFeedModel.showsActiveFilterBar(filter: filter, entries: entries) {
+                    HighlightActiveFilterBar(filter: $filter)
+                }
+            }
+            // Deleting the last highlight leaves nothing to filter: drop the filter so it
+            // cannot hide highlights added later.
+            .onChange(of: entries.isEmpty) { _, isEmpty in
+                if isEmpty { filter.clear() }
             }
             .sheet(item: $taggingEntry) { entry in
                 HighlightTagEditorSheet(entry: entry, knownTags: HighlightFeedModel.knownTags(in: entries)) { tags in

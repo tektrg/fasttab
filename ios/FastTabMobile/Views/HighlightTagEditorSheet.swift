@@ -24,6 +24,12 @@ struct HighlightTagEditorSheet: View {
         HighlightFeedModel.tagSuggestions(query: draftTagText, knownTags: knownTags, excluding: editedTags)
     }
 
+    /// The folder tags the row will show once these edits are saved (a folder tag equal to a
+    /// user tag hides, and reappears when that user tag is removed).
+    private var shownFolderTags: [TagPath] {
+        HighlightFeedEntry.folderTags(entry.bookmarkFolderTags, shownBeside: editedTags)
+    }
+
     /// The typed text as a new tag, when it is valid and not already on the highlight.
     private var typedTag: TagPath? {
         guard let tag = TagPath(draftTagText),
@@ -37,7 +43,7 @@ struct HighlightTagEditorSheet: View {
                 Group {
                     currentTagsSection
                     addTagSection
-                    if !entry.folderTags.isEmpty { folderTagsSection }
+                    if !shownFolderTags.isEmpty { folderTagsSection }
                 }
                 .dsListRow()
             }
@@ -91,10 +97,14 @@ struct HighlightTagEditorSheet: View {
     }
 
     private var folderTagsSection: some View {
-        Section("From bookmark folder") {
-            ForEach(entry.folderTags, id: \.normalizedPath) { tag in
+        Section {
+            ForEach(shownFolderTags, id: \.normalizedPath) { tag in
                 Label(tag.displayPath, systemImage: "folder").foregroundStyle(.secondary)
             }
+        } header: {
+            Text("From bookmark folder")
+        } footer: {
+            Text("Set by the article's bookmark folder. Move the bookmark to change these.")
         }
     }
 

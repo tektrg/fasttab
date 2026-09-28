@@ -6,6 +6,22 @@ import IndieTags
 /// highlights the tag `Work/SSV`. Computed at read time from the synced bookmarks (never
 /// stored on the highlight), so moving a bookmark moves the tag.
 public enum HighlightFolderTags {
+    /// The last bookmarks seen by `memoizedTagsByArticleKey` (blob id + content hash each) and
+    /// the tags built from them.
+    @MainActor private static var memo: (blobVersions: [String], tagsByKey: [String: [TagPath]])?
+
+    /// `tagsByArticleKey`, rebuilt only when the bookmarks change. The Highlights feed calls
+    /// this on every render (each search keystroke), and canonicalising every bookmark URL each
+    /// time is wasted work for libraries of thousands of bookmarks.
+    @MainActor
+    public static func memoizedTagsByArticleKey(from blobs: [SyncedBookmarkBlob]) -> [String: [TagPath]] {
+        let blobVersions = blobs.map { "\($0.id)#\($0.contentHash)" }
+        if let memo, memo.blobVersions == blobVersions { return memo.tagsByKey }
+        let tagsByKey = tagsByArticleKey(from: blobs)
+        memo = (blobVersions, tagsByKey)
+        return tagsByKey
+    }
+
     /// Folder tags per article, keyed by `URL.readerCanonicalKey` (the key highlights use,
     /// not `LocalCache.findBookmark`'s normaliser). An article bookmarked in several folders
     /// gets each folder once; bookmarks without a folder add nothing.

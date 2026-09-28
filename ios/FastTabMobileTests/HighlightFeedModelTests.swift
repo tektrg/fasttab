@@ -81,6 +81,40 @@ final class HighlightFeedModelTests: XCTestCase {
         XCTAssertEqual(visibleIDs(search: "zzz"), [])
     }
 
+    func testWhitespaceOnlySearchIsNoSearch() {
+        XCTAssertEqual(visibleIDs(search: "   "), ["a", "b", "c"])
+    }
+
+    func testPunctuationOnlySearchMatchesAsTyped() {
+        XCTAssertEqual(visibleIDs(search: "#"), [])              // no highlight contains `#`
+        XCTAssertEqual(visibleIDs(search: " / "), ["a", "b"])    // nested tags: work/ssv, Reading/AI
+        let hashEntry = HighlightFeedEntry(
+            highlight: highlight("h", text: "Learning C# today", urlKey: "k"), articleTitle: "T", folderTags: []
+        )
+        let visible = HighlightFeedModel.visibleEntries(entries + [hashEntry], filter: HighlightFeedFilter(), searchText: "#")
+        XCTAssertEqual(visible.map(\.id), ["h"])
+    }
+
+    func testFilterBarHiddenWhenNoHighlights() {
+        var filter = HighlightFeedFilter()
+        XCTAssertFalse(HighlightFeedModel.showsActiveFilterBar(filter: filter, entries: entries))
+        filter.tagFilter.toggle(path("work"))
+        XCTAssertTrue(HighlightFeedModel.showsActiveFilterBar(filter: filter, entries: entries))
+        XCTAssertFalse(HighlightFeedModel.showsActiveFilterBar(filter: filter, entries: []))
+    }
+
+    func testFolderTagReappearsWhenEqualUserTagIsRemoved() {
+        let entry = HighlightFeedEntry(
+            highlight: highlight("x", text: "t", urlKey: "k", tags: ["Reading"]),
+            articleTitle: "T",
+            folderTags: [path("reading"), path("Inbox")]
+        )
+        XCTAssertEqual(entry.bookmarkFolderTags.map(\.displayPath), ["reading", "Inbox"])
+        // The tag editor after the user removes `Reading`: the folder tag shows again.
+        let shownAfterRemoval = HighlightFeedEntry.folderTags(entry.bookmarkFolderTags, shownBeside: [])
+        XCTAssertEqual(shownAfterRemoval.map(\.displayPath), ["reading", "Inbox"])
+    }
+
     func testFolderTagEqualToUserTagIsShownOnce() {
         let entry = HighlightFeedEntry(
             highlight: highlight("x", text: "t", urlKey: "k", tags: ["Reading"]),

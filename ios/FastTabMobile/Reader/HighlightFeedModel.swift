@@ -8,8 +8,11 @@ public struct HighlightFeedEntry: Identifiable, Hashable {
     public let highlight: ReaderHighlight
     public let articleTitle: String
     public let userTags: [TagPath]
-    /// From the bookmark folder(s) of the highlight's article; never stored, so they follow
-    /// the bookmarks. A folder tag equal to a user tag is dropped (the user tag shows).
+    /// Every tag from the bookmark folder(s) of the highlight's article; never stored, so they
+    /// follow the bookmarks. The tag editor starts from these.
+    public let bookmarkFolderTags: [TagPath]
+    /// The folder tags the row shows: `bookmarkFolderTags` minus any equal to a user tag
+    /// (the user tag shows instead).
     public let folderTags: [TagPath]
 
     public var id: String { highlight.id }
@@ -18,9 +21,16 @@ public struct HighlightFeedEntry: Identifiable, Hashable {
         self.highlight = highlight
         self.articleTitle = articleTitle
         let userTags = highlight.tags.compactMap(TagPath.init)
-        let userPaths = Set(userTags.map(\.normalizedPath))
         self.userTags = userTags
-        self.folderTags = folderTags.filter { !userPaths.contains($0.normalizedPath) }
+        self.bookmarkFolderTags = folderTags
+        self.folderTags = Self.folderTags(folderTags, shownBeside: userTags)
+    }
+
+    /// The folder tags shown next to `userTags`: those not equal to a user tag. One rule for the
+    /// row and the tag editor, so the editor shows what the row will show after saving.
+    public static func folderTags(_ bookmarkFolderTags: [TagPath], shownBeside userTags: [TagPath]) -> [TagPath] {
+        let userPaths = Set(userTags.map(\.normalizedPath))
+        return bookmarkFolderTags.filter { !userPaths.contains($0.normalizedPath) }
     }
 
     /// User tags then folder tags: what the tag filter and search look at.
@@ -80,16 +90,21 @@ public enum HighlightFeedModel {
 
     /// Entries passing `filter` whose text, article title or tag names contain every word of
     /// `searchText` (any order, ignoring case, accents and punctuation). Order is kept.
+    /// Whitespace-only is no search; a query of only punctuation or symbols (`#`, `-`, `/`)
+    /// matches entries containing it as typed, like `TagSearch`.
     public static func visibleEntries(
         _ entries: [HighlightFeedEntry],
         filter: HighlightFeedFilter,
         searchText: String
     ) -> [HighlightFeedEntry] {
-        // Fold the query once, not per entry (IndieSearch's guidance for many candidates).
-        let queryWords = searchWords(in: searchText)
-        return entries.filter { entry in
-            filter.matches(entry) && foldedKeys(searchKeys(for: entry), containAllWordsOf: queryWords)
-        }
+        let matchesSearch = searchMatcher(for: searchText)
+        return entries.filter { filter.matches($0) && matchesSearch($0) }
+    }
+
+    /// Whether the active-filter bar shows: only while a filter is on and there are highlights
+    /// (with none, the "No highlights yet" state has nothing to filter).
+    public static func showsActiveFilterBar(filter: HighlightFeedFilter, entries: [HighlightFeedEntry]) -> Bool {
+        filter.isActive && !entries.isEmpty
     }
 
     /// Every tag in the feed, user tags first, each once (compared normalized), for the tag
@@ -114,7 +129,22 @@ public enum HighlightFeedModel {
         return Array(TagSearch.ranked(available, query: query).prefix(limit))
     }
 
-    private static func searchKeys(for entry: HighlightFeedEntry) -> [String] {
+    private static func searchMatcher(for searchText: String) -> (HighlightFeedEntry) -> Bool {
+        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return { _ in true } }
+        // Fold the query once, not per entry (IndieSearch's guidance for many candidates).
+        let queryWords = searchWords(in: trimmedQuery)
+        guard !queryWords.isEmpty else {
+            // No words for the word match to look for, so it would pass every entry.
+            return { entry in
+                ([entry.highlight.selectedText, entry.articleTitle] + entry.allTags.map(\.displayPath))
+                    .contains { $0.localizedStandardContains(trimmedQuery) }
+            }
+        }
+        return { entry in foldedKeys(foldedSearchKeys(for: entry), containAllWordsOf: queryWords) }
+    }
+
+    private static func foldedSearchKeys(for entry: HighlightFeedEntry) -> [String] {
         // Tag segments as words so `ssv` finds `work/ssv` without gluing segments together.
         let tagWords = entry.allTags.map { $0.displayPath.replacingOccurrences(of: "/", with: " ") }
         return ([entry.highlight.selectedText, entry.articleTitle] + tagWords).map(foldForMatching)

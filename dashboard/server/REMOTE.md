@@ -95,7 +95,14 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
   `403`.
 - Every remote write attempt (allowed or refused) is appended as one JSON
   line to `~/.config/agent-dashboard/remote-audit.jsonl`
-  (`ts`, `route`, `method`, `rowId` when known, `status`).
+  (`ts`, `route`, `method`, `rowId` when known, `status`). For
+  `/api/session/<action>` the `rowId` is the body's row (session id), not
+  the verb (2026-09-28; before that it logged the action name).
+- `POST /api/session/message` from the phone also reaches Claude Desktop /
+  plain-CLI rows (no pane) through the session's own peer inbox
+  (`server/lib/session_inbox.py`, dashboard `AGENTS.md` "Message via
+  inbox") — same login, same-origin rule and audit line as a pane send; the
+  session's peer token never appears in a response or the audit log.
 - If the remote listener's port is already in use (another instance, a
   stale process), the dashboard logs a warning and continues running the
   main listener normally — a busy remote port never takes down the board.

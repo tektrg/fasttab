@@ -198,8 +198,9 @@ exists) is exempt; the final reply is still checked.
   `source: "herdr"`), status in hook words (`busy`→`working`,
   `waiting`→`blocked` + `hookReason` "Input needed", `idle`→`idle`), plus
   `sessionStatus`, `secondsInStatus`, `pid`, `hostSessionId`, `tmuxTarget`,
-  `openUrl`. Stop/close/relaunch are refused (`assess_row`); message/answer/
-  focus already refuse a row with no pane. A `waiting` one is a `blocked`
+  `openUrl`, `messageVia`. Stop/close/relaunch are refused (`assess_row`);
+  answer/focus refuse a row with no pane; message goes via the inbox (below)
+  or is refused ("has no pane"). A `waiting` one is a `blocked`
   needsYou row with `paneId: null`, `identity`/`agentSession` = session id,
   `source`, `openUrl`.
 - `transcriptQuestion` `{header, question, questionCount}` | null (row + its
@@ -212,7 +213,34 @@ exists) is exempt; the final reply is still checked.
 - `openUrl` (desktop rows only): `claude://code/continue?session=<hostSessionId>`
   — Claude.app's own handler accepts `local_<id>` there and opens that
   EXISTING session (falls back to Code home, never creates one). Read from
-  app.asar's `claudeURLHandler`, not exercised live.
+  app.asar's `claudeURLHandler`, not exercised live. The web UI's "Open in
+  Claude" (`ui/src/openInClaude.ts`) uses it on a Mac browser; a phone gets
+  the generic `https://claude.ai/code` (no per-session web link is recorded
+  locally — the Remote Control URL isn't in any file).
+- **Message via inbox** (`server/lib/session_inbox.py`, 2026-09-28): every
+  row carries `messageVia` — `"pane"` (herdr, typed in), `"inbox"` (a
+  status-only session whose file has `entrypoint` cli|claude-desktop,
+  `peerProtocol: 1` and a `messagingSocketPath`), else null. `POST
+  /api/session/message` on an inbox row (`_handle_inbox_message`) sends
+  over Claude Code's own peer socket: line 1 `{"type":"auth","token":
+  <peerToken>}`, line 2 `{"type":"user","message":{"role":"user","content":
+  <text>}}`. Token from `<pid>.<hash>.key` (0600), read per send, never
+  logged/returned/stored. Rules: resolved by `sessionId` on EVERY send (a
+  Desktop resume starts a new pid — never cache one); session file, key and
+  socket must be owned by this uid, no symlinks, key mode 0600 and not older
+  than the process (`startedAt`), exactly one key; 4s timeout; an error
+  line back = refused. Same text rules as the pane path (one line,
+  `validate_message_text`) plus: **no slash command at all** (it would
+  arrive as text), refused while a prompt is pending (`hookRequest`,
+  `transcriptQuestion`, `waiting`/`blocked`), `needsConfirm` while `busy`
+  (then state `queued`). Audited like a pane send (`sent`/`queued`; a
+  may-have-arrived failure logs `failed`). The session shows it as
+  "Another Claude session sent a message: …" — a PEER, not the user: it
+  can't approve permissions or answer questions. **Undocumented protocol**
+  (measured Claude Code 2.1.283): any other `peerProtocol` is refused
+  (`UNSUPPORTED`) rather than guessed. Tests: `tests/test_session_inbox.py`
+  (temp sessions dir + fake Unix socket; never a real session),
+  `tests/test_remote_inbox_message.py` (real HTTP, both listeners).
 - P5: for a non-Claude herdr agent (`agent` != `claude`, e.g. OpenCode) whose
   screen reads `UNKNOWN`/nothing, herdr's `agent_status` (`working`/`blocked`/
   `idle`/`done`; `unknown` ignored) stands in as `screenState`

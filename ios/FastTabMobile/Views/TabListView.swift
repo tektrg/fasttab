@@ -182,8 +182,15 @@ public struct TabListView: View {
         }
 
         return groups.map { domain, tabs in
-            DomainTabGroup(id: domain, domain: domain, tabs: tabs)
-        }.sorted { $0.tabs.count > $1.tabs.count }
+            let sortedTabs = tabs.sorted {
+                ($0.title.isEmpty ? $0.url : $0.title).localizedCaseInsensitiveCompare(
+                    $1.title.isEmpty ? $1.url : $1.title
+                ) == .orderedAscending
+            }
+            return DomainTabGroup(id: domain, domain: domain, tabs: sortedTabs)
+        }.sorted {
+            $0.domain.localizedCaseInsensitiveCompare($1.domain) == .orderedAscending
+        }
     }
 
     public var body: some View {

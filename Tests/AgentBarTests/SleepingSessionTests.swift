@@ -190,3 +190,26 @@ struct SleepingOpenInClaudeTests {
         #expect(activated.first?.host == .claudeDesktop(openURL: URL(string: "claude://code/continue?session=local_aaa")))
     }
 }
+
+/// A sleeping row is greyed, except the selected (hovered/keyboard) one, so its Open in Claude
+/// button doesn't read as disabled. Other greyed kinds keep their shade whether selected or not.
+struct SleepingRowDimmingTests {
+    typealias S = SleepingFixtures
+    typealias F = AgentListFixtures
+
+    @Test func onlyTheSelectedSleepingRowDrawsAtFullOpacity() throws {
+        let row = try #require(try S.snapshot(sleeping: [S.entry("aaa", daysAgo: 1)]).agents.first)
+        #expect(AgentRowView.dimming(of: row, isSelected: false) == 0.55)
+        #expect(AgentRowView.dimming(of: row, isSelected: true) == 1)
+    }
+
+    @Test func otherGreyedRowsKeepTheirShadeWhenSelected() {
+        let guessed = F.agent("g", section: .working, hasHookData: false)
+        let ended = F.agent("e", section: .ended)
+        for isSelected in [false, true] {
+            #expect(AgentRowView.dimming(of: guessed, isSelected: isSelected) == 0.7)
+            #expect(AgentRowView.dimming(of: ended, isSelected: isSelected) == AgentRowView.dimming(of: ended, isSelected: false))
+        }
+        #expect(AgentRowView.dimming(of: F.agent("w", section: .working), isSelected: false) == 1)   // a woken row is not greyed
+    }
+}

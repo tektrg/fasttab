@@ -225,7 +225,9 @@ struct AgentRowView: View {
     /// waiting to be closed); sleeping sessions are greyed (not running, Enter wakes one) —
     /// except the selected one, whose Open in Claude button must not read as disabled;
     /// non-Claude panes are a shade quieter because their status is only a guess.
-    private var dimming: Double {
+    private var dimming: Double { Self.dimming(of: agent, isSelected: isSelected) }
+
+    static func dimming(of agent: AgentSnapshot, isSelected: Bool) -> Double {
         if agent.section == .ended { return agent.canFocus ? 0.85 : 0.45 }
         if agent.section == .sleeping { return isSelected ? 1 : 0.55 }
         return agent.hasHookData ? 1 : 0.7

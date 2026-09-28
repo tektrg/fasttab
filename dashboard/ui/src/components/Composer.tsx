@@ -92,7 +92,7 @@ export function Composer({
       // Not provably untyped (mid-sequence error, dropped connection): the
       // text may have landed, so never word it as a clean refusal.
       onToast(
-        `send to ${label} failed partway — it may have arrived; look at the pane before retrying: ${res.error || res.reason || "?"}`,
+        `send to ${label} failed partway — it may have arrived; check the session before retrying: ${res.error || res.reason || "?"}`,
         false,
       );
     }

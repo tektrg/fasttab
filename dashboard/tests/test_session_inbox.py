@@ -288,6 +288,39 @@ check("a non-error reply counts as delivered", run_send(box)["delivered"], True)
 inbox.finish()
 box.close()
 
+box = Sandbox()
+box.write_session(LIVE_PID)
+box.write_key(LIVE_PID)
+inbox = FakeInbox(box.socket_path, reply=b'{"ok":true,"error":null}\n')
+check("a reply with a null error field counts as delivered", run_send(box)["delivered"], True)
+inbox.finish()
+box.close()
+
+box = Sandbox()
+box.write_session(LIVE_PID)
+box.write_key(LIVE_PID)
+inbox = FakeInbox(box.socket_path)
+os.chmod(box.tmp.name, 0o777)  # another user could swap the socket in here
+result = run_send(box)
+os.chmod(box.tmp.name, 0o700)
+inbox.sock.close()
+inbox.thread.join(timeout=5)
+check("socket folder writable by others -> unsafe, nothing sent",
+      (result["error"], inbox.lines), (session_inbox.UNSAFE_FILES, []))
+box.close()
+
+box = Sandbox()
+box.write_session(LIVE_PID, status="waiting")
+box.write_key(LIVE_PID)
+inbox = FakeInbox(box.socket_path)
+result = run_send(box)
+inbox.sock.close()
+inbox.thread.join(timeout=5)
+check("session file says waiting at send time -> refused, nothing sent",
+      (result["error"], result["maybeDelivered"], inbox.lines),
+      (session_inbox.PROMPT_PENDING, False, []))
+box.close()
+
 print("== the token never leaks ==")
 check("token in no result", any(TOKEN in json.dumps(r) for r in results_seen), False)
 check("token in nothing printed/logged", TOKEN in captured_output.getvalue(), False)
@@ -400,6 +433,10 @@ check("actor chief refused", result.get("ok"), False)
 result = _srv.handle_session_action("message", {"rowId": SESSION_ID, "actor": "po",
                                                 "text": "/compact"})
 check("/compact refused on an inbox row", result.get("error"), session_inbox.SLASH_REFUSED)
+result = _srv.handle_session_action("message", {"rowId": SESSION_ID, "actor": "po",
+                                                "text": "/clear"})
+check("/clear refused on an inbox row, nothing typed",
+      (result.get("error"), result.get("typed")), (session_inbox.SLASH_REFUSED, False))
 check("refusals are not audited", logged, [])
 
 agent_row.update(sessionStatus="busy", hookState="working")
@@ -419,6 +456,16 @@ FakeInbox(box.socket_path, listen=False)
 result = _srv.handle_session_action("message", {"rowId": SESSION_ID, "actor": "po", "text": "hi"})
 check("inbox down -> clean refusal (typed:false), not audited as failed",
       (result.get("ok"), result.get("typed"), logged), (False, False, []))
+
+logged.clear()
+real_send = session_inbox.send_message
+session_inbox.send_message = lambda *a, **k: {"delivered": False, "maybeDelivered": True,
+                                              "error": session_inbox.MAYBE_SENT}
+result = _srv.handle_session_action("message", {"rowId": SESSION_ID, "actor": "po", "text": "hi"})
+session_inbox.send_message = real_send
+check("may-have-arrived failure -> no typed:false, audited as failed",
+      (result.get("ok"), "typed" in result, [k.get("status") for _a, k in logged]),
+      (False, False, ["failed"]))
 
 agent_row["messageVia"] = None
 result = _srv.handle_session_action("message", {"rowId": SESSION_ID, "actor": "po", "text": "hi"})

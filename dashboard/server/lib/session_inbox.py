@@ -110,9 +110,14 @@ def _is_safe_socket(path):
         return False
     try:
         st = os.lstat(path)
+        folder = os.lstat(os.path.dirname(path))
     except OSError:
         return False
-    return stat.S_ISSOCK(st.st_mode) and _owned_by_me(st)
+    # The folder too (like ssh): if another user could write it, they could
+    # swap the socket between this check and the connect and get the token.
+    folder_safe = (stat.S_ISDIR(folder.st_mode) and _owned_by_me(folder)
+                   and not stat.S_IMODE(folder.st_mode) & 0o022)
+    return stat.S_ISSOCK(st.st_mode) and _owned_by_me(st) and folder_safe
 
 
 def _key_path(sessions_dir, entry):
@@ -129,7 +134,11 @@ def _key_path(sessions_dir, entry):
         if not _is_safe_regular_file(path, private=True):
             return None
         if isinstance(started_ms, (int, float)):
-            if os.lstat(path).st_mtime < started_ms / 1000.0 - KEY_CLOCK_SLACK_SEC:
+            try:
+                key_mtime = os.lstat(path).st_mtime
+            except OSError:  # vanished since the glob
+                return None
+            if key_mtime < started_ms / 1000.0 - KEY_CLOCK_SLACK_SEC:
                 continue
         candidates.append(path)
     return candidates[0] if len(candidates) == 1 else None
@@ -189,7 +198,8 @@ def _wire_lines(token, text):
 
 def _reply_is_refusal(reply):
     """An error line from the session (bad token, bad format). Anything else,
-    or silence, counts as accepted."""
+    or silence, counts as accepted — so a refusal arriving after
+    REPLY_WAIT_SEC is reported as delivered."""
     for line in reply.decode("utf-8", errors="replace").splitlines():
         try:
             obj = json.loads(line)
@@ -197,7 +207,7 @@ def _reply_is_refusal(reply):
             continue
         if isinstance(obj, dict) and (obj.get("type") == "error"
                                       or obj.get("ok") is False
-                                      or "error" in obj):
+                                      or obj.get("error")):
             return True
     return False
 
@@ -212,6 +222,8 @@ def send_message(session_id, text, sessions_dir=None, read_sessions=None,
     entry, reason = resolve_session(session_id, sessions_dir, read_sessions)
     if entry is None:
         return _not_sent(reason)
+    if entry.get("status") == "waiting":  # fresh re-check; the row may be seconds old
+        return _not_sent(PROMPT_PENDING)
     json_path = os.path.join(sessions_dir, f"{entry['pid']}.json")
     socket_path = entry["messagingSocketPath"]
     key_path = _key_path(sessions_dir, entry)

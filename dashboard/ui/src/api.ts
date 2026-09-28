@@ -413,17 +413,21 @@ export async function fetchPaneScreen(
   );
 }
 
-/** GET /api/personas — on the remote listener only personas opted in with
- *  `remoteStart: true` (name/description/idleStart, no folder paths;
- *  server/lib/persona_remote.py). Localhost returns every offered persona
- *  with more fields; only these three are read here. Null on failure. */
-export interface StartablePersona {
+/** GET /api/personas — one row per offered persona. The remote listener
+ *  sends only these fields (no folder paths; server/lib/persona_remote.py);
+ *  localhost sends more and no `remoteStart` (every persona is startable
+ *  there). `mainRowId` = the persona's running main session's row id, if
+ *  any. Null on failure. */
+export interface PersonaSummary {
   name: string;
   description: string;
-  idleStart: "resume" | "fresh";
+  idleStart?: "resume" | "fresh";
+  offline?: boolean;
+  mainRowId?: string | null;
+  remoteStart?: boolean;
 }
 
-export async function listStartablePersonas(): Promise<StartablePersona[] | null> {
+export async function listPersonas(): Promise<PersonaSummary[] | null> {
   try {
     const r = await fetch("/api/personas");
     if (r.status === 401) {
@@ -438,12 +442,22 @@ export async function listStartablePersonas(): Promise<StartablePersona[] | null
 }
 
 /** POST /api/persona/start — opens a new Claude session for the persona
- *  (server/lib/persona_start.py). The new row shows up through the normal
- *  feeds; nothing to refetch here. */
+ *  (server/lib/persona_start.py). Call only after the user's confirm press:
+ *  the remote listener refuses a start without `confirm: true`. The new row
+ *  shows up through the normal feeds; nothing to refetch here. */
 export async function startPersona(input: {
   persona: string;
   text: string;
   fresh: boolean;
 }): Promise<{ ok: boolean; error?: string; paneId?: string; mode?: "started" | "resumed" }> {
-  return requestJson("/api/persona/start", "POST", input);
+  return requestJson("/api/persona/start", "POST", { ...input, confirm: true });
+}
+
+/** POST /api/jev/route — the server asks Jev (OpenRouter) which persona a
+ *  message is for; the key stays on the Mac (server/lib/jev_route.py).
+ *  Nothing is sent: the caller shows the pick and waits for a confirm. */
+export async function routeWithJev(
+  text: string,
+): Promise<{ ok: boolean; error?: string; persona?: string; confidence?: number }> {
+  return requestJson("/api/jev/route", "POST", { text });
 }

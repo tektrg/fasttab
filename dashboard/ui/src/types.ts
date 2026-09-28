@@ -158,6 +158,9 @@ export interface NeedsYouRow {
   agentSession?: string | null;
   hookRequest?: HookRequest | null;
   transcriptQuestion?: TranscriptQuestion | null;
+  // "local" or a configured remote machine (e.g. "air-m1"). Absent on
+  // older payloads — render as local.
+  machine?: string;
 }
 
 // Mirrors server/lib/hook_permission_summary.py build_hook_request_view.
@@ -245,6 +248,13 @@ export interface AgentRow {
   // session's own peer socket — arrives as a message from another agent, so
   // it can't approve permissions). null/absent = can't be messaged.
   messageVia?: "pane" | "inbox" | null;
+  // herdr's agent tool for a pane row ("claude", "opencode", "codex", …).
+  agentKind?: string | null;
+  // Set when the server refuses every message to this row (a non-Claude
+  // pane whose prompts it can't see — server/lib/message_gate.py).
+  messageRefusal?: string | null;
+  // A prompt the PermissionRequest hook holds for this session, if any.
+  hookRequest?: HookRequest | null;
   // Claude Desktop rows only: claude://code/continue?session=local_… (opens
   // that existing session in Claude.app on this Mac).
   openUrl?: string | null;

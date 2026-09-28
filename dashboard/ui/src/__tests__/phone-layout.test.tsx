@@ -159,6 +159,22 @@ describe("PhoneInbox: Needs You ordering", () => {
   });
 });
 
+describe("PhoneInbox: Needs You names the machine", () => {
+  test("an air-m1 pane shows its machine badge; a local one shows none", () => {
+    const state = fullState([
+      { ...needsYouRow("blocked", "air-agent", "air-m1:w2:p3"), machine: "air-m1" },
+      { ...needsYouRow("blocked", "local-agent", "w1:p2"), machine: "local" },
+    ]);
+    const { host, unmount } = mount(<PhoneInbox state={state} onToast={() => {}} />);
+    const rows = [...host.querySelectorAll(".phone-row")];
+    const air = rows.find((r) => r.textContent?.includes("air-agent"));
+    const local = rows.find((r) => r.textContent?.includes("local-agent"));
+    expect(air?.textContent).toContain("air-m1");
+    expect(local?.textContent).not.toContain("air-m1");
+    unmount();
+  });
+});
+
 describe("PhoneInbox: sheet opens", () => {
   test("tapping a Needs You row opens the full-screen sheet for its pane", async () => {
     const state = fullState([needsYouRow("blocked", "blocked-agent", "w1:p2")]);

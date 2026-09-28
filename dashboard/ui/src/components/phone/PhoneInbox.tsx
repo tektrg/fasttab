@@ -5,7 +5,7 @@ import { fetchBoard, fmtAge } from "../../api";
 import { rowLabel } from "../../sessionActions";
 import { KindBadge } from "../Severity";
 import { PhoneSheet } from "./PhoneSheet";
-import { NewSessionSheet } from "./NewSessionSheet";
+import { PersonaMessageSheet } from "./PersonaMessageSheet";
 import { PanelessPrompt } from "../HookRequestCard";
 import { filterAgents, type SearchableAgent } from "../../agentMatch";
 import {
@@ -69,8 +69,12 @@ function boardRowSearchable(row: BoardRow, status: string): SearchableAgent {
   };
 }
 
+function needsYouMachine(n: NeedsYouRow): string {
+  return n.machine || "local";
+}
+
 function needsYouSearchable(n: NeedsYouRow): SearchableAgent {
-  return { name: n.label, machine: "local", status: n.detail, latestLine: n.detail };
+  return { name: n.label, machine: needsYouMachine(n), status: n.detail, latestLine: n.detail };
 }
 
 /** One big tap target: name, machine, status, age — nothing else. Meets
@@ -159,7 +163,7 @@ export function PhoneInbox({
 }) {
   const [board, setBoard] = useState<BoardState | null>(null);
   const [openRowId, setOpenRowId] = useState<string | null>(null);
-  const [newSessionOpen, setNewSessionOpen] = useState(false);
+  const [personaSheetOpen, setPersonaSheetOpen] = useState(false);
   // Working starts open (the phone's default view is "what's active right
   // now"); Parked/Ended start collapsed — they're for when nothing needs
   // you and you're checking on something specific.
@@ -282,10 +286,10 @@ export function PhoneInbox({
           className="phone-group-toggle"
         />
         <UnstyledButton
-          aria-label="new session"
-          title="New session"
+          aria-label="message a persona"
+          title="Message a persona (or start one)"
           className="phone-new-session"
-          onClick={() => setNewSessionOpen(true)}
+          onClick={() => setPersonaSheetOpen(true)}
         >
           +
         </UnstyledButton>
@@ -306,7 +310,7 @@ export function PhoneInbox({
               <div key={(n.paneId ?? n.agentSession ?? n.label) + "::" + n.kind}>
                 <PhoneRow
                   label={n.label}
-                  machine="local"
+                  machine={needsYouMachine(n)}
                   status={n.detail}
                   ageSec={n.sinceSec}
                   kind={n.kind}
@@ -430,9 +434,10 @@ export function PhoneInbox({
         onToast={onToast}
         onRefetch={reload}
       />
-      <NewSessionSheet
-        opened={newSessionOpen}
-        onClose={() => setNewSessionOpen(false)}
+      <PersonaMessageSheet
+        opened={personaSheetOpen}
+        rows={rows}
+        onClose={() => setPersonaSheetOpen(false)}
         onToast={onToast}
       />
     </div>

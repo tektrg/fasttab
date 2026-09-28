@@ -13,6 +13,11 @@ import { RowDetailExtras } from "../RowDetailExtras";
 import { Composer } from "../Composer";
 import { OpenInClaudeButton } from "../OpenInClaudeButton";
 import { messagesViaInbox } from "../../openInClaude";
+import { blindAgentCaption, messageRefusal, takesQuickCommands } from "../../messageGates";
+import { isQueued, sendMessage } from "../../sessionActions";
+
+type QuickCommand = "compact" | "clear";
+type SheetVerb = "done" | "park" | QuickCommand;
 
 /** Full-screen row detail — the phone equivalent of the desktop RowPanel
  *  drawer, but modal (a phone has no "board behind it" to keep clickable)
@@ -33,13 +38,16 @@ export function PhoneSheet({
   onToast: (msg: string, ok: boolean) => void;
   onRefetch: () => void;
 }) {
-  const [busy, setBusy] = useState<"done" | "park" | null>(null);
+  const [busy, setBusy] = useState<SheetVerb | null>(null);
   // Mirrors the desktop SessionActions two-stage arm/confirm pattern: a
   // working/blocked/unknown target needs a SECOND press within ~5s before
   // `confirm:true` is ever sent — a single tap must never force-end or
   // force-park a busy session (server contract: `SessionActionState
   // .needsConfirm`).
-  const [armed, setArmed] = useState<"done" | "park" | null>(null);
+  const [armed, setArmed] = useState<SheetVerb | null>(null);
+  // The server said the pane is mid-turn: the next press of this quick
+  // command queues it (`confirm: true`), only while it is still armed.
+  const [quickQueue, setQuickQueue] = useState<QuickCommand | null>(null);
   const armTimer = useRef<number | null>(null);
   const keyboardInset = useVisualViewportOffset();
 
@@ -55,6 +63,7 @@ export function PhoneSheet({
   // before it (mirrors the desktop's `setArmed(null)` on row/stage change).
   useEffect(() => {
     setArmed(null);
+    setQuickQueue(null);
   }, [row?.rowId, row?.status]);
 
   const disarm = () => {
@@ -63,7 +72,7 @@ export function PhoneSheet({
     setArmed(null);
   };
 
-  const arm = (name: "done" | "park") => {
+  const arm = (name: SheetVerb) => {
     if (armTimer.current) window.clearTimeout(armTimer.current);
     setArmed(name);
     armTimer.current = window.setTimeout(() => setArmed(null), 5000);
@@ -75,6 +84,8 @@ export function PhoneSheet({
   const paneId = row.derived.paneId ?? null;
   // A Claude Desktop / CLI row has no pane but may take messages via its inbox.
   const canMessage = !!paneId || messagesViaInbox(row.derived);
+  const blind = messageRefusal(row.derived) !== null;
+  const quick = takesQuickCommands(row);
   const ended = row.status === "ended";
   const lastLine = String(row.values["derived:lastline"] ?? "").trim();
   const actions = rowActions(row);
@@ -130,6 +141,38 @@ export function PhoneSheet({
     } else {
       onToast(`refused: ${res.error || res.reason || "?"}`, false);
     }
+  };
+
+  // Compact/Clear: typed like a message (AgentBar's row menu). Clear wipes
+  // the session's context, so it always takes a second press first.
+  const runQuick = async (cmd: QuickCommand) => {
+    if (busy) return;
+    const queueing = quickQueue === cmd && armed === cmd;
+    if (cmd === "clear" && !queueing && armed !== "clear") {
+      arm("clear");
+      return;
+    }
+    disarm();
+    setQuickQueue(null);
+    setBusy(cmd);
+    const res = await sendMessage(row.rowId, `/${cmd}`, { confirm: queueing });
+    setBusy(null);
+    if (res.ok) {
+      onToast(isQueued(res) ? `/${cmd} queued — lands when the turn ends` : `/${cmd} sent`, true);
+      onRefetch();
+    } else if (res.needsConfirm) {
+      setQuickQueue(cmd);
+      arm(cmd);
+      onToast(res.reason || "busy — press again to queue", false);
+    } else {
+      onToast(`/${cmd} refused: ${res.error || res.reason || "?"}`, false);
+    }
+  };
+
+  const quickLabel = (cmd: QuickCommand) => {
+    const name = cmd === "compact" ? "Compact" : "Clear";
+    if (armed !== cmd) return name;
+    return quickQueue === cmd ? `Queue ${name.toLowerCase()}` : `Confirm ${name.toLowerCase()}`;
   };
 
   return (
@@ -192,7 +235,27 @@ export function PhoneSheet({
             )}
           </div>
         )}
-        {!ended && canMessage && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} />}
+        {!ended && quick && (
+          <div className="phone-sheet-quick">
+            {(["compact", "clear"] as const).map((cmd) => (
+              <Button
+                key={cmd}
+                size="xs"
+                color={armed === cmd ? "orange" : undefined}
+                variant={armed === cmd ? "filled" : "light"}
+                disabled={busy !== null}
+                loading={busy === cmd}
+                onClick={() => void runQuick(cmd)}
+              >
+                {quickLabel(cmd)}
+              </Button>
+            ))}
+          </div>
+        )}
+        {!ended && canMessage && !blind && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} />}
+        {!ended && blind && (
+          <div className="phone-sheet-gate-note">{blindAgentCaption(row.derived.agentKind)}</div>
+        )}
         {ended && (
           <Badge size="sm" variant="light" color="gray" className="phone-sheet-ended-note">
             {row.endedNote || "ended — no further action here"}

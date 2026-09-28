@@ -402,10 +402,14 @@ body.rp-resizing .rp-resize { background:var(--blue); }
   flex: 0 0 auto; width: 44px; height: 36px; border-radius: 8px;
   border: 1px solid var(--border); text-align: center; font-size: 20px; line-height: 1;
 }
-.new-session-personas { display: flex; flex-direction: column; gap: 12px; }
-.new-session-empty { margin: 12px 0; }
-.new-session-error { margin-top: 12px; color: var(--mantine-color-red-6); }
-.new-session-fresh { flex: 1; align-self: center; }
+.persona-sheet-list { display: flex; flex-direction: column; gap: 12px; }
+.persona-sheet-empty { margin: 12px 0; }
+.persona-sheet-error { margin-top: 12px; color: var(--mantine-color-red-6); }
+.persona-sheet-note, .persona-sheet-jev { margin-top: 12px; font-size: 13px; color: var(--dim); }
+.persona-sheet-jev { color: inherit; }
+.persona-sheet-fresh { flex: 1; align-self: center; }
+.phone-sheet-quick { display: flex; gap: 8px; }
+.phone-sheet-gate-note { font-size: 12px; color: var(--dim); }
 .phone-nomatch { margin: 12px; text-align: center; }
 .phone-row:first-of-type { border-top: none; }
 .phone-row:active { transform: scale(0.98); background: var(--color-surface-alt); }

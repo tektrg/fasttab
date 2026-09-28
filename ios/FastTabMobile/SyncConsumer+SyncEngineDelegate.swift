@@ -124,7 +124,7 @@ extension SyncConsumer: CKSyncEngineDelegate {
                             syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(failedSave.record.recordID)])
                         }
                         self.markSyncFailed(failedSave.error, whileDoing: "saving a change")
-                    } else {
+                    } else if !self.abandonRejectedHeartbeat(failedSave.record, error: failedSave.error) {
                         self.abandonUnsendableCommand(failedSave.record, error: failedSave.error)
                         self.markSyncFailed(failedSave.error, whileDoing: "saving a change")
                     }

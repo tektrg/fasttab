@@ -40,6 +40,20 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(OnboardingPresentation.singleStep(.sendToMac).route, .single(.sendToMac))
     }
 
+    /// A widget deep link closes whichever guide presentation is up (the app
+    /// then opens the article from the modal's `onDismiss`).
+    func testDismissAllClosesGuideAndSheet() {
+        let presenter = OnboardingPresenter()
+        XCTAssertFalse(presenter.isPresenting)
+        presenter.present(.fullGuide)
+        XCTAssertTrue(presenter.isPresenting)
+        presenter.present(.singleStep(.connectMac))
+        presenter.dismissAll()
+        XCTAssertNil(presenter.fullScreen)
+        XCTAssertNil(presenter.sheet)
+        XCTAssertFalse(presenter.isPresenting)
+    }
+
     // MARK: - Completion flag
 
     private func makeDefaults() -> UserDefaults {

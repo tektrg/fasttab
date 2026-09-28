@@ -298,7 +298,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         restorePendingCommandOutbox()
         // Launch, every return to the foreground, and pull-to-refresh: the
         // moments the phone is demonstrably in use, so the Mac should know.
-        publishOwnDevice()
+        publishOwnDeviceIfDue(interval: Self.userActivityHeartbeatFloor)
         await performSend(visibility: .userInitiated)
         await performFetch(visibility: .userInitiated)
     }

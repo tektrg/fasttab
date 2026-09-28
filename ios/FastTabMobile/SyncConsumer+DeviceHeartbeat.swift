@@ -31,9 +31,30 @@ extension SyncConsumer {
 
     /// The foreground poll runs every few seconds; the heartbeat only needs to
     /// land every `SyncedDevicePairing.heartbeatInterval`.
-    func publishOwnDeviceIfDue(now: Date = Date()) {
-        guard SyncedDevicePairing.isHeartbeatDue(lastPublishedAt: lastDevicePublishAt, now: now) else { return }
+    func publishOwnDeviceIfDue(
+        now: Date = Date(),
+        interval: TimeInterval = SyncedDevicePairing.heartbeatInterval
+    ) {
+        guard SyncedDevicePairing.isHeartbeatDue(lastPublishedAt: lastDevicePublishAt, now: now, interval: interval) else { return }
         publishOwnDevice(at: now)
+    }
+
+    /// Launch, foreground and pull-to-refresh publish sooner than the poll, but
+    /// never more than once per this interval, so flicking between apps or
+    /// pulling repeatedly does not turn into a CloudKit write each time. "Last
+    /// seen" on the Mac is minute-grained, so nothing visible is lost.
+    static let userActivityHeartbeatFloor: TimeInterval = 60
+
+    /// A heartbeat CloudKit refused outright (not a network blip). It is a
+    /// nicety, not user data: drop it quietly instead of reporting sync as
+    /// broken, and let the next due heartbeat try again from scratch.
+    /// Returns `false` for any other record.
+    func abandonRejectedHeartbeat(_ record: CKRecord, error: Error) -> Bool {
+        guard Self.isOwnDeviceRecord(record, deviceID: deviceID) else { return false }
+        pendingRecordsToSave.removeValue(forKey: record.recordID)
+        ownDeviceServerRecord = nil
+        logger.error("CloudKit rejected this iPhone's device heartbeat: \(error.localizedDescription, privacy: .public)")
+        return true
     }
 
     /// Keeps the server's change tag for this phone's own device record, from a

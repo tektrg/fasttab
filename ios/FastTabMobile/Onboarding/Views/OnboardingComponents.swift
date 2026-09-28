@@ -130,13 +130,15 @@ struct OnboardingNumberedInstruction: View {
     let number: Int
     let text: String
     let systemImage: String
+    /// Grows the number badge with Dynamic Type so the digit never clips.
+    @ScaledMetric(relativeTo: .body) private var badgeSize: CGFloat = 24
 
     var body: some View {
         HStack(spacing: DS.Space.md) {
             Text("\(number)")
                 .font(DS.Font.control.monospacedDigit())
                 .foregroundStyle(.white)
-                .frame(width: 24, height: 24)
+                .frame(width: badgeSize, height: badgeSize)
                 .background(DS.Tint.action, in: Circle())
             Text(text)
                 .font(DS.Font.body)

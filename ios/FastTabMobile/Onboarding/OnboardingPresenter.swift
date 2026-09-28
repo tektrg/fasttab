@@ -32,10 +32,20 @@ final class OnboardingPresenter: ObservableObject {
     @Published var fullScreen: OnboardingPresentation?
     @Published var sheet: OnboardingPresentation?
 
+    var isPresenting: Bool { fullScreen != nil || sheet != nil }
+
     func present(_ presentation: OnboardingPresentation) {
         switch presentation {
         case .fullGuide: fullScreen = presentation
         case .singleStep: sheet = presentation
         }
+    }
+
+    /// Closes whatever is showing without marking the guide done, so a first-run
+    /// guide interrupted this way comes back next launch (unless a Mac has
+    /// synced by then — `OnboardingCompletionStore.resolveLaunchPresentation`).
+    func dismissAll() {
+        fullScreen = nil
+        sheet = nil
     }
 }

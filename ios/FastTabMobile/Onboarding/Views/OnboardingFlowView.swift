@@ -62,7 +62,7 @@ struct OnboardingFlowView: View {
             }
         }
         .font(DS.Font.body.weight(.medium))
-        .frame(height: 44)
+        .frame(minHeight: 44)
         .padding(.horizontal, DS.Space.gutter)
     }
 

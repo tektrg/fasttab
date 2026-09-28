@@ -11,6 +11,9 @@ public struct FastTabMobileApp: App {
     @State private var selectedTab = AppTab.read
     /// An article a widget tap asked to open (`WidgetDeepLink.read`).
     @State private var widgetReaderItem: ReaderNavigationItem?
+    /// A widget article that arrived while the guide was up. SwiftUI shows one
+    /// modal per host view, so it waits for the guide's dismissal to finish.
+    @State private var deferredWidgetReaderItem: ReaderNavigationItem?
 
     public init() {
         FastTabTips.configure(onboardingCompleted: OnboardingCompletionStore().isCompleted)
@@ -59,7 +62,7 @@ public struct FastTabMobileApp: App {
                 guard let link = WidgetDeepLink(url: url) else { return }
                 open(link)
             }
-            .fullScreenCover(item: $onboardingPresenter.fullScreen) { presentation in
+            .fullScreenCover(item: $onboardingPresenter.fullScreen, onDismiss: presentDeferredWidgetReaderItem) { presentation in
                 OnboardingFlowView(route: presentation.route) { exit in
                     OnboardingCompletionStore().markCompleted()
                     FastTabTips.isOnboardingCompleted = true
@@ -67,7 +70,7 @@ public struct FastTabMobileApp: App {
                     if exit == .finished { selectedTab = .read }
                 }
             }
-            .sheet(item: $onboardingPresenter.sheet) { presentation in
+            .sheet(item: $onboardingPresenter.sheet, onDismiss: presentDeferredWidgetReaderItem) { presentation in
                 OnboardingFlowView(route: presentation.route) { _ in
                     onboardingPresenter.sheet = nil
                 }
@@ -108,7 +111,14 @@ public struct FastTabMobileApp: App {
         switch link {
         case .read(let url, let title, let highlightID):
             LastOpenedStore.shared.recordOpened(url: url, title: title)
-            widgetReaderItem = ReaderNavigationItem(url: url, title: title, focusHighlightID: highlightID)
+            let item = ReaderNavigationItem(url: url, title: title, focusHighlightID: highlightID)
+            // The widget tap is the user's latest intent: close the guide, then open.
+            if onboardingPresenter.isPresenting {
+                deferredWidgetReaderItem = item
+                onboardingPresenter.dismissAll()
+            } else {
+                widgetReaderItem = item
+            }
         case .stats:
             selectedTab = .more
         case .tabs:
@@ -118,13 +128,21 @@ public struct FastTabMobileApp: App {
 }
 
 private extension FastTabMobileApp {
+    func presentDeferredWidgetReaderItem() {
+        guard let item = deferredWidgetReaderItem else { return }
+        deferredWidgetReaderItem = nil
+        widgetReaderItem = item
+    }
+
     func presentOnboardingOnFirstLaunch() {
         let hasCachedMac = localCache.state.connectedMac != nil
         let completionStore = OnboardingCompletionStore()
         let shouldPresentGuide = completionStore.resolveLaunchPresentation(hasCachedMac: hasCachedMac)
         // An upgrading user was just marked done: let their tips show.
         FastTabTips.isOnboardingCompleted = completionStore.isCompleted
-        guard shouldPresentGuide else { return }
+        // A cold launch from a widget already has the reader up; the guide
+        // waits for the next launch rather than fight it for the screen.
+        guard shouldPresentGuide, widgetReaderItem == nil else { return }
         onboardingPresenter.present(.fullGuide)
     }
 }

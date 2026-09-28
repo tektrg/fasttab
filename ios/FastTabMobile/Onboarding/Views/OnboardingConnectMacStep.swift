@@ -50,7 +50,9 @@ struct OnboardingConnectMacStep: View {
         }
         .task(id: searchAttempt) {
             hasWaitedLongEnough = false
-            await syncConsumer.refreshNow()
+            // Not awaited: the patience clock starts now, so a slow or offline
+            // round trip cannot leave the user stuck on "Looking…" past it.
+            Task { await syncConsumer.refreshNow() }
             try? await Task.sleep(for: MacConnectionState.searchPatience)
             guard !Task.isCancelled else { return }
             hasWaitedLongEnough = true

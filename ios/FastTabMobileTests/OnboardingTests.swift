@@ -70,25 +70,24 @@ final class OnboardingTests: XCTestCase {
 
     // MARK: - Mac detection
 
-    private func device(_ id: String, name: String = "Studio Mac", model: String = "MacBook Pro", lastSeen: Date = Date()) -> SyncedDevice {
-        SyncedDevice(id: id, name: name, modelName: model, lastSeenAt: lastSeen, appVersion: "1.0")
+    private func device(_ id: String, name: String = "Studio Mac", model: String = "MacBook Pro", kind: SyncedDeviceKind = .mac, lastSeen: Date = Date()) -> SyncedDevice {
+        SyncedDevice(id: id, name: name, modelName: model, lastSeenAt: lastSeen, appVersion: "1.0", kind: kind)
     }
 
     private func tab(_ url: String, title: String = "A title", deviceID: String = "mac") -> SyncedTab {
         SyncedTab(id: UUID().uuidString, deviceID: deviceID, browserName: "Safari", title: title, url: url)
     }
 
-    func testMacFilterIgnoresNonMacDevices() {
-        let phone = device("phone", name: "iPhone", model: "iPhone16,2")
-        let mini = device("mini", model: "Mac mini")
-        let imac = device("imac", model: "iMac")
-        XCTAssertEqual(SyncedMacs.macs(in: [phone, mini, imac]).map(\.id), ["mini", "imac"])
+    func testConnectedMacIgnoresPhonesEvenWhenFresher() {
+        let mac = device("mac", lastSeen: Date(timeIntervalSinceNow: -3600))
+        let phone = device("phone", name: "iPhone", model: "iPhone16,2", kind: .iphone, lastSeen: Date())
+        XCTAssertEqual(SyncedDevicePairing.mostRecentMac(in: [mac, phone])?.id, "mac")
     }
 
     func testMostRecentMacWins() {
         let old = device("old", lastSeen: Date(timeIntervalSinceNow: -3600))
         let fresh = device("fresh", lastSeen: Date())
-        XCTAssertEqual(SyncedMacs.mostRecentMac(in: [old, fresh])?.id, "fresh")
+        XCTAssertEqual(SyncedDevicePairing.mostRecentMac(in: [old, fresh])?.id, "fresh")
     }
 
     func testBlockedAccountOutranksFoundMac() {
@@ -106,7 +105,7 @@ final class OnboardingTests: XCTestCase {
     }
 
     func testSearchingUntilPatienceRunsOut() {
-        let phoneOnly = [device("phone", model: "iPhone16,2")]
+        let phoneOnly = [device("phone", model: "iPhone16,2", kind: .iphone)]
         XCTAssertEqual(MacConnectionState.resolve(health: .unknown, devices: phoneOnly, tabs: [], hasWaitedLongEnough: false), .searching)
         XCTAssertEqual(MacConnectionState.resolve(health: .ok, devices: phoneOnly, tabs: [], hasWaitedLongEnough: true), .notFound)
         XCTAssertEqual(MacConnectionState.resolve(health: .failing("offline"), devices: [], tabs: [], hasWaitedLongEnough: true), .notFound)

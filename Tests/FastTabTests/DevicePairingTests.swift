@@ -54,6 +54,17 @@ struct DevicePairingTests {
 
     // MARK: Classification
 
+    @Test("mostRecentMac skips phones and picks the freshest Mac")
+    func mostRecentMacSkipsPhones() {
+        let devices = [
+            device("old-mac", kind: .mac, secondsAgo: 3600),
+            device("new-mac", kind: .mac, secondsAgo: 120),
+            device("phone", kind: .iphone, secondsAgo: 1),
+        ]
+        #expect(SyncedDevicePairing.mostRecentMac(in: devices)?.id == "new-mac")
+        #expect(SyncedDevicePairing.mostRecentMac(in: [device("phone", kind: .iphone)]) == nil)
+    }
+
     @Test("pairedPhones keeps recent non-Macs, newest first")
     func pairedPhonesFilterAndOrder() {
         let window = SyncedDevicePairing.phonePairingWindow

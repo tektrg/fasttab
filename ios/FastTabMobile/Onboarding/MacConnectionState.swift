@@ -1,25 +1,9 @@
 import Foundation
 import FastTabSync
 
-/// Macs among the synced device records.
-///
-/// Only Macs run the FastTab Mac app, but the device list is not guaranteed to
-/// stay Mac-only (an iPhone record is planned). Mac model names always contain
-/// "Mac" (`SyncService.getMacModelName`: "MacBook Pro", "iMac", "Mac mini", …).
-enum SyncedMacs {
-    static func macs(in devices: [SyncedDevice]) -> [SyncedDevice] {
-        devices.filter { $0.modelName.localizedCaseInsensitiveContains("mac") }
-    }
-
-    /// The Mac heard from most recently.
-    static func mostRecentMac(in devices: [SyncedDevice]) -> SyncedDevice? {
-        macs(in: devices).max { $0.lastSeenAt < $1.lastSeenAt }
-    }
-}
-
 extension CachedSyncState {
     /// The Mac this iPhone syncs with, if any has ever been seen.
-    var connectedMac: SyncedDevice? { SyncedMacs.mostRecentMac(in: devices) }
+    var connectedMac: SyncedDevice? { SyncedDevicePairing.mostRecentMac(in: devices) }
 }
 
 /// What the "Connect your Mac" step says, from live sync facts.
@@ -49,7 +33,7 @@ enum MacConnectionState: Equatable {
         case .restricted: return .restricted
         case .unknown, .ok, .failing: break
         }
-        if let mac = SyncedMacs.mostRecentMac(in: devices) {
+        if let mac = SyncedDevicePairing.mostRecentMac(in: devices) {
             let tabCount = tabs.filter { $0.deviceID == mac.id }.count
             return .found(macName: mac.name, tabCount: tabCount)
         }

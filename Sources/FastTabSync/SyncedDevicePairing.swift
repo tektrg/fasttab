@@ -27,6 +27,12 @@ public enum SyncedDevicePairing {
         return now.timeIntervalSince(lastPublishedAt) >= interval
     }
 
+    /// The Mac heard from most recently — "the Mac" when the phone needs one.
+    /// A record with no kind is a Mac (`SyncedDeviceKind.legacyDefault`).
+    public static func mostRecentMac(in devices: [SyncedDevice]) -> SyncedDevice? {
+        devices.filter(\.isMac).max { $0.lastSeenAt < $1.lastSeenAt }
+    }
+
     /// Phones that have checked in within the pairing window, most recent first.
     /// Macs — this one included — are never phones.
     public static func pairedPhones(

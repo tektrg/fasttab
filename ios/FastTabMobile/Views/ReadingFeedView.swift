@@ -22,7 +22,7 @@ public struct ReadingFeedView: View {
     }
 
     private var activeDeviceID: String {
-        localCache.state.devices.first?.id ?? ""
+        localCache.state.connectedMac?.id ?? ""
     }
 
     /// Most recently opened article that isn't finished yet (progress < 95%).

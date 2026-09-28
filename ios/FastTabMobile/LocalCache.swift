@@ -143,7 +143,7 @@ public final class LocalCache: ObservableObject {
     // MARK: - Mutations
 
     /// `state.devices` holds Macs only: every "the Mac" lookup on the phone
-    /// (`devices.first`, command targets, freshness banner) relies on it.
+    /// (`CachedSyncState.connectedMac`, command targets, freshness banner) relies on it.
     /// Phones — this one included — publish device records into the same zone
     /// for two-way pairing; those are dropped here so a phone can never become
     /// "the Mac".

@@ -37,7 +37,7 @@ public struct TabListView: View {
     }
 
     private var activeDevice: SyncedDevice? {
-        device ?? localCache.state.devices.first
+        device ?? localCache.state.connectedMac
     }
 
     private var visibleTabs: [SyncedTab] {

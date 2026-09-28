@@ -55,7 +55,7 @@ public struct MoreView: View {
 
             Section {
                 DataFreshnessBanner(
-                    device: localCache.state.devices.first,
+                    device: localCache.state.connectedMac,
                     lastSyncedAt: localCache.state.lastSyncedAt
                 )
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))

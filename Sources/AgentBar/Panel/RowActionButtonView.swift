@@ -22,7 +22,7 @@ struct RowActionButtonView: View {
         .buttonStyle(.plain)
         .disabled(!isPressable)
         .opacity(spec.isEnabled ? 1 : 0.4)
-        .help(spec.disabledReason ?? "")
+        .help(spec.disabledReason ?? spec.hint ?? "")
         .accessibilityLabel(spec.button.title)
     }
 

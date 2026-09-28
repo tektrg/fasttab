@@ -109,7 +109,9 @@ enum LiveAgentMapper {
             // herdr row uses its screen blocker; a status-only session is generic Needs you ("Input needed").
             blocker: hookRequest?.blocker ?? (host.isHerdr ? blocker(for: needsYouEntry) : nil),
             host: host,
-            hookRequest: hookRequest
+            hookRequest: hookRequest,
+            // A status-only session's needsYou entry = it is asking something: no message until answered.
+            messagesViaInbox: !host.isHerdr && agent.messageVia == "inbox" && needsYouEntry == nil
         )
         return (snapshot, hasPrompt)
     }

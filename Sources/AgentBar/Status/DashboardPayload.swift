@@ -158,6 +158,8 @@ struct DashboardAgent: Decodable {
     let openUrl: String?
     /// A Claude CLI row running in tmux: "session:@w.%p".
     let tmuxTarget: String?
+    /// How a message reaches the row: "pane" | "inbox" (a status-only session's peer socket) | null.
+    let messageVia: String?
     /// A status-only row's pending hook-bridge prompt (also on its `needsYou` entry).
     let hookRequest: DashboardHookRequest?
     /// A waiting status-only row's question read from its transcript (display only; never next to a `hookRequest`).
@@ -166,7 +168,7 @@ struct DashboardAgent: Decodable {
     private enum CodingKeys: String, CodingKey {
         case paneId, label, cwd, hookState, hookSinceSec, hasHookData, residue
         case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
-        case source, openUrl, tmuxTarget, hookRequest, transcriptQuestion
+        case source, openUrl, tmuxTarget, messageVia, hookRequest, transcriptQuestion
     }
 
     init(from decoder: Decoder) throws {
@@ -188,6 +190,7 @@ struct DashboardAgent: Decodable {
         source = container.lenient(.source)
         openUrl = container.lenient(.openUrl)
         tmuxTarget = container.lenient(.tmuxTarget)
+        messageVia = container.lenient(.messageVia)
         hookRequest = container.lenient(.hookRequest)
         transcriptQuestion = container.lenient(.transcriptQuestion)
     }

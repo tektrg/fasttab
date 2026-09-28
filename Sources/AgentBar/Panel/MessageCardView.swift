@@ -87,6 +87,10 @@ struct MessageCardView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+            } else if let caption = card.routeCaption {
+                // Inbox route (Claude Desktop / CLI): said here so the fixed-height card never grows.
+                Text(caption)
+                    .foregroundStyle(.secondary)
             if let counter = card.counterText {
                 Text(counter)
                     .foregroundStyle(card.draftHint == nil ? .secondary : Color.red)

@@ -49,6 +49,11 @@ targets:
         product: IndieSearch
       - package: IndieLibKit
         product: IndieShareSync
+      # YouTube transcripts in the reader (FastTabMobile/Reader/YouTube/) + the power-up gate.
+      - package: IndieLibKit
+        product: IndieTranscripts
+      - package: IndieLibKit
+        product: IndiePowerUps
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile
       DEVELOPMENT_TEAM: 56S46Y7CKN

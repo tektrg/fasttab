@@ -66,7 +66,9 @@ public struct ReaderView: View {
                     readerContent(article: article)
 
                 case .failed:
-                    if viewModel.needsSafariReader {
+                    if let failure = viewModel.transcriptFailure {
+                        TranscriptFailureView(message: failure.localizedDescription, videoURL: viewModel.url)
+                    } else if viewModel.needsSafariReader {
                         safariReaderFallback
                     } else {
                         inAppWebView
@@ -294,6 +296,17 @@ public struct ReaderView: View {
                 ReaderSettingsSheet()
             }
             .accessibilityLabel("Reading settings")
+
+            if case .loaded(let article) = viewModel.loadState, article.youtubeVideoID != nil {
+                Button {
+                    viewModel.isVideoVisible.toggle()
+                } label: {
+                    Image(systemName: viewModel.isVideoVisible ? "play.rectangle.fill" : "play.rectangle")
+                        .font(.body)
+                        .readerBarTapTarget()
+                }
+                .accessibilityLabel(viewModel.isVideoVisible ? "Hide video" : "Show video")
+            }
 
             // Highlights list
             Menu {

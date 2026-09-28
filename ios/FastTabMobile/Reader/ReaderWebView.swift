@@ -10,6 +10,7 @@ private enum JSMessage: String, CaseIterable {
     case textDeselected   // {}
     case highlightTapped  // { id: String }
     case ready            // fired once template is ready
+    case videoVisibility  // { visible: Bool } — transcript page opened/closed its corner player
 }
 
 // MARK: - ReaderWebView
@@ -61,6 +62,10 @@ public struct ReaderWebView: UIViewRepresentable {
 
     public func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        // Transcript pages embed a small YouTube player that must play in place (not full
+        // screen) and start from a timestamp tap.
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
         JSMessage.allCases.forEach {
             config.userContentController.add(context.coordinator, name: $0.rawValue)
         }
@@ -105,6 +110,12 @@ public struct ReaderWebView: UIViewRepresentable {
             webView.backgroundColor = bgColor
             webView.scrollView.backgroundColor = bgColor
             webView.evaluateJavaScript(Self.settingsJS(settings: settings, theme: theme), completionHandler: nil)
+        }
+
+        if article.youtubeVideoID != nil, context.coordinator.lastVideoVisible != viewModel.isVideoVisible {
+            context.coordinator.lastVideoVisible = viewModel.isVideoVisible
+            webView.evaluateJavaScript(
+                "window.ftSetVideoVisible && ftSetVideoVisible(\(viewModel.isVideoVisible));", completionHandler: nil)
         }
 
         // If viewModel requests a new highlight, apply it safely via JSON payload
@@ -171,6 +182,8 @@ public struct ReaderWebView: UIViewRepresentable {
         let initialProgress: Double
         let highlights: [HighlightItem]
         let focusHighlightID: String?
+        let youtubeVideoID: String?
+        let videoVisible: Bool
     }
 
     /// JS that applies the full settings-derived CSS-var set. Shared by the live
@@ -246,7 +259,9 @@ public struct ReaderWebView: UIViewRepresentable {
             codeBg: theme.codeBackgroundRGBA,
             initialProgress: viewModel.scrollProgress,
             highlights: highlightItems,
-            focusHighlightID: focusHighlightID
+            focusHighlightID: focusHighlightID,
+            youtubeVideoID: article.youtubeVideoID,
+            videoVisible: viewModel.isVideoVisible
         )
 
         var jsonString = "{}"
@@ -274,6 +289,8 @@ public struct ReaderWebView: UIViewRepresentable {
 public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, UIScrollViewDelegate {
     weak var webView: WKWebView?
     var lastAppliedSettingsSignature: String?
+    /// Player visibility last pushed to (or reported by) the page.
+    var lastVideoVisible = false
     private let viewModel: ReaderViewModel
     private let onTextSelected: ((String, String) -> Void)?
     private let onTextDeselected: (() -> Void)?
@@ -393,6 +410,10 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                 if let id = body["id"] as? String {
                     self.onHighlightTapped?(id)
                 }
+            case .videoVisibility:
+                let visible = body["visible"] as? Bool ?? false
+                self.lastVideoVisible = visible
+                self.viewModel.videoVisibilityChanged(visible)
             case .ready:
                 break
             }

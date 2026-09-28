@@ -9,6 +9,9 @@ public struct ReaderArticle: Codable, Equatable, Sendable {
     public let excerpt: String      // short plain-text summary
     public let url: URL
     public let extractedAt: Date
+    /// Set when `content` is a YouTube transcript (`TranscriptArticleBuilder`); the reader
+    /// then offers the corner player. Nil for Readability articles and older cache entries.
+    public let youtubeVideoID: String?
 
     public init(
         title: String,
@@ -17,7 +20,8 @@ public struct ReaderArticle: Codable, Equatable, Sendable {
         content: String,
         excerpt: String = "",
         url: URL,
-        extractedAt: Date = Date()
+        extractedAt: Date = Date(),
+        youtubeVideoID: String? = nil
     ) {
         self.title = title
         self.byline = byline
@@ -26,6 +30,7 @@ public struct ReaderArticle: Codable, Equatable, Sendable {
         self.excerpt = excerpt
         self.url = url
         self.extractedAt = extractedAt
+        self.youtubeVideoID = youtubeVideoID
     }
 
     public var isEmpty: Bool {

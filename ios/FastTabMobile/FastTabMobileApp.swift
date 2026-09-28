@@ -6,19 +6,22 @@ public struct FastTabMobileApp: App {
     @UIApplicationDelegateAdaptor(PushNotificationAppDelegate.self) private var pushDelegate
     @StateObject private var syncConsumer = SyncConsumer.shared
     @StateObject private var localCache = LocalCache.shared
+    @StateObject private var onboardingPresenter = OnboardingPresenter.shared
+    @State private var selectedTab: AppTab = .read
     @Environment(\.scenePhase) private var scenePhase
 
     public init() {}
 
     public var body: some Scene {
         WindowGroup {
-            TabView {
+            TabView(selection: $selectedTab) {
                 NavigationStack {
                     ReadingFeedView()
                 }
                 .tabItem {
                     Label("Read", systemImage: "newspaper")
                 }
+                .tag(AppTab.read)
 
                 NavigationStack {
                     TabListView()
@@ -27,6 +30,7 @@ public struct FastTabMobileApp: App {
                 .tabItem {
                     Label("Tabs", systemImage: "macwindow.on.rectangle")
                 }
+                .tag(AppTab.tabs)
 
                 NavigationStack {
                     RandomLinksView()
@@ -34,6 +38,7 @@ public struct FastTabMobileApp: App {
                 .tabItem {
                     Label("Shuffle", systemImage: "shuffle")
                 }
+                .tag(AppTab.shuffle)
 
                 NavigationStack {
                     MoreView()
@@ -41,9 +46,23 @@ public struct FastTabMobileApp: App {
                 .tabItem {
                     Label("More", systemImage: "ellipsis.circle")
                 }
+                .tag(AppTab.more)
             }
-
+            .fullScreenCover(item: $onboardingPresenter.fullScreen) { presentation in
+                OnboardingFlowView(route: presentation.route) { exit in
+                    OnboardingCompletionStore().markCompleted()
+                    onboardingPresenter.fullScreen = nil
+                    if exit == .finished { selectedTab = .read }
+                }
+            }
+            .sheet(item: $onboardingPresenter.sheet) { presentation in
+                OnboardingFlowView(route: presentation.route) { _ in
+                    onboardingPresenter.sheet = nil
+                }
+                .presentationDragIndicator(.visible)
+            }
             .onAppear {
+                presentOnboardingOnFirstLaunch()
                 syncConsumer.start()
                 RecentAddedProvider.shared.drainPendingShares()
                 RecentAddedProvider.shared.refresh()
@@ -69,6 +88,19 @@ public struct FastTabMobileApp: App {
             }
         }
     }
+}
+
+private extension FastTabMobileApp {
+    func presentOnboardingOnFirstLaunch() {
+        let hasCachedMac = SyncedMacs.mostRecentMac(in: localCache.state.devices) != nil
+        guard OnboardingCompletionStore().shouldPresentOnLaunch(hasCachedMac: hasCachedMac) else { return }
+        onboardingPresenter.present(.fullGuide)
+    }
+}
+
+/// The four root tabs, so the guide can land on Read when it finishes.
+enum AppTab: Hashable {
+    case read, tabs, shuffle, more
 }
 
 extension URL: @retroactive Identifiable {

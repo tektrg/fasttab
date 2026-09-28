@@ -143,6 +143,21 @@ public struct MoreView: View {
             }
             .dsListRow()
 
+            Section("Help") {
+                Button {
+                    OnboardingPresenter.shared.present(.fullGuide)
+                } label: {
+                    MoreRowLabel(
+                        systemImage: "sparkles.rectangle.stack",
+                        tint: DS.Tint.action,
+                        title: "Setup Guide",
+                        subtitle: "Connect your Mac, try Reader, set up sharing"
+                    )
+                }
+                .foregroundStyle(.primary)
+            }
+            .dsListRow()
+
             if tabBookmarkClosePreferenceRaw != TabBookmarkClosePreference.ask.rawValue {
                 Section(footer: Text("After an Organize-mode Bookmark tap, FastTab currently \(tabBookmarkClosePreferenceRaw == TabBookmarkClosePreference.bookmarkAndClose.rawValue ? "closes" : "keeps") the tab without asking.")) {
                     Button("Ask Again When Bookmarking Tabs") {

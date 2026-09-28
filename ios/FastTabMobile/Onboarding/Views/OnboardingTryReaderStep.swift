@@ -28,7 +28,7 @@ struct OnboardingTryReaderStep: View {
         ) {
             VStack(spacing: DS.Space.md) {
                 articleCard
-                Label("Long-press any text to highlight", systemImage: "highlighter")
+                Label("Select any text to highlight it", systemImage: "highlighter")
                     .font(DS.Font.meta)
                     .foregroundStyle(.secondary)
             }

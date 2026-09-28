@@ -21,7 +21,7 @@ struct SyncWarningBanner: View {
     @ObservedObject private var localCache = LocalCache.shared
 
     private var mac: SyncedDevice? {
-        SyncedMacs.mostRecentMac(in: localCache.state.devices)
+        localCache.state.connectedMac
     }
 
     var body: some View {

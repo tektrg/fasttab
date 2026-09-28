@@ -223,7 +223,7 @@ public struct RandomLinksView: View {
                     systemImage: "shuffle",
                     message: "Bookmarks and open tabs from your Mac will show up here once they sync."
                 ) {
-                    if SyncedMacs.mostRecentMac(in: localCache.state.devices) == nil {
+                    if localCache.state.connectedMac == nil {
                         OnboardingShortcutButton(shortcut: .connectMac)
                     }
                 }

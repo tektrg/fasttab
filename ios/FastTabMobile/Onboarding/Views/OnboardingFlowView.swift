@@ -50,6 +50,7 @@ struct OnboardingFlowView: View {
             if !route.isFirst {
                 Button {
                     withAnimation(.easeInOut(duration: 0.25)) { route.goBack() }
+                    announceScreenChange()
                 } label: {
                     Label("Back", systemImage: "chevron.left")
                 }
@@ -73,7 +74,10 @@ struct OnboardingFlowView: View {
         case .connectMac:
             OnboardingConnectMacStep(
                 isStandalone: route.isSingleStep,
-                onContinue: advance,
+                onContinue: {
+                    continuedWithoutMac = false
+                    advance()
+                },
                 onContinueWithoutMac: {
                     continuedWithoutMac = true
                     advance()
@@ -95,5 +99,11 @@ struct OnboardingFlowView: View {
             return
         }
         withAnimation(.easeInOut(duration: 0.25)) { route = next }
+        announceScreenChange()
+    }
+
+    /// Moves VoiceOver to the new screen instead of leaving it on the old button.
+    private func announceScreenChange() {
+        UIAccessibility.post(notification: .screenChanged, argument: nil)
     }
 }

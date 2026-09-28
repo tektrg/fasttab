@@ -414,7 +414,7 @@ public struct ReadingFeedView: View {
             tint: DS.Tint.emerging,
             style: .inline
         ) {
-            if SyncedMacs.mostRecentMac(in: localCache.state.devices) == nil {
+            if localCache.state.connectedMac == nil {
                 OnboardingShortcutButton(shortcut: .connectMac, prominence: .inline)
             }
         }

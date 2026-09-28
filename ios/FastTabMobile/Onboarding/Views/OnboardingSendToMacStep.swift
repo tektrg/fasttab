@@ -20,7 +20,7 @@ struct OnboardingSendToMacStep: View {
     @State private var trySentAt: Date?
 
     private var hasMac: Bool {
-        SyncedMacs.mostRecentMac(in: localCache.state.devices) != nil
+        localCache.state.connectedMac != nil
     }
 
     var body: some View {
@@ -74,10 +74,18 @@ struct OnboardingSendToMacStep: View {
     private var tryProgress: CommandProgress? {
         guard let trySentAt else { return nil }
         let command = localCache.state.sentCommands
-            .filter { $0.kind == .openOnMac && $0.issuedAt >= trySentAt.addingTimeInterval(-1) }
+            .filter { $0.issuedAt >= trySentAt.addingTimeInterval(-1) && Self.isSampleLinkCommand($0) }
             .max { $0.issuedAt < $1.issuedAt }
         guard let command else { return nil }
         return CommandProgress.of(command: command, delivery: localCache.delivery(forCommandID: command.id))
+    }
+
+    /// Only the test link, so a real share sent meanwhile can't take over this line.
+    static func isSampleLinkCommand(_ command: SyncCommand) -> Bool {
+        guard command.kind == .openOnMac,
+              let data = command.payloadJSON.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(OpenOnMacPayload.self, from: data) else { return false }
+        return payload.url == sampleLinkURL.absoluteString
     }
 
     private func sendSampleLink() {

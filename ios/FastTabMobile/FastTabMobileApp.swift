@@ -92,8 +92,8 @@ public struct FastTabMobileApp: App {
 
 private extension FastTabMobileApp {
     func presentOnboardingOnFirstLaunch() {
-        let hasCachedMac = SyncedMacs.mostRecentMac(in: localCache.state.devices) != nil
-        guard OnboardingCompletionStore().shouldPresentOnLaunch(hasCachedMac: hasCachedMac) else { return }
+        let hasCachedMac = localCache.state.connectedMac != nil
+        guard OnboardingCompletionStore().resolveLaunchPresentation(hasCachedMac: hasCachedMac) else { return }
         onboardingPresenter.present(.fullGuide)
     }
 }

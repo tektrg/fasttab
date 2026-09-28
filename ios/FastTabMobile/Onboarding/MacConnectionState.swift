@@ -17,6 +17,11 @@ enum SyncedMacs {
     }
 }
 
+extension CachedSyncState {
+    /// The Mac this iPhone syncs with, if any has ever been seen.
+    var connectedMac: SyncedDevice? { SyncedMacs.mostRecentMac(in: devices) }
+}
+
 /// What the "Connect your Mac" step says, from live sync facts.
 ///
 /// Order matters: a blocked iCloud account outranks everything (nothing can sync

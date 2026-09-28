@@ -55,17 +55,17 @@ final class OnboardingTests: XCTestCase {
 
     func testFreshInstallPresentsUntilCompleted() {
         let store = OnboardingCompletionStore(defaults: makeDefaults())
-        XCTAssertTrue(store.shouldPresentOnLaunch(hasCachedMac: false))
-        XCTAssertTrue(store.shouldPresentOnLaunch(hasCachedMac: false), "not completed yet, still shows next launch")
+        XCTAssertTrue(store.resolveLaunchPresentation(hasCachedMac: false))
+        XCTAssertTrue(store.resolveLaunchPresentation(hasCachedMac: false), "not completed yet, still shows next launch")
         store.markCompleted()
-        XCTAssertFalse(store.shouldPresentOnLaunch(hasCachedMac: false))
+        XCTAssertFalse(store.resolveLaunchPresentation(hasCachedMac: false))
     }
 
     func testExistingUserWithCachedMacIsNeverInterrupted() {
         let store = OnboardingCompletionStore(defaults: makeDefaults())
-        XCTAssertFalse(store.shouldPresentOnLaunch(hasCachedMac: true))
+        XCTAssertFalse(store.resolveLaunchPresentation(hasCachedMac: true))
         XCTAssertTrue(store.isCompleted, "marked done so it doesn't pop up after the Mac is removed")
-        XCTAssertFalse(store.shouldPresentOnLaunch(hasCachedMac: false))
+        XCTAssertFalse(store.resolveLaunchPresentation(hasCachedMac: false))
     }
 
     // MARK: - Mac detection
@@ -171,6 +171,21 @@ final class OnboardingTests: XCTestCase {
         let cache = ReaderArticleCache()
         XCTAssertTrue(ReaderSampleArticle.seedReaderCache(cache))
         XCTAssertEqual(cache.article(for: ReaderSampleArticle.url)?.title, ReaderSampleArticle.title)
+    }
+
+    // MARK: - "Try it" send
+
+    private func openOnMacCommand(url: String) throws -> SyncCommand {
+        let payload = OpenOnMacPayload(url: url, title: nil, preferBrowser: nil)
+        let json = try XCTUnwrap(String(data: JSONEncoder().encode(payload), encoding: .utf8))
+        return SyncCommand(kind: .openOnMac, targetDeviceID: "", sourceDeviceName: "iPhone", payloadJSON: json)
+    }
+
+    func testTryItTracksOnlyTheSampleLink() throws {
+        let sample = try openOnMacCommand(url: OnboardingSendToMacStep.sampleLinkURL.absoluteString)
+        let other = try openOnMacCommand(url: "https://example.com/shared-meanwhile")
+        XCTAssertTrue(OnboardingSendToMacStep.isSampleLinkCommand(sample))
+        XCTAssertFalse(OnboardingSendToMacStep.isSampleLinkCommand(other))
     }
 
     // MARK: - Sync banner on Read / Tabs

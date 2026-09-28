@@ -257,7 +257,7 @@ public struct TabListView: View {
                     systemImage: "macwindow.on.rectangle",
                     message: "Open tabs on your Mac browsers will sync here automatically."
                 ) {
-                    if SyncedMacs.mostRecentMac(in: localCache.state.devices) == nil {
+                    if localCache.state.connectedMac == nil {
                         OnboardingShortcutButton(shortcut: .connectMac)
                     }
                 }

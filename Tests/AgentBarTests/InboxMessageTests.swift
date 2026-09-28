@@ -187,3 +187,56 @@ struct InboxMessageCardTests {
         #expect(model.card?.routeCaption == nil)
     }
 }
+
+/// Park compacts a terminal session (`/compact`), but an inbox can't carry a slash command:
+/// `AgentPanelModel.setParked` must still park such a row, just without the compact — else the
+/// headless retry ends in a "Couldn't send … after 3 tries" footer.
+@MainActor
+struct InboxParkTests {
+    typealias I = InboxFixtures
+    typealias F = AgentListFixtures
+
+    private func makeModel(_ agents: [AgentSnapshot]) -> (AgentPanelModel, MessageFakeSource) {
+        let defaults = makeScratchDefaults("inbox-park-\(UUID().uuidString)")
+        let model = AgentPanelModel(
+            store: FrecencyStore(defaults: defaults),
+            triageStore: TriageStore(defaults: defaults),
+            routedNoteStore: RoutedNoteStore(defaults: defaults),
+            directSendRetryDelays: [0.01, 0.01],
+            now: { F.now }
+        )
+        let source = MessageFakeSource()
+        model.statusSource = source
+        model.receive(F.snapshot(agents))
+        return (model, source)
+    }
+
+    @Test func parkingAPaneRowStillCompactsIt() async {
+        let (model, source) = makeModel([F.agent("a", section: .needsYou)])
+        model.press(.park, on: "a")
+        await source.waitForRequests(1)
+        #expect(source.sent.map(\.text) == ["/compact"])
+    }
+
+    @Test func parkingAnInboxRowParksWithoutSendingCompact() async throws {
+        let (model, source) = makeModel([I.inboxAgent()])
+        model.press(.park, on: StatusOnlyFixtures.desktopSession)
+        let row = try #require(model.presentation.agents.first)
+        #expect(row.section == .parked)
+        #expect(model.sendingLabel(for: row) == nil)   // no headless send started
+        try await Task.sleep(nanoseconds: 100_000_000)   // longer than every retry delay
+        #expect(source.sent.isEmpty)
+        #expect(model.footerNotice == nil)
+    }
+
+    @Test func parkingARowWithNoMessageRouteParksWithoutSendingCompact() async throws {
+        let (model, source) = makeModel([StatusOnlyFixtures.desktopAgent()])
+        model.press(.park, on: StatusOnlyFixtures.desktopSession)
+        let row = try #require(model.presentation.agents.first)
+        #expect(row.section == .parked)
+        #expect(model.sendingLabel(for: row) == nil)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(source.sent.isEmpty)
+        #expect(model.footerNotice == nil)
+    }
+}

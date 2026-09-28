@@ -105,7 +105,9 @@ enum RowButtons {
             moreActionsButton(for: agent)
         case .working:
             openInClaudeButton(for: agent) + messageButton(for: agent) + moreActionsButton(for: agent)
-        case .ended, .sleeping:
+        case .sleeping:
+            openInClaudeButton(for: agent)   // wakes it, same as Enter; nothing else runs until it does
+        case .ended:
             []
         }
     }

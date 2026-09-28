@@ -131,7 +131,20 @@ extension SyncedTabOrder {
 
     public func toRecord(zoneID: CKRecordZone.ID) -> CKRecord {
         let recordID = CKRecord.ID(recordName: id, zoneID: zoneID)
-        let record = CKRecord(recordType: Self.recordType, recordID: recordID)
+        return writeFields(into: CKRecord(recordType: Self.recordType, recordID: recordID))
+    }
+
+    /// Writes this order onto an existing (server) record so a save carries its
+    /// change tag. Saving a fresh `toRecord` over a record that already exists
+    /// fails with "record to insert already exists". Nil when the record is not
+    /// this order's.
+    public func applying(to record: CKRecord) -> CKRecord? {
+        guard record.recordType == Self.recordType,
+              record.recordID.recordName == id else { return nil }
+        return writeFields(into: record)
+    }
+
+    private func writeFields(into record: CKRecord) -> CKRecord {
         record["deviceID"] = deviceID as CKRecordValue
         record["contentHash"] = contentHash as CKRecordValue
         record["updatedAt"] = updatedAt as CKRecordValue

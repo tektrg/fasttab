@@ -497,7 +497,8 @@ final class SyncService: NSObject, ObservableObject {
         }
 
         let recordID = CKRecord.ID(recordName: tabOrder.id, zoneID: SyncConstants.stateZoneID)
-        let record = tabOrder.toRecord(zoneID: SyncConstants.stateZoneID)
+        let record = serverRecordsByID[recordID].flatMap { tabOrder.applying(to: $0) }
+            ?? tabOrder.toRecord(zoneID: SyncConstants.stateZoneID)
 
         pendingRecordsToSave[recordID] = record
         syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
@@ -910,6 +911,11 @@ extension SyncService: CKSyncEngineDelegate {
                     }
                 }
                 if !sentChanges.deletedRecordIDs.isEmpty {
+                    // A reused record name (positional tabs) must be re-created
+                    // fresh, not built on the deleted record's change tag.
+                    for recordID in sentChanges.deletedRecordIDs {
+                        self.serverRecordsByID.removeValue(forKey: recordID)
+                    }
                     self.lastPublishedTabIDs = Self.tabRecordLedgerAfterAcknowledgingDeletions(
                         remotelyKnown: self.lastPublishedTabIDs,
                         deletedRecordIDs: Set(sentChanges.deletedRecordIDs)

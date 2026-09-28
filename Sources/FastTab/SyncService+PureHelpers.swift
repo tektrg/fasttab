@@ -164,6 +164,9 @@ extension SyncService {
         intendedRecord: CKRecord,
         error: Error
     ) -> CKRecord? {
+        if let cloudKitError = error as? CKError, cloudKitError.code == .unknownItem {
+            return freshInsertForRetry(intendedRecord: intendedRecord)
+        }
         guard let cloudKitError = error as? CKError,
               cloudKitError.code == .serverRecordChanged,
               let serverRecord = cloudKitError.serverRecord,
@@ -191,9 +194,30 @@ extension SyncService {
         case SyncedTabStats.recordType:
             guard let intendedStats = SyncedTabStats(from: intendedRecord) else { return nil }
             return intendedStats.applying(to: serverRecord)
+        case SyncedTabOrder.recordType:
+            guard let intendedOrder = SyncedTabOrder(from: intendedRecord) else { return nil }
+            return intendedOrder.applying(to: serverRecord)
         default:
             return nil
         }
+    }
+
+    /// "recordChangeTag specified, but record not found": the save was built on
+    /// a cached server copy of a record that has since been deleted (positional
+    /// tab names are deleted and later reused). State-zone records are this
+    /// Mac's own published state, so re-inserting without the dead change tag is
+    /// correct. Command records are left alone: a missing one was cleared by the
+    /// phone and must not be resurrected.
+    nonisolated static func freshInsertForRetry(intendedRecord: CKRecord) -> CKRecord? {
+        guard intendedRecord.recordID.zoneID == SyncConstants.stateZoneID else { return nil }
+        let fresh = CKRecord(recordType: intendedRecord.recordType, recordID: intendedRecord.recordID)
+        for key in intendedRecord.allKeys() {
+            fresh[key] = intendedRecord[key]
+        }
+        for key in intendedRecord.encryptedValues.allKeys() {
+            fresh.encryptedValues[key] = intendedRecord.encryptedValues[key]
+        }
+        return fresh
     }
 
     nonisolated static func loadPublishedTabRecordIDs(

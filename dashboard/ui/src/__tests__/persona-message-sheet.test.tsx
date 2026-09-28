@@ -148,7 +148,9 @@ describe("PersonaMessageSheet", () => {
     act(() => button("Resume")!.click());
     await settle();
     expect(posts(calls, "/api/persona/start")).toEqual([]); // armed, nothing sent
-    expect(document.body.textContent).toContain("Press again to confirm");
+    expect(document.body.textContent).toContain(
+      "Reopens phone-ok's last conversation on the Mac and sends it your message. Press again to confirm.",
+    );
     act(() => button("Confirm resume")!.click());
     await settle();
     expect(posts(calls, "/api/persona/start")[0]?.body).toEqual({
@@ -171,6 +173,9 @@ describe("PersonaMessageSheet", () => {
     act(() => button("Start")!.click());
     await settle();
     expect(posts(calls, "/api/persona/start")).toEqual([]); // armed, nothing sent
+    expect(document.body.textContent).toContain(
+      "Starts fresh-one on the Mac in a new conversation and sends it your message. Press again to confirm.",
+    );
     act(() => button("Confirm start")!.click());
     await settle();
     expect(posts(calls, "/api/persona/start")[0]?.body).toEqual({

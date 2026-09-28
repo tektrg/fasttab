@@ -229,7 +229,10 @@ export function PersonaMessageSheet({
         {queueReason && <div className="persona-sheet-note">{queueReason}</div>}
         {armedStart && chosen && effect && (
           <div className="persona-sheet-note">
-            This opens a new Claude session for {chosen.name} on the Mac ({EFFECT_TEXT[effect]}). Press again to confirm.
+            {effect === "resumeLast"
+              ? `Reopens ${chosen.name}'s last conversation on the Mac and sends it your message.`
+              : `Starts ${chosen.name} on the Mac in a new conversation and sends it your message.`}{" "}
+            Press again to confirm.
           </div>
         )}
         {refusal && <div className="persona-sheet-note">{refusal}</div>}

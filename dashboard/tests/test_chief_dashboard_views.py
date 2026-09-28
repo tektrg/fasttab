@@ -317,6 +317,22 @@ check("URGENCY has no rank left for anything else",
 # AgentBar never called it — see p0-dependency-audit.md).
 
 print()
+print("A herdr pane whose prompt the PermissionRequest hook holds")
+held = {"requestId": "hp1-abc", "kind": "question", "toolName": "AskUserQuestion"}
+busy = agent("w8:pH", hook_state="working", screen_state="ACTIVE", session="s-h")
+busy["hookRequest"] = held
+rows = views.build_needs_you(snap(), [busy])
+check("hook request beats a screen reading 'working' (pane scrolled up)",
+      [(r["kind"], r["paneId"], r["hookRequest"]["requestId"]) for r in rows],
+      [("blocked", "w8:pH", "hp1-abc")])
+both = agent("w8:pH", hook_state="blocked", screen_state="NEEDS_HUMAN", session="s-h",
+             question={"title": "T", "question": "q", "multi": False,
+                       "options": [{"index": 1, "label": "a"}]})
+both["hookRequest"] = held
+rows = views.build_needs_you(snap(), [both])
+check("hook + visible picker = ONE row, the hook one",
+      [(r["kind"], "hookRequest" in r) for r in rows], [("blocked", True)])
+
 if fails:
     print(f"FAILED ({len(fails)}):")
     for f in fails:

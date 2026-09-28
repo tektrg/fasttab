@@ -256,13 +256,13 @@ feed `desktopSessions` (10s).
   the rows aren't sent twice (~35KB for 14 days). The PWA/remote listener get
   the same key and ignore it.
 
-## Hook answer bridge (`/api/hook/permission*`) — answer non-herdr prompts from AgentBar
+## Hook answer bridge (`/api/hook/permission*`) — answer Claude prompts from AgentBar
 Contract: `hooks/agentbar-permission-hook.py` (Claude Code `PermissionRequest`
 hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
 `hook_permission_summary.py` (hookRequest view + decision building/validation),
 `hook_permission_routes.py` (routing; the server file only dispatches).
 - `POST /api/hook/permission` (hook) -> `{requestId}` | `{state:"ignored", reason}`
-  (herdr-pane session, bad payload, a background-subagent prompt — payload has
+  (bad payload, a background-subagent prompt — payload has
   `agent_id` — or a session whose file is missing / not `entrypoint` `cli` |
   `claude-desktop`, e.g. `claude -p` = `sdk-cli`). **Why** (measured 2.1.283):
   Claude shows those prompts only AFTER every hook returns, so holding them
@@ -273,6 +273,11 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   pending). Register and wait 404 on the remote listener; `answer` is
   served there too (the phone's web remote answers; auth + CSRF + audit
   like every remote write, audit `rowId` = request id).
+- **Herdr panes too** (2026-09-28): a herdr pane's Claude writes a `cli`
+  session file, so its prompts are held like any CLI. A local herdr row gets
+  `hookRequest`, and `build_needs_you` then emits ONE `blocked` row carrying
+  it, ahead of any screen reading — the screen misses a picker in a pane
+  scrolled up. No hook request = the old screen path, unchanged.
 - Exposure: a status-only row + its needsYou entry get `hookRequest` (oldest
   pending per session); the row then reads `blocked`, detail `Question` /
   `Permission: <tool>`, even before the session file says `waiting`.

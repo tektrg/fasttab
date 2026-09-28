@@ -31,9 +31,9 @@ class FakeClock:
         return self.now
 
 
-def payload(session_id="sess-1"):
+def payload(session_id="sess-1", **extra):
     return {"session_id": session_id, "tool_name": "Bash", "tool_input": {"command": "ls"},
-            "claudePid": 4242, "hookPid": 4343}
+            "claudePid": 4242, "hookPid": 4343, **extra}
 
 
 def cli_entry(session_id="sess-1"):
@@ -70,23 +70,24 @@ print("== store: hold only while AgentBar is connected ==")
 clock = FakeClock()
 presence = agentbar_presence.AgentBarPresence(clock=clock)
 store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True, presence=presence)
-reply = store.register(payload(), (), cli_entry())
+reply = store.register(payload(), cli_entry())
 check("no AgentBar -> ignored at once", reply.get("state"), "ignored")
 check("ignored reason says why", "not connected" in reply.get("reason", ""), True)
 check("not connected is retryable (the hook re-sends once AgentBar is back)", reply.get("retryable"), True)
 check("nothing held", store._requests, {})
 presence.note_seen()
-rid = store.register(payload(), (), cli_entry()).get("requestId")
+rid = store.register(payload(), cli_entry()).get("requestId")
 check("AgentBar connected -> held", bool(rid), True)
 store.wait(rid, 0)  # the hook polls at once
-check("other ignore reasons still win (herdr)", store.register(
-    payload("h"), {"h"}, cli_entry("h"))["reason"], "herdr pane (answered from its screen)")
+check("other ignore reasons still win (subagent)", store.register(
+    payload("h", agent_id="a1"), cli_entry("h"))["reason"],
+    "subagent prompt (Claude shows it only after the hook returns)")
 
 print("== store: AgentBar drops -> pending released within 15s ==")
 clock.now += agentbar_presence.CONNECTED_WITHIN_SEC + 2
 check("12s without AgentBar -> still pending (may be reconnecting)",
       store.wait(rid, 0)[0]["state"], "pending")
-check("new prompt meanwhile is not held", store.register(payload("s2"), (), cli_entry("s2"))["state"], "ignored")
+check("new prompt meanwhile is not held", store.register(payload("s2"), cli_entry("s2"))["state"], "ignored")
 clock.now += agentbar_presence.GONE_AFTER_SEC
 check("gone 15s+ -> resolved, the hook's /wait returns", store.wait(rid, 0)[0],
       {"state": "resolved", "reason": hook_permissions.REASON_AGENTBAR_GONE, "retryable": True})
@@ -94,7 +95,7 @@ check("a late answer says why in plain words", store.answer(rid, {"behavior": "a
       "AgentBar and the web remote lost their dashboard connection; if Claude "
       "is still waiting this prompt shows again in a few seconds, else answer it in Claude.")
 presence.note_seen()
-rid2 = store.register(payload("s3"), (), cli_entry("s3")).get("requestId")
+rid2 = store.register(payload("s3"), cli_entry("s3")).get("requestId")
 check("AgentBar back -> holds again", bool(rid2), True)
 check("and answers work", store.answer(rid2, {"behavior": "deny"})[1], 200)
 

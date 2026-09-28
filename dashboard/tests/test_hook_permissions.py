@@ -75,8 +75,8 @@ def cli_entry(body, entrypoint="cli"):
     return {"sessionId": body.get("session_id"), "entrypoint": entrypoint} if isinstance(body, dict) else None
 
 
-def register(store, body, herdr=(), entrypoint="cli"):
-    return store.register(body, herdr, cli_entry(body, entrypoint))
+def register(store, body, entrypoint="cli"):
+    return store.register(body, cli_entry(body, entrypoint))
 
 
 print("== summary: hookRequest views ==")
@@ -171,14 +171,16 @@ print("== store: register / answer / first decision wins ==")
 clock = FakeClock()
 store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True, presence=CONNECTED)
 check("invalid payload ignored", register(store, {"tool_name": "Bash"})["state"], "ignored")
-check("herdr session ignored", register(store, payload("herdr-sess"), {"herdr-sess"})["state"], "ignored")
+# A herdr pane's Claude writes a `cli` session file: held like any CLI, so a
+# pane scrolled away from its picker still reaches AgentBar.
+check("herdr pane session held", "requestId" in register(store, payload("herdr-sess")), True)
 # Measured: Claude shows these prompts only after every hook returned, so
 # holding them would leave the agent waiting on AgentBar alone.
 check("background subagent prompt ignored", register(store, payload(agent_id="a97"))["state"], "ignored")
 check("claude -p / SDK run ignored", register(store, payload(), entrypoint="sdk-cli")["state"], "ignored")
-check("no session file ignored", store.register(payload(), (), None)["state"], "ignored")
+check("no session file ignored", store.register(payload(), None)["state"], "ignored")
 check("session file of another session ignored",
-      store.register(payload(), (), {"sessionId": "other", "entrypoint": "cli"})["state"], "ignored")
+      store.register(payload(), {"sessionId": "other", "entrypoint": "cli"})["state"], "ignored")
 check("tool_input of the wrong shape ignored (would break /api/state)",
       [register(store, payload(tool_name="AskUserQuestion", tool_input=bad))["state"]
        for bad in ({"questions": 5}, {"questions": [{"question": "q", "options": 5}]})],

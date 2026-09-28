@@ -71,8 +71,9 @@ enum LiveAgentMapper {
             paneIsInDashboardNeedsYou: needsYouEntry != nil
         )
         let pushText = board.unpushedText(rowId: agent.rowId, paneId: paneId)
-        // Only a status-only row in Needs you answers through the hook bridge; a herdr row keeps its screen path.
-        let hookRequest = host.isHerdr || needsYouEntry == nil
+        // A row in Needs you whose prompt the hook bridge holds (any host: a herdr pane scrolled away from
+        // its picker included) answers through it; a herdr row without one keeps its screen path.
+        let hookRequest = needsYouEntry == nil
             ? nil : HookRequest(needsYouEntry?.hookRequest) ?? HookRequest(agent.hookRequest)
         // No hook request: the question as read from the transcript, shown but not answerable here.
         let transcriptQuestion = host.isHerdr || needsYouEntry == nil || hookRequest != nil
@@ -104,9 +105,9 @@ enum LiveAgentMapper {
             sessionId: sessionId,
             // Status-only rows: the dashboard refuses stop/close on them; never offer Done.
             actions: host.isHerdr ? AgentActions(decoded: agent.actions, fallback: .unknown) : .none,
-            // A waiting status-only session is generic Needs you ("Input needed") unless the dashboard's hook
-            // bridge holds its prompt: then Answer / Review work on that request (no pane, no screen read).
-            blocker: host.isHerdr ? blocker(for: needsYouEntry) : hookRequest?.blocker,
+            // A hook request wins over the screen (Answer / Review work on it, no pane read). Without one a
+            // herdr row uses its screen blocker; a status-only session is generic Needs you ("Input needed").
+            blocker: hookRequest?.blocker ?? (host.isHerdr ? blocker(for: needsYouEntry) : nil),
             host: host,
             hookRequest: hookRequest
         )

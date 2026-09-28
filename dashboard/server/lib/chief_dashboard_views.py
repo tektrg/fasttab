@@ -159,10 +159,15 @@ def build_agents_view(feeds_snap):
     # — the pane row is the richer one. Local sessions folder only.
     herdr_session_ids = {r["agentSession"] for r in rows if r.get("agentSession")}
     claude_sessions_data = (feeds_snap.get("claudeSessions") or {}).get("data")
+    hook_requests = hook_permissions.STORE.exposed_by_session(claude_sessions_data)
+    # A local herdr pane's prompt held by the PermissionRequest hook: shown
+    # even when the pane is scrolled away from it (the screen can't see it).
+    for r in rows:
+        if r["machine"] == herdr_transport.LOCAL_MACHINE:
+            r["hookRequest"] = hook_requests.get(r.get("agentSession"))
     rows.extend(claude_sessions.build_status_only_rows(
         claude_sessions_data, herdr_session_ids, now,
-        machine=herdr_transport.LOCAL_MACHINE,
-        hook_requests=hook_permissions.STORE.exposed_by_session(claude_sessions_data)))
+        machine=herdr_transport.LOCAL_MACHINE, hook_requests=hook_requests))
 
     # Hook files with no matching herdr pane. The hook only deletes one on a
     # graceful SessionEnd, so a closed tab or a killed session leaves it behind
@@ -371,6 +376,16 @@ def build_needs_you(feeds_snap, agents):
                 row["hookRequest"] = a.get("hookRequest")
                 row["transcriptQuestion"] = a.get("transcriptQuestion")
                 rows.append(row)
+            continue
+        if a.get("hookRequest"):
+            # A herdr pane whose prompt the hook holds: that wins over the
+            # screen (which misses it when the pane is scrolled up), and is
+            # the pane's only row — never a second screen-read blocker.
+            row = _row("blocked", label, pane_id,
+                       a.get("hookReason") or claude_sessions.DEFAULT_WAITING_REASON, age)
+            row["permission"] = None
+            row["hookRequest"] = a["hookRequest"]
+            rows.append(row)
             continue
         screen = a.get("screenState")
         signal = a.get("screenSignal")

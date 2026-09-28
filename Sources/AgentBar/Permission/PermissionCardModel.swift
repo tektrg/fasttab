@@ -68,7 +68,7 @@ final class PermissionCardModel: ObservableObject {
     /// reason for the footer, when there is one) when it cannot be decided from here.
     @discardableResult
     func open(_ agent: AgentSnapshot) -> Bool {
-        // A hook request (status-only session) is decided by id; anything else needs its pane.
+        // A hook request (status-only session or herdr pane) is decided by id; anything else needs its pane.
         let paneId = agent.paneId ?? ""
         guard case .permissionReview(let shown)? = agent.blockedOnYou, agent.hookRequest != nil || !paneId.isEmpty else {
             return false
@@ -87,7 +87,8 @@ final class PermissionCardModel: ObservableObject {
             prompt = next
         }
         close()
-        card = PermissionCard(agent: agent, paneId: paneId, prompt: prompt)
+        // A hook request is decided by id only: the card never keeps a pane to read or type into.
+        card = PermissionCard(agent: agent, paneId: agent.hookRequest == nil ? paneId : "", prompt: prompt)
         loadContext()
         if agent.hookRequest != nil {
             card?.state.resolve(live: prompt, failure: nil)   // the request is the prompt: nothing to read
@@ -300,7 +301,7 @@ final class PermissionCardModel: ObservableObject {
     /// Keeps `card.paneId` current so a send lands on where the agent's box actually is now;
     /// nothing else on the card moves off what the pane was read to say.
     private func refreshPaneId(from agent: AgentSnapshot?) {
-        guard let paneId = agent?.paneId, !paneId.isEmpty, paneId != card?.paneId else { return }
+        guard card?.hookRequestId == nil, let paneId = agent?.paneId, !paneId.isEmpty, paneId != card?.paneId else { return }
         card?.paneId = paneId
     }
 

@@ -7,7 +7,7 @@ struct PermissionCard: Equatable, Sendable {
     /// herdr can reassign this while the card stays open (same session, new pane): kept current by
     /// `PermissionCardModel.reconcile(with:)`, never by anything that reads what the box says.
     var paneId: String
-    /// Set on a status-only session's prompt held by the dashboard's hook bridge: decided by this id, no pane
+    /// Set on a prompt held by the dashboard's hook bridge (status-only session or herdr pane): decided by this id, no pane
     /// (`paneId` is then empty and nothing is read from a screen).
     let hookRequestId: String?
     let label: String

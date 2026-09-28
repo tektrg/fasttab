@@ -86,8 +86,7 @@ def handle_post(path, read_body, is_remote, store=None, session_entry=None):
     try:
         if path == PREFIX:
             payload = read_body()
-            herdr_ids = hook_permissions.herdr_session_ids(_feed_data("herdr"))
-            return store.register(payload, herdr_ids, session_entry(payload)), 200
+            return store.register(payload, session_entry(payload)), 200
         if action == "answer":
             return store.answer(request_id, read_body())
     except ValueError as e:  # malformed JSON body

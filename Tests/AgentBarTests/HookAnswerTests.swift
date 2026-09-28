@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AgentBar
 
-/// The hook answer bridge: a status-only (Claude Desktop / CLI outside herdr) session's prompt, held by the
+/// The hook answer bridge: a Claude session's prompt (status-only row or herdr pane), held by the
 /// dashboard's `PermissionRequest` hook bridge, answered from AgentBar by request id (no pane).
 enum HookFixtures {
     typealias S = StatusOnlyFixtures
@@ -41,6 +41,18 @@ enum HookFixtures {
 
     static func request(_ json: String) -> HookRequest? {
         HookRequest(try? JSONDecoder().decode(DashboardHookRequest.self, from: Data(json.utf8)))
+    }
+
+    /// A herdr pane row in Needs you (screen says a plain prompt), with or without a held hook request.
+    static func herdrMapped(_ hookRequest: String?) throws -> AgentSnapshot? {
+        let herdrRow = """
+        {"paneId": "w1:p1", "label": "h", "cwd": "/p", "hookState": "blocked", "hasHookData": true,
+         "agentSession": "s-herdr", "rowId": "s-herdr", "screenState": "blocked"}
+        """
+        let entry = """
+        {"kind": "blocked", "paneId": "w1:p1", "detail": "Input needed", "sinceSec": 3, "hookRequest": \(hookRequest ?? "null")}
+        """
+        return try S.snapshot(agents: [herdrRow], needsYou: [entry]).agents.first
     }
 
     /// A status-only agent in Needs you whose prompt the hook bridge holds.
@@ -135,15 +147,17 @@ struct HookRequestMappingTests {
         #expect(try H.mapped(duplicateTexts)?.blocker == nil)
     }
 
-    @Test func aHerdrRowNeverTakesAHookRequest() throws {
-        let herdrRow = """
-        {"paneId": "w1:p1", "label": "h", "cwd": "/p", "hookState": "blocked", "hasHookData": true,
-         "agentSession": "s-herdr", "rowId": "s-herdr", "screenState": "blocked"}
-        """
-        let entry = """
-        {"kind": "blocked", "paneId": "w1:p1", "detail": "Input needed", "sinceSec": 3, "hookRequest": \(H.questionRequest)}
-        """
-        let row = try #require(try StatusOnlyFixtures.snapshot(agents: [herdrRow], needsYou: [entry]).agents.first)
+    @Test func aHerdrRowTakesAHookRequestOverItsScreen() throws {
+        let row = try #require(try H.herdrMapped(H.questionRequest))
+        #expect(row.host == .herdr)
+        #expect(row.paneId == "w1:p1")
+        #expect(row.hookRequest?.requestId == "req_q1")
+        guard case .question(let question)? = row.blocker else { Issue.record("no hook question blocker"); return }
+        #expect(question.question == "Which fruit?")
+    }
+
+    @Test func aHerdrRowWithoutAHookRequestKeepsItsScreenBlocker() throws {
+        let row = try #require(try H.herdrMapped(nil))
         #expect(row.hookRequest == nil)
         #expect(row.blocker == .permission)
     }
@@ -264,6 +278,17 @@ struct HookAnswerCardTests {
         #expect(model.card == nil)
     }
 
+    @Test func aHerdrPanesHookQuestionIsAnsweredByIdNeverThroughThePane() async throws {
+        let source = HookFakeSource()
+        let model = answerModel(source)
+        #expect(model.open(try #require(try H.herdrMapped(H.questionRequest))))
+        #expect(model.card?.paneId == "")
+        model.handle(.digit(1))
+        await waitUntil { source.sent.count == 1 }
+        #expect(source.sent.first?.requestId == "req_q1")
+        #expect(source.paneCallCount == 0)
+    }
+
     @Test func theOtherRowSendsTypedText() async {
         let source = HookFakeSource()
         let model = answerModel(source)
@@ -334,6 +359,19 @@ struct HookPermissionCardTests {
         #expect(model.card?.state.phase == .ready)
         #expect(model.card?.state.choices == [.allow, .allowAlwaysSuggestion(0), .allowAlwaysSuggestion(1), .deny])
         await settleTasks()
+        #expect(source.paneCallCount == 0)
+    }
+
+    @Test func aHerdrPanesHookPermissionIsDecidedByIdNeverThroughThePane() async throws {
+        let source = HookFakeSource()
+        let model = permissionModel(source)
+        #expect(model.open(try #require(try H.herdrMapped(H.permissionRequest))))
+        #expect(model.card?.paneId == "")
+        #expect(model.card?.state.phase == .ready)
+        model.handle(.digit(1))
+        model.pressSend()
+        await waitUntil { source.sent.count == 1 }
+        #expect(source.sent.last == .init(requestId: "req_p1", answer: .deciding(.allow)))
         #expect(source.paneCallCount == 0)
     }
 

@@ -172,12 +172,12 @@ check("local browser tab of the web UI -> connected too",
 print("== a prompt is held with ONLY the phone connected ==")
 agentbar_presence.PRESENCE = agentbar_presence.AgentBarPresence()
 store._presence = agentbar_presence.PRESENCE
-held = store.register(hook_payload("sess-phone"), (), desktop_entry("sess-phone"))
+held = store.register(hook_payload("sess-phone"), desktop_entry("sess-phone"))
 check("no surface at all -> ignored, retryable (hook re-sends)",
       (held.get("state"), held.get("retryable")), ("ignored", True))
 phone_stream = sse_client(REMOTE_PORT, "?answerSurface=web", AUTH)
 phone_stream.join()
-held = store.register(hook_payload("sess-phone"), (), desktop_entry("sess-phone"))
+held = store.register(hook_payload("sess-phone"), desktop_entry("sess-phone"))
 request_id = held.get("requestId")
 check("phone connected -> held", bool(request_id), True)
 

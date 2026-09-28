@@ -574,6 +574,7 @@ private struct ExtensionInstallStep: View {
                 .font(.system(size: 30, weight: .regular))
                 .foregroundStyle(Color.accentColor)
                 .padding(.bottom, 10)
+                .accessibilityHidden(true)
 
             Text("Sharper Recents, instant tabs")
                 .font(.system(size: 20, weight: .bold, design: .rounded))

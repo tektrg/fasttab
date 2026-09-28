@@ -53,7 +53,10 @@ final class WidgetSnapshotPublisher {
             .debounce(for: .seconds(1), scheduler: RunLoop.main)
             .sink { [weak self] in self?.reloadReading() }
             .store(in: &subscriptions)
+        // didChangeNotification is posted on whichever thread wrote the default; hop to main
+        // before touching this main-actor publisher.
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main)
             .map { _ in ReadingGoal.dailyWords }
             .removeDuplicates()
             .dropFirst()

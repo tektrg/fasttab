@@ -444,7 +444,9 @@ body.rp-resizing .rp-resize { background:var(--blue); }
      safe-area inset is not also owed on top of the keyboard offset. */
 }
 .phone-sheet-actions { display: flex; gap: 8px; }
-.phone-sheet-actions button { flex: 1; min-height: 44px; }
+/* `a`: Open in Claude is a Mantine Button rendered as a link — same size
+   and 44px touch target as its button neighbours. */
+.phone-sheet-actions button, .phone-sheet-actions a { flex: 1; min-height: 44px; }
 /* iOS Safari auto-zooms the whole page on focus of any text input whose
    computed font-size is under 16px — Mantine's default TextInput (used by
    Composer, mounted here for the phone reply box) is 14px. Below 16px only,

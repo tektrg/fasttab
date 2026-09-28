@@ -70,6 +70,9 @@ export function Composer({
   const targets = evaled.ready;
   const canSend =
     !busy && text.trim().length > 0 && targets.length > 0 && !pending;
+  // Claude Desktop / CLI rows have no pane: say "session", not "pane".
+  const anyInbox = targets.some((m) => messagesViaInbox(m.row.derived));
+  const allInbox = targets.length > 0 && targets.every((m) => messagesViaInbox(m.row.derived));
 
   const announce = (label: string, res: SessionActionResult) => {
     if (res.ok) {
@@ -170,12 +173,12 @@ export function Composer({
         <TextInput
           label={
             targets.length > 0
-              ? `Message ${targets.length === 1 ? rowLabel(targets[0].row) : `${targets.length} selected rows`} — not destructive: queues on busy panes`
+              ? `Message ${targets.length === 1 ? rowLabel(targets[0].row) : `${targets.length} selected rows`} — not destructive: queues on busy ${allInbox ? "sessions" : "panes"}`
               : "Message — select rows first"
           }
           placeholder={
             targets.length > 0
-              ? "one line to the pane(s) — Enter sends"
+              ? `one line to the ${allInbox ? "session" : "pane"}${targets.length > 1 ? "s" : ""} — Enter sends`
               : "select one or more rows to enable"
           }
           value={text}
@@ -202,7 +205,7 @@ export function Composer({
           {pending ? `Confirm queue (${pending.length})` : "Send"}
         </Button>
       </Group>
-      {targets.some((m) => messagesViaInbox(m.row.derived)) && (
+      {anyInbox && (
         <Text size="xs" c="dimmed" mt={4} className="composer-inbox-note">
           {INBOX_CAPTION}
         </Text>

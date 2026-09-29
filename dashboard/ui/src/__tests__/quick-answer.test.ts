@@ -26,9 +26,9 @@ describe("quickAnswerKind: shown", () => {
     expect(quickAnswerKind(question(["approve", "REJECT"]))).toMatchObject({ yes: "approve", no: "REJECT" });
     expect(quickAnswerKind(question(["true", "false"]))).not.toBeNull();
   });
-  test("plain permission (no saved rule, not a command)", () => {
-    expect(quickAnswerKind(permission("Edit"))).toEqual({ kind: "permission" });
-    expect(quickAnswerKind({ ...permission("Read"), tool: "codex" })).toEqual({ kind: "permission" });
+  test("read-only permission (no saved rule)", () => {
+    expect(quickAnswerKind(permission("Read"))).toEqual({ kind: "permission" });
+    expect(quickAnswerKind(permission("Grep"))).toEqual({ kind: "permission" });
   });
 });
 
@@ -43,8 +43,23 @@ describe("quickAnswerKind: excluded", () => {
     expect(quickAnswerKind(permission("exec_command"))).toBeNull();
     expect(quickAnswerKind(permission("Bash", [{ index: 0, label: "Yes, and don't ask again for ls" }]))).toBeNull();
   });
+  test("write / fetch / delegate / plan / MCP / unknown tools and non-Claude tools open the sheet", () => {
+    for (const t of ["Edit", "Write", "MultiEdit", "NotebookEdit", "WebFetch", "Task", "ExitPlanMode", "mcp__github__delete_repo", "mcp__shell__run", "apply_patch", "", "read", "Read2"])
+      expect(quickAnswerKind(permission(t))).toBeNull();
+    expect(quickAnswerKind({ ...permission("Read"), tool: "codex" })).toBeNull();
+    expect(quickAnswerKind({ ...permission("Read"), tool: "opencode" })).toBeNull();
+  });
+  test("labels that merely contain yes/no, non-English, never-ask-again wording", () => {
+    for (const pair of [["Yes, and don't ask again", "No"], ["Yes (recommended)", "No"], ["Yes, delete everything", "No, keep"], ["Có", "Không"], ["はい", "いいえ"], ["Yes", "Yes to all"], ["Always yes", "No"], ["Allow always", "Deny"]])
+      expect(quickAnswerKind(question(pair))).toBeNull();
+  });
+  test("swapped order maps Yes and No to the right labels, never by index", () => {
+    const k = quickAnswerKind(question(["Reject", "Approve"]))!;
+    expect(quickAnswerBody(k, "yes")).toEqual({ behavior: "allow", answers: { "Proceed?": "Approve" } });
+    expect(quickAnswerBody(k, "no")).toEqual({ behavior: "allow", answers: { "Proceed?": "Reject" } });
+  });
   test("any permission that carries a saved-rule suggestion", () => {
-    expect(quickAnswerKind(permission("Edit", [{ index: 0, label: "Always allow edits" }]))).toBeNull();
+    expect(quickAnswerKind(permission("Read", [{ index: 0, label: "Always allow edits" }]))).toBeNull();
   });
   test("three options, one option, multi-select, multi-question, non-boolean pair", () => {
     expect(quickAnswerKind(question(["Yes", "No", "Maybe"]))).toBeNull();
@@ -69,7 +84,7 @@ describe("quickAnswerBody / toast", () => {
     expect(quickAnswerToast(k, "no")).toBe('Answered "No."');
   });
   test("permission maps to allow once / deny", () => {
-    const k = quickAnswerKind(permission("Edit"))!;
+    const k = quickAnswerKind(permission("Read"))!;
     expect(quickAnswerBody(k, "yes")).toEqual({ behavior: "allow" });
     expect(quickAnswerBody(k, "no").behavior).toBe("deny");
     expect(quickAnswerToast(k, "yes")).toBe("Allowed once");

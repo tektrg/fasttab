@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { HookRequest } from "../../types";
 import { answerHookRequest } from "../../api";
 import { quickAnswerBody, quickAnswerKind, quickAnswerToast } from "../../quickAnswer";
@@ -18,12 +18,16 @@ export function QuickAnswerBar({
   const [state, setState] = useState<{ status: "idle" | "sending" | "sent" } | { status: "error"; error: string }>({
     status: "idle",
   });
+  // A ref, not render state: two taps in one tick both see the old render.
+  const inFlight = useRef(false);
   if (!kind || !request) return null;
   const locked = state.status === "sending" || state.status === "sent";
   const answer = async (choice: "yes" | "no") => {
-    if (locked) return;
+    if (locked || inFlight.current) return;
+    inFlight.current = true;
     setState({ status: "sending" });
     const res = await answerHookRequest(request.requestId, quickAnswerBody(kind, choice));
+    if (!res.ok) inFlight.current = false;
     if (res.ok) {
       setState({ status: "sent" });
       onToast(quickAnswerToast(kind, choice), true);
@@ -37,6 +41,8 @@ export function QuickAnswerBar({
   const noLabel = kind.kind === "yesno" ? kind.no : "Deny";
   return (
     <div className="phone-quick-answer" data-testid="quick-answer">
+      {/* The row only says "Question": show what is being answered. */}
+      {kind.kind === "yesno" && <div className="phone-quick-answer__question">{kind.question}</div>}
       <ActionButton size="sm" variant="primary" disabled={locked} onClick={() => void answer("yes")}>
         {state.status === "sending" ? "Sending…" : yesLabel}
       </ActionButton>

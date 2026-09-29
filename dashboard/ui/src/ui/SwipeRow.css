@@ -4,7 +4,7 @@
 .ui-swipe[data-open] .ui-swipe__tray,
 .ui-swipe:has(.ui-swipe__content[data-dragging]) .ui-swipe__tray { visibility: visible; }
 .ui-swipe__action {
-  flex: 1; min-width: 44px; border: 0; color: #fff; font: 600 15px var(--sans); cursor: pointer;
+  flex: 1; min-width: 44px; border: 0; color: var(--paper); font: 600 15px var(--sans); cursor: pointer;
   background: var(--ink-3); -webkit-tap-highlight-color: transparent;
 }
 .ui-swipe__action[data-tone="danger"] { background: var(--need); }

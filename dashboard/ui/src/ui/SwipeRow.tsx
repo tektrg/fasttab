@@ -67,7 +67,11 @@ export function SwipeRow({
         className="ui-swipe__content"
         data-dragging={dragging || undefined}
         style={{ transform: `translateX(${state.offset}px)` }}
-        onPointerDown={(e) => commit(swipeStart(stateRef.current, e.clientX, e.clientY))}
+        onPointerDown={(e) => {
+          // A cancelled drag never clicks: don't let its flag eat the next tap.
+          swallowNextClick.current = false;
+          commit(swipeStart(stateRef.current, e.clientX, e.clientY));
+        }}
         onPointerMove={(e) => {
           const before = stateRef.current.phase;
           const next = swipeMove(stateRef.current, e.clientX, e.clientY);

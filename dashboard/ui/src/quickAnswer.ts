@@ -12,16 +12,19 @@ export type QuickAnswerKind =
 const YES = new Set(["yes", "y", "yes please", "yeah", "yep", "true", "ok", "okay", "approve", "allow", "proceed", "continue", "confirm", "go ahead"]);
 const NO = new Set(["no", "n", "nope", "no thanks", "false", "deny", "reject", "cancel", "decline", "stop", "abort"]);
 
-/** A tool that runs a command: its "don't ask again" rules and its blast
- *  radius both call for reading the command, so never one-tap. */
-const COMMAND_TOOL = /bash|shell|command|exec|terminal/i;
+/** The only tools whose permission may be approved without reading it: pure
+ *  reads inside the workspace. The inbox row shows just "Permission: <tool>",
+ *  never the command, path, diff or MCP arguments, so anything that writes,
+ *  runs, fetches, delegates, approves a plan or is MCP/unknown opens the sheet. */
+const READ_ONLY_TOOLS = new Set(["Read", "Glob", "Grep", "LS", "NotebookRead"]);
 
 const normalize = (label: string) => label.trim().toLowerCase().replace(/[^a-z ]/g, "").replace(/\s+/g, " ");
 
 /** Pure: is this pending prompt safe to answer with one tap?
  *  - question: exactly ONE single-select question with exactly two options,
  *    one affirmative and one negative (in either order);
- *  - permission: no "don't ask again" rule suggestions, not a command tool.
+ *  - permission: Claude, a read-only tool (allowlist), no "don't ask again"
+ *    rule suggestions.
  *  Everything else (multi-question, multi-select, 3+ options, free-form
  *  options, permission with a saved-rule option) returns null. */
 export function quickAnswerKind(request: HookRequest | null | undefined): QuickAnswerKind | null {
@@ -29,7 +32,8 @@ export function quickAnswerKind(request: HookRequest | null | undefined): QuickA
   if (request.kind === "permission") {
     const permission = request.permission;
     if (!permission || permission.suggestions.length > 0) return null;
-    if (COMMAND_TOOL.test(request.toolName ?? "")) return null;
+    // OpenCode / Codex tool names and answer semantics differ: sheet only.
+    if (request.tool || !READ_ONLY_TOOLS.has(request.toolName ?? "")) return null;
     return { kind: "permission" };
   }
   const questions = request.questions ?? [];

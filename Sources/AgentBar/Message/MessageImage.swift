@@ -43,10 +43,18 @@ struct MessageImage: Equatable, Sendable, Identifiable {
         if !imageURLs.isEmpty { return imageURLs.compactMap(NSImage.init(contentsOf:)) }
         // A copied file with no image type must not fall through to its icon (NSImage reads file icons).
         if pasteboard.types?.contains(.fileURL) == true { return [] }
+        // Text copied from Word/Pages/Office also carries a PDF/TIFF rendering: that paste is text.
+        if pasteboard.types?.contains(.string) == true { return [] }
         return (pasteboard.readObjects(forClasses: [NSImage.self]) as? [NSImage]) ?? []
     }
 
-    static func pasteboardHasImage(_ pasteboard: NSPasteboard) -> Bool { !images(from: pasteboard).isEmpty }
+    /// Cheap check for drag hover (called on every mouse move): looks at types/URLs, decodes nothing.
+    static func pasteboardHasImage(_ pasteboard: NSPasteboard) -> Bool {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        if !urls.isEmpty { return urls.contains { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true } }
+        if pasteboard.types?.contains(.fileURL) == true || pasteboard.types?.contains(.string) == true { return false }
+        return pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
+    }
 
     private static func scaled(_ image: CGImage, longEdge: CGFloat) -> CGImage? {
         let width = CGFloat(image.width), height = CGFloat(image.height)

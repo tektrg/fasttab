@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MantineProvider } from "@mantine/core";
 import { Composer } from "../components/Composer";
-import { fitWithin, MAX_IMAGES } from "../imageAttachments";
+import { fitWithin, imagesFromClipboard, MAX_IMAGES } from "../imageAttachments";
 import { theme } from "../theme";
 import type { BoardRow } from "../types";
 
@@ -84,6 +84,13 @@ describe("image attachments", () => {
   test("fitWithin caps the long edge at 2048", () => {
     expect(fitWithin(4000, 1000)).toEqual({ width: 2048, height: 512 });
     expect(fitWithin(800, 600)).toEqual({ width: 800, height: 600 });
+  });
+
+  test("a paste carrying text (Office copies add an image rendering) stays a text paste", () => {
+    const png = new File([new Uint8Array([1])], "x.png", { type: "image/png" });
+    const clip = (text: string) => ({ files: [png], getData: () => text }) as unknown as DataTransfer;
+    expect(imagesFromClipboard(clip("hello"))).toEqual([]);
+    expect(imagesFromClipboard(clip("")).length).toBe(1);
   });
 
   test("an image alone enables Send; upload first, then the message carries the id", async () => {

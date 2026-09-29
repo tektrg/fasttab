@@ -70,6 +70,8 @@ export async function uploadImages(blobs: Blob[]): Promise<{ ok: true; ids: stri
 
 /** The image files in a paste (screenshots, copied photos). */
 export function imagesFromClipboard(data: DataTransfer | null): File[] {
+  // Text copied from Word/Excel/Office also carries an image rendering: that paste is text.
+  if (data?.getData?.("text/plain")) return [];
   return Array.from(data?.files ?? []).filter((f) => f.type.startsWith("image/"));
 }
 

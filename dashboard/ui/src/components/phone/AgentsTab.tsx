@@ -3,6 +3,7 @@ import { TextInput, UnstyledButton } from "@mantine/core";
 import { fmtAge } from "../../api";
 import { filterAgents } from "../../agentMatch";
 import { AgentRow } from "../../ui/AgentRow";
+import { SwipeableAgentRow } from "./SwipeableAgentRow";
 import { groupByFolder, persistGroupBy, readGroupBy } from "./folderGrouping";
 import {
   agentSearchable,
@@ -24,7 +25,19 @@ const CHIPS: { id: AgentFilter; label: string }[] = [
 
 /** Agents tab: every session — search, filter chips with counts (Folder
  *  groups instead of filtering), then Working / Parked / Ended / Sleeping. */
-export function AgentsTab({ agents, onOpen }: { agents: PhoneAgent[]; onOpen: (a: PhoneAgent) => void }) {
+export function AgentsTab({
+  agents,
+  onOpen,
+  onToast,
+  onUndo,
+  onRefetch,
+}: {
+  agents: PhoneAgent[];
+  onOpen: (a: PhoneAgent) => void;
+  onToast: (msg: string, ok: boolean) => void;
+  onUndo?: (message: string, undo: () => void) => void;
+  onRefetch: () => void;
+}) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<AgentFilter>(() => (readGroupBy() === "folder" ? "folder" : "all"));
   // Ended is the long tail: collapsed until asked for.
@@ -43,17 +56,22 @@ export function AgentsTab({ agents, onOpen }: { agents: PhoneAgent[]; onOpen: (a
     persistGroupBy(id === "folder" ? "folder" : "status");
   };
 
-  const row = (a: PhoneAgent) => (
-    <AgentRow
-      key={a.rowId}
-      initials={initialsOf(a.name)}
-      name={a.name}
-      subtitle={a.subtitle}
-      age={fmtAge(a.ageSec)}
-      status={a.ui}
-      onPress={() => onOpen(a)}
-    />
-  );
+  const row = (a: PhoneAgent) => {
+    const props = {
+      initials: initialsOf(a.name),
+      name: a.name,
+      subtitle: a.subtitle,
+      age: fmtAge(a.ageSec),
+      status: a.ui,
+      onPress: () => onOpen(a),
+    };
+    // Swipe = shortcut for the sheet's Park / Done; sleeping rows have no board row.
+    return a.row ? (
+      <SwipeableAgentRow key={a.rowId} row={a.row} onToast={onToast} onUndo={onUndo} onRefetch={onRefetch} {...props} />
+    ) : (
+      <AgentRow key={a.rowId} {...props} />
+    );
+  };
 
   const sections = agentSections(matched, filter);
   const folders = filter === "folder" ? groupByFolder(matched) : [];

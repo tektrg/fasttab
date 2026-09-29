@@ -95,9 +95,10 @@ export function PhoneShell({ state }: { state: FullState }) {
           workingCount={workingCount}
           onOpen={openNeedsYou}
           onGoAgents={() => setTab("agents")}
+          onToast={onToast}
         />
       )}
-      {tab === "agents" && <AgentsTab agents={agents} onOpen={openAgent} />}
+      {tab === "agents" && <AgentsTab agents={agents} onOpen={openAgent} onToast={onToast} onUndo={onUndo} onRefetch={reload} />}
       {tab === "settings" && <SettingsTab state={state} />}
 
       <TabBar tab={tab} onTab={setTab} inboxBadge={inboxBadgeCount(needsYou)} />

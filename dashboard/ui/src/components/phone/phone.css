@@ -162,3 +162,11 @@ button.phone-section-head { cursor: pointer; }
    the actions below stay reachable; code stays mono and wrapped. */
 .phone-block.latest-message { max-height: 40vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .phone-block.latest-message pre, .phone-block.latest-message code { font-family: var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ── Inbox: inline Yes/No quick answer under a question row ── */
+.phone-quick-answer {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2);
+  padding: var(--s1) 14px var(--s3); background: var(--paper);
+}
+.phone-quick-answer__error { flex-basis: 100%; color: var(--need); font-size: 13px; }
+.phone-section-body > div + div { border-top: 1px solid var(--hair); }

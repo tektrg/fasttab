@@ -1,0 +1,18 @@
+.ui-swipe { position: relative; overflow: hidden; background: var(--paper); border-top: 1px solid var(--hair); }
+.ui-swipe:first-child { border-top: 0; }
+.ui-swipe__tray { position: absolute; top: 0; right: 0; bottom: 0; display: flex; visibility: hidden; }
+.ui-swipe[data-open] .ui-swipe__tray,
+.ui-swipe:has(.ui-swipe__content[data-dragging]) .ui-swipe__tray { visibility: visible; }
+.ui-swipe__action {
+  flex: 1; min-width: 44px; border: 0; color: #fff; font: 600 15px var(--sans); cursor: pointer;
+  background: var(--ink-3); -webkit-tap-highlight-color: transparent;
+}
+.ui-swipe__action[data-tone="danger"] { background: var(--need); }
+.ui-swipe__action:disabled { opacity: .5; }
+.ui-swipe__action:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.ui-swipe__content {
+  position: relative; background: var(--paper); touch-action: pan-y;
+  transition: transform 180ms ease-out;
+}
+.ui-swipe__content[data-dragging] { transition: none; }
+@media (prefers-reduced-motion: reduce) { .ui-swipe__content { transition: none; } }

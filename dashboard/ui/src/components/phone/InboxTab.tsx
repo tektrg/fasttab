@@ -1,6 +1,7 @@
 import type { NeedsYouRow } from "../../types";
 import { fmtAge } from "../../api";
 import { AgentRow } from "../../ui/AgentRow";
+import { QuickAnswerBar } from "./QuickAnswerBar";
 import { emptyInboxText, groupInbox, initialsOf, needsYouUiStatus } from "./phoneModel";
 
 /** Inbox tab: agents waiting on you — Questions, then Blocked (then feed
@@ -10,11 +11,13 @@ export function InboxTab({
   workingCount,
   onOpen,
   onGoAgents,
+  onToast,
 }: {
   needsYou: NeedsYouRow[];
   workingCount: number;
   onOpen: (n: NeedsYouRow) => void;
   onGoAgents: () => void;
+  onToast: (msg: string, ok: boolean) => void;
 }) {
   const g = groupInbox(needsYou);
   const sections: [string, string, NeedsYouRow[]][] = [
@@ -44,16 +47,18 @@ export function InboxTab({
             </div>
             <div className="phone-section-body">
               {rows.map((n) => (
-                <AgentRow
-                  key={(n.paneId ?? n.agentSession ?? n.label) + "::" + n.kind}
-                  initials={initialsOf(n.label)}
-                  name={n.label}
-                  subtitle={n.machine && n.machine !== "local" ? `${n.machine} · ${n.detail}` : n.detail}
-                  age={fmtAge(n.sinceSec)}
-                  status={needsYouUiStatus(n.kind)}
-                  needsYou={n.kind !== "feed-broken"}
-                  onPress={n.kind === "feed-broken" ? undefined : () => onOpen(n)}
-                />
+                <div key={(n.paneId ?? n.agentSession ?? n.label) + "::" + n.kind}>
+                  <AgentRow
+                    initials={initialsOf(n.label)}
+                    name={n.label}
+                    subtitle={n.machine && n.machine !== "local" ? `${n.machine} · ${n.detail}` : n.detail}
+                    age={fmtAge(n.sinceSec)}
+                    status={needsYouUiStatus(n.kind)}
+                    needsYou={n.kind !== "feed-broken"}
+                    onPress={n.kind === "feed-broken" ? undefined : () => onOpen(n)}
+                  />
+                  <QuickAnswerBar key={n.hookRequest?.requestId} request={n.hookRequest} onToast={onToast} />
+                </div>
               ))}
             </div>
           </section>

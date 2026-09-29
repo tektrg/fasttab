@@ -4,6 +4,7 @@ import type { HookAnswer, HookQuestion, HookRequest, NeedsYouRow, TranscriptQues
 import { answerHookRequest } from "../api";
 import { MarkdownInline } from "./Markdown";
 import { ActionButton } from "../ui/ActionButton";
+import { WEB_DENY } from "../quickAnswer";
 
 /** A pane-less (Claude Desktop / CLI outside herdr) Needs You row's prompt:
  *  - `hookRequest` — the PermissionRequest hook holds it: answerable here,
@@ -32,9 +33,6 @@ export function PanelessPrompt({
   if (row.transcriptQuestion) return <TranscriptQuestionNote q={row.transcriptQuestion} />;
   return null;
 }
-
-/** Said to Claude with a denial (the server default names AgentBar). */
-const WEB_DENY: HookAnswer = { behavior: "deny", message: "The user denied this from the dashboard web UI." };
 
 type SendState = { status: "idle" | "sending" | "sent" } | { status: "error"; error: string };
 

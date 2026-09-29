@@ -66,11 +66,14 @@ struct OnboardingIPhoneStep: View {
         VStack(spacing: 0) {
             Spacer(minLength: 12)
 
-            Image(systemName: "iphone")
-                .font(.system(size: 30, weight: .regular))
-                .foregroundStyle(Color.accentColor)
-                .padding(.bottom, 10)
-                .accessibilityHidden(true)
+            // Same 30s re-check as the actions below, so a phone that checks in
+            // while this step is on screen plays the "connected" beat.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                OnboardingHeroIPhone(state: IPhoneHeroState(
+                    isPhoneConnected: pairedPhoneStore.mostRecentPhone(now: context.date) != nil
+                ))
+            }
+            .padding(.bottom, 10)
 
             Text("Take your tabs with you")
                 .font(.system(size: 20, weight: .bold, design: .rounded))

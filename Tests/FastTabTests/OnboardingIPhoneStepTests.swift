@@ -4,22 +4,19 @@ import Testing
 @testable import FastTab
 import FastTabSync
 
-/// The onboarding window is a fixed 440×520 with the step dots below the step,
-/// leaving ~494pt for a step. These pin that the iPhone step fits in both of
-/// its states, and that its QR code actually encodes something scannable.
+/// The onboarding window is a fixed size with the step dots below the step
+/// (`OnboardingLayout.stepHeight` left for a step). These pin that the iPhone
+/// step fits in each of its states, and that its QR code actually encodes
+/// something scannable.
 @MainActor
 struct OnboardingIPhoneStepTests {
-    private static let stepWidth: CGFloat = 440
-    private static let stepHeightBudget: CGFloat = 494
+    private static let stepHeightBudget = OnboardingLayout.stepHeight
 
     private func fittingHeight(downloadURL: URL?, pairedPhones: [SyncedDevice] = []) -> CGFloat {
         let defaults = UserDefaults(suiteName: "OnboardingIPhoneStepTests.\(UUID().uuidString)")!
         let store = PairedPhoneStore(defaults: defaults)
         store.record(pairedPhones)
-        let host = NSHostingView(rootView: OnboardingIPhoneStep(downloadURL: downloadURL, pairedPhoneStore: store, onContinue: {})
-            .frame(width: Self.stepWidth))
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize.height
+        return OnboardingStepFit.fittingHeight(of: OnboardingIPhoneStep(downloadURL: downloadURL, pairedPhoneStore: store, onContinue: {}))
     }
 
     @Test func comingSoonStateFitsTheStepBudget() {

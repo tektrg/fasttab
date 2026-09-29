@@ -65,7 +65,8 @@ public struct ReaderWebView: UIViewRepresentable {
         // Transcript pages embed a small YouTube player that must play in place (not full
         // screen) and start from a timestamp tap.
         config.allowsInlineMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = []
+        // Only transcript pages: other articles keep the default (no autoplay).
+        if article.youtubeVideoID != nil { config.mediaTypesRequiringUserActionForPlayback = [] }
         JSMessage.allCases.forEach {
             config.userContentController.add(context.coordinator, name: $0.rawValue)
         }

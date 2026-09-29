@@ -67,7 +67,9 @@ public struct ReaderView: View {
 
                 case .failed:
                     if let failure = viewModel.transcriptFailure {
-                        TranscriptFailureView(message: failure.localizedDescription, videoURL: viewModel.url)
+                        TranscriptFailureView(
+                            message: failure.localizedDescription, videoURL: viewModel.url,
+                            retry: failure == .unavailable ? { Task { await viewModel.reloadArticle() } } : nil)
                     } else if viewModel.needsSafariReader {
                         safariReaderFallback
                     } else {

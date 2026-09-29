@@ -4,6 +4,8 @@ import SwiftUI
 struct TranscriptFailureView: View {
     let message: String
     let videoURL: URL
+    /// Offered when trying again could help (network, rate limit); nil for a permanent no.
+    var retry: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: DS.Space.md) {
@@ -13,6 +15,10 @@ struct TranscriptFailureView: View {
             Text(message)
                 .font(.headline)
                 .multilineTextAlignment(.center)
+            if let retry {
+                Button("Try again", action: retry)
+                    .buttonStyle(.borderedProminent)
+            }
             Button {
                 UIApplication.shared.open(videoURL)
             } label: {

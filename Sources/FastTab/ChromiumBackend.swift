@@ -34,6 +34,18 @@ struct ChromiumBackend: BrowserBackend {
         activeTimes: inout [String: Date],
         currentFlowSourceAppBundleIdentifier: String?
     ) -> [BrowserSearchResult] {
+        fetchLiveTabsOutcome(
+            fetchStart: fetchStart,
+            activeTimes: &activeTimes,
+            currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+        ).tabs
+    }
+
+    func fetchLiveTabsOutcome(
+        fetchStart: Date,
+        activeTimes: inout [String: Date],
+        currentFlowSourceAppBundleIdentifier: String?
+    ) -> LiveTabFetchOutcome {
         let script = """
         tell application "\(appName)"
             if it is not running then return ""
@@ -58,14 +70,21 @@ struct ChromiumBackend: BrowserBackend {
                     end repeat
                 end repeat
             on error
-                return ""
+                return "\(kLiveTabReadFailedSentinel)"
             end try
             return tabData
         end tell
         """
 
-        guard let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]), !output.isEmpty else {
-            return []
+        let output: String
+        switch LiveTabScriptOutput(rawOutput: runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script])) {
+        case .unreadable:
+            logger.error("fetchLiveTabs unreadable (timeout or script error). browser='\(self.appName, privacy: .public)'")
+            return .unreadable
+        case .noTabs:
+            return .fetched([])
+        case .rows(let rows):
+            output = rows
         }
 
         var newResults: [BrowserSearchResult] = []
@@ -129,7 +148,7 @@ struct ChromiumBackend: BrowserBackend {
             )
         }
 
-        return newResults
+        return .fetched(newResults)
     }
 
     // MARK: - Lightweight active-tab poll

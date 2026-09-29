@@ -49,6 +49,18 @@ struct SafariBackend: BrowserBackend {
         activeTimes: inout [String: Date],
         currentFlowSourceAppBundleIdentifier: String?
     ) -> [BrowserSearchResult] {
+        fetchLiveTabsOutcome(
+            fetchStart: fetchStart,
+            activeTimes: &activeTimes,
+            currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+        ).tabs
+    }
+
+    func fetchLiveTabsOutcome(
+        fetchStart: Date,
+        activeTimes: inout [String: Date],
+        currentFlowSourceAppBundleIdentifier: String?
+    ) -> LiveTabFetchOutcome {
         // Batch the property reads (`name of every tab`, `URL of every tab`,
         // `index of current tab`) so each window costs a handful of Apple Events
         // instead of ~3 per tab. This mirrors the Chromium backend; a 100-tab
@@ -86,14 +98,21 @@ struct SafariBackend: BrowserBackend {
                     end try
                 end repeat
             on error
-                return ""
+                return "\(kLiveTabReadFailedSentinel)"
             end try
             return tabData
         end tell
         """
 
-        guard let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]), !output.isEmpty else {
-            return []
+        let output: String
+        switch LiveTabScriptOutput(rawOutput: runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script])) {
+        case .unreadable:
+            logger.error("fetchLiveTabs unreadable (timeout or script error). browser='Safari'")
+            return .unreadable
+        case .noTabs:
+            return .fetched([])
+        case .rows(let rows):
+            output = rows
         }
 
         var newResults: [BrowserSearchResult] = []
@@ -150,7 +169,7 @@ struct SafariBackend: BrowserBackend {
             )
         }
 
-        return newResults
+        return .fetched(newResults)
     }
 
     // MARK: - Lightweight active-tab poll

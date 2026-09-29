@@ -82,10 +82,22 @@ extension SyncService {
     /// (and show on the phone) forever. This sweep converges the server to the
     /// truth regardless of ledger state.
     ///
+    /// A stale snapshot (FastTab idle, nothing refreshed it recently) triggers
+    /// one authoritative refresh and a single retry, instead of deferring
+    /// until the command bar happens to be opened.
+    ///
     /// Returns `true` when it ran against a fresh snapshot, `false` when
-    /// deferred (not hydrated yet, or the snapshot is stale).
+    /// deferred (not hydrated yet, or still stale after the refresh).
     @discardableResult
     func reconcileStateZoneTabs() async -> Bool {
+        if !isReconcilingTabs, freshAuthoritativeSnapshot() == nil {
+            logger.info("Tab reconciliation: snapshot stale, refreshing live tabs first")
+            await BrowserTabService.shared.refreshAuthoritativeLiveTabsAndWait()
+        }
+        return await reconcileAgainstFreshSnapshot()
+    }
+
+    private func reconcileAgainstFreshSnapshot() async -> Bool {
         guard !isReconcilingTabs else { return true }
         isReconcilingTabs = true
         defer { isReconcilingTabs = false }
@@ -196,9 +208,12 @@ extension SyncService {
     /// to trust for deletion decisions.
     private func freshAuthoritativeSnapshot() -> AuthoritativeLiveTabSnapshot? {
         let snapshot = BrowserTabService.shared.authoritativeLiveTabSnapshot
-        guard snapshot.isHydrated,
-              let fetchedAt = snapshot.lastFetchedAt,
-              Date().timeIntervalSince(fetchedAt) < Self.maxSnapshotAgeForReconcile else {
+        guard LiveTabRefreshPolicy.isSnapshotFreshForReconcile(
+            isHydrated: snapshot.isHydrated,
+            lastFetchedAt: snapshot.lastFetchedAt,
+            now: Date(),
+            maxAge: Self.maxSnapshotAgeForReconcile
+        ) else {
             return nil
         }
         return snapshot

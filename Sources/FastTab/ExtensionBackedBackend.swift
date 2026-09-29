@@ -82,8 +82,20 @@ struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileAccess>: Br
         activeTimes: inout [String: Date],
         currentFlowSourceAppBundleIdentifier: String?
     ) -> [BrowserSearchResult] {
+        fetchLiveTabsOutcome(
+            fetchStart: fetchStart,
+            activeTimes: &activeTimes,
+            currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+        ).tabs
+    }
+
+    func fetchLiveTabsOutcome(
+        fetchStart: Date,
+        activeTimes: inout [String: Date],
+        currentFlowSourceAppBundleIdentifier: String?
+    ) -> LiveTabFetchOutcome {
         guard let view = servableView() else {
-            return inner.fetchLiveTabs(
+            return inner.fetchLiveTabsOutcome(
                 fetchStart: fetchStart,
                 activeTimes: &activeTimes,
                 currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
@@ -155,7 +167,7 @@ struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileAccess>: Br
             let preview = audibleTabs.map { "[win=\($0.windowIndex) tab=\($0.tabIndex) muted=\($0.isMuted) '\($0.title.prefix(40))']" }.joined(separator: " ")
             extensionBackedBackendLogger.info("audible tabs this fetch. app=\(self.appName, privacy: .public) count=\(audibleTabs.count) \(preview, privacy: .public)")
         }
-        return results
+        return .fetched(results)
     }
 
     func pollActiveTabKeys() -> [String] {

@@ -102,6 +102,16 @@ protocol BrowserBackend: Sendable {
         currentFlowSourceAppBundleIdentifier: String?
     ) -> [BrowserSearchResult]
 
+    /// Same read as `fetchLiveTabs`, but reports a failed/timed-out read as
+    /// `.unreadable` instead of an empty list. Sync publishing uses this so a
+    /// hung browser never deletes its tabs from the phone. The default wraps
+    /// `fetchLiveTabs` (treats every result as a real read).
+    func fetchLiveTabsOutcome(
+        fetchStart: Date,
+        activeTimes: inout [String: Date],
+        currentFlowSourceAppBundleIdentifier: String?
+    ) -> LiveTabFetchOutcome
+
     /// Lightweight poll: returns the recency key for the active tab of each window.
     /// Used by the 10s background poll to keep `lastActiveTimes` fresh without
     /// running the full per-tab AppleScript scan. No-op when the browser isn't running.
@@ -161,6 +171,18 @@ protocol BrowserBackend: Sendable {
 }
 
 extension BrowserBackend {
+    func fetchLiveTabsOutcome(
+        fetchStart: Date,
+        activeTimes: inout [String: Date],
+        currentFlowSourceAppBundleIdentifier: String?
+    ) -> LiveTabFetchOutcome {
+        .fetched(fetchLiveTabs(
+            fetchStart: fetchStart,
+            activeTimes: &activeTimes,
+            currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+        ))
+    }
+
     /// Default forwards to the time-unbounded variant; concrete backends that
     /// can push time predicates into SQL should override.
     func searchHistory(query: String, limit: Int, since: Date?, before: Date?) -> [BrowserSearchResult] {

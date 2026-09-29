@@ -28,6 +28,18 @@ struct FinderBackend: BrowserBackend {
         activeTimes: inout [String: Date],
         currentFlowSourceAppBundleIdentifier: String?
     ) -> [BrowserSearchResult] {
+        fetchLiveTabsOutcome(
+            fetchStart: fetchStart,
+            activeTimes: &activeTimes,
+            currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
+        ).tabs
+    }
+
+    func fetchLiveTabsOutcome(
+        fetchStart: Date,
+        activeTimes: inout [String: Date],
+        currentFlowSourceAppBundleIdentifier: String?
+    ) -> LiveTabFetchOutcome {
         let script = """
         tell application "Finder"
             if not running then return ""
@@ -48,9 +60,15 @@ struct FinderBackend: BrowserBackend {
         end tell
         """
 
-        guard let raw = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]),
-              !raw.isEmpty else {
-            return []
+        let raw: String
+        switch LiveTabScriptOutput(rawOutput: runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script])) {
+        case .unreadable:
+            Self.logger.error("fetchLiveTabs unreadable (timeout or script error). browser='Finder'")
+            return .unreadable
+        case .noTabs:
+            return .fetched([])
+        case .rows(let rows):
+            raw = rows
         }
 
         let isCurrentFlow = (currentFlowSourceAppBundleIdentifier == bundleIdentifier)
@@ -109,7 +127,7 @@ struct FinderBackend: BrowserBackend {
             // common case.
             historyStore.record(path: path, at: isFrontActive ? fetchStart : (storedTime ?? fetchStart))
         }
-        return results
+        return .fetched(results)
     }
 
     func pollActiveTabKeys() -> [String] { [] }

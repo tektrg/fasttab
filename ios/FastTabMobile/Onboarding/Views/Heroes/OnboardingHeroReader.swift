@@ -43,7 +43,7 @@ struct OnboardingHeroReader: View {
         Clutter(frame: CGRect(x: 98, y: 17, width: 22, height: 66), exit: CGSize(width: 40, height: 0), label: nil, color: HeroInk.textLine),
         Clutter(frame: CGRect(x: 6, y: 36, width: 38, height: 22), exit: CGSize(width: -60, height: 0), label: "Ad", color: HeroInk.textLine),
         Clutter(frame: CGRect(x: 6, y: 62, width: 86, height: 18), exit: CGSize(width: -110, height: 0), label: "Ad", color: HeroInk.textLine),
-        Clutter(frame: CGRect(x: 0, y: 98, width: 124, height: 14), exit: CGSize(width: 0, height: 24), label: nil, color: Color.primary.opacity(0.55)),
+        Clutter(frame: CGRect(x: 0, y: 98, width: 124, height: 14), exit: CGSize(width: 0, height: 24), label: nil, color: Color.primary.opacity(0.4)),
     ]
 
     var body: some View {

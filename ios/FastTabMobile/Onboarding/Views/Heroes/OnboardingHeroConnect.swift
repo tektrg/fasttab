@@ -71,7 +71,8 @@ struct OnboardingHeroConnect: View {
                     .truncatingRemainder(dividingBy: 1)
                 let diameter = HeroCurve.lerp(40, 118, phase)
                 // Strong, 2 pt accent strokes so the pulse reads in dark mode too.
-                let strength = (1 - phase) * 0.85
+                // Square-root falloff keeps the outer rings visible longer, then fades to 0 at the edge.
+                let strength = (1 - phase).squareRoot() * 0.95
                 Circle()
                     .fill(DS.Tint.action.opacity(0.10 * strength))
                     .overlay(Circle().strokeBorder(DS.Tint.action.opacity(strength), lineWidth: 2))

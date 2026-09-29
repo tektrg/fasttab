@@ -63,14 +63,14 @@ struct HeroPhone<Screen: View>: View {
     @ViewBuilder var screen: () -> Screen
 
     var body: some View {
-        let corner = width * 0.22
+        let corner = min(width * 0.22, 12)
         RoundedRectangle(cornerRadius: corner, style: .continuous)
             .fill(HeroInk.deviceBody)
             .overlay(screen().clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous)))
             .overlay(alignment: .top) {
                 Capsule()
                     .fill(HeroInk.deviceOutline)
-                    .frame(width: width * 0.3, height: max(3, width * 0.07))
+                    .frame(width: min(width * 0.3, 14), height: min(max(3, width * 0.07), 4))
                     .padding(.top, width * 0.08)
             }
             .overlay(

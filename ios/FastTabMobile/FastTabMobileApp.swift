@@ -1,5 +1,6 @@
 import SwiftUI
 import FastTabSync
+import IndieAccount
 
 @main
 public struct FastTabMobileApp: App {
@@ -8,6 +9,9 @@ public struct FastTabMobileApp: App {
     @StateObject private var localCache = LocalCache.shared
     @StateObject private var onboardingPresenter = OnboardingPresenter.shared
     @Environment(\.scenePhase) private var scenePhase
+    /// The one theindie account session (Sign in with Apple); YouTube transcripts need it.
+    /// Its keychain slot is the one `YouTubeTranscriptLoader` reads the token from.
+    @State private var accountSession = AccountSession.live(configuration: .fastTab, deviceName: UIDevice.current.name)
     @State private var selectedTab = AppTab.read
     /// An article a widget tap asked to open (`WidgetDeepLink.read`).
     @State private var widgetReaderItem: ReaderNavigationItem?
@@ -55,6 +59,8 @@ public struct FastTabMobileApp: App {
                 }
                 .tag(AppTab.more)
             }
+            .environment(accountSession)
+            .task { await accountSession.restoreIfNeeded() }
             .fullScreenCover(item: $widgetReaderItem) { item in
                 ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
             }
@@ -95,6 +101,7 @@ public struct FastTabMobileApp: App {
                     WidgetSnapshotPublisher.shared.reloadReading()
 
                     Task { await syncConsumer.refreshNow() }
+                    Task { await accountSession.restoreIfNeeded() }
                     syncConsumer.startForegroundRefresh()
                 case .background:
                     syncConsumer.stopForegroundRefresh()

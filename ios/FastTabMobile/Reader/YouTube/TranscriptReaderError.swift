@@ -7,7 +7,7 @@ import os
 enum TranscriptReaderError: LocalizedError, Equatable {
     case noTranscript
     case needsSignIn
-    /// theindie-api refused the call (401): Fast Tab has no signed-in account yet.
+    /// No theindie account token on this phone: the failure view offers Sign in with Apple.
     case needsAccount
     case unavailable
 
@@ -29,7 +29,7 @@ enum TranscriptReaderError: LocalizedError, Equatable {
         switch self {
         case .noTranscript: return "No transcript for this video"
         case .needsSignIn: return "This video needs sign-in on YouTube"
-        case .needsAccount: return "Transcripts need a Fast Tab account, which isn't available yet"
+        case .needsAccount: return "Sign in to get transcripts"
         case .unavailable: return "Couldn't load the transcript"
         }
     }

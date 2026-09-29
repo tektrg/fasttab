@@ -3,8 +3,9 @@ import IndieLibKit
 import IndieShareSync
 
 // Fast Tab's values for the portfolio account and sharing (IndieLibKit's `IndieAccount` +
-// `IndieShareSync`). Nothing at launch uses them yet: theindie-api does not list the
-// "fasttab" app (its `APPS` registry), so today only the tests build a coordinator.
+// `IndieShareSync`). The account is live (FastTabMobileApp builds the one `AccountSession`
+// from `.fastTab`; YouTube transcripts use its token). Sharing isn't wired yet: only the
+// tests build a coordinator.
 // Once an account ships, none of these values may change: another keychain service signs
 // every user out, another key prefix loses every phone's inbox position.
 

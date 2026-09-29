@@ -99,6 +99,36 @@ final class TranscriptErrorMappingTests: XCTestCase {
         XCTAssertEqual(vm.transcriptFailure, .needsSignIn)
     }
 
+    func testFailureViewOffersSignInOnlyWithoutAccount() {
+        XCTAssertEqual(TranscriptFailureView.Action(.needsAccount), .signIn)
+        XCTAssertEqual(TranscriptFailureView.Action(.unavailable), .retry)
+        XCTAssertEqual(TranscriptFailureView.Action(.noTranscript), .none)
+        XCTAssertEqual(TranscriptFailureView.Action(.needsSignIn), .none)
+        XCTAssertEqual(TranscriptReaderError.needsAccount.localizedDescription, "Sign in to get transcripts")
+    }
+
+    /// Signed out → the failure view's sign-in → its retry reloads, now with the token.
+    @MainActor
+    func testRetryAfterSignInLoadsTranscript() async {
+        let signedIn = SignInFlag()
+        let loader = YouTubeTranscriptLoader(
+            fetchTranscript: { id, _ in
+                guard signedIn.value else { throw TranscriptError.notSignedIn }
+                return Transcript(videoId: id, lang: "en", kind: .manual, availableLangs: ["en"],
+                                  lines: [TranscriptLine(startMs: 0, durationMs: 1_000, text: "After sign-in.")])
+            },
+            fetchChannel: { _ in nil })
+        let vm = ReaderViewModel(url: URL(string: "https://www.youtube.com/watch?v=zzTestSignI")!, title: "t",
+                                 statsRecorder: .isolatedForTests(), transcriptLoader: loader)
+        await vm.extractIfNeeded(force: true)
+        XCTAssertEqual(vm.transcriptFailure, .needsAccount)
+
+        signedIn.value = true
+        await vm.reloadArticle()
+        guard case .loaded(let article) = vm.loadState else { return XCTFail("not loaded after sign-in") }
+        XCTAssertTrue(article.content.contains("After sign-in."))
+    }
+
     @MainActor
     func testViewModelLoadsTranscriptArticle() async {
         let loader = YouTubeTranscriptLoader(
@@ -114,6 +144,11 @@ final class TranscriptErrorMappingTests: XCTestCase {
         XCTAssertEqual(article.youtubeVideoID, "zzTestLoad1")
         XCTAssertTrue(article.content.contains("Only line."))
     }
+}
+
+/// Stands in for "a session token is in the keychain now".
+final class SignInFlag: @unchecked Sendable {
+    var value = false
 }
 
 /// Answers every request with a fixed status and an empty body.

@@ -1,11 +1,13 @@
 import SwiftUI
 import TipKit
 import FastTabSync
+import IndieAccount
 
 public struct MoreView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var syncConsumer = SyncConsumer.shared
     @StateObject private var statsViewModel = StatsViewModel()
+    @Environment(AccountSession.self) private var accountSession
     private let intelligenceTip = IntelligenceTip()
     @AppStorage(TabBookmarkClosePreference.defaultsKey)
     private var tabBookmarkClosePreferenceRaw = TabBookmarkClosePreference.ask.rawValue
@@ -145,6 +147,20 @@ public struct MoreView: View {
                         tint: DS.Tint.warning,
                         title: "Highlights",
                         subtitle: "Text you've highlighted while reading"
+                    )
+                }
+            }
+            .dsListRow()
+
+            Section("Account") {
+                NavigationLink {
+                    AccountSettingsView()
+                } label: {
+                    MoreRowLabel(
+                        systemImage: "person.crop.circle",
+                        tint: DS.Tint.action,
+                        title: "theindie account",
+                        subtitle: accountSession.moreRowSubtitle
                     )
                 }
             }

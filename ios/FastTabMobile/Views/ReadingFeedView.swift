@@ -122,6 +122,14 @@ public struct ReadingFeedView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    addLinksFromClipboard()
+                } label: {
+                    Image(systemName: "doc.on.clipboard")
+                }
+                .accessibilityLabel("Add from clipboard")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
                     refreshAll()
                 } label: {
                     Image(systemName: "arrow.clockwise")
@@ -627,6 +635,18 @@ public struct ReadingFeedView: View {
         await SyncConsumer.shared.refreshNow()
         recentProvider.refresh()
         emergingProvider.refresh()
+    }
+
+    /// Reads the pasteboard only on this tap, so the iOS paste prompt follows
+    /// an intentional action. Saves through the "Save to iPhone" store.
+    private func addLinksFromClipboard() {
+        let urls = ClipboardLinkExtractor.links(in: UIPasteboard.general.string ?? "")
+        guard !urls.isEmpty else {
+            presentToast("No links in clipboard")
+            return
+        }
+        SavedOnIPhoneStore.shared.add(urls.map { SavedOnIPhoneLink(url: $0.absoluteString, title: $0.host()) })
+        presentToast(urls.count == 1 ? "Added 1 link" : "Added \(urls.count) links")
     }
 
     private func presentToast(_ message: String) {

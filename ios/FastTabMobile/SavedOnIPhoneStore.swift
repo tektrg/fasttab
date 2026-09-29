@@ -38,8 +38,19 @@ public final class SavedOnIPhoneStore: ObservableObject {
     public func drainPendingSaves() {
         let drained = SavedOnIPhoneFiles.drain(containerURL: AppGroupContainer.directoryURL)
         guard !drained.isEmpty else { return }
+        merge(drained)
+    }
+
+    /// Saves links added inside the app (e.g. "Add from clipboard") through
+    /// the same merge as share-extension saves: same URL replaces the old entry.
+    public func add(_ links: [SavedOnIPhoneLink]) {
+        guard !links.isEmpty else { return }
+        merge(links)
+    }
+
+    private func merge(_ newLinks: [SavedOnIPhoneLink]) {
         var merged = items
-        for link in drained {
+        for link in newLinks {
             merged.removeAll { $0.url.lowercased() == link.url.lowercased() }
             merged.append(link)
         }

@@ -101,7 +101,12 @@ struct OnboardingTryReaderStep: View {
     /// Starts (or reuses) the background prep the flow began earlier; opening is then instant.
     private func startPreload() {
         if let pinnedTab, let url = URL(string: pinnedTab.url) {
-            preloader.preload(url: url)
+            // Already failed while an earlier screen was showing: don't make the user wait again.
+            if preloader.status(for: url) == .failed {
+                fallBackToSampleIfPreloadFailed()
+            } else {
+                preloader.preload(url: url)
+            }
         } else {
             preloader.preloadSample()
         }

@@ -75,12 +75,13 @@ final class ReaderPreloader: ObservableObject {
         isCurrent(url) ? status : .idle
     }
 
-    /// Prepares `url` in the background. Repeat calls for the same URL do nothing;
+    /// Prepares `url` in the background. Repeat calls for the same URL do nothing (a
+    /// failed URL is not retried on its own; pass `retryFailed` when the user is waiting);
     /// a different URL replaces the previous request (one warm web view at most).
     /// YouTube transcript links are skipped: they use a different pipeline.
-    func preload(url: URL) {
+    func preload(url: URL, retryFailed: Bool = false) {
         guard ReaderContentRoute.route(for: url) == .article else { return }
-        guard begin(url) else { return }
+        guard begin(url, retryFailed: retryFailed) else { return }
         if let cached = cache.article(for: url) {
             finish(with: cached)
             return
@@ -122,9 +123,13 @@ final class ReaderPreloader: ObservableObject {
 
     // MARK: - Private
 
-    /// Starts a request; false if the same URL is already preparing or ready.
-    private func begin(_ url: URL) -> Bool {
-        if isCurrent(url), status == .preparing || status == .ready { return false }
+    /// Starts a request; false if the same URL is already preparing or ready (or failed,
+    /// unless `retryFailed`). Otherwise every tab sync would re-run a 20 s failing extraction.
+    private func begin(_ url: URL, retryFailed: Bool = false) -> Bool {
+        if isCurrent(url) {
+            if status == .preparing || status == .ready { return false }
+            if status == .failed && !retryFailed { return false }
+        }
         task?.cancel()
         task = nil
         warmer.release()

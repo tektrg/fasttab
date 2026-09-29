@@ -95,6 +95,26 @@ final class ReaderPreloaderTests: XCTestCase {
         XCTAssertTrue(warmer.warmedURLs.isEmpty)
     }
 
+    func testFailedURLIsNotRetriedByRepeatCalls() async {
+        let url = makeURL()
+        let preloader = makePreloader { _ in throw FetchFailure() }
+        preloader.preload(url: url)
+        await waitUntil(preloader, .failed)
+        preloader.preload(url: url)
+        XCTAssertEqual(preloader.status, .failed)
+        XCTAssertEqual(fetchedURLs, [url], "tab syncs must not re-run a failing extraction")
+    }
+
+    func testCacheHitMatchesTrackingAndFragmentVariants() {
+        let url = makeURL()
+        cache.save(article(url))
+        let variant = URL(string: url.absoluteString + "?utm_source=x#top")!
+        let preloader = makePreloader { _ in throw FetchFailure() }
+        preloader.preload(url: variant)
+        XCTAssertEqual(preloader.status, .ready)
+        XCTAssertTrue(fetchedURLs.isEmpty)
+    }
+
     func testFailedURLCanBeRetried() async {
         let url = makeURL()
         var shouldFail = true
@@ -105,7 +125,7 @@ final class ReaderPreloaderTests: XCTestCase {
         preloader.preload(url: url)
         await waitUntil(preloader, .failed)
         shouldFail = false
-        preloader.preload(url: url)
+        preloader.preload(url: url, retryFailed: true)
         await waitUntil(preloader, .ready)
         XCTAssertEqual(preloader.status, .ready)
     }

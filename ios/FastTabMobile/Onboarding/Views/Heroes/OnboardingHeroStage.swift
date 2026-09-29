@@ -48,7 +48,7 @@ struct OnboardingHeroStage<Frame: View>: View {
         .onChange(of: canAnimate) { _, canAnimate in
             if canAnimate { clock.resume(playback: playback, at: Date()) }
         }
-        .task(id: replayKey) { await runClock() }
+        .task(id: ClockRun(replayKey: replayKey, canAnimate: canAnimate)) { await runClock() }
         .accessibilityHidden(true)
     }
 
@@ -56,12 +56,20 @@ struct OnboardingHeroStage<Frame: View>: View {
         clock.frameTime(playback: playback, key: replayKey, canAnimate: canAnimate, now: date)
     }
 
-    /// Restarts on appear and on every state change; marks a one-shot done so
-    /// the timeline stops ticking once it rests.
+    /// Re-runs `runClock` when the picture changes or the stage pauses/resumes.
+    private struct ClockRun: Hashable {
+        let replayKey: AnyHashable
+        let canAnimate: Bool
+    }
+
+    /// Restarts on appear and on every state change; marks a one-shot done
+    /// once it has played in view, so the timeline stops ticking once it rests.
+    /// A pause mid-beat (the app backgrounded, a sheet on top) cancels this
+    /// task, so the beat replays on return: a Mac found while the user was
+    /// away still plays its "found" beat.
     private func runClock() async {
         let key = replayKey
-        clock.start(key: key, at: Date())
-        guard let duration = playback.oneShotDuration else { return }
+        guard let duration = clock.sync(key: key, playback: playback, canAnimate: canAnimate, at: Date()) else { return }
         try? await Task.sleep(for: .seconds(duration))
         guard !Task.isCancelled else { return }
         clock.finish(key: key)

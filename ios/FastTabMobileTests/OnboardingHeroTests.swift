@@ -28,6 +28,19 @@ final class OnboardingHeroTests: XCTestCase {
         }
     }
 
+    /// The Mac is usually found while the user is off at their Mac with the
+    /// app in the background: its one-shot beat must wait and play on return,
+    /// not run out unseen (the stage feeds `HeroClock.sync` its pause state).
+    func testFoundBeatThatLandsInTheBackgroundPlaysOnReturn() {
+        let found = ConnectHeroState.found.playback
+        let arrived = Date()
+        var clock = HeroClock()
+        XCTAssertNil(clock.sync(key: ConnectHeroState.found, playback: found, canAnimate: false, at: arrived))
+        let back = arrived.addingTimeInterval(60)
+        XCTAssertEqual(clock.sync(key: ConnectHeroState.found, playback: found, canAnimate: true, at: back), found.oneShotDuration)
+        XCTAssertEqual(clock.frameTime(playback: found, key: ConnectHeroState.found, canAnimate: true, now: back), 0, "plays from its first frame")
+    }
+
     // MARK: - Send to Mac
 
     private func progress(_ stage: CommandProgress.Stage) -> CommandProgress {

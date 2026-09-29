@@ -1510,7 +1510,11 @@ class BrowserTabService: ObservableObject {
 
                 self.cachedQuickOpenResults = combined
                 self.cachedQuickOpenSourceAppBundleIdentifier = sourceAppBundleIdentifier
-                if self.lastIssuedQuery.isEmpty {
+                // Scope chips (e.g. @duplicate, @Chrome) with no typed text also
+                // leave `lastIssuedQuery` empty; only the unscoped view may be
+                // replaced by the quick-open list, or this (now periodic)
+                // refresh would swap a scoped list for every tab.
+                if self.lastIssuedQuery.isEmpty && self.lastIssuedFilter.isPassthrough {
                     self.results = combined
                 } else {
                     let frecencyLookup = self.makeFrecencyScoreLookup()

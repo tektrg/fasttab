@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Modal, Radio, Switch, TextInput } from "@mantine/core";
+import { Button, Radio, Switch, TextInput } from "@mantine/core";
 import type { BoardRow } from "../../types";
+import { Sheet } from "../../ui/Sheet";
 import { listPersonas, routeWithJev, startPersona, type PersonaSummary } from "../../api";
 import { isQueued, sendMessage } from "../../sessionActions";
 import {
@@ -181,17 +182,56 @@ export function PersonaMessageSheet({
             : "Start"
         : "Send";
 
+  const footer = (
+      <div className="phone-sheet-footer">
+        <TextInput
+          value={text}
+          onChange={(e) => setText(e.currentTarget.value)}
+          placeholder="Message…"
+          aria-label="message"
+          enterKeyHint="send"
+          disabled={busy === "jev"}
+          onKeyDown={(e) => {
+            // A held Enter auto-repeats: never let it press "confirm" too.
+            if (e.key === "Enter" && !e.repeat) void submit();
+          }}
+        />
+        <div className="phone-sheet-actions persona-sheet-actions">
+          <Switch
+            checked={forceNew}
+            onChange={(e) => setForceNew(e.currentTarget.checked)}
+            label="Start a new session instead"
+            className="persona-sheet-fresh"
+          />
+          <Button
+            size="sm"
+            variant="light"
+            disabled={!hasText || busy !== null || !personas?.length}
+            loading={busy === "jev"}
+            onClick={() => void askJev()}
+          >
+            Ask Jev
+          </Button>
+          <Button
+            size="sm"
+            color={armedStart || queueReason !== null ? "orange" : undefined}
+            disabled={!canSubmit}
+            loading={busy === "send"}
+            onClick={() => void submit()}
+          >
+            {submitLabel}
+          </Button>
+        </div>
+      </div>
+  );
+
   return (
-    <Modal
-      opened={opened}
-      onClose={onClose}
-      fullScreen
-      radius={0}
-      transitionProps={{ duration: 160 }}
-      classNames={{ content: "phone-sheet", body: "phone-sheet-body", header: "phone-sheet-head" }}
-      title={<div className="phone-sheet-title">Message a persona</div>}
+    <Sheet
+      open={opened}
+      onOpenChange={(o) => !o && onClose()}
+      title="Message a persona"
+      footer={footer}
     >
-      <div className="phone-sheet-scroll">
         {personas === null ? (
           <div className="empty">loading…</div>
         ) : personas.length === 0 ? (
@@ -237,48 +277,6 @@ export function PersonaMessageSheet({
         )}
         {refusal && <div className="persona-sheet-note">{refusal}</div>}
         {error && <div className="persona-sheet-error">{error}</div>}
-      </div>
-
-      <div className="phone-sheet-footer">
-        <TextInput
-          value={text}
-          onChange={(e) => setText(e.currentTarget.value)}
-          placeholder="Message…"
-          aria-label="message"
-          enterKeyHint="send"
-          disabled={busy === "jev"}
-          onKeyDown={(e) => {
-            // A held Enter auto-repeats: never let it press "confirm" too.
-            if (e.key === "Enter" && !e.repeat) void submit();
-          }}
-        />
-        <div className="phone-sheet-actions persona-sheet-actions">
-          <Switch
-            checked={forceNew}
-            onChange={(e) => setForceNew(e.currentTarget.checked)}
-            label="Start a new session instead"
-            className="persona-sheet-fresh"
-          />
-          <Button
-            size="sm"
-            variant="light"
-            disabled={!hasText || busy !== null || !personas?.length}
-            loading={busy === "jev"}
-            onClick={() => void askJev()}
-          >
-            Ask Jev
-          </Button>
-          <Button
-            size="sm"
-            color={armedStart || queueReason !== null ? "orange" : undefined}
-            disabled={!canSubmit}
-            loading={busy === "send"}
-            onClick={() => void submit()}
-          >
-            {submitLabel}
-          </Button>
-        </div>
-      </div>
-    </Modal>
+    </Sheet>
   );
 }

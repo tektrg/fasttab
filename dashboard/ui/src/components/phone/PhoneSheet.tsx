@@ -1,274 +1,169 @@
-import { useEffect, useRef, useState } from "react";
-import { Badge, Button, Modal } from "@mantine/core";
+import { useEffect, useState, type ReactNode } from "react";
 import type { BoardProperty, BoardRow } from "../../types";
-import {
-  resolveEndStage,
-  rowActions,
-  rowLabel,
-  sessionAction,
-} from "../../sessionActions";
-import { useVisualViewportOffset } from "../../hooks/useVisualViewportOffset";
+import { fmtAge } from "../../api";
+import { rowLabel } from "../../sessionActions";
 import { PaneScreen } from "../PaneScreen";
 import { RowDetailExtras } from "../RowDetailExtras";
 import { Composer } from "../Composer";
 import { OpenInClaudeButton } from "../OpenInClaudeButton";
 import { messagesViaInbox, wakesToMessage } from "../../openInClaude";
 import { blindAgentCaption, messageRefusal, takesQuickCommands } from "../../messageGates";
-import { isQueued, sendMessage } from "../../sessionActions";
+import { ActionButton } from "../../ui/ActionButton";
+import { Sheet } from "../../ui/Sheet";
+import { StatusBadge } from "../../ui/StatusBadge";
+import { defaultSheetTab, initialsOf, sheetStatus, sheetTabs, type SheetTab } from "./phoneModel";
+import { usePhoneSheetActions } from "./usePhoneSheetActions";
 
-type QuickCommand = "compact" | "clear";
-type SheetVerb = "done" | "park" | QuickCommand;
+const TAB_LABEL: Record<SheetTab, string> = { activity: "Activity", terminal: "Terminal", plan: "Plan" };
 
-/** Full-screen row detail — the phone equivalent of the desktop RowPanel
- *  drawer, but modal (a phone has no "board behind it" to keep clickable)
- *  and built around the two verbs a phone visit actually needs: read what
- *  happened (last line + terminal peek) and act (Done, Park, or reply).
+/** Shared sheet header: avatar, name, status badge, one meta line. */
+export function SheetHeader({ name, badge, meta }: { name: string; badge: ReactNode; meta: string }) {
+  return (
+    <>
+      <span className="phone-sheet-avatar" aria-hidden="true">{initialsOf(name)}</span>
+      <span className="phone-sheet-headtext">
+        <span className="phone-sheet-title">{name}</span>
+        <span className="phone-sheet-meta">{meta}</span>
+      </span>
+      {badge}
+    </>
+  );
+}
+
+/** A session's detail in a bottom sheet (peek -> full): read what happened
+ *  (Activity / Terminal / Plan tabs) and act (Park, Done, or reply — the
+ *  Composer is pinned in the footer).
  *
- *  `RowDetailExtras` adds the Review / plan / latest-message cards. */
+ *  `RowDetailExtras` supplies the Review / plan / latest-message + form
+ *  cards; the verbs and their confirm rules live in `usePhoneSheetActions`. */
 export function PhoneSheet({
   row,
   properties: _properties,
   onClose,
   onToast,
+  onUndo,
   onRefetch,
 }: {
   row: BoardRow | null;
   properties: BoardProperty[];
   onClose: () => void;
   onToast: (msg: string, ok: boolean) => void;
+  onUndo?: (message: string, undo: () => void) => void;
   onRefetch: () => void;
 }) {
-  const [busy, setBusy] = useState<SheetVerb | null>(null);
-  // Mirrors the desktop SessionActions two-stage arm/confirm pattern: a
-  // working/blocked/unknown target needs a SECOND press within ~5s before
-  // `confirm:true` is ever sent — a single tap must never force-end or
-  // force-park a busy session (server contract: `SessionActionState
-  // .needsConfirm`).
-  const [armed, setArmed] = useState<SheetVerb | null>(null);
-  // The server said the pane is mid-turn: the next press of this quick
-  // command queues it (`confirm: true`), only while it is still armed.
-  const [quickQueue, setQuickQueue] = useState<QuickCommand | null>(null);
-  const armTimer = useRef<number | null>(null);
-  // Same-tick double tap on Compact/Clear: `busy` disables only on the next
-  // render, so both presses would type the command (ReviewCard's guard).
-  const quickInFlight = useRef(false);
-  const keyboardInset = useVisualViewportOffset();
-
-  useEffect(
-    () => () => {
-      if (armTimer.current) window.clearTimeout(armTimer.current);
-    },
-    [],
-  );
-
-  // A different row opened in the same sheet instance, or this one ended,
-  // must never inherit a still-armed "Confirm" from whatever was open
-  // before it (mirrors the desktop's `setArmed(null)` on row/stage change).
-  useEffect(() => {
-    setArmed(null);
-    setQuickQueue(null);
-  }, [row?.rowId, row?.status]);
-
-  const disarm = () => {
-    if (armTimer.current) window.clearTimeout(armTimer.current);
-    armTimer.current = null;
-    setArmed(null);
-  };
-
-  const arm = (name: SheetVerb) => {
-    if (armTimer.current) window.clearTimeout(armTimer.current);
-    setArmed(name);
-    armTimer.current = window.setTimeout(() => setArmed(null), 5000);
-  };
+  const a = usePhoneSheetActions({ row, onToast, onUndo, onRefetch, onClose });
+  const [tab, setTab] = useState<SheetTab>("activity");
+  const rowId = row?.rowId;
+  const pendingTab = row ? defaultSheetTab(row) : "activity";
+  // A different row (or a plan that just appeared) opens on its own tab.
+  useEffect(() => setTab(pendingTab), [rowId, pendingTab]);
 
   if (!row) return null;
 
-  const label = rowLabel(row);
+  const name = rowLabel(row);
   const paneId = row.derived.paneId ?? null;
+  const ended = row.status === "ended";
   // A Claude Desktop / CLI row has no pane but may take messages via its inbox.
   const canMessage = !!paneId || messagesViaInbox(row.derived);
   const blind = messageRefusal(row.derived) !== null;
   const quick = takesQuickCommands(row);
-  const ended = row.status === "ended";
   // A sleeping Claude Desktop session: ended, but the server wakes it to deliver.
   const wakeable = wakesToMessage(row);
   const lastLine = String(row.values["derived:lastline"] ?? "").trim();
-  const actions = rowActions(row);
-  const endStage = resolveEndStage(actions);
-  const canPark = !!actions?.archive?.enabled;
-  const canUnpark = !!actions?.unarchive?.enabled;
-  const parkVerb = canUnpark ? "unarchive" : "archive";
-  const parkNeedsConfirm = !!actions?.[parkVerb]?.needsConfirm;
+  const tabs = sheetTabs(row);
+  const active = tabs.includes(tab) ? tab : "activity";
+  const machine = row.derived.machine || "local";
+  const meta = [machine !== "local" ? machine : null, fmtAge(row.derived.hookSinceSec ?? null)]
+    .filter(Boolean)
+    .join(" · ");
 
-  const runDone = async () => {
-    if (!endStage || !endStage.state.enabled || busy) return;
-    if (endStage.state.needsConfirm && armed !== "done") {
-      arm("done");
-      return;
-    }
-    disarm();
-    setBusy("done");
-    const res = await sessionAction(endStage.verb, row.rowId, {
-      confirm: endStage.state.needsConfirm,
-    });
-    setBusy(null);
-    if (res.ok) {
-      onToast(`${endStage.label}: ${res.state ?? "done"}`, true);
-      onRefetch();
-      onClose();
-    } else if (res.needsConfirm && res.reason) {
-      // Server state changed since render — arm with the fresh reason
-      // instead of failing silently, same as the desktop.
-      arm("done");
-      onToast(res.reason, false);
-    } else {
-      onToast(`${endStage.label} refused: ${res.error || res.reason || "?"}`, false);
-    }
-  };
-
-  const runPark = async () => {
-    const verb = parkVerb;
-    if (!actions?.[verb]?.enabled || busy) return;
-    if (parkNeedsConfirm && armed !== "park") {
-      arm("park");
-      return;
-    }
-    disarm();
-    setBusy("park");
-    const res = await sessionAction(verb, row.rowId, { confirm: parkNeedsConfirm });
-    setBusy(null);
-    if (res.ok) {
-      onToast(verb === "archive" ? "parked" : "unparked", true);
-      onRefetch();
-    } else if (res.needsConfirm && res.reason) {
-      arm("park");
-      onToast(res.reason, false);
-    } else {
-      onToast(`refused: ${res.error || res.reason || "?"}`, false);
-    }
-  };
-
-  // Compact/Clear: typed like a message (AgentBar's row menu). Clear wipes
-  // the session's context, so it always takes a second press first.
-  const runQuick = async (cmd: QuickCommand) => {
-    if (busy || quickInFlight.current) return;
-    const queueing = quickQueue === cmd && armed === cmd;
-    if (cmd === "clear" && !queueing && armed !== "clear") {
-      arm("clear");
-      return;
-    }
-    disarm();
-    setQuickQueue(null);
-    quickInFlight.current = true;
-    setBusy(cmd);
-    const res = await sendMessage(row.rowId, `/${cmd}`, { confirm: queueing });
-    quickInFlight.current = false;
-    setBusy(null);
-    if (res.ok) {
-      onToast(isQueued(res) ? `/${cmd} queued — lands when the turn ends` : `/${cmd} sent`, true);
-      onRefetch();
-    } else if (res.needsConfirm) {
-      setQuickQueue(cmd);
-      arm(cmd);
-      onToast(res.reason || "busy — press again to queue", false);
-    } else {
-      onToast(`/${cmd} refused: ${res.error || res.reason || "?"}`, false);
-    }
-  };
-
-  const quickLabel = (cmd: QuickCommand) => {
-    const name = cmd === "compact" ? "Compact" : "Clear";
-    if (armed !== cmd) return name;
-    return quickQueue === cmd ? `Queue ${name.toLowerCase()}` : `Confirm ${name.toLowerCase()}`;
-  };
+  const footer = (
+    <div className="phone-sheet-footer">
+      {!ended && (
+        <div className="phone-sheet-actions">
+          {a.endStage && (
+            <ActionButton
+              variant={a.armed === "done" ? "danger" : "secondary"}
+              disabled={!a.endStage.state.enabled || a.busy !== null}
+              onClick={() => void a.runDone()}
+            >
+              {a.armed === "done" ? "Confirm" : "Done"}
+            </ActionButton>
+          )}
+          <OpenInClaudeButton row={row.derived} size="sm" />
+          {(a.canPark || a.canUnpark) && (
+            <ActionButton
+              variant={a.armed === "park" ? "danger" : "secondary"}
+              disabled={a.busy !== null}
+              onClick={() => void a.runPark()}
+            >
+              {a.armed === "park" ? "Confirm" : a.canUnpark ? "Unpark" : "Park"}
+            </ActionButton>
+          )}
+        </div>
+      )}
+      {!ended && quick && (
+        <div className="phone-sheet-quick">
+          {(["compact", "clear"] as const).map((cmd) => (
+            <ActionButton
+              key={cmd}
+              size="sm"
+              variant={a.armed === cmd ? "danger" : "secondary"}
+              disabled={a.busy !== null}
+              onClick={() => void a.runQuick(cmd)}
+            >
+              {a.quickLabel(cmd)}
+            </ActionButton>
+          ))}
+        </div>
+      )}
+      {(!ended || wakeable) && canMessage && !blind && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} />}
+      {!ended && blind && <div className="phone-sheet-gate-note">{blindAgentCaption(row.derived.agentKind)}</div>}
+      {ended && !wakeable && <div className="phone-sheet-gate-note">{row.endedNote || "ended — no further action here"}</div>}
+    </div>
+  );
 
   return (
-    <Modal
-      opened={!!row}
-      onClose={onClose}
-      fullScreen
-      radius={0}
-      transitionProps={{ duration: 160 }}
-      classNames={{ content: "phone-sheet", body: "phone-sheet-body", header: "phone-sheet-head" }}
-      title={
-        <div className="phone-sheet-title">
-          <span>{label}</span>
-          {ended && <span className="ended-badge">ended</span>}
-        </div>
-      }
+    <Sheet
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={name}
+      header={<SheetHeader name={name} badge={<StatusBadge status={sheetStatus(row, wakeable)} />} meta={meta} />}
+      footer={footer}
     >
-      <div className="phone-sheet-scroll">
-        {paneId && <div className="small phone-sheet-paneid">{paneId}</div>}
-        {lastLine && (
-          <div className="phone-sheet-section">
-            <div className="rp-section-name">last line</div>
-            <div className="rp-lastline">{lastLine}</div>
-          </div>
-        )}
-        <PaneScreen paneId={ended ? null : paneId} />
-        <RowDetailExtras row={row} onToast={onToast} phone />
-      </div>
-
-      <div
-        className="phone-sheet-footer"
-        style={{ transform: keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined }}
-      >
-        {!ended && (
-          <div className="phone-sheet-actions">
-            {endStage && (
-              <Button
-                color={armed === "done" ? "orange" : endStage.verb === "stop" ? "red" : undefined}
-                variant={armed === "done" ? "filled" : "light"}
-                size="sm"
-                disabled={!endStage.state.enabled || busy !== null}
-                loading={busy === "done"}
-                onClick={() => void runDone()}
-              >
-                {armed === "done" ? "Confirm" : "Done"}
-              </Button>
-            )}
-            <OpenInClaudeButton row={row.derived} size="sm" />
-            {(canPark || canUnpark) && (
-              <Button
-                color={armed === "park" ? "orange" : undefined}
-                variant={armed === "park" ? "filled" : "light"}
-                size="sm"
-                disabled={busy !== null}
-                loading={busy === "park"}
-                onClick={() => void runPark()}
-              >
-                {armed === "park" ? "Confirm" : canUnpark ? "Unpark" : "Park"}
-              </Button>
-            )}
-          </div>
-        )}
-        {!ended && quick && (
-          <div className="phone-sheet-quick">
-            {(["compact", "clear"] as const).map((cmd) => (
-              <Button
-                key={cmd}
-                size="xs"
-                color={armed === cmd ? "orange" : undefined}
-                variant={armed === cmd ? "filled" : "light"}
-                disabled={busy !== null}
-                loading={busy === cmd}
-                onClick={() => void runQuick(cmd)}
-              >
-                {quickLabel(cmd)}
-              </Button>
-            ))}
-          </div>
-        )}
-        {(!ended || wakeable) && canMessage && !blind && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} />}
-        {!ended && blind && (
-          <div className="phone-sheet-gate-note">{blindAgentCaption(row.derived.agentKind)}</div>
-        )}
-        {ended && (
-          <Badge size="sm" variant="light" color="gray" className="phone-sheet-ended-note">
-            {row.endedNote || "ended — no further action here"}
-          </Badge>
-        )}
-      </div>
-    </Modal>
+      {tabs.length > 1 && (
+        <div className="phone-tabs" role="tablist">
+          {tabs.map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={t === active}
+              className="phone-tab"
+              onClick={() => setTab(t)}
+            >
+              {TAB_LABEL[t]}
+            </button>
+          ))}
+        </div>
+      )}
+      {active === "activity" && (
+        <>
+          {lastLine && (
+            <div className="phone-sheet-section">
+              <div className="rp-section-name">last line</div>
+              <div className="rp-lastline">{lastLine}</div>
+            </div>
+          )}
+          {tabs.includes("plan") ? (
+            <div className="phone-sheet-gate-note">A plan is waiting for your approval — see the Plan tab.</div>
+          ) : (
+            <RowDetailExtras row={row} onToast={onToast} phone />
+          )}
+        </>
+      )}
+      {active === "terminal" && <PaneScreen paneId={ended ? null : paneId} />}
+      {active === "plan" && <RowDetailExtras row={row} onToast={onToast} phone />}
+    </Sheet>
   );
 }

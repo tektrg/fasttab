@@ -110,6 +110,20 @@ function chip(labelText: string): HTMLInputElement {
   return input as HTMLInputElement;
 }
 
+/** Phone: a pane-less prompt lives in a sheet opened from its Inbox row. */
+function openPromptRow(phone: boolean) {
+  if (phone) click(document.querySelector(".ui-row"));
+}
+
+/** Desktop: the "2. Beta" chip. Phone: the numbered option row "Beta". */
+function pick(phone: boolean, n: number, label: string) {
+  if (!phone) return click(chip(`${n}. ${label}`));
+  const opt = [...document.querySelectorAll(".ui-option")].find(
+    (o) => o.querySelector(".ui-option__label")?.textContent === label,
+  );
+  click(opt);
+}
+
 function typeInto(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
   act(() => {
@@ -130,11 +144,12 @@ for (const phone of [true, false]) {
       const { unmount } = mountApp();
       await settle();
       expect(openStreams.map((s) => s.url)).toEqual(["/api/events?answerSurface=web"]);
+      openPromptRow(phone);
       expect(document.querySelectorAll(".hook-card").length).toBe(1);
       expect(document.body.textContent).toContain("QA2 pick any?");
-      click(chip("2. Beta"));
-      click(chip("3. Blue"));
-      click(chip("1. Red"));
+      pick(phone, 2, "Beta");
+      pick(phone, 3, "Blue");
+      pick(phone, 1, "Red");
       const inputs = [...document.querySelectorAll(".hook-card input[type=text], .hook-card input:not([type])")] as HTMLInputElement[];
       typeInto(inputs[2], "$(echo INJECTED) free text");
       click(button("Send 3 answers"));
@@ -153,6 +168,7 @@ for (const phone of [true, false]) {
       const posts = stubServer(questionState);
       const { unmount } = mountApp();
       await settle();
+      openPromptRow(phone);
       push(permissionState);
       expect(document.body.textContent).toContain("echo QA2_SENTINEL_NOOP");
       expect(document.body.textContent).not.toContain("QA2 pick any?");
@@ -171,6 +187,7 @@ for (const phone of [true, false]) {
       stubServer(permissionState);
       const { unmount } = mountApp();
       await settle();
+      openPromptRow(phone);
       expect(document.querySelectorAll(".hook-card").length).toBe(1);
       push({ ...permissionState, computed: { ...permissionState.computed, needsYou: [] } });
       expect(document.querySelectorAll(".hook-card").length).toBe(0);

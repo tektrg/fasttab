@@ -404,6 +404,18 @@ export interface BoardView {
   updatedTs: number;
 }
 
+/** One Desktop session with no running process (server/lib/desktop_sessions.py). */
+export interface SleepingSession {
+  desktopSessionId: string;
+  /** The Claude session id — equals the ended board row's `rowId` when the
+   *  board lists it (that row then carries `messageVia: "wake"`). */
+  cliSessionId: string | null;
+  label: string;
+  cwd: string | null;
+  lastActiveTs: number;
+  openUrl: string;
+}
+
 export interface FullState {
   serverTimeTs: number;
   // Record<FeedName, ...> covers the named feeds; `machines` (per-machine
@@ -418,6 +430,9 @@ export interface FullState {
     agents: AgentRow[];
     disagreementCount: number;
     residueCount: number;
+    /** Claude Desktop sessions whose process stopped (server
+     *  computed.sleepingSessions). Absent on older payloads. */
+    sleepingSessions?: SleepingSession[];
   };
   board?: BoardState;
 }

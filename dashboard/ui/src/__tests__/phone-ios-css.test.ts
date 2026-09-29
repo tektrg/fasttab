@@ -20,38 +20,36 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const css = readFileSync(join(import.meta.dir, "../index.css"), "utf8");
+const sheetCss = readFileSync(join(import.meta.dir, "../ui/Sheet.css"), "utf8");
+const phoneCss = readFileSync(join(import.meta.dir, "../components/phone/phone.css"), "utf8");
 const html = readFileSync(join(import.meta.dir, "../../index.html"), "utf8");
 
 describe("phone PWA — iOS-specific CSS", () => {
   test("the phone header gets a safe-area-inset-top allowance", () => {
     const rule = /\.phone-app\s+header\s*\{[^}]*env\(safe-area-inset-top(,[^)]*)?\)[^}]*\}/;
-    expect(css).toMatch(rule);
+    expect(phoneCss).toMatch(rule);
   });
 
   test("the phone sheet's composer input is at least 16px (no iOS auto-zoom)", () => {
-    const rule = /\.phone-sheet-footer\s+input\s*\{[^}]*font-size:\s*16px[^}]*\}/;
-    expect(css).toMatch(rule);
+    const rule = /\.ui-sheet__footer\s+input\s*\{[^}]*font-size:\s*16px[^}]*\}/;
+    expect(phoneCss).toMatch(rule);
   });
 
-  // Regression for the notch/Dynamic-Island + home-indicator fix: the sheet
-  // (title + close button, action buttons + composer) is a fullScreen Modal
-  // portalled to the document root — it does NOT inherit .phone-app's
-  // insets, so it needs its own safe-area padding on every edge.
-  test("the phone sheet header respects the top safe-area inset", () => {
-    const rule = /\.phone-sheet-head\s*\{[^}]*env\(safe-area-inset-top/;
-    expect(css).toMatch(rule);
+  // The sheet (src/ui/Sheet.css) is portalled to the document root — it does
+  // NOT inherit .phone-app's insets, so it pads every edge itself; the tab
+  // bar (fixed to the bottom) owns the home-indicator inset.
+  test("the sheet footer respects the bottom safe-area inset", () => {
+    expect(sheetCss).toMatch(/\.ui-sheet__footer\s*\{[^}]*env\(safe-area-inset-bottom/);
   });
 
-  test("the phone sheet footer respects the bottom safe-area inset", () => {
-    const rule = /\.phone-sheet-footer\s*\{[^}]*env\(safe-area-inset-bottom/;
-    expect(css).toMatch(rule);
+  test("the sheet respects left/right safe-area insets", () => {
+    expect(sheetCss).toMatch(/\.ui-sheet\s*\{[^}]*env\(safe-area-inset-left/);
+    expect(sheetCss).toMatch(/\.ui-sheet\s*\{[^}]*env\(safe-area-inset-right/);
   });
 
-  test("the phone sheet header and footer respect left/right safe-area insets", () => {
-    expect(css).toMatch(/\.phone-sheet-head\s*\{[^}]*env\(safe-area-inset-left/);
-    expect(css).toMatch(/\.phone-sheet-head\s*\{[^}]*env\(safe-area-inset-right/);
-    expect(css).toMatch(/\.phone-sheet-footer\s*\{[^}]*env\(safe-area-inset-left/);
-    expect(css).toMatch(/\.phone-sheet-footer\s*\{[^}]*env\(safe-area-inset-right/);
+  test("the tab bar respects the bottom safe-area inset and sets the toast offset", () => {
+    expect(phoneCss).toMatch(/\.phone-tabbar\s*\{[^}]*env\(safe-area-inset-bottom/);
+    expect(phoneCss).toMatch(/--ui-tabbar-height:\s*\d+px/);
   });
 
   // Broad fix: every input/textarea/select at phone width is >=16px, not

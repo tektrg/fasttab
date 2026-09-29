@@ -6,7 +6,8 @@ import { usePhoneLayout } from "./hooks/usePhoneLayout";
 import { FeedStrip } from "./components/FeedStrip";
 import { NeedsYou } from "./components/NeedsYou";
 import { BoardSection } from "./components/BoardSection";
-import { PhoneInbox } from "./components/phone/PhoneInbox";
+import { PhoneShell } from "./components/phone/PhoneShell";
+import { ToastProvider } from "./ui/Toast";
 import { filterAgents, type SearchableAgent } from "./agentMatch";
 import type { NeedsYouRow } from "./types";
 
@@ -74,37 +75,16 @@ export default function App() {
 
   const c = state.computed;
 
-  // Phone layout (phase 2a): a completely separate tree, not CSS-hidden
-  // desktop chrome — the table/kanban/bulk-bar/column-menus/view-switcher
-  // are simply never mounted below this width, rather than hidden and
-  // still paying their render/poll cost.
+  // Phone layout: a completely separate tree, not CSS-hidden desktop chrome
+  // — the table/kanban/bulk-bar/column-menus/view-switcher are simply never
+  // mounted below this width, rather than hidden and still paying their
+  // render/poll cost.
   if (phone) {
     return (
-      <div onClick={ensureNotiPerm} className="phone-app">
-        <header>
-          <h1>AGENTBAR</h1>
-          <div className="meta" id="clock">
-            {new Date(state.serverTimeTs * 1000).toLocaleTimeString()} · live
-          </div>
-        </header>
-        <PhoneInbox state={state} onToast={onToast} />
-        {toast && (
-          <Notification
-            id="toast"
-            color={toast.ok ? "green" : "red"}
-            title={toast.ok ? "Done" : "Action failed"}
-            withCloseButton={false}
-            style={{
-              position: "fixed",
-              bottom: "max(16px, calc(env(safe-area-inset-bottom, 0px) + 8px))",
-              left: "max(16px, env(safe-area-inset-left, 0px))",
-              right: "max(16px, env(safe-area-inset-right, 0px))",
-              zIndex: 300,
-            }}
-          >
-            {toast.msg}
-          </Notification>
-        )}
+      <div onClick={ensureNotiPerm}>
+        <ToastProvider>
+          <PhoneShell state={state} />
+        </ToastProvider>
       </div>
     );
   }

@@ -1,0 +1,38 @@
+import type { NeedsYouRow } from "../../types";
+import { fmtAge } from "../../api";
+import { PanelessPrompt } from "../HookRequestCard";
+import { Sheet } from "../../ui/Sheet";
+import { StatusBadge } from "../../ui/StatusBadge";
+import { needsYouUiStatus } from "./phoneModel";
+import { SheetHeader } from "./PhoneSheet";
+
+/** Sheet for a Needs-you entry that has no board row (a Claude Desktop / CLI
+ *  session outside herdr): its hook prompt, answerable here, or its
+ *  transcript question, display only. */
+export function PromptSheet({
+  row,
+  onClose,
+  onToast,
+}: {
+  row: NeedsYouRow | null;
+  onClose: () => void;
+  onToast: (msg: string, ok: boolean) => void;
+}) {
+  if (!row) return null;
+  const machine = row.machine || "local";
+  const meta = [machine !== "local" ? machine : null, fmtAge(row.sinceSec)].filter(Boolean).join(" · ");
+  return (
+    <Sheet
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={row.label}
+      header={<SheetHeader name={row.label} badge={<StatusBadge status={needsYouUiStatus(row.kind)} />} meta={meta} />}
+    >
+      <div className="phone-sheet-section">{row.detail}</div>
+      <PanelessPrompt row={row} onToast={onToast} phone />
+      {!row.hookRequest && !row.transcriptQuestion && (
+        <div className="phone-sheet-gate-note">Answer this in Claude on the Mac.</div>
+      )}
+    </Sheet>
+  );
+}

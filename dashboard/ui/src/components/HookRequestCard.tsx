@@ -3,6 +3,7 @@ import { Badge, Button, Chip, Group, Paper, Stack, Text, TextInput } from "@mant
 import type { HookAnswer, HookQuestion, HookRequest, NeedsYouRow, TranscriptQuestion } from "../types";
 import { answerHookRequest } from "../api";
 import { MarkdownInline } from "./Markdown";
+import { ActionButton } from "../ui/ActionButton";
 
 /** A pane-less (Claude Desktop / CLI outside herdr) Needs You row's prompt:
  *  - `hookRequest` — the PermissionRequest hook holds it: answerable here,
@@ -13,9 +14,12 @@ import { MarkdownInline } from "./Markdown";
 export function PanelessPrompt({
   row,
   onToast,
+  phone,
 }: {
   row: NeedsYouRow;
   onToast: (msg: string, ok: boolean) => void;
+  /** Phone sheet: numbered 48pt option rows and one full-width Send. */
+  phone?: boolean;
 }) {
   // A pane row is answered by its pane path — except an OpenCode / Codex
   // prompt, which has no pane path and comes with its own request (`tool`).
@@ -23,7 +27,7 @@ export function PanelessPrompt({
   if (row.hookRequest) {
     // Keyed by request id: a new prompt (or a re-sent one with a new id)
     // starts from a clean card, never with the old one's picks.
-    return <HookRequestCard key={row.hookRequest.requestId} request={row.hookRequest} onToast={onToast} />;
+    return <HookRequestCard key={row.hookRequest.requestId} request={row.hookRequest} onToast={onToast} phone={phone} />;
   }
   if (row.transcriptQuestion) return <TranscriptQuestionNote q={row.transcriptQuestion} />;
   return null;
@@ -91,11 +95,13 @@ function QuestionFields({
   draft,
   disabled,
   onChange,
+  phone,
 }: {
   q: HookQuestion;
   draft: Draft;
   disabled: boolean;
   onChange: (next: Draft) => void;
+  phone?: boolean;
 }) {
   const toggle = (label: string) => {
     const on = draft.picked.includes(label);
@@ -113,23 +119,47 @@ function QuestionFields({
         {q.header ? <Text size="xs" c="dimmed">{q.header}</Text> : null}
       </Group>
       <Text mb="xs"><MarkdownInline text={q.question} /></Text>
-      <Stack gap="xs" mb="xs" align="stretch">
-        {q.options.map((o, i) => (
-          <Stack key={i} gap={2}>
-            <Chip
-              checked={draft.picked.includes(o.label)}
-              onChange={() => toggle(o.label)}
-              disabled={disabled}
-              color="green"
-            >
-              {i + 1}. {o.label}
-            </Chip>
-            {o.description ? (
-              <Text size="xs" c="dimmed"><MarkdownInline text={o.description} /></Text>
-            ) : null}
-          </Stack>
-        ))}
-      </Stack>
+      {phone ? (
+        <div className="ui-options" role="group" aria-label={q.question}>
+          {q.options.map((o, i) => {
+            const on = draft.picked.includes(o.label);
+            return (
+              <button
+                key={i}
+                type="button"
+                className="ui-option"
+                aria-pressed={on}
+                disabled={disabled}
+                onClick={() => toggle(o.label)}
+              >
+                <span className="ui-option__n" aria-hidden="true">{i + 1}</span>
+                <span className="ui-option__body">
+                  <span className="ui-option__label"><MarkdownInline text={o.label} /></span>
+                  {o.description ? <span className="ui-option__desc"><MarkdownInline text={o.description} /></span> : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+<Stack gap="xs" mb="xs" align="stretch">
+          {q.options.map((o, i) => (
+            <Stack key={i} gap={2}>
+              <Chip
+                checked={draft.picked.includes(o.label)}
+                onChange={() => toggle(o.label)}
+                disabled={disabled}
+                color="green"
+              >
+                {i + 1}. {o.label}
+              </Chip>
+              {o.description ? (
+                <Text size="xs" c="dimmed"><MarkdownInline text={o.description} /></Text>
+              ) : null}
+            </Stack>
+          ))}
+        </Stack>
+        )}
       <TextInput
         label="Other"
         placeholder="type an answer instead — replaces option picks"
@@ -141,7 +171,7 @@ function QuestionFields({
   );
 }
 
-function HookQuestionCard({ request, onToast }: { request: HookRequest; onToast: (msg: string, ok: boolean) => void }) {
+function HookQuestionCard({ request, onToast, phone }: { request: HookRequest; onToast: (msg: string, ok: boolean) => void; phone?: boolean }) {
   const questions = request.questions ?? [];
   const [drafts, setDrafts] = useState<Draft[]>(() => questions.map(() => ({ picked: [], text: "" })));
   const { state, send, busy } = useHookSend(request, onToast);
@@ -162,21 +192,28 @@ function HookQuestionCard({ request, onToast }: { request: HookRequest; onToast:
             q={q}
             draft={drafts[i]}
             disabled={busy}
+            phone={phone}
             onChange={(next) => setDrafts((d) => d.map((old, j) => (j === i ? next : old)))}
           />
         ))}
       </Stack>
-      <Group justify="flex-end" mt="sm">
-        <Button color="green" disabled={!complete || busy} loading={state.status === "sending"} onClick={submit}>
-          {questions.length > 1 ? `Send ${questions.length} answers` : "Send answer"}
-        </Button>
-      </Group>
+      {phone ? (
+        <ActionButton variant="primary" className="ui-btn--block" disabled={!complete || busy} onClick={submit}>
+          {state.status === "sending" ? "Sending…" : questions.length > 1 ? `Send ${questions.length} answers` : "Send answer"}
+        </ActionButton>
+      ) : (
+        <Group justify="flex-end" mt="sm">
+          <Button color="green" disabled={!complete || busy} loading={state.status === "sending"} onClick={submit}>
+            {questions.length > 1 ? `Send ${questions.length} answers` : "Send answer"}
+          </Button>
+        </Group>
+      )}
       <SendFooter state={state} request={request} />
     </Paper>
   );
 }
 
-function HookPermissionCard({ request, onToast }: { request: HookRequest; onToast: (msg: string, ok: boolean) => void }) {
+function HookPermissionCard({ request, onToast, phone }: { request: HookRequest; onToast: (msg: string, ok: boolean) => void; phone?: boolean }) {
   const permission = request.permission;
   const { state, send, busy } = useHookSend(request, onToast);
   // A suggestion saves a permission rule: it takes a second tap, like
@@ -198,7 +235,7 @@ function HookPermissionCard({ request, onToast }: { request: HookRequest; onToas
       </Group>
       <pre className="hook-permission-detail">{permission.detail}</pre>
       <Stack gap="xs" mt="xs">
-        <Button color="green" disabled={busy} onClick={() => void send({ behavior: "allow" })}>
+        <Button color="green" disabled={busy} onClick={() => void send({ behavior: "allow" })} h={phone ? 48 : undefined}>
           Allow once
         </Button>
         {permission.suggestions.map((s) => (
@@ -210,6 +247,7 @@ function HookPermissionCard({ request, onToast }: { request: HookRequest; onToas
             onClick={() => pressSuggestion(s.index)}
             styles={{ label: { whiteSpace: "normal" } }}
             h="auto"
+            mih={phone ? 48 : undefined}
             py={6}
           >
             {armedSuggestion === s.index ? "Tap again to save: " : ""}
@@ -221,7 +259,7 @@ function HookPermissionCard({ request, onToast }: { request: HookRequest; onToas
             A rule button allows this now AND saves the rule, so {productName(request)} stops asking — it takes a second tap.
           </Text>
         ) : null}
-        <Button color="red" variant="light" disabled={busy} onClick={() => void send(WEB_DENY)}>
+        <Button color="red" variant="light" disabled={busy} onClick={() => void send(WEB_DENY)} h={phone ? 48 : undefined}>
           Deny
         </Button>
       </Stack>
@@ -230,10 +268,10 @@ function HookPermissionCard({ request, onToast }: { request: HookRequest; onToas
   );
 }
 
-function HookRequestCard({ request, onToast }: { request: HookRequest; onToast: (msg: string, ok: boolean) => void }) {
+function HookRequestCard({ request, onToast, phone }: { request: HookRequest; onToast: (msg: string, ok: boolean) => void; phone?: boolean }) {
   return request.kind === "question"
-    ? <HookQuestionCard request={request} onToast={onToast} />
-    : <HookPermissionCard request={request} onToast={onToast} />;
+    ? <HookQuestionCard request={request} onToast={onToast} phone={phone} />
+    : <HookPermissionCard request={request} onToast={onToast} phone={phone} />;
 }
 
 function TranscriptQuestionNote({ q }: { q: TranscriptQuestion }) {

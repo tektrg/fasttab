@@ -16,7 +16,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MantineProvider } from "@mantine/core";
-import { PhoneInbox } from "../components/phone/PhoneInbox";
+import { PhoneShell } from "../components/phone/PhoneShell";
+import { ToastProvider } from "../ui/Toast";
 import App from "../App";
 import { theme } from "../theme";
 import { FEED_ORDER, type BoardRow, type BoardState, type FeedSnapshot, type FullState, type NeedsYouRow } from "../types";
@@ -52,6 +53,16 @@ async function flush() {
     await Promise.resolve();
     await Promise.resolve();
   });
+}
+
+/** Poll (inside act) until `cond` holds — the board fetch chain length varies with load. */
+async function until(cond: () => boolean) {
+  const deadline = Date.now() + 10_000;
+  while (!cond() && Date.now() < deadline) {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+  }
 }
 
 function mount(node: React.ReactNode) {
@@ -143,30 +154,45 @@ function stubBoardFetch(board: BoardState, state?: FullState) {
   (globalThis as { EventSource?: unknown }).EventSource = FakeEventSource;
 }
 
-describe("PhoneInbox: Needs You ordering", () => {
-  test("blocked agents list ahead of a question or feed-broken entry", () => {
+describe("PhoneShell: Inbox sections", () => {
+  test("Questions list first, then Blocked, then feed notices; tab badge counts blocked + questions", () => {
     const state = fullState([
       needsYouRow("feed-broken", "feed", null),
-      needsYouRow("question", "picker-agent", "w1:p1"),
       needsYouRow("blocked", "blocked-agent", "w1:p2"),
+      needsYouRow("question", "picker-agent", "w1:p1"),
     ]);
-    const { host, unmount } = mount(<PhoneInbox state={state} onToast={() => {}} />);
-    const labels = [...host.querySelectorAll(".phone-row-label")].map((n) => n.textContent);
-    expect(labels[0]).toBe("blocked-agent");
-    expect(labels).toContain("picker-agent");
-    expect(labels).toContain("feed");
+    const { host, unmount } = mount(<ToastProvider><PhoneShell state={state} /></ToastProvider>);
+    const sections = [...host.querySelectorAll("[data-section]")].map((n) => n.getAttribute("data-section"));
+    expect(sections).toEqual(["questions", "blocked", "feed"]);
+    const labels = [...host.querySelectorAll(".ui-row__name")].map((n) => n.textContent);
+    expect(labels).toEqual(["picker-agent", "blocked-agent", "feed"]);
+    expect(host.querySelector(".phone-tabbar__badge")?.textContent).toBe("2");
+    unmount();
+  });
+
+  test("empty inbox says how many agents work and links to Agents", async () => {
+    const state = fullState([]);
+    stubBoardFetch({ rowKind: "session", properties: [], rows: [boardRow("a", "w1:p1"), boardRow("b", "w1:p2")] });
+    const { host, unmount } = mount(<ToastProvider><PhoneShell state={state} /></ToastProvider>);
+    await flush();
+    expect(host.querySelector('[data-testid="inbox-empty"]')?.textContent).toContain("Nothing needs you. 2 agents working.");
+    expect(host.querySelector(".phone-tabbar__badge")).toBeNull();
+    act(() => {
+      (host.querySelector(".phone-link") as HTMLElement).click();
+    });
+    expect(host.querySelector("h1")?.textContent).toBe("Agents");
     unmount();
   });
 });
 
-describe("PhoneInbox: Needs You names the machine", () => {
+describe("PhoneShell: Needs You names the machine", () => {
   test("an air-m1 pane shows its machine badge; a local one shows none", () => {
     const state = fullState([
       { ...needsYouRow("blocked", "air-agent", "air-m1:w2:p3"), machine: "air-m1" },
       { ...needsYouRow("blocked", "local-agent", "w1:p2"), machine: "local" },
     ]);
-    const { host, unmount } = mount(<PhoneInbox state={state} onToast={() => {}} />);
-    const rows = [...host.querySelectorAll(".phone-row")];
+    const { host, unmount } = mount(<ToastProvider><PhoneShell state={state} /></ToastProvider>);
+    const rows = [...host.querySelectorAll(".ui-row")];
     const air = rows.find((r) => r.textContent?.includes("air-agent"));
     const local = rows.find((r) => r.textContent?.includes("local-agent"));
     expect(air?.textContent).toContain("air-m1");
@@ -175,7 +201,7 @@ describe("PhoneInbox: Needs You names the machine", () => {
   });
 });
 
-describe("PhoneInbox: sheet opens", () => {
+describe("PhoneShell: sheet opens", () => {
   test("tapping a Needs You row opens the full-screen sheet for its pane", async () => {
     const state = fullState([needsYouRow("blocked", "blocked-agent", "w1:p2")]);
     const board: BoardState = {
@@ -184,10 +210,10 @@ describe("PhoneInbox: sheet opens", () => {
       rows: [boardRow("r1", "w1:p2")],
     };
     stubBoardFetch(board);
-    const { host, unmount } = mount(<PhoneInbox state={state} onToast={() => {}} />);
+    const { host, unmount } = mount(<ToastProvider><PhoneShell state={state} /></ToastProvider>);
     await flush(); // let the board fetch resolve so the pane->row lookup can find r1
     act(() => {
-      (host.querySelector(".phone-row") as HTMLElement).click();
+      (host.querySelector(".ui-row") as HTMLElement).click();
     });
     // The sheet is a Mantine Modal — it portals to document.body, not the
     // mount host, so look for it there.
@@ -204,10 +230,12 @@ describe("PhoneInbox: sheet opens", () => {
       rows: [boardRow("worker-9", "w1:p9")],
     };
     stubBoardFetch(board);
-    const { host, unmount } = mount(<PhoneInbox state={state} onToast={() => {}} />);
-    // Working starts expanded — the row is on screen without an extra tap.
-    await flush();
-    const row = host.querySelector('[data-section="working"] .phone-row') as HTMLElement;
+    const { host, unmount } = mount(<ToastProvider><PhoneShell state={state} /></ToastProvider>);
+    act(() => {
+      (host.querySelector('[aria-label="Main"] button:nth-child(2)') as HTMLElement).click(); // Agents tab
+    });
+    await until(() => !!host.querySelector('[data-section="working"] .ui-row'));
+    const row = host.querySelector('[data-section="working"] .ui-row') as HTMLElement;
     expect(row).not.toBeNull();
     act(() => {
       row.click();
@@ -218,12 +246,12 @@ describe("PhoneInbox: sheet opens", () => {
   });
 });
 
-describe("PhoneInbox: no desktop chrome", () => {
+describe("PhoneShell: no desktop chrome", () => {
   test("renders no <table> — BoardTable/Kanban are never mounted here", async () => {
     const state = fullState([]);
     const board: BoardState = { rowKind: "session", properties: [], rows: [boardRow("r1", "w1:p1")] };
     stubBoardFetch(board);
-    const { host, unmount } = mount(<PhoneInbox state={state} onToast={() => {}} />);
+    const { host, unmount } = mount(<ToastProvider><PhoneShell state={state} /></ToastProvider>);
     await flush();
     expect(host.querySelector("table")).toBeNull();
     unmount();
@@ -250,7 +278,7 @@ describe("App: phone layout swap", () => {
     stubBoardFetch({ rowKind: "session", properties: [], rows: [] }, state);
     const { host, unmount } = mount(<App />);
     await flush();
-    expect(host.querySelector("h1")?.textContent).toBe("AGENTBAR");
+    expect(host.querySelector("h1")?.textContent).toBe("Inbox");
     expect(host.querySelector("#board-body")).toBeNull();
     expect(host.querySelector("#needsyou-body")).toBeNull();
     unmount();

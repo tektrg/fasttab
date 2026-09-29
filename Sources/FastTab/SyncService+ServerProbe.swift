@@ -48,17 +48,15 @@ extension SyncService {
 
     private func answerServerProbe(_ request: SyncServerProbe.Request) async {
         let startedAt = Date()
-        let outcome: SyncServerProbe.Outcome
-        var errorMessage: String?
-        do {
-            try await catchUpServerProbeMirror()
-            outcome = .ok
-        } catch where SyncHealthDiagnostics.isExpectedMissingZone(error) {
-            outcome = .zoneMissing
-        } catch {
-            outcome = .error
-            errorMessage = error.localizedDescription
+        let catchUp: SyncServerProbe.CatchUpResult
+        if let recent = SyncServerProbe.reusableCatchUp(lastServerProbeCatchUp, now: startedAt) {
+            catchUp = recent
+        } else {
+            catchUp = await catchUpServerProbeMirrorReportingOutcome()
+            lastServerProbeCatchUp = catchUp
         }
+        let outcome = catchUp.outcome
+        let errorMessage = catchUp.errorMessage
         let response = SyncServerProbe.makeResponse(
             request: request,
             deviceID: deviceID,
@@ -78,6 +76,21 @@ extension SyncService {
         } catch {
             logger.error("Sync probe answer write failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func catchUpServerProbeMirrorReportingOutcome() async -> SyncServerProbe.CatchUpResult {
+        let outcome: SyncServerProbe.Outcome
+        var errorMessage: String?
+        do {
+            try await catchUpServerProbeMirror()
+            outcome = .ok
+        } catch where SyncHealthDiagnostics.isExpectedMissingZone(error) {
+            outcome = .zoneMissing
+        } catch {
+            outcome = .error
+            errorMessage = error.localizedDescription
+        }
+        return SyncServerProbe.CatchUpResult(outcome: outcome, errorMessage: errorMessage, finishedAt: Date())
     }
 
     /// Only the fields the probe reports; keeps each change-feed page small.
@@ -108,8 +121,19 @@ extension SyncService {
                 continue
             }
             pageCount += 1
+            var modifiedRecords: [CKRecord] = []
+            var failedRecordCount = 0
+            for modificationResult in zoneChanges.modificationResultsByID.values {
+                switch modificationResult {
+                case .success(let modification): modifiedRecords.append(modification.record)
+                case .failure: failedRecordCount += 1
+                }
+            }
+            guard failedRecordCount == 0 else {
+                throw SyncServerProbe.IncompleteChangeFeedPage(failedRecordCount: failedRecordCount)
+            }
             serverProbeMirror.apply(
-                modified: zoneChanges.modificationResultsByID.values.compactMap { try? $0.get().record }.map(Self.probeSummary(of:)),
+                modified: modifiedRecords.map(Self.probeSummary(of:)),
                 deletedRecordNames: zoneChanges.deletions.map(\.recordID.recordName)
             )
             serverProbeChangeToken = zoneChanges.changeToken

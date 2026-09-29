@@ -55,6 +55,25 @@ final class SimulatedClock {
     func cancelAll() { queue.removeAll() }
 }
 
+/// Holds a simulated slow read open until the clock reaches its end, so a
+/// read can overlap later timers and extension events.
+@MainActor
+final class SimulatedReadGate {
+    private var isOpen = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func open() {
+        isOpen = true
+        waiter?.resume()
+        waiter = nil
+    }
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+}
+
 // MARK: - Fake browser
 
 /// One open tab in a fake browser. `tabID` is what the extension would report.
@@ -209,6 +228,12 @@ final class LiveTabSyncHarness {
     }
     private var inFlightWork: [Task<Void, Never>] = []
     private(set) var reconcileRunCount = 0
+    /// Simulated duration of every all-browser read (0 = instant). A slow
+    /// read stays in flight while timers and extension events keep coming.
+    /// Set it after `launch()`: a reconcile that must refresh first would wait
+    /// on a gated read that only advancing the clock can finish.
+    var readDuration: TimeInterval = 0
+    private var slowReadsInProgress = 0
 
     init(_ browsers: [FakeBrowserBackend]) {
         self.browsers = browsers
@@ -225,8 +250,12 @@ final class LiveTabSyncHarness {
         pipeline = LiveTabRefreshPipeline(
             clock: clock.pipelineClock,
             hooks: LiveTabRefreshPipeline.Hooks(
-                makeRead: {
-                    { () async -> LiveTabRead in
+                makeRead: { [unowned self] in
+                    let readGate = self.startSimulatedReadGate()
+                    return { () async -> LiveTabRead in
+                        // Browsers are read when the gate opens (not at start):
+                        // deterministic, since `drain` then awaits the read.
+                        await readGate?.wait()
                         var activeTimes: [String: Date] = [:]
                         var audibleSeenAt: [String: Date] = [:]
                         let fetched = await LiveTabReader.fetchLiveTabOutcomesParallel(
@@ -297,13 +326,32 @@ final class LiveTabSyncHarness {
         return nil
     }
 
+    /// Registered at read start (main actor), so the read's end time is fixed
+    /// before `drain` can move the clock.
+    private func startSimulatedReadGate() -> SimulatedReadGate? {
+        guard readDuration > 0 else { return nil }
+        let gate = SimulatedReadGate()
+        slowReadsInProgress += 1
+        clock.runAfter(readDuration) { [unowned self] in
+            self.slowReadsInProgress -= 1
+            gate.open()
+        }
+        return gate
+    }
+
     private func track(_ work: @escaping @MainActor () async -> Void) {
         inFlightWork.append(Task { @MainActor in await work() })
     }
 
+    /// Awaits in-flight refreshes (including follow-ups they start) and
+    /// tracked work. A read still held by its `SimulatedReadGate` is left
+    /// running: only advancing the clock can finish it.
     private func drain() async {
         while true {
-            await pipeline?.waitForInFlightRefresh()
+            if slowReadsInProgress == 0, pipeline?.isRefreshInFlight == true {
+                await pipeline?.waitForInFlightRefresh()
+                continue
+            }
             guard !inFlightWork.isEmpty else { return }
             let work = inFlightWork
             inFlightWork.removeAll()

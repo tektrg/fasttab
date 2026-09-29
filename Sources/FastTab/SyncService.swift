@@ -80,6 +80,7 @@ final class SyncService: NSObject, ObservableObject {
     /// full walk.
     var serverProbeMirror = SyncServerProbe.ZoneMirror()
     var serverProbeChangeToken: CKServerChangeToken?
+    var lastServerProbeCatchUp: SyncServerProbe.CatchUpResult?
 
     /// Set by the first CloudKit push this process actually receives.
     ///

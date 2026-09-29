@@ -269,6 +269,27 @@ struct LiveTabSyncScenarioTests {
         #expect(harness.serverTabs.allSatisfy { $0.id.contains("_tab_") }, "\(harness.serverDescription)")
     }
 
+    // MARK: Slow reads
+
+    @Test func steadyExtensionEventsDuringSlowReadsStillPublish() async {
+        // Reads slower than the 5s extension throttle (osascript may take up
+        // to its 8s timeout) must not be superseded by every new event, or
+        // nothing ever reaches the phone while the user keeps browsing.
+        let browser = chrome(threeTabs, extension: true)
+        let harness = await launched(browser)
+        await harness.advance(by: 30)
+        harness.readDuration = 8
+
+        for index in 1...15 { // a new tab every 3s for 45s
+            harness.extensionTabUpserted(browser, tab: .page("new\(index)", id: 100 + index))
+            await harness.advance(by: 3)
+        }
+
+        let newTabsOnServer = harness.serverTabs(of: browser).filter { $0.url.contains("://new") }.count
+        #expect(newTabsOnServer >= 10, "reads starved by events; new tabs on server: \(newTabsOnServer)")
+        #expect(await harness.secondsUntilServerMatchesOpenTabs(within: 20) != nil, "\(harness.serverDescription)")
+    }
+
     // MARK: Extras
 
     @Test func privateWindowTabsNeverReachTheServer() async {

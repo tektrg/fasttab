@@ -135,4 +135,19 @@ struct SyncServerProbeTests {
         #expect(decoded == response)
         #expect(String(decoding: try Data(contentsOf: fileURL), as: UTF8.self).contains("\"zone-missing\""))
     }
+
+    // MARK: - Catch-up reuse (request flood) and incomplete pages
+
+    @Test func reusesACatchUpOnlyWithinTheReuseWindow() {
+        let finishedAt = Date(timeIntervalSince1970: 1_000)
+        let previous = SyncServerProbe.CatchUpResult(outcome: .ok, errorMessage: nil, finishedAt: finishedAt)
+        #expect(SyncServerProbe.reusableCatchUp(nil, now: finishedAt) == nil)
+        #expect(SyncServerProbe.reusableCatchUp(previous, now: finishedAt.addingTimeInterval(1.9)) == previous)
+        #expect(SyncServerProbe.reusableCatchUp(previous, now: finishedAt.addingTimeInterval(SyncServerProbe.catchUpReuseWindow)) == nil)
+    }
+
+    @Test func incompletePageReadsAsARetryableError() {
+        let message = SyncServerProbe.IncompleteChangeFeedPage(failedRecordCount: 2).localizedDescription
+        #expect(message.contains("2 unreadable record"))
+    }
 }

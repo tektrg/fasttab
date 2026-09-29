@@ -74,6 +74,11 @@ final class LiveTabRefreshPipeline {
     /// and the extension-event throttle (`LiveTabRefreshPolicy`).
     private(set) var lastRefreshStartedAt: Date?
     private var refreshTask: Task<Void, Never>?
+    /// A read has started and has not yet completed or been superseded.
+    private(set) var isRefreshInFlight = false
+    /// An extension event arrived while a read was in flight; refresh again
+    /// as soon as that read publishes (see `refreshAfterInFlightRead`).
+    private var isFollowUpRefreshRequested = false
     private var isExtensionEventRefreshScheduled = false
     /// When the newest phone-relevant extension event arrived.
     private var latestPhoneRelevantExtensionEventAt: Date?
@@ -144,8 +149,22 @@ final class LiveTabRefreshPipeline {
                 return
             }
             self.logger.info("Authoritative refresh triggered by extension tab event.")
-            self.refreshNow()
+            self.refreshAfterInFlightRead()
         }
+    }
+
+    /// Extension-triggered refreshes never cancel a read in flight: with reads
+    /// slower than `extensionEventMinimumInterval` (osascript can take up to
+    /// its 8s timeout), steady tab events would otherwise supersede every read
+    /// and nothing would ever publish. The in-flight read may predate the
+    /// event, so one follow-up refresh runs right after it publishes.
+    private func refreshAfterInFlightRead() {
+        guard isRefreshInFlight else {
+            refreshNow()
+            return
+        }
+        isFollowUpRefreshRequested = true
+        logger.info("Extension-event refresh deferred until the read in flight publishes.")
     }
 
     // MARK: - Refresh
@@ -154,13 +173,22 @@ final class LiveTabRefreshPipeline {
     /// a refresh still in flight: only the newest read may publish.
     func refreshNow() {
         refreshTask?.cancel()
+        isRefreshInFlight = false
+        // This read starts after every event seen so far, so it covers them.
+        isFollowUpRefreshRequested = false
         lastRefreshStartedAt = clock.now()
         hooks.willStartRefresh()
         guard let read = hooks.makeRead() else { return }
+        isRefreshInFlight = true
         refreshTask = Task(priority: .utility) { [weak self] in
             let result = await read()
             guard !Task.isCancelled, let self else { return }
+            self.isRefreshInFlight = false
             self.complete(result)
+            if self.isFollowUpRefreshRequested {
+                self.logger.info("Follow-up authoritative refresh for extension events seen mid-read.")
+                self.refreshNow()
+            }
         }
     }
 

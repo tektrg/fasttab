@@ -57,6 +57,34 @@ enum SyncServerProbe {
         var records: [ServerRecordSummary] { Array(recordsByName.values) }
     }
 
+    /// How one change-feed catch-up ended. A request arriving within
+    /// `catchUpReuseWindow` of the previous catch-up is answered from it
+    /// (the mirror is at most that old), so a request flood cannot turn into
+    /// a flood of CloudKit reads.
+    struct CatchUpResult: Equatable, Sendable {
+        var outcome: Outcome
+        var errorMessage: String?
+        var finishedAt: Date
+    }
+
+    nonisolated static let catchUpReuseWindow: TimeInterval = 2
+
+    nonisolated static func reusableCatchUp(_ previous: CatchUpResult?, now: Date) -> CatchUpResult? {
+        guard let previous, now.timeIntervalSince(previous.finishedAt) < catchUpReuseWindow else { return nil }
+        return previous
+    }
+
+    /// A change-feed page with per-record failures is not the server's full
+    /// truth (a failed entry could be the probe's own tab). The page is not
+    /// applied and the token not advanced, so the request answers `error` and
+    /// the script's next poll retries the same page.
+    struct IncompleteChangeFeedPage: LocalizedError, Equatable {
+        var failedRecordCount: Int
+        var errorDescription: String? {
+            "change feed returned \(failedRecordCount) unreadable record(s); retrying"
+        }
+    }
+
     struct MatchingTab: Codable, Equatable, Sendable {
         var recordName: String
         var browserName: String

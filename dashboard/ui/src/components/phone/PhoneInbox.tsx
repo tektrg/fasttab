@@ -263,6 +263,9 @@ export function PhoneInbox({
           placeholder="Filter agents…"
           enterKeyHint="search"
           className="phone-search-input"
+          // Mantine defaults sections to pointer-events:none (inherited), which
+          // made the ✕ clear button (and its 44px ::before hit area) untappable.
+          rightSectionPointerEvents="auto"
           rightSection={
             query ? (
               <UnstyledButton

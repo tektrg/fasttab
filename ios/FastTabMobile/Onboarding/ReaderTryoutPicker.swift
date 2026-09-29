@@ -23,10 +23,36 @@ enum ReaderTryoutPicker {
     /// Subdomains that almost always mean a web app ("app.example.com", "mail.example.com").
     static let appHostPrefixes = ["app.", "mail.", "docs.", "calendar.", "drive.", "dashboard.", "admin.", "console."]
 
+    /// Path words / query keys that mean a GET may do something (sign out, confirm an email,
+    /// consume a one-time link) or shows private state. The guide fetches the picked tab in the
+    /// background before the user taps anything, so these must never be picked.
+    static let sensitiveWords: Set<String> = [
+        "verify", "verification", "confirm", "confirmation", "reset", "unsubscribe", "optout",
+        "token", "auth", "authorize", "oauth", "oauth2", "login", "signin", "signup", "logout",
+        "signout", "invite", "invitation", "magic", "checkout", "session", "sessionid", "sid",
+        "otp", "activate", "activation", "password", "callback", "sso", "billing",
+    ]
+
+    /// True when the URL carries credentials, a one-time/auth hint, or a non-default port.
+    static func isSensitive(_ url: URL) -> Bool {
+        if url.user != nil || url.password != nil { return true }
+        if let port = url.port, port != 80, port != 443 { return true }
+        func words(_ text: String) -> [String] {
+            text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let found = words(url.path()) + items.flatMap { words($0.name) }
+        if found.contains(where: sensitiveWords.contains) { return true }
+        // Long opaque strings (tokens, hashes) in path or query.
+        let opaque = url.path().split(separator: "/").map(String.init) + items.compactMap(\.value)
+        return opaque.contains { $0.count >= 32 && !$0.contains("-") && !$0.contains(" ") }
+    }
+
     static func looksLikeArticle(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
         guard let host = url.host()?.lowercased(), host.contains(".") else { return false }
         guard !appHosts.contains(host), !appHostPrefixes.contains(where: host.hasPrefix) else { return false }
+        guard !isSensitive(url) else { return false }
         let pathSegments = url.path().split(separator: "/")
         return !pathSegments.isEmpty
     }

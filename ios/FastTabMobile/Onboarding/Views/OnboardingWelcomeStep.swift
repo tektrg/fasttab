@@ -8,10 +8,11 @@ struct OnboardingWelcomeStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            systemImage: "macbook.and.iphone",
             title: "Your Mac's tabs, in your pocket",
             message: "FastTab brings the tabs and bookmarks from your Mac to your iPhone."
         ) {
+            OnboardingHeroWelcome()
+        } content: {
             VStack(alignment: .leading, spacing: DS.Space.lg) {
                 OnboardingFeatureRow(
                     systemImage: "arrow.uturn.backward.circle.fill",

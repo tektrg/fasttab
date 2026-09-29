@@ -33,12 +33,20 @@ struct OnboardingConnectMacStep: View {
         )
     }
 
+    private var heroState: ConnectHeroState {
+        ConnectHeroState(
+            connection: connection,
+            macIsOffline: SyncStatusCopy.macFreshness(device: localCache.state.connectedMac).isOffline
+        )
+    }
+
     var body: some View {
         OnboardingStepLayout(
-            systemImage: "laptopcomputer.and.iphone",
             title: "Connect your Mac",
             message: "FastTab syncs with your Mac over iCloud. Use the same Apple Account on both."
         ) {
+            OnboardingHeroConnect(state: heroState)
+        } content: {
             statusCard
                 .animation(DS.Motion.quick, value: connection)
         } actions: {

@@ -458,6 +458,16 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   Wrapping the hook in a shell script for tracing: pass stdin on with
   `printf '%s'`, never `echo` (sh's echo expands `\n` and corrupts the JSON).
 
+## OpenCode / Codex exact status (`POST /api/hook/tui-event`) — Phase 2, status only
+- Senders (`integrations/`): OpenCode plugin `opencode/agentbar-status.js` (session.status/idle/error/deleted, permission.*, question.*, message.updated tokens, 30s heartbeat; reports pid, cwd, `HERDR_PANE_ID`, its local `serverUrl`); Codex hook `codex/agentbar-codex-hook.py` (all 11 hooks.json events incl. PermissionRequest). Both NEVER decide: no stdout, exit 0, 0.8s post timeout, fire-and-forget (plugin handler never awaits the network). Env `AGENTBAR_DASHBOARD_URL`.
+- Store `server/lib/tui_status_events.py` (in memory, per tool+session; local listener only, remote 404). `attach_to_rows` lays a FRESH entry over a local herdr row without Claude hook data: match by pane id, else a unique cwd (one row of that tool + one entry there; twins stay unmatched). Sets `hookState`/`hookSinceSec`/`hasHookData: true` (not "best guess" any more)/`hookReason`, plus `statusSource` (`opencode-plugin` | `codex-hook` | `codex-rollout`), `tuiPrompt` (permission | question | null), `tuiContextPercent` (-> `contextPct`). A `blocked` entry yields the usual screen-checked Needs-You row.
+- Fresh = pid alive AND last event/heartbeat/rollout write < `TUI_STATUS_STALE_SEC` (600s). Otherwise dropped -> row decays to its screen reading. Codex idle >10 min decays too (no heartbeat) — harmless, the screen reads idle.
+- Codex rollout (`server/lib/codex_rollout.py`, tolerant of format drift, 256KB tail, cached by mtime/size): context % = last `token_count` last_token_usage.total_tokens / model_context_window; a rollout newer than the last hook event sets turn state, except while a permission is open. A reply (Stop `last_assistant_message` / `task_complete.last_agent_message`) whose last line ends in `?` = `blocked` question ("asked in prose").
+- OpenCode context % = assistant tokens (input+output+reasoning+cache) / model limit from `{serverUrl}/config/providers` (shape GUESS; no limit -> null, never guessed).
+- Message gate: a row whose hook data is `statusSource` stays refused (messaging is Phase 4).
+- Install (merge, idempotent, `<file>.bak-agentbar-<ts>` backup, uninstall removes only ours; `$OPENCODE_CONFIG_DIR`, `$CODEX_HOME` overrides): `python3 dashboard/integrations/install.py install|uninstall|status [--tool opencode|codex|all] [--json]`. Refuses an unreadable hooks.json or a same-named foreign plugin file.
+- Tests: `tests/test_tui_status_events.py`, `tests/test_tui_integrations.py` (temp dirs, fake listener, node driver for the plugin).
+
 ## Running it
 ```
 cd dashboard

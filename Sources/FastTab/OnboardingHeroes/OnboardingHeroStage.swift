@@ -12,6 +12,7 @@ import HeroMotion
 ///   app inactive), or the window covered all stop the clock and show the rest frame.
 /// - A new `replayKey` (a state change) restarts the clock and cross-fades.
 /// - Decorative: hidden from VoiceOver.
+/// - Drawn at `onboardingHeroScale` (half size in the compact window), laid out at that size.
 struct OnboardingHeroStage<Frame: View>: View {
 
     let playback: HeroPlayback
@@ -21,6 +22,7 @@ struct OnboardingHeroStage<Frame: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// `.key` only while the onboarding window is key in the active app.
     @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.onboardingHeroScale) private var scale
     @State private var isOnScreen = false
     @State private var isWindowVisible = true
     @State private var clock = HeroClock()
@@ -40,6 +42,8 @@ struct OnboardingHeroStage<Frame: View>: View {
         }
         .frame(width: HeroCanvas.size.width, height: HeroCanvas.size.height)
         .clipped()
+        .scaleEffect(scale)
+        .frame(width: HeroCanvas.size.width * scale, height: HeroCanvas.size.height * scale)
         .animation(.easeInOut(duration: 0.3), value: replayKey)
         .onAppear { isOnScreen = true }
         .onDisappear { isOnScreen = false }
@@ -70,6 +74,12 @@ struct OnboardingHeroStage<Frame: View>: View {
         guard !Task.isCancelled else { return }
         clock.finish(key: key)
     }
+}
+
+extension EnvironmentValues {
+    /// How big onboarding heroes draw: 1 is the storyboard's 200 × 96 pt.
+    /// Set from `OnboardingLayout.heroScale`.
+    @Entry var onboardingHeroScale: Double = 1
 }
 
 enum HeroCanvas {

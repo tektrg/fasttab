@@ -4,14 +4,36 @@ import CommandBarKit
 
 private let onboardingCompletedKey = "onboarding.v1.completed"
 
-enum OnboardingLayout {
-    /// Fixed window size: every step must fit it (pinned by `OnboardingStepFitTests`).
-    /// Tall enough for each step's 200 × 96 animated hero (`OnboardingHeroes/`).
-    static let windowSize = CGSize(width: 440, height: 580)
+/// The onboarding window's size. It is fixed and unmovable, so it must fit the
+/// screen: short screens (13" Macs at larger-text scaling, with the Dock
+/// showing) get `compact`, which draws the heroes at half size. Every step
+/// must fit both (pinned by `OnboardingStepFitTests`).
+struct OnboardingLayout: Equatable, Sendable {
+    let windowSize: CGSize
+    /// How big the animated heroes draw: 1 is the storyboard's 200 × 96 pt
+    /// (`OnboardingHeroes/`).
+    let heroScale: Double
+    let stepDotsBottomPadding: CGFloat
+
+    static let regular = OnboardingLayout(
+        windowSize: CGSize(width: 440, height: 580), heroScale: 1, stepDotsBottomPadding: 20
+    )
+    static let compact = OnboardingLayout(
+        windowSize: CGSize(width: 440, height: 530), heroScale: 0.5, stepDotsBottomPadding: 12
+    )
+    static let all = [regular, compact]
+
     static let stepDotSize: CGFloat = 6
-    static let stepDotsBottomPadding: CGFloat = 20
+    /// Room kept between the window and the screen's usable edges (menu bar, Dock).
+    static let screenMargin: CGFloat = 20
+
     /// Height left for the current step above the step dots.
-    static var stepHeight: CGFloat { windowSize.height - stepDotSize - stepDotsBottomPadding }
+    var stepHeight: CGFloat { windowSize.height - Self.stepDotSize - stepDotsBottomPadding }
+
+    /// `regular` when it fits the screen's usable height, else `compact`.
+    static func fitting(visibleScreenHeight: CGFloat) -> OnboardingLayout {
+        visibleScreenHeight >= regular.windowSize.height + screenMargin ? .regular : .compact
+    }
 }
 
 // MARK: - Coordinator
@@ -52,7 +74,8 @@ final class OnboardingWindowController: NSObject {
             return
         }
 
-        let view = OnboardingView { [weak self] shouldOpenBar in
+        let layout = OnboardingLayout.fitting(visibleScreenHeight: NSScreen.main?.visibleFrame.height ?? .infinity)
+        let view = OnboardingView(layout: layout) { [weak self] shouldOpenBar in
             self?.dismiss(andOpenBar: shouldOpenBar)
         }
         .environmentObject(AppState.shared)
@@ -61,13 +84,13 @@ final class OnboardingWindowController: NSObject {
         controller.view.wantsLayer = true
 
         let win = NSWindow(contentViewController: controller)
-        Self.configureOnboardingWindow(win)
+        Self.configureOnboardingWindow(win, layout: layout)
         NSApp.activate(ignoringOtherApps: true)
         win.makeKeyAndOrderFront(nil)
         window = win
     }
 
-    static func configureOnboardingWindow(_ win: NSWindow) {
+    static func configureOnboardingWindow(_ win: NSWindow, layout: OnboardingLayout) {
         win.styleMask = [.titled, .fullSizeContentView]
         win.titleVisibility = .hidden
         win.titlebarAppearsTransparent = true
@@ -81,7 +104,7 @@ final class OnboardingWindowController: NSObject {
             win.standardWindowButton($0)?.isHidden = true
         }
 
-        win.setContentSize(OnboardingLayout.windowSize)
+        win.setContentSize(layout.windowSize)
         win.center()
     }
 
@@ -121,6 +144,7 @@ private enum OnboardingStep: Hashable {
 struct OnboardingView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var selectionStore = SourceSelectionStore.shared
+    let layout: OnboardingLayout
     let onDismiss: (Bool) -> Void
 
     @State private var stepIndex: Int = 0
@@ -194,7 +218,7 @@ struct OnboardingView: View {
                 .animation(.spring(response: 0.38, dampingFraction: 0.82), value: stepIndex)
 
                 stepDots
-                    .padding(.bottom, OnboardingLayout.stepDotsBottomPadding)
+                    .padding(.bottom, layout.stepDotsBottomPadding)
             }
         }
         .overlay(alignment: .topLeading) {
@@ -202,7 +226,8 @@ struct OnboardingView: View {
                 backButton
             }
         }
-        .frame(width: OnboardingLayout.windowSize.width, height: OnboardingLayout.windowSize.height)
+        .environment(\.onboardingHeroScale, layout.heroScale)
+        .frame(width: layout.windowSize.width, height: layout.windowSize.height)
     }
 
     private var stepTransition: AnyTransition {

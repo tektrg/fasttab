@@ -5,13 +5,20 @@ import Testing
 @testable import FastTab
 
 /// Measures an onboarding step the way the window lays it out: full width,
-/// as short as its content allows (the steps pad with flexible spacers).
+/// heroes at the layout's scale, as short as its content allows (the steps
+/// pad with flexible spacers).
 @MainActor
 enum OnboardingStepFit {
-    static func fittingHeight(of step: some View) -> CGFloat {
-        let host = NSHostingView(rootView: step.frame(width: OnboardingLayout.windowSize.width))
+    static func fittingHeight(of step: some View, in layout: OnboardingLayout) -> CGFloat {
+        let host = NSHostingView(rootView: sized(step, in: layout))
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.height
+    }
+
+    static func sized(_ step: some View, in layout: OnboardingLayout) -> some View {
+        step
+            .environment(\.onboardingHeroScale, layout.heroScale)
+            .frame(width: layout.windowSize.width)
     }
 
     /// Stores backed by a throwaway defaults suite, so tests never read or
@@ -30,71 +37,94 @@ enum OnboardingStepFit {
     }
 }
 
-/// The onboarding window is a fixed size (`OnboardingLayout.windowSize`) and
-/// each step now carries a 200 × 96 hero, so every step, in each of its
-/// states, must fit `OnboardingLayout.stepHeight` or its bottom gets clipped.
-/// The iPhone step is covered by `OnboardingIPhoneStepTests`.
+/// The onboarding window is a fixed size (`OnboardingLayout`, regular or
+/// compact) and each step carries an animated hero, so every step, in each of
+/// its states and in both layouts, must fit `stepHeight` or its bottom gets
+/// clipped. The iPhone step is covered by `OnboardingIPhoneStepTests`.
 @MainActor
 struct OnboardingStepFitTests {
-    private let budget = OnboardingLayout.stepHeight
-
-    @Test func welcomeFits() {
-        let height = OnboardingStepFit.fittingHeight(of: WelcomeStep(onContinue: {}))
-        #expect(height <= budget, "welcome step is \(height)pt tall")
+    @Test(arguments: OnboardingLayout.all)
+    func welcomeFits(layout: OnboardingLayout) {
+        let height = OnboardingStepFit.fittingHeight(of: WelcomeStep(onContinue: {}), in: layout)
+        #expect(height <= layout.stepHeight, "welcome step is \(height)pt tall")
     }
 
-    @Test(arguments: EdgeRevealStyle.allCases)
-    func triggerStyleFits(style: EdgeRevealStyle) {
+    @Test(arguments: OnboardingLayout.all, EdgeRevealStyle.allCases)
+    func triggerStyleFits(layout: OnboardingLayout, style: EdgeRevealStyle) {
         let store = EdgeRevealStore(defaults: OnboardingStepFit.scratchDefaults(["FastTab.edgeReveal.style": style.rawValue]))
         #expect(store.style == style)
-        let height = OnboardingStepFit.fittingHeight(of: TriggerStyleStep(edgeReveal: store, onContinue: {}))
-        #expect(height <= budget, "trigger step (\(style)) is \(height)pt tall")
+        let height = OnboardingStepFit.fittingHeight(of: TriggerStyleStep(edgeReveal: store, onContinue: {}), in: layout)
+        #expect(height <= layout.stepHeight, "trigger step (\(style)) is \(height)pt tall")
     }
 
     /// All sources on (every row), and none (adds the "select one" note).
-    @Test(arguments: [SearchSource.allCases, []])
-    func sourcePickerFits(enabled: [SearchSource]) {
+    @Test(arguments: OnboardingLayout.all, [SearchSource.allCases, []])
+    func sourcePickerFits(layout: OnboardingLayout, enabled: [SearchSource]) {
         let store = OnboardingStepFit.sourceStore(enabled: enabled)
         #expect(store.enabled == Set(enabled))
-        let height = OnboardingStepFit.fittingHeight(of: SourcePickerStep(store: store, onContinue: {}))
-        #expect(height <= budget, "source step (\(enabled.count) on) is \(height)pt tall")
+        let height = OnboardingStepFit.fittingHeight(of: SourcePickerStep(store: store, onContinue: {}), in: layout)
+        #expect(height <= layout.stepHeight, "source step (\(enabled.count) on) is \(height)pt tall")
     }
 
     /// Measured while waiting for the extension (the test host has none). After
     /// 15s of waiting the status view adds a two-line "not connecting" hint, so
     /// leave room for it.
-    @Test func extensionStepFitsWithRoomForTheNotConnectingHint() {
+    @Test(arguments: OnboardingLayout.all)
+    func extensionStepFitsWithRoomForTheNotConnectingHint(layout: OnboardingLayout) {
         let notConnectingHintHeight: CGFloat = 36
         let height = OnboardingStepFit.fittingHeight(of: ExtensionInstallStep(
             didAutoAdvance: .constant(true), onContinue: {}, onAutoAdvance: {}
-        ))
-        #expect(height + notConnectingHintHeight <= budget, "extension step is \(height)pt tall")
+        ), in: layout)
+        #expect(height + notConnectingHintHeight <= layout.stepHeight, "extension step is \(height)pt tall")
     }
 
     /// Worst case: access granted during onboarding, which adds the
     /// "restarts when you finish" row. Hosted in a window so `onAppear` and
     /// the app-activation check run.
-    @Test func safariStepFitsAfterAGrant() {
+    @Test(arguments: OnboardingLayout.all)
+    func safariStepFitsAfterAGrant(layout: OnboardingLayout) {
         var checks = 0
         let step = SafariPermissionStep(onContinue: {}, canReadSafariProtectedData: {
             checks += 1
             return checks > 1
         })
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: OnboardingLayout.windowSize), styleMask: [.titled], backing: .buffered, defer: false)
-        let host = NSHostingView(rootView: step.frame(width: OnboardingLayout.windowSize.width))
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: layout.windowSize), styleMask: [.titled], backing: .buffered, defer: false)
+        let host = NSHostingView(rootView: OnboardingStepFit.sized(step, in: layout))
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
         host.layoutSubtreeIfNeeded()
         let height = host.fittingSize.height
         #expect(checks >= 2, "the step re-checked access on activation")
-        #expect(height <= budget, "granted Safari step is \(height)pt tall")
+        #expect(height <= layout.stepHeight, "granted Safari step is \(height)pt tall")
         window.contentView = nil
     }
 
     /// Worst case: the restart note shows.
-    @Test func shortcutStepFits() {
-        let height = OnboardingStepFit.fittingHeight(of: ShortcutStep(onDismiss: { _ in }, isRestartNeeded: { true }))
-        #expect(height <= budget, "shortcut step is \(height)pt tall")
+    @Test(arguments: OnboardingLayout.all)
+    func shortcutStepFits(layout: OnboardingLayout) {
+        let height = OnboardingStepFit.fittingHeight(of: ShortcutStep(onDismiss: { _ in }, isRestartNeeded: { true }), in: layout)
+        #expect(height <= layout.stepHeight, "shortcut step is \(height)pt tall")
+    }
+}
+
+/// Which window size a screen gets: the tall one only when it clears the
+/// screen's usable area (menu bar and Dock excluded) with a margin.
+struct OnboardingLayoutChoiceTests {
+    @Test func tallScreensGetTheRegularWindow() {
+        #expect(OnboardingLayout.fitting(visibleScreenHeight: 875) == .regular)
+        #expect(OnboardingLayout.fitting(visibleScreenHeight: OnboardingLayout.regular.windowSize.height + OnboardingLayout.screenMargin) == .regular)
+    }
+
+    /// 13" Macs at "Larger Text" scaling with the Dock showing.
+    @Test func shortScreensGetTheCompactWindow() {
+        #expect(OnboardingLayout.fitting(visibleScreenHeight: OnboardingLayout.regular.windowSize.height + OnboardingLayout.screenMargin - 1) == .compact)
+        #expect(OnboardingLayout.fitting(visibleScreenHeight: 556) == .compact)
+    }
+
+    @Test func theCompactWindowFitsTheSmallestSupportedScreen() {
+        let smallestVisibleHeight: CGFloat = 556
+        #expect(OnboardingLayout.compact.windowSize.height + OnboardingLayout.screenMargin <= smallestVisibleHeight)
+        #expect(OnboardingLayout.compact.windowSize.width == OnboardingLayout.regular.windowSize.width)
     }
 }

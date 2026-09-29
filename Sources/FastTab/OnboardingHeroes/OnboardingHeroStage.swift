@@ -94,4 +94,8 @@ extension View {
         frame(width: width, height: height)
             .position(x: x + width / 2, y: y + height / 2)
     }
+
+    func heroPlaced(in rect: CGRect) -> some View {
+        heroPlaced(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height)
+    }
 }

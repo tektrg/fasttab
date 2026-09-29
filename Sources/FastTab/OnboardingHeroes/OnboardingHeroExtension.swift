@@ -74,10 +74,10 @@ struct OnboardingHeroExtension: View {
         let beats = Beats(state: state, time: time)
         return ZStack(alignment: .topLeading) {
             list(beats: beats)
-                .heroPlaced(x: Layout.list.minX, y: Layout.list.minY, width: Layout.list.width, height: Layout.list.height)
+                .heroPlaced(in: Layout.list)
             RoundedRectangle(cornerRadius: 2, style: .continuous)
                 .strokeBorder(HeroInk.outline, style: StrokeStyle(lineWidth: 1, dash: HeroInk.dash))
-                .heroPlaced(x: Layout.socket.minX, y: Layout.socket.minY, width: Layout.socket.width, height: Layout.socket.height)
+                .heroPlaced(in: Layout.socket)
             Image(systemName: "puzzlepiece.extension.fill")
                 .font(.system(size: 16, weight: .regular))
                 .foregroundStyle(Color.accentColor)
@@ -89,9 +89,7 @@ struct OnboardingHeroExtension: View {
                     width: Layout.pieceSize,
                     height: Layout.pieceSize
                 )
-            HeroSuccessCheck()
-                .scaleEffect(beats.check)
-                .opacity(min(beats.check * 2, 1))
+            HeroSuccessCheck(progress: beats.check)
                 .position(Layout.checkCenter)
         }
     }

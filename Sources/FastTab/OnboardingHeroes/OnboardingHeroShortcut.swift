@@ -18,7 +18,8 @@ struct OnboardingHeroShortcut: View {
             keycaps: keycaps,
             time: time,
             barFrame: CGRect(x: 50, y: 2, width: 100, height: 50),
-            keysCenter: CGPoint(x: 100, y: 74),
+            keysCenter: CGPoint(x: HeroCanvas.size.width / 2, y: 74),
+            keysMaxWidth: HeroCanvas.size.width - 8,
             showsRipple: true
         )
     }
@@ -32,6 +33,8 @@ struct HeroShortcutPress: View {
     /// Where the bar sits once open, in the parent's coordinates.
     let barFrame: CGRect
     let keysCenter: CGPoint
+    /// The keys shrink to fit this; wider rows would be clipped.
+    let keysMaxWidth: Double
     var showsRipple = false
 
     private var playback: HeroPlayback { ShortcutHeroKeycaps.playback }
@@ -45,11 +48,11 @@ struct HeroShortcutPress: View {
             HeroCommandBar(rowCount: 2)
                 .scaleEffect(HeroCurve.lerp(0.6, 1, pop), anchor: .bottom)
                 .opacity(min(pop * 2, 1) * fade)
-                .heroPlaced(x: barFrame.minX, y: barFrame.minY, width: barFrame.width, height: barFrame.height)
+                .heroPlaced(in: barFrame)
             if showsRipple {
                 ripple.opacity(fade)
             }
-            HeroKeycapRow(keycaps: keycaps, press: press(ofKeyAt:))
+            HeroKeycapRow(keycaps: keycaps, maxWidth: keysMaxWidth, press: press(ofKeyAt:))
                 .position(keysCenter)
         }
     }

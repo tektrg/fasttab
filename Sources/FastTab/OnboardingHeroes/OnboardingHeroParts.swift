@@ -144,12 +144,18 @@ struct HeroKeycap: View {
     }
 }
 
-/// A row of keycaps, each pressed per `press(index)`.
+/// A row of keycaps, each pressed per `press(index)`. Shrinks to `maxWidth`
+/// when a long shortcut (four modifiers plus "Backspace") would overflow.
 struct HeroKeycapRow: View {
     var keycaps: [String]
+    var maxWidth: Double
     var press: (Int) -> Double
 
     static let spacing: Double = 5
+
+    static func naturalWidth(of keycaps: [String]) -> Double {
+        keycaps.map(HeroKeycap.width(for:)).reduce(0, +) + spacing * Double(max(keycaps.count - 1, 0))
+    }
 
     var body: some View {
         HStack(spacing: Self.spacing) {
@@ -158,12 +164,15 @@ struct HeroKeycapRow: View {
             }
         }
         .fixedSize()
+        .scaleEffect(min(1, maxWidth / max(Self.naturalWidth(of: keycaps), 1)))
     }
 }
 
-/// Green circle with a check: the "it worked" beat.
+/// Green circle with a check: the "it worked" beat. Pops in (springy
+/// scale, quick fade) as `progress` goes 0…1.
 struct HeroSuccessCheck: View {
     var diameter: Double = 14
+    var progress: Double = 1
 
     var body: some View {
         Image(systemName: "checkmark")
@@ -171,6 +180,8 @@ struct HeroSuccessCheck: View {
             .foregroundStyle(.white)
             .frame(width: diameter, height: diameter)
             .background(Color.green, in: Circle())
+            .scaleEffect(progress)
+            .opacity(min(progress * 2, 1))
     }
 }
 

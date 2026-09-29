@@ -62,15 +62,13 @@ struct OnboardingHeroIPhone: View {
             Image(systemName: "icloud.fill")
                 .font(.system(size: 18))
                 .foregroundStyle(Color.secondary.opacity(0.55))
-                .heroPlaced(x: Layout.cloud.minX, y: Layout.cloud.minY, width: Layout.cloud.width, height: Layout.cloud.height)
+                .heroPlaced(in: Layout.cloud)
             if state == .teaching {
                 travelingCard(beats: beats)
                 plane(beats: beats)
             } else {
                 linkLine(progress: beats.link)
-                HeroSuccessCheck(diameter: 16)
-                    .scaleEffect(beats.check)
-                    .opacity(min(beats.check * 2, 1))
+                HeroSuccessCheck(diameter: 16, progress: beats.check)
                     .position(Layout.checkCenter)
             }
         }
@@ -92,10 +90,10 @@ struct OnboardingHeroIPhone: View {
                         .strokeBorder(HeroInk.outline, lineWidth: 1.5)
                 )
                 .shadow(color: Color.blue.opacity(0.8 * glow), radius: 6)
-                .heroPlaced(x: Layout.macScreen.minX, y: Layout.macScreen.minY, width: Layout.macScreen.width, height: Layout.macScreen.height)
+                .heroPlaced(in: Layout.macScreen)
             Capsule()
                 .fill(HeroInk.outline)
-                .heroPlaced(x: Layout.macBase.minX, y: Layout.macBase.minY, width: Layout.macBase.width, height: Layout.macBase.height)
+                .heroPlaced(in: Layout.macBase)
         }
     }
 
@@ -110,7 +108,7 @@ struct OnboardingHeroIPhone: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .strokeBorder(HeroInk.outline, lineWidth: 1.5)
             )
-            .heroPlaced(x: Layout.phone.minX, y: Layout.phone.minY, width: Layout.phone.width, height: Layout.phone.height)
+            .heroPlaced(in: Layout.phone)
     }
 
     /// A clean Reader page: teal title, calm text lines.

@@ -34,7 +34,7 @@ struct OnboardingHeroTrigger: View {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .strokeBorder(HeroInk.outline, lineWidth: HeroInk.outlineWidth)
                 )
-                .heroPlaced(x: Layout.screen.minX, y: Layout.screen.minY, width: Layout.screen.width, height: Layout.screen.height)
+                .heroPlaced(in: Layout.screen)
         }
     }
 
@@ -50,7 +50,8 @@ struct OnboardingHeroTrigger: View {
                     keycaps: keycaps,
                     time: time,
                     barFrame: CGRect(x: 38, y: 10, width: 74, height: 44),
-                    keysCenter: CGPoint(x: Layout.screen.width / 2, y: 71)
+                    keysCenter: CGPoint(x: Layout.screen.width / 2, y: 71),
+                    keysMaxWidth: Layout.screen.width - 8
                 )
             case .hover(let style):
                 hover(style: style, time: time)
@@ -101,7 +102,7 @@ struct OnboardingHeroTrigger: View {
         HeroEdgePill(style: style)
             .scaleEffect(x: spot.growsVertically ? 1 : peek, y: spot.growsVertically ? peek : 1, anchor: spot.barAnchor)
             .opacity(min(peek * 2, 1) * fade)
-            .heroPlaced(x: spot.pill.minX, y: spot.pill.minY, width: spot.pill.width, height: spot.pill.height)
+            .heroPlaced(in: spot.pill)
         if style == .notch {
             UnevenRoundedRectangle(bottomLeadingRadius: 2.5, bottomTrailingRadius: 2.5, style: .continuous)
                 .fill(Color.black)
@@ -111,7 +112,7 @@ struct OnboardingHeroTrigger: View {
         HeroCommandBar(rowCount: spot.barRows)
             .scaleEffect(x: spot.growsVertically ? 1 : barScale, y: spot.growsVertically ? barScale : 1, anchor: spot.barAnchor)
             .opacity(min(open * 3, 1) * fade)
-            .heroPlaced(x: spot.bar.minX, y: spot.bar.minY, width: spot.bar.width, height: spot.bar.height)
+            .heroPlaced(in: spot.bar)
         HeroPointer()
             .opacity(min(HeroCurve.progress(time, start: 0, duration: 0.25) * fade, 1))
             .heroPlaced(x: pointer.x, y: pointer.y, width: 12, height: 14)

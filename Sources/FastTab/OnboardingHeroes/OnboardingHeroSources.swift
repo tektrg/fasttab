@@ -47,7 +47,7 @@ struct OnboardingHeroSources: View {
                 }
             }
             field(state: state, time: time)
-                .heroPlaced(x: Layout.field.minX, y: Layout.field.minY, width: Layout.field.width, height: Layout.field.height)
+                .heroPlaced(in: Layout.field)
         }
     }
 

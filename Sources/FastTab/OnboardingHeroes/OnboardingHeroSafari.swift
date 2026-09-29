@@ -62,15 +62,13 @@ struct OnboardingHeroSafari: View {
         let beats = Beats(state: state, time: time)
         return ZStack(alignment: .topLeading) {
             HeroAppIcon(size: Layout.appIcon.width)
-                .heroPlaced(x: Layout.appIcon.minX, y: Layout.appIcon.minY, width: Layout.appIcon.width, height: Layout.appIcon.height)
+                .heroPlaced(in: Layout.appIcon)
             settingsWindow(beats: beats)
-                .heroPlaced(x: Layout.window.minX, y: Layout.window.minY, width: Layout.window.width, height: Layout.window.height)
+                .heroPlaced(in: Layout.window)
             if state == .teaching {
                 ghost(beats: beats)
             }
-            HeroSuccessCheck()
-                .scaleEffect(beats.check)
-                .opacity(min(beats.check * 2, 1))
+            HeroSuccessCheck(progress: beats.check)
                 .position(Layout.checkCenter)
         }
     }

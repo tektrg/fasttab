@@ -72,7 +72,9 @@ struct NeedsYouArrivalModelTests {
 
     @Test func parkingIsADepartureAndUnparkingIsAnArrival() {
         let (model, reported) = makeModel()
-        model.receive(needsYou("a", "b"))
+        // No hook data = cannot take Compact, so Park sends nothing and Unpark is not blocked by an in-flight /compact.
+        let noCompact = F.snapshot(["a", "b"].map { F.agent($0, label: "agent-\($0)", section: .needsYou, hasHookData: false, secondsInStatus: 30) })
+        model.receive(noCompact)
         model.press(.park, on: "a")
         #expect(reported().isEmpty)
         model.press(.unpark, on: "a")

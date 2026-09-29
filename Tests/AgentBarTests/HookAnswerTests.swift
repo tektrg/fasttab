@@ -133,7 +133,7 @@ struct HookRequestMappingTests {
         #expect(row.section == .needsYou)
         #expect(row.blocker == nil)
         #expect(row.hookRequest == nil)
-        #expect(RowButtons.available(for: row).map(\.button) == [.park])
+        #expect(RowButtons.available(for: row).map(\.button) == [.peek, .park, .openInClaude])   // a Desktop row
     }
 
     @Test func anUnusableHookRequestIsIgnored() throws {
@@ -167,8 +167,8 @@ struct HookRowButtonTests {
     typealias H = HookFixtures
 
     @Test func aHookQuestionOffersAnswerAndAHookPermissionOffersReview() {
-        #expect(RowButtons.available(for: H.agent(H.questionRequest)).map(\.button) == [.answer, .park])
-        #expect(RowButtons.available(for: H.agent(H.permissionRequest)).map(\.button) == [.review, .park])
+        #expect(RowButtons.available(for: H.agent(H.questionRequest)).map(\.button) == [.answer, .peek, .park])
+        #expect(RowButtons.available(for: H.agent(H.permissionRequest)).map(\.button) == [.review, .peek, .park])
         #expect(RowButtons.isPressable(.answer, on: H.agent(H.questionRequest)))
         #expect(!RowButtons.isPressable(.message, on: H.agent(H.questionRequest)))
     }

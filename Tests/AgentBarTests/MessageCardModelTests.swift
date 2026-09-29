@@ -214,7 +214,7 @@ struct MessageCardModelTests {
     @Test func nothingIsSentForAnEmptySlashOrTooLongDraft() async {
         let rig = makeRig()
         rig.model.open(agent())
-        for draft in ["", "   ", "/help", String(repeating: "a", count: 2001)] {
+        for draft in ["", "   ", "/help", String(repeating: "a", count: 8001)] {
             rig.model.setDraft(draft)
             rig.model.pressSend()
         }

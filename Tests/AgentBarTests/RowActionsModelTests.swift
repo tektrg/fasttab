@@ -83,7 +83,8 @@ struct RowActionsModelTests {
 
     @Test func unparkBringsItBackAndKeepsItSelected() {
         let (model, _, _) = makeModel()
-        model.receive(F.snapshot(agents(["a", "b"])))
+        // No hook data = cannot take Compact, so Park sends nothing and Unpark is not blocked by an in-flight /compact.
+        model.receive(F.snapshot(["a", "b"].map { F.agent($0, hasHookData: false) }))
         model.press(.park, on: "a")
         model.select(agentID: "a")
         model.press(.unpark, on: "a")
@@ -222,6 +223,8 @@ struct RowActionsModelTests {
         let (model, _, _) = makeModel()
         model.receive(F.snapshot(agents(["a", "b"])))
         #expect(model.moveButtonHighlight(by: 1))
+        #expect(model.highlightedButton == .peek)
+        #expect(model.moveButtonHighlight(by: 1))
         #expect(model.highlightedButton == .park)
         model.activateSelected()
         #expect(model.presentation.agents.map(\.section) == [.needsYou, .parked])   // Park is local, no round trip
@@ -234,6 +237,7 @@ struct RowActionsModelTests {
     @Test func enterOnTheHighlightedMoreActionsTriggerDoesNotOpenItOrSendAnything() {
         let (model, source, _) = makeModel()
         model.receive(F.snapshot(agents(["a", "b"])))
+        model.moveButtonHighlight(by: 1)   // peek
         model.moveButtonHighlight(by: 1)   // park
         model.moveButtonHighlight(by: 1)   // message
         model.moveButtonHighlight(by: 1)   // ⋯
@@ -257,7 +261,8 @@ struct RowActionsModelTests {
         var activated: [String] = []
         model.onActivate = { activated.append($0.id) }
         model.receive(F.snapshot(agents(["a", "b"])))
-        model.moveButtonHighlight(by: 1)   // Park is first now that Done lives in the ⋯ menu
+        model.moveButtonHighlight(by: 1)   // Peek is first, then Park (Done lives in the ⋯ menu)
+        model.moveButtonHighlight(by: 1)
         #expect(model.highlightedButton == .park)
         model.activateSelected()
         #expect(activated.isEmpty)

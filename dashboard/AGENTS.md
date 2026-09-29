@@ -460,6 +460,51 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   Wrapping the hook in a shell script for tracing: pass stdin on with
   `printf '%s'`, never `echo` (sh's echo expands `\n` and corrupts the JSON).
 
+## OpenCode / Codex support — overview (read first; details in the three sections below)
+
+### Turn it on (user checklist)
+1. `python3 dashboard/integrations/install.py install` (both tools; `--tool opencode|codex`; `status` / `uninstall` also exist; merges next to other vendors' hooks, backs up, uninstall removes only ours).
+2. Codex: on next start, in the Codex TUI choose **"Trust all"** on the new-hooks review prompt (once).
+3. Restart: the dashboard (`scripts/restart.sh`), every running OpenCode, every running Codex (they load plugin/hooks at start).
+4. Rebuild AgentBar: `scripts/build-agentbar-app.sh --open` (Swift side of message button / tool cards).
+5. Check: `install.py status --json` shows both `installed: true`. An OpenCode row saying the plugin is "out of date" = repeat step 1 + restart OpenCode.
+
+### Support matrix (herdr panes on the local machine only)
+| Capability | OpenCode | Codex | Gemini |
+|---|---|---|---|
+| Exact status (working/idle/blocked) | yes (plugin events) | yes (hook + rollout) | no |
+| Context % | yes if model limit known, else null | yes (rollout `token_count`) | no |
+| Answer permission | yes (job relay) | yes (held hook; keystroke fallback) | no |
+| Answer question | yes if it has options; option-less = no card | prose question (`?` heuristic) shows blocked, no answer card | no |
+| Message | yes (job relay, `prompt_async`) | yes (typed into pane, screen-checked) | no |
+| Row outside herdr | NOT supported (P5 skipped/deferred) | NOT supported | no |
+
+Without fresh plugin/hook data a row is a "best guess" from its screen (OpenCode/Codex screens are read; Gemini is UNKNOWN) and is never messaged (`message_gate`).
+
+### Vocabulary
+- **tui_jobs relay**: `server/lib/tui_jobs.py`; OpenCode has no TCP listener, so its plugin long-polls the dashboard for jobs (answer/message) and runs them in-process.
+- **held Codex hook**: second PermissionRequest hook that keeps Codex waiting while AgentBar answers (`codex_hold_store.py`).
+- **opencode plugin**: `integrations/opencode/agentbar-status.js` (status + relay client). **Codex hook**: `integrations/codex/agentbar-codex-hook.py` (status) + `agentbar-codex-permission.py` (hold).
+- **install.py**: `integrations/install.py`, the only supported installer.
+- **tui-event**: status POST from either tool; store `tui_status_events.py`.
+- Not to confuse: the earlier "P5" in the herdr `agent_status` fallback note (Claude-outside-herdr section) is unrelated to OpenCode/Codex phase 5.
+
+### Env knobs
+`AGENTBAR_CODEX_HOLD_SEC` (default 300, 0 = never hold), `AGENTBAR_DASHBOARD_URL` (where plugin/hooks post), `TUI_STATUS_STALE_SEC` (600, freshness), `OPENCODE_CONFIG_DIR` / `CODEX_HOME` (installer targets).
+
+### Accepted risks
+- Any local process can spoof a status event (same trust as every hook).
+- Codex Enter follows a screen re-read; a permission box opening in that split second could take the Enter (busy Codex best effort).
+- "Asked in prose" blocked state is a `?`-at-end-of-reply heuristic (false positives/negatives).
+- Relay result post is not bound to the claiming pid.
+
+### Deferred / untested
+- P5: rows for OpenCode/Codex outside herdr (user skipped).
+- OpenCode option-less question answer; OpenCode keystroke fallback.
+- `codex queue` unused (see Phase 4); Codex is alpha (ChatGPT.app 0.154) so formats may drift, parsers are tolerant.
+- Air / other machines untested (Swift not built on the Air; remote machines' OpenCode/Codex rows are 404 for tui events).
+- Gemini: unsupported.
+
 ## OpenCode / Codex exact status (`POST /api/hook/tui-event`) — Phase 2, status only
 - Senders (`integrations/`): OpenCode plugin `opencode/agentbar-status.js` (session.status/idle/error/deleted, permission.*, question.*, message.updated tokens, 30s heartbeat; reports pid, cwd, `HERDR_PANE_ID`, its local `serverUrl`); Codex hook `codex/agentbar-codex-hook.py` (all 11 hooks.json events incl. PermissionRequest). Both NEVER decide: no stdout, exit 0, 0.8s post timeout, fire-and-forget (plugin handler never awaits the network). Env `AGENTBAR_DASHBOARD_URL`.
 - Store `server/lib/tui_status_events.py` (in memory, per tool+session; local listener only, remote 404). `attach_to_rows` lays a FRESH entry over a local herdr row without Claude hook data: match by pane id, else a unique cwd (one row of that tool + one entry there; twins stay unmatched). Sets `hookState`/`hookSinceSec`/`hasHookData: true` (not "best guess" any more)/`hookReason`, plus `statusSource` (`opencode-plugin` | `codex-hook` | `codex-rollout`), `tuiPrompt` (permission | question | null), `tuiContextPercent` (-> `contextPct`). A `blocked` entry yields the usual screen-checked Needs-You row.

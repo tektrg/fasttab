@@ -157,9 +157,9 @@ struct PlanApprovalWrappedTests {
         model.statusSource = source
         model.receive(AgentListFixtures.snapshot([AnswerFixtures.blockedAgent("a", blocker: .permission)]))
         func buttons() -> [RowButton] { model.presentation.agents.first { $0.id == "a" }.map(RowButtons.usableButtons) ?? [] }
-        #expect(buttons() == [.openTerminal, .park])
+        #expect(buttons() == [.openTerminal, .peek, .park])
         await waitUntil { buttons() == [.review, .park] }
-        #expect(buttons() == [.review, .park])
+        #expect(buttons() == [.review, .peek, .park])
         let blocker = try #require(model.presentation.agents.first?.blocker?.permissionPrompt)
         #expect(blocker.isPlan)
         #expect(blocker.planPath == Self.path)

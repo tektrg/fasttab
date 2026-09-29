@@ -14,21 +14,21 @@ struct BlockedRowTests {
     // MARK: - Buttons
 
     @Test func aBlockedQuestionOffersAnswerThenPark() {
-        #expect(buttons(A.blockedAgent("q", blocker: .question(A.question()))) == [.answer, .park])
+        #expect(buttons(A.blockedAgent("q", blocker: .question(A.question()))) == [.answer, .peek, .park])
     }
 
     @Test func aPermissionBoxOrAnUnparsedQuestionOffersOpenTerminalThenPark() {
-        #expect(buttons(A.blockedAgent("p", blocker: .permission)) == [.openTerminal, .park])
-        #expect(buttons(A.blockedAgent("u", blocker: .questionNotAnswerable)) == [.openTerminal, .park])
+        #expect(buttons(A.blockedAgent("p", blocker: .permission)) == [.openTerminal, .peek, .park])
+        #expect(buttons(A.blockedAgent("u", blocker: .questionNotAnswerable)) == [.openTerminal, .peek, .park])
     }
 
     @Test func aQuestionStillLoadingShowsAReadingAnswerThatCannotBePressedYet() throws {
         let agent = A.blockedAgent("l", blocker: .questionLoading(nil))
-        #expect(buttons(agent) == [.answer, .park])
+        #expect(buttons(agent) == [.answer, .peek, .park])
         let answer = try #require(RowButtons.available(for: agent).first)
         #expect(!answer.isEnabled)
         #expect(answer.label == "Reading…")
-        #expect(RowButtons.usableButtons(for: agent) == [.park])   // the keyboard skips it
+        #expect(RowButtons.usableButtons(for: agent) == [.peek, .park])   // the keyboard skips it
     }
 
     @Test func onlyTheBlockedActionsAreRed() {
@@ -40,15 +40,15 @@ struct BlockedRowTests {
     @Test func aGenericNeedsYouRowKeepsDoneAndPark() {
         // Done moved into the ⋯ menu (RowButtonsTests covers its contents); the capsule strip is
         // Park, Message, then the ⋯ trigger.
-        #expect(buttons(A.blockedAgent("g", blocker: nil)) == [.park, .message, .moreActions])
+        #expect(buttons(A.blockedAgent("g", blocker: nil)) == [.peek, .park, .message, .moreActions])
     }
 
     @Test func aParkedBlockedRowIsJustParked() {
-        #expect(buttons(A.blockedAgent("k", blocker: .question(A.question()), section: .parked)) == [.unpark, .moreActions])
+        #expect(buttons(A.blockedAgent("k", blocker: .question(A.question()), section: .parked)) == [.unpark, .peek, .moreActions])
     }
 
     @Test func theKeyboardCanReachAnswerAndOpenTerminal() {
-        #expect(RowButtons.usableButtons(for: A.blockedAgent("q", blocker: .question(A.question()))) == [.answer, .park])
+        #expect(RowButtons.usableButtons(for: A.blockedAgent("q", blocker: .question(A.question()))) == [.answer, .peek, .park])
         #expect(RowButtonHighlight.moved(from: nil, by: 1, in: [.answer, .park]) == .answer)
     }
 

@@ -64,16 +64,16 @@ struct PlanPayloadTests {
 
     @Test func aReviewablePlanRowShowsReviewAndParkNotOpenTerminal() {
         let agent = F.agent("a")
-        #expect(RowButtons.usableButtons(for: agent) == [.review, .park])
+        #expect(RowButtons.usableButtons(for: agent) == [.review, .peek, .park])
     }
 
     @Test func aPlainBlockedRowStillShowsOpenTerminal() {
         let agent = PermissionFixtures.agent("a", nil)
-        #expect(RowButtons.usableButtons(for: agent) == [.openTerminal, .park])
+        #expect(RowButtons.usableButtons(for: agent) == [.openTerminal, .peek, .park])
     }
 
     @Test func aParkedPlanRowKeepsTheUnparkButtons() {
-        #expect(RowButtons.usableButtons(for: F.agent("a").placed(in: .parked)) == [.unpark, .moreActions])
+        #expect(RowButtons.usableButtons(for: F.agent("a").placed(in: .parked)) == [.unpark, .peek, .moreActions])
     }
 
     @Test func aPlanRowNeverOffersMessage() {
@@ -93,9 +93,9 @@ struct PlanPayloadTests {
         model.statusSource = source
         model.receive(A.snapshot([AnswerFixtures.blockedAgent("a", blocker: .permission)]))
         func buttons() -> [RowButton] { model.presentation.agents.first.map(RowButtons.usableButtons) ?? [] }
-        #expect(buttons() == [.openTerminal, .park])
+        #expect(buttons() == [.openTerminal, .peek, .park])
         await waitUntil { buttons() == [.review, .park] }
-        #expect(buttons() == [.review, .park])
+        #expect(buttons() == [.review, .peek, .park])
         #expect(model.presentation.agents.first?.blockedOnYou?.permissionPrompt?.kind == .plan)
     }
 

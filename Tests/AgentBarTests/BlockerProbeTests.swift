@@ -82,9 +82,9 @@ struct BlockerProbeTests {
         let rig = makeRig()
         rig.source.replyWith(questionScreen)
         rig.model.receive(needsYou(nil))
-        #expect(buttons(rig.model) == [.park, .message, .moreActions])
+        #expect(buttons(rig.model) == [.peek, .park, .message, .moreActions])
         await waitUntil { buttons(rig.model) == [.answer, .park] }
-        #expect(buttons(rig.model) == [.answer, .park])
+        #expect(buttons(rig.model) == [.answer, .peek, .park])
         #expect(rig.source.readPaneIds == ["w1:a"])
         #expect(rig.model.presentation.agents.first?.blockedOnYou != nil)
     }
@@ -93,9 +93,9 @@ struct BlockerProbeTests {
         let rig = makeRig()
         rig.source.replyWith(permissionScreen)
         rig.model.receive(needsYou(.permission))
-        #expect(buttons(rig.model) == [.openTerminal, .park])
+        #expect(buttons(rig.model) == [.openTerminal, .peek, .park])
         await waitUntil { buttons(rig.model) == [.review, .park] }
-        #expect(buttons(rig.model) == [.review, .park])
+        #expect(buttons(rig.model) == [.review, .peek, .park])
     }
 
     @Test func aRowStillLoadingItsOptionsGetsTheAnswerButtonFromTheRead() async {
@@ -103,7 +103,7 @@ struct BlockerProbeTests {
         rig.source.replyWith(questionScreen)
         rig.model.receive(needsYou(.questionLoading(nil)))
         await waitUntil { buttons(rig.model) == [.answer, .park] }
-        #expect(buttons(rig.model) == [.answer, .park])
+        #expect(buttons(rig.model) == [.answer, .peek, .park])
     }
 
     @Test func aScreenWithNothingToAnswerLeavesTheRowAsItWas() async {
@@ -112,11 +112,11 @@ struct BlockerProbeTests {
         rig.model.receive(needsYou(.permission))
         await waitUntil { rig.source.readPaneIds.count >= 3 }
         await settleTasks()
-        #expect(buttons(rig.model) == [.openTerminal, .park])
+        #expect(buttons(rig.model) == [.openTerminal, .peek, .park])
         rig.source.replyWith(.failure("Can't reach the status dashboard."))
         rig.model.receive(needsYou(nil, id: "other"))
         await settleTasks()
-        #expect(buttons(rig.model, "other") == [.park, .message, .moreActions])
+        #expect(buttons(rig.model, "other") == [.peek, .park, .message, .moreActions])
     }
 
     @Test func aRowAlreadyParsedByTheDashboardIsNeverRead() async {
@@ -164,7 +164,7 @@ struct BlockerProbeTests {
         rig.source.replyWith(emptyScreen, permissionScreen)
         rig.model.receive(needsYou(.permission))
         await waitUntil { buttons(rig.model) == [.review, .park] }
-        #expect(buttons(rig.model) == [.review, .park])
+        #expect(buttons(rig.model) == [.review, .peek, .park])
         #expect(rig.source.readPaneIds.count == 2)
     }
 
@@ -190,7 +190,7 @@ struct BlockerProbeTests {
         rig.source.release(questionScreen)
         await settleTasks()
         rig.model.receive(needsYou(nil))
-        #expect(buttons(rig.model) == [.park, .message, .moreActions])   // nothing was learned from the stale screen
+        #expect(buttons(rig.model) == [.peek, .park, .message, .moreActions])   // nothing was learned from the stale screen
     }
 
     @Test func aReadThatReturnsAfterTheDashboardCaughtUpChangesNothing() async {
@@ -218,6 +218,6 @@ struct BlockerProbeTests {
         rig.model.receive(F.snapshot([moved]))
         rig.source.release(questionScreen)
         await settleTasks()
-        #expect(buttons(rig.model) == [.park, .message, .moreActions])
+        #expect(buttons(rig.model) == [.peek, .park, .message, .moreActions])
     }
 }

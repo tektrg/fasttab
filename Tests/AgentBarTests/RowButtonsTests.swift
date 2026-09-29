@@ -14,12 +14,12 @@ struct RowButtonsTests {
     }
 
     @Test func needsYouRowsOfferParkThenMessageThenTheMoreActionsMenu() {
-        #expect(buttons(F.agent("a", section: .needsYou)) == [.park, .message, .moreActions])
+        #expect(buttons(F.agent("a", section: .needsYou)) == [.peek, .park, .message, .moreActions])
         #expect(menuItems(F.agent("a", section: .needsYou)) == [.done, .compact, .clear])
     }
 
     @Test func parkedRowsOfferUnparkThenMessageThenTheMoreActionsMenu() {
-        #expect(buttons(F.agent("a", section: .parked)) == [.unpark, .message, .moreActions])
+        #expect(buttons(F.agent("a", section: .parked)) == [.unpark, .peek, .message, .moreActions])
         #expect(menuItems(F.agent("a", section: .parked)) == [.done, .compact, .clear])
     }
 
@@ -50,7 +50,7 @@ struct RowButtonsTests {
         var agent = F.agent("a", section: .needsYou)
         agent.blocker = .permission
         let parked = agent.placed(in: .parked)
-        #expect(buttons(parked) == [.unpark, .moreActions])
+        #expect(buttons(parked) == [.unpark, .peek, .moreActions])
         #expect(menuItems(parked) == [.done])   // still parkable/stoppable; just not messageable
     }
 
@@ -69,13 +69,13 @@ struct RowButtonsTests {
         // Not Claude (no hook data): the dashboard's question/permission guard cannot see their boxes.
         #expect(buttons(F.agent("a", section: .working, hasHookData: false)).isEmpty)
         let noHookData = F.agent("a", section: .needsYou, hasHookData: false)
-        #expect(buttons(noHookData) == [.park, .moreActions])
+        #expect(buttons(noHookData) == [.peek, .park, .moreActions])
         #expect(menuItems(noHookData) == [.done])   // Done doesn't need hook data; Compact/Clear do
     }
 
     @Test func moreActionsIsAKeyboardStopAfterTheExistingButtons() {
         let agent = F.agent("a", section: .needsYou)
-        #expect(RowButtons.usableButtons(for: agent) == [.park, .message, .moreActions])
+        #expect(RowButtons.usableButtons(for: agent) == [.peek, .park, .message, .moreActions])
         #expect(RowActionMachine.plan(pressing: .message, current: nil) == .openMessage)
         #expect(RowButton.message.sessionAction == nil)
         #expect(!RowButton.message.isBlockedAction)   // a neutral grey capsule
@@ -96,7 +96,7 @@ struct RowButtonsTests {
         #expect(!done.isEnabled)
         #expect(done.disabledReason == "The chief's pane can never be stopped from the board")
         // The ⋯ trigger still shows: Compact/Clear inside it are still usable even though Done isn't.
-        #expect(RowButtons.usableButtons(for: agent) == [.park, .message, .moreActions])
+        #expect(RowButtons.usableButtons(for: agent) == [.peek, .park, .message, .moreActions])
         #expect(!RowButtons.isPressable(.done, on: agent))
     }
 
@@ -113,7 +113,7 @@ struct RowButtonsTests {
         // No row id: Done (needs it) and Compact/Clear (need Message eligibility, which needs it
         // too) are all unusable, so the ⋯ trigger itself does not show — never a menu that opens
         // onto nothing.
-        #expect(RowButtons.usableButtons(for: agent) == [.park])
+        #expect(RowButtons.usableButtons(for: agent) == [.peek, .park])
     }
 
     // MARK: - The ⋯ menu itself (Done / Close pane / Compact / Clear)

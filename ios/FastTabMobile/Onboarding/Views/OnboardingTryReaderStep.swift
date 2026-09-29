@@ -26,11 +26,15 @@ struct OnboardingTryReaderStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            systemImage: "doc.plaintext.fill",
-            tint: DS.Tint.recent,
             title: "Read without the clutter",
             message: "Reader turns an article into clean, comfortable text."
         ) {
+            OnboardingHeroReader(
+                state: ReaderHeroState(isPreparing: showsPreparing && preloader.status == .preparing),
+                // The reader covers this screen: no need to keep animating under it.
+                isSuspended: readerItem != nil
+            )
+        } content: {
             VStack(spacing: DS.Space.md) {
                 articleCard
                 Label("Select any text to highlight it", systemImage: "highlighter")

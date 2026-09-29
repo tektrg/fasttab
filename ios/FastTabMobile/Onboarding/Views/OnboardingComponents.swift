@@ -1,28 +1,25 @@
 import SwiftUI
 
-/// Every guide screen has the same shape: hero icon, headline, one-line
+/// Every guide screen has the same shape: animated hero, headline, one-line
 /// explanation, the screen's own content, then its buttons pinned at the bottom.
-struct OnboardingStepLayout<Content: View, Actions: View>: View {
-    let systemImage: String
-    let tint: Color
+struct OnboardingStepLayout<Hero: View, Content: View, Actions: View>: View {
     let title: String
     let message: String?
+    let hero: Hero
     let content: Content
     let actions: Actions
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(
-        systemImage: String,
-        tint: Color = DS.Tint.action,
         title: String,
         message: String? = nil,
+        @ViewBuilder hero: () -> Hero,
         @ViewBuilder content: () -> Content,
         @ViewBuilder actions: () -> Actions
     ) {
-        self.systemImage = systemImage
-        self.tint = tint
         self.title = title
         self.message = message
+        self.hero = hero()
         self.content = content()
         self.actions = actions()
     }
@@ -33,14 +30,9 @@ struct OnboardingStepLayout<Content: View, Actions: View>: View {
                 VStack(spacing: DS.Space.lg) {
                     // Decorative; at accessibility text sizes the pinned buttons
                     // already take much of the screen, so the words get its room.
+                    // (Heroes hide themselves from VoiceOver: `OnboardingHeroStage`.)
                     if !dynamicTypeSize.isAccessibilitySize {
-                        Image(systemName: systemImage)
-                            .font(.system(size: DS.IconSize.hero))
-                            .foregroundStyle(tint)
-                            .symbolRenderingMode(.hierarchical)
-                            .frame(width: 88, height: 88)
-                            .background(tint.opacity(DS.tintFillOpacity), in: Circle())
-                            .accessibilityHidden(true)
+                        hero
                     }
 
                     VStack(spacing: DS.Space.sm) {

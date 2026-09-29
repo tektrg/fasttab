@@ -6,11 +6,11 @@ struct OnboardingDoneStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            systemImage: "checkmark.seal.fill",
-            tint: DS.Tint.success,
             title: "You're set",
             message: "Here's where everything lives."
         ) {
+            OnboardingHeroDone()
+        } content: {
             VStack(alignment: .leading, spacing: DS.Space.lg) {
                 OnboardingFeatureRow(
                     systemImage: "newspaper",

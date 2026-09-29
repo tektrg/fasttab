@@ -25,11 +25,11 @@ struct OnboardingSendToMacStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            systemImage: "paperplane.fill",
-            tint: DS.Tint.shared,
             title: "Send links to your Mac",
             message: "Add FastTab to your share sheet once. Then any link is one tap from your Mac."
         ) {
+            OnboardingHeroSend(state: SendHeroState(hasMac: hasMac, tryProgress: tryProgress))
+        } content: {
             VStack(spacing: DS.Space.lg) {
                 VStack(spacing: DS.Space.md) {
                     OnboardingNumberedInstruction(number: 1, text: "In Safari or any app, tap Share", systemImage: "square.and.arrow.up")

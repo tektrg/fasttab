@@ -16,6 +16,9 @@ struct OnboardingHeroDone: View {
     private static let sealRadius = 26.0
     private static let firstTabLitAt = 1.3
     private static let tabLitSpacing = 0.4
+    /// Built once: 145 trig samples are too many to redo every frame.
+    private static let sealShape = sealPath(center: sealCenter, radius: sealRadius)
+    private static let checkShape = checkPath(center: sealCenter)
 
     var body: some View {
         OnboardingHeroStage(playback: Self.playback) { time in
@@ -31,13 +34,12 @@ struct OnboardingHeroDone: View {
     private func seal(time: Double) -> some View {
         let ring = HeroCurve.progress(time, start: 0, duration: 0.5)
         let check = HeroCurve.progress(time, start: 0.5, duration: 0.4, ease: .easeOut)
-        let sealShape = Self.sealPath(center: Self.sealCenter, radius: Self.sealRadius)
         return ZStack {
-            sealShape.fill(DS.Tint.success.opacity(0.14 * ring))
-            sealShape
+            Self.sealShape.fill(DS.Tint.success.opacity(0.14 * ring))
+            Self.sealShape
                 .trim(from: 0, to: ring)
                 .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-            Self.checkPath(center: Self.sealCenter)
+            Self.checkShape
                 .trim(from: 0, to: check)
                 .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 3.5, lineCap: .round, lineJoin: .round))
         }

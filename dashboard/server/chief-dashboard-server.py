@@ -209,6 +209,7 @@ import persona_start  # noqa: E402  (POST /api/persona/start, P3)
 import persona_remote  # noqa: E402  (persona list/start on the remote listener)
 import message_gate  # noqa: E402  (non-Claude panes are never typed into)
 import tui_message  # noqa: E402  (Phase 4: message an OpenCode / Codex row)
+import image_attachments  # noqa: E402  (image uploads -> path notes in Send message)
 import jev_route  # noqa: E402  (POST /api/jev/route — pick a persona server-side)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
 import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
@@ -765,6 +766,10 @@ def _audit_delivery_result(result, row_id, actor, text):
     return result
 
 
+#: Attachments live on THIS Mac's disk; a worker on another machine can't Read them.
+_REMOTE_IMAGE_REFUSAL = "refused: images can only be sent to agents on this Mac"
+
+
 def _handle_reach_action(action, body, row_id, actor):
     """POST /api/session/message {rowId, actor, text?, confirm?}.
 
@@ -786,8 +791,15 @@ def _handle_reach_action(action, body, row_id, actor):
     never a cached state: free text would route into an open picker and
     mis-answer real work.
     """
+    # Images ride as file-path notes appended to the text (the peer socket
+    # drops image blocks — image_attachments.py); the combined text then
+    # passes the same one-line rules as any message.
+    image_paths, attach_refusal = image_attachments.resolve_paths(
+        (body or {}).get("attachments"))
+    if attach_refusal:
+        return _refused_before_typing(attach_refusal)
     ok, cleaned = session_actions.validate_message_text(
-        (body or {}).get("text"))
+        image_attachments.with_attachment_notes((body or {}).get("text"), image_paths))
     if not ok:
         return _refused_before_typing(cleaned)
     text = cleaned
@@ -808,6 +820,9 @@ def _handle_reach_action(action, body, row_id, actor):
     if blind:
         return _refused_before_typing(blind)
     pane_id = agent.get("paneId")
+    if image_paths and (agent.get("machine") or herdr_transport.LOCAL_MACHINE) not in (
+            herdr_transport.LOCAL_MACHINE, "unknown"):
+        return _refused_before_typing(_REMOTE_IMAGE_REFUSAL)
     if not pane_id and session_inbox.message_via(agent) == "inbox":
         return _handle_inbox_message(agent, body, row_id, actor, text)
     if not pane_id:
@@ -818,6 +833,8 @@ def _handle_reach_action(action, body, row_id, actor):
             pane_id, MACHINES)
     except herdr_transport.HerdrError as e:
         return _refused_before_typing(f"could not resolve pane machine: {e}")
+    if image_paths and machine != herdr_transport.LOCAL_MACHINE:
+        return _refused_before_typing(_REMOTE_IMAGE_REFUSAL)
     label = agent.get("label") or ""
     # No chief refusal here — deliberate (see docstring). The guards below
     # (own pane, dev-servers) still apply to every row including the chief's.
@@ -2728,6 +2745,7 @@ connect();
 
 
 MAX_REQUEST_BODY_BYTES = 1_000_000
+IMAGE_UPLOAD_PATH = "/api/attachments/image"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2848,6 +2866,26 @@ class Handler(BaseHTTPRequestHandler):
             # http.server sets close_connection when it sees this header.
             self.send_header("Connection", "close")
         super().end_headers()
+
+    def _handle_image_upload(self):
+        """POST /api/attachments/image: raw image bytes (own 5 MB cap,
+        separate from the 1 MB JSON cap) -> {ok, id}. Both listeners (the
+        phone attaches too). An oversized body is refused unread (the
+        unread-body guard closes the connection)."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0 or length > image_attachments.MAX_IMAGE_BYTES:
+            self._send_json({"ok": False, "error": "image over 5 MB — downscale it first"}, status=413)
+            return
+        data = self.rfile.read(length) if length else b""
+        self._request_body_read = True
+        try:
+            payload, status = image_attachments.store_image(data, self.headers.get("Content-Type"))
+        except OSError as e:
+            payload, status = {"ok": False, "error": f"could not store image — {e}"}, 500
+        self._send_json(payload, status=status)
 
     def _read_json_body(self):
         return json.loads(self._read_request_body() or b"{}") or {}
@@ -3230,6 +3268,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(*hook_permission_routes.handle_post(
                 path, self._read_json_body, self._is_remote_listener()))
             return
+        if path == IMAGE_UPLOAD_PATH:
+            self._handle_image_upload()
+            return
         if path.startswith("/api/session/"):
             action = path[len("/api/session/"):]
             self._note_remote_audit_row(action)
@@ -3457,6 +3498,7 @@ def _start_remote_listener():
 
 
 def main():
+    image_attachments.sweep_expired()
     start_pollers()
     SAMPLER.start()
 

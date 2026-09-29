@@ -206,7 +206,16 @@ def resolve_session(session_id, sessions_dir=None, read_sessions=None):
 # ── Sending ──────────────────────────────────────────────────────────────
 
 
+#: The peer socket silently DROPS non-string `content` (image blocks, lists)
+#: — no error, the message just never lands (spike 2026-09-29). Images go as
+#: file-path notes in the text instead (image_attachments.py).
+NON_STRING_CONTENT = ("refused: only plain text can be sent to a session inbox "
+                      "(image blocks are silently dropped — attach images as files)")
+
+
 def _wire_lines(token, text):
+    if not isinstance(text, str):
+        raise TypeError(NON_STRING_CONTENT)
     auth = json.dumps({"type": "auth", "token": token}) + "\n"
     user = json.dumps({"type": "user",
                        "message": {"role": "user", "content": text}}) + "\n"
@@ -253,6 +262,8 @@ def send_message(session_id, text, sessions_dir=None, read_sessions=None,
     {"delivered": bool, "maybeDelivered": bool, "error": str|None}.
     `maybeDelivered` = bytes may have left before the failure (never
     auto-retry that one)."""
+    if not isinstance(text, str):
+        return _not_sent(NON_STRING_CONTENT)
     sessions_dir = sessions_dir or claude_sessions.SESSIONS_DIR
     entry, reason = resolve_session(session_id, sessions_dir, read_sessions)
     if entry is None:

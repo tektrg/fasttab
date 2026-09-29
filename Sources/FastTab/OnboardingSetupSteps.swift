@@ -16,6 +16,8 @@ struct ExtensionInstallStep: View {
 
     private var isExtensionUsable: Bool { !permissions.usableExtensionAppNames.isEmpty }
     @Environment(\.openURL) private var openURL
+    /// `.key` while onboarding is the key window of the active app.
+    @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,6 +72,9 @@ struct ExtensionInstallStep: View {
         .onChange(of: permissions.usableExtensionAppNames) { _, _ in
             scheduleAutoAdvanceIfConnected()
         }
+        .onChange(of: controlActiveState) { _, _ in
+            scheduleAutoAdvanceIfConnected()
+        }
     }
 
     /// Already set up (e.g. replaying onboarding): confirm instead of selling.
@@ -81,8 +86,10 @@ struct ExtensionInstallStep: View {
 
     /// Advances itself once the bridge handshakes — install the extension in
     /// Chrome and this step finishes on its own, after the hero's success beat.
+    /// The handshake usually lands while Chrome is in front, so it waits for
+    /// onboarding to be back in front, where the paused beat then plays.
     private func scheduleAutoAdvanceIfConnected() {
-        guard !didAutoAdvance, isExtensionUsable else { return }
+        guard !didAutoAdvance, isExtensionUsable, controlActiveState == .key else { return }
         didAutoAdvance = true
         Task { @MainActor in
             try? await Task.sleep(for: ExtensionHeroState.autoAdvanceDelay)

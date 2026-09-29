@@ -56,6 +56,19 @@ public struct HeroClock {
         isFinished = false
     }
 
+    /// Call whenever the picture (`key`) or `canAnimate` changes. A new picture
+    /// restarts the clock. A one-shot's success beat only counts once it has
+    /// been seen: one that could not animate (the user was in another app when
+    /// the state arrived) plays from its first frame once it can.
+    /// Returns the seconds until `finish(key:)` is due, or `nil` if none is.
+    public mutating func sync(key: AnyHashable, playback: HeroPlayback, canAnimate: Bool, at now: Date) -> Double? {
+        let isNewPicture = self.key != key
+        if isNewPicture { start(key: key, at: now) }
+        guard let duration = playback.oneShotDuration, canAnimate, !isFinished else { return nil }
+        if !isNewPicture { start(key: key, at: now) }
+        return duration
+    }
+
     /// A one-shot reached its last frame; ignored if the picture has since changed.
     public mutating func finish(key: AnyHashable) {
         if self.key == key { isFinished = true }

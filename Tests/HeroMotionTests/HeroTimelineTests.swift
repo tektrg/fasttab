@@ -83,6 +83,37 @@ struct HeroTimelineTests {
         #expect(isClose(clock.frameTime(playback: loop, key: 0, canAnimate: true, now: resumedAt.addingTimeInterval(1.5)), 0.5))
     }
 
+    /// The extension connects while the user is in Chrome: the success beat
+    /// waits, then plays from its first frame when onboarding is back in front.
+    @Test func oneShotArrivingWhilePausedPlaysOnReturn() {
+        let connected = HeroPlayback.once(duration: 1.2)
+        var clock = HeroClock()
+        #expect(clock.sync(key: "connected", playback: connected, canAnimate: false, at: t0) == nil, "no finish while unseen")
+        let back = t0.addingTimeInterval(30)
+        #expect(clock.sync(key: "connected", playback: connected, canAnimate: true, at: back) == 1.2)
+        #expect(clock.isTicking(key: "connected", canAnimate: true))
+        #expect(isClose(clock.frameTime(playback: connected, key: "connected", canAnimate: true, now: back.addingTimeInterval(0.5)), 0.5))
+    }
+
+    /// Once a one-shot has played in view, focus changes never replay it.
+    @Test func finishedOneShotStaysRestedAcrossPauses() {
+        let connected = HeroPlayback.once(duration: 1.2)
+        var clock = HeroClock()
+        #expect(clock.sync(key: "connected", playback: connected, canAnimate: true, at: t0) == 1.2)
+        clock.finish(key: "connected")
+        #expect(clock.sync(key: "connected", playback: connected, canAnimate: false, at: t0.addingTimeInterval(5)) == nil)
+        #expect(clock.sync(key: "connected", playback: connected, canAnimate: true, at: t0.addingTimeInterval(9)) == nil)
+        #expect(!clock.isTicking(key: "connected", canAnimate: true))
+    }
+
+    /// Loops never schedule a finish, and a pause does not restart their clock.
+    @Test func syncLeavesALoopRunning() {
+        var clock = HeroClock()
+        #expect(clock.sync(key: 0, playback: loop, canAnimate: true, at: t0) == nil)
+        #expect(clock.sync(key: 0, playback: loop, canAnimate: true, at: t0.addingTimeInterval(1)) == nil)
+        #expect(isClose(clock.frameTime(playback: loop, key: 0, canAnimate: true, now: t0.addingTimeInterval(1.5)), 1.5))
+    }
+
     @Test func resumeLeavesOneShotClockAlone() {
         var clock = HeroClock()
         let oneShot = HeroPlayback.once(duration: 2)

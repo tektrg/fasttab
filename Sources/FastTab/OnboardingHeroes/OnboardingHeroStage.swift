@@ -50,16 +50,22 @@ struct OnboardingHeroStage<Frame: View>: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { _ in
             isWindowVisible = NSApp.keyWindow?.occlusionState.contains(.visible) ?? true
         }
-        .task(id: replayKey) { await runClock() }
+        .task(id: ClockRun(replayKey: replayKey, canAnimate: canAnimate)) { await runClock() }
         .accessibilityHidden(true)
     }
 
-    /// Restarts on appear and on every state change; marks a one-shot done so
-    /// the timeline stops ticking once it rests.
+    /// Re-runs `runClock` when the picture changes or the stage pauses/resumes.
+    private struct ClockRun: Hashable {
+        let replayKey: AnyHashable
+        let canAnimate: Bool
+    }
+
+    /// Restarts on appear and on every state change; marks a one-shot done
+    /// once it has played in view, so the timeline stops ticking once it rests.
+    /// A pause mid-beat cancels this task, so the beat replays on return.
     private func runClock() async {
         let key = replayKey
-        clock.start(key: key, at: Date())
-        guard let duration = playback.oneShotDuration else { return }
+        guard let duration = clock.sync(key: key, playback: playback, canAnimate: canAnimate, at: Date()) else { return }
         try? await Task.sleep(for: .seconds(duration))
         guard !Task.isCancelled else { return }
         clock.finish(key: key)

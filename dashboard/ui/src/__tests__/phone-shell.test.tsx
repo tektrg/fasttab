@@ -146,4 +146,20 @@ describe("Prompt sheet", () => {
     expect((send[0] as HTMLButtonElement).disabled).toBe(false);
     m.unmount();
   });
+  test("a pane row carrying its own request (OpenCode/Codex) opens the prompt, not the row sheet", async () => {
+    stubApi([row("p1")]);
+    const n: NeedsYouRow = {
+      kind: "question", urgency: 1, label: "oc-agent", paneId: "w:p1", detail: "asks", sinceSec: 3, identity: null,
+      source: "opencode", agentSession: "s2",
+      hookRequest: {
+        requestId: "r2", kind: "question", tool: "opencode",
+        questions: [{ question: "Run it?", header: "", multiSelect: false, options: [{ label: "Yes" }] }],
+      } as never,
+    };
+    const m = mount(<ToastProvider><PhoneShell state={state([n])} /></ToastProvider>);
+    await settle();
+    click(m.host.querySelector(".ui-row"));
+    expect(document.querySelectorAll(".ui-option").length).toBe(1);
+    m.unmount();
+  });
 });

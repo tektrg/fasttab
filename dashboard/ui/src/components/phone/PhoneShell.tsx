@@ -53,7 +53,9 @@ export function PhoneShell({ state }: { state: FullState }) {
   const workingCount = filterCounts(agents).working;
 
   const openNeedsYou = (n: NeedsYouRow) => {
-    if (!n.paneId) {
+    // OpenCode / Codex prompts sit on a pane but carry their own request:
+    // only the prompt sheet can answer them (PanelessPrompt).
+    if (!n.paneId || n.hookRequest?.tool) {
       setPromptId(promptKey(n));
       return;
     }

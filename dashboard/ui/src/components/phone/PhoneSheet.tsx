@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { BoardProperty, BoardRow } from "../../types";
 import { fmtAge } from "../../api";
 import { rowLabel } from "../../sessionActions";
@@ -37,7 +37,7 @@ export function SheetHeader({ name, badge, meta }: { name: string; badge: ReactN
  *  `RowDetailExtras` supplies the Review / plan / latest-message + form
  *  cards; the verbs and their confirm rules live in `usePhoneSheetActions`. */
 export function PhoneSheet({
-  row,
+  row: current,
   properties: _properties,
   onClose,
   onToast,
@@ -51,6 +51,11 @@ export function PhoneSheet({
   onUndo?: (message: string, undo: () => void) => void;
   onRefetch: () => void;
 }) {
+  // Keep the last row while the sheet slides out, so closing (Done, Park, a
+  // row that vanished from the poll) animates instead of unmounting at once.
+  const last = useRef<BoardRow | null>(current);
+  if (current) last.current = current;
+  const row = current ?? last.current;
   const a = usePhoneSheetActions({ row, onToast, onUndo, onRefetch, onClose });
   const [tab, setTab] = useState<SheetTab>("activity");
   const rowId = row?.rowId;
@@ -125,7 +130,7 @@ export function PhoneSheet({
 
   return (
     <Sheet
-      open
+      open={!!current}
       onOpenChange={(o) => !o && onClose()}
       title={name}
       header={<SheetHeader name={name} badge={<StatusBadge status={sheetStatus(row, wakeable)} />} meta={meta} />}

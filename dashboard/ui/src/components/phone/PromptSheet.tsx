@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { NeedsYouRow } from "../../types";
 import { fmtAge } from "../../api";
 import { PanelessPrompt } from "../HookRequestCard";
@@ -10,7 +11,7 @@ import { SheetHeader } from "./PhoneSheet";
  *  session outside herdr): its hook prompt, answerable here, or its
  *  transcript question, display only. */
 export function PromptSheet({
-  row,
+  row: current,
   onClose,
   onToast,
 }: {
@@ -18,12 +19,16 @@ export function PromptSheet({
   onClose: () => void;
   onToast: (msg: string, ok: boolean) => void;
 }) {
+  // Keep the last row while the sheet slides out (answered prompt -> gone).
+  const last = useRef<NeedsYouRow | null>(current);
+  if (current) last.current = current;
+  const row = current ?? last.current;
   if (!row) return null;
   const machine = row.machine || "local";
   const meta = [machine !== "local" ? machine : null, fmtAge(row.sinceSec)].filter(Boolean).join(" · ");
   return (
     <Sheet
-      open
+      open={!!current}
       onOpenChange={(o) => !o && onClose()}
       title={row.label}
       header={<SheetHeader name={row.label} badge={<StatusBadge status={needsYouUiStatus(row.kind)} />} meta={meta} />}

@@ -419,3 +419,14 @@ body.rp-resizing .rp-resize { background:var(--ask); }
 }
 .md-table th { color: var(--ink-3); font-weight: 600; background: var(--paper); }
 .md-table tr:last-child td { border-bottom: none; }
+
+/* Image attachments (ImageAttachBar): attach button + thumbnails under a composer. */
+.image-attach-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:4px; }
+.image-attach-button { font-size:12px; padding:2px 8px; border-radius:6px; border:1px solid var(--hair);
+  background:transparent; color:inherit; cursor:pointer; min-height:28px; }
+.image-attach-button:disabled { opacity:.5; cursor:default; }
+.image-attach-thumb { position:relative; width:40px; height:40px; }
+.image-attach-thumb img { width:40px; height:40px; object-fit:cover; border-radius:5px; border:1px solid var(--hair); }
+.image-attach-thumb button { position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%;
+  border:none; background:rgba(0,0,0,.65); color:#fff; font-size:12px; line-height:18px; padding:0; cursor:pointer; }
+.image-attach-error { font-size:12px; color:var(--mantine-color-red-6, #e03131); }

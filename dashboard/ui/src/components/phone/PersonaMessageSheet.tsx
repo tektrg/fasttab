@@ -4,6 +4,8 @@ import type { BoardRow } from "../../types";
 import { Sheet } from "../../ui/Sheet";
 import { listPersonas, routeWithJev, startPersona, type PersonaSummary } from "../../api";
 import { isQueued, sendMessage } from "../../sessionActions";
+import { imagesFromClipboard, uploadImages, useImageAttachments } from "../../imageAttachments";
+import { ImageAttachBar } from "../ImageAttachBar";
 import {
   EFFECT_TEXT,
   deriveEffect,
@@ -42,6 +44,7 @@ export function PersonaMessageSheet({
   const [loadFailed, setLoadFailed] = useState(false);
   const [persona, setPersona] = useState<string>("");
   const [text, setText] = useState("");
+  const attach = useImageAttachments();
   const [forceNew, setForceNew] = useState(false);
   const [busy, setBusy] = useState<"send" | "jev" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +106,13 @@ export function PersonaMessageSheet({
           ? startRefusal(chosen)
           : null;
   const hasText = text.trim() !== "";
-  const canSubmit = !!chosen && !!effect && hasText && !refusal && busy === null;
+  const hasImages = attach.images.length > 0;
+  // Images go only to a running session (persona start takes text only).
+  const imageRefusal = hasImages && effect && isStartEffect(effect)
+    ? "Images can only go to a running session — remove them to start one."
+    : null;
+  const canSubmit = !!chosen && !!effect && (hasText || (hasImages && effect === "sendToMain"))
+    && !refusal && !imageRefusal && busy === null;
 
   const askJev = async () => {
     if (!hasText || busy || inFlight.current) return;
@@ -134,11 +143,21 @@ export function PersonaMessageSheet({
     setText("");
     setForceNew(false);
     setJevPick(null);
+    attach.clear();
     onClose();
   };
 
   const send = async (main: BoardRow, confirm: boolean) => {
-    const res = await sendMessage(main.rowId, text.trim(), { confirm });
+    let attachments: string[] = [];
+    if (attach.images.length > 0) {
+      const up = await uploadImages(attach.images.map((i) => i.blob));
+      if (!up.ok) {
+        setError(`Image not uploaded — nothing was sent: ${up.error}`);
+        return;
+      }
+      attachments = up.ids;
+    }
+    const res = await sendMessage(main.rowId, text.trim(), { confirm, attachments });
     if (res.ok) {
       finish(isQueued(res) ? `queued to ${persona} — lands when the turn ends` : `sent to ${persona}`);
     } else if (res.needsConfirm) {
@@ -191,10 +210,24 @@ export function PersonaMessageSheet({
           aria-label="message"
           enterKeyHint="send"
           disabled={busy === "jev"}
+          onPaste={(e) => {
+            const files = imagesFromClipboard(e.clipboardData);
+            if (files.length) {
+              e.preventDefault();
+              void attach.add(files);
+            }
+          }}
           onKeyDown={(e) => {
             // A held Enter auto-repeats: never let it press "confirm" too.
             if (e.key === "Enter" && !e.repeat) void submit();
           }}
+        />
+        <ImageAttachBar
+          images={attach.images}
+          error={attach.error}
+          disabled={busy !== null}
+          onAdd={(files) => void attach.add(files)}
+          onRemove={attach.remove}
         />
         <div className="phone-sheet-actions persona-sheet-actions">
           <Switch
@@ -276,6 +309,7 @@ export function PersonaMessageSheet({
           </div>
         )}
         {refusal && <div className="persona-sheet-note">{refusal}</div>}
+        {imageRefusal && <div className="persona-sheet-note">{imageRefusal}</div>}
         {error && <div className="persona-sheet-error">{error}</div>}
     </Sheet>
   );

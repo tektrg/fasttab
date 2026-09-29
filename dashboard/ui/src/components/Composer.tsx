@@ -12,6 +12,8 @@ import {
 } from "../sessionActions";
 import { INBOX_CAPTION, WAKE_CAPTION, messagesViaInbox, wakesToMessage } from "../openInClaude";
 import { TOOL_MESSAGE_CAPTION, isToolAgent } from "../messageGates";
+import { imagesFromClipboard, uploadImages, useImageAttachments } from "../imageAttachments";
+import { ImageAttachBar } from "./ImageAttachBar";
 
 interface SentRow {
   rowId: string;
@@ -64,13 +66,16 @@ export function Composer({
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PendingRow[] | null>(null);
   const [report, setReport] = useState<SentRow[] | null>(null);
+  // Uploaded once per send, shared by every target row and the confirm-queue step.
+  const [heldIds, setHeldIds] = useState<string[]>([]);
+  const attach = useImageAttachments();
 
   // Partitioned fresh each render from server-provided row status — the
   // refetch can end rows under us, and ended rows must never be POSTed.
   const evaled = evaluateMessageBulk(rows);
   const targets = evaled.ready;
   const canSend =
-    !busy && text.trim().length > 0 && targets.length > 0 && !pending;
+    !busy && (text.trim().length > 0 || attach.images.length > 0) && targets.length > 0 && !pending;
   // Claude Desktop / CLI rows have no pane: say "session", not "pane".
   const anyInbox = targets.some((m) => messagesViaInbox(m.row.derived));
   const allInbox = targets.length > 0 && targets.every((m) => messagesViaInbox(m.row.derived));
@@ -102,12 +107,12 @@ export function Composer({
     }
   };
 
-  const postAll = async (list: BoardRow[], confirm: boolean, body: string) => {
+  const postAll = async (list: BoardRow[], confirm: boolean, body: string, attachments: string[]) => {
     const done: SentRow[] = [];
     const need: PendingRow[] = [];
     for (const row of list) {
       const label = rowLabel(row);
-      const res = await sendMessage(row.rowId, body, { confirm });
+      const res = await sendMessage(row.rowId, body, { confirm, attachments });
       if (!confirm && res.needsConfirm) {
         need.push({ rowId: row.rowId, label, reason: res.reason || "confirm" });
       } else {
@@ -121,15 +126,27 @@ export function Composer({
   const send = async () => {
     if (!canSend) return;
     const body = text.trim();
-    setHeld(body);
-    setText(""); // before the await, not after — the empty box IS the receipt
     setBusy(true);
+    let ids: string[] = [];
+    if (attach.images.length > 0) {
+      const up = await uploadImages(attach.images.map((i) => i.blob));
+      if (!up.ok) {
+        setBusy(false);
+        onToast(`image not uploaded — nothing was sent: ${up.error}`, false);
+        return;
+      }
+      ids = up.ids;
+    }
+    setHeld(body);
+    setHeldIds(ids);
+    setText(""); // before the await, not after — the empty box IS the receipt
     setReport(null);
     setPending(null);
     const { done, need } = await postAll(
       targets.map((m) => m.row),
       false,
       body,
+      ids,
     );
     setBusy(false);
     setReport(done);
@@ -142,6 +159,8 @@ export function Composer({
     // would double-send on the next Enter.
     if (need.length === 0 && done.every((r) => isRefusedBeforeTyping(r.res))) {
       setText((current) => (current === "" ? body : current));
+    } else {
+      attach.clear(); // the images went (or may have) with the text
     }
     onDone?.();
   };
@@ -153,7 +172,7 @@ export function Composer({
     const list = pending
       .map((p) => byId.get(p.rowId))
       .filter((r): r is BoardRow => !!r);
-    const { done } = await postAll(list, true, held);
+    const { done } = await postAll(list, true, held, heldIds);
     setBusy(false);
     setPending(null);
     setReport((prev) => [...(prev ?? []), ...done]);
@@ -185,6 +204,13 @@ export function Composer({
           value={text}
           disabled={targets.length === 0}
           onChange={(e) => setText(e.currentTarget.value)}
+          onPaste={(e) => {
+            const files = imagesFromClipboard(e.clipboardData);
+            if (files.length) {
+              e.preventDefault();
+              void attach.add(files);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -206,6 +232,15 @@ export function Composer({
           {pending ? `Confirm queue (${pending.length})` : "Send"}
         </Button>
       </Group>
+      {targets.length > 0 && (
+        <ImageAttachBar
+          images={attach.images}
+          error={attach.error}
+          disabled={busy || !!pending}
+          onAdd={(files) => void attach.add(files)}
+          onRemove={attach.remove}
+        />
+      )}
       {anyInbox && (
         <Text size="xs" c="dimmed" mt={4} className="composer-inbox-note">
           {INBOX_CAPTION}

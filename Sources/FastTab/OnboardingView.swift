@@ -273,7 +273,7 @@ struct OnboardingView: View {
 
     private var stepDots: some View {
         let count = steps.count
-        let active = min(max(stepIndex, 0), count - 1)
+        let active = clampedStepIndex
         return HStack(spacing: 6) {
             ForEach(0..<count, id: \.self) { i in
                 Capsule()

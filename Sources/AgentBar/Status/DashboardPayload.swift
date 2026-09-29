@@ -160,6 +160,10 @@ struct DashboardAgent: Decodable {
     let tmuxTarget: String?
     /// How a message reaches the row: "pane" | "inbox" (a status-only session's peer socket) | null.
     let messageVia: String?
+    /// herdr's `agent` field: "claude" | "opencode" | "codex" | …; absent from an older dashboard.
+    let agentKind: String?
+    /// Why the dashboard would refuse a message to this row; null when it would not (absent = older dashboard).
+    let messageRefusal: String?
     /// A status-only row's pending hook-bridge prompt (also on its `needsYou` entry).
     let hookRequest: DashboardHookRequest?
     /// A waiting status-only row's question read from its transcript (display only; never next to a `hookRequest`).
@@ -168,7 +172,7 @@ struct DashboardAgent: Decodable {
     private enum CodingKeys: String, CodingKey {
         case paneId, label, cwd, hookState, hookSinceSec, hasHookData, residue
         case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
-        case source, openUrl, tmuxTarget, messageVia, hookRequest, transcriptQuestion
+        case source, openUrl, tmuxTarget, messageVia, agentKind, messageRefusal, hookRequest, transcriptQuestion
     }
 
     init(from decoder: Decoder) throws {
@@ -191,6 +195,8 @@ struct DashboardAgent: Decodable {
         openUrl = container.lenient(.openUrl)
         tmuxTarget = container.lenient(.tmuxTarget)
         messageVia = container.lenient(.messageVia)
+        agentKind = container.lenient(.agentKind)
+        messageRefusal = container.lenient(.messageRefusal)
         hookRequest = container.lenient(.hookRequest)
         transcriptQuestion = container.lenient(.transcriptQuestion)
     }

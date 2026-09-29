@@ -208,6 +208,7 @@ import agentbar_presence  # noqa: E402  (is AgentBar connected? gates the hook b
 import persona_start  # noqa: E402  (POST /api/persona/start, P3)
 import persona_remote  # noqa: E402  (persona list/start on the remote listener)
 import message_gate  # noqa: E402  (non-Claude panes are never typed into)
+import tui_message  # noqa: E402  (Phase 4: message an OpenCode / Codex row)
 import jev_route  # noqa: E402  (POST /api/jev/route — pick a persona server-side)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
 import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
@@ -715,6 +716,19 @@ def _refused_before_typing(error):
     return {"ok": False, "error": error, "typed": False}
 
 
+def _tui_pane_text(pane_id, text):
+    _pane_run_raw(["pane", "send-text", pane_id, text])
+
+
+def _tui_pane_read(pane_id, lines):
+    return _read_pane_now(pane_id, read_lines=lines)[0]
+
+
+#: Local-machine pane I/O for tui_message.send_codex (herdr send-text, no Enter).
+_TUI_PANE_IO = {"send_text": _tui_pane_text, "send_keys": lambda pane, key: _send_keys(pane, key),
+                "read_pane": _tui_pane_read}
+
+
 def _handle_inbox_message(agent, body, row_id, actor, text):
     """The Send-message path for a Claude Desktop / plain CLI row (no pane):
     delivered through the session's own peer inbox (session_inbox.py), with
@@ -722,7 +736,7 @@ def _handle_inbox_message(agent, body, row_id, actor, text):
     prompt is pending, confirm when busy) and the same audit rows."""
     result = session_inbox.deliver_row_message(
         agent, text, bool((body or {}).get("confirm")))
-    return _audit_inbox_result(result, row_id, actor, text)
+    return _audit_delivery_result(result, row_id, actor, text)
 
 
 def _handle_sleeping_message(sleeping, body, row_id, actor, text):
@@ -731,10 +745,10 @@ def _handle_sleeping_message(sleeping, body, row_id, actor, text):
     inbox. Same response shapes + audit rows as the inbox path."""
     result = desktop_wake.deliver_to_sleeping(
         sleeping, text, bool((body or {}).get("confirm")))
-    return _audit_inbox_result(result, row_id, actor, text)
+    return _audit_delivery_result(result, row_id, actor, text)
 
 
-def _audit_inbox_result(result, row_id, actor, text):
+def _audit_delivery_result(result, row_id, actor, text):
     if result.get("ok"):
         # Same frozen `reason` shape as the pane path (the history reader
         # parses it); the full body rides in `text`.
@@ -827,6 +841,17 @@ def _handle_reach_action(action, body, row_id, actor):
     except Exception as e:
         return _refused_before_typing(
             f"could not read pane {pane_id} fresh — {e}")
+    tui_entry = None
+    if message_gate.is_tui_row(agent):
+        # OpenCode / Codex (Phase 4): their own gates (tui_message.py) run on
+        # the same fresh read; `refusal` is provably-nothing-sent.
+        if machine != herdr_transport.LOCAL_MACHINE:
+            return _refused_before_typing("refused: only local OpenCode / Codex panes can be messaged")
+        tui_entry, refusal = tui_message.check(
+            agent, raw_pane_id, text, lines, tui_status_events.STORE.fresh_entries())
+        if refusal:
+            return refusal
+
     blocked, live_state = _picker_or_permission_open(lines, question)
     if blocked == "picker":
         return _refused_before_typing(
@@ -851,6 +876,11 @@ def _handle_reach_action(action, body, row_id, actor):
                     "reason": "that pane is mid-turn — the message queues "
                               "and lands when the turn ends. Confirm to "
                               "queue it"}
+
+    if tui_entry is not None:
+        return _audit_delivery_result(
+            tui_message.deliver(raw_pane_id, text, lines, was_busy, tui_entry, _TUI_PANE_IO),
+            row_id, actor, text)
 
     try:
         _type_text(raw_pane_id, text, machine=machine)
@@ -2697,6 +2727,9 @@ connect();
 """
 
 
+MAX_REQUEST_BODY_BYTES = 1_000_000
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -2785,6 +2818,8 @@ class Handler(BaseHTTPRequestHandler):
     def _read_request_body(self):
         """The raw request body (b"" when none), marked as read."""
         length = int(self.headers.get("Content-Length") or 0)
+        if length < 0 or length > MAX_REQUEST_BODY_BYTES:
+            length = 0  # never read an absurd body; the empty body fails validation
         raw = self.rfile.read(length) if length else b""
         self._request_body_read = True
         return raw
@@ -3038,6 +3073,14 @@ class Handler(BaseHTTPRequestHandler):
                     self.end_headers()
                 return
         self._note_agentbar_seen()
+        if path.startswith(tui_jobs.PREFIX + "/wait") and not self._is_remote_listener():
+            # Job queue carries the user's messages and answers: only the plugin
+            # (custom header, no Origin, loopback Host) may poll it.
+            host = self.headers.get("Host")
+            if (self.headers.get("Origin") or not self.headers.get(tui_jobs.RELAY_HEADER)
+                    or (host and not self._is_loopback_netloc(host))):
+                self._send_json({"ok": False, "error": "refused: not the OpenCode plugin"}, status=403)
+                return
         job_reply = tui_jobs.handle_get(path, parse_qs(parsed.query), self._is_remote_listener())
         if job_reply is not None:
             self._send_json(*job_reply)

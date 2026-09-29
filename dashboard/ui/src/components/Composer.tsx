@@ -11,6 +11,7 @@ import {
   type SessionActionResult,
 } from "../sessionActions";
 import { INBOX_CAPTION, WAKE_CAPTION, messagesViaInbox, wakesToMessage } from "../openInClaude";
+import { TOOL_MESSAGE_CAPTION, isToolAgent } from "../messageGates";
 
 interface SentRow {
   rowId: string;
@@ -208,6 +209,11 @@ export function Composer({
       {anyInbox && (
         <Text size="xs" c="dimmed" mt={4} className="composer-inbox-note">
           {INBOX_CAPTION}
+        </Text>
+      )}
+      {targets.some((m) => isToolAgent(m.row.derived)) && (
+        <Text size="xs" c="dimmed" mt={4} className="composer-tool-note">
+          {TOOL_MESSAGE_CAPTION}
         </Text>
       )}
       {targets.some((m) => wakesToMessage(m.row)) && (

@@ -24,8 +24,17 @@ export function messageRefusal(row: AgentRow): string | null {
 /** The caption shown instead of the message box on such a row. */
 export function blindAgentCaption(agentKind: string | null | undefined): string {
   const tool = agentKind && agentKind !== "claude" ? agentKind : "this agent";
-  return `Messages are off for ${tool}: its prompts are invisible to the dashboard, so a message could answer a question nobody saw. Use its terminal.`;
+  return `Messages are off for ${tool}: the dashboard has no live status from it (its AgentBar plugin/hook is not installed or not reporting), so a message could answer a question nobody saw. Use its terminal.`;
 }
+
+/** An OpenCode or Codex session (messaged as a plain prompt, not a Claude one). */
+export function isToolAgent(row: AgentRow): boolean {
+  return row.agentKind === "opencode" || row.agentKind === "codex";
+}
+
+/** Said under the message box when a target is an OpenCode / Codex session. */
+export const TOOL_MESSAGE_CAPTION =
+  "Sent as a normal prompt, like typing it yourself. Messages starting with / or ! stay in the terminal.";
 
 /** There is a route (a pane, or a Desktop/CLI inbox) and the server's
  *  non-Claude gate does not refuse it. */
@@ -34,7 +43,8 @@ export function canMessage(row: AgentRow): boolean {
 }
 
 /** AgentBar's `RowButtons.takesQuickCommands`: a live Claude herdr pane with
- *  hook data (typed into a real terminal, never an inbox), not asking the
+ *  hook data (typed into a real terminal, never an inbox or an OpenCode /
+ *  Codex session, which have no /compact or /clear), not asking the
  *  user anything. The same gate for Compact and Clear. */
 export function takesQuickCommands(row: BoardRow): boolean {
   const d = row.derived;
@@ -42,6 +52,7 @@ export function takesQuickCommands(row: BoardRow): boolean {
     row.status !== "ended" &&
     !!d.paneId &&
     d.messageVia !== "inbox" &&
+    !isToolAgent(d) &&
     d.hasHookData &&
     !messageRefusal(d) &&
     !isBlockedOnYou(d)

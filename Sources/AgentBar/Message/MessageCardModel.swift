@@ -179,6 +179,11 @@ final class MessageCardModel: ObservableObject {
             return await source.sendMessage(rowId: request.rowId, text: request.text, confirmed: request.confirmed)
         case .pane(let id):
             paneId = id
+        case .toolPane(let id, _):
+            if MessageDraftValidator.check(request.text, allowsQuickCommands: false, refusesShellPrefix: true) == .slashCommand {
+                return .failed(MessageRoute.toolPaneCommandHint)
+            }
+            paneId = id
         }
         switch await source.paneScreen(paneId: paneId) {
         case .failure(let reason):

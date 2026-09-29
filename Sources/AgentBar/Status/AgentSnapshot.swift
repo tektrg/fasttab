@@ -51,6 +51,11 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// A status-only session that takes a message through its peer inbox right now (dashboard
     /// `messageVia: "inbox"`, and not waiting on a prompt). See `MessageRoute`.
     var messagesViaInbox: Bool = false
+    /// "opencode" | "codex" for a herdr row of that tool with fresh exact status (dashboard `agentKind`); nil for
+    /// Claude. Such a row takes a message as a plain prompt: no `/compact` / `/clear`, no leading `/` or `!`.
+    var messageTool: String? = nil
+    /// The dashboard's reason it would refuse a message to this row (`messageRefusal`); nil = it would not.
+    var messageRefusal: String? = nil
 
     /// The blocker while the row sits in Needs you. Parking sets a row aside, and
     /// with it the Blocked badge, the answer action and the top-of-section spot.

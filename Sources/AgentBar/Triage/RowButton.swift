@@ -141,9 +141,10 @@ enum RowButtons {
     }
 
     /// Message, last so the existing keyboard order (→ lands on the ⋯ trigger) is unchanged. Only a live
-    /// Claude agent (the dashboard's permission/question guard is blind to other CLIs, so a
-    /// message could answer a box it cannot see) that the dashboard can address by row, and that
-    /// is not asking anything (a parked row that is still blocked stays "just parked").
+    /// agent whose prompts the dashboard can see (Claude, or an OpenCode / Codex row with fresh exact
+    /// status; a best-guess row has no hook data, and the dashboard's `messageRefusal` has the last word)
+    /// that the dashboard can address by row, and that is not asking anything (a parked row that is
+    /// still blocked stays "just parked").
     /// A status-only Claude session gets it too when its inbox can take the message (`MessageRoute`).
     private static func messageButton(for agent: AgentSnapshot) -> [RowButtonSpec] {
         guard let route = messageRoute(for: agent) else { return [] }
@@ -160,7 +161,8 @@ enum RowButtons {
     /// Message pipeline (`MessageCardModel.sendDirect`), so a row that cannot take a message
     /// cannot take these either.
     private static func messageRoute(for agent: AgentSnapshot) -> MessageRoute? {
-        guard agent.blocker == nil, agent.rowId != nil, agent.canFocus, agent.hasHookData else { return nil }
+        guard agent.blocker == nil, agent.rowId != nil, agent.canFocus, agent.hasHookData,
+              agent.messageRefusal == nil else { return nil }
         return MessageRoute(agent: agent)
     }
 

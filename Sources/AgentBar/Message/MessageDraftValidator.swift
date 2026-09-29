@@ -45,9 +45,11 @@ enum MessageDraftValidator {
     }
 
     /// `allowsQuickCommands` false (an inbox route, `MessageRoute`) refuses `/compact` and `/clear` too.
-    static func check(_ raw: String, allowsQuickCommands: Bool = true) -> Verdict {
+    /// `refusesShellPrefix` (an OpenCode / Codex pane) refuses a leading "!" as well: it runs a shell command there.
+    static func check(_ raw: String, allowsQuickCommands: Bool = true, refusesShellPrefix: Bool = false) -> Verdict {
         let text = sanitized(raw)
         if text.isEmpty { return .empty }
+        if refusesShellPrefix, text.hasPrefix("!") { return .slashCommand }
         if text.hasPrefix("/"), !(allowsQuickCommands && isAllowedSlashCommand(text)) { return .slashCommand }
         if text.count > maxLength { return .tooLong(over: text.count - maxLength) }
         return .ready(text: text)

@@ -54,7 +54,7 @@ struct MessageCard: Equatable, Sendable {
     // MARK: - Reading
 
     var verdict: MessageDraftValidator.Verdict {
-        MessageDraftValidator.check(draft, allowsQuickCommands: route.allowsQuickCommands)
+        MessageDraftValidator.check(draft, allowsQuickCommands: route.allowsQuickCommands, refusesShellPrefix: route.refusesShellPrefix)
     }
 
     /// One line under the header about how the message travels; nil for a pane.
@@ -71,7 +71,7 @@ struct MessageCard: Equatable, Sendable {
     /// The line under the field about the draft itself: why it cannot go, or the counter near the cap.
     var draftHint: String? {
         switch verdict {
-        case .slashCommand: route == .inbox ? MessageRoute.inboxSlashCommandHint : MessageDraftValidator.slashCommandHint
+        case .slashCommand: route.commandHint
         case .tooLong(let over): MessageDraftValidator.tooLongHint(over: over)
         case .empty, .ready: nil
         }

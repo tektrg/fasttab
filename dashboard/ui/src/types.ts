@@ -252,6 +252,9 @@ export interface AgentRow {
   messageVia?: "pane" | "inbox" | "wake" | null;
   // herdr's agent tool for a pane row ("claude", "opencode", "codex", …).
   agentKind?: string | null;
+  // Where an OpenCode / Codex row's exact status comes from ("opencode-plugin",
+  // "codex-hook", "codex-rollout"); absent for Claude and best-guess rows.
+  statusSource?: string | null;
   // Set when the server refuses every message to this row (a non-Claude
   // pane whose prompts it can't see — server/lib/message_gate.py).
   messageRefusal?: string | null;

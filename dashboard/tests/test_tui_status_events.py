@@ -220,8 +220,9 @@ check("unique cwd match: codex row working", rows["w1:p3"]["hookState"], "workin
 check("two codex panes in one cwd: neither matched (no guessing)",
       (rows["w1:p4"]["hasHookData"], rows["w1:p5"]["hasHookData"]), (False, False))
 check("row with no events: still best guess", rows["w1:p6"]["hasHookData"], False)
-check("tool-status row still refused for messaging (Phase 4)",
-      (rows["w1:p2"]["messageRefusal"] or "").startswith("refused:"), True)
+check("tool-status row may be messaged (Phase 4: exact status)", rows["w1:p2"]["messageRefusal"], None)
+check("row with no events: still refused for messaging",
+      (rows["w1:p6"]["messageRefusal"] or "").startswith("refused:"), True)
 check("gate rule: Claude-hook data on non-Claude still allowed",
       message_gate.blind_agent_refusal({"source": "herdr", "agentKind": "opencode",
                                         "hasHookData": True}), None)

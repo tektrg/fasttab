@@ -245,7 +245,8 @@ class TuiStatusStore:
     @staticmethod
     def _new_entry(tool, session_id, now):
         return {"tool": tool, "sessionId": session_id, "pid": None, "cwd": None,
-                "paneId": None, "serverUrl": None, "relay": False, "transcriptPath": None,
+                "paneId": None, "serverUrl": None, "relay": False, "canMessage": False,
+                "transcriptPath": None,
                 "status": None, "prompt": None, "reason": None,
                 "request": None, "detail": None,
                 "statusSince": now, "lastEventAt": now, "lastSeen": now,
@@ -261,6 +262,8 @@ class TuiStatusStore:
                 entry[field] = value
         if payload.get("relay") is True:
             entry["relay"] = True  # the plugin runs replies itself (tui_jobs)
+        if payload.get("messages") is True:
+            entry["canMessage"] = True  # ...and can also submit a prompt (Phase 4)
         url = payload.get("serverUrl")
         if isinstance(url, str) and LOCAL_URL_RE.match(url):
             entry["serverUrl"] = url.rstrip("/")

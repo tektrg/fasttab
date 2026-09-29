@@ -111,9 +111,17 @@ enum LiveAgentMapper {
             host: host,
             hookRequest: hookRequest,
             // A status-only session's needsYou entry = it is asking something: no message until answered.
-            messagesViaInbox: !host.isHerdr && agent.messageVia == "inbox" && needsYouEntry == nil
+            messagesViaInbox: !host.isHerdr && agent.messageVia == "inbox" && needsYouEntry == nil,
+            messageTool: host.isHerdr ? Self.messageTool(forAgentKind: agent.agentKind) : nil,
+            messageRefusal: agent.messageRefusal
         )
         return (snapshot, hasPrompt)
+    }
+
+    /// OpenCode and Codex rows are messaged as a plain prompt (see `MessageRoute.toolPane`); everything else is Claude.
+    private static func messageTool(forAgentKind kind: String?) -> String? {
+        guard let kind, kind == "opencode" || kind == "codex" else { return nil }
+        return kind
     }
 
     /// A "question" row is answerable once its parsed picker has arrived (until

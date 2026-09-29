@@ -60,8 +60,9 @@ check("timed-out job is not left for a late plugin", queue.wait(4242, 0.1), None
 print("routes: local only")
 check("remote wait -> 404", tui_jobs.handle_get("/api/hook/tui-job/wait", {"pid": ["1"]}, True)[1], 404)
 check("bad pid -> 400", tui_jobs.handle_get("/api/hook/tui-job/wait", {"pid": ["x"]}, False)[1], 400)
-check("remote result -> 404", tui_jobs.handle_post("/api/hook/tui-job/j1/result", lambda: {}, True)[1], 404)
-check("non-int status -> 400", tui_jobs.handle_post("/api/hook/tui-job/j1/result", lambda: {"status": "200"}, False)[1], 400)
+check("remote result -> 404", tui_jobs.handle_post("/api/hook/tui-job/j1-0123456789abcdef/result", lambda: {}, True)[1], 404)
+check("non-int status -> 400", tui_jobs.handle_post("/api/hook/tui-job/j1-0123456789abcdef/result", lambda: {"status": "200"}, False)[1], 400)
+check("guessable job id (j1) not accepted as a result path", tui_jobs.handle_post("/api/hook/tui-job/j1/result", lambda: {"status": 200}, False), None)
 check("unrelated path not claimed", tui_jobs.handle_get("/api/other", {}, False), None)
 
 print("opencode_answer through the relay (fake plugin thread)")
@@ -122,6 +123,8 @@ else:
                         return self._send({"job": Dash.jobs.pop(0)})
                     time.sleep(0.1)
                 return self._send({})
+            if parsed.path == "/api/test/results-count":
+                return self._send({"count": len(seen["results"])})
             self._send({})
 
         def do_POST(self):
@@ -138,18 +141,35 @@ else:
         {"id": "j2", "method": "POST", "path": "/permission/per_other/reply", "body": {"reply": "once"}},
         {"id": "j3", "method": "GET", "path": "/config/providers", "body": None},
         {"id": "j4", "method": "POST", "path": f"/permission/per_seen/reply?x={SENTINEL}", "body": None},
+        # Phase 4: a text prompt runs only for a session the plugin saw, with exactly {parts:[{type,text}]}
+        {"id": "j5", "method": "POST", "path": "/session/ses_1/prompt_async",
+         "body": {"parts": [{"type": "text", "text": f"hello {SENTINEL}"}]}},
+        {"id": "j6", "method": "POST", "path": "/session/ses_9/prompt_async",
+         "body": {"parts": [{"type": "text", "text": "unknown session"}]}},
+        {"id": "j7", "method": "POST", "path": "/session/ses_1/prompt_async",
+         "body": {"parts": [{"type": "text", "text": "x"}], "agent": "build"}},
+        {"id": "j8", "method": "POST", "path": "/session/ses_1/prompt_async",
+         "body": {"parts": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]}},
+        {"id": "j9", "method": "GET", "path": "/session/ses_1/prompt_async", "body": None},
+        {"id": "j10", "method": "POST", "path": "/session/ses_1/prompt_async",
+         "body": {"parts": [{"type": "file", "text": "x"}]}},
+        {"id": "j11", "method": "POST", "path": "/session/ses_1/prompt_async",
+         "body": {"parts": [{"type": "text", "text": "y" * 8001}]}},
     ]
     proc = subprocess.run([node, HARNESS], capture_output=True, text=True, timeout=60,
-                          env=dict(os.environ, AGENTBAR_DASHBOARD_URL=f"http://127.0.0.1:{dash.server_address[1]}"))
+                          env=dict(os.environ, AGENTBAR_TEST_RESULTS=str(len(Dash.jobs)), AGENTBAR_DASHBOARD_URL=f"http://127.0.0.1:{dash.server_address[1]}"))
     dash.shutdown()
     try:
         calls = json.loads(proc.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
         calls = None
         print(proc.stdout, proc.stderr)
-    check("only the pending id's allowlisted reply reached the client", calls, [
-        {"method": "post", "url": "/permission/per_seen/reply", "body": {"reply": "reject"}}])
-    check("job results reported (200 for the run, 400 for the refused three)", sorted(r["status"] for r in seen["results"]), [200, 400, 400, 400])
+    check("only the pending id's reply and the known session's plain text prompt reached the client", calls, [
+        {"method": "post", "url": "/permission/per_seen/reply", "body": {"reply": "reject"}},
+        {"method": "post", "url": "/session/ses_1/prompt_async",
+         "body": {"parts": [{"type": "text", "text": f"hello {SENTINEL}"}]}}])
+    check("job results reported (200 for the two run, 400 for the refused nine)",
+          sorted(r["status"] for r in seen["results"]), [200, 200] + [400] * 9)
     check("polled with its own pid", bool(seen["pids"]) and seen["pids"][0][0].isdigit(), True)
 
 if fails:

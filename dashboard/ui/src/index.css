@@ -298,6 +298,8 @@ body.rp-resizing .rp-resize { background:var(--blue); }
   margin: 0;
   font-size: 12px;
 }
+/* Every tap target on a hook card meets the 44px minimum (buttons, option chips). */
+.hook-card button, .hook-card .mantine-Chip-label { min-height: 44px; box-sizing: border-box; }
 /* Mantine's Chip label is one fixed-height nowrap line: a long option label
    ran off the card (and the page) at phone width. Let it wrap — on every
    question card (pane QuestionBox and hook card both carry .appr-card). */

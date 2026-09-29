@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Exact status for OpenCode / Codex panes, pushed by each tool's own event
-system (Phase 2 of OpenCode/Codex support). STATUS ONLY: nothing here ever
-approves, denies or answers — that is Phase 3.
+system (Phase 2 of OpenCode/Codex support). This store never approves,
+denies or answers; it only remembers WHAT is pending (`entry["request"]`, an
+OpenCode permission/question the plugin reported) for `tui_answers.py`.
 
 Senders (repo `dashboard/integrations/`):
   * OpenCode plugin `opencode/agentbar-status.js` — session/permission/question
@@ -48,7 +49,18 @@ OPENCODE_EVENTS = {
     "question.asked": ("blocked", "question"),
     "question.replied": ("working", None),
     "question.rejected": ("working", None),
+    # v2 event family: same meanings.
+    "permission.v2.asked": ("blocked", "permission"),
+    "permission.v2.replied": ("working", None),
+    "question.v2.asked": ("blocked", "question"),
+    "question.v2.replied": ("working", None),
+    "question.v2.rejected": ("working", None),
 }
+OPENCODE_ASKED_EVENTS = ("permission.asked", "permission.v2.asked",
+                         "question.asked", "question.v2.asked")
+OPENCODE_ANSWERED_EVENTS = ("permission.replied", "permission.v2.replied",
+                            "question.replied", "question.rejected",
+                            "question.v2.replied", "question.v2.rejected")
 OPENCODE_STATUS_TYPES = {"busy": "working", "retry": "working", "idle": "idle"}
 CODEX_EVENTS = {
     "SessionStart": ("idle", None),
@@ -147,6 +159,45 @@ def _validate(payload):
     return tool, event, session_id
 
 
+MAX_LIST = 20
+REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_]{1,80}$")
+
+
+def _text_list(value, limit=300):
+    if not isinstance(value, list):
+        return []
+    return [s for s in (_text(v, limit) for v in value[:MAX_LIST]) if s is not None]
+
+
+def _clean_question(raw):
+    if not isinstance(raw, dict) or not isinstance(raw.get("question"), str):
+        return None
+    options = [{"label": _text(o.get("label"), 300) or "", "description": _text(o.get("description"), 500) or ""}
+               for o in (raw.get("options") or [])[:MAX_LIST] if isinstance(o, dict)]
+    return {"question": _text(raw["question"]), "header": _text(raw.get("header"), 120) or "",
+            "multiple": bool(raw.get("multiple")), "custom": raw.get("custom") is not False,
+            "options": options}
+
+
+def clean_request(raw):
+    """The plugin's `request` object, bounded and typed — or None when it is
+    not a whole permission / question (then nothing is offered for answering)."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("id"), str) \
+            or not REQUEST_ID_RE.match(raw["id"]):
+        return None
+    if raw.get("kind") == "permission":
+        return {"id": raw["id"], "kind": "permission",
+                "permission": _text(raw.get("permission"), 200) or "",
+                "patterns": _text_list(raw.get("patterns")),
+                "always": _text_list(raw.get("always")),
+                "detail": _text(raw.get("detail"), 1000) or ""}
+    if raw.get("kind") == "question" and isinstance(raw.get("questions"), list):
+        questions = [_clean_question(q) for q in raw["questions"][:8]]
+        if questions and all(questions):
+            return {"id": raw["id"], "kind": "question", "questions": questions}
+    return None
+
+
 class TuiStatusStore:
     def __init__(self, clock=time.time, pid_alive=_pid_alive):
         self._lock = threading.Lock()
@@ -177,6 +228,7 @@ class TuiStatusStore:
                 return {"ok": True, "state": "ended"}, 200
             entry = self._entries.get(key) or self._new_entry(tool, session_id, now)
             self._update_identity(entry, payload, pid)
+            self._update_request(entry, event, payload)
             self._update_context(entry, payload)
             implied = _event_status(tool, event, payload)
             if implied and implied[0]:
@@ -193,8 +245,9 @@ class TuiStatusStore:
     @staticmethod
     def _new_entry(tool, session_id, now):
         return {"tool": tool, "sessionId": session_id, "pid": None, "cwd": None,
-                "paneId": None, "serverUrl": None, "transcriptPath": None,
+                "paneId": None, "serverUrl": None, "relay": False, "transcriptPath": None,
                 "status": None, "prompt": None, "reason": None,
+                "request": None, "detail": None,
                 "statusSince": now, "lastEventAt": now, "lastSeen": now,
                 "contextPercent": None}
 
@@ -206,9 +259,30 @@ class TuiStatusStore:
             value = _text(payload.get(field), 4096)
             if value:
                 entry[field] = value
+        if payload.get("relay") is True:
+            entry["relay"] = True  # the plugin runs replies itself (tui_jobs)
         url = payload.get("serverUrl")
         if isinstance(url, str) and LOCAL_URL_RE.match(url):
             entry["serverUrl"] = url.rstrip("/")
+
+    @staticmethod
+    def _update_request(entry, event, payload):
+        """The pending OpenCode request the plugin reported (cleared when it
+        is answered / rejected, or when any other event says the turn moved on
+        past it), and Codex's full permission text."""
+        if entry["tool"] == "opencode":
+            if event in OPENCODE_ASKED_EVENTS:
+                entry["request"] = clean_request(payload.get("request"))
+            elif event in OPENCODE_ANSWERED_EVENTS:
+                answered = payload.get("requestId")
+                if not entry["request"] or not answered or entry["request"]["id"] == answered:
+                    entry["request"] = None
+            elif event in ("session.idle", "session.error"):
+                entry["request"] = None
+        elif event == "PermissionRequest":
+            entry["detail"] = _text(payload.get("detail"), 4000)
+        else:
+            entry["detail"] = None
 
     @staticmethod
     def _update_context(entry, payload):
@@ -239,6 +313,20 @@ class TuiStatusStore:
             if entry["status"] and now - entry["lastSeen"] < STALE_AFTER_SEC:
                 fresh.append(entry)
         return fresh
+
+    def clear_request(self, tool, session_id, request_id):
+        """Forget a pending request we just answered (the tool's own
+        `replied` event would do it a moment later)."""
+        with self._lock:
+            entry = self._entries.get((tool, session_id))
+            if entry and entry.get("request") and entry["request"]["id"] == request_id:
+                entry["request"] = None
+
+    def entry_for(self, tool, session_id):
+        """A copy of one entry (fresh or not), or None."""
+        with self._lock:
+            entry = self._entries.get((tool, session_id))
+            return dict(entry) if entry else None
 
     def clear(self):
         with self._lock:

@@ -6,12 +6,19 @@ Kept out of chief-dashboard-server.py so the server only dispatches.
   GET  /api/hook/permission/<id>/wait    hook long-poll (?timeout=N, N <= 25)
   POST /api/hook/permission/<id>/answer  AgentBar / web UI -> {ok, state} | 4xx {error}
 
+OpenCode / Codex prompts use the SAME three endpoints (Phase 3): a Codex hook
+registers with `agentTool: "codex"` and its `/wait` is routed by the request-id
+prefix; `answer` for an OpenCode / Codex-keystroke id goes to `tui_answers`
+(see that module for the ids).
+
 On the remote (tailscale) listener only `answer` exists — the phone's web
 remote answers there (authenticated, CSRF-checked and audited like every
 remote write); register and wait stay local (404): the hook runs on this Mac.
 """
 import claude_sessions
+import codex_hold_store
 import hook_permissions
+import tui_answers
 from chief_dashboard_feeds import FEEDS
 
 PREFIX = "/api/hook/permission"
@@ -67,9 +74,13 @@ def request_id_of(path):
     return _request_route(path)[0]
 
 
+def _store_for(request_id):
+    return codex_hold_store.STORE if tui_answers.is_codex_hold(request_id) else hook_permissions.STORE
+
+
 def handle_get(path, query, is_remote, store=None):
-    store = store or hook_permissions.STORE
     request_id, action = _request_route(path)
+    store = store or _store_for(request_id)
     if is_remote or action != "wait":
         return NOT_FOUND
     return store.wait(request_id, _parse_timeout(query), _live_sessions)
@@ -78,7 +89,6 @@ def handle_get(path, query, is_remote, store=None):
 def handle_post(path, read_body, is_remote, store=None, session_entry=None):
     """`read_body` is called lazily so a 404 never reads the request body.
     `session_entry(payload)` finds the hook session's file (tests fake it)."""
-    store = store or hook_permissions.STORE
     session_entry = session_entry or _session_entry
     request_id, action = _request_route(path)
     if is_remote and action != "answer":
@@ -86,9 +96,14 @@ def handle_post(path, read_body, is_remote, store=None, session_entry=None):
     try:
         if path == PREFIX:
             payload = read_body()
-            return store.register(payload, session_entry(payload)), 200
+            if isinstance(payload, dict) and payload.get("agentTool") == "codex":
+                return (store or codex_hold_store.STORE).register(payload), 200
+            return (store or hook_permissions.STORE).register(payload, session_entry(payload)), 200
         if action == "answer":
-            return store.answer(request_id, read_body())
+            body = read_body()
+            if request_id.startswith((tui_answers.OPENCODE_PREFIX, tui_answers.KEYSTROKE_PREFIX)):
+                return tui_answers.answer(request_id, body)
+            return (store or _store_for(request_id)).answer(request_id, body)
     except ValueError as e:  # malformed JSON body
         return {"ok": False, "error": f"bad JSON body: {e}"}, 400
     return NOT_FOUND

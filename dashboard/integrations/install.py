@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install / uninstall AgentBar's OpenCode plugin and Codex hook (status only).
+"""Install / uninstall AgentBar's OpenCode plugin and Codex hooks.
 
   python3 dashboard/integrations/install.py install   [--tool opencode|codex|all] [--json]
   python3 dashboard/integrations/install.py uninstall [--tool ...] [--json]
@@ -29,7 +29,13 @@ OPENCODE_PLUGIN_SRC = os.path.join(HERE, "opencode", "agentbar-status.js")
 OPENCODE_PLUGIN_NAME = "agentbar-status.js"
 OPENCODE_MARKER = "agentbar-status-plugin-marker"
 CODEX_HOOK_SRC = os.path.join(HERE, "codex", "agentbar-codex-hook.py")
-CODEX_MARKER = "agentbar-codex-hook.py"
+CODEX_PERMISSION_SRC = os.path.join(HERE, "codex", "agentbar-codex-permission.py")
+#: Every script of ours contains this; a hook entry is "ours" if its command does.
+CODEX_MARKER = "agentbar-codex-"
+CODEX_STATUS_MARKER = "agentbar-codex-hook.py"
+CODEX_PERMISSION_MARKER = "agentbar-codex-permission.py"
+#: Holds a prompt up to AGENTBAR_CODEX_HOLD_SEC (default 300s), so it needs room.
+CODEX_PERMISSION_TIMEOUT_SEC = 3600
 CODEX_EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse",
                 "PostToolUse", "PermissionRequest", "PreCompact", "PostCompact",
                 "Stop", "SubagentStart", "SubagentStop")
@@ -109,8 +115,18 @@ def _codex_hooks_path():
     return os.path.join(codex_dir(), "hooks.json")
 
 
-def codex_command():
-    return f"python3 {shlex.quote(CODEX_HOOK_SRC)}"
+def codex_command(src=None):
+    return f"python3 {shlex.quote(src or CODEX_HOOK_SRC)}"
+
+
+def _codex_entries(event, command):
+    """(marker, command, timeout) of each hook of ours on `event`: the status
+    hook everywhere, plus the answering hook on PermissionRequest."""
+    entries = [(CODEX_STATUS_MARKER, command, CODEX_HOOK_TIMEOUT_SEC)]
+    if event == "PermissionRequest":
+        entries.append((CODEX_PERMISSION_MARKER, codex_command(CODEX_PERMISSION_SRC),
+                        CODEX_PERMISSION_TIMEOUT_SEC))
+    return entries
 
 
 def _is_ours(hook):
@@ -127,9 +143,9 @@ def _load_hooks_file(path):
     return data
 
 
-def _event_has_ours(groups):
-    return any(_is_ours(h) for g in groups if isinstance(g, dict)
-               for h in (g.get("hooks") or []))
+def _event_has_ours(groups, marker=None):
+    return any(_is_ours(h) and (marker is None or marker in str(h.get("command")))
+               for g in groups if isinstance(g, dict) for h in (g.get("hooks") or []))
 
 
 def merge_codex_hooks(data, command):
@@ -142,11 +158,12 @@ def merge_codex_hooks(data, command):
         groups = hooks.setdefault(event, [])
         if not isinstance(groups, list):
             raise RuntimeError(f"hooks.json '{event}' is not a list; left untouched")
-        if _event_has_ours(groups):
-            continue
-        groups.append({"hooks": [{"type": "command", "command": command,
-                                  "timeout": CODEX_HOOK_TIMEOUT_SEC}]})
-        changed = True
+        for marker, hook_command, timeout in _codex_entries(event, command):
+            if _event_has_ours(groups, marker):
+                continue
+            groups.append({"hooks": [{"type": "command", "command": hook_command,
+                                      "timeout": timeout}]})
+            changed = True
     return data, changed
 
 
@@ -188,7 +205,8 @@ def codex_status():
     path = _codex_hooks_path()
     hooks = _load_hooks_file(path).get("hooks") or {}
     installed = isinstance(hooks, dict) and all(
-        _event_has_ours(hooks.get(e) or []) for e in CODEX_EVENTS)
+        _event_has_ours(hooks.get(e) or [], marker)
+        for e in CODEX_EVENTS for marker, _, _ in _codex_entries(e, ""))
     return {"installed": installed, "changed": False, "detail": path}
 
 

@@ -17,7 +17,9 @@ export function PanelessPrompt({
   row: NeedsYouRow;
   onToast: (msg: string, ok: boolean) => void;
 }) {
-  if (row.paneId) return null;
+  // A pane row is answered by its pane path — except an OpenCode / Codex
+  // prompt, which has no pane path and comes with its own request (`tool`).
+  if (row.paneId && !row.hookRequest?.tool) return null;
   if (row.hookRequest) {
     // Keyed by request id: a new prompt (or a re-sent one with a new id)
     // starts from a clean card, never with the old one's picks.
@@ -32,7 +34,15 @@ const WEB_DENY: HookAnswer = { behavior: "deny", message: "The user denied this 
 
 type SendState = { status: "idle" | "sending" | "sent" } | { status: "error"; error: string };
 
-function useHookSend(requestId: string, onToast: (msg: string, ok: boolean) => void) {
+const PRODUCT_NAME = { opencode: "OpenCode", codex: "Codex" } as const;
+
+/** "Claude" unless the request came from OpenCode / Codex. */
+export function productName(request: HookRequest): string {
+  return request.tool ? PRODUCT_NAME[request.tool] : "Claude";
+}
+
+function useHookSend(request: HookRequest, onToast: (msg: string, ok: boolean) => void) {
+  const requestId = request.requestId;
   const [state, setState] = useState<SendState>({ status: "idle" });
   const send = async (answer: HookAnswer) => {
     setState({ status: "sending" });
@@ -40,21 +50,24 @@ function useHookSend(requestId: string, onToast: (msg: string, ok: boolean) => v
     // Never retried: a refusal (409 answered in Claude / Claude stopped
     // waiting) is final and shown verbatim.
     setState(res.ok ? { status: "sent" } : { status: "error", error: res.error || "no reason given" });
-    onToast(res.ok ? "answer sent to Claude" : "answer not sent: " + (res.error || "?"), res.ok);
+    onToast(res.ok ? `answer sent to ${productName(request)}` : "answer not sent: " + (res.error || "?"), res.ok);
   };
   return { state, send, busy: state.status === "sending" || state.status === "sent" };
 }
 
-function SendFooter({ state }: { state: SendState }) {
+function SendFooter({ state, request }: { state: SendState; request: HookRequest }) {
+  const product = productName(request);
   if (state.status === "sent") {
-    return <Text size="xs" c="green" mt="xs">Sent — Claude continues.</Text>;
+    return <Text size="xs" c="green" mt="xs">Sent — {product} continues.</Text>;
   }
   if (state.status === "error") {
     return <Text size="xs" c="red" mt="xs">Not sent: {state.error}</Text>;
   }
   return (
     <Text size="xs" c="dimmed" mt="xs">
-      Claude shows this prompt on the Mac too — whichever is answered first wins.
+      {request.tool === "codex"
+        ? "Codex waits for this answer — it draws its own prompt only if nobody answers here in time."
+        : `${product} shows this prompt on the Mac too — whichever is answered first wins.`}
     </Text>
   );
 }
@@ -131,7 +144,7 @@ function QuestionFields({
 function HookQuestionCard({ request, onToast }: { request: HookRequest; onToast: (msg: string, ok: boolean) => void }) {
   const questions = request.questions ?? [];
   const [drafts, setDrafts] = useState<Draft[]>(() => questions.map(() => ({ picked: [], text: "" })));
-  const { state, send, busy } = useHookSend(request.requestId, onToast);
+  const { state, send, busy } = useHookSend(request, onToast);
   const texts = questions.map((q, i) => hookAnswerText(q, drafts[i]));
   const complete = questions.length > 0 && texts.every((t) => t !== null);
   const submit = () => {
@@ -158,14 +171,14 @@ function HookQuestionCard({ request, onToast }: { request: HookRequest; onToast:
           {questions.length > 1 ? `Send ${questions.length} answers` : "Send answer"}
         </Button>
       </Group>
-      <SendFooter state={state} />
+      <SendFooter state={state} request={request} />
     </Paper>
   );
 }
 
 function HookPermissionCard({ request, onToast }: { request: HookRequest; onToast: (msg: string, ok: boolean) => void }) {
   const permission = request.permission;
-  const { state, send, busy } = useHookSend(request.requestId, onToast);
+  const { state, send, busy } = useHookSend(request, onToast);
   // A suggestion saves a permission rule: it takes a second tap, like
   // AgentBar's "Confirm permission change".
   const [armedSuggestion, setArmedSuggestion] = useState<number | null>(null);
@@ -205,14 +218,14 @@ function HookPermissionCard({ request, onToast }: { request: HookRequest; onToas
         ))}
         {permission.suggestions.length ? (
           <Text size="xs" c="dimmed">
-            A rule button allows this now AND saves the rule, so Claude stops asking — it takes a second tap.
+            A rule button allows this now AND saves the rule, so {productName(request)} stops asking — it takes a second tap.
           </Text>
         ) : null}
         <Button color="red" variant="light" disabled={busy} onClick={() => void send(WEB_DENY)}>
           Deny
         </Button>
       </Stack>
-      <SendFooter state={state} />
+      <SendFooter state={state} request={request} />
     </Paper>
   );
 }

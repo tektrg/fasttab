@@ -200,6 +200,7 @@ import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, gene
 import personas  # noqa: E402  (Jev persona registry + routing, P1)
 import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
+import tui_jobs  # noqa: E402  (OpenCode plugin job relay)
 import tui_status_events  # noqa: E402  (OpenCode/Codex status events)
 import session_inbox  # noqa: E402  (message to a Desktop/CLI session)
 import desktop_wake  # noqa: E402  (message a sleeping Desktop session: wake it first)
@@ -3037,6 +3038,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.end_headers()
                 return
         self._note_agentbar_seen()
+        job_reply = tui_jobs.handle_get(path, parse_qs(parsed.query), self._is_remote_listener())
+        if job_reply is not None:
+            self._send_json(*job_reply)
+            return
         if hook_permission_routes.is_hook_path(path):
             self._send_json(*hook_permission_routes.handle_get(
                 path, parse_qs(parsed.query), self._is_remote_listener()))
@@ -3172,6 +3177,10 @@ class Handler(BaseHTTPRequestHandler):
             path, self._read_json_body, self._is_remote_listener())
         if tui_reply is not None:
             self._send_json(*tui_reply)
+            return
+        job_reply = tui_jobs.handle_post(path, self._read_json_body, self._is_remote_listener())
+        if job_reply is not None:
+            self._send_json(*job_reply)
             return
         if hook_permission_routes.is_hook_path(path):
             self._note_remote_audit_row(hook_permission_routes.request_id_of(path))

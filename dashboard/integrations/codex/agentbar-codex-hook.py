@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Codex hook (every ~/.codex/hooks.json event, incl. PermissionRequest):
-forwards the event to the dashboard's status listener. STATUS ONLY.
+forwards the event to the dashboard's status listener. STATUS ONLY. (The
+sibling `agentbar-codex-permission.py` is the one that can hold and answer a
+PermissionRequest.)
 
 NEVER DECIDES, NEVER BLOCKS: prints nothing (so Codex's own prompt and the
 other vendors' hooks decide), always exits 0, and gives the dashboard at
@@ -60,9 +62,12 @@ def build_event(payload):
         title = f"{title}: {command}" if title else command
     message = _first(payload, "last_assistant_message", "last-assistant-message",
                      "last_agent_message")
+    event_name = _first(payload, "hook_event_name", "hookEventName", "event") or ""
+    detail = command if event_name == "PermissionRequest" and isinstance(command, str) else None
     return {
         "tool": "codex",
-        "event": _first(payload, "hook_event_name", "hookEventName", "event") or "",
+        "event": event_name,
+        "detail": detail[:MAX_MESSAGE_CHARS * 2] if detail else None,
         "sessionId": _first(payload, "session_id", "sessionId", "thread_id"),
         "cwd": _first(payload, "cwd") or os.getcwd(),
         "transcriptPath": _first(payload, "transcript_path", "transcriptPath"),

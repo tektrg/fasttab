@@ -61,6 +61,15 @@ data = json.load(open(hooks_path))
 check("install ok + changed", (report["ok"], report["tools"]["codex"]["changed"]), (True, True))
 check("every event has our entry",
       all(install._event_has_ours(data["hooks"].get(e, [])) for e in install.CODEX_EVENTS), True)
+pr_commands = [h["command"] for g in data["hooks"]["PermissionRequest"] for h in g["hooks"]]
+check("PermissionRequest also gets the answering hook (long timeout), once",
+      [c for c in pr_commands if "agentbar-codex-permission.py" in c].__len__(), 1)
+check("answering hook timeout leaves room for the hold limit",
+      [h["timeout"] for g in data["hooks"]["PermissionRequest"] for h in g["hooks"]
+       if "agentbar-codex-permission.py" in h["command"]], [install.CODEX_PERMISSION_TIMEOUT_SEC])
+check("no other event gets the answering hook",
+      sorted(e for e, gs in data["hooks"].items() if any("agentbar-codex-permission.py" in h.get("command", "")
+                                                          for g in gs for h in g["hooks"])), ["PermissionRequest"])
 check("vendor PermissionRequest entries kept, in order",
       data["hooks"]["PermissionRequest"][:2], FOREIGN["hooks"]["PermissionRequest"])
 check("vendor matcher group kept", data["hooks"]["PostCompact"][0], FOREIGN["hooks"]["PostCompact"][0])
@@ -167,6 +176,7 @@ check("live: posted to /api/hook/tui-event", path, "/api/hook/tui-event")
 check("live: event fields", (event.get("tool"), event.get("event"), event.get("sessionId"), event.get("paneId")),
       ("codex", "PermissionRequest", "cx-1", "w9:p9"))
 check("live: sentinel forwarded as inert text", event.get("title"), "Bash: echo $(echo INJECTED)")
+check("live: full command forwarded as detail (PermissionRequest only)", event.get("detail"), "echo $(echo INJECTED)")
 check("live: pid reported", isinstance(event.get("pid"), int), True)
 proc, took = run_hook(dead_url, payload)
 check("listener down: exit 0", proc.returncode, 0)
@@ -187,7 +197,7 @@ else:
 const mod = await import(process.argv[2]);
 const hooks = await mod.default.server({ serverUrl: new URL("http://127.0.0.1:1"), directory: "/tmp/oc" });
 const t0 = Date.now();
-await hooks.event({ event: { type: "permission.asked", properties: { sessionID: "ses_1", title: "$(echo INJECTED)" } } });
+await hooks.event({ event: { type: "permission.asked", properties: { id: "per_1", sessionID: "ses_1", permission: "bash", patterns: ["ls *"], always: ["ls *"], metadata: { command: "$(echo INJECTED)" }, title: "$(echo INJECTED)" } } });
 await hooks.event({ event: { type: "session.status", properties: { sessionID: "ses_1", status: { type: "busy" } } } });
 await hooks.event({ event: { type: "message.part.delta", properties: { sessionID: "ses_1" } } });
 console.log(JSON.stringify({ handlerMs: Date.now() - t0 }));
@@ -204,12 +214,16 @@ await new Promise((r) => setTimeout(r, 1200));
     received.clear()
     proc, _ = run_plugin(live_url)
     check("live: node exit 0", (proc.returncode, proc.stderr), (0, ""))
-    events = [b for p, b in received]
+    events = sorted((b for p, b in received), key=lambda e: e["event"])  # posts race; order is not the contract
     check("live: two forwarded, delta skipped", [e["event"] for e in events], ["permission.asked", "session.status"])
     check("live: fields", events and (events[0]["tool"], events[0]["sessionId"], events[0]["paneId"],
                                       events[0]["cwd"], events[0]["serverUrl"]),
           ("opencode", "ses_1", "w1:p2", "/tmp/oc", "http://127.0.0.1:1"))
     check("live: statusType", events[1:] and events[1].get("statusType"), "busy")
+    check("live: pending permission reported for answering",
+          events and events[0].get("request"),
+          {"id": "per_1", "kind": "permission", "permission": "bash", "patterns": ["ls *"], "always": ["ls *"],
+           "detail": "$(echo INJECTED)"})
     proc, took = run_plugin(dead_url)
     check("listener down: node exit 0, no error output", (proc.returncode, proc.stderr), (0, ""))
     handler_ms = json.loads(proc.stdout.strip().splitlines()[0])["handlerMs"]

@@ -67,6 +67,7 @@ Native Mac agent switcher (⌥Tab panel) over the AptusFit **chief dashboard** (
 14. **Typed text is control-free** (`TerminalSafeText`): message, free-text answer and plan feedback drop control characters (tab becomes a space): an ESC/Ctrl-C in pasted text would be a keystroke in the agent's terminal. Form batches are tracked per agent (`batchTasks`/`batchWatchdogs`): a watchdog cancels only its own batch.
 
 ## Known deferred
+OpenCode/Codex answers (dashboard Phase 3): NO Swift change was needed by reading `LiveAgentMapper` (herdr rows carrying a `hookRequest` become cards; `tool` is an extra field it ignores) — but not compiled or run here (no build on the Air); confirm on the Pro, and that a Codex/OpenCode card's copy reads right.
 Dashboard classifier reads non-Claude prompts (opencode/codex/gemini) as UNKNOWN; optional `transcript_path` in the hook sidecar; kit-dedupe candidates (ShortcutRecorderField, LaunchAtLoginService, MenuBarItemController, Settings shell, PaneScreenText); stale `Package.swift` comment "Read-only agent switcher".
 
 ## Live-check protocol (what worked)

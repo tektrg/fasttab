@@ -15,6 +15,7 @@ import hook_permissions  # prompts answerable via the PermissionRequest hook
 import message_gate  # non-Claude panes are never typed into
 import pane_screen_signals
 import tui_status_events  # OpenCode/Codex exact status (plugin / hooks)
+import tui_answers  # OpenCode/Codex pending prompts answerable as hookRequest
 from chief_dashboard_feeds import FEEDS, MACHINES, sanitize_pane_id  # noqa: F401
 from chief_dashboard_feeds import MACHINES_CONFIG_ERROR  # noqa: F401,E402  (surfaced on every /api/state)
 from chief_dashboard_feeds import read_hook_question  # noqa: E402  (phase 5: AskUserQuestion preview)
@@ -175,10 +176,17 @@ def build_agents_view(feeds_snap):
             r["hookRequest"] = hook_requests.get(r.get("agentSession"))
     # OpenCode / Codex panes: their own plugin / hook events (fresh only —
     # stale data is dropped, so the row decays back to its screen reading).
+    tui_entries = tui_status_events.STORE.fresh_entries()
     tui_status_events.attach_to_rows(
-        rows, tui_status_events.STORE.fresh_entries(), now,
+        rows, tui_entries, now,
         local_machine=herdr_transport.LOCAL_MACHINE,
         herdr_source=claude_sessions.HERDR_SOURCE)
+    # ...and their pending permission / question, answerable like a Claude hook
+    # request (`hookRequest`, tui_answers.py).
+    screen_sweep_age = feeds_snap["paneScreen"]["ageSec"]
+    if screen_sweep_age is not None:
+        screen_sweep_age += feeds_snap["paneScreen"].get("lastDurationSec") or 0
+    tui_answers.attach_requests(rows, tui_entries, now, screen_read_age=screen_sweep_age)
     for r in rows:
         r["messageRefusal"] = message_gate.blind_agent_refusal(r)
     rows.extend(claude_sessions.build_status_only_rows(

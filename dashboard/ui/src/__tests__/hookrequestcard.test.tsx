@@ -160,6 +160,16 @@ describe("hook permission", () => {
     expect(calls[0]).toEqual({ url: "/api/hook/permission/hp2-def/answer", body: { behavior: "deny", message: "The user denied this from the dashboard web UI." } });
   });
 
+  test("an OpenCode/Codex pane row DOES render it and answers through the shared endpoint", async () => {
+    const calls = stubFetch();
+    mount(<PanelessPrompt row={row({ paneId: "w1:p1", hookRequest: { ...PERMISSION, tool: "codex", requestId: "tuicx1-ab" } })} onToast={() => {}} />);
+    expect(document.querySelectorAll(".hook-card").length).toBe(1);
+    expect(document.body.textContent).toContain("Codex");
+    click(button("Allow once"));
+    await settle();
+    expect(calls.map((c) => c.url)).toEqual(["/api/hook/permission/tuicx1-ab/answer"]);
+  });
+
   test("a permission-rule suggestion needs a second tap", async () => {
     const calls = stubFetch();
     mount(<PanelessPrompt row={row({ hookRequest: PERMISSION })} onToast={() => {}} />);

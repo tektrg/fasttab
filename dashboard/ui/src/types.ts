@@ -173,6 +173,8 @@ export interface HookQuestion {
 
 export interface HookRequest {
   requestId: string;
+  /** Set for an OpenCode / Codex prompt (tui_answers.py); absent = Claude. */
+  tool?: "opencode" | "codex";
   kind: "question" | "permission";
   toolName: string;
   sinceSec?: number;

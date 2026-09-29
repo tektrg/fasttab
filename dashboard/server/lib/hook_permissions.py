@@ -178,6 +178,11 @@ def ignore_reason(payload, session_entry):
 
 
 class HookPermissionStore:
+    #: Request ids start with this (routes tell the stores apart by it) and
+    #: refusal texts name this product; the Codex store overrides both.
+    ID_PREFIX = "hp"
+    PRODUCT = "Claude"
+
     def __init__(self, clock=time.time, ticks=time.monotonic, pid_alive=_pid_alive, presence=None):
         self._clock = clock
         self._ticks = ticks
@@ -205,7 +210,7 @@ class HookPermissionStore:
                 existing.last_wait_at = self._ticks()
                 existing.has_waited = False
                 return {"requestId": existing.request_id}
-            request_id = f"hp{next(self._seq)}-{secrets.token_hex(4)}"
+            request_id = f"{self.ID_PREFIX}{next(self._seq)}-{secrets.token_hex(4)}"
             self._requests[request_id] = HookRequest(request_id, payload, created_at, self._ticks())
             self._cond.notify_all()
         return {"requestId": request_id}
@@ -280,7 +285,7 @@ class HookPermissionStore:
                 request.finish(STATE_RESOLVED, now, reason=REASON_HOOK_SILENT)
                 self._cond.notify_all()
             if request.state != STATE_PENDING:
-                return {"ok": False, "error": _not_pending_message(request)}, 409
+                return {"ok": False, "error": _not_pending_message(request, self.PRODUCT)}, 409
             try:
                 decision = summary.build_decision(
                     request.tool_name, request.tool_input, request.suggestions, body)
@@ -351,17 +356,18 @@ class HookPermissionStore:
             return views
 
 
-def _not_pending_message(request):
+def _not_pending_message(request, product="Claude"):
     """409 text AgentBar shows verbatim in its footer."""
     if request.state == STATE_ANSWERED:
         return "This prompt was already answered from AgentBar or the web remote."
     if request.state_reason == "answered elsewhere":
-        return "This prompt was already answered in Claude."
+        return f"This prompt was already answered in {product}."
     if request.state_reason == REASON_HOOK_SILENT:
-        return "Claude stopped waiting for this answer; answer it in Claude."
+        return f"{product} stopped waiting for this answer; answer it in {product}."
     if request.state_reason == REASON_AGENTBAR_GONE:
-        return ("AgentBar and the web remote lost their dashboard connection; if Claude "
-                "is still waiting this prompt shows again in a few seconds, else answer it in Claude.")
+        return ("AgentBar and the web remote lost their dashboard connection; if "
+                f"{product} is still waiting this prompt shows again in a few seconds, "
+                f"else answer it in {product}.")
     return f"This prompt is no longer waiting ({request.state_reason or request.state})."
 
 

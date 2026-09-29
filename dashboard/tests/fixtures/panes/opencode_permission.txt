@@ -1,0 +1,39 @@
+  ┃  Use the bash tool to run exactly: touch scratch-oc-1.txt  (then stop)
+  ┃
+
+     $ touch scratch-oc-1.txt
+
+     ▣  Build · Big Pickle
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  △ Permission required
+  ┃    # Shell command
+  ┃
+  ┃  $ touch scratch-oc-1.txt
+  ┃
+  ┃
+  ┃   Allow once   Allow always   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm
+  ┃

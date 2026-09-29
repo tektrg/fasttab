@@ -1,0 +1,18 @@
+.ui-btn {
+  --btn-h: 44px; --btn-px: var(--s4);
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  height: var(--btn-h); padding: 0 var(--btn-px); border-radius: var(--r-md);
+  border: 1px solid var(--hair); background: var(--paper); color: var(--ink);
+  font: 600 15px var(--sans); cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: transform 80ms ease-out, opacity 80ms ease-out;
+}
+.ui-btn[data-size="sm"] { --btn-h: 36px; --btn-px: var(--s3); font-size: 14px; }
+/* 44pt hit area around the 36pt visual button. */
+.ui-btn[data-size="sm"]::after { content: ""; position: absolute; inset: -4px 0; }
+.ui-btn[data-variant="primary"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.ui-btn[data-variant="ask"] { background: var(--ask); color: var(--paper); border-color: var(--ask); }
+.ui-btn[data-variant="danger"] { color: var(--need); }
+.ui-btn:active:not(:disabled) { transform: scale(.98); }
+.ui-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.ui-btn:disabled { opacity: .45; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { .ui-btn { transition: none; } .ui-btn:active:not(:disabled) { transform: none; } }

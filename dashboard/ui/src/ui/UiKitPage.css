@@ -1,0 +1,5 @@
+.ui-kit { max-width: 480px; margin: 0 auto; padding: var(--s4); padding-bottom: var(--s10); color: var(--ink); font-family: var(--sans); }
+.ui-kit h1 { font: 700 26px var(--sans); letter-spacing: -.02em; margin: 0; }
+.ui-kit h2 { font: 600 12px var(--sans); text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); margin: var(--s6) 0 var(--s2); }
+.ui-kit__wrap { display: flex; flex-wrap: wrap; gap: var(--s3); margin-bottom: var(--s2); align-items: center; }
+.ui-kit__group { background: var(--paper); border: 1px solid var(--hair); border-radius: var(--r-md); overflow: hidden; }

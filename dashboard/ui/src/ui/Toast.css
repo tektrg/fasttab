@@ -1,0 +1,21 @@
+/* Set --ui-tabbar-height on the app shell so toasts float above the tab bar. */
+.ui-toast-region {
+  position: fixed; z-index: 300; pointer-events: none;
+  left: max(var(--s4), env(safe-area-inset-left, 0px)); right: max(var(--s4), env(safe-area-inset-right, 0px));
+  bottom: calc(var(--ui-tabbar-height, 0px) + env(safe-area-inset-bottom, 0px) + var(--s3));
+  display: flex; justify-content: center;
+}
+.ui-toast {
+  pointer-events: auto; width: 100%; max-width: 480px; min-height: 44px;
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  padding: var(--s1) var(--s1) var(--s1) var(--s4); border-radius: var(--r-md);
+  background: var(--ink); color: var(--paper); box-shadow: var(--shadow-float);
+  font: 400 14px/1.4 var(--sans); animation: ui-toast-in 200ms ease-out;
+}
+.ui-toast__action {
+  min-height: 44px; min-width: 44px; padding: 0 var(--s3); border: 0; background: none;
+  color: inherit; font: 600 14px var(--sans); text-decoration: underline; cursor: pointer;
+}
+.ui-toast__action:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--r-sm); }
+@keyframes ui-toast-in { from { transform: translateY(var(--s4)); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .ui-toast { animation: none; } }

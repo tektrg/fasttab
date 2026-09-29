@@ -22,6 +22,7 @@
   /* A captured terminal stays a dark box in both schemes. */
   --term-bg: #11141b; --term-fg: #d6dbe4; --term-hair: #262b38;
   --focus: #2459d6;
+  --scrim: rgba(13,15,20,.35);
   --shadow-sheet: 0 -8px 32px rgba(13,15,20,.14);
   --shadow-float: 0 1px 2px rgba(13,15,20,.06), 0 4px 12px rgba(13,15,20,.06);
   --shadow-drag: 0 4px 16px rgba(36,89,214,.25);
@@ -46,6 +47,7 @@
   --park: #9aa3b5; --park-bg: #1f232c;
   --term-bg: #07080b; --term-fg: #d6dbe4;
   --focus: #7aa2ff;
+  --scrim: rgba(0,0,0,.6);
   --shadow-sheet: 0 -8px 32px rgba(0,0,0,.5);
   --shadow-float: 0 0 0 1px #2a2e38;
   --shadow-drag: 0 4px 16px rgba(0,0,0,.5);

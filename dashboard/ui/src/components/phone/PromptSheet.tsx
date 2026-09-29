@@ -34,7 +34,8 @@ export function PromptSheet({
       header={<SheetHeader name={row.label} badge={<StatusBadge status={needsYouUiStatus(row.kind)} />} meta={meta} />}
     >
       <div className="phone-sheet-section">{row.detail}</div>
-      <PanelessPrompt row={row} onToast={onToast} phone />
+      {/* Not while sliding out: an answered prompt must not stay tappable. */}
+      {current && <PanelessPrompt row={row} onToast={onToast} phone />}
       {!row.hookRequest && !row.transcriptQuestion && (
         <div className="phone-sheet-gate-note">Answer this in Claude on the Mac.</div>
       )}

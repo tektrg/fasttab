@@ -9,6 +9,8 @@ struct OnboardingStepLayout<Hero: View, Content: View, Actions: View>: View {
     let content: Content
     let actions: Actions
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// iPhone SE, landscape: a full-size hero would push the screen's content below the fold.
+    @State private var isShortScreen = false
 
     init(
         title: String,
@@ -33,6 +35,7 @@ struct OnboardingStepLayout<Hero: View, Content: View, Actions: View>: View {
                     // (Heroes hide themselves from VoiceOver: `OnboardingHeroStage`.)
                     if !dynamicTypeSize.isAccessibilitySize {
                         hero
+                            .environment(\.onboardingHeroScale, isShortScreen ? OnboardingHeroSizing.shortScreenScale : 1)
                     }
 
                     VStack(spacing: DS.Space.sm) {
@@ -64,7 +67,22 @@ struct OnboardingStepLayout<Hero: View, Content: View, Actions: View>: View {
             .padding(.top, DS.Space.sm)
             .padding(.bottom, DS.Space.md)
         }
+        .onGeometryChange(for: Bool.self) { proxy in
+            proxy.size.height < OnboardingHeroSizing.shortScreenHeight
+        } action: { isShort in
+            // Each new step measures afresh; never animate the hero shrinking mid-slide.
+            var instant = Transaction()
+            instant.disablesAnimations = true
+            withTransaction(instant) { isShortScreen = isShort }
+        }
     }
+}
+
+/// Short screens get a smaller hero (150 × 100 pt). Height is the whole step
+/// layout's, not just its scroll area, so every step of one guide picks the same size.
+enum OnboardingHeroSizing {
+    static let shortScreenHeight: CGFloat = 640
+    static let shortScreenScale = 5.0 / 6.0
 }
 
 /// Full-width primary button used for each screen's main action.

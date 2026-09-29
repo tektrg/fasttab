@@ -8,6 +8,7 @@ import SwiftUI
 ///   (something covering the step) all stop the clock and show the rest frame.
 /// - A new `replayKey` (a state change) restarts the clock and cross-fades.
 /// - Decorative: hidden from VoiceOver.
+/// - Drawn at `onboardingHeroScale` (smaller on short screens), laid out at that size.
 struct OnboardingHeroStage<Frame: View>: View {
     static var canvasSize: CGSize { CGSize(width: 180, height: 120) }
 
@@ -18,6 +19,7 @@ struct OnboardingHeroStage<Frame: View>: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.onboardingHeroScale) private var scale
     @State private var isOnScreen = false
     @State private var clock = HeroClock()
 
@@ -37,6 +39,8 @@ struct OnboardingHeroStage<Frame: View>: View {
         }
         .frame(width: Self.canvasSize.width, height: Self.canvasSize.height)
         .clipped()
+        .scaleEffect(scale)
+        .frame(width: Self.canvasSize.width * scale, height: Self.canvasSize.height * scale)
         .animation(.easeInOut(duration: 0.3), value: replayKey)
         .onAppear { isOnScreen = true }
         .onDisappear { isOnScreen = false }
@@ -61,6 +65,11 @@ struct OnboardingHeroStage<Frame: View>: View {
         guard !Task.isCancelled else { return }
         clock.finish(key: key)
     }
+}
+
+extension EnvironmentValues {
+    /// How big onboarding heroes draw: 1 is the storyboard's 180 × 120 pt.
+    @Entry var onboardingHeroScale: Double = 1
 }
 
 /// Places hero parts by their top-left corner in the 180 × 120 canvas, the

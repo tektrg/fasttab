@@ -13,7 +13,18 @@ import { theme } from "../theme";
 import { FEED_ORDER, type BoardRow, type FeedSnapshot, type FullState, type NeedsYouRow } from "../types";
 
 const realFetch = globalThis.fetch;
+const unmounts: Array<() => void> = [];
 afterEach(() => {
+  // Unmount first: an open Vaul sheet leaves body scroll-lock/pointer-events styles that broke later files.
+  for (const u of unmounts.splice(0)) {
+    try {
+      u();
+    } catch {
+      /* already unmounted by the test */
+    }
+  }
+  document.body.removeAttribute("style");
+  window.localStorage.clear(); // Folder chip persists group-by; it leaked into phone-layout.test
   globalThis.fetch = realFetch;
   document.body.innerHTML = "";
 });
@@ -31,7 +42,9 @@ function mount(node: React.ReactNode) {
   act(() => {
     root.render(<MantineProvider theme={theme}>{node}</MantineProvider>);
   });
-  return { host, unmount: () => act(() => root.unmount()) };
+  const unmount = () => act(() => root.unmount());
+  unmounts.push(unmount);
+  return { host, unmount };
 }
 
 function feeds(): FullState["feeds"] {

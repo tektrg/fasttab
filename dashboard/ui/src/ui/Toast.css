@@ -5,6 +5,11 @@
   bottom: calc(var(--ui-tabbar-height, 0px) + env(safe-area-inset-bottom, 0px) + var(--s3));
   display: flex; justify-content: center;
 }
+/* A modal sheet covers the tab bar and its footer sits at the bottom: while one
+   is open the toast rides at the top instead of over the composer. */
+body:has(.ui-sheet[data-state="open"]) .ui-toast-region {
+  bottom: auto; top: calc(env(safe-area-inset-top, 0px) + var(--s3));
+}
 .ui-toast {
   pointer-events: auto; width: 100%; max-width: 480px; min-height: 44px;
   display: flex; align-items: center; justify-content: space-between; gap: var(--s3);

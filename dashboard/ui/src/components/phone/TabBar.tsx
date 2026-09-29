@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useKeyboardOpen } from "../../hooks/useKeyboardOpen";
 import type { PhoneTab } from "./phoneModel";
 
 const ICONS: Record<PhoneTab, ReactNode> = {
@@ -18,8 +19,9 @@ const ORDER: PhoneTab[] = ["inbox", "agents", "settings"];
 /** Bottom navigation: three tabs, safe-area padded, 44pt+ targets. The Inbox
  *  badge is the number of agents waiting on you. */
 export function TabBar({ tab, onTab, inboxBadge }: { tab: PhoneTab; onTab: (t: PhoneTab) => void; inboxBadge: number }) {
+  const keyboardOpen = useKeyboardOpen();
   return (
-    <nav className="phone-tabbar" aria-label="Main">
+    <nav className="phone-tabbar" aria-label="Main" data-keyboard={keyboardOpen || undefined}>
       {ORDER.map((t) => (
         <button
           key={t}

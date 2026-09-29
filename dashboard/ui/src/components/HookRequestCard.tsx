@@ -142,7 +142,7 @@ function QuestionFields({
           })}
         </div>
       ) : (
-<Stack gap="xs" mb="xs" align="stretch">
+        <Stack gap="xs" mb="xs" align="stretch">
           {q.options.map((o, i) => (
             <Stack key={i} gap={2}>
               <Chip
@@ -159,7 +159,7 @@ function QuestionFields({
             </Stack>
           ))}
         </Stack>
-        )}
+      )}
       <TextInput
         label="Other"
         placeholder="type an answer instead — replaces option picks"

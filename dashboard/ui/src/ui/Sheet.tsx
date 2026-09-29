@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from "react";
 import { Drawer } from "vaul";
-import { useVisualViewportOffset } from "../hooks/useVisualViewportOffset";
 import "./Sheet.css";
 
 /** Peek = ~60% of the screen; full = fully open. */
@@ -15,13 +14,12 @@ interface SheetProps {
   /** Custom header content (avatar, name, status). Falls back to `title`. */
   header?: ReactNode;
   children: ReactNode;
-  /** Pinned to the bottom (composer / actions). Rides above the keyboard. */
+  /** Pinned to the bottom (composer / actions). Rides above the keyboard: Vaul's `repositionInputs` (default on) lifts the whole sheet by the keyboard height — do NOT also translate the footer (double lift). */
   footer?: ReactNode;
 }
 
 export function Sheet({ open, onOpenChange, title, header, children, footer }: SheetProps) {
   const [snap, setSnap] = useState<Snap>(SHEET_SNAPS[0]);
-  const keyboardInset = useVisualViewportOffset();
   const isFull = snap === SHEET_SNAPS[1];
 
   return (
@@ -46,12 +44,7 @@ export function Sheet({ open, onOpenChange, title, header, children, footer }: S
           </div>
           <div className="ui-sheet__body" data-vaul-no-drag={isFull ? "" : undefined}>{children}</div>
           {footer && (
-            <div
-              className="ui-sheet__footer"
-              style={{ transform: keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : undefined }}
-            >
-              {footer}
-            </div>
+            <div className="ui-sheet__footer">{footer}</div>
           )}
         </Drawer.Content>
       </Drawer.Portal>

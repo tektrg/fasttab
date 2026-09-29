@@ -34,16 +34,10 @@ class BrowserTabService: ObservableObject {
 
     private var fetchTask: Task<Void, Never>?
     private var cacheRefreshTask: Task<Void, Never>?
-    private var authoritativeLiveTabsRefreshTask: Task<Void, Never>?
-    /// When the last authoritative refresh (the only path that uploads a
-    /// trustworthy tab list) started. Drives the idle refresh cadence and the
-    /// extension-event throttle — see `LiveTabRefreshPolicy`.
-    private var lastAuthoritativeRefreshStartedAt: Date?
-    /// Pending throttled refresh scheduled by extension tab events.
-    private var extensionEventRefreshTask: Task<Void, Never>?
-    /// When the newest phone-relevant extension event coalesced into
-    /// `extensionEventRefreshTask` arrived.
-    private var latestPhoneRelevantExtensionEventAt: Date?
+    /// Decides when to re-read every browser for the phone and turns each
+    /// read into the authoritative snapshot + publish. See
+    /// `LiveTabRefreshPipeline` (tested end to end in `LiveTabSyncScenarioTests`).
+    private lazy var liveTabRefreshPipeline = LiveTabRefreshPipeline(hooks: makeLiveTabRefreshHooks())
 
     private var fetchGeneration = 0
     private var lastIssuedQuery: String = ""
@@ -55,7 +49,7 @@ class BrowserTabService: ObservableObject {
     private var cachedQuickOpenResults: [BrowserSearchResult] = []
     private var cachedQuickOpenSourceAppBundleIdentifier: String?
     private(set) var cachedLiveTabs: [BrowserSearchResult] = []
-    private(set) var authoritativeLiveTabSnapshot = AuthoritativeLiveTabSnapshot()
+    var authoritativeLiveTabSnapshot: AuthoritativeLiveTabSnapshot { liveTabRefreshPipeline.snapshot }
     private var lastLiveTabsRefreshAt: Date = .distantPast
 
     private struct ClosedTabTombstone {
@@ -189,7 +183,7 @@ class BrowserTabService: ObservableObject {
                 self.openTabCount = self.cachedLiveTabs.count
                 self.duplicateTabCount = Self.duplicateTabCount(in: self.cachedLiveTabs)
                 MyOrderStore.shared.reconcile(liveTabs: self.cachedLiveTabs)
-                self.scheduleRefreshAfterPhoneRelevantExtensionEvent()
+                self.liveTabRefreshPipeline.noteExtensionTabRemoved()
             }
         }
 
@@ -199,14 +193,13 @@ class BrowserTabService: ObservableObject {
                 guard ExtensionBetaPreference.isEnabled else { return }
                 self.logger.info("extension tabUpserted. app=\(appName, privacy: .public) tabID=\(tabRecord.tabID) pinned=\(tabRecord.isPinned)")
                 // Decide before applying: the update rewrites the cached URL.
-                let changesPhoneTabList = LiveTabRefreshPolicy.upsertChangesPhoneTabList(
+                self.liveTabRefreshPipeline.noteExtensionTabUpserted(
                     cachedTabs: self.cachedLiveTabs,
                     browserName: appName,
                     tabID: tabRecord.tabID,
                     url: tabRecord.url
                 )
                 self.applyTabRecordUpdate(appName: appName, tabRecord: tabRecord)
-                if changesPhoneTabList { self.scheduleRefreshAfterPhoneRelevantExtensionEvent() }
             }
         }
 
@@ -214,13 +207,12 @@ class BrowserTabService: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 guard ExtensionBetaPreference.isEnabled else { return }
-                let changesPhoneTabList = LiveTabRefreshPolicy.snapshotChangesPhoneTabList(
+                self.liveTabRefreshPipeline.noteExtensionSnapshot(
                     cachedTabs: self.cachedLiveTabs,
                     browserName: appName,
                     snapshotTabIDs: tabs.map(\.tabID)
                 )
                 self.applySnapshotUpdate(appName: appName, extensionTabs: tabs)
-                if changesPhoneTabList { self.scheduleRefreshAfterPhoneRelevantExtensionEvent() }
             }
         }
     }
@@ -272,13 +264,7 @@ class BrowserTabService: ObservableObject {
 
     private func tickActiveTabPoll() {
         // Rides the active-tab poll so it inherits its sleep/wake suspension.
-        // Keeps the phone current for browsers without the extension (their
-        // tab closes produce no event). No-change runs skip CloudKit via the
-        // publish fingerprint.
-        if LiveTabRefreshPolicy.shouldRunIdleRefresh(lastRefreshStartedAt: lastAuthoritativeRefreshStartedAt, now: Date()) {
-            logger.info("Idle authoritative tab refresh.")
-            refreshAuthoritativeLiveTabsAndPublish()
-        }
+        liveTabRefreshPipeline.idleTick()
         guard !activeTabPollInFlight else { return }
 
         guard let frontBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return }
@@ -515,122 +501,6 @@ class BrowserTabService: ObservableObject {
         return url.isEmpty ? nil : url
     }
 
-    /// Fan out `fetchLiveTabs` across `backends` in parallel.
-    ///
-    /// The legacy sequential loop made every cold fetch wait for the slowest
-    /// AppleScript-driven backend in series — adding the Finder backend made
-    /// this worse because `target of w as alias` can stall on sleeping NAS /
-    /// SMB shares. Parallel fan-out converts the cost from additive
-    /// (sum of backend latencies) to overlapping (max of backend latencies).
-    ///
-    /// Each task gets a *private* copy of `baseline` to mutate, then returns
-    /// the delta. The merge applies max-timestamp wins (writes only ever
-    /// advance time — see ChromiumBackend / FinderBackend, which write
-    /// `fetchStart` only for the current-flow front tab). This keeps the
-    /// semantics identical to the sequential loop without needing a shared
-    /// `inout` across tasks.
-    ///
-    /// Single-backend case (e.g. source-pinned scope) bypasses the task-group
-    /// to avoid Swift concurrency overhead when there's nothing to overlap.
-    ///
-    /// A browser whose read failed or timed out keeps its tabs from
-    /// `previous` instead of reading as empty (every result can end up in
-    /// `cachedLiveTabs` and from there on the phone); it is also reported in
-    /// `unreadableBrowsers` so the publish spares its records.
-    private nonisolated static func fetchLiveTabsCarryingForwardUnreadable(
-        backends: [any BrowserBackend],
-        fetchStart: Date,
-        baseline: [String: Date],
-        activeTimes: inout [String: Date],
-        currentFlowSourceAppBundleIdentifier: String?,
-        lastAudibleSeenAt: inout [String: Date],
-        previous: [BrowserSearchResult]
-    ) async -> (tabs: [BrowserSearchResult], unreadableBrowsers: Set<String>) {
-        let fetched = await fetchLiveTabOutcomesParallel(
-            backends: backends,
-            fetchStart: fetchStart,
-            baseline: baseline,
-            activeTimes: &activeTimes,
-            currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
-            lastAudibleSeenAt: &lastAudibleSeenAt
-        )
-        let tabs = LiveTabRefreshPolicy.carryingForwardUnreadableBrowsers(
-            fetched: fetched.tabs,
-            unreadableBrowsers: fetched.unreadableBrowsers,
-            previous: previous
-        )
-        return (tabs, fetched.unreadableBrowsers)
-    }
-
-    /// The raw parallel read: every backend's tabs plus the browsers whose
-    /// read failed or timed out (see `LiveTabFetchOutcome`).
-    private nonisolated static func fetchLiveTabOutcomesParallel(
-        backends: [any BrowserBackend],
-        fetchStart: Date,
-        baseline: [String: Date],
-        activeTimes: inout [String: Date],
-        currentFlowSourceAppBundleIdentifier: String?,
-        lastAudibleSeenAt: inout [String: Date]
-    ) async -> (tabs: [BrowserSearchResult], unreadableBrowsers: Set<String>) {
-        if backends.isEmpty { return ([], []) }
-
-        let liveTabs: [BrowserSearchResult]
-        var unreadableBrowsers: Set<String> = []
-        if backends.count == 1 {
-            let outcome = backends[0].fetchLiveTabsOutcome(
-                fetchStart: fetchStart,
-                activeTimes: &activeTimes,
-                currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
-            )
-            if outcome == .unreadable { unreadableBrowsers.insert(backends[0].appName) }
-            liveTabs = outcome.tabs
-        } else {
-            let collected = await withTaskGroup(
-                of: (browserName: String, outcome: LiveTabFetchOutcome, updates: [String: Date]).self
-            ) { group in
-                for backend in backends {
-                    group.addTask {
-                        if Task.isCancelled { return (backend.appName, .unreadable, [:]) }
-                        var local = baseline
-                        let outcome = backend.fetchLiveTabsOutcome(
-                            fetchStart: fetchStart,
-                            activeTimes: &local,
-                            currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier
-                        )
-                        // Diff vs baseline so we don't ship the whole dict across
-                        // task boundaries. In practice updates is 0-1 entries per
-                        // backend (only the current-flow front tab is rewritten).
-                        var updates: [String: Date] = [:]
-                        for (key, value) in local where baseline[key] != value {
-                            updates[key] = value
-                        }
-                        return (backend.appName, outcome, updates)
-                    }
-                }
-                var all: [(browserName: String, outcome: LiveTabFetchOutcome, updates: [String: Date])] = []
-                for await item in group { all.append(item) }
-                return all
-            }
-
-            var collectedTabs: [BrowserSearchResult] = []
-            for entry in collected {
-                if entry.outcome == .unreadable { unreadableBrowsers.insert(entry.browserName) }
-                collectedTabs.append(contentsOf: entry.outcome.tabs)
-                for (key, value) in entry.updates {
-                    if let existing = activeTimes[key] {
-                        if value > existing { activeTimes[key] = value }
-                    } else {
-                        activeTimes[key] = value
-                    }
-                }
-            }
-            liveTabs = collectedTabs
-        }
-
-        let annotated = annotatingPinnedAudibleTabs(liveTabs, lastAudibleSeenAt: &lastAudibleSeenAt, now: fetchStart)
-        return (annotated, unreadableBrowsers)
-    }
-
     private nonisolated static func computeHasMultipleWindows(_ tabs: [BrowserSearchResult]) -> Bool {
         var seen = Set<String>()
         for tab in tabs where tab.type == .tab {
@@ -773,7 +643,7 @@ class BrowserTabService: ObservableObject {
 
             case .tab:
                 // Live tabs (always fresh — scope-aware fetches don't reuse cache).
-                let fetched = await Self.fetchLiveTabsCarryingForwardUnreadable(
+                let fetched = await LiveTabReader.fetchLiveTabsCarryingForwardUnreadable(
                     backends: backends,
                     fetchStart: Date(),
                     baseline: cachedTimes,
@@ -824,7 +694,7 @@ class BrowserTabService: ObservableObject {
                 // user sees everything the source has to offer in one list,
                 // with the existing tab-tier > history-tier sort.
                 if pinnedSource != nil {
-                    let liveTabs = await Self.fetchLiveTabsCarryingForwardUnreadable(
+                    let liveTabs = await LiveTabReader.fetchLiveTabsCarryingForwardUnreadable(
                         backends: backends,
                         fetchStart: Date(),
                         baseline: cachedTimes,
@@ -954,7 +824,7 @@ class BrowserTabService: ObservableObject {
             } else {
                 // This snapshot is also published to the phone: a browser whose
                 // read timed out keeps its last-known tabs instead of syncing as empty.
-                let fetched = await Self.fetchLiveTabsCarryingForwardUnreadable(
+                let fetched = await LiveTabReader.fetchLiveTabsCarryingForwardUnreadable(
                     backends: backends,
                     fetchStart: fetchStart,
                     baseline: cachedTimes,
@@ -1463,112 +1333,90 @@ class BrowserTabService: ObservableObject {
     /// Runs an authoritative refresh and waits for it to finish (or be
     /// superseded). Used by reconciliation when its snapshot is stale.
     func refreshAuthoritativeLiveTabsAndWait() async {
-        refreshAuthoritativeLiveTabsAndPublish()
-        await authoritativeLiveTabsRefreshTask?.value
-    }
-
-    /// Extension tab events only patch local state (`cachedLiveTabs` can be a
-    /// partial view, and the publish deletes by ledger), so events that change
-    /// the phone's tab list (a tab closed, opened, or navigated; a snapshot
-    /// with a different tab set) schedule an authoritative refresh instead of
-    /// publishing directly. Everything else rides the idle refresh.
-    /// Coalesced and throttled: a burst becomes one refresh, at most one per
-    /// `LiveTabRefreshPolicy.extensionEventMinimumInterval`, skipped when
-    /// another refresh already started after the newest event.
-    private func scheduleRefreshAfterPhoneRelevantExtensionEvent() {
-        latestPhoneRelevantExtensionEventAt = Date()
-        guard extensionEventRefreshTask == nil else { return }
-        let delay = LiveTabRefreshPolicy.extensionEventRefreshDelay(
-            lastRefreshStartedAt: lastAuthoritativeRefreshStartedAt,
-            now: Date()
-        )
-        extensionEventRefreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard let self else { return }
-            self.extensionEventRefreshTask = nil
-            guard let latestEventAt = self.latestPhoneRelevantExtensionEventAt,
-                  LiveTabRefreshPolicy.shouldRunPendingExtensionEventRefresh(
-                      latestEventAt: latestEventAt,
-                      lastRefreshStartedAt: self.lastAuthoritativeRefreshStartedAt
-                  ) else {
-                self.logger.info("Extension-event refresh skipped: a newer authoritative refresh already covers it.")
-                return
-            }
-            self.logger.info("Authoritative refresh triggered by extension tab event.")
-            self.refreshAuthoritativeLiveTabsAndPublish()
-        }
+        await liveTabRefreshPipeline.refreshNowAndWait()
     }
 
     func refreshAuthoritativeLiveTabsAndPublish() {
-        authoritativeLiveTabsRefreshTask?.cancel()
-        lastAuthoritativeRefreshStartedAt = Date()
-        // Supersede any still-pending debounced UI publish: its snapshot is
-        // older than the one we are about to fetch, and publishing it after
-        // us would re-add a tab that has since closed.
-        SyncService.shared.cancelPendingLiveTabsPublish()
-        let backends = self.backends
-        let cachedTimes = self.lastActiveTimes
-        let cachedAudibleSeenAt = self.lastAudibleSeenAt
-        let sourceAppBundleIdentifier = self.currentFlowSourceAppBundleIdentifier
-        let refreshStartedAt = Date()
+        liveTabRefreshPipeline.refreshNow()
+    }
 
-        authoritativeLiveTabsRefreshTask = Task.detached(priority: .utility) { [weak self] in
-            var updatedTimes = cachedTimes
-            var updatedAudibleSeenAt = cachedAudibleSeenAt
-            let fetched = await Self.fetchLiveTabOutcomesParallel(
-                backends: backends,
-                fetchStart: Date(),
-                baseline: cachedTimes,
-                activeTimes: &updatedTimes,
-                currentFlowSourceAppBundleIdentifier: sourceAppBundleIdentifier,
-                lastAudibleSeenAt: &updatedAudibleSeenAt
-            )
-            guard !Task.isCancelled else { return }
-
-            await MainActor.run {
-                guard let self else { return }
-                // A timed-out/failed browser read is "unknown", not "zero tabs":
-                // keep that browser's previous authoritative tabs so the
-                // publish does not delete them from the phone.
-                let fetchedTabs = LiveTabRefreshPolicy.carryingForwardUnreadableBrowsers(
-                    fetched: fetched.tabs,
-                    unreadableBrowsers: fetched.unreadableBrowsers,
-                    previous: self.authoritativeLiveTabSnapshot.tabs
-                )
-                if !fetched.unreadableBrowsers.isEmpty {
-                    self.logger.error("Authoritative refresh kept previous tabs for unreadable browsers: \(fetched.unreadableBrowsers.sorted().joined(separator: ","), privacy: .public)")
+    /// Production wiring of `LiveTabRefreshPipeline`: reads the real backends
+    /// and applies each authoritative read to the command bar's state.
+    private func makeLiveTabRefreshHooks() -> LiveTabRefreshPipeline.Hooks {
+        LiveTabRefreshPipeline.Hooks(
+            makeRead: { [weak self] in
+                guard let self else { return nil }
+                let backends = self.backends
+                let cachedTimes = self.lastActiveTimes
+                let cachedAudibleSeenAt = self.lastAudibleSeenAt
+                let sourceAppBundleIdentifier = self.currentFlowSourceAppBundleIdentifier
+                return { [weak self] in
+                    var updatedTimes = cachedTimes
+                    var updatedAudibleSeenAt = cachedAudibleSeenAt
+                    let fetched = await LiveTabReader.fetchLiveTabOutcomesParallel(
+                        backends: backends,
+                        fetchStart: Date(),
+                        baseline: cachedTimes,
+                        activeTimes: &updatedTimes,
+                        currentFlowSourceAppBundleIdentifier: sourceAppBundleIdentifier,
+                        lastAudibleSeenAt: &updatedAudibleSeenAt
+                    )
+                    let committedTimes = updatedTimes
+                    let committedAudibleSeenAt = updatedAudibleSeenAt
+                    return LiveTabRead(tabs: fetched.tabs, unreadableBrowsers: fetched.unreadableBrowsers) { [weak self] in
+                        self?.lastActiveTimes = committedTimes
+                        self?.lastAudibleSeenAt = committedAudibleSeenAt
+                        self?.cachedQuickOpenSourceAppBundleIdentifier = sourceAppBundleIdentifier
+                    }
                 }
-                let rawAuthoritativeTabs = self.filteringRecentlyClosed(fetchedTabs)
-                MyOrderStore.shared.reconcile(liveTabs: rawAuthoritativeTabs, unreadableBrowsers: fetched.unreadableBrowsers)
-                let authoritativeTabs = MyOrderStore.shared.overlayPinStatus(on: rawAuthoritativeTabs)
-                self.cachedLiveTabs = authoritativeTabs
-                self.openTabCount = authoritativeTabs.count
-                self.duplicateTabCount = Self.duplicateTabCount(in: authoritativeTabs)
-                self.hasFetchedOpenTabCount = true
-                self.hasMultipleWindows = Self.computeHasMultipleWindows(authoritativeTabs)
-                self.lastLiveTabsRefreshAt = Date()
-
-                let prioritizedTabs = allQuickOpenTabs(from: authoritativeTabs)
-                let dedupedPrioritized = deduplicatingSamePages(prioritizedTabs, frecencyScore: { _ in 0 })
-                let combined = sortQuickOpenResults(dedupedPrioritized)
-
-                self.cachedQuickOpenResults = combined
-                self.cachedQuickOpenSourceAppBundleIdentifier = sourceAppBundleIdentifier
-                if self.isShowingUnscopedQuickOpen {
-                    self.results = combined
-                } else {
-                    let frecencyLookup = self.makeFrecencyScoreLookup()
-                    self.results = sortBrowserSearchResults(MyOrderStore.shared.overlayPinStatus(on: self.results), frecencyScore: frecencyLookup)
-                }
-
-                self.authoritativeLiveTabSnapshot.applyAllBackends(authoritativeTabs, unreadableBrowsers: fetched.unreadableBrowsers)
-                self.lastActiveTimes = updatedTimes
-                self.lastAudibleSeenAt = updatedAudibleSeenAt
-                SyncService.shared.requestLiveTabsPublish(authoritativeTabs, unreadableBrowsers: fetched.unreadableBrowsers)
-                TabActivityRecorder.shared.observe(authoritativeTabs, capturedAt: refreshStartedAt)
-                self.logger.info("Authoritative all-browser tab sync published. tabCount=\(authoritativeTabs.count)")
+            },
+            willStartRefresh: {
+                // Supersede any still-pending debounced UI publish: its snapshot
+                // is older than the one we are about to fetch, and publishing it
+                // after us would re-add a tab that has since closed.
+                SyncService.shared.cancelPendingLiveTabsPublish()
+            },
+            prepare: { [weak self] tabs, unreadableBrowsers in
+                self?.applyAuthoritativeTabsToCommandBar(tabs, unreadableBrowsers: unreadableBrowsers) ?? tabs
+            },
+            publish: { [weak self] tabs, unreadableBrowsers in
+                SyncService.shared.requestLiveTabsPublish(tabs, unreadableBrowsers: unreadableBrowsers)
+                let capturedAt = self?.liveTabRefreshPipeline.lastRefreshStartedAt ?? Date()
+                TabActivityRecorder.shared.observe(tabs, capturedAt: capturedAt)
+                self?.logger.info("Authoritative all-browser tab sync published. tabCount=\(tabs.count)")
             }
+        )
+    }
+
+    /// The command-bar side of an authoritative read: drops tabs closed from
+    /// the phone moments ago, reconciles pinned slots, refreshes the quick-open
+    /// list. Returns the tabs the phone should see.
+    private func applyAuthoritativeTabsToCommandBar(
+        _ fetchedTabs: [BrowserSearchResult],
+        unreadableBrowsers: Set<String>
+    ) -> [BrowserSearchResult] {
+        let rawAuthoritativeTabs = filteringRecentlyClosed(fetchedTabs)
+        MyOrderStore.shared.reconcile(liveTabs: rawAuthoritativeTabs, unreadableBrowsers: unreadableBrowsers)
+        let authoritativeTabs = MyOrderStore.shared.overlayPinStatus(on: rawAuthoritativeTabs)
+        cachedLiveTabs = authoritativeTabs
+        openTabCount = authoritativeTabs.count
+        duplicateTabCount = Self.duplicateTabCount(in: authoritativeTabs)
+        hasFetchedOpenTabCount = true
+        hasMultipleWindows = Self.computeHasMultipleWindows(authoritativeTabs)
+        lastLiveTabsRefreshAt = Date()
+
+        let prioritizedTabs = allQuickOpenTabs(from: authoritativeTabs)
+        let dedupedPrioritized = deduplicatingSamePages(prioritizedTabs, frecencyScore: { _ in 0 })
+        let combined = sortQuickOpenResults(dedupedPrioritized)
+
+        cachedQuickOpenResults = combined
+        if isShowingUnscopedQuickOpen {
+            results = combined
+        } else {
+            let frecencyLookup = makeFrecencyScoreLookup()
+            results = sortBrowserSearchResults(MyOrderStore.shared.overlayPinStatus(on: results), frecencyScore: frecencyLookup)
         }
+        return authoritativeTabs
     }
 
     #if DEBUG

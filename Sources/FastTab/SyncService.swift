@@ -28,13 +28,15 @@ final class SyncService: NSObject, ObservableObject {
     // Domain updates must be applied to these objects instead of recreating IDs.
     var serverRecordsByID: [CKRecord.ID: CKRecord] = [:]
 
-    // Track previously published state to compute diffs
-    var lastPublishedTabIDs: Set<CKRecord.ID> = []
-    /// Content fingerprint of the last published tab snapshot. When the new
-    /// snapshot hashes to the same value (same set of URLs/titles/states), the
-    /// entire CKSyncEngine push is skipped — no CKRecords are built and no
-    /// network traffic is generated.
-    private var lastPublishedTabContentHash: String = ""
+    /// Live-tab publish ledger, fingerprint skip and reconcile decisions (no
+    /// CloudKit I/O). Every ledger change is persisted, so deletes of tabs
+    /// published before a relaunch still happen.
+    var liveTabPublishState: LiveTabPublishState {
+        didSet {
+            guard liveTabPublishState.publishedTabRecordIDs != oldValue.publishedTabRecordIDs else { return }
+            Self.persistPublishedTabRecordIDs(liveTabPublishState.publishedTabRecordIDs, deviceID: deviceID)
+        }
+    }
     private var lastPublishedBookmarkHashes: [String: String] = [:]
     private var lastPublishedHistoryHashes: [String: String] = [:]
     private var lastPublishedTabOrderHash: String = ""
@@ -122,10 +124,12 @@ final class SyncService: NSObject, ObservableObject {
         self.commandJournal = SyncCommandJournal(
             fileURL: fastTabDir.appendingPathComponent("sync_command_journal.json")
         )
+        self.liveTabPublishState = LiveTabPublishState(
+            deviceID: deviceID,
+            publishedTabRecordIDs: Self.loadPublishedTabRecordIDs(deviceID: deviceID)
+        )
 
         super.init()
-
-        self.lastPublishedTabIDs = Self.loadPublishedTabRecordIDs(deviceID: deviceID)
 
         logger.info("SyncService initialized. deviceID=\(self.deviceID, privacy: .public) name='\(self.deviceName, privacy: .public)' model='\(self.deviceModel, privacy: .public)'")
     }
@@ -278,58 +282,16 @@ final class SyncService: NSObject, ObservableObject {
     func publishLiveTabsNow(_ tabs: [BrowserSearchResult], unreadableBrowsers: Set<String> = []) {
         guard let syncEngine else { return }
 
-        // Filter out incognito / private browsing tabs
-        let publicTabs = tabs.filter { !Self.isIncognitoTab($0) }
-
-        // Content-hash check: skip the entire CKRecord build + CloudKit push
-        // when the set of tabs hasn't changed since the last publish. Matches
-        // the pattern used by updateBookmarks/updateHistory. The hash captures
-        // tab identity (browser, URL, title, tabID) — if any tab is opened,
-        // closed, navigated, or renamed, the hash changes and we re-sync.
-        // The unreadable set is part of the fingerprint: once a browser that
-        // failed becomes readable the publish must run (its delete diff prunes
-        // tabs that really closed), while a browser that stays unreadable
-        // (e.g. Automation permission denied) does not re-save every record.
-        let contentFingerprint = Self.tabContentFingerprint(publicTabs)
-            + Self.unreadableBrowsersFingerprintSuffix(unreadableBrowsers)
-        guard contentFingerprint != lastPublishedTabContentHash else {
-            logger.info("Live tabs sync skipped (content unchanged). tabCount=\(publicTabs.count)")
+        guard let plan = liveTabPublishState.planPublish(tabs, unreadableBrowsers: unreadableBrowsers) else {
+            logger.info("Live tabs sync skipped (content unchanged). tabCount=\(tabs.count)")
             return
         }
 
-        var currentRecords: [CKRecord] = []
-        var currentRecordIDs: Set<CKRecord.ID> = []
-
-        for (index, tab) in publicTabs.enumerated() {
-            let recordName = Self.tabRecordName(
-                deviceID: deviceID,
-                browserName: tab.browserName,
-                windowIndex: tab.windowIndex,
-                tabIndex: tab.tabIndex,
-                tabID: tab.tabID,
-                fallbackIndex: index
-            )
-
-            let syncedTab = SyncedTab(
-                id: recordName,
-                deviceID: deviceID,
-                browserName: tab.browserName,
-                title: tab.title,
-                url: tab.url,
-                timestamp: tab.timestamp,
-                windowIndex: tab.windowIndex,
-                tabIndex: tab.tabIndex,
-                windowName: tab.windowName,
-                tabID: tab.tabID,
-                isAudible: tab.isAudible,
-                isMuted: tab.isMuted,
-                isPinned: tab.isPinned,
-                isDiscarded: tab.isDiscarded,
-                tabGroupTitle: tab.tabGroupTitle,
-                profileName: tab.profileName
-            )
-
-            let recordID = CKRecord.ID(recordName: recordName, zoneID: SyncConstants.stateZoneID)
+        var pendingChanges: [CKSyncEngine.PendingRecordZoneChange] = []
+        for syncedTab in plan.tabsToSave {
+            // Build on the server copy (keeps its change tag) so the save
+            // updates rather than re-creates the record.
+            let recordID = CKRecord.ID(recordName: syncedTab.id, zoneID: SyncConstants.stateZoneID)
             let record: CKRecord
             if let serverRecord = serverRecordsByID[recordID],
                serverRecord.recordType == SyncedTab.recordType {
@@ -337,39 +299,17 @@ final class SyncService: NSObject, ObservableObject {
             } else {
                 record = syncedTab.toRecord(zoneID: SyncConstants.stateZoneID)
             }
-            currentRecords.append(record)
-            currentRecordIDs.insert(record.recordID)
             pendingRecordsToSave[record.recordID] = record
-        }
-
-        // Calculate diff: records to save vs records to delete
-        let recordIDsToDelete = Self.tabRecordIDsToDelete(
-            previouslyPublished: lastPublishedTabIDs,
-            currentlyPublished: currentRecordIDs,
-            sparingBrowsers: unreadableBrowsers,
-            deviceID: deviceID
-        )
-
-        var pendingChanges: [CKSyncEngine.PendingRecordZoneChange] = []
-        for record in currentRecords {
             pendingChanges.append(.saveRecord(record.recordID))
         }
-        for deleteID in recordIDsToDelete {
+        for deleteID in plan.recordIDsToDelete {
             pendingChanges.append(.deleteRecord(deleteID))
             pendingRecordsToSave.removeValue(forKey: deleteID)
         }
 
-        let durableTabRecordLedger = Self.tabRecordLedgerAfterPublishing(
-            remotelyKnown: lastPublishedTabIDs,
-            currentlyPublished: currentRecordIDs
-        )
-        lastPublishedTabIDs = durableTabRecordLedger
-        Self.persistPublishedTabRecordIDs(durableTabRecordLedger, deviceID: deviceID)
-        lastPublishedTabContentHash = contentFingerprint
-
         if !pendingChanges.isEmpty {
             syncEngine.state.add(pendingRecordZoneChanges: pendingChanges)
-            logger.info("Live tabs sync queued: \(currentRecords.count) to save, \(recordIDsToDelete.count) to delete")
+            logger.info("Live tabs sync queued: \(plan.tabsToSave.count) to save, \(plan.recordIDsToDelete.count) to delete")
             sendPendingChanges()
         }
     }
@@ -789,7 +729,7 @@ final class SyncService: NSObject, ObservableObject {
     /// each one breaks differently if it is not corrected:
     /// - `serverRecordsByID` / `pendingRecordsToSave` hold a stale change tag,
     ///   so the Mac keeps trying to update a record that is not there.
-    /// - `lastPublishedTabIDs` is the ledger that drives tab *deletes*; leaving a
+    /// - the tab publish ledger drives tab *deletes*; leaving a
     ///   server-deleted ID in it makes the Mac queue a delete for an absent
     ///   record, which fails and is re-queued indefinitely.
     /// - the content fingerprints say "already published", so the content would
@@ -805,14 +745,7 @@ final class SyncService: NSObject, ObservableObject {
             pendingRecordsToSave.removeValue(forKey: recordID)
         }
 
-        if !lastPublishedTabIDs.isDisjoint(with: deletedRecordIDs) {
-            lastPublishedTabIDs = Self.tabRecordLedgerAfterAcknowledgingDeletions(
-                remotelyKnown: lastPublishedTabIDs,
-                deletedRecordIDs: deletedRecordIDs
-            )
-            Self.persistPublishedTabRecordIDs(lastPublishedTabIDs, deviceID: deviceID)
-            lastPublishedTabContentHash = ""
-        }
+        liveTabPublishState.forgetServerDeletedRecords(deletedRecordIDs)
 
         PairedPhoneStore.shared.forget(recordNames: deletions
             .filter { $0.recordType == SyncedDevice.recordType }
@@ -859,9 +792,7 @@ final class SyncService: NSObject, ObservableObject {
     }
 
     func resetPublishState() {
-        lastPublishedTabIDs.removeAll()
-        Self.persistPublishedTabRecordIDs([], deviceID: deviceID)
-        lastPublishedTabContentHash = ""
+        liveTabPublishState.reset()
         lastPublishedBookmarkHashes.removeAll()
         lastPublishedHistoryHashes.removeAll()
         lastPublishedTabOrderHash = ""
@@ -932,14 +863,7 @@ extension SyncService: CKSyncEngineDelegate {
                     for recordID in sentChanges.deletedRecordIDs {
                         self.serverRecordsByID.removeValue(forKey: recordID)
                     }
-                    self.lastPublishedTabIDs = Self.tabRecordLedgerAfterAcknowledgingDeletions(
-                        remotelyKnown: self.lastPublishedTabIDs,
-                        deletedRecordIDs: Set(sentChanges.deletedRecordIDs)
-                    )
-                    Self.persistPublishedTabRecordIDs(
-                        self.lastPublishedTabIDs,
-                        deviceID: self.deviceID
-                    )
+                    self.liveTabPublishState.acknowledgeDeletions(Set(sentChanges.deletedRecordIDs))
                 }
                 var queuedSaveRetry = false
                 for failedSave in sentChanges.failedRecordSaves {

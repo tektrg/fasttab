@@ -13,14 +13,14 @@ extension SyncService {
     /// primary sync mechanism, and this sweep is the safety net that catches
     /// records stranded by a naming-scheme change, a reset, or a raced publish
     /// — records the publish path's delete diff can never see.
-    nonisolated private static let tabReconcileInterval: TimeInterval = 10 * 60
+    nonisolated static let tabReconcileInterval: TimeInterval = 10 * 60
 
     /// Maximum age of the authoritative live-tab snapshot a reconciliation is
     /// willing to trust. Older snapshots may reflect a partial fetch, and
     /// deleting records against a partial view of the world would hide open
     /// tabs. Kept under the cache-refresh cadence so a reconcile never deletes
     /// against a snapshot that predates a tab the user just opened.
-    nonisolated private static let maxSnapshotAgeForReconcile: TimeInterval = 60
+    nonisolated static let maxSnapshotAgeForReconcile: TimeInterval = 60
 
     /// Startup retry budget: how many 5-second waits before giving the
     /// authoritative snapshot time to hydrate. The periodic timer is the
@@ -148,51 +148,36 @@ extension SyncService {
             return true
         }
 
-        // Mirror the publish path exactly: incognito/private tabs are filtered
-        // out before record names are derived, so `expected` must match what
-        // the publish would actually save.
-        let publicSnapshotTabs = snapshot.tabs.filter { !Self.isIncognitoTab($0) }
-        var expectedTabs = publicSnapshotTabs
         let ghostTabs = MyOrderStore.shared.slots
             .filter { $0.state == .ghost }
             .map(\.asSearchResult)
-        expectedTabs.append(contentsOf: ghostTabs)
-        let expectedRecordIDs = Self.tabRecordIDs(from: expectedTabs, deviceID: deviceID)
-        let expectedByBrowser = Dictionary(grouping: expectedTabs, by: \.browserName)
-
         let myTabRecords = allStateRecords.filter {
             $0.recordType == SyncedTab.recordType
                 && $0.recordID.recordName.hasPrefix("\(deviceID)_")
         }
-
-        let orphans = myTabRecords.filter { record in
-            guard !expectedRecordIDs.contains(record.recordID) else { return false }
+        let plan = liveTabPublishState.planReconcile(
+            serverTabRecords: myTabRecords.map {
+                LiveTabPublishState.ServerTabRecord(recordID: $0.recordID, browserName: $0["browserName"] as? String ?? "")
+            },
+            snapshot: snapshot,
+            ghostTabs: ghostTabs,
             // A record the publish is actively saving is a live tab, not an
-            // orphan — the authoritative snapshot may simply not have caught up
-            // yet, and deleting it would briefly hide an open tab on the phone.
-            guard pendingRecordsToSave[record.recordID] == nil else { return false }
-            let browser = record["browserName"] as? String ?? ""
-            return Self.reconcileMayDeleteRecords(
-                ofBrowser: browser,
-                snapshotBrowsers: Set(expectedByBrowser.keys),
-                unreadableBrowsers: snapshot.unreadableBrowsers
-            )
-        }
-        let orphanIDs = Set(orphans.map(\.recordID))
+            // orphan — the snapshot may simply not have caught up yet.
+            isPendingSave: { self.pendingRecordsToSave[$0] != nil }
+        )
+        let orphanIDs = plan.orphanRecordIDs
 
         if !orphanIDs.isEmpty {
             for recordID in orphanIDs {
                 pendingRecordsToSave.removeValue(forKey: recordID)
                 serverRecordsByID.removeValue(forKey: recordID)
             }
-            updatePublishedTabLedger(to: expectedRecordIDs, removingDeleted: orphanIDs)
             let orphanDeletes: [CKSyncEngine.PendingRecordZoneChange] = orphanIDs.map { .deleteRecord($0) }
             syncEngine.state.add(pendingRecordZoneChanges: orphanDeletes)
-            logger.info("Tab reconciliation queued deletion of \(orphanIDs.count) orphaned tab records (server=\(myTabRecords.count) expected=\(expectedRecordIDs.count))")
+            logger.info("Tab reconciliation queued deletion of \(orphanIDs.count) orphaned tab records (server=\(plan.serverRecordCount) expected=\(plan.expectedRecordCount))")
             sendPendingChanges()
         } else {
-            updatePublishedTabLedger(to: expectedRecordIDs, removingDeleted: [])
-            logger.info("Tab reconciliation: server matches live snapshot (records=\(myTabRecords.count))")
+            logger.info("Tab reconciliation: server matches live snapshot (records=\(plan.serverRecordCount))")
         }
 
         // Retain server change tags so any later write updates rather than
@@ -217,16 +202,5 @@ extension SyncService {
             return nil
         }
         return snapshot
-    }
-
-    /// Brings the durable tab ledger in line with what now exists on the
-    /// server: the current live set, minus the records the reconcile just
-    /// deleted, plus any ledger-known records the reconcile could not safely
-    /// touch (their browser is absent from the snapshot) so the normal publish
-    /// path keeps retrying them.
-    private func updatePublishedTabLedger(to expectedRecordIDs: Set<CKRecord.ID>, removingDeleted deletedIDs: Set<CKRecord.ID>) {
-        lastPublishedTabIDs.formUnion(expectedRecordIDs)
-        lastPublishedTabIDs.subtract(deletedIDs)
-        Self.persistPublishedTabRecordIDs(lastPublishedTabIDs, deviceID: deviceID)
     }
 }

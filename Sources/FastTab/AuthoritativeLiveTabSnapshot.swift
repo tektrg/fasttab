@@ -13,11 +13,15 @@ struct AuthoritativeLiveTabSnapshot {
     /// reconciliation must not delete their records against it.
     private(set) var unreadableBrowsers: Set<String> = []
 
-    mutating func applyAllBackends(_ tabs: [BrowserSearchResult], unreadableBrowsers: Set<String> = []) {
+    mutating func applyAllBackends(
+        _ tabs: [BrowserSearchResult],
+        unreadableBrowsers: Set<String> = [],
+        fetchedAt: Date = Date()
+    ) {
         self.tabs = tabs
         self.unreadableBrowsers = unreadableBrowsers
         isHydrated = true
-        lastFetchedAt = Date()
+        lastFetchedAt = fetchedAt
     }
 
     mutating func observeScopedFetch(_ tabs: [BrowserSearchResult]) {

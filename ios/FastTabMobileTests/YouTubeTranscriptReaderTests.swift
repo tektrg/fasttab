@@ -79,13 +79,26 @@ final class TranscriptErrorMappingTests: XCTestCase {
         XCTAssertEqual(TranscriptReaderError(URLError(.notConnectedToInternet)), .unavailable)
     }
 
-    func testClient404BecomesNoTranscript() async {
-        let client = TranscriptClient(baseURL: URL(string: "https://stub.invalid")!, session: StubTranscriptProtocol.session(status: 404))
+    /// Only the server's `no_captions` 404 (theindie-api ApiError shape) means the video has no transcript.
+    func testClient404NoCaptionsBecomesNoTranscript() async {
+        let body = Data(#"{"error":{"code":"no_captions","message":"No captions"}}"#.utf8)
+        await assertClientError(status: 404, body: body, maps: .noTranscript)
+    }
+
+    /// Any other 404 (unknown route, stale deploy) is a server error, not "no transcript".
+    func testClientPlain404BecomesUnavailable() async {
+        await assertClientError(status: 404, body: Data(), maps: .unavailable)
+    }
+
+    private func assertClientError(status: Int, body: Data, maps expected: TranscriptReaderError,
+                                   line: UInt = #line) async {
+        let client = TranscriptClient(baseURL: URL(string: "https://stub.invalid")!,
+                                      session: StubTranscriptProtocol.session(status: status, body: body))
         do {
             _ = try await client.transcript(videoId: "abcdefghijk", lang: "en")
-            XCTFail("expected an error")
+            XCTFail("expected an error", line: line)
         } catch {
-            XCTAssertEqual(TranscriptReaderError(error), .noTranscript)
+            XCTAssertEqual(TranscriptReaderError(error), expected, line: line)
         }
     }
 
@@ -154,9 +167,11 @@ final class SignInFlag: @unchecked Sendable {
 /// Answers every request with a fixed status and an empty body.
 final class StubTranscriptProtocol: URLProtocol {
     static var status = 200
+    static var body = Data()
 
-    static func session(status: Int) -> URLSession {
+    static func session(status: Int, body: Data = Data()) -> URLSession {
         Self.status = status
+        Self.body = body
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubTranscriptProtocol.self]
         return URLSession(configuration: config)
@@ -167,7 +182,7 @@ final class StubTranscriptProtocol: URLProtocol {
     override func startLoading() {
         let response = HTTPURLResponse(url: request.url!, statusCode: Self.status, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data())
+        client?.urlProtocol(self, didLoad: Self.body)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

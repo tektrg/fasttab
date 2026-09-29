@@ -54,6 +54,9 @@ final class SyncService: NSObject, ObservableObject {
     /// per MainActor turn instead of letting two publishers interleave their
     /// record batches and undo each other's deletions.
     var pendingLiveTabs: [BrowserSearchResult]?
+    /// Browsers whose read failed in `pendingLiveTabs`' snapshot; the publish
+    /// must not delete their records (see `tabRecordIDsToDelete(...sparingBrowsers:...)`).
+    var pendingLiveTabsUnreadableBrowsers: Set<String> = []
     var liveTabsPublishTask: Task<Void, Never>?
 
     /// Drives the periodic state-zone tab reconciliation.
@@ -254,12 +257,12 @@ final class SyncService: NSObject, ObservableObject {
 
     // MARK: - Live Tabs Publishing
 
-    func updateLiveTabs(_ tabs: [BrowserSearchResult]) {
+    func updateLiveTabs(_ tabs: [BrowserSearchResult], unreadableBrowsers: Set<String> = []) {
         tabDebounceTask?.cancel()
         tabDebounceTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s debounce
             guard !Task.isCancelled, let self else { return }
-            self.requestLiveTabsPublish(tabs)
+            self.requestLiveTabsPublish(tabs, unreadableBrowsers: unreadableBrowsers)
         }
     }
 
@@ -272,7 +275,7 @@ final class SyncService: NSObject, ObservableObject {
         tabDebounceTask = nil
     }
 
-    func publishLiveTabsNow(_ tabs: [BrowserSearchResult]) {
+    func publishLiveTabsNow(_ tabs: [BrowserSearchResult], unreadableBrowsers: Set<String> = []) {
         guard let syncEngine else { return }
 
         // Filter out incognito / private browsing tabs
@@ -283,7 +286,12 @@ final class SyncService: NSObject, ObservableObject {
         // the pattern used by updateBookmarks/updateHistory. The hash captures
         // tab identity (browser, URL, title, tabID) — if any tab is opened,
         // closed, navigated, or renamed, the hash changes and we re-sync.
+        // The unreadable set is part of the fingerprint: once a browser that
+        // failed becomes readable the publish must run (its delete diff prunes
+        // tabs that really closed), while a browser that stays unreadable
+        // (e.g. Automation permission denied) does not re-save every record.
         let contentFingerprint = Self.tabContentFingerprint(publicTabs)
+            + Self.unreadableBrowsersFingerprintSuffix(unreadableBrowsers)
         guard contentFingerprint != lastPublishedTabContentHash else {
             logger.info("Live tabs sync skipped (content unchanged). tabCount=\(publicTabs.count)")
             return
@@ -337,7 +345,9 @@ final class SyncService: NSObject, ObservableObject {
         // Calculate diff: records to save vs records to delete
         let recordIDsToDelete = Self.tabRecordIDsToDelete(
             previouslyPublished: lastPublishedTabIDs,
-            currentlyPublished: currentRecordIDs
+            currentlyPublished: currentRecordIDs,
+            sparingBrowsers: unreadableBrowsers,
+            deviceID: deviceID
         )
 
         var pendingChanges: [CKSyncEngine.PendingRecordZoneChange] = []

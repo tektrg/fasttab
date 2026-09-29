@@ -107,7 +107,7 @@ struct SafariBackend: BrowserBackend {
         let output: String
         switch LiveTabScriptOutput(rawOutput: runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script])) {
         case .unreadable:
-            logger.error("fetchLiveTabs unreadable (timeout or script error). browser='Safari'")
+            logUnreadableLiveTabRead(logger, browserName: "Safari")
             return .unreadable
         case .noTabs:
             return .fetched([])

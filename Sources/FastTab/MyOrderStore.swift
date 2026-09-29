@@ -71,19 +71,27 @@ final class MyOrderStore: ObservableObject {
         }
     }
 
-    func reconcile(liveTabs: [BrowserSearchResult], runningBrowsers: Set<String>? = nil) {
+    /// `unreadableBrowsers`: browsers whose tab read failed. One with no
+    /// (carried-forward) tabs in `liveTabs` is treated like a quit browser —
+    /// its slots freeze instead of turning into ghosts for tabs that are
+    /// really still open.
+    func reconcile(liveTabs: [BrowserSearchResult], runningBrowsers: Set<String>? = nil, unreadableBrowsers: Set<String> = []) {
         guard !isDragging else {
             logger.info("MyOrderStore reconcile skipped during active drag.")
             return
         }
 
-        let running: Set<String>
+        var running: Set<String>
         if let runningBrowsers {
             running = runningBrowsers
         } else {
             let appNames = Set(NSWorkspace.shared.runningApplications.compactMap { $0.localizedName })
             running = appNames
         }
+        let unreadableWithoutTabs = unreadableBrowsers.filter { browser in
+            !liveTabs.contains { $0.browserName == browser }
+        }
+        running.subtract(unreadableWithoutTabs)
 
         let result = MyOrderReconciler.reconcile(
             currentSlots: slots,

@@ -367,6 +367,7 @@ func runProcess(launchPath: String, arguments: [String], timeoutSeconds: TimeInt
             // process exits on its own, starving the live-tab fetch behind it.
             if Task.isCancelled {
                 task.terminate()
+                logger.debug("runProcess cancelled (owning task superseded). launchPath='\(launchPath, privacy: .public)'")
                 return nil
             }
             Thread.sleep(forTimeInterval: 0.02)

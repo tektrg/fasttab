@@ -1,6 +1,8 @@
 import Foundation
+import CloudKit
 import Testing
 @testable import FastTab
+import FastTabSync
 
 struct LiveTabRefreshPolicyTests {
     private let now = Date(timeIntervalSince1970: 1_000_000)
@@ -74,6 +76,112 @@ struct LiveTabRefreshPolicyTests {
         let justNow = now.addingTimeInterval(-1)
         let delay = LiveTabRefreshPolicy.extensionEventRefreshDelay(lastRefreshStartedAt: justNow, now: now)
         #expect(delay == LiveTabRefreshPolicy.extensionEventMinimumInterval - 1)
+    }
+
+    // MARK: - Which extension events refresh fast
+
+    private func extensionTab(_ tabID: Int, url: String, browser: String = "Google Chrome") -> BrowserSearchResult {
+        BrowserSearchResult(
+            title: "t\(tabID)",
+            url: url,
+            browserName: browser,
+            type: .tab,
+            timestamp: Date(),
+            windowIndex: 1,
+            tabIndex: tabID,
+            tabID: tabID
+        )
+    }
+
+    @Test func tabSwitchOrTitleUpsertRidesTheIdleRefresh() {
+        let cached = [extensionTab(1, url: "https://a.example")]
+        #expect(!LiveTabRefreshPolicy.upsertChangesPhoneTabList(
+            cachedTabs: cached, browserName: "Google Chrome", tabID: 1, url: "https://a.example"))
+    }
+
+    @Test func newTabOrNavigationUpsertRefreshesFast() {
+        let cached = [extensionTab(1, url: "https://a.example")]
+        #expect(LiveTabRefreshPolicy.upsertChangesPhoneTabList(
+            cachedTabs: cached, browserName: "Google Chrome", tabID: 2, url: "https://b.example"))
+        #expect(LiveTabRefreshPolicy.upsertChangesPhoneTabList(
+            cachedTabs: cached, browserName: "Google Chrome", tabID: 1, url: "https://moved.example"))
+        // Same tab ID in another browser is a different tab.
+        #expect(LiveTabRefreshPolicy.upsertChangesPhoneTabList(
+            cachedTabs: cached, browserName: "Arc", tabID: 1, url: "https://a.example"))
+    }
+
+    @Test func focusChangeSnapshotWithKnownTabsRidesTheIdleRefresh() {
+        let cached = [extensionTab(1, url: "https://a.example"), extensionTab(2, url: "https://b.example")]
+        #expect(!LiveTabRefreshPolicy.snapshotChangesPhoneTabList(
+            cachedTabs: cached, browserName: "Google Chrome", snapshotTabIDs: [2, 1]))
+        // One profile's snapshot (a subset) is not a change either.
+        #expect(!LiveTabRefreshPolicy.snapshotChangesPhoneTabList(
+            cachedTabs: cached, browserName: "Google Chrome", snapshotTabIDs: [1]))
+    }
+
+    @Test func snapshotWithUnseenTabRefreshesFast() {
+        let cached = [extensionTab(1, url: "https://a.example"), extensionTab(9, url: "https://z.example", browser: "Arc")]
+        #expect(LiveTabRefreshPolicy.snapshotChangesPhoneTabList(
+            cachedTabs: cached, browserName: "Google Chrome", snapshotTabIDs: [1, 9]))
+    }
+
+    @Test func pendingExtensionRefreshSkipsWhenANewerRefreshStarted() {
+        let eventAt = now
+        #expect(LiveTabRefreshPolicy.shouldRunPendingExtensionEventRefresh(latestEventAt: eventAt, lastRefreshStartedAt: nil))
+        // Refresh started before the event: it may have read the old state.
+        #expect(LiveTabRefreshPolicy.shouldRunPendingExtensionEventRefresh(
+            latestEventAt: eventAt, lastRefreshStartedAt: eventAt.addingTimeInterval(-1)))
+        // Idle/other refresh started after the event already covers it.
+        #expect(!LiveTabRefreshPolicy.shouldRunPendingExtensionEventRefresh(
+            latestEventAt: eventAt, lastRefreshStartedAt: eventAt.addingTimeInterval(1)))
+    }
+
+    // MARK: - Publish spares unreadable browsers
+
+    private func recordID(_ name: String) -> CKRecord.ID {
+        CKRecord.ID(recordName: name, zoneID: SyncConstants.stateZoneID)
+    }
+
+    @Test func publishNeverDeletesRecordsOfAnUnreadableBrowser() {
+        // First read after launch: Chrome unreadable, nothing to carry forward.
+        let chromeTab = recordID(SyncService.tabRecordName(deviceID: "mac", browserName: "Google Chrome", windowIndex: 1, tabIndex: 1, tabID: 7, fallbackIndex: 0))
+        let safariKept = recordID(SyncService.tabRecordName(deviceID: "mac", browserName: "Safari", windowIndex: 1, tabIndex: 1, tabID: nil, fallbackIndex: 0))
+        let safariClosed = recordID(SyncService.tabRecordName(deviceID: "mac", browserName: "Safari", windowIndex: 1, tabIndex: 2, tabID: nil, fallbackIndex: 1))
+        let toDelete = SyncService.tabRecordIDsToDelete(
+            previouslyPublished: [chromeTab, safariKept, safariClosed],
+            currentlyPublished: [safariKept],
+            sparingBrowsers: ["Google Chrome"],
+            deviceID: "mac"
+        )
+        #expect(toDelete == [safariClosed])
+    }
+
+    @Test func publishWithEverythingReadableDeletesAsBefore() {
+        let chromeTab = recordID(SyncService.tabRecordName(deviceID: "mac", browserName: "Google Chrome", windowIndex: 1, tabIndex: 1, tabID: 7, fallbackIndex: 0))
+        let toDelete = SyncService.tabRecordIDsToDelete(
+            previouslyPublished: [chromeTab],
+            currentlyPublished: [],
+            sparingBrowsers: [],
+            deviceID: "mac"
+        )
+        #expect(toDelete == [chromeTab])
+    }
+
+    @Test func reconcileNeverDeletesRecordsOfAnUnreadableOrAbsentBrowser() {
+        // Present only via ghost pinned slots / carried tabs while unreadable.
+        #expect(!SyncService.reconcileMayDeleteRecords(
+            ofBrowser: "Google Chrome", snapshotBrowsers: ["Google Chrome", "Safari"], unreadableBrowsers: ["Google Chrome"]))
+        #expect(!SyncService.reconcileMayDeleteRecords(
+            ofBrowser: "Arc", snapshotBrowsers: ["Safari"], unreadableBrowsers: []))
+        #expect(SyncService.reconcileMayDeleteRecords(
+            ofBrowser: "Safari", snapshotBrowsers: ["Google Chrome", "Safari"], unreadableBrowsers: ["Google Chrome"]))
+    }
+
+    @Test func unreadableSetChangesThePublishFingerprint() {
+        #expect(SyncService.unreadableBrowsersFingerprintSuffix([]) == "")
+        #expect(SyncService.unreadableBrowsersFingerprintSuffix(["Safari", "Arc"])
+            == SyncService.unreadableBrowsersFingerprintSuffix(["Arc", "Safari"]))
+        #expect(SyncService.unreadableBrowsersFingerprintSuffix(["Safari"]) != "")
     }
 
     // MARK: - Idle refresh cadence

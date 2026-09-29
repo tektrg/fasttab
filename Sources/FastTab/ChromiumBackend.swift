@@ -79,7 +79,7 @@ struct ChromiumBackend: BrowserBackend {
         let output: String
         switch LiveTabScriptOutput(rawOutput: runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script])) {
         case .unreadable:
-            logger.error("fetchLiveTabs unreadable (timeout or script error). browser='\(self.appName, privacy: .public)'")
+            logUnreadableLiveTabRead(logger, browserName: appName)
             return .unreadable
         case .noTabs:
             return .fetched([])

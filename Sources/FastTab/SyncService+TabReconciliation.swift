@@ -35,16 +35,17 @@ extension SyncService {
     /// wins and exactly one publish runs per MainActor turn, so two publishers
     /// can never interleave their record batches and undo each other's
     /// deletions.
-    func requestLiveTabsPublish(_ tabs: [BrowserSearchResult]) {
+    func requestLiveTabsPublish(_ tabs: [BrowserSearchResult], unreadableBrowsers: Set<String> = []) {
         pendingLiveTabs = tabs
+        pendingLiveTabsUnreadableBrowsers = unreadableBrowsers
         guard liveTabsPublishTask == nil else { return }
         liveTabsPublishTask = Task { @MainActor [weak self] in
             defer { self?.liveTabsPublishTask = nil }
-            let latest = self?.pendingLiveTabs
-            self?.pendingLiveTabs = nil
-            if let latest {
-                self?.publishLiveTabsNow(latest)
-            }
+            guard let self, let latest = self.pendingLiveTabs else { return }
+            let latestUnreadableBrowsers = self.pendingLiveTabsUnreadableBrowsers
+            self.pendingLiveTabs = nil
+            self.pendingLiveTabsUnreadableBrowsers = []
+            self.publishLiveTabsNow(latest, unreadableBrowsers: latestUnreadableBrowsers)
         }
     }
 
@@ -170,13 +171,12 @@ extension SyncService {
             // orphan — the authoritative snapshot may simply not have caught up
             // yet, and deleting it would briefly hide an open tab on the phone.
             guard pendingRecordsToSave[record.recordID] == nil else { return false }
-            // Safety: never delete a browser's records when that browser is
-            // absent from the snapshot entirely — a partial fetch, not closed
-            // tabs. (Tradeoff: stranded records of a genuinely empty browser
-            // wait until that browser next reports tabs before being pruned;
-            // that is the safer failure than wiping open tabs on a bad fetch.)
             let browser = record["browserName"] as? String ?? ""
-            return expectedByBrowser[browser] != nil
+            return Self.reconcileMayDeleteRecords(
+                ofBrowser: browser,
+                snapshotBrowsers: Set(expectedByBrowser.keys),
+                unreadableBrowsers: snapshot.unreadableBrowsers
+            )
         }
         let orphanIDs = Set(orphans.map(\.recordID))
 

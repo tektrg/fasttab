@@ -96,6 +96,54 @@ extension SyncService {
         previouslyPublished.subtracting(currentlyPublished)
     }
 
+    /// The publish delete diff, minus every record of a browser whose read
+    /// failed in this snapshot. Its tabs are unknown, not closed: on the first
+    /// read after launch there is no previous snapshot to carry forward, and
+    /// the durable ledger would otherwise delete all of that browser's tabs
+    /// from the phone. Spared records stay in the ledger, so the next readable
+    /// publish deletes the ones that really closed.
+    ///
+    /// Matches by record-name prefix (`tabRecordName`'s `deviceID_browser_`
+    /// layout). A browser whose sanitized name prefixes another's (e.g.
+    /// "Google Chrome" / "Google Chrome Beta") also spares the longer one —
+    /// the safe direction: a delayed delete, never a wrongful one.
+    nonisolated static func tabRecordIDsToDelete(
+        previouslyPublished: Set<CKRecord.ID>,
+        currentlyPublished: Set<CKRecord.ID>,
+        sparingBrowsers unreadableBrowsers: Set<String>,
+        deviceID: String
+    ) -> Set<CKRecord.ID> {
+        let candidates = tabRecordIDsToDelete(
+            previouslyPublished: previouslyPublished,
+            currentlyPublished: currentlyPublished
+        )
+        guard !unreadableBrowsers.isEmpty else { return candidates }
+        let sparedPrefixes = unreadableBrowsers.map { sanitizeRecordName("\(deviceID)_\($0)_") }
+        return candidates.filter { recordID in
+            !sparedPrefixes.contains { recordID.recordName.hasPrefix($0) }
+        }
+    }
+
+    /// Whether the state-zone reconciliation may delete a browser's stranded
+    /// records against the current snapshot.
+    /// - Browser absent from the snapshot entirely: a partial fetch, not
+    ///   closed tabs. (Tradeoff: stranded records of a genuinely empty browser
+    ///   wait until that browser next reports tabs; safer than wiping open
+    ///   tabs on a bad fetch.)
+    /// - Browser unreadable in this snapshot: present only through carried-
+    ///   forward tabs or ghost pinned slots, so its real open tabs are unknown.
+    nonisolated static func reconcileMayDeleteRecords(
+        ofBrowser browserName: String,
+        snapshotBrowsers: Set<String>,
+        unreadableBrowsers: Set<String>
+    ) -> Bool {
+        snapshotBrowsers.contains(browserName) && !unreadableBrowsers.contains(browserName)
+    }
+
+    nonisolated static func unreadableBrowsersFingerprintSuffix(_ unreadableBrowsers: Set<String>) -> String {
+        unreadableBrowsers.isEmpty ? "" : "|unreadable:" + unreadableBrowsers.sorted().joined(separator: ",")
+    }
+
     nonisolated static func tabRecordLedgerAfterPublishing(
         remotelyKnown: Set<CKRecord.ID>,
         currentlyPublished: Set<CKRecord.ID>

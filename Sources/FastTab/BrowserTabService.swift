@@ -41,6 +41,9 @@ class BrowserTabService: ObservableObject {
     private var lastAuthoritativeRefreshStartedAt: Date?
     /// Pending throttled refresh scheduled by extension tab events.
     private var extensionEventRefreshTask: Task<Void, Never>?
+    /// When the newest phone-relevant extension event coalesced into
+    /// `extensionEventRefreshTask` arrived.
+    private var latestPhoneRelevantExtensionEventAt: Date?
 
     private var fetchGeneration = 0
     private var lastIssuedQuery: String = ""
@@ -186,7 +189,7 @@ class BrowserTabService: ObservableObject {
                 self.openTabCount = self.cachedLiveTabs.count
                 self.duplicateTabCount = Self.duplicateTabCount(in: self.cachedLiveTabs)
                 MyOrderStore.shared.reconcile(liveTabs: self.cachedLiveTabs)
-                self.scheduleRefreshAfterExtensionTabEvent()
+                self.scheduleRefreshAfterPhoneRelevantExtensionEvent()
             }
         }
 
@@ -195,8 +198,15 @@ class BrowserTabService: ObservableObject {
                 guard let self else { return }
                 guard ExtensionBetaPreference.isEnabled else { return }
                 self.logger.info("extension tabUpserted. app=\(appName, privacy: .public) tabID=\(tabRecord.tabID) pinned=\(tabRecord.isPinned)")
+                // Decide before applying: the update rewrites the cached URL.
+                let changesPhoneTabList = LiveTabRefreshPolicy.upsertChangesPhoneTabList(
+                    cachedTabs: self.cachedLiveTabs,
+                    browserName: appName,
+                    tabID: tabRecord.tabID,
+                    url: tabRecord.url
+                )
                 self.applyTabRecordUpdate(appName: appName, tabRecord: tabRecord)
-                self.scheduleRefreshAfterExtensionTabEvent()
+                if changesPhoneTabList { self.scheduleRefreshAfterPhoneRelevantExtensionEvent() }
             }
         }
 
@@ -204,8 +214,13 @@ class BrowserTabService: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 guard ExtensionBetaPreference.isEnabled else { return }
+                let changesPhoneTabList = LiveTabRefreshPolicy.snapshotChangesPhoneTabList(
+                    cachedTabs: self.cachedLiveTabs,
+                    browserName: appName,
+                    snapshotTabIDs: tabs.map(\.tabID)
+                )
                 self.applySnapshotUpdate(appName: appName, extensionTabs: tabs)
-                self.scheduleRefreshAfterExtensionTabEvent()
+                if changesPhoneTabList { self.scheduleRefreshAfterPhoneRelevantExtensionEvent() }
             }
         }
     }
@@ -517,28 +532,38 @@ class BrowserTabService: ObservableObject {
     ///
     /// Single-backend case (e.g. source-pinned scope) bypasses the task-group
     /// to avoid Swift concurrency overhead when there's nothing to overlap.
-    private nonisolated static func fetchLiveTabsParallel(
+    ///
+    /// A browser whose read failed or timed out keeps its tabs from
+    /// `previous` instead of reading as empty (every result can end up in
+    /// `cachedLiveTabs` and from there on the phone); it is also reported in
+    /// `unreadableBrowsers` so the publish spares its records.
+    private nonisolated static func fetchLiveTabsCarryingForwardUnreadable(
         backends: [any BrowserBackend],
         fetchStart: Date,
         baseline: [String: Date],
         activeTimes: inout [String: Date],
         currentFlowSourceAppBundleIdentifier: String?,
-        lastAudibleSeenAt: inout [String: Date]
-    ) async -> [BrowserSearchResult] {
-        await fetchLiveTabOutcomesParallel(
+        lastAudibleSeenAt: inout [String: Date],
+        previous: [BrowserSearchResult]
+    ) async -> (tabs: [BrowserSearchResult], unreadableBrowsers: Set<String>) {
+        let fetched = await fetchLiveTabOutcomesParallel(
             backends: backends,
             fetchStart: fetchStart,
             baseline: baseline,
             activeTimes: &activeTimes,
             currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
             lastAudibleSeenAt: &lastAudibleSeenAt
-        ).tabs
+        )
+        let tabs = LiveTabRefreshPolicy.carryingForwardUnreadableBrowsers(
+            fetched: fetched.tabs,
+            unreadableBrowsers: fetched.unreadableBrowsers,
+            previous: previous
+        )
+        return (tabs, fetched.unreadableBrowsers)
     }
 
-    /// `fetchLiveTabsParallel` plus the browsers whose read failed or timed
-    /// out. Paths that publish to the phone need the distinction: an
-    /// unreadable browser must keep its previous tabs, not be synced as empty
-    /// (see `LiveTabRefreshPolicy.carryingForwardUnreadableBrowsers`).
+    /// The raw parallel read: every backend's tabs plus the browsers whose
+    /// read failed or timed out (see `LiveTabFetchOutcome`).
     private nonisolated static func fetchLiveTabOutcomesParallel(
         backends: [any BrowserBackend],
         fetchStart: Date,
@@ -721,6 +746,7 @@ class BrowserTabService: ObservableObject {
         let historySearchPerBackendLimit = self.historySearchPerBackendLimit
         let cachedAudibleSeenAt = self.lastAudibleSeenAt
         let slotSnapshot = MyOrderStore.shared.slots
+        let cachedLiveTabsSnapshot = self.cachedLiveTabs
 
         // Source-pinned scope: only the matching backend runs. Saves us from
         // polling Chrome via AppleScript and reading the Safari history DB
@@ -738,6 +764,7 @@ class BrowserTabService: ObservableObject {
             var updatedAudibleSeenAt = cachedAudibleSeenAt
             var produced: [BrowserSearchResult] = []
             var fetchedUnfilteredLiveTabs: [BrowserSearchResult]? = nil
+            var fetchedUnreadableBrowsers: Set<String> = []
 
             switch requiredType {
             case .sent:
@@ -746,16 +773,19 @@ class BrowserTabService: ObservableObject {
 
             case .tab:
                 // Live tabs (always fresh — scope-aware fetches don't reuse cache).
-                let rawFetchedTabs = await Self.fetchLiveTabsParallel(
+                let fetched = await Self.fetchLiveTabsCarryingForwardUnreadable(
                     backends: backends,
                     fetchStart: Date(),
                     baseline: cachedTimes,
                     activeTimes: &updatedTimes,
                     currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
-                    lastAudibleSeenAt: &updatedAudibleSeenAt
+                    lastAudibleSeenAt: &updatedAudibleSeenAt,
+                    previous: cachedLiveTabsSnapshot
                 )
+                let rawFetchedTabs = fetched.tabs
                 if normalizedQuery.isEmpty && pinnedSource == nil && !filter.duplicateOnly && filter.window == nil {
                     fetchedUnfilteredLiveTabs = rawFetchedTabs
+                    fetchedUnreadableBrowsers = fetched.unreadableBrowsers
                 }
                 let liveTabs = MyOrderStore.overlayPinStatus(on: rawFetchedTabs, using: slotSnapshot)
                 let ghostPinnedTabs = slotSnapshot.compactMap { slot -> BrowserSearchResult? in
@@ -794,14 +824,15 @@ class BrowserTabService: ObservableObject {
                 // user sees everything the source has to offer in one list,
                 // with the existing tab-tier > history-tier sort.
                 if pinnedSource != nil {
-                    let liveTabs = await Self.fetchLiveTabsParallel(
+                    let liveTabs = await Self.fetchLiveTabsCarryingForwardUnreadable(
                         backends: backends,
                         fetchStart: Date(),
                         baseline: cachedTimes,
                         activeTimes: &updatedTimes,
                         currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
-                        lastAudibleSeenAt: &updatedAudibleSeenAt
-                    )
+                        lastAudibleSeenAt: &updatedAudibleSeenAt,
+                        previous: cachedLiveTabsSnapshot
+                    ).tabs
                     let overlaidLive = MyOrderStore.overlayPinStatus(on: liveTabs, using: slotSnapshot)
                     let ghostPinnedTabs = slotSnapshot.compactMap { slot -> BrowserSearchResult? in
                         guard slot.isPinned, slot.state == .ghost, slot.browserName == pinnedSource else { return nil }
@@ -848,6 +879,7 @@ class BrowserTabService: ObservableObject {
                 let queryWords = searchWords(in: normalizedQuery)
                 produced = produced.filter { $0.matches(words: queryWords) || $0.isPinnedAudibleTab }
             }
+            let unreadableBrowsers = fetchedUnreadableBrowsers
 
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
@@ -857,7 +889,7 @@ class BrowserTabService: ObservableObject {
                 // Refresh live-tabs cache if we just fetched fresh, unfiltered ones.
                 if let rawLiveTabs = fetchedUnfilteredLiveTabs {
                     let rawLive = self.filteringRecentlyClosed(rawLiveTabs.filter { $0.type == .tab && !$0.isGhost })
-                    MyOrderStore.shared.reconcile(liveTabs: rawLive)
+                    MyOrderStore.shared.reconcile(liveTabs: rawLive, unreadableBrowsers: unreadableBrowsers)
                     let freshLive = sortBrowserSearchResults(MyOrderStore.shared.overlayPinStatus(on: rawLive), frecencyScore: frecencyLookup)
                     self.cachedLiveTabs = freshLive
                     self.lastLiveTabsRefreshAt = Date()
@@ -912,6 +944,7 @@ class BrowserTabService: ObservableObject {
             let fetchStart = Date()
             var liveTabs: [BrowserSearchResult] = []
             var usedCachedLiveTabs = false
+            var readUnreadableBrowsers: Set<String> = []
 
             if !normalizedQuery.isEmpty,
                !cachedLiveTabsSnapshot.isEmpty,
@@ -919,21 +952,19 @@ class BrowserTabService: ObservableObject {
                 liveTabs = cachedLiveTabsSnapshot
                 usedCachedLiveTabs = true
             } else {
-                let fetched = await Self.fetchLiveTabOutcomesParallel(
+                // This snapshot is also published to the phone: a browser whose
+                // read timed out keeps its last-known tabs instead of syncing as empty.
+                let fetched = await Self.fetchLiveTabsCarryingForwardUnreadable(
                     backends: backends,
                     fetchStart: fetchStart,
                     baseline: cachedTimes,
                     activeTimes: &updatedTimes,
                     currentFlowSourceAppBundleIdentifier: currentFlowSourceAppBundleIdentifier,
-                    lastAudibleSeenAt: &updatedAudibleSeenAt
-                )
-                // This snapshot is also published to the phone: a browser whose
-                // read timed out keeps its last-known tabs instead of syncing as empty.
-                liveTabs = LiveTabRefreshPolicy.carryingForwardUnreadableBrowsers(
-                    fetched: fetched.tabs,
-                    unreadableBrowsers: fetched.unreadableBrowsers,
+                    lastAudibleSeenAt: &updatedAudibleSeenAt,
                     previous: cachedLiveTabsSnapshot
                 )
+                liveTabs = fetched.tabs
+                readUnreadableBrowsers = fetched.unreadableBrowsers
 
                 if !cachedLiveTabsSnapshot.isEmpty {
                     let knownURLs = Set(cachedLiveTabsSnapshot.map(\.url))
@@ -951,6 +982,7 @@ class BrowserTabService: ObservableObject {
             }
 
             liveTabs = MyOrderStore.overlayPinStatus(on: liveTabs, using: slotSnapshot)
+            let unreadableBrowsers = readUnreadableBrowsers
 
             guard !Task.isCancelled else {
                 await MainActor.run {
@@ -983,7 +1015,7 @@ class BrowserTabService: ObservableObject {
                 await MainActor.run {
                     guard let self, generation == self.fetchGeneration else { return }
                     let rawLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
-                    MyOrderStore.shared.reconcile(liveTabs: rawLiveTabs)
+                    MyOrderStore.shared.reconcile(liveTabs: rawLiveTabs, unreadableBrowsers: unreadableBrowsers)
                     let filteredLiveTabs = MyOrderStore.shared.overlayPinStatus(on: rawLiveTabs)
                     let prioritizedTabs = allQuickOpenTabs(from: filteredLiveTabs)
                     let filteredPrioritized = self.filteringRecentlyClosed(prioritizedTabs)
@@ -1004,7 +1036,7 @@ class BrowserTabService: ObservableObject {
                     self.hasFetchedOpenTabCount = true
                     self.isLoading = false
                     self.logger.info("fetchResults applied (empty-query fast path). generation=\(generation) quickOpenTabs=\(filteredPrioritized.count) liveTabs={\(Self.typeBreakdown(filteredLiveTabs), privacy: .public)}")
-                    SyncService.shared.updateLiveTabs(filteredLiveTabs)
+                    SyncService.shared.updateLiveTabs(filteredLiveTabs, unreadableBrowsers: unreadableBrowsers)
                     self.refreshCachesIfNeeded(force: false)
                 }
                 return
@@ -1038,7 +1070,7 @@ class BrowserTabService: ObservableObject {
                 guard let self, generation == self.fetchGeneration else { return }
                 let rawLiveTabs = self.filteringRecentlyClosed(sortedLiveTabs)
                 if !usedCachedLiveTabs {
-                    MyOrderStore.shared.reconcile(liveTabs: rawLiveTabs)
+                    MyOrderStore.shared.reconcile(liveTabs: rawLiveTabs, unreadableBrowsers: unreadableBrowsers)
                 }
                 let filteredLiveTabs = MyOrderStore.shared.overlayPinStatus(on: rawLiveTabs)
                 let filteredPhase1 = sortBrowserSearchResults(
@@ -1055,7 +1087,7 @@ class BrowserTabService: ObservableObject {
                     self.openTabCount = filteredLiveTabs.count
                     self.duplicateTabCount = Self.duplicateTabCount(in: filteredLiveTabs)
                     self.hasFetchedOpenTabCount = true
-                    SyncService.shared.updateLiveTabs(filteredLiveTabs)
+                    SyncService.shared.updateLiveTabs(filteredLiveTabs, unreadableBrowsers: unreadableBrowsers)
                 } else {
                     // Slide the reuse window: the user is mid typing-burst, so
                     // keep trusting the cached snapshot instead of rescanning.
@@ -1436,11 +1468,15 @@ class BrowserTabService: ObservableObject {
     }
 
     /// Extension tab events only patch local state (`cachedLiveTabs` can be a
-    /// partial view, and the publish deletes by ledger), so they schedule an
-    /// authoritative refresh instead of publishing directly. Coalesced and
-    /// throttled: a burst becomes one refresh, at most one per
-    /// `LiveTabRefreshPolicy.extensionEventMinimumInterval`.
-    private func scheduleRefreshAfterExtensionTabEvent() {
+    /// partial view, and the publish deletes by ledger), so events that change
+    /// the phone's tab list (a tab closed, opened, or navigated; a snapshot
+    /// with a different tab set) schedule an authoritative refresh instead of
+    /// publishing directly. Everything else rides the idle refresh.
+    /// Coalesced and throttled: a burst becomes one refresh, at most one per
+    /// `LiveTabRefreshPolicy.extensionEventMinimumInterval`, skipped when
+    /// another refresh already started after the newest event.
+    private func scheduleRefreshAfterPhoneRelevantExtensionEvent() {
+        latestPhoneRelevantExtensionEventAt = Date()
         guard extensionEventRefreshTask == nil else { return }
         let delay = LiveTabRefreshPolicy.extensionEventRefreshDelay(
             lastRefreshStartedAt: lastAuthoritativeRefreshStartedAt,
@@ -1450,6 +1486,14 @@ class BrowserTabService: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard let self else { return }
             self.extensionEventRefreshTask = nil
+            guard let latestEventAt = self.latestPhoneRelevantExtensionEventAt,
+                  LiveTabRefreshPolicy.shouldRunPendingExtensionEventRefresh(
+                      latestEventAt: latestEventAt,
+                      lastRefreshStartedAt: self.lastAuthoritativeRefreshStartedAt
+                  ) else {
+                self.logger.info("Extension-event refresh skipped: a newer authoritative refresh already covers it.")
+                return
+            }
             self.logger.info("Authoritative refresh triggered by extension tab event.")
             self.refreshAuthoritativeLiveTabsAndPublish()
         }
@@ -1495,7 +1539,7 @@ class BrowserTabService: ObservableObject {
                     self.logger.error("Authoritative refresh kept previous tabs for unreadable browsers: \(fetched.unreadableBrowsers.sorted().joined(separator: ","), privacy: .public)")
                 }
                 let rawAuthoritativeTabs = self.filteringRecentlyClosed(fetchedTabs)
-                MyOrderStore.shared.reconcile(liveTabs: rawAuthoritativeTabs)
+                MyOrderStore.shared.reconcile(liveTabs: rawAuthoritativeTabs, unreadableBrowsers: fetched.unreadableBrowsers)
                 let authoritativeTabs = MyOrderStore.shared.overlayPinStatus(on: rawAuthoritativeTabs)
                 self.cachedLiveTabs = authoritativeTabs
                 self.openTabCount = authoritativeTabs.count
@@ -1510,21 +1554,17 @@ class BrowserTabService: ObservableObject {
 
                 self.cachedQuickOpenResults = combined
                 self.cachedQuickOpenSourceAppBundleIdentifier = sourceAppBundleIdentifier
-                // Scope chips (e.g. @duplicate, @Chrome) with no typed text also
-                // leave `lastIssuedQuery` empty; only the unscoped view may be
-                // replaced by the quick-open list, or this (now periodic)
-                // refresh would swap a scoped list for every tab.
-                if self.lastIssuedQuery.isEmpty && self.lastIssuedFilter.isPassthrough {
+                if self.isShowingUnscopedQuickOpen {
                     self.results = combined
                 } else {
                     let frecencyLookup = self.makeFrecencyScoreLookup()
                     self.results = sortBrowserSearchResults(MyOrderStore.shared.overlayPinStatus(on: self.results), frecencyScore: frecencyLookup)
                 }
 
-                self.authoritativeLiveTabSnapshot.applyAllBackends(authoritativeTabs)
+                self.authoritativeLiveTabSnapshot.applyAllBackends(authoritativeTabs, unreadableBrowsers: fetched.unreadableBrowsers)
                 self.lastActiveTimes = updatedTimes
                 self.lastAudibleSeenAt = updatedAudibleSeenAt
-                SyncService.shared.requestLiveTabsPublish(authoritativeTabs)
+                SyncService.shared.requestLiveTabsPublish(authoritativeTabs, unreadableBrowsers: fetched.unreadableBrowsers)
                 TabActivityRecorder.shared.observe(authoritativeTabs, capturedAt: refreshStartedAt)
                 self.logger.info("Authoritative all-browser tab sync published. tabCount=\(authoritativeTabs.count)")
             }
@@ -1637,7 +1677,7 @@ class BrowserTabService: ObservableObject {
             MyOrderStore.shared.reconcile(liveTabs: cachedLiveTabs)
             let effectivePinned = tabRecord.isPinned || MyOrderStore.shared.isSlotPinned(browserName: appName, url: tabRecord.url, tabID: tabRecord.tabID)
             cachedLiveTabs[idx] = cachedLiveTabs[idx].settingPinned(effectivePinned)
-            if lastIssuedQuery.isEmpty {
+            if isShowingUnscopedQuickOpen {
                 rebuildQuickOpenResults()
             } else {
                 applyPinned(effectivePinned, to: existing.id, fallbackID: updated.id, tabID: tabRecord.tabID, browserName: appName, in: &results)
@@ -1707,13 +1747,25 @@ class BrowserTabService: ObservableObject {
         }
     }
 
+    /// True when the bar shows the plain quick-open list: no typed text AND
+    /// no scope chip. Chip-only scopes (e.g. @duplicate, @Chrome) also leave
+    /// `lastIssuedQuery` empty, so the query alone is not enough — replacing
+    /// their results with the quick-open list would show every tab.
+    private var isShowingUnscopedQuickOpen: Bool {
+        lastIssuedQuery.isEmpty && lastIssuedFilter.isPassthrough
+    }
+
+    /// Rebuilds the quick-open cache from `cachedLiveTabs`, and the visible
+    /// results too when the bar is showing the unscoped list.
     private func rebuildQuickOpenResults() {
         let filteredLiveTabs = MyOrderStore.shared.overlayPinStatus(on: cachedLiveTabs)
         let prioritizedTabs = allQuickOpenTabs(from: filteredLiveTabs)
         let filteredPrioritized = filteringRecentlyClosed(prioritizedTabs)
         let dedupedPrioritized = deduplicatingSamePages(filteredPrioritized, frecencyScore: { _ in 0 })
         let combinedQuickOpen = sortQuickOpenResults(dedupedPrioritized)
-        results = combinedQuickOpen
+        if isShowingUnscopedQuickOpen {
+            results = combinedQuickOpen
+        }
         cachedQuickOpenResults = combinedQuickOpen
     }
 

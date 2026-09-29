@@ -63,7 +63,7 @@ struct FinderBackend: BrowserBackend {
         let raw: String
         switch LiveTabScriptOutput(rawOutput: runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script])) {
         case .unreadable:
-            Self.logger.error("fetchLiveTabs unreadable (timeout or script error). browser='Finder'")
+            logUnreadableLiveTabRead(Self.logger, browserName: "Finder")
             return .unreadable
         case .noTabs:
             return .fetched([])

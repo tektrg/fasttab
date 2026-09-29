@@ -280,8 +280,18 @@ public struct ReaderWebView: UIViewRepresentable {
         """
         templateHTML = templateHTML.replacingOccurrences(of: "<!-- BOOTSTRAP -->", with: bootstrap)
 
-        // Load from article URL origin so relative images and links resolve properly
-        webView.loadHTMLString(templateHTML, baseURL: article.url)
+        webView.loadHTMLString(templateHTML, baseURL: Self.baseURL(for: article))
+    }
+
+    /// Embed origin for transcript pages. YouTube rejects embeds (error 152) whose parent page
+    /// has no real https origin/Referer of its own; a page posing as youtube.com fails too.
+    /// Must match `YT_EMBED_ORIGIN` in reader_template.html.
+    static let youtubeEmbedOrigin = URL(string: "https://fasttab.theindie.app/")!
+
+    /// Articles load from their own URL so relative images and links resolve; transcript pages
+    /// (no relative resources) load from our own origin so the YouTube player accepts the embed.
+    static func baseURL(for article: ReaderArticle) -> URL? {
+        article.youtubeVideoID != nil ? youtubeEmbedOrigin : article.url
     }
 }
 

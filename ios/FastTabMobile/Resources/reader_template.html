@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Reader</title>
@@ -713,7 +714,8 @@ window.addEventListener('load', function() {
         host: 'https://www.youtube-nocookie.com',
         videoId: videoID,
         width: 160, height: 90,
-        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, enablejsapi: 1 },
+        // origin must equal the page's baseURL origin (ReaderWebView.youtubeEmbedOrigin), else error 152.
+        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, enablejsapi: 1, origin: 'https://fasttab.theindie.app' },
         events: {
           onReady: function() {
             playerReady = true;

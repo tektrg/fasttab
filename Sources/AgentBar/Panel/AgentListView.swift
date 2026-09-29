@@ -17,7 +17,7 @@ struct AgentListView: View {
                 .padding(.vertical, AgentPanelMetrics.listVerticalPadding)
             }
             .onChange(of: model.selectedAgentID) {
-                guard let id = model.selectedAgentID,
+                guard let id = model.selectedAgentID, id != model.hoverSelectedAgentID,
                       let target = AgentListScrollTarget.id(forSelecting: id, in: rows)
                 else { return }
                 proxy.scrollTo(target)

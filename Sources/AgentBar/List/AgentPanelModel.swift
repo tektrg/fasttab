@@ -23,6 +23,10 @@ final class AgentPanelModel: ObservableObject {
     /// Republishes through this model (same shape as `answer`/`permission`/`message`) so the panel
     /// view needs only observe `AgentPanelModel`.
     let treeModel: AgentTreeModel
+    /// The row the mouse last hovered into selection. `AgentListView`
+    /// skips auto-scroll then: the row is already under the cursor, and scrolling to a nested
+    /// worker's chief anchor mid-scroll yanked the list back up ("scroll stuck", 2026-09-29).
+    private(set) var hoverSelectedAgentID: String?
     /// The selected row's button the keyboard is on (←/→), if any; ↩ presses it.
     @Published private(set) var highlightedButton: RowButton?
     /// Where each row's Done / Close pane press has got to (see `RowActionState`).
@@ -894,12 +898,14 @@ final class AgentPanelModel: ObservableObject {
         answer.close()
         permission.close()
         message.close()
+        hoverSelectedAgentID = nil
         selectedAgentID = AgentSelection.moved(from: selectedAgentID, by: step, in: presentation.selectableAgentIDs)
     }
 
     /// Hover: only rows that can be activated take the highlight.
     func select(agentID: String) {
         guard presentation.selectableAgentIDs.contains(agentID) else { return }
+        hoverSelectedAgentID = agentID
         selectedAgentID = agentID
         closePeekUnlessStillSelected()
     }

@@ -19,18 +19,16 @@ struct OnboardingHeroStage<Frame: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var isOnScreen = false
-    /// When the clock last (re)started, and for which `replayKey`.
-    @State private var clockStart: (key: AnyHashable, date: Date)?
-    @State private var finishedKey: AnyHashable?
+    @State private var clock = HeroClock()
 
-    private var isPlaying: Bool {
+    /// Everything but the clock itself allows motion.
+    private var canAnimate: Bool {
         !reduceMotion && isOnScreen && scenePhase == .active && !isSuspended
-            && clockStart?.key == replayKey && finishedKey != replayKey
     }
 
     var body: some View {
         ZStack {
-            TimelineView(.animation(paused: !isPlaying)) { context in
+            TimelineView(.animation(paused: !clock.isTicking(key: replayKey, canAnimate: canAnimate))) { context in
                 frame(frameTime(at: context.date))
                     .frame(width: Self.canvasSize.width, height: Self.canvasSize.height)
             }
@@ -42,24 +40,26 @@ struct OnboardingHeroStage<Frame: View>: View {
         .animation(.easeInOut(duration: 0.3), value: replayKey)
         .onAppear { isOnScreen = true }
         .onDisappear { isOnScreen = false }
+        .onChange(of: canAnimate) { _, canAnimate in
+            if canAnimate { clock.resume(playback: playback, at: Date()) }
+        }
         .task(id: replayKey) { await runClock() }
         .accessibilityHidden(true)
     }
 
     private func frameTime(at date: Date) -> Double {
-        guard isPlaying, let clockStart else { return playback.restTime }
-        return playback.frameTime(elapsed: date.timeIntervalSince(clockStart.date))
+        clock.frameTime(playback: playback, key: replayKey, canAnimate: canAnimate, now: date)
     }
 
     /// Restarts on appear and on every state change; marks a one-shot done so
     /// the timeline stops ticking once it rests.
     private func runClock() async {
         let key = replayKey
-        clockStart = (key, Date())
+        clock.start(key: key, at: Date())
         guard let duration = playback.oneShotDuration else { return }
         try? await Task.sleep(for: .seconds(duration))
         guard !Task.isCancelled else { return }
-        finishedKey = key
+        clock.finish(key: key)
     }
 }
 

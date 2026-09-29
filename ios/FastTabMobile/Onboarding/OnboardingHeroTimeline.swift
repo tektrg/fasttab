@@ -35,6 +35,48 @@ enum HeroPlayback: Equatable {
     }
 }
 
+/// The stage's clock: when the current picture started and whether its
+/// one-shot has finished. Pure, so restarts and pauses are testable.
+struct HeroClock {
+    private var key: AnyHashable?
+    private var startedAt: Date?
+    private var isFinished = false
+
+    /// A new picture (or the step reappearing) plays from its first frame.
+    mutating func start(key: AnyHashable, at now: Date) {
+        self.key = key
+        startedAt = now
+        isFinished = false
+    }
+
+    /// A one-shot reached its last frame; ignored if the picture has since changed.
+    mutating func finish(key: AnyHashable) {
+        if self.key == key { isFinished = true }
+    }
+
+    /// After a pause (Reduce Motion, background, covered) a loop picks up from
+    /// the rest frame it was showing, instead of jumping to wherever its old
+    /// clock had got to. One-shots keep their own clock.
+    mutating func resume(playback: HeroPlayback, at now: Date) {
+        guard playback.oneShotDuration == nil, startedAt != nil else { return }
+        startedAt = now.addingTimeInterval(-playback.restTime)
+    }
+
+    /// False once the picture rests for good, so the timeline stops ticking.
+    func isTicking(key: AnyHashable, canAnimate: Bool) -> Bool {
+        canAnimate && !(self.key == key && isFinished)
+    }
+
+    func frameTime(playback: HeroPlayback, key: AnyHashable, canAnimate: Bool, now: Date) -> Double {
+        guard canAnimate else { return playback.restTime }
+        // The state just changed and its clock starts on the next tick: show its
+        // first frame, never a flash of its last.
+        guard self.key == key, let startedAt else { return 0 }
+        if isFinished { return playback.restTime }
+        return playback.frameTime(elapsed: now.timeIntervalSince(startedAt))
+    }
+}
+
 /// Beat math for hero frames: "this move starts at 0.3s and takes 0.7s".
 enum HeroCurve {
     enum Ease {

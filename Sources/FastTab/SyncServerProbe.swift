@@ -21,6 +21,10 @@ enum SyncServerProbe {
     nonisolated static let requestIDKey = "requestID"
     nonisolated static let urlMarkerKey = "urlMarker"
 
+    /// Every marker must start with the probe's own query key
+    /// (`scripts/sync-probe.sh`), so only probe URLs can ever match — a
+    /// generic marker like "https://www." would otherwise list real tabs.
+    nonisolated static let urlMarkerPrefix = "fasttab-sync-probe="
     /// Short enough to never be a URL dump; long enough to be unique.
     nonisolated static let urlMarkerLengthRange = 12...200
     nonisolated static let requestIDMaxLength = 64
@@ -88,6 +92,8 @@ enum SyncServerProbe {
               requestID.count <= requestIDMaxLength,
               requestID.unicodeScalars.allSatisfy({ requestIDCharacters.contains($0) && $0.isASCII }) else { return nil }
         guard urlMarkerLengthRange.contains(urlMarker.count),
+              urlMarker.hasPrefix(urlMarkerPrefix),
+              urlMarker.count > urlMarkerPrefix.count,
               !urlMarker.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) }) else { return nil }
         return Request(requestID: requestID, urlMarker: urlMarker)
     }

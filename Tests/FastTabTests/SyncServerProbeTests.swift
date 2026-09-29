@@ -31,9 +31,13 @@ struct SyncServerProbeTests {
         }
     }
 
-    /// A short marker (e.g. "https") would turn the answer into a dump of every tab URL.
+    /// A short or generic marker (e.g. "https://www.") would turn the answer
+    /// into a dump of real tab URLs; only the probe's own key may match.
     @Test func rejectsMarkersThatWouldMatchTooBroadly() {
-        for badMarker in ["", "https", "example.com", "has space in it ok", String(repeating: "m", count: 201)] {
+        for badMarker in [
+            "", "https", "example.com", "has space in it ok", String(repeating: "m", count: 201),
+            "https://www.", "://github.com/", "fasttab-sync-probe=",
+        ] {
             #expect(SyncServerProbe.parseRequest(userInfo: ["requestID": "r1", "urlMarker": badMarker]) == nil, "\(badMarker)")
         }
     }

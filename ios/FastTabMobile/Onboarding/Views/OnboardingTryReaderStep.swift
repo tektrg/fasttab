@@ -12,6 +12,9 @@ struct OnboardingTryReaderStep: View {
     let onContinue: () -> Void
 
     @ObservedObject private var localCache = LocalCache.shared
+    @ObservedObject private var preloader = ReaderPreloader.shared
+    /// Delayed copy of "still preparing", so a preload that finishes in a blink never flashes text.
+    @State private var showsPreparing = false
     @State private var readerItem: ReaderNavigationItem?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -36,7 +39,15 @@ struct OnboardingTryReaderStep: View {
         } actions: {
             OnboardingPrimaryButton(title: isStandalone ? "Done" : "Continue", action: onContinue)
         }
-        .onAppear(perform: pinChoiceOnce)
+        .onAppear {
+            pinChoiceOnce()
+            startPreload()
+        }
+        .onChange(of: preloader.status) { _, newStatus in
+            if newStatus == .failed { fallBackToSampleIfPreloadFailed() }
+        }
+        .task(id: preloader.status) { await revealPreparingIfSlow() }
+        .onDisappear { ReaderPreloader.shared.cancel() }
         .fullScreenCover(item: $readerItem, onDismiss: forgetSampleVisit) { item in
             ReaderView(url: item.url, title: item.title)
         }
@@ -56,6 +67,12 @@ struct OnboardingTryReaderStep: View {
                 .font(DS.Font.meta)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+            if showsPreparing && preloader.status == .preparing {
+                Label("Preparing…", systemImage: "hourglass")
+                    .font(DS.Font.meta)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            }
             Button(action: openArticle) {
                 Label("Open in Reader", systemImage: "doc.plaintext")
             }
@@ -79,6 +96,32 @@ struct OnboardingTryReaderStep: View {
         guard !hasPinnedChoice else { return }
         hasPinnedChoice = true
         pinnedTab = useSampleOnly ? nil : ReaderTryoutPicker.pick(from: localCache.state.tabs)
+    }
+
+    /// Starts (or reuses) the background prep the flow began earlier; opening is then instant.
+    private func startPreload() {
+        if let pinnedTab, let url = URL(string: pinnedTab.url) {
+            preloader.preload(url: url)
+        } else {
+            preloader.preloadSample()
+        }
+    }
+
+    /// The Mac's article couldn't be fetched (offline, blocked): quietly demo the sample instead.
+    private func fallBackToSampleIfPreloadFailed() {
+        guard pinnedTab != nil, readerItem == nil else { return }
+        withAnimation { pinnedTab = nil }
+        preloader.preloadSample()
+    }
+
+    private func revealPreparingIfSlow() async {
+        guard preloader.status == .preparing else {
+            showsPreparing = false
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(400))
+        guard !Task.isCancelled else { return }
+        withAnimation { showsPreparing = true }
     }
 
     /// The bundled sample is a demo, not something the user chose to read: keep

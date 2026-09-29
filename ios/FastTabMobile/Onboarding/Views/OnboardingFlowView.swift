@@ -17,6 +17,7 @@ struct OnboardingFlowView: View {
     /// Set by "Continue without a Mac": later screens then skip Mac-only demos.
     @State private var continuedWithoutMac = false
     let onExit: (OnboardingExit) -> Void
+    @ObservedObject private var localCache = LocalCache.shared
 
     init(route: OnboardingRoute, onExit: @escaping (OnboardingExit) -> Void) {
         _route = State(initialValue: route)
@@ -43,6 +44,23 @@ struct OnboardingFlowView: View {
             }
         }
         .dsCanvas()
+        .onAppear(perform: preloadTryoutArticle)
+        .onChange(of: localCache.state.tabs) { _, _ in preloadTryoutArticle() }
+        .onChange(of: continuedWithoutMac) { _, _ in preloadTryoutArticle() }
+        .onDisappear { ReaderPreloader.shared.cancel() }
+    }
+
+    /// Gets the "Try Reader" article ready while the user is still on earlier screens: the
+    /// Mac's article once tabs sync in, else the bundled sample. Later syncs can re-run this.
+    private func preloadTryoutArticle() {
+        guard route.steps.contains(.tryReader), route.current != .tryReader else { return }
+        if !continuedWithoutMac,
+           let tab = ReaderTryoutPicker.pick(from: localCache.state.tabs),
+           let url = URL(string: tab.url) {
+            ReaderPreloader.shared.preload(url: url)
+        } else {
+            ReaderPreloader.shared.preloadSample()
+        }
     }
 
     private var navigationBar: some View {

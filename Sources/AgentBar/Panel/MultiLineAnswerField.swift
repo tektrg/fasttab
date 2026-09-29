@@ -10,6 +10,8 @@ struct MultiLineAnswerField: NSViewRepresentable {
     let onLeave: () -> Void
     var onLeaveUp: () -> Void = {}
     var onLeaveDown: () -> Void = {}
+    /// Set by boxes that take images (the message card): ⌘V / drop of an image goes here instead of the text.
+    var onImages: (([NSImage]) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -19,6 +21,10 @@ struct MultiLineAnswerField: NSViewRepresentable {
         textView.onLeave = { context.coordinator.parent.onLeave() }
         textView.onLeaveUp = { context.coordinator.parent.onLeaveUp() }
         textView.onLeaveDown = { context.coordinator.parent.onLeaveDown() }
+        if onImages != nil {
+            textView.onImages = { context.coordinator.parent.onImages?($0) }
+            textView.registerForDraggedTypes(textView.registeredDraggedTypes + [.png, .tiff, .fileURL])
+        }
         textView.delegate = context.coordinator
         textView.string = text
         textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))   // typing continues where it was left
@@ -60,6 +66,8 @@ final class AnswerTextView: NSTextView {
     /// ↑ with the caret on the first line, ↓ with it on the last: the text stays, the owner moves to the options.
     var onLeaveUp: () -> Void = {}
     var onLeaveDown: () -> Void = {}
+    /// Nil: pastes and drops behave as plain text (answer cards).
+    var onImages: (([NSImage]) -> Void)?
     static let upArrowKeyCode: UInt16 = 126
     static let downArrowKeyCode: UInt16 = 125
 
@@ -117,6 +125,37 @@ final class AnswerTextView: NSTextView {
             if event.keyCode == Self.downArrowKeyCode, caretIsOnLastLine { onLeaveDown(); return }
         }
         super.keyDown(with: event)
+    }
+
+    // MARK: - Images
+
+    override func paste(_ sender: Any?) {
+        if takeImages(from: .general) { return }
+        super.paste(sender)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if onImages != nil, MessageImage.pasteboardHasImage(sender.draggingPasteboard) { return .copy }
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if onImages != nil, MessageImage.pasteboardHasImage(sender.draggingPasteboard) { return .copy }
+        return super.draggingUpdated(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        if takeImages(from: sender.draggingPasteboard) { return true }
+        return super.performDragOperation(sender)
+    }
+
+    /// True when the pasteboard held images and they went to `onImages` (the text is left alone).
+    private func takeImages(from pasteboard: NSPasteboard) -> Bool {
+        guard let onImages else { return false }
+        let images = MessageImage.images(from: pasteboard)
+        guard !images.isEmpty else { return false }
+        onImages(images)
+        return true
     }
 
     // MARK: - Where the caret is

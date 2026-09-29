@@ -151,8 +151,24 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
     }
 
     func sendMessage(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
+        await sendMessage(rowId: rowId, text: text, confirmed: confirmed, attachments: [])
+    }
+
+    func uploadImage(_ image: MessageImage) async -> Result<String, ImageUploadFailure> {
         do {
-            let request = endpoint.messageRequest(rowId: rowId, text: text, confirmed: confirmed)
+            let (body, statusCode) = try await transport.response(for: endpoint.imageUploadRequest(image))
+            let reply = try? JSONDecoder().decode(DashboardImageUploadResponse.self, from: body)
+            if statusCode == 404 { return .failure(ImageUploadFailure(reason: "This dashboard can't take images yet (restart it).")) }
+            if let id = reply?.id, reply?.ok == true { return .success(id) }
+            return .failure(ImageUploadFailure(reason: reply?.error ?? "The dashboard refused the image."))
+        } catch {
+            return .failure(ImageUploadFailure(reason: "Can't reach the status dashboard to upload the image."))
+        }
+    }
+
+    func sendMessage(rowId: String, text: String, confirmed: Bool, attachments: [String]) async -> MessageSendOutcome {
+        do {
+            let request = endpoint.messageRequest(rowId: rowId, text: text, confirmed: confirmed, attachments: attachments)
             let (body, _) = try await transport.response(for: request)
             let reply = try JSONDecoder().decode(DashboardSessionActionResponse.self, from: body)
             return reply.messageOutcome ?? .failed("The dashboard refused the message.")
@@ -321,4 +337,11 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
     private func sleep(seconds: TimeInterval) async {
         try? await Task.sleep(for: .seconds(seconds))
     }
+}
+
+/// `POST /api/attachments/image` reply.
+struct DashboardImageUploadResponse: Decodable {
+    let ok: Bool?
+    let id: String?
+    let error: String?
 }

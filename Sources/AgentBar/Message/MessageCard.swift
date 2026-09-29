@@ -30,6 +30,10 @@ struct MessageCard: Equatable, Sendable {
     /// Nil for agents without a Claude session: nothing to read a message from.
     let sessionId: String?
     private(set) var draft = ""
+    /// Pasted or dropped images (at most `MessageImage.maxCount`), sent with the text.
+    private(set) var images: [MessageImage] = []
+    /// Why the last paste/drop added no image. Cleared by the next edit.
+    private(set) var imageHint: String?
     private(set) var phase: Phase = .editing
     /// Set once the dashboard said the agent is mid-turn: the next send press is the confirmed one.
     private(set) var isConfirming = false
@@ -63,6 +67,8 @@ struct MessageCard: Equatable, Sendable {
     /// The text a send would put in the agent's input; nil while the draft cannot be sent.
     var sendableText: String? {
         if case .ready(let text) = verdict { return text }
+        // Images alone are a message: the dashboard supplies the words.
+        if verdict == .empty, !images.isEmpty { return "" }
         return nil
     }
 
@@ -70,10 +76,11 @@ struct MessageCard: Equatable, Sendable {
 
     /// The line under the field about the draft itself: why it cannot go, or the counter near the cap.
     var draftHint: String? {
+        if let imageHint { return imageHint }
         switch verdict {
-        case .slashCommand: route.commandHint
-        case .tooLong(let over): MessageDraftValidator.tooLongHint(over: over)
-        case .empty, .ready: nil
+        case .slashCommand: return route.commandHint
+        case .tooLong(let over): return MessageDraftValidator.tooLongHint(over: over)
+        case .empty, .ready: return nil
         }
     }
 
@@ -107,8 +114,34 @@ struct MessageCard: Equatable, Sendable {
     mutating func setDraft(_ text: String) {
         guard phase == .editing, text != draft else { return }
         draft = text
+        draftChanged()
+    }
+
+    static let tooManyImagesHint = "At most \(MessageImage.maxCount) images per message."
+    static let unreadableImageHint = "Couldn't read that image (or it stays over 5 MB)."
+
+    /// A paste or drop. `prepared` holds nil for each image that couldn't be read or sized down.
+    mutating func addImages(_ prepared: [MessageImage?]) {
+        guard phase == .editing, !prepared.isEmpty else { return }
+        let readable = prepared.compactMap { $0 }
+        let room = MessageImage.maxCount - images.count
+        images += readable.prefix(max(0, room))
+        draftChanged()
+        if readable.count > room { imageHint = Self.tooManyImagesHint }
+        else if readable.count < prepared.count { imageHint = Self.unreadableImageHint }
+    }
+
+    mutating func removeImage(_ id: UUID) {
+        guard phase == .editing else { return }
+        images.removeAll { $0.id == id }
+        draftChanged()
+    }
+
+    /// Anything about what would be sent changed: a pending confirmation and old errors were about the previous draft.
+    private mutating func draftChanged() {
         isConfirming = false
         errorText = nil
+        imageHint = nil
         mayHaveGoneThrough = false
     }
 

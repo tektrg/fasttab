@@ -160,14 +160,26 @@ struct DashboardEndpoint: Sendable {
 
     /// `POST /api/session/message`. `text` is already sanitized (one line, no leading "/").
     /// `confirmed` is sent only for the second press after the dashboard said the agent is mid-turn.
-    func messageRequest(rowId: String, text: String, confirmed: Bool) -> URLRequest {
+    /// `attachments`: ids from `imageUploadRequest`, sent only when there are some.
+    func messageRequest(rowId: String, text: String, confirmed: Bool, attachments: [String] = []) -> URLRequest {
         var request = request(path: "/api/session/message")
         request.httpMethod = "POST"
         request.timeoutInterval = Self.messageTimeoutSeconds
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["rowId": rowId, "actor": Self.sessionActionActor, "text": text]
         if confirmed { body["confirm"] = true }
+        if !attachments.isEmpty { body["attachments"] = attachments }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// `POST /api/attachments/image`: the raw image bytes; the reply carries the id to send.
+    func imageUploadRequest(_ image: MessageImage) -> URLRequest {
+        var request = request(path: "/api/attachments/image")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.messageTimeoutSeconds
+        request.setValue(image.contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = image.data
         return request
     }
 

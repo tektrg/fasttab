@@ -57,10 +57,11 @@ struct MessageCardView: View {
                 MultiLineAnswerField(
                     text: Binding(get: { card.draft }, set: { message.setDraft($0) }),
                     onSubmit: { message.pressSend() },
-                    onLeave: { message.handleEscape() }
+                    onLeave: { message.handleEscape() },
+                    onImages: { message.addImages($0) }
                 )
                 if card.draft.isEmpty {
-                    Text("Message \(card.label)…   ↩ sends")
+                    Text("Message \(card.label)…   ↩ sends · ⌘V or drop an image")
                         .font(.system(size: 13))
                         .foregroundStyle(.tertiary)
                         .padding(.top, 2)
@@ -72,6 +73,9 @@ struct MessageCardView: View {
             .frame(height: Self.fieldHeight)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.07)))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.15)))
+            if !card.images.isEmpty {
+                MessageImageChips(images: card.images, removable: card.phase == .editing) { message.removeImage($0) }
+            }
             draftLine(card)
         }
         .padding(.horizontal, 18)

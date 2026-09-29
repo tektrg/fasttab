@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// Observable state behind the message card: opens it on a live agent, holds the draft, and
 /// sends it once per press. Rules for the draft and the card's phases live in the pure
@@ -102,6 +102,20 @@ final class MessageCardModel: ObservableObject {
         self.card = card
     }
 
+    /// A paste or drop of images into the text box. Sized down here (on the main actor: a few
+    /// images at most, and AppKit image drawing wants it).
+    func addImages(_ images: [NSImage]) {
+        guard var card else { return }
+        card.addImages(images.map(MessageImage.prepare))
+        self.card = card
+    }
+
+    func removeImage(_ id: UUID) {
+        guard var card else { return }
+        card.removeImage(id)
+        self.card = card
+    }
+
     /// Esc: a failure notice goes first, then the card closes (not while its message is on its way).
     func handleEscape() {
         guard let card, !consumeEscape(), card.phase == .editing else { return }
@@ -117,7 +131,7 @@ final class MessageCardModel: ObservableObject {
         self.card = card
         inFlight.insert(card.agentID)
         objectWillChange.send()
-        let request = Request(agentID: card.agentID, label: card.label, route: card.route, rowId: card.rowId, text: text, confirmed: confirmed, notesOnSend: false)
+        let request = Request(agentID: card.agentID, label: card.label, route: card.route, rowId: card.rowId, text: text, confirmed: confirmed, notesOnSend: false, images: card.images)
         let epoch = epoch
         Task { [weak self] in
             let outcome = await Self.deliver(request, via: statusSource)
@@ -164,6 +178,8 @@ final class MessageCardModel: ObservableObject {
         let confirmed: Bool
         /// True only for a `sendDirect` request: on `.sent`, `finishSend` calls `onSentDirect`.
         let notesOnSend: Bool
+        /// Card sends only: uploaded right before the message, after the pane check.
+        var images: [MessageImage] = []
     }
 
     /// Reads the pane first: typed text would answer a question picker or a permission box. An inbox
@@ -176,7 +192,7 @@ final class MessageCardModel: ObservableObject {
             if MessageDraftValidator.check(request.text, allowsQuickCommands: false) == .slashCommand {
                 return .failed(MessageRoute.inboxSlashCommandHint)
             }
-            return await source.sendMessage(rowId: request.rowId, text: request.text, confirmed: request.confirmed)
+            return await sendWithImages(request, via: source)
         case .pane(let id):
             paneId = id
         case .toolPane(let id, _):
@@ -195,7 +211,23 @@ final class MessageCardModel: ObservableObject {
                 return .failed(MessageCard.waitingOnYouText)
             }
         }
-        return await source.sendMessage(rowId: request.rowId, text: request.text, confirmed: request.confirmed)
+        return await sendWithImages(request, via: source)
+    }
+
+    /// Uploads the request's images (none: straight to the plain send), then sends the text with their ids.
+    /// A failed upload sends nothing; images already stored just expire on the dashboard.
+    private static func sendWithImages(_ request: Request, via source: any AgentStatusSource) async -> MessageSendOutcome {
+        guard !request.images.isEmpty else {
+            return await source.sendMessage(rowId: request.rowId, text: request.text, confirmed: request.confirmed)
+        }
+        var ids: [String] = []
+        for image in request.images {
+            switch await source.uploadImage(image) {
+            case .success(let id): ids.append(id)
+            case .failure(let failure): return .failed("Image not uploaded: \(failure.reason) Nothing was sent.")
+            }
+        }
+        return await source.sendMessage(rowId: request.rowId, text: request.text, confirmed: request.confirmed, attachments: ids)
     }
 
     private func finishSend(_ outcome: MessageSendOutcome, of request: Request, epoch: Int) {

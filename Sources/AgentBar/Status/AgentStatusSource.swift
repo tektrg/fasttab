@@ -63,9 +63,29 @@ protocol AgentStatusSource: Sendable {
     /// `confirmed` is true only for the second press after `.needsConfirmation`. Never call
     /// twice for one message: a slow reply may still have landed.
     func sendMessage(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome
+
+    /// Stores one image on the dashboard for a later `sendMessage(…attachments:)`: its id, or why not.
+    func uploadImage(_ image: MessageImage) async -> Result<String, ImageUploadFailure>
+
+    /// `sendMessage` with uploaded image ids; the dashboard appends each image's file path to the text.
+    func sendMessage(rowId: String, text: String, confirmed: Bool, attachments: [String]) async -> MessageSendOutcome
+}
+
+/// Why an image didn't upload, in words. Nothing was sent.
+struct ImageUploadFailure: Error, Equatable, Sendable {
+    let reason: String
 }
 
 extension AgentStatusSource {
+    func uploadImage(_ image: MessageImage) async -> Result<String, ImageUploadFailure> {
+        .failure(ImageUploadFailure(reason: "This status source cannot take images."))
+    }
+
+    func sendMessage(rowId: String, text: String, confirmed: Bool, attachments: [String]) async -> MessageSendOutcome {
+        guard attachments.isEmpty else { return .failed("This status source cannot send images.") }
+        return await sendMessage(rowId: rowId, text: text, confirmed: confirmed)
+    }
+
     /// Sources that cannot message an agent refuse, in words.
     func sendMessage(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
         .failed("This status source cannot send messages.")

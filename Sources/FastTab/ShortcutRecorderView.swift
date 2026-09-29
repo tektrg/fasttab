@@ -89,7 +89,9 @@ struct ShortcutRecorderView: View {
             }
         }
         .animation(.easeInOut(duration: 0.18), value: isRecording)
-        .onDisappear { stopRecording() }
+        // Only a recorder that is recording owns the app-wide flag; an idle
+        // one leaving (e.g. the onboarding step advancing) must not reset it.
+        .onDisappear { if isRecording { stopRecording() } }
     }
 
     private func toggleRecording() {

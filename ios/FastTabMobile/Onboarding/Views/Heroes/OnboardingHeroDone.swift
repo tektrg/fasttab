@@ -1,4 +1,5 @@
 import SwiftUI
+import HeroMotion
 
 /// Step 5: a seal and its checkmark draw, then a mini tab bar rises and lights
 /// Read, Tabs, Shuffle and More in turn, matching the tour rows below. Loops.

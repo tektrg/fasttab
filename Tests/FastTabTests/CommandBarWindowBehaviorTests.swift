@@ -13,7 +13,7 @@ struct CommandBarWindowBehaviorTests {
             defer: false
         )
 
-        OnboardingWindowController.configureOnboardingWindow(window)
+        OnboardingWindowController.configureOnboardingWindow(window, layout: .compact)
 
         #expect(!window.isMovable)
         #expect(!window.isMovableByWindowBackground)

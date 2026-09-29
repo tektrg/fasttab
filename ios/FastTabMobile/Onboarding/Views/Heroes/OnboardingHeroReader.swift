@@ -1,4 +1,5 @@
 import SwiftUI
+import HeroMotion
 
 /// Step 3: a cluttered web page (banner, ads, sidebar, cookie bar) sheds its
 /// clutter, the text settles into one clean column under a teal title, and a

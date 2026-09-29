@@ -4,38 +4,36 @@ import Testing
 @testable import FastTab
 import FastTabSync
 
-/// The onboarding window is a fixed 440×520 with the step dots below the step,
-/// leaving ~494pt for a step. These pin that the iPhone step fits in both of
-/// its states, and that its QR code actually encodes something scannable.
+/// The onboarding window is a fixed size with the step dots below the step
+/// (`OnboardingLayout.stepHeight` left for a step). These pin that the iPhone
+/// step fits in each of its states in both layouts, and that its QR code
+/// actually encodes something scannable.
 @MainActor
 struct OnboardingIPhoneStepTests {
-    private static let stepWidth: CGFloat = 440
-    private static let stepHeightBudget: CGFloat = 494
-
-    private func fittingHeight(downloadURL: URL?, pairedPhones: [SyncedDevice] = []) -> CGFloat {
+    private func fittingHeight(downloadURL: URL?, pairedPhones: [SyncedDevice] = [], in layout: OnboardingLayout) -> CGFloat {
         let defaults = UserDefaults(suiteName: "OnboardingIPhoneStepTests.\(UUID().uuidString)")!
         let store = PairedPhoneStore(defaults: defaults)
         store.record(pairedPhones)
-        let host = NSHostingView(rootView: OnboardingIPhoneStep(downloadURL: downloadURL, pairedPhoneStore: store, onContinue: {})
-            .frame(width: Self.stepWidth))
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize.height
+        return OnboardingStepFit.fittingHeight(of: OnboardingIPhoneStep(downloadURL: downloadURL, pairedPhoneStore: store, onContinue: {}), in: layout)
     }
 
-    @Test func comingSoonStateFitsTheStepBudget() {
-        let height = fittingHeight(downloadURL: nil)
-        #expect(height <= Self.stepHeightBudget, "coming-soon iPhone step is \(height)pt tall")
+    @Test(arguments: OnboardingLayout.all)
+    func comingSoonStateFitsTheStepBudget(layout: OnboardingLayout) {
+        let height = fittingHeight(downloadURL: nil, in: layout)
+        #expect(height <= layout.stepHeight, "coming-soon iPhone step is \(height)pt tall")
     }
 
-    @Test func downloadStateFitsTheStepBudget() {
-        let height = fittingHeight(downloadURL: URL(string: "https://apps.apple.com/app/id0000000000")!)
-        #expect(height <= Self.stepHeightBudget, "download iPhone step is \(height)pt tall")
+    @Test(arguments: OnboardingLayout.all)
+    func downloadStateFitsTheStepBudget(layout: OnboardingLayout) {
+        let height = fittingHeight(downloadURL: URL(string: "https://apps.apple.com/app/id0000000000")!, in: layout)
+        #expect(height <= layout.stepHeight, "download iPhone step is \(height)pt tall")
     }
 
-    @Test func connectedStateFitsTheStepBudget() {
+    @Test(arguments: OnboardingLayout.all)
+    func connectedStateFitsTheStepBudget(layout: OnboardingLayout) {
         let phone = SyncedDevice(id: "phone-1", name: "iPhone", modelName: "iPhone", appVersion: "1.0", kind: .iphone)
-        let height = fittingHeight(downloadURL: URL(string: "https://apps.apple.com/app/id0000000000")!, pairedPhones: [phone])
-        #expect(height <= Self.stepHeightBudget, "connected iPhone step is \(height)pt tall")
+        let height = fittingHeight(downloadURL: URL(string: "https://apps.apple.com/app/id0000000000")!, pairedPhones: [phone], in: layout)
+        #expect(height <= layout.stepHeight, "connected iPhone step is \(height)pt tall")
     }
 
     @Test func qrCodeIsBlackOnWhite() throws {

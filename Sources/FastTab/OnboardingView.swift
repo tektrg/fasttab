@@ -4,6 +4,38 @@ import CommandBarKit
 
 private let onboardingCompletedKey = "onboarding.v1.completed"
 
+/// The onboarding window's size. It is fixed and unmovable, so it must fit the
+/// screen: short screens (13" Macs at larger-text scaling, with the Dock
+/// showing) get `compact`, which draws the heroes at half size. Every step
+/// must fit both (pinned by `OnboardingStepFitTests`).
+struct OnboardingLayout: Equatable, Sendable {
+    let windowSize: CGSize
+    /// How big the animated heroes draw: 1 is the storyboard's 200 × 96 pt
+    /// (`OnboardingHeroes/`).
+    let heroScale: Double
+    let stepDotsBottomPadding: CGFloat
+
+    static let regular = OnboardingLayout(
+        windowSize: CGSize(width: 440, height: 580), heroScale: 1, stepDotsBottomPadding: 20
+    )
+    static let compact = OnboardingLayout(
+        windowSize: CGSize(width: 440, height: 530), heroScale: 0.5, stepDotsBottomPadding: 12
+    )
+    static let all = [regular, compact]
+
+    static let stepDotSize: CGFloat = 6
+    /// Room kept between the window and the screen's usable edges (menu bar, Dock).
+    static let screenMargin: CGFloat = 20
+
+    /// Height left for the current step above the step dots.
+    var stepHeight: CGFloat { windowSize.height - Self.stepDotSize - stepDotsBottomPadding }
+
+    /// `regular` when it fits the screen's usable height, else `compact`.
+    static func fitting(visibleScreenHeight: CGFloat) -> OnboardingLayout {
+        visibleScreenHeight >= regular.windowSize.height + screenMargin ? .regular : .compact
+    }
+}
+
 // MARK: - Coordinator
 
 @MainActor
@@ -42,7 +74,8 @@ final class OnboardingWindowController: NSObject {
             return
         }
 
-        let view = OnboardingView { [weak self] shouldOpenBar in
+        let layout = OnboardingLayout.fitting(visibleScreenHeight: NSScreen.main?.visibleFrame.height ?? .infinity)
+        let view = OnboardingView(layout: layout) { [weak self] shouldOpenBar in
             self?.dismiss(andOpenBar: shouldOpenBar)
         }
         .environmentObject(AppState.shared)
@@ -51,13 +84,13 @@ final class OnboardingWindowController: NSObject {
         controller.view.wantsLayer = true
 
         let win = NSWindow(contentViewController: controller)
-        Self.configureOnboardingWindow(win)
+        Self.configureOnboardingWindow(win, layout: layout)
         NSApp.activate(ignoringOtherApps: true)
         win.makeKeyAndOrderFront(nil)
         window = win
     }
 
-    static func configureOnboardingWindow(_ win: NSWindow) {
+    static func configureOnboardingWindow(_ win: NSWindow, layout: OnboardingLayout) {
         win.styleMask = [.titled, .fullSizeContentView]
         win.titleVisibility = .hidden
         win.titlebarAppearsTransparent = true
@@ -71,7 +104,7 @@ final class OnboardingWindowController: NSObject {
             win.standardWindowButton($0)?.isHidden = true
         }
 
-        win.setContentSize(NSSize(width: 440, height: 520))
+        win.setContentSize(layout.windowSize)
         win.center()
     }
 
@@ -111,6 +144,7 @@ private enum OnboardingStep: Hashable {
 struct OnboardingView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var selectionStore = SourceSelectionStore.shared
+    let layout: OnboardingLayout
     let onDismiss: (Bool) -> Void
 
     @State private var stepIndex: Int = 0
@@ -184,7 +218,7 @@ struct OnboardingView: View {
                 .animation(.spring(response: 0.38, dampingFraction: 0.82), value: stepIndex)
 
                 stepDots
-                    .padding(.bottom, 20)
+                    .padding(.bottom, layout.stepDotsBottomPadding)
             }
         }
         .overlay(alignment: .topLeading) {
@@ -192,7 +226,8 @@ struct OnboardingView: View {
                 backButton
             }
         }
-        .frame(width: 440, height: 520)
+        .environment(\.onboardingHeroScale, layout.heroScale)
+        .frame(width: layout.windowSize.width, height: layout.windowSize.height)
     }
 
     private var stepTransition: AnyTransition {
@@ -238,12 +273,12 @@ struct OnboardingView: View {
 
     private var stepDots: some View {
         let count = steps.count
-        let active = min(max(stepIndex, 0), count - 1)
+        let active = clampedStepIndex
         return HStack(spacing: 6) {
             ForEach(0..<count, id: \.self) { i in
                 Capsule()
                     .fill(i == active ? Color.primary.opacity(0.7) : Color.primary.opacity(0.18))
-                    .frame(width: i == active ? 18 : 6, height: 6)
+                    .frame(width: i == active ? 18 : OnboardingLayout.stepDotSize, height: OnboardingLayout.stepDotSize)
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: active)
@@ -252,14 +287,14 @@ struct OnboardingView: View {
 
 // MARK: - Step 1: Welcome
 
-private struct WelcomeStep: View {
+struct WelcomeStep: View {
     let onContinue: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
 
-            appIcon
+            OnboardingHeroWelcome()
                 .padding(.bottom, 20)
 
             Text("Welcome to FastTab")
@@ -288,13 +323,6 @@ private struct WelcomeStep: View {
 
             Spacer()
         }
-    }
-
-    private var appIcon: some View {
-        Image(nsImage: NSApp.applicationIconImage)
-            .resizable()
-            .frame(width: 72, height: 72)
-            .accessibilityHidden(true)
     }
 
     private var featureList: some View {
@@ -330,17 +358,20 @@ private struct FeatureRow: View {
 
 // MARK: - Step 2: Trigger style (headline gesture)
 
-private struct TriggerStyleStep: View {
-    @ObservedObject private var edgeReveal = EdgeRevealStore.shared
+struct TriggerStyleStep: View {
+    @ObservedObject var edgeReveal: EdgeRevealStore = .shared
+    @ObservedObject private var shortcutStore = ShortcutStore.shared
     let onContinue: () -> Void
+
+    private var heroState: TriggerHeroState {
+        TriggerHeroState(style: edgeReveal.style, shortcutKeycaps: shortcutStore.heroKeycaps)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 16)
 
-            Image(systemName: "hand.point.up.left")
-                .font(.system(size: 36, weight: .light))
-                .foregroundStyle(.secondary)
+            OnboardingHeroTrigger(state: heroState)
                 .padding(.bottom, 14)
 
             Text("Open FastTab by Hovering")
@@ -355,10 +386,6 @@ private struct TriggerStyleStep: View {
                 .padding(.horizontal, 32)
                 .padding(.bottom, 18)
 
-            previewPill
-                .frame(height: 64)
-                .padding(.bottom, 20)
-
             VStack(spacing: 8) {
                 ForEach(EdgeRevealStyle.allCases) { style in
                     TriggerStyleRow(
@@ -369,7 +396,16 @@ private struct TriggerStyleStep: View {
                 }
             }
             .padding(.horizontal, 28)
-            .padding(.bottom, 18)
+            .padding(.bottom, edgeReveal.style == .off ? 8 : 18)
+
+            if edgeReveal.style == .off {
+                Text("Hover trigger off — you can set a keyboard shortcut later in this setup.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 12)
+            }
 
             Button(action: onContinue) {
                 Text("Continue")
@@ -380,22 +416,6 @@ private struct TriggerStyleStep: View {
             .controlSize(.large)
 
             Spacer(minLength: 16)
-        }
-    }
-
-    /// Illustrates where the trigger sits and what shape it hugs — hovering
-    /// this spot for real opens the command bar immediately, with no
-    /// intermediate pill like the one shown here.
-    @ViewBuilder
-    private var previewPill: some View {
-        if edgeReveal.style == .off {
-            Text("Hover trigger off — you can set a keyboard shortcut later in this setup.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-        } else {
-            EdgeRevealPeekView(style: edgeReveal.style)
         }
     }
 }
@@ -428,7 +448,7 @@ private struct TriggerStyleRow: View {
 
 // MARK: - Step 3: Source picker
 
-private struct SourcePickerStep: View {
+struct SourcePickerStep: View {
     @ObservedObject var store: SourceSelectionStore
     let onContinue: () -> Void
 
@@ -436,9 +456,7 @@ private struct SourcePickerStep: View {
         VStack(spacing: 0) {
             Spacer(minLength: 20)
 
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 38, weight: .light))
-                .foregroundStyle(.secondary)
+            OnboardingHeroSources(state: SourcesHeroState(enabled: store.enabled))
                 .padding(.bottom, 14)
 
             Text("Where should FastTab search?")
@@ -532,7 +550,7 @@ private struct SourceRow: View {
 
     @ViewBuilder
     private var sourceIcon: some View {
-        if let nsImage = appIconImage {
+        if let nsImage = source.appIconImage {
             Image(nsImage: nsImage)
                 .resizable()
                 .frame(width: 28, height: 28)
@@ -541,337 +559,6 @@ private struct SourceRow: View {
                 .font(.system(size: 18, weight: .regular))
                 .foregroundStyle(.secondary)
                 .frame(width: 28, height: 28)
-        }
-    }
-
-    /// Resolves the bundled app icon for the source. Called once per row mount
-    /// during onboarding only — not on a hot path, so no caching needed.
-    private var appIconImage: NSImage? {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: source.bundleIdentifier) else {
-            return nil
-        }
-        return NSWorkspace.shared.icon(forFile: url.path)
-    }
-}
-
-// MARK: - Recommended: browser extension
-
-private struct ExtensionInstallStep: View {
-    @ObservedObject private var permissions = AutomationPermissionStore.shared
-    @Binding var didAutoAdvance: Bool
-    let onContinue: () -> Void
-    /// Advances only if this step is still showing when the delay fires.
-    let onAutoAdvance: () -> Void
-
-    private var isExtensionUsable: Bool { !permissions.usableExtensionAppNames.isEmpty }
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 12)
-
-            Image(systemName: "puzzlepiece.extension.fill")
-                .font(.system(size: 30, weight: .regular))
-                .foregroundStyle(Color.accentColor)
-                .padding(.bottom, 10)
-                .accessibilityHidden(true)
-
-            Text("Sharper Recents, instant tabs")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 6)
-
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 36)
-                .padding(.bottom, 18)
-
-            OnboardingBenefitsView(benefits: OnboardingBenefit.extensionBenefits)
-                .padding(.horizontal, 44)
-                .padding(.bottom, 20)
-
-            primaryAction
-                .padding(.bottom, 8)
-
-            if permissions.extensionSetupState == .waiting {
-                Text("Add it in each browser profile you use.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .padding(.bottom, 8)
-            }
-
-            ExtensionSetupStatusView()
-
-            if !isExtensionUsable {
-                Button("Skip for now", action: onContinue)
-                    .buttonStyle(.plain)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 12)
-        }
-        .onAppear {
-            scheduleAutoAdvanceIfConnected()
-        }
-        .onChange(of: permissions.usableExtensionAppNames) { _, _ in
-            scheduleAutoAdvanceIfConnected()
-        }
-    }
-
-    /// Already set up (e.g. replaying onboarding): confirm instead of selling.
-    private var subtitle: String {
-        isExtensionUsable
-            ? "The FastTab extension is set up — here's what it adds."
-            : "Add the free FastTab extension to Chrome, Edge or Brave. FastTab works without it — this makes it better."
-    }
-
-    /// Advances itself the moment the bridge handshakes — install the
-    /// extension in Chrome and this step finishes on its own.
-    private func scheduleAutoAdvanceIfConnected() {
-        guard !didAutoAdvance, isExtensionUsable else { return }
-        didAutoAdvance = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            onAutoAdvance()
-        }
-    }
-
-    /// One prominent action for where setup stands: move on once usable,
-    /// switch the setting on when it's installed but turned off, otherwise
-    /// get (or update) the extension.
-    private var primaryAction: some View {
-        let action: (title: String, symbolName: String, perform: () -> Void)
-        switch permissions.extensionSetupState {
-        case .usable:
-            action = ("Continue", "arrow.right.circle.fill", onContinue)
-        case .turnedOff:
-            action = ("Turn on the extension", "power.circle.fill", { permissions.turnOnExtensionFeature() })
-        case .versionMismatch, .waiting:
-            action = ("Get the extension", "arrow.down.circle.fill", { openURL(FastTabExtensionIdentity.chromeWebStoreURL) })
-        }
-        return Button(action: action.perform) {
-            Label(action.title, systemImage: action.symbolName)
-                .font(.headline)
-                .frame(width: 200)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-    }
-}
-
-// MARK: - Step 4: Safari permission (conditional)
-
-private struct SafariPermissionStep: View {
-    @EnvironmentObject var appState: AppState
-    @AppStorage(SafariBackend.includeFDADataDefaultsKey) private var includeSafariFDAData: Bool = SafariBackend.includeFDADataDefaultValue
-    let onContinue: () -> Void
-
-    @State private var fdaInitiallyGranted: Bool = false
-    @State private var fdaGrantedNow: Bool = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 12)
-
-            Image(systemName: "lock.shield")
-                .font(.system(size: 38, weight: .light))
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 14)
-
-            Text("Safari needs Full Disk Access")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 28)
-                .padding(.bottom, 8)
-
-            Text("Without it, Safari tabs still work — but bookmarks, history, and favicons won't appear.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .lineSpacing(2)
-                .padding(.horizontal, 32)
-                .padding(.bottom, 22)
-
-            HStack(alignment: .center, spacing: 14) {
-                AppIconDragView(size: 64, onClick: openFullDiskAccessSettings)
-                    .frame(width: 64, height: 64)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Drag this icon into Full Disk Access")
-                        .font(.callout.weight(.medium))
-                    Text("Or click the icon to open System Settings.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 28)
-            .padding(.bottom, 16)
-
-            if fdaGrantedNow && !fdaInitiallyGranted {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Full Disk Access granted — FastTab restarts when you finish.")
-                        .font(.caption)
-                    Spacer()
-                }
-                .padding(.horizontal, 28)
-                .padding(.bottom, 12)
-            }
-
-            HStack(spacing: 14) {
-                Button("Skip") { finish(continued: false) }
-                .buttonStyle(.plain)
-                .font(.callout)
-                .foregroundStyle(.tertiary)
-
-                Button {
-                    finish(continued: true)
-                } label: {
-                    Text("Continue")
-                        .font(.headline)
-                        .frame(width: 160)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-            }
-
-            Spacer(minLength: 12)
-        }
-        .onAppear {
-            fdaInitiallyGranted = appState.browserService.canReadSafariProtectedData()
-            fdaGrantedNow = fdaInitiallyGranted
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            fdaGrantedNow = appState.browserService.canReadSafariProtectedData()
-        }
-    }
-
-    private func finish(continued: Bool) {
-        let granted = continued && appState.browserService.canReadSafariProtectedData()
-        if let choice = SafariBackend.onboardingFDADataChoice(continued: continued, fullDiskAccessGranted: granted) {
-            includeSafariFDAData = choice
-        }
-        onContinue()
-    }
-
-    private func openFullDiskAccessSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-}
-
-// MARK: - Step 5: Shortcut
-
-private struct ShortcutStep: View {
-    @EnvironmentObject var appState: AppState
-    @ObservedObject private var shortcutStore = ShortcutStore.shared
-    @ObservedObject private var edgeReveal = EdgeRevealStore.shared
-    @ObservedObject private var permissions = AutomationPermissionStore.shared
-    let onDismiss: (Bool) -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 12)
-
-            Image(systemName: "keyboard")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 12)
-
-            Text(edgeReveal.style == .off ? "Your Shortcut" : "Your Backup Shortcut")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .padding(.bottom, 6)
-
-            Text(shortcutStepSubtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .padding(.bottom, 16)
-
-            ShortcutRecorderView(store: shortcutStore)
-                .padding(.bottom, 8)
-
-            Text("You can change this later in Settings…")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .padding(.bottom, 14)
-
-            automationNote
-                .padding(.horizontal, 40)
-                .padding(.bottom, 16)
-
-            if OnboardingWindowController.shared.isRestartNeededToApplyChoices {
-                Text("FastTab will restart to apply your choices.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .padding(.bottom, 10)
-            }
-
-            HStack(spacing: 14) {
-                Button("Maybe Later") {
-                    onDismiss(false)
-                }
-                .buttonStyle(.plain)
-                .font(.callout)
-                .foregroundStyle(.tertiary)
-
-                Button {
-                    onDismiss(true)
-                } label: {
-                    Label("Open FastTab", systemImage: "arrow.right.circle.fill")
-                        .font(.headline)
-                        .frame(width: 168)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-            }
-
-            Spacer()
-        }
-    }
-
-    private var shortcutStepSubtitle: String {
-        edgeReveal.style == .off
-            ? "Press this from any app to open FastTab:"
-            : "Hovering opens FastTab, but this works too, from any app:"
-    }
-
-    @ViewBuilder
-    private var automationNote: some View {
-        if !permissions.usableExtensionAppNames.isEmpty {
-            // A connected companion extension covers Chromium tab switching, so
-            // the Automation prompt this note warns about never appears for it.
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "puzzlepiece.extension")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-                    .padding(.top, 1)
-
-                Text("Chrome, Edge & Brave tab switching uses the companion extension — no macOS permission prompt needed.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.leading)
-            }
-        } else {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(.top, 1)
-
-                Text("The first time you search, macOS will ask to allow FastTab to control your browser. Click **Allow** to enable tab switching.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.leading)
-            }
         }
     }
 }

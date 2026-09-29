@@ -1,4 +1,5 @@
 import SwiftUI
+import HeroMotion
 
 /// Step 1: three tab cards flow from a small Mac into a stack on the iPhone,
 /// then fan out and take the tints of the three benefit rows below

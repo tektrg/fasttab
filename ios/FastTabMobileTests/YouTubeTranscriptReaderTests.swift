@@ -159,6 +159,84 @@ final class TranscriptErrorMappingTests: XCTestCase {
     }
 }
 
+/// Server refuses (LOGIN_REQUIRED / 502) → on-device fetch → background upload.
+final class YouTubeTranscriptFallbackTests: XCTestCase {
+    private let phoneCopy = Transcript(videoId: "zzFallback1", lang: "en", kind: .asr, availableLangs: ["en"],
+                                       lines: [TranscriptLine(startMs: 0, durationMs: 1_000, text: "$(echo INJECTED) on device")])
+
+    private func loader(server: TranscriptError, device: @escaping @Sendable () throws -> Transcript,
+                        uploads: UploadLog) -> YouTubeTranscriptLoader {
+        YouTubeTranscriptLoader(fetchTranscript: { _, _ in throw server }, fetchChannel: { _ in nil },
+                                fetchOnDevice: { _, _ in try device() },
+                                uploadTranscript: { transcript, lang in uploads.record(transcript, lang) })
+    }
+
+    func testLoginRequiredFallsBackToDeviceAndUploads() async throws {
+        let uploads = UploadLog(expectation(description: "upload"))
+        let copy = phoneCopy
+        let result = try await loader(server: .loginRequired, device: { copy }, uploads: uploads)
+            .transcript(videoID: "zzFallback1", lang: nil)
+        XCTAssertEqual(result, copy)
+        await fulfillment(of: [uploads.expectation!], timeout: 2)
+        XCTAssertEqual(uploads.lang, "en")
+        XCTAssertEqual(uploads.transcript, copy)
+    }
+
+    func testUpstream502FallsBackAndUploadErrorIsIgnored() async throws {
+        let copy = phoneCopy
+        let failing = YouTubeTranscriptLoader(fetchTranscript: { _, _ in throw TranscriptError.server(status: 502) },
+                                              fetchChannel: { _ in nil }, fetchOnDevice: { _, _ in copy },
+                                              uploadTranscript: { _, _ in throw TranscriptError.server(status: 429) })
+        let result = try await failing.transcript(videoID: "zzFallback1", lang: "vi")
+        XCTAssertEqual(result, copy)
+    }
+
+    func testDeviceLoginRequiredShowsNeedsSignIn() async {
+        let uploads = UploadLog(nil)
+        do {
+            _ = try await loader(server: .loginRequired, device: { throw YouTubeCaptionError.loginRequired }, uploads: uploads)
+                .transcript(videoID: "zzFallback1", lang: "en")
+            XCTFail("expected failure")
+        } catch {
+            XCTAssertEqual(TranscriptReaderError(error), .needsSignIn)
+        }
+        XCTAssertNil(uploads.transcript)
+    }
+
+    func testDeviceUpstreamFailureKeepsServerError() async {
+        do {
+            _ = try await loader(server: .server(status: 502), device: { throw YouTubeCaptionError.upstream("x") }, uploads: UploadLog(nil))
+                .transcript(videoID: "zzFallback1", lang: "en")
+            XCTFail("expected failure")
+        } catch {
+            XCTAssertEqual(error as? TranscriptError, .server(status: 502))
+        }
+    }
+
+    func testOtherServerErrorsNeverTouchTheDevice() async {
+        for serverError in [TranscriptError.noCaptions, .notSignedIn, .powerUpDisabled, .server(status: 500)] {
+            do {
+                _ = try await loader(server: serverError, device: { XCTFail("device fetch"); throw YouTubeCaptionError.noCaptions },
+                                     uploads: UploadLog(nil)).transcript(videoID: "zzFallback1", lang: "en")
+            } catch {
+                XCTAssertEqual(error as? TranscriptError, serverError)
+            }
+        }
+    }
+}
+
+final class UploadLog: @unchecked Sendable {
+    let expectation: XCTestExpectation?
+    private(set) var transcript: Transcript?
+    private(set) var lang: String?
+    init(_ expectation: XCTestExpectation?) { self.expectation = expectation }
+    func record(_ transcript: Transcript, _ lang: String) {
+        self.transcript = transcript
+        self.lang = lang
+        expectation?.fulfill()
+    }
+}
+
 /// Stands in for "a session token is in the keychain now".
 final class SignInFlag: @unchecked Sendable {
     var value = false

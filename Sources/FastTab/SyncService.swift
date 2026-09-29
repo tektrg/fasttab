@@ -20,6 +20,8 @@ final class SyncService: NSObject, ObservableObject {
     private let container: CKContainer
     let database: CKDatabase
     private let stateFileURL: URL
+    /// `~/Library/Application Support/com.trungluong.FastTab`.
+    let fastTabSupportDirectory: URL
     let commandJournal: SyncCommandJournal
 
     // In-memory cache of records to be supplied to CKSyncEngine recordProvider
@@ -68,6 +70,16 @@ final class SyncService: NSObject, ObservableObject {
     /// timer tick arriving mid-reconcile must not start a second overlapping
     /// read.
     var isReconcilingTabs = false
+
+    /// Live sync probe responder state (`SyncService+ServerProbe.swift`).
+    var isListeningForServerProbe = false
+    var isAnsweringServerProbe = false
+    var queuedServerProbeRequest: SyncServerProbe.Request?
+    /// The probe's own view of the state zone and its own change token —
+    /// independent of CKSyncEngine's. Memory-only: every launch starts from a
+    /// full walk.
+    var serverProbeMirror = SyncServerProbe.ZoneMirror()
+    var serverProbeChangeToken: CKServerChangeToken?
 
     /// Set by the first CloudKit push this process actually receives.
     ///
@@ -120,6 +132,7 @@ final class SyncService: NSObject, ObservableObject {
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         let fastTabDir = appSupport.appendingPathComponent("com.trungluong.FastTab", isDirectory: true)
         try? FileManager.default.createDirectory(at: fastTabDir, withIntermediateDirectories: true)
+        self.fastTabSupportDirectory = fastTabDir
         self.stateFileURL = fastTabDir.appendingPathComponent("sync_state.dat")
         self.commandJournal = SyncCommandJournal(
             fileURL: fastTabDir.appendingPathComponent("sync_command_journal.json")
@@ -153,6 +166,7 @@ final class SyncService: NSObject, ObservableObject {
         startSyncPollTimer()
         startPendingCommandSweepTimer()
         startTabReconcileTimer()
+        startServerProbeListener()
     }
 
     /// Poll cadence before any push has arrived: the poll is the *entire* sync

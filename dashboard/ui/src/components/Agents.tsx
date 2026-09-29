@@ -74,7 +74,7 @@ export function Agents({
     <>
       <div
         className="small"
-        style={{ padding: "6px 12px", color: "var(--dim)" }}
+        style={{ padding: "6px 12px", color: "var(--ink-3)" }}
       >
         Three views of one pane. STATE = what the worker pushed (right about{" "}
         <em>working</em>, and it was the source of the old false-

@@ -60,7 +60,7 @@ export function DerivedCell({
                 position: "sticky",
                 left: stickyLeft,
                 zIndex: 2,
-                background: "var(--panel)",
+                background: "var(--paper)",
               }
             : undefined),
         }
@@ -186,7 +186,7 @@ export function EditableCell({
                 position: "sticky",
                 left: stickyLeft,
                 zIndex: 2,
-                background: "var(--panel)",
+                background: "var(--paper)",
               }
             : undefined),
         }

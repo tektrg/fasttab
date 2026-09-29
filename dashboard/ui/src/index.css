@@ -1,85 +1,76 @@
 /* Ported from PAGE_HTML in scripts/chief-dashboard-server.py — same
    information, same meaning. The /legacy page keeps the original dark
    look on purpose (a plain-HTML fallback, not this design system). */
+/* ── Design tokens: AgentBar Remote design system ────────────────────────
+   One source of truth per value. Light by default; the dark block below is
+   applied by MantineProvider's defaultColorScheme="auto" (src/main.tsx),
+   which tracks the OS light/dark setting live. theme.ts mirrors the ink
+   ramp into Mantine (it needs literal hex) and maps Mantine's own
+   body/text/border/error variables onto these tokens. */
 :root {
-  /* Design system: "clinical blueprint on frosted paper" (shadcn/ui-style,
-     light theme, monochromatic + one red accent). Legacy names on the left
-     (still referenced inline by a few components) alias the system tokens
-     on the right so there is exactly one source of truth per color. */
-  --color-canvas: #f5f5f5;
-  --color-paper: #ffffff;
-  --color-surface-alt: #fafafa;
-  --color-ink: #0a0a0a;
-  --color-ink-soft: #171717;
-  --color-mid-gray: #737373;
-  --color-hairline: #e5e5e5;
-  --color-ember: #e7000b;
-  --font-sans: 'Avenir', 'Avenir Next', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --shadow-card: 0 0 0 1px rgba(23,23,23,0.05), 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px -1px rgba(0,0,0,0.1);
-  /* Nested mini-cards (kanban cards) get a hairline ring only, no elevation
-     — the section/Card shadow above them already carries the "lifted" cue;
-     a second full shadow on every card inside it would double up. */
-  --shadow-hairline: 0 0 0 1px rgba(23,23,23,0.04);
-  --radius-card: 24px; --radius-btn: 18px; --radius-nested: 10px; --radius-small: 6px;
-
-  --bg: var(--color-canvas); --panel: var(--color-paper); --border: var(--color-hairline);
-  --text: var(--color-ink); --dim: var(--color-mid-gray);
-  /* amber/green/blue are functional status colors, not brand decoration —
-     the spec reserves ember red for destructive/blocked states only; these
-     three stay as the dashboard's existing status vocabulary (question =
-     blue, working = green, stale/disagree = amber). Tailwind-600 shades
-     read best on a white canvas; the dark override below swaps in the
-     lighter 500-shade siblings, which is the same set this dashboard's
-     dark theme used before today — same colors, same contrast math, just
-     picked per-canvas instead of hardcoded. */
-  --red: var(--color-ember); --amber: #f59e0b; --green: #16a34a; --blue: #2563eb;
-  /* Soft tinted row/badge backgrounds — one token per hue so a scheme only
-     has to override 3 values instead of every place a tint is used. */
-  --tint-red-soft: #fef2f2; --tint-blue-soft: #eff6ff; --tint-amber-soft: #fffbeb;
-  --tint-amber-soft-text: #92400e;
-  --mono: 'Avenir', 'Avenir Next', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Neutrals: ink with a faint cool bias (monochrome identity). */
+  --canvas: #f4f5f7; --paper: #ffffff; --sunken: #eceef2; --hair: #e2e4e9;
+  --ink: #0d0f14; --ink-2: #3a3f4b; --ink-3: #6b7180; --ink-4: #9aa0ad;
+  /* Semantic status — never used as brand decoration. need = blocked /
+     destructive, ask = question / attention / selection, run = working,
+     warn = stale / disagree (text-safe amber), park = parked. */
+  --need: #d92d20; --need-bg: #fef1ef;
+  --ask: #2459d6;  --ask-bg: #eef3ff;
+  --run: #128a4a;  --run-bg: #ebf8f0;
+  --warn: #b54708; --warn-bg: #fff6e5;
+  --park: #5b6475; --park-bg: #eff1f4;
+  /* A captured terminal stays a dark box in both schemes. */
+  --term-bg: #11141b; --term-fg: #d6dbe4; --term-hair: #262b38;
+  --focus: #2459d6;
+  --shadow-sheet: 0 -8px 32px rgba(13,15,20,.14);
+  --shadow-float: 0 1px 2px rgba(13,15,20,.06), 0 4px 12px rgba(13,15,20,.06);
+  --shadow-drag: 0 4px 16px rgba(36,89,214,.25);
+  /* Text stays Avenir; mono is for terminal output, commands/diffs, ids
+     and counts only (loaded in index.html). */
+  --sans: 'Avenir', 'Avenir Next', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Meta / caption text; raised to 13px at phone width (media block below). */
+  --fs-meta: 11px;
+  /* 4pt space scale */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px;
+  --r-sm: 6px; --r-md: 12px; --r-lg: 20px; --r-full: 999px;
 }
-/* Dark inversion — same system, same shapes/spacing/type scale, grayscale
-   flipped and status colors swapped for their dark-canvas-legible siblings.
-   Applied automatically by MantineProvider's defaultColorScheme="auto"
-   (src/main.tsx), which tracks the OS light/dark setting live. */
 :root[data-mantine-color-scheme='dark'] {
-  --color-canvas: #0a0a0a;
-  --color-paper: #1c1c1c;
-  --color-surface-alt: #141414;
-  --color-ink: #fafafa;
-  --color-ink-soft: #e5e5e5;
-  --color-mid-gray: #a1a1aa;
-  --color-hairline: #27272a;
-  --color-ember: #ef4444;
-  --shadow-card: 0 0 0 1px rgba(255,255,255,0.06), 0 1px 3px rgba(0,0,0,0.6), 0 1px 2px -1px rgba(0,0,0,0.5);
-  --shadow-hairline: 0 0 0 1px rgba(255,255,255,0.06);
-  --amber: #f59e0b; --green: #22c55e; --blue: #3b82f6;
-  --tint-red-soft: #2a1414; --tint-blue-soft: #12213a; --tint-amber-soft: #3a2a0d;
-  --tint-amber-soft-text: #fbbf24;
+  color-scheme: dark;
+  --canvas: #0b0c10; --paper: #15171d; --sunken: #1d2028; --hair: #2a2e38;
+  --ink: #f1f3f7; --ink-2: #c3c8d2; --ink-3: #8d94a3; --ink-4: #626978;
+  --need: #ff6b5e; --need-bg: #2d1512;
+  --ask: #7aa2ff;  --ask-bg: #152036;
+  --run: #4ad08a;  --run-bg: #10261a;
+  --warn: #f5b44a; --warn-bg: #2c200c;
+  --park: #9aa3b5; --park-bg: #1f232c;
+  --term-bg: #07080b; --term-fg: #d6dbe4;
+  --focus: #7aa2ff;
+  --shadow-sheet: 0 -8px 32px rgba(0,0,0,.5);
+  --shadow-float: 0 0 0 1px #2a2e38;
+  --shadow-drag: 0 4px 16px rgba(0,0,0,.5);
 }
 * { box-sizing: border-box; }
-/* Avenir everywhere: chrome and data share one family, no monospace split. */
-body { margin:0; background:var(--bg); color:var(--text);
-  font-family: var(--font-sans);
+/* Avenir for chrome and data; --mono only where the text is machine output. */
+body { margin:0; background:var(--canvas); color:var(--ink);
+  font-family: var(--sans);
   font-size: 13px; }
 header { display:flex; justify-content:space-between; align-items:center; padding:10px 16px;
-  border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--panel); z-index:10; }
+  border-bottom:1px solid var(--hair); position:sticky; top:0; background:var(--paper); z-index:10; }
 header h1 { font-size:14px; margin:0; letter-spacing:-0.2px; font-weight:600; }
-header .meta { color:var(--dim); }
-.feedstrip { display:flex; gap:8px; padding:6px 16px; color:var(--dim); flex-wrap:wrap; align-items:center; }
+header .meta { color:var(--ink-3); }
+.feedstrip { display:flex; gap:8px; padding:6px 16px; color:var(--ink-3); flex-wrap:wrap; align-items:center; }
 .desktop-search-bar { padding: 6px 16px; max-width: 420px; }
-section { margin:12px 16px; border:1px solid var(--border); border-radius:var(--radius-card);
-  background:var(--panel); box-shadow:var(--shadow-card); overflow:hidden; }
+section { margin:12px 16px; border:1px solid var(--hair); border-radius:var(--r-lg);
+  background:var(--paper); box-shadow:var(--shadow-float); overflow:hidden; }
 section > h2 { font-size:12px; text-transform:uppercase; letter-spacing:0.6px; margin:0; padding:10px 20px;
-  border-bottom:1px solid var(--border); color:var(--dim); display:flex; justify-content:space-between;
+  border-bottom:1px solid var(--hair); color:var(--ink-3); display:flex; justify-content:space-between;
   font-weight:600; }
 .boardtable { overflow-x:auto; max-width:100%; }
-table { width:100%; border-collapse:collapse; font-family:var(--mono); }
-th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
-th { color:var(--dim); font-weight:600; font-size:11px; text-transform:uppercase;
-  font-family: var(--font-sans); }
-tr:hover td { background:var(--color-surface-alt); }
+table { width:100%; border-collapse:collapse; }
+th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--hair); white-space:nowrap; }
+th { color:var(--ink-3); font-weight:600; font-size:var(--fs-meta); text-transform:uppercase; }
+tr:hover td { background:var(--sunken); }
 td.wrap, th.wrap { white-space:normal; }
 /* Per-column prefs (saved in the view, toggled from the header menu).
    cellwrap beats the global nowrap data style for long prose columns
@@ -89,76 +80,76 @@ td.wrap, th.wrap { white-space:normal; }
    edge readable against the moving columns. */
 .boardtable table { border-collapse:separate; border-spacing:0; }
 .boardtable td.cellwrap, .boardtable th.cellwrap { white-space:normal; overflow-wrap:anywhere; word-break:break-word; }
-.boardtable th.colsticky { background:var(--panel); box-shadow:1px 0 0 var(--border); }
-.boardtable td.colsticky { background:var(--panel); box-shadow:1px 0 0 var(--border); }
+.boardtable th.colsticky { background:var(--paper); box-shadow:1px 0 0 var(--hair); }
+.boardtable td.colsticky { background:var(--paper); box-shadow:1px 0 0 var(--hair); }
 /* NEEDS YOU table: fixed layout + wrapping cells so a long detail can never
    push the table (and the question panel living in it) past the viewport.
    Other tables keep the global nowrap data style. */
 .ny-table { table-layout:fixed; width:100%; }
 .ny-table td, .ny-table th { white-space:normal; overflow-wrap:anywhere; }
-.st-blocked { color:var(--red); font-weight:bold; }
-.st-working { color:var(--green); }
-.st-idle { color:var(--dim); }
-.st-parked { color:var(--blue); }
-.st-unknown { color:var(--amber); }
-.disagree { background:var(--tint-amber-soft); color:var(--tint-amber-soft-text); font-weight:bold; padding:1px 5px; border-radius:3px;}
-.agree { color:var(--dim); }
-.empty { color:var(--dim); padding:12px; font-style:italic; }
-.small { color:var(--dim); font-size:11px; }
-a.link { color: var(--blue); text-decoration:none; }
-.needsyou-row td { background:var(--color-surface-alt); }
+.st-blocked { color:var(--need); font-weight:bold; }
+.st-working { color:var(--run); }
+.st-idle { color:var(--ink-3); }
+.st-parked { color:var(--park); }
+.st-unknown { color:var(--warn); }
+.disagree { background:var(--warn-bg); color:var(--warn); font-weight:bold; padding:1px 5px; border-radius:var(--r-sm);}
+.agree { color:var(--ink-3); }
+.empty { color:var(--ink-3); padding:12px; font-style:italic; }
+.small { color:var(--ink-3); font-size:var(--fs-meta); }
+a.link { color: var(--ask); text-decoration:none; }
+.needsyou-row td { background:var(--sunken); }
 /* Severity at a glance: every NEEDS YOU row carries a coloured spine + tinted
    cells, because since 2026-09-06 every row is urgent by construction — a
    pane stopped at a prompt. Red = go and press (permission, or the list is
    blind); blue = answerable here (a picker). The amber gone/stalled and dim
    done vocabularies are gone with the ranks that used them. */
-.rowkind-blocked td, .rowkind-feed-broken td { background:var(--tint-red-soft); }
+.rowkind-blocked td, .rowkind-feed-broken td { background:var(--need-bg); }
 .rowkind-blocked td:first-child,
-.rowkind-feed-broken td:first-child { box-shadow: inset 3px 0 0 var(--red); }
-.rowkind-question td { background:var(--tint-blue-soft); }
-.rowkind-question td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
-.kind-blocked, .kind-feed-broken { color: var(--red); font-weight:bold; }
-.kind-question { color: var(--blue); font-weight:bold; }
-footer { padding:16px; color:var(--dim); text-align:center; font-size:11px; }
+.rowkind-feed-broken td:first-child { box-shadow: inset 3px 0 0 var(--need); }
+.rowkind-question td { background:var(--ask-bg); }
+.rowkind-question td:first-child { box-shadow: inset 3px 0 0 var(--ask); }
+.kind-blocked, .kind-feed-broken { color: var(--need); font-weight:bold; }
+.kind-question { color: var(--ask); font-weight:bold; }
+footer { padding:16px; color:var(--ink-3); text-align:center; font-size:var(--fs-meta); }
 tr[data-pane] { cursor:pointer; }
-tr[data-pane]:hover td { background:var(--color-surface-alt); }
-.derived-header, .derived-cell { color:var(--dim); }
+tr[data-pane]:hover td { background:var(--sunken); }
+.derived-header, .derived-cell { color:var(--ink-3); }
 .derived-cell { cursor:default; }
 .stored-header { min-width:150px; }
-.editable-cell { min-width:120px; cursor:text; color:var(--text); }
-.editable-cell:hover { outline:1px solid var(--blue); outline-offset:-2px; }
+.editable-cell { min-width:120px; cursor:text; color:var(--ink); }
+.editable-cell:hover { outline:1px solid var(--ask); outline-offset:-2px; }
 .editable-cell.editing { padding:2px 6px; min-width:180px; }
 /* Phase 2: saved views, table + kanban */
-.viewbar { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
-.coldrag { cursor:grab; color:var(--dim); user-select:none; }
+.viewbar { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--hair); flex-wrap:wrap; }
+.coldrag { cursor:grab; color:var(--ink-3); user-select:none; }
 th.dragging { opacity:.5; }
-.colresize { cursor:col-resize; color:var(--dim); padding:0 2px; user-select:none; }
+.colresize { cursor:col-resize; color:var(--ink-3); padding:0 2px; user-select:none; }
 .ended-row td, .ended-row .kcard-title { opacity:.55; }
-.ended-badge { display:inline-block; padding:2px 8px; border:1px solid var(--amber); border-radius:18px; color:var(--amber); font-size:10px; }
+.ended-badge { display:inline-block; padding:2px 8px; border:1px solid var(--warn); border-radius:var(--r-full); color:var(--warn); font-size:10px; }
 .viewsort { padding:6px 12px; }
 .kanban-bar { display:flex; gap:12px; align-items:flex-end; padding:8px 12px; }
 .kanban-cols { display:flex; gap:12px; padding:0 12px 12px; overflow-x:auto; }
-.kcol { min-width:240px; flex:1; border:1px solid var(--border); border-radius:var(--radius-nested); background:var(--color-surface-alt); padding:8px; }
+.kcol { min-width:240px; flex:1; border:1px solid var(--hair); border-radius:var(--r-md); background:var(--sunken); padding:8px; }
 /* Kanban column drag wrapper: owns the sortable transform + the flex share
    so the inner .kcol stays a pure card drop target. */
 .kcol-wrap { min-width:240px; flex:1; display:flex; }
 .kcol-wrap > .kcol { flex:1; }
 .kcol-wrap.dragging { opacity:.5; }
-.kcol.over { border-color:var(--blue); border-style:dashed; background:var(--tint-blue-soft); box-shadow:0 0 0 1px var(--blue); }
-.kcol-head { font-size:12px; padding:2px 4px 8px; color:var(--dim); text-transform:uppercase; letter-spacing:.5px; }
-.kcard { border:1px solid var(--border); border-radius:var(--radius-small); background:var(--panel);
-  box-shadow:var(--shadow-hairline); padding:6px 8px; margin-bottom:6px; cursor:grab; }
-.kcard.dragging { opacity:.6; box-shadow:0 4px 16px rgba(37,99,235,.25); }
-.kcard-title { color:var(--text); margin-bottom:2px; word-break:break-word; }
+.kcol.over { border-color:var(--ask); border-style:dashed; background:var(--ask-bg); box-shadow:0 0 0 1px var(--ask); }
+.kcol-head { font-size:12px; padding:2px 4px 8px; color:var(--ink-3); text-transform:uppercase; letter-spacing:.5px; }
+.kcard { border:1px solid var(--hair); border-radius:var(--r-sm); background:var(--paper);
+  padding:6px 8px; margin-bottom:6px; cursor:grab; }
+.kcard.dragging { opacity:.6; box-shadow:var(--shadow-drag); }
+.kcard-title { color:var(--ink); margin-bottom:2px; word-break:break-word; }
 /* The pane's last line: prose, so clamp it to two lines (full text in the
    title attribute) — an unclamped recap makes one card taller than its
    whole column. */
-.kcard-lastline { color:var(--dim); font-size:11px; line-height:1.35; margin-top:3px;
+.kcard-lastline { color:var(--ink-3); font-size:var(--fs-meta); line-height:1.35; margin-top:3px;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
   overflow:hidden; word-break:break-word; }
-.linkdetail { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:4px 12px 8px 24px; background:var(--color-surface-alt); }
-.linkchip { display:inline-flex; gap:4px; align-items:center; padding:1px 8px; border:1px solid var(--border); border-radius:18px; background:var(--panel); font-size:11px; }
-.linkchip button { border:none; background:none; color:var(--red); cursor:pointer; font-size:12px; padding:0 0 0 2px; }
+.linkdetail { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding:4px 12px 8px 24px; background:var(--sunken); }
+.linkchip { display:inline-flex; gap:4px; align-items:center; padding:1px 8px; border:1px solid var(--hair); border-radius:var(--r-full); background:var(--paper); font-size:var(--fs-meta); }
+.linkchip button { border:none; background:none; color:var(--need); cursor:pointer; font-size:12px; padding:0 0 0 2px; }
 
 /* ── Row peek panel ─────────────────────────────────────────────────────
    A non-modal right drawer. The board behind it stays lit and clickable,
@@ -186,16 +177,16 @@ th.dragging { opacity:.5; }
   pointer-events:auto;
   transition:background-color 120ms cubic-bezier(0.2, 0, 0, 1); }
 .rp-resize::before { content:""; position:absolute; top:0; bottom:0; left:-5px; width:16px; }
-.rp-resize:hover { background:var(--blue); }
+.rp-resize:hover { background:var(--ask); }
 /* While dragging, the cursor must not flicker back to a text caret as it
    crosses the board, and nothing may select under it. */
 body.rp-resizing { user-select:none; cursor:col-resize; }
-body.rp-resizing .rp-resize { background:var(--blue); }
+body.rp-resizing .rp-resize { background:var(--ask); }
 /* padding={0} on the Drawer zeroes header padding too; a slim top bar (the
    row kind + the close X) is given it back here. index.css is imported
    after @mantine/core/styles.css, so these win at equal specificity. */
 .rp-drawerhead { padding:8px 14px; min-height:44px; }
-.rp-kind { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:0.6px; }
+.rp-kind { color:var(--ink-3); font-size:var(--fs-meta); text-transform:uppercase; letter-spacing:0.6px; }
 /* Keyed by row id, so a row swap cross-fades the content while the drawer
    itself stays open. Re-running the slide-in on every row click — the
    primary gesture here — would be nauseating. */
@@ -203,45 +194,44 @@ body.rp-resizing .rp-resize { background:var(--blue); }
   animation: rp-fade-in 120ms cubic-bezier(0.2, 0, 0, 1); }
 @keyframes rp-fade-in { from { opacity:0; } to { opacity:1; } }
 .rp-sections { flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; }
-.rp-section { padding:10px 14px; border-top:1px solid var(--border); }
-.rp-section-name { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:0.6px; }
+.rp-section { padding:10px 14px; border-top:1px solid var(--hair); }
+.rp-section-name { color:var(--ink-3); font-size:var(--fs-meta); text-transform:uppercase; letter-spacing:0.6px; }
 
 .rp-header { padding:10px 14px 12px; }
-.rp-title { font-size:15px; color:var(--text); line-height:1.35; word-break:break-word; }
-.rp-paneid { font-family:var(--mono); font-size:11px; color:var(--dim); margin-top:2px; word-break:break-all; }
+.rp-title { font-size:15px; color:var(--ink); line-height:1.35; word-break:break-word; }
+.rp-paneid { font-family:var(--mono); font-size:var(--fs-meta); color:var(--ink-3); margin-top:2px; word-break:break-all; }
 .rp-actions { display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap; }
 /* 40×40 minimum hit area, including the ⋯ menu CardMenu renders. */
 .rp-actions button, .rp-hit { min-height:40px; min-width:40px; }
 
 /* Tabular figures: MEM and CTX update every couple of seconds, and
    proportional digits make the whole line twitch on each refresh. */
-.rp-pulse-state { color:var(--text); }
-.rp-pulse-nums { color:var(--dim); font-size:11px; margin-top:4px;
+.rp-pulse-state { color:var(--ink); }
+.rp-pulse-nums { color:var(--ink-3); font-size:var(--fs-meta); margin-top:4px;
   font-variant-numeric: tabular-nums; font-family:var(--mono); }
-.rp-lastline { margin-top:4px; padding:6px 10px; border-left:2px solid var(--border);
-  background:var(--color-surface-alt); border-radius:0 4px 4px 0; font-family:var(--mono);
-  font-size:11px; line-height:1.45; color:var(--text); word-break:break-word; }
+.rp-lastline { margin-top:4px; padding:6px 10px; border-left:2px solid var(--hair);
+  background:var(--sunken); border-radius:0 var(--r-sm) var(--r-sm) 0; font-family:var(--mono);
+  font-size:var(--fs-meta); line-height:1.45; color:var(--ink); word-break:break-word; }
 
 /* Screen: a snapshot, never a tail — the head row says so in words. A
    captured terminal keeps the dark box convention on purpose — the only
-   deliberately dark surface on an otherwise light page (Avenir type). */
-.rp-screen { padding:10px 14px; border-top:1px solid var(--border); }
+   deliberately dark surface on an otherwise light page (mono type). */
+.rp-screen { padding:10px 14px; border-top:1px solid var(--hair); }
 .rp-screen-head { display:flex; align-items:center; gap:8px; }
 .rp-screen-head .rp-section-name { flex:0 0 auto; }
 .rp-screen-head .small { flex:1 1 auto; }
 .rp-screen-loading { display:flex; align-items:center; gap:8px; padding:10px 2px; }
-.rp-screen-error { margin-top:6px; padding:8px 10px; border:1px solid var(--red);
-  border-radius:6px; color:var(--red); font-size:11px; word-break:break-word; }
-/* Outer 6 + 8px padding on the panel section = inner 4 (concentric). */
+.rp-screen-error { margin-top:6px; padding:8px 10px; border:1px solid var(--need);
+  border-radius:var(--r-sm); color:var(--need); font-size:var(--fs-meta); word-break:break-word; }
 .rp-screen-box { height:240px; margin:6px 0 0; padding:8px 10px; overflow-y:auto; overflow-x:hidden;
-  background:#0b0e14; border:1px solid #262b38; border-radius:4px;
-  font-family:var(--mono); font-size:11px; line-height:1.4; color:#d8dee9;
+  background:var(--term-bg); border:1px solid var(--term-hair); border-radius:var(--r-sm);
+  font-family:var(--mono); font-size:var(--fs-meta); line-height:1.4; color:var(--term-fg);
   white-space:pre-wrap; overflow-wrap:anywhere; }
 
 .rp-field { display:flex; align-items:flex-start; gap:10px; padding:2px 0;
-  border-bottom:1px solid var(--border); }
+  border-bottom:1px solid var(--hair); }
 .rp-field:last-child { border-bottom:none; }
-.rp-field-name { flex:0 0 132px; color:var(--dim); font-size:11px; padding-top:9px;
+.rp-field-name { flex:0 0 132px; color:var(--ink-3); font-size:var(--fs-meta); padding-top:9px;
   word-break:break-word; }
 .rp-fieldtable { flex:1 1 auto; min-width:0; }
 /* The global table style is nowrap; a panel is 480px wide and a cwd is not,
@@ -253,26 +243,26 @@ body.rp-resizing .rp-resize { background:var(--blue); }
 /* Messages band: pinned to the bottom, capped so it can never swallow the
    sections above. The log scrolls inside it; the composer never moves. */
 .rp-messages { flex:0 1 auto; max-height:45%; min-height:180px; display:flex;
-  flex-direction:column; border-top:1px solid var(--border); background:var(--color-surface-alt); }
+  flex-direction:column; border-top:1px solid var(--hair); background:var(--sunken); }
 .rp-messages-head { display:flex; align-items:center; gap:6px; padding:8px 14px 4px; }
 .rp-msglog { flex:1 1 auto; min-height:120px; overflow-y:auto; padding:0 14px 8px; }
-.rp-composerband { flex:0 0 auto; padding:8px 14px 10px; border-top:1px solid var(--border);
-  background:var(--panel); }
-.rp-msg { padding:6px 0; border-bottom:1px solid var(--border); }
-.rp-msg-meta { color:var(--dim); font-size:11px; }
+.rp-composerband { flex:0 0 auto; padding:8px 14px 10px; border-top:1px solid var(--hair);
+  background:var(--paper); }
+.rp-msg { padding:6px 0; border-bottom:1px solid var(--hair); }
+.rp-msg-meta { color:var(--ink-3); font-size:var(--fs-meta); }
 .rp-msg-when { font-variant-numeric: tabular-nums; }
-.rp-msg-actor { color:var(--dim); }
-.rp-msg-ok { color:var(--green); }
-.rp-msg-text { color:var(--text); line-height:1.45; word-break:break-word; white-space:pre-wrap; }
-.rp-msg-queued { color:var(--amber); font-size:11px; margin-top:2px; }
+.rp-msg-actor { color:var(--ink-3); }
+.rp-msg-ok { color:var(--run); }
+.rp-msg-text { color:var(--ink); line-height:1.45; word-break:break-word; white-space:pre-wrap; }
+.rp-msg-queued { color:var(--warn); font-size:var(--fs-meta); margin-top:2px; }
 /* Loud and permanent: a failed message that reads like a sent one is how a
    PO concludes a worker is ignoring them. */
-.rp-msg-failed { border-left:3px solid var(--red); padding-left:8px; background:var(--tint-red-soft); }
-.rp-msg-failnote { color:var(--red); font-weight:bold; font-size:11px; margin-top:2px;
+.rp-msg-failed { border-left:3px solid var(--need); padding-left:8px; background:var(--need-bg); }
+.rp-msg-failnote { color:var(--need); font-weight:bold; font-size:var(--fs-meta); margin-top:2px;
   word-break:break-word; }
-.rp-msg-trunc { color:var(--dim); font-size:11px; margin-top:2px; font-style:italic; }
-.rp-msg-ladder { color:var(--dim); font-size:11px; padding:3px 0; opacity:.85; }
-.rp-msg-error { color:var(--red); font-size:11px; padding:6px 0; word-break:break-word; }
+.rp-msg-trunc { color:var(--ink-3); font-size:var(--fs-meta); margin-top:2px; font-style:italic; }
+.rp-msg-ladder { color:var(--ink-3); font-size:var(--fs-meta); padding:3px 0; opacity:.85; }
+.rp-msg-error { color:var(--need); font-size:var(--fs-meta); padding:6px 0; word-break:break-word; }
 
 /* Peek selection (wave 2). Every board row is clickable now — the click
    opens the panel instead of raising the terminal, so the affordance has to
@@ -281,14 +271,14 @@ body.rp-resizing .rp-resize { background:var(--blue); }
    already use (red = blocked, blue = question/attention, amber = gone), so
    "this is the one the panel is showing" reads without a legend. */
 .boardtable tbody tr { cursor:pointer; }
-.row-peeked td { background:var(--tint-blue-soft); }
-.row-peeked td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
-.kcard.peeked { border-color:var(--blue); box-shadow:0 0 0 1px var(--blue); }
+.row-peeked td { background:var(--ask-bg); }
+.row-peeked td:first-child { box-shadow: inset 3px 0 0 var(--ask); }
+.kcard.peeked { border-color:var(--ask); box-shadow:0 0 0 1px var(--ask); }
 
 /* ── BeautifulUI (04) Approval Card — NeedsYou QuestionBox/PreviewBox ──
    Chrome (header step, footer buttons) is the system UI font via Mantine;
    option labels are short data-ish text and stay inherit (not mono). */
-.appr-card { border-radius: var(--radius-card); }
+.appr-card { border-radius: var(--r-lg); }
 /* Hook permission prompt (HookRequestCard): the command / diff, kept readable on a phone. */
 .hook-permission-detail {
   white-space: pre-wrap;
@@ -296,6 +286,7 @@ body.rp-resizing .rp-resize { background:var(--blue); }
   max-height: 16rem;
   overflow: auto;
   margin: 0;
+  font-family: var(--mono);
   font-size: 12px;
 }
 /* Every tap target on a hook card meets the 44px minimum (buttons, option chips). */
@@ -312,13 +303,13 @@ body.rp-resizing .rp-resize { background:var(--blue); }
   padding-block: 4px;
   max-width: 100%;
 }
-.appr-head .appr-step { font-family: var(--font-sans); letter-spacing: 0.4px; }
-.appr-head .appr-title { font-family: var(--font-sans); overflow-wrap: anywhere; }
-.appr-opts .appr-opt { border: 1px solid var(--border); border-radius: var(--radius-nested);
-  padding: 6px 8px; background: var(--color-surface-alt); }
-.appr-opts .appr-opt-sel { border-color: var(--green); background: var(--tint-blue-soft);
-  box-shadow: 0 0 0 1px var(--green); }
-.appr-foot { font-family: var(--font-sans); }
+.appr-head .appr-step { font-family: var(--sans); letter-spacing: 0.4px; }
+.appr-head .appr-title { font-family: var(--sans); overflow-wrap: anywhere; }
+.appr-opts .appr-opt { border: 1px solid var(--hair); border-radius: var(--r-md);
+  padding: 6px 8px; background: var(--sunken); }
+.appr-opts .appr-opt-sel { border-color: var(--run); background: var(--ask-bg);
+  box-shadow: 0 0 0 1px var(--run); }
+.appr-foot { font-family: var(--sans); }
 
 /* ── BeautifulUI (06) Task Rows + (05) Tool Chips — Agents table ────────
    Left status spine + status icon per row. Blocked red, question blue,
@@ -326,28 +317,28 @@ body.rp-resizing .rp-resize { background:var(--blue); }
    row data cells keep the global monospace data style. */
 .agent-table .agent-spine-head { width: 28px; padding: 8px 4px; }
 .agent-row .agent-spine { width: 28px; padding: 8px 4px; text-align: center; }
-.agent-blocked td:first-child { box-shadow: inset 3px 0 0 var(--red); }
-.agent-question td:first-child { box-shadow: inset 3px 0 0 var(--blue); }
-.agent-working td:first-child { box-shadow: inset 3px 0 0 var(--green); }
-.agent-idle td:first-child { box-shadow: inset 3px 0 0 var(--border); }
-.agent-dot { font-family: var(--font-sans); font-size: 12px; line-height: 1; }
-.agent-dot-blocked { color: var(--red); font-weight: bold; }
-.agent-dot-question { color: var(--blue); font-weight: bold; }
-.agent-dot-working { color: var(--green); font-weight: bold; animation: agent-pulse 1.6s ease-in-out infinite; }
-.agent-dot-idle { color: var(--dim); }
+.agent-blocked td:first-child { box-shadow: inset 3px 0 0 var(--need); }
+.agent-question td:first-child { box-shadow: inset 3px 0 0 var(--ask); }
+.agent-working td:first-child { box-shadow: inset 3px 0 0 var(--run); }
+.agent-idle td:first-child { box-shadow: inset 3px 0 0 var(--hair); }
+.agent-dot { font-family: var(--sans); font-size: 12px; line-height: 1; }
+.agent-dot-blocked { color: var(--need); font-weight: bold; }
+.agent-dot-question { color: var(--ask); font-weight: bold; }
+.agent-dot-working { color: var(--run); font-weight: bold; animation: agent-pulse 1.6s ease-in-out infinite; }
+.agent-dot-idle { color: var(--ink-3); }
 @keyframes agent-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 /* Compact tool/action chips: SessionButtons renders Mantine Buttons —
    this only tightens them into chips, never touches which render. */
-.session-actions { font-family: var(--font-sans); flex-wrap: wrap; }
-.session-actions button { border-radius: 18px; font-family: var(--font-sans); }
+.session-actions { font-family: var(--sans); flex-wrap: wrap; }
+.session-actions button { border-radius: var(--r-full); font-family: var(--sans); }
 
 /* ── BeautifulUI (13) Filter Table chip bar — BoardTable ──────────────── */
-.status-chips { font-family: var(--font-sans); border-bottom: 1px solid var(--border); }
-.status-chip { font-family: var(--font-sans); }
+.status-chips { font-family: var(--sans); border-bottom: 1px solid var(--hair); }
+.status-chip { font-family: var(--sans); }
 
 /* FEED BROKEN stays loud red — banner (Alert filled red in BoardSection)
    plus these tinted rows. Never soften. */
-.rowkind-feed-broken td { background: var(--tint-red-soft); }
+.rowkind-feed-broken td { background: var(--need-bg); }
 
 /* ── Phase 2a (phone PWA) — phone-only tree, mounted instead of the ─────
    desktop chrome below ~640px (see usePhoneLayout). Optical/hit-area rules
@@ -369,58 +360,65 @@ body.rp-resizing .rp-resize { background:var(--blue); }
 .phone-app #clock { font-variant-numeric: tabular-nums; }
 .phone-inbox { padding: 0 0 24px; }
 
-.phone-section { border-bottom: 1px solid var(--border); }
+.phone-section { border-bottom: 1px solid var(--hair); }
 .phone-section-head, .phone-section-head-static {
   display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 14px 16px; font-weight: 600; font-size: 12px;
-  text-transform: uppercase; letter-spacing: 0.6px; color: var(--dim);
+  padding: 14px 16px; font-weight: 600; font-size: var(--fs-meta);
+  text-transform: uppercase; letter-spacing: 0.6px; color: var(--ink-3);
   min-height: 44px; box-sizing: border-box;
 }
 .phone-section-head { cursor: pointer; }
-.phone-section-head:active { background: var(--color-surface-alt); }
-.phone-section-head .small, .phone-section-head-static .small { font-variant-numeric: tabular-nums; }
-.phone-section-chevron { margin-left: auto; color: var(--dim); }
+.phone-section-head:active { background: var(--sunken); }
+.phone-section-head .small, .phone-section-head-static .small { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.phone-section-chevron { margin-left: auto; color: var(--ink-3); }
 .phone-section-empty { padding: 4px 16px 16px; }
 
 .phone-row {
   display: flex; flex-direction: column; gap: 4px; width: 100%;
   padding: 12px 16px; min-height: 44px; box-sizing: border-box;
-  border-top: 1px solid var(--border); text-align: left;
+  border-top: 1px solid var(--hair); text-align: left;
   transition: transform 120ms cubic-bezier(0.2, 0, 0, 1), background-color 120ms;
 }
 .phone-search-bar {
   /* Sticks to the actual top of the scrolling viewport (not just under the
      <header>), so once the page scrolls it needs its own top inset or it
      renders under the notch/status bar in standalone mode. */
-  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg);
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--canvas);
   display: flex; gap: 8px; align-items: center;
-  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  padding: 8px 12px; border-bottom: 1px solid var(--hair);
 }
 .phone-search-input { flex: 1; min-width: 0; }
 .phone-search-input input { font-size: 16px; } /* avoid iOS auto-zoom */
-.phone-search-clear { color: var(--dim); padding: 0 4px; }
+.phone-search-clear { color: var(--ink-3); padding: 0 4px; }
+/* 44px hit area without changing the drawn size: the ::before extends the
+   target past the glyph / 36px box (same trick as .rp-resize). */
+.phone-search-clear, .phone-new-session { position: relative; }
+.phone-search-clear::before, .phone-new-session::before {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  width: 44px; height: 44px; transform: translate(-50%, -50%);
+}
 .phone-group-toggle { flex: 0 0 auto; }
 .phone-new-session {
-  flex: 0 0 auto; width: 44px; height: 36px; border-radius: 8px;
-  border: 1px solid var(--border); text-align: center; font-size: 20px; line-height: 1;
+  flex: 0 0 auto; width: 44px; height: 36px; border-radius: var(--r-md);
+  border: 1px solid var(--hair); text-align: center; font-size: 20px; line-height: 1;
 }
 .persona-sheet-list { display: flex; flex-direction: column; gap: 12px; }
 .persona-sheet-empty { margin: 12px 0; }
-.persona-sheet-error { margin-top: 12px; color: var(--mantine-color-red-6); }
-.persona-sheet-note, .persona-sheet-jev { margin-top: 12px; font-size: 13px; color: var(--dim); }
+.persona-sheet-error { margin-top: 12px; color: var(--need); }
+.persona-sheet-note, .persona-sheet-jev { margin-top: 12px; font-size: var(--fs-meta); color: var(--ink-3); }
 .persona-sheet-jev { color: inherit; }
 /* 375px: the switch label + Ask Jev + "Confirm resume" (Mantine buttons
    never wrap their label) don't fit one row, so the switch gets its own. */
 .persona-sheet-actions { flex-wrap: wrap; }
 .persona-sheet-fresh { flex: 1 0 100%; align-self: center; }
 .phone-sheet-quick { display: flex; gap: 8px; }
-.phone-sheet-gate-note { font-size: 12px; color: var(--dim); }
+.phone-sheet-gate-note { font-size: var(--fs-meta); color: var(--ink-3); }
 .phone-nomatch { margin: 12px; text-align: center; }
 .phone-row:first-of-type { border-top: none; }
-.phone-row:active { transform: scale(0.98); background: var(--color-surface-alt); }
+.phone-row:active { transform: scale(0.98); background: var(--sunken); }
 .phone-row-main { display: flex; align-items: center; gap: 8px; }
 .phone-row-label { font-size: 14px; font-weight: 600; }
-.phone-row-meta { display: flex; align-items: center; gap: 8px; color: var(--dim); }
+.phone-row-meta { display: flex; align-items: center; gap: 8px; color: var(--ink-3); }
 .phone-row-age { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 .phone-sheet-title { display: flex; align-items: center; gap: 8px; }
@@ -439,17 +437,17 @@ body.rp-resizing .rp-resize { background:var(--blue); }
   flex: 1; overflow-y: auto;
   padding: 12px max(12px, env(safe-area-inset-right, 0px)) 16px max(12px, env(safe-area-inset-left, 0px));
 }
-.phone-sheet-paneid { color: var(--dim); margin-bottom: 8px; }
+.phone-sheet-paneid { color: var(--ink-3); margin-bottom: 8px; }
 .phone-sheet-section { margin-bottom: 12px; }
 
 /* Phone content blocks (last message / plan / form / review card): no
    bordered Paper — edge-to-edge, thin top divider + small section label
    instead of a box, to maximize width on a 375px screen (desktop keeps the
    Paper card look via the same `Block` component — see Block.tsx). */
-.phone-block { padding: 10px 0; border-top: 1px solid var(--border); }
+.phone-block { padding: 10px 0; border-top: 1px solid var(--hair); }
 .phone-block:first-child { border-top: none; padding-top: 0; }
 .phone-sheet-footer {
-  border-top: 1px solid var(--border); background: var(--panel);
+  border-top: 1px solid var(--hair); background: var(--paper);
   padding: 10px max(16px, env(safe-area-inset-right, 0px))
     calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
   display: flex; flex-direction: column; gap: 8px;
@@ -490,6 +488,8 @@ body.rp-resizing .rp-resize { background:var(--blue); }
    it there), so this keeps desktop's existing smaller size everywhere it
    actually shows up. */
 @media (max-width: 640px) {
+  /* Phone: meta text never below 13px. */
+  :root { --fs-meta: 13px; }
   input, textarea, select,
   .mantine-TextInput-input, .mantine-Textarea-input,
   .mantine-Autocomplete-input, .mantine-Select-input,
@@ -515,19 +515,19 @@ body.rp-resizing .rp-resize { background:var(--blue); }
 .md-li.task-list-item { list-style: none; margin-left: -1.2em; }
 .md-li.task-list-item input[type="checkbox"] { margin-right: 6px; }
 .plan-body blockquote, .latest-message blockquote {
-  margin: 0.4em 0; padding: 2px 10px; border-left: 3px solid var(--border);
-  color: var(--dim);
+  margin: 0.4em 0; padding: 2px 10px; border-left: 3px solid var(--hair);
+  color: var(--ink-3);
 }
 .plan-body hr, .latest-message hr {
-  border: none; border-top: 1px solid var(--border); margin: 0.8em 0;
+  border: none; border-top: 1px solid var(--hair); margin: 0.8em 0;
 }
 .md-inline-code {
   font-family: var(--mono); font-size: 0.9em; padding: 1px 5px;
-  border-radius: 4px; background: var(--color-surface-alt);
+  border-radius: var(--r-sm); background: var(--sunken);
 }
 .md-pre {
-  margin: 0.4em 0; padding: 8px 10px; border-radius: var(--radius-small, 6px);
-  background: var(--color-surface-alt); overflow-x: auto;
+  margin: 0.4em 0; padding: 8px 10px; border-radius: var(--r-sm);
+  background: var(--sunken); overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 .md-pre code {
@@ -536,12 +536,12 @@ body.rp-resizing .rp-resize { background:var(--blue); }
 }
 .md-table-scroll {
   overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0.4em 0;
-  border: 1px solid var(--border); border-radius: var(--radius-small, 6px);
+  border: 1px solid var(--hair); border-radius: var(--r-sm);
 }
 .md-table { border-collapse: collapse; width: 100%; font-size: 0.92em; }
 .md-table th, .md-table td {
-  padding: 6px 10px; border-bottom: 1px solid var(--border);
+  padding: 6px 10px; border-bottom: 1px solid var(--hair);
   text-align: left; white-space: nowrap;
 }
-.md-table th { color: var(--dim); font-weight: 600; background: var(--panel); }
+.md-table th { color: var(--ink-3); font-weight: 600; background: var(--paper); }
 .md-table tr:last-child td { border-bottom: none; }

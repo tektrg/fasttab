@@ -270,7 +270,7 @@ export function NeedsYou({
     <>
       <div
         className="small"
-        style={{ padding: "6px 12px", color: "var(--dim)" }}
+        style={{ padding: "6px 12px", color: "var(--ink-3)" }}
       >
         Only panes STOPPED, waiting for you to type.{" "}
         <span className="kind-question">QUESTION</span> a picker you can answer

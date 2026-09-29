@@ -80,7 +80,7 @@ function SortableHeader({
               position: "sticky",
               left: stickyLeft,
               zIndex: 3,
-              background: "var(--panel)",
+              background: "var(--paper)",
             }
           : undefined),
       }}
@@ -405,7 +405,7 @@ export function BoardTable({
                         position: "sticky",
                         left: 0,
                         zIndex: 3,
-                        background: "var(--panel)",
+                        background: "var(--paper)",
                       }}
                     >
                       <Checkbox
@@ -512,7 +512,7 @@ export function BoardTable({
                           position: "sticky",
                           left: 0,
                           zIndex: 2,
-                          background: "var(--panel)",
+                          background: "var(--paper)",
                         }}
                       >
                         <Checkbox

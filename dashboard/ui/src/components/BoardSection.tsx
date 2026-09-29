@@ -190,7 +190,7 @@ export function BoardSection({
         onCreated={() => void reloadBoard()}
       />
       {failed && <div className="empty">board failed: {failed}</div>}
-      <div className="small" style={{ padding: "6px 12px", color: "var(--dim)" }}>
+      <div className="small" style={{ padding: "6px 12px", color: "var(--ink-3)" }}>
         MEMORY sorts the fattest sessions first — {MEMORY_CAVEAT} Stop frees
         a session&apos;s RAM (one click when idle, Confirm when busy); Close
         removes its pane; Relaunch undoes a Stop. CONTEXT is % of window in

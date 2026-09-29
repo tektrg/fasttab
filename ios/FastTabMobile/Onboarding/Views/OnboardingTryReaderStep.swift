@@ -17,6 +17,7 @@ struct OnboardingTryReaderStep: View {
     @State private var showsPreparing = false
     @State private var readerItem: ReaderNavigationItem?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The article to demo, fixed on first appearance so the card doesn't swap
     /// under the user's thumb when a sync lands mid-screen.
@@ -72,6 +73,7 @@ struct OnboardingTryReaderStep: View {
                     .font(DS.Font.meta)
                     .foregroundStyle(.secondary)
                     .transition(.opacity)
+                    .accessibilityLabel("Preparing the article")
             }
             Button(action: openArticle) {
                 Label("Open in Reader", systemImage: "doc.plaintext")
@@ -126,7 +128,7 @@ struct OnboardingTryReaderStep: View {
         }
         try? await Task.sleep(for: .milliseconds(400))
         guard !Task.isCancelled else { return }
-        withAnimation { showsPreparing = true }
+        withAnimation(reduceMotion ? nil : .default) { showsPreparing = true }
     }
 
     /// The bundled sample is a demo, not something the user chose to read: keep

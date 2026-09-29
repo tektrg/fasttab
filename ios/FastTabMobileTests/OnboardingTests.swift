@@ -164,6 +164,19 @@ final class OnboardingTests: XCTestCase {
             "file:///Users/me/notes.html",
             "http://localhost:3000/posts/1",
             "chrome://settings/privacy",
+            // One-time / side-effect / private links must never be prefetched.
+            "https://example.com/account/verify-email/abc",
+            "https://example.com/blog/post?token=abc123",
+            "https://example.com/newsletter/unsubscribe/42",
+            "https://example.com/users/password-reset/xyz",
+            "https://example.com/logout",
+            "https://example.com/blog/a-post?session=1",
+            "https://example.com/invite/team",
+            "https://example.com/auth/magic-link",
+            "https://example.com/oauth/callback?code=1",
+            "https://user:pw@example.com/blog/post",
+            "https://example.com:8443/blog/post",
+            "https://example.com/d/0123456789abcdef0123456789abcdef0123",
         ]
         for string in articles {
             XCTAssertTrue(ReaderTryoutPicker.looksLikeArticle(URL(string: string)!), string)

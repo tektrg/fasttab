@@ -44,7 +44,11 @@ struct OnboardingFlowView: View {
             }
         }
         .dsCanvas()
-        .onAppear(perform: preloadTryoutArticle)
+        // Let the first screen paint before creating the warm web view / reading the sample.
+        .task {
+            try? await Task.sleep(for: .milliseconds(600))
+            if !Task.isCancelled { preloadTryoutArticle() }
+        }
         .onChange(of: localCache.state.tabs) { _, _ in preloadTryoutArticle() }
         .onChange(of: continuedWithoutMac) { _, _ in preloadTryoutArticle() }
         .onDisappear { ReaderPreloader.shared.cancel() }

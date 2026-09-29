@@ -40,7 +40,9 @@ struct YouTubeTranscriptLoader: Sendable {
             gate: .allEnabled,
             authHeaders: {
                 let tokens = SessionTokenStore(keychain: KeychainStore(service: IndieAccountConfiguration.fastTab.keychainService))
-                return tokens.token().map { ["Authorization": "Bearer \($0)"] } ?? [:]
+                // No token: the server would answer 401, so don't make the call.
+                guard let token = tokens.token() else { throw TranscriptError.notSignedIn }
+                return ["Authorization": "Bearer \(token)"]
             }
         )
         return YouTubeTranscriptLoader(

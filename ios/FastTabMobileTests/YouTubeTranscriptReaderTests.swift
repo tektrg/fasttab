@@ -75,6 +75,7 @@ final class TranscriptErrorMappingTests: XCTestCase {
         XCTAssertEqual(TranscriptReaderError(TranscriptError.loginRequired).localizedDescription,
                        "This video needs sign-in on YouTube")
         XCTAssertEqual(TranscriptReaderError(TranscriptError.server(status: 500)), .unavailable)
+        XCTAssertEqual(TranscriptReaderError(TranscriptError.notSignedIn), .needsAccount)
         XCTAssertEqual(TranscriptReaderError(URLError(.notConnectedToInternet)), .unavailable)
     }
 

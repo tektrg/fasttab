@@ -653,7 +653,7 @@ window.addEventListener('load', function() {
   if (!videoID) return;
   var paragraphs = Array.prototype.slice.call(document.querySelectorAll('.ft-transcript-paragraph'));
   var starts = paragraphs.map(function(p) { return parseInt(p.dataset.startMs, 10) || 0; });
-  var player = null, playerReady = false, pendingSeekMs = null, pollTimer = null;
+  var player = null, playerReady = false, pendingSeekMs = null, pollTimer = null, apiRequested = false;
   var following = true, currentIndex = -1, visible = false;
 
   var box = document.createElement('div');
@@ -727,6 +727,8 @@ window.addEventListener('load', function() {
     }
     if (window.YT && window.YT.Player) { create(); return; }
     window.onYouTubeIframeAPIReady = create;
+    if (apiRequested) return; // script already loading; hide/show must not add a second player
+    apiRequested = true;
     var script = document.createElement('script');
     script.src = 'https://www.youtube.com/iframe_api';
     document.head.appendChild(script);
@@ -736,7 +738,12 @@ window.addEventListener('load', function() {
     if (on === visible) return;
     visible = on;
     box.classList.toggle('ft-visible', on);
-    if (on) { loadPlayer(); } else {
+    if (on) {
+      loadPlayer();
+      // Unfollowed before the video was hidden: the pill is the only way back to live.
+      pill.classList.toggle('ft-visible', !following);
+    } else {
+      pendingSeekMs = null; // a seek queued before hiding must not start playback unseen
       stopPolling();
       if (player && playerReady) player.pauseVideo();
       pill.classList.remove('ft-visible');

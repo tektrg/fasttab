@@ -186,6 +186,8 @@ extension ReaderArticle {
     var readingWordCount: Int {
         let plainText = content
             .replacingOccurrences(of: "<(script|style)[^>]*>[\\s\\S]*?</\\1>", with: " ", options: .regularExpression)
+            // Transcript timestamp buttons ("12:34") are chrome, not words read.
+            .replacingOccurrences(of: "<button[^>]*>[\\s\\S]*?</button>", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "&#?[a-zA-Z0-9]+;", with: " ", options: .regularExpression)
         let tokenizer = NLTokenizer(unit: .word)

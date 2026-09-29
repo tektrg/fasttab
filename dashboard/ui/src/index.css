@@ -10,13 +10,13 @@
 :root {
   /* Neutrals: ink with a faint cool bias (monochrome identity). */
   --canvas: #f4f5f7; --paper: #ffffff; --sunken: #eceef2; --hair: #e2e4e9;
-  --ink: #0d0f14; --ink-2: #3a3f4b; --ink-3: #6b7180; --ink-4: #9aa0ad;
+  --ink: #0d0f14; --ink-2: #3a3f4b; --ink-3: #5c6270; --ink-4: #9aa0ad;
   /* Semantic status — never used as brand decoration. need = blocked /
      destructive, ask = question / attention / selection, run = working,
      warn = stale / disagree (text-safe amber), park = parked. */
-  --need: #d92d20; --need-bg: #fef1ef;
+  --need: #c4271b; --need-bg: #fef1ef;
   --ask: #2459d6;  --ask-bg: #eef3ff;
-  --run: #128a4a;  --run-bg: #ebf8f0;
+  --run: #0e743d;  --run-bg: #ebf8f0;
   --warn: #b54708; --warn-bg: #fff6e5;
   --park: #5b6475; --park-bg: #eff1f4;
   /* A captured terminal stays a dark box in both schemes. */

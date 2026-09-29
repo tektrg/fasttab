@@ -47,7 +47,7 @@ export function InboxTab({
             </div>
             <div className="phone-section-body">
               {rows.map((n) => (
-                <div key={(n.paneId ?? n.agentSession ?? n.label) + "::" + n.kind}>
+                <div key={(n.paneId ?? n.agentSession ?? n.label) + "::" + n.kind + "::" + (n.hookRequest?.requestId ?? "")}>
                   <AgentRow
                     initials={initialsOf(n.label)}
                     name={n.label}

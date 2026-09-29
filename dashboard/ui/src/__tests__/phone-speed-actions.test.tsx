@@ -47,9 +47,10 @@ const YESNO: HookRequest = {
   requestId: "hp-1", kind: "question", toolName: "AskUserQuestion",
   questions: [{ question: "Ship it?", header: "", multiSelect: false, options: [{ label: "Yes", description: "" }, { label: "No", description: "" }] }],
 };
+let seq = 0; // distinct sessions: the Inbox keys rows by session + kind
 const needs = (hookRequest: HookRequest | null): NeedsYouRow => ({
   kind: "blocked", urgency: 1, label: "Agent A", paneId: null, detail: "Ship it?",
-  sinceSec: 3, identity: "s1", source: "claude-desktop", agentSession: "s1", hookRequest,
+  sinceSec: 3, identity: "s1", source: "claude-desktop", agentSession: "s" + ++seq, hookRequest,
 });
 
 describe("Inbox inline Yes/No", () => {

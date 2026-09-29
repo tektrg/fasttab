@@ -157,3 +157,8 @@ button.phone-section-head { cursor: pointer; }
    bordered Paper — edge-to-edge, thin top divider (see Block.tsx). */
 .phone-block { padding: 10px 0; border-top: 1px solid var(--hair); }
 .phone-block:first-child { border-top: none; padding-top: 0; }
+
+/* The agent's last message can be long: it scrolls inside its own block so
+   the actions below stay reachable; code stays mono and wrapped. */
+.phone-block.latest-message { max-height: 40vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.phone-block.latest-message pre, .phone-block.latest-message code { font-family: var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -12,6 +12,11 @@ import { LatestMessage } from "./LatestMessage";
  *  pending-question form card when the transcript has one). Ended rows
  *  (no live pane) get nothing — same rule `RowPanel.paneIdOf` already
  *  applies to the pane screen. */
+/** True when the row shows a Review / Plan card instead of LatestMessage. */
+export function showsPermissionCard(row: BoardRow): boolean {
+  return row.status !== "ended" && !!row.derived?.screenPermission && !!row.derived?.paneId;
+}
+
 export function RowDetailExtras({
   row,
   onToast,

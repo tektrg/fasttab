@@ -20,12 +20,15 @@ export function LatestMessage({
   screenQuestion,
   onToast,
   phone,
+  messageOnly,
 }: {
   rowId: string;
   paneId: string | null;
   screenQuestion?: PickerQuestion | null;
   onToast: (msg: string, ok: boolean) => void;
   phone?: boolean;
+  /** Skip the pending-question form (a permission/plan card is shown instead). */
+  messageOnly?: boolean;
 }) {
   const [latest, setLatest] = useState<SessionLatestResponse | null>(null);
 
@@ -61,7 +64,7 @@ export function LatestMessage({
           <Markdown text={latest.latestMessage} />
         </Block>
       )}
-      {latest.pendingQuestion && paneId && (
+      {!messageOnly && latest.pendingQuestion && paneId && (
         <FormCard
           paneId={paneId}
           form={latest.pendingQuestion}

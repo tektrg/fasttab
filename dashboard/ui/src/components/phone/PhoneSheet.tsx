@@ -3,7 +3,8 @@ import type { BoardProperty, BoardRow } from "../../types";
 import { fmtAge } from "../../api";
 import { rowLabel } from "../../sessionActions";
 import { PaneScreen } from "../PaneScreen";
-import { RowDetailExtras } from "../RowDetailExtras";
+import { RowDetailExtras, showsPermissionCard } from "../RowDetailExtras";
+import { LatestMessage } from "../LatestMessage";
 import { Composer } from "../Composer";
 import { OpenInClaudeButton } from "../OpenInClaudeButton";
 import { messagesViaInbox, wakesToMessage } from "../../openInClaude";
@@ -159,6 +160,11 @@ export function PhoneSheet({
               <div className="rp-section-name">last line</div>
               <div className="rp-lastline">{lastLine}</div>
             </div>
+          )}
+          {/* A Review / Plan card replaces LatestMessage inside RowDetailExtras;
+              the agent's last message still leads the Activity tab. */}
+          {!ended && showsPermissionCard(row) && (
+            <LatestMessage rowId={row.rowId} paneId={paneId} onToast={onToast} phone messageOnly />
           )}
           {tabs.includes("plan") ? (
             <div className="phone-sheet-gate-note">A plan is waiting for your approval — see the Plan tab.</div>

@@ -1,4 +1,5 @@
 import Foundation
+import HeroMotion
 
 /// Which picture the "Connect your Mac" hero shows, from the step's live state.
 enum ConnectHeroState: Equatable {

@@ -1,4 +1,5 @@
 import SwiftUI
+import HeroMotion
 
 /// Step 2: a live picture of the Mac search, driven by `ConnectHeroState`.
 /// Searching loops radar rings from the iPhone; every other state plays a

@@ -1,4 +1,5 @@
 import SwiftUI
+import HeroMotion
 
 /// Step 4: the share sheet slides up on the iPhone, FastTab is tapped, and a
 /// paperplane arcs to the Mac, where a new tab chip glows. Teaching loops; a

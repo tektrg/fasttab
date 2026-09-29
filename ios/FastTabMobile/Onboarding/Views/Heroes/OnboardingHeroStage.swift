@@ -1,4 +1,5 @@
 import SwiftUI
+import HeroMotion
 
 /// Runs one onboarding hero: a fixed 180 × 120 pt canvas whose picture is a
 /// pure function of time (`frame(seconds)`).

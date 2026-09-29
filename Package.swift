@@ -15,7 +15,8 @@ let package = Package(
         .executable(name: "FastTab", targets: ["FastTab"]),
         .executable(name: "FastTabNativeHost", targets: ["FastTabNativeHost"]),
         .executable(name: "AgentBar", targets: ["AgentBar"]),
-        .library(name: "FastTabSync", targets: ["FastTabSync"])
+        .library(name: "FastTabSync", targets: ["FastTabSync"]),
+        .library(name: "HeroMotion", targets: ["HeroMotion"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
@@ -28,6 +29,12 @@ let package = Package(
         .target(
             name: "FastTabSync",
             dependencies: [indieSearch]
+        ),
+        // Onboarding hero timing math (loop / one-shot clock, easing), shared by
+        // the Mac onboarding and the iPhone app (`ios/project.yml`). Foundation only.
+        .target(
+            name: "HeroMotion",
+            dependencies: []
         ),
         // Reusable command-bar building blocks shared with future apps.
         // No dependencies and no resources on purpose: it links statically into
@@ -42,6 +49,7 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 "FastTabSync",
                 "CommandBarKit",
+                "HeroMotion",
                 indieSearch,
                 indieMetrics
             ]
@@ -69,6 +77,10 @@ let package = Package(
         .testTarget(
             name: "CommandBarKitTests",
             dependencies: ["CommandBarKit"]
+        ),
+        .testTarget(
+            name: "HeroMotionTests",
+            dependencies: ["HeroMotion"]
         )
     ]
 )

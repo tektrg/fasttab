@@ -38,11 +38,12 @@ import re
 import tempfile
 import threading
 
+import dashboard_config
 import persona_suggestions
 import personas
 
 EDITABLE_FIELDS = ("name", "description", "routesWhen", "notFor",
-                   "extraInstructions", "idle", "resumeWithinDays")
+                   "extraInstructions", "idle", "resumeWithinDays", "runsOn")
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}")
 _MAX_DESCRIPTION = 1000
 _MAX_LIST_ITEMS = 20
@@ -77,9 +78,11 @@ def registry_view(registry=None):
             "routesWhen": p["routesWhen"], "notFor": p["notFor"],
             "extraInstructions": p["extraInstructions"], "idle": p["idle"],
             "resumeWithinDays": p["resumeWithinDays"], "start": p["start"],
+            "runsOn": p["runsOn"],
             "hidden": addr in hidden, "offered": addr in offered,
         } for addr, p in registry["personas"].items()],
         "hiddenSuggestions": [a for a in hidden if a not in persona_addresses],
+        "machines": dashboard_config.machine_choices(),
     }
 
 
@@ -130,6 +133,11 @@ def _validate_field(field, value):
                 not math.isfinite(value) or not 0 <= value <= _MAX_RESUME_DAYS:
             raise RegistryEditError(f"Resume within days must be a number from 0 to {_MAX_RESUME_DAYS}.")
         return int(value) if float(value).is_integer() else value
+    if field == "runsOn":
+        ids = [m["id"] for m in dashboard_config.machine_choices()]
+        if value not in ids:
+            raise RegistryEditError(f"Runs on must be one of: {', '.join(ids)}.")
+        return value
     raise RegistryEditError(f"'{field}' can't be edited here.")
 
 

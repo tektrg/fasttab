@@ -10,7 +10,7 @@ for tests and a second local instance). AgentBar edits this file only
 through dashboard endpoints (P4) — this module is the one reader/writer.
 Shape: `{globalInstructions, personas: {"<machine>:<folder>": {name,
 description, routesWhen[], notFor[], extraInstructions, idle: resume|fresh,
-resumeWithinDays, start: in-place|script, startScript?}}, hidden: [address,
+resumeWithinDays, start: in-place|script, startScript?, runsOn?}}, hidden: [address,
 …]}`.
 
 A missing file is not an error (empty registry, same "no config yet" rule
@@ -174,6 +174,14 @@ def _normalize_persona(address, raw):
         _warn(address, "'startScript' must be a string")
         return None
 
+    # Which machine a start opens the session on: "local" (this dashboard's
+    # Mac) or a configured machine id. Distinct from the address's machine,
+    # which is where the persona's folder is matched against sessions.
+    runs_on = raw.get("runsOn", "local")
+    if not isinstance(runs_on, str) or not runs_on.strip():
+        _warn(address, "'runsOn' must be a machine id")
+        return None
+
     return {
         "address": address, "machine": machine, "folder": folder,
         "resolvedFolder": _resolve_path(folder),
@@ -181,7 +189,7 @@ def _normalize_persona(address, raw):
         "routesWhen": list(routes_when), "notFor": list(not_for),
         "extraInstructions": extra_instructions, "idle": idle,
         "resumeWithinDays": resume_within_days, "start": start,
-        "startScript": start_script,
+        "startScript": start_script, "runsOn": runs_on.strip(),
     }
 
 

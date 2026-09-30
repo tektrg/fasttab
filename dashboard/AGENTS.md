@@ -113,6 +113,14 @@ AgentBar + this dashboard), `bi` (~/01_Project/ssv-bi-platform),
 `portfolio` (~/01_Project — cross-project questions and anything with no
 persona of its own yet).
 
+**Runs on** (`runsOn`, 2026-09-30): which machine a start opens the
+session on — `"local"` (default; this dashboard's own Mac) or a configured
+machine id (e.g. `air-m1`). Separate from the address's machine (where the
+folder is matched). Settings edits it; `GET /api/personas/registry` lists the
+choices as `machines: [{id, label}]`. `localLabel` in config.json names
+"local" for the UI (default "This Mac"; the Pro sets "Pro"). The dashboard
+runs on the Pro only, so "local" = Pro in practice.
+
 Names are unique among OFFERED personas (hidden/undescribed entries are
 filtered first, then a duplicate name keeps the first in registry order).
 Each row also carries `idleStart`: `"resume"` | `"fresh"` — what a start

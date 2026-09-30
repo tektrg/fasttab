@@ -90,7 +90,6 @@ struct OnboardingHeroSources: View {
     private static func field(state: SourcesHeroState, time: Double) -> some View {
         let lit = MotionCurve.progress(time, start: Layout.fieldLightsUp, duration: 0.3)
         let lightUpBounce = HeroBeat.kick(time, start: Layout.fieldLightsUp, duration: 0.4)
-        let count = state.enabledSources.count
         let shape = Capsule(style: .continuous)
         return HStack(spacing: 5) {
             Image(systemName: "magnifyingglass")
@@ -103,10 +102,6 @@ struct OnboardingHeroSources: View {
                     .opacity(min(pop * 2, 1))
             }
             Spacer(minLength: 0)
-            Text(count == 1 ? "1 source" : "\(count) sources")
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-                .opacity(lit)
         }
         .padding(.horizontal, 10)
         // Fill the placed frame, so the panel is the full chunky capsule.

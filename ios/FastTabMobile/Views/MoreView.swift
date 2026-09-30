@@ -193,6 +193,11 @@ public struct MoreView: View {
                     )
                 }
                 .foregroundStyle(.primary)
+                #if DEBUG
+                Button("Show Rating Popup (Debug)") {
+                    RatingPromptCoordinator.shared.forceShow()
+                }
+                #endif
             }
             .dsListRow()
 

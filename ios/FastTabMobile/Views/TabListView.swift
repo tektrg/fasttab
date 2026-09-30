@@ -243,7 +243,10 @@ public struct TabListView: View {
                 showDeckSwitcher = false
             }
         }
-        .fullScreenCover(item: $selectedBrowserURL) { url in
+        .fullScreenCover(item: $selectedBrowserURL, onDismiss: {
+            // Opened from search and back: a calm moment to count (and maybe ask for a rating).
+            if !searchText.isEmpty { RatingPromptCoordinator.shared.searchResultVisitEnded() }
+        }) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
         }

@@ -60,6 +60,7 @@ public struct FastTabMobileApp: App {
                 .tag(AppTab.more)
             }
             .environment(accountSession)
+            .ratingPrompt()
             .task { await accountSession.restoreIfNeeded() }
             .fullScreenCover(item: $widgetReaderItem) { item in
                 ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)

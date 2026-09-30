@@ -34,6 +34,7 @@ struct HeroTextLine: View {
 struct HeroTabRow: View {
     var favicon: Color
     var titleWidth: Double
+    var titleColor: Color = HeroInk.textLine
     var highlight: Double = 0
     var height: Double = 14
 
@@ -42,7 +43,7 @@ struct HeroTabRow: View {
             RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                 .fill(favicon)
                 .frame(width: 7, height: 7)
-            HeroTextLine(width: titleWidth)
+            HeroTextLine(width: titleWidth, color: titleColor)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 5)
@@ -80,27 +81,45 @@ struct HeroSearchField: View {
     }
 }
 
-/// A small command bar: search field over `rowCount` tab rows, top row selected.
+/// A small command bar in the app's default look (panel background on): a
+/// black panel with round corners, a warm search pill, and the tab rows on a
+/// dark card. Always dark, like the real bar, whatever the system appearance.
 struct HeroCommandBar: View {
     var rowCount: Int
 
     private static let titleWidths: [Double] = [46, 34, 40]
+    private static let panelFill = Color.black
+    private static let searchFill = Color(red: 0.2, green: 0.17, blue: 0.1)
+    private static let cardFill = Color.white.opacity(0.07)
+    private static let titleInk = Color.white.opacity(0.75)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 2) {
             HeroSearchField()
-            ForEach(0..<rowCount, id: \.self) { index in
-                HeroTabRow(
-                    favicon: HeroInk.favicons[index % HeroInk.favicons.count],
-                    titleWidth: Self.titleWidths[index % Self.titleWidths.count],
-                    highlight: index == 0 ? 1 : 0,
-                    height: 12
-                )
+                .frame(height: 13)
+                .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Self.searchFill))
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(0..<rowCount, id: \.self) { index in
+                    HeroTabRow(
+                        favicon: HeroInk.favicons[index % HeroInk.favicons.count],
+                        titleWidth: Self.titleWidths[index % Self.titleWidths.count],
+                        titleColor: Self.titleInk,
+                        highlight: index == 0 ? 1 : 0,
+                        height: 11
+                    )
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .padding(1.5)
+            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Self.cardFill))
         }
         .padding(3)
-        .heroPanel()
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Self.panelFill)
+                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+        )
+        .environment(\.colorScheme, .dark)
     }
 }
 

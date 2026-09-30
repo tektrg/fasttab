@@ -9,6 +9,9 @@ enum HeroInk {
     static let textLine = Color.primary.opacity(0.18)
     static let faintFill = Color.primary.opacity(0.06)
     static let outlineWidth = MotionStyle.boldStroke
+    /// The house pastel palette (IndieMotion); every hero colour comes from it,
+    /// never the app's saturated `DS.Tint` system colours.
+    static let palette = MotionPalette.pastel
     /// Dash pattern for "not here yet" outlines.
     static let dash: [CGFloat] = [4, 3]
 }

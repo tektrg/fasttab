@@ -92,7 +92,7 @@ struct OnboardingHeroIPhone: View {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .strokeBorder(HeroInk.outline, lineWidth: 2)
                 )
-                .shadow(color: Color.blue.opacity(0.8 * glow), radius: 6)
+                .shadow(color: HeroInk.accent.fill.opacity(0.9 * glow), radius: 6)
                 .heroPlaced(in: Layout.macScreen)
             Capsule()
                 .fill(HeroInk.outline)
@@ -115,10 +115,10 @@ struct OnboardingHeroIPhone: View {
             .heroPlaced(in: Layout.phone)
     }
 
-    /// A clean Reader page: teal title, calm text lines.
+    /// A clean Reader page: mint title, calm text lines.
     private static var readerPageContent: some View {
         VStack(alignment: .leading, spacing: 3.5) {
-            Capsule().fill(Color.teal).frame(width: 24, height: 5)
+            Capsule().fill(HeroInk.palette.mint.ink).frame(width: 24, height: 5)
             ForEach([30.0, 27, 31, 22, 28, 18], id: \.self) { width in
                 HeroTextLine(width: width, height: 3)
             }
@@ -135,7 +135,7 @@ struct OnboardingHeroIPhone: View {
         let landing = CGPoint(x: Layout.phone.midX, y: Layout.phone.midY)
         let point = MotionPath.quadBezier(lifted, control: Layout.flightControl, landing, amount: beats.flight)
         return VStack(alignment: .leading, spacing: 2) {
-            Capsule().fill(Color.teal.opacity(beats.flight)).frame(width: 14, height: 3.5)
+            Capsule().fill(HeroInk.palette.mint.ink.opacity(beats.flight)).frame(width: 14, height: 3.5)
             HeroTextLine(width: 20, height: 3)
             HeroTextLine(width: 14, height: 3)
         }
@@ -158,7 +158,7 @@ struct OnboardingHeroIPhone: View {
         // The symbol points up-right (-45°); turn it to face its heading.
         return Image(systemName: "paperplane.fill")
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Color.blue)
+            .foregroundStyle(HeroInk.accent.ink)
             .rotationEffect(Angle(radians: heading) + .degrees(45))
             .opacity(isFlying ? beats.fade : 0)
             .position(point)
@@ -170,6 +170,6 @@ struct OnboardingHeroIPhone: View {
             path.addQuadCurve(to: Layout.linkEnd, control: Layout.linkControl)
         }
         .trim(from: 0, to: progress)
-        .stroke(Color.green, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+        .stroke(HeroInk.palette.success.ink, style: StrokeStyle(lineWidth: 2, lineCap: .round))
     }
 }

@@ -40,7 +40,7 @@ struct OnboardingHeroReader: View {
     }
 
     private static let clutter: [Clutter] = [
-        Clutter(frame: CGRect(x: 0, y: 0, width: 124, height: 13), exit: CGSize(width: 0, height: -24), label: nil, color: DS.Tint.warning.opacity(0.35)),
+        Clutter(frame: CGRect(x: 0, y: 0, width: 124, height: 13), exit: CGSize(width: 0, height: -24), label: nil, color: HeroInk.palette.warning.fill.opacity(0.8)),
         Clutter(frame: CGRect(x: 98, y: 17, width: 22, height: 66), exit: CGSize(width: 40, height: 0), label: nil, color: HeroInk.textLine),
         Clutter(frame: CGRect(x: 6, y: 36, width: 38, height: 22), exit: CGSize(width: -60, height: 0), label: "Ad", color: HeroInk.textLine),
         Clutter(frame: CGRect(x: 6, y: 62, width: 86, height: 18), exit: CGSize(width: -110, height: 0), label: "Ad", color: HeroInk.textLine),
@@ -101,7 +101,7 @@ struct OnboardingHeroReader: View {
         let settle = MotionCurve.settle(time, start: 1.1, duration: 0.7)
         let isTitle = index == 0
         let height = isTitle ? MotionCurve.lerp(5, 7, settle) : 5
-        let color = isTitle && settle > 0 ? DS.Tint.recent.opacity(MotionCurve.lerp(0.3, 1, min(settle, 1))) : HeroInk.textLine
+        let color = isTitle && settle > 0 ? HeroInk.palette.mint.ink.opacity(MotionCurve.lerp(0.3, 1, min(settle, 1))) : HeroInk.textLine
         return HeroTextLine(width: MotionCurve.lerp(line.clutteredWidth, line.cleanWidth, settle), height: height, color: color)
             .heroPlaced(
                 x: MotionCurve.lerp(line.clutteredX, line.cleanX, settle),
@@ -115,7 +115,7 @@ struct OnboardingHeroReader: View {
         let line = Self.lines[Self.highlightedLine]
         let sweep = MotionCurve.progress(time, start: 1.8, duration: 0.7, ease: .linear)
         return Capsule(style: .continuous)
-            .fill(DS.Tint.bookmark.opacity(0.45))
+            .fill(HeroInk.palette.butter.fill)
             .frame(width: (line.cleanWidth + 4) * sweep, height: 11)
             .position(x: line.cleanX - 2 + (line.cleanWidth + 4) * sweep / 2, y: line.cleanY + 2.5)
             .opacity(sweep > 0 ? 1 : 0)

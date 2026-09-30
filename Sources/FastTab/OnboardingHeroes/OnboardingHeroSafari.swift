@@ -99,8 +99,8 @@ struct OnboardingHeroSafari: View {
 
     private static func titleBar(unlock: Double) -> some View {
         HStack(spacing: 2.5) {
-            ForEach([Color.red, .yellow, .green], id: \.self) { light in
-                Circle().fill(light.opacity(0.8)).frame(width: 5, height: 5)
+            ForEach([HeroInk.palette.rose.fill, HeroInk.palette.butter.fill, HeroInk.palette.mint.fill], id: \.self) { light in
+                Circle().fill(light).frame(width: 5, height: 5)
             }
             Text("Full Disk Access")
                 .font(.system(size: 7, weight: .bold, design: .rounded))
@@ -109,7 +109,7 @@ struct OnboardingHeroSafari: View {
             Spacer(minLength: 0)
             Image(systemName: unlock > 0.5 ? "lock.open.fill" : "lock.fill")
                 .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(unlock > 0.5 ? Color.green : Color.secondary)
+                .foregroundStyle(unlock > 0.5 ? HeroInk.palette.success.ink : Color.secondary)
                 .scaleEffect(1 + 0.25 * sin(unlock * .pi))
         }
         .padding(.horizontal, 6)
@@ -134,7 +134,7 @@ struct OnboardingHeroSafari: View {
                 HeroTextLine(width: 36).opacity(min(beats.drop, 1))
             } else {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(index == 0 ? Color.secondary : Color.blue)
+                    .fill(index == 0 ? HeroInk.palette.lavender.fill : HeroInk.palette.blue.fill)
                     .frame(width: Layout.slotIconSize, height: Layout.slotIconSize)
                 HeroTextLine(width: index == 0 ? 40 : 32)
             }
@@ -143,18 +143,18 @@ struct OnboardingHeroSafari: View {
         }
         .padding(.horizontal, 7)
         .frame(height: Layout.rowHeight)
-        .background(isFastTabRow ? Color.accentColor.opacity(0.1 * min(beats.drop, 1)) : .clear)
+        .background(isFastTabRow ? HeroInk.accent.fill.opacity(0.3 * min(beats.drop, 1)) : .clear)
     }
 }
 
-/// A mini switch; `isOn` 0…1 slides the knob and fills it green.
+/// A mini switch; `isOn` 0…1 slides the knob and fills it with the success pastel.
 struct HeroToggle: View {
     var isOn: Double
 
     var body: some View {
         Capsule()
             .fill(HeroInk.faintFill)
-            .overlay(Capsule().fill(Color.green.opacity(isOn)))
+            .overlay(Capsule().fill(HeroInk.palette.success.fill.opacity(isOn)))
             .overlay(alignment: .leading) {
                 Circle()
                     .fill(.white)

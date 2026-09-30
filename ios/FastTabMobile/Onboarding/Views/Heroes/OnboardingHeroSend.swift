@@ -29,7 +29,7 @@ struct OnboardingHeroSend: View {
     }
 
     /// Share-sheet apps: FastTab is the second tile, the one tapped.
-    private static let appTiles: [Color] = [DS.Tint.success, DS.Tint.action, DS.Tint.warning, Color.secondary]
+    private static let appTiles: [Color] = [HeroInk.palette.mint.fill, HeroInk.palette.blue.ink, HeroInk.palette.peach.fill, HeroInk.palette.lavender.fill]
     private static let fastTabTileIndex = 1
 
     var body: some View {
@@ -82,9 +82,9 @@ struct OnboardingHeroSend: View {
                 HStack(spacing: Layout.chipGap) {
                     chip(fill: HeroInk.textLine)
                     chip(fill: HeroInk.textLine)
-                    chip(fill: DS.Tint.shared)
+                    chip(fill: HeroInk.palette.accent.ink)
                         .scaleEffect(arrival)
-                        .shadow(color: DS.Tint.shared.opacity(0.9 * arrival), radius: 4)
+                        .shadow(color: HeroInk.palette.accent.fill.opacity(0.9 * arrival), radius: 4)
                         .opacity(fade)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -154,7 +154,7 @@ struct OnboardingHeroSend: View {
         let spread = MotionCurve.progress(time, start: 0.9, duration: 0.4, ease: .easeOut)
         let diameter = MotionCurve.lerp(Layout.appIconSize, 40, spread)
         return Circle()
-            .strokeBorder(DS.Tint.action, lineWidth: 2.5)
+            .strokeBorder(HeroInk.palette.accent.ink, lineWidth: 2.5)
             .frame(width: diameter, height: diameter)
             .opacity(spread > 0 && spread < 1 ? 1 - spread : 0)
             .position(fastTabIconCenter)
@@ -174,7 +174,7 @@ struct OnboardingHeroSend: View {
             let rotation = isFlying ? Angle(radians: heading) + .degrees(45) : .zero
             Image(systemName: "paperplane.fill")
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(DS.Tint.shared)
+                .foregroundStyle(HeroInk.palette.accent.ink)
                 .rotationEffect(rotation)
                 .scaleEffect(isFlying ? MotionCurve.lerp(1.2, 0.8, flight) : 1)
                 .position(isFlying ? point : CGPoint(x: fastTabIconCenter.x + 8, y: fastTabIconCenter.y - 8))

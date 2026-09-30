@@ -32,7 +32,7 @@ struct OnboardingHeroConnect: View {
                 HeroPhone(width: Layout.phoneSize.width, height: Layout.phoneSize.height)
                     .position(x: phoneX(time: time), y: Layout.centerY)
                 if state == .found {
-                    MotionCheckmark(diameter: 24, tint: DS.Tint.success)
+                    MotionCheckmark(diameter: 24, tint: HeroInk.palette.success.ink)
                         .scaleEffect(MotionCurve.settle(time, start: 1.3, duration: 0.5))
                         .position(x: (Layout.linkStartX + Layout.linkEndX) / 2, y: Layout.centerY)
                 }
@@ -75,8 +75,8 @@ struct OnboardingHeroConnect: View {
                 // Square-root falloff keeps the outer rings visible longer, then fades to 0 at the edge.
                 let strength = (1 - phase).squareRoot() * 0.95
                 Circle()
-                    .fill(DS.Tint.action.opacity(0.10 * strength))
-                    .overlay(Circle().strokeBorder(DS.Tint.action.opacity(strength), lineWidth: 2.5))
+                    .fill(HeroInk.palette.accent.fill.opacity(0.35 * strength))
+                    .overlay(Circle().strokeBorder(HeroInk.palette.accent.ink.opacity(strength), lineWidth: 2.5))
                     .frame(width: diameter, height: diameter)
             }
         }
@@ -95,7 +95,7 @@ struct OnboardingHeroConnect: View {
         case .found:
             linkPath
                 .trim(from: 0, to: MotionCurve.progress(time, start: 0.85, duration: 0.45))
-                .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .stroke(HeroInk.palette.success.ink, style: StrokeStyle(lineWidth: 3, lineCap: .round))
         case .macOffline:
             linkPath
                 .stroke(HeroInk.deviceOutline, style: StrokeStyle(lineWidth: 3.5, lineCap: .round, dash: [0.1, 6.5]))
@@ -162,7 +162,7 @@ struct OnboardingHeroConnect: View {
             .overlay(
                 slash
                     .trim(from: 0, to: MotionCurve.progress(time, start: 0.7, duration: 0.5))
-                    .stroke(DS.Tint.warning, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .stroke(HeroInk.palette.warning.ink, style: StrokeStyle(lineWidth: 4, lineCap: .round))
             )
     }
 }

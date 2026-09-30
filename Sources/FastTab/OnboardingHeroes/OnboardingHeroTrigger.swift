@@ -137,7 +137,7 @@ struct HeroEdgePill: View {
                 topTrailingRadius: corners.topTrailing,
                 style: .continuous
             )
-            .fill(Color.accentColor)
+            .fill(HeroInk.accent.fill)
         }
     }
 

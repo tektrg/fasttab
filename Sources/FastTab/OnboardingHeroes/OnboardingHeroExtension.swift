@@ -80,7 +80,7 @@ struct OnboardingHeroExtension: View {
                 .heroPlaced(in: Layout.socket)
             Image(systemName: "puzzlepiece.extension.fill")
                 .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(HeroInk.palette.lavender.ink)
                 .offset(x: (1 - beats.pieceArrival) * 16, y: beats.bobOffset)
                 .opacity(min(beats.pieceArrival, 1) * beats.fade)
                 .heroPlaced(
@@ -111,7 +111,7 @@ struct OnboardingHeroExtension: View {
                         if row.isPlaying {
                             Image(systemName: "speaker.wave.2.fill")
                                 .font(.system(size: 8))
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(HeroInk.accent.ink)
                                 .padding(.trailing, 6)
                         }
                     }
@@ -132,10 +132,10 @@ struct OnboardingHeroExtension: View {
             Spacer(minLength: 0)
             Text(isLive ? "live order" : "guessing")
                 .font(.system(size: 6, weight: .semibold))
-                .foregroundStyle(isLive ? Color.green : Color.orange)
+                .foregroundStyle(isLive ? HeroInk.palette.success.ink : HeroInk.palette.warning.ink)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
-                .background(Capsule().fill((isLive ? Color.green : Color.orange).opacity(0.15)))
+                .background(Capsule().fill((isLive ? HeroInk.palette.success.fill : HeroInk.palette.warning.fill).opacity(0.45)))
         }
         .foregroundStyle(.secondary)
     }

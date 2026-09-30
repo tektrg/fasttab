@@ -107,7 +107,7 @@ struct OnboardingHeroSources: View {
         // Fill the placed frame, so the panel is the full chunky capsule.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .heroPanel(cornerRadius: Layout.field.height / 2)
-        .overlay(shape.strokeBorder(Color.accentColor.opacity(0.6 * lit), lineWidth: 2))
+        .overlay(shape.strokeBorder(HeroInk.accent.ink.opacity(0.7 * lit), lineWidth: 2))
         .scaleEffect(1 + 0.06 * lightUpBounce)
     }
 }

@@ -8,10 +8,10 @@ struct OnboardingHeroDone: View {
 
     /// Same symbols and tints as the tour rows, in the same order.
     private static let tabs: [(symbol: String, tint: Color)] = [
-        ("newspaper", DS.Tint.emerging),
-        ("macwindow.on.rectangle", DS.Tint.action),
-        ("shuffle", DS.Tint.action),
-        ("ellipsis.circle", DS.Tint.action),
+        ("newspaper", HeroInk.palette.lavender.ink),
+        ("macwindow.on.rectangle", HeroInk.palette.accent.ink),
+        ("shuffle", HeroInk.palette.accent.ink),
+        ("ellipsis.circle", HeroInk.palette.accent.ink),
     ]
     private static let sealCenter = CGPoint(x: 90, y: 38)
     private static let sealRadius = 31.0
@@ -38,13 +38,13 @@ struct OnboardingHeroDone: View {
         // The seal springs up as it closes, then settles.
         let pop = MotionCurve.progress(time, start: 0.35, duration: 0.6, ease: .bouncy)
         return ZStack {
-            Self.sealShape.fill(DS.Tint.success.opacity(0.14 * ring))
+            Self.sealShape.fill(HeroInk.palette.success.fill.opacity(0.5 * ring))
             Self.sealShape
                 .trim(from: 0, to: ring)
-                .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .stroke(HeroInk.palette.success.ink, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
             Self.checkShape
                 .trim(from: 0, to: check)
-                .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
+                .stroke(HeroInk.palette.success.ink, style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
         }
         // ...and bounces once more as the check lands.
         .scaleEffect(MotionCurve.lerp(0.8, 1, pop) * (1 + 0.06 * MotionCurve.kick(time, start: 0.9, duration: 0.5)))

@@ -66,7 +66,7 @@ struct HeroShortcutPress: View {
     private var ripple: some View {
         let spread = MotionCurve.progress(time, start: popTime, duration: 0.6, ease: .easeOut)
         return Capsule()
-            .strokeBorder(Color.accentColor, lineWidth: 2)
+            .strokeBorder(HeroInk.accent.ink, lineWidth: 2)
             .frame(width: MotionCurve.lerp(48, 130, spread), height: MotionCurve.lerp(24, 44, spread))
             .opacity(spread > 0 && spread < 1 ? 1 - spread : 0)
             .position(keysCenter)

@@ -89,8 +89,8 @@ struct ExtensionSetupStatusView: View {
 
     private var iconColor: Color {
         switch setupState {
-        case .usable: return .green
-        case .turnedOff, .versionMismatch: return .orange
+        case .usable: return MotionPalette.pastel.success.ink
+        case .turnedOff, .versionMismatch: return MotionPalette.pastel.warning.ink
         case .waiting: return .secondary
         }
     }

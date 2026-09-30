@@ -10,16 +10,20 @@ enum HeroInk {
     static let outline = Color.primary.opacity(0.22)
     static let textLine = Color.primary.opacity(0.2)
     static let faintFill = Color.primary.opacity(0.06)
-    /// Accent opacity of a selected row at `highlight` 1.
-    static let highlightOpacity = 0.22
+    /// The house pastel palette (IndieMotion); every hero colour comes from it.
+    static let palette = MotionPalette.pastel
+    /// Highlights, carets, keycap tints: the palette's accent.
+    static let accent = palette.accent
+    /// Accent-fill opacity of a selected row at `highlight` 1.
+    static let highlightOpacity = 0.55
     static let outlineWidth = MotionStyle.fineStroke
     /// Dash pattern for "goes here" outlines.
     static let dash: [CGFloat] = [3, 2]
     /// Chibi corner radii: soft and round everywhere.
     static let cardRadius = MotionStyle.cardRadius
     static let panelRadius = MotionStyle.panelRadius
-    /// Tab favicons in the mini lists: blue, orange, purple, green.
-    static let favicons: [Color] = [.blue, .orange, .purple, .green]
+    /// Tab favicons in the mini lists: blue, peach, lavender, mint.
+    static let favicons: [Color] = [palette.blue.fill, palette.peach.fill, palette.lavender.fill, palette.mint.fill]
 }
 
 /// A placeholder line of text in the hero ink (IndieMotion's `MotionTextLine`).
@@ -54,7 +58,7 @@ struct HeroTabRow: View {
         .frame(height: height)
         .background(
             Capsule(style: .continuous)
-                .fill(Color.accentColor.opacity(HeroInk.highlightOpacity * highlight))
+                .fill(HeroInk.accent.fill.opacity(HeroInk.highlightOpacity * highlight))
         )
     }
 }
@@ -76,7 +80,7 @@ struct HeroSearchField: View {
                     .fixedSize()
             }
             if showsCaret {
-                Capsule().fill(Color.accentColor).frame(width: 2, height: 10)
+                Capsule().fill(HeroInk.accent.ink).frame(width: 2, height: 10)
             }
             Spacer(minLength: 0)
         }

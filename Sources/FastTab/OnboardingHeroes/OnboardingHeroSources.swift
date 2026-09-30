@@ -14,11 +14,11 @@ struct OnboardingHeroSources: View {
     }
 
     private enum Layout {
-        static let tileSize = 24.0
-        static let tileTop = 2.0
-        static let chipSize = CGSize(width: 18, height: 8)
+        static let tileSize = 30.0
+        static let tileTop = 1.0
+        static let chipSize = CGSize(width: 22, height: 10)
         static let chipsPerSource = 3
-        static let field = CGRect(x: 30, y: 70, width: 140, height: 20)
+        static let field = CGRect(x: 22, y: 68, width: 156, height: 24)
         static let streamStart = 0.2
         static let chipStagger = 0.3
         static let sourceStagger = 0.08
@@ -77,11 +77,11 @@ struct OnboardingHeroSources: View {
         let to = CGPoint(x: Layout.field.midX, y: Layout.field.midY)
         let isFlying = flight > 0 && flight < 1
         return HStack(spacing: 2) {
-            appIcon(source, size: 6)
-            HeroTextLine(width: 7, height: 2)
+            appIcon(source, size: 7)
+            HeroTextLine(width: 8, height: 3)
         }
         .frame(width: Layout.chipSize.width, height: Layout.chipSize.height)
-        .heroPanel(cornerRadius: 2.5)
+        .heroPanel(cornerRadius: 5)
         .scaleEffect(MotionCurve.lerp(1, 0.6, flight))
         .opacity(isFlying ? min(flight * 5, (1 - flight) * 5, 1) : 0)
         .position(x: MotionCurve.lerp(from.x, to.x, flight), y: MotionCurve.lerp(from.y, to.y, flight))
@@ -92,25 +92,25 @@ struct OnboardingHeroSources: View {
         let count = state.enabledSources.count
         return HStack(spacing: 4) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 8, weight: .semibold))
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.secondary)
             ForEach(Array(state.enabledSources.enumerated()), id: \.element) { index, source in
                 let pop = MotionCurve.progress(time, start: Layout.fieldLightsUp + 0.06 * Double(index), duration: 0.3, ease: .spring)
-                appIcon(source, size: 10)
+                appIcon(source, size: 13)
                     .scaleEffect(pop)
                     .opacity(min(pop * 2, 1))
             }
             Spacer(minLength: 0)
             Text(count == 1 ? "1 source" : "\(count) sources")
-                .font(.system(size: 7, weight: .medium))
+                .font(.system(size: 8, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
                 .opacity(lit)
         }
-        .padding(.horizontal, 6)
-        .heroPanel(cornerRadius: 6)
+        .padding(.horizontal, 8)
+        .heroPanel(cornerRadius: 12)
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(Color.accentColor.opacity(0.6 * lit), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(0.6 * lit), lineWidth: 1.5)
         )
     }
 }

@@ -58,7 +58,7 @@ struct OnboardingHeroReader: View {
         // Preparing holds the busy page still under the shimmer.
         let transformTime = state == .ready ? time : 0
         let fade = state == .ready ? MotionCurve.loopFade(time, playback: state.playback) : 1
-        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 11, style: .continuous)
         return ZStack(alignment: .topLeading) {
             Group {
                 highlight(time: transformTime)
@@ -77,17 +77,17 @@ struct OnboardingHeroReader: View {
         .frame(width: Self.pageSize.width, height: Self.pageSize.height, alignment: .topLeading)
         .background(shape.fill(DS.Palette.readerPage))
         .clipShape(shape)
-        .overlay(shape.strokeBorder(HeroInk.deviceOutline, lineWidth: 1))
+        .overlay(shape.strokeBorder(HeroInk.deviceOutline, lineWidth: HeroInk.outlineWidth))
     }
 
     private func clutterPiece(_ index: Int, time: Double) -> some View {
         let piece = Self.clutter[index]
         let exit = MotionCurve.progress(time, start: 0.6 + 0.05 * Double(index), duration: 0.5)
-        return RoundedRectangle(cornerRadius: 2, style: .continuous)
+        return RoundedRectangle(cornerRadius: 5, style: .continuous)
             .fill(piece.color)
             .overlay {
                 if let label = piece.label {
-                    Text(label).font(.system(size: 7, weight: .bold)).foregroundStyle(.secondary)
+                    Text(label).font(.system(size: 8, weight: .heavy, design: .rounded)).foregroundStyle(.secondary)
                 }
             }
             .heroPlaced(x: piece.frame.minX, y: piece.frame.minY, width: piece.frame.width, height: piece.frame.height)
@@ -99,7 +99,7 @@ struct OnboardingHeroReader: View {
         let line = Self.lines[index]
         let settle = MotionCurve.progress(time, start: 1.1, duration: 0.6)
         let isTitle = index == 0
-        let height = isTitle ? MotionCurve.lerp(3, 5, settle) : 3
+        let height = isTitle ? MotionCurve.lerp(4, 6, settle) : 4
         let color = isTitle && settle > 0 ? DS.Tint.recent.opacity(MotionCurve.lerp(0.3, 1, settle)) : HeroInk.textLine
         return HeroTextLine(width: MotionCurve.lerp(line.clutteredWidth, line.cleanWidth, settle), height: height, color: color)
             .heroPlaced(
@@ -113,10 +113,10 @@ struct OnboardingHeroReader: View {
     private func highlight(time: Double) -> some View {
         let line = Self.lines[Self.highlightedLine]
         let sweep = MotionCurve.progress(time, start: 1.8, duration: 0.7, ease: .linear)
-        return RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+        return Capsule(style: .continuous)
             .fill(DS.Tint.bookmark.opacity(0.45))
-            .frame(width: (line.cleanWidth + 4) * sweep, height: 8)
-            .position(x: line.cleanX - 2 + (line.cleanWidth + 4) * sweep / 2, y: line.cleanY + 1.5)
+            .frame(width: (line.cleanWidth + 4) * sweep, height: 9)
+            .position(x: line.cleanX - 2 + (line.cleanWidth + 4) * sweep / 2, y: line.cleanY + 2)
             .opacity(sweep > 0 ? 1 : 0)
     }
 

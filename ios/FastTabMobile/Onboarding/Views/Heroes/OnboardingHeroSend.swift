@@ -9,16 +9,16 @@ struct OnboardingHeroSend: View {
     let state: SendHeroState
 
     private enum Layout {
-        static let macOrigin = CGPoint(x: 62, y: 2)
-        static let macSize = CGSize(width: 56, height: 34)
+        static let macOrigin = CGPoint(x: 53, y: 0)
+        static let macSize = CGSize(width: 62, height: 38)
         static let phoneOrigin = CGPoint(x: 48, y: 46)
         static let phoneSize = CGSize(width: 84, height: 92)
         static let sheetTop = 40.0
-        static let chipSize = CGSize(width: 14, height: 6)
+        static let chipSize = CGSize(width: 15, height: 7)
         static let chipGap = 2.0
-        static let appIconSize = 14.0
+        static let appIconSize = 16.0
         /// Where the FastTab icon sits in the share sheet's app row (x, in phone points).
-        static let fastTabIconX = 25.0
+        static let fastTabIconX = 26.0
         static let appIconTop = 8.0
         static let flightStart = 1.2
         static let flightDuration = 0.85
@@ -33,7 +33,7 @@ struct OnboardingHeroSend: View {
             let fade = MotionCurve.loopFade(time, playback: state.playback)
             ZStack(alignment: .topLeading) {
                 mac(time: time, fade: fade)
-                    .heroPlaced(x: Layout.macOrigin.x, y: Layout.macOrigin.y, width: Layout.macSize.width * 1.2, height: Layout.macSize.height + 5)
+                    .heroPlaced(x: Layout.macOrigin.x, y: Layout.macOrigin.y, width: Layout.macSize.width * 1.2, height: Layout.macSize.height + 6.5)
                 phone(time: time, fade: fade)
                     .heroPlaced(x: Layout.phoneOrigin.x, y: Layout.phoneOrigin.y, width: Layout.phoneSize.width, height: Layout.phoneSize.height)
                 if state != .noMac {
@@ -82,7 +82,7 @@ struct OnboardingHeroSend: View {
     }
 
     private func chip(fill: Color) -> some View {
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
+        Capsule(style: .continuous)
             .fill(fill)
             .frame(width: Layout.chipSize.width, height: Layout.chipSize.height)
     }
@@ -109,14 +109,14 @@ struct OnboardingHeroSend: View {
 
     private var shareSheet: some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(DS.Palette.surfaceMuted)
             Capsule().fill(HeroInk.deviceOutline)
-                .frame(width: 14, height: 2)
-                .offset(x: (Layout.phoneSize.width - 14) / 2, y: 3)
+                .frame(width: 16, height: 3)
+                .offset(x: (Layout.phoneSize.width - 16) / 2, y: 3)
             ForEach(Self.appTiles.indices, id: \.self) { index in
                 appTile(index)
-                    .offset(x: 7 + 18 * Double(index), y: Layout.appIconTop)
+                    .offset(x: 7 + 19 * Double(index), y: Layout.appIconTop)
             }
             VStack(alignment: .leading, spacing: 6) {
                 HeroTextLine(width: 50)
@@ -129,10 +129,10 @@ struct OnboardingHeroSend: View {
 
     @ViewBuilder
     private func appTile(_ index: Int) -> some View {
-        let tile = RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+        let tile = RoundedRectangle(cornerRadius: 5, style: .continuous)
         if index == Self.fastTabTileIndex {
             Image(systemName: "macwindow.on.rectangle")
-                .font(.system(size: 7, weight: .bold))
+                .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: Layout.appIconSize, height: Layout.appIconSize)
                 .background(tile.fill(Self.appTiles[index]))
@@ -144,7 +144,7 @@ struct OnboardingHeroSend: View {
 
     private func ripple(time: Double) -> some View {
         let spread = MotionCurve.progress(time, start: 0.9, duration: 0.4, ease: .easeOut)
-        let diameter = MotionCurve.lerp(Layout.appIconSize, 36, spread)
+        let diameter = MotionCurve.lerp(Layout.appIconSize, 40, spread)
         return Circle()
             .strokeBorder(DS.Tint.action, lineWidth: 2)
             .frame(width: diameter, height: diameter)
@@ -165,7 +165,7 @@ struct OnboardingHeroSend: View {
             // The symbol points up-right (-45°); turn it to face its heading.
             let rotation = isFlying ? Angle(radians: heading) + .degrees(45) : .zero
             Image(systemName: "paperplane.fill")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(DS.Tint.shared)
                 .rotationEffect(rotation)
                 .scaleEffect(isFlying ? MotionCurve.lerp(1.2, 0.8, flight) : 1)

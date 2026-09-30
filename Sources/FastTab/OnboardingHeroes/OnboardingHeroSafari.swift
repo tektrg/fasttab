@@ -15,13 +15,13 @@ struct OnboardingHeroSafari: View {
     }
 
     private enum Layout {
-        static let appIcon = CGRect(x: 10, y: 34, width: 28, height: 28)
+        static let appIcon = CGRect(x: 6, y: 30, width: 34, height: 34)
         static let window = CGRect(x: 76, y: 4, width: 118, height: 88)
-        static let rowTops: [Double] = [20, 40, 60]
-        static let rowHeight = 18.0
-        static let slotIconSize = 11.0
+        static let rowTops: [Double] = [20, 41, 62]
+        static let rowHeight = 20.0
+        static let slotIconSize = 13.0
         static let dragControl = CGPoint(x: 58, y: -6)
-        static let checkCenter = CGPoint(x: 186, y: 83)
+        static let checkCenter = CGPoint(x: 58, y: 47)
     }
 
     /// Where the dragged icon lands: the empty (last) row's icon spot.
@@ -68,7 +68,7 @@ struct OnboardingHeroSafari: View {
             if state == .teaching {
                 ghost(beats: beats)
             }
-            MotionCheckmark(diameter: 14, progress: beats.check)
+            MotionCheckmark(diameter: 18, progress: beats.check)
                 .position(Layout.checkCenter)
         }
     }
@@ -100,15 +100,15 @@ struct OnboardingHeroSafari: View {
     private static func titleBar(unlock: Double) -> some View {
         HStack(spacing: 2.5) {
             ForEach([Color.red, .yellow, .green], id: \.self) { light in
-                Circle().fill(light.opacity(0.8)).frame(width: 4, height: 4)
+                Circle().fill(light.opacity(0.8)).frame(width: 5, height: 5)
             }
             Text("Full Disk Access")
-                .font(.system(size: 6.5, weight: .semibold))
+                .font(.system(size: 7, weight: .bold, design: .rounded))
                 .foregroundStyle(.secondary)
                 .padding(.leading, 3)
             Spacer(minLength: 0)
             Image(systemName: unlock > 0.5 ? "lock.open.fill" : "lock.fill")
-                .font(.system(size: 7, weight: .semibold))
+                .font(.system(size: 8, weight: .semibold))
                 .foregroundStyle(unlock > 0.5 ? Color.green : Color.secondary)
                 .scaleEffect(1 + 0.25 * sin(unlock * .pi))
         }
@@ -123,7 +123,7 @@ struct OnboardingHeroSafari: View {
         HStack(spacing: 5) {
             if isFastTabRow {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .strokeBorder(HeroInk.outline, style: StrokeStyle(lineWidth: 1, dash: HeroInk.dash))
                         .opacity(1 - beats.drop)
                     HeroAppIcon(size: Layout.slotIconSize)
@@ -133,7 +133,7 @@ struct OnboardingHeroSafari: View {
                 .frame(width: Layout.slotIconSize, height: Layout.slotIconSize)
                 HeroTextLine(width: 36).opacity(beats.drop)
             } else {
-                RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(index == 0 ? Color.secondary : Color.blue)
                     .frame(width: Layout.slotIconSize, height: Layout.slotIconSize)
                 HeroTextLine(width: index == 0 ? 40 : 32)
@@ -159,10 +159,10 @@ struct HeroToggle: View {
                 Circle()
                     .fill(.white)
                     .shadow(color: .black.opacity(0.25), radius: 0.5)
-                    .frame(width: 6, height: 6)
+                    .frame(width: 8, height: 8)
                     .padding(1)
-                    .offset(x: 7 * isOn)
+                    .offset(x: 8 * isOn)
             }
-            .frame(width: 15, height: 8)
+            .frame(width: 18, height: 10)
     }
 }

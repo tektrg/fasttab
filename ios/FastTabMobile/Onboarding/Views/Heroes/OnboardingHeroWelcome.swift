@@ -13,18 +13,18 @@ struct OnboardingHeroWelcome: View {
         ("doc.plaintext.fill", DS.Tint.recent),
         ("paperplane.fill", DS.Tint.shared),
     ]
-    private static let cardSize = CGSize(width: 40, height: 24)
+    private static let cardSize = CGSize(width: 44, height: 27)
 
     var body: some View {
         OnboardingHeroStage(playback: Self.playback) { time in
             ZStack(alignment: .topLeading) {
-                HeroMac(width: 62, height: 38) {
+                HeroMac(width: 70, height: 44) {
                     HStack(spacing: 3) {
-                        ForEach(0..<3, id: \.self) { _ in HeroTextLine(width: 12, height: 4) }
+                        ForEach(0..<3, id: \.self) { _ in HeroTextLine(width: 14, height: 5) }
                     }
                     .frame(maxHeight: .infinity, alignment: .top)
                 }
-                .heroPlaced(x: 2, y: 10, width: 76, height: 43)
+                .heroPlaced(x: 0, y: 8, width: 84, height: 51)
 
                 HeroPhone(width: 52, height: 112)
                     .heroPlaced(x: 120, y: 4, width: 52, height: 112)
@@ -43,9 +43,9 @@ struct OnboardingHeroWelcome: View {
         let tintAmount = MotionCurve.progress(time, start: 1.6 + 0.3 * offset, duration: 0.35)
 
         let scale = MotionCurve.lerp(0.6, 1, flow)
-        let left = MotionCurve.lerp(12 + 6 * offset, 126, flow)
+        let left = MotionCurve.lerp(12 + 6 * offset, 124, flow)
         let stackTop = 44 + 3 * offset
-        let fanTop = 16 + 30 * offset
+        let fanTop = 14 + 32 * offset
         // A gentle arc on the way over, like the card is carried.
         let lift = sin(.pi * flow) * 14
         let top = MotionCurve.lerp(MotionCurve.lerp(12 + 5 * offset, stackTop, flow), fanTop, fan) - lift
@@ -66,15 +66,15 @@ struct HeroTabCard: View {
     let tintAmount: Double
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
         HStack(spacing: 4) {
             Image(systemName: symbol)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(tint)
                 .opacity(tintAmount)
             VStack(alignment: .leading, spacing: 3) {
-                HeroTextLine(width: 18)
-                HeroTextLine(width: 12)
+                HeroTextLine(width: 19)
+                HeroTextLine(width: 13)
             }
             Spacer(minLength: 0)
         }

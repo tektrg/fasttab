@@ -15,15 +15,15 @@ struct OnboardingHeroExtension: View {
     }
 
     private enum Layout {
-        static let list = CGRect(x: 30, y: 6, width: 124, height: 84)
-        static let rowTop = 20.0
-        static let rowPitch = 15.0
-        static let socket = CGRect(x: 154, y: 32, width: 9, height: 18)
-        static let pieceSize = 20.0
-        static let pieceParkedX = 170.0
-        static let pieceSnappedX = 151.0
-        static let pieceY = 31.0
-        static let checkCenter = CGPoint(x: 169, y: 65)
+        static let list = CGRect(x: 22, y: 4, width: 130, height: 88)
+        static let rowTop = 21.0
+        static let rowPitch = 16.0
+        static let socket = CGRect(x: 153, y: 30, width: 11, height: 22)
+        static let pieceSize = 24.0
+        static let pieceParkedX = 172.0
+        static let pieceSnappedX = 150.0
+        static let pieceY = 29.0
+        static let checkCenter = CGPoint(x: 172, y: 70)
     }
 
     /// One Recents row and where it sits: guessed, true order, then with
@@ -75,11 +75,11 @@ struct OnboardingHeroExtension: View {
         return ZStack(alignment: .topLeading) {
             list(beats: beats)
                 .heroPlaced(in: Layout.list)
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .strokeBorder(HeroInk.outline, style: StrokeStyle(lineWidth: 1, dash: HeroInk.dash))
                 .heroPlaced(in: Layout.socket)
             Image(systemName: "puzzlepiece.extension.fill")
-                .font(.system(size: 16, weight: .regular))
+                .font(.system(size: 20, weight: .regular))
                 .foregroundStyle(Color.accentColor)
                 .offset(x: (1 - beats.pieceArrival) * 16, y: beats.bobOffset)
                 .opacity(beats.pieceArrival * beats.fade)
@@ -89,7 +89,7 @@ struct OnboardingHeroExtension: View {
                     width: Layout.pieceSize,
                     height: Layout.pieceSize
                 )
-            MotionCheckmark(diameter: 14, progress: beats.check)
+            MotionCheckmark(diameter: 18, progress: beats.check)
                 .position(Layout.checkCenter)
         }
     }
@@ -98,7 +98,7 @@ struct OnboardingHeroExtension: View {
         ZStack(alignment: .topLeading) {
             header(isLive: beats.reorder > 0.5)
                 .padding(.horizontal, 5)
-                .frame(height: 16)
+                .frame(height: 18)
             ForEach(rows.indices, id: \.self) { index in
                 let row = rows[index]
                 let slot = MotionCurve.lerp(
@@ -106,11 +106,11 @@ struct OnboardingHeroExtension: View {
                     Double(row.playingFirstSlot),
                     beats.rise
                 )
-                HeroTabRow(favicon: row.favicon, titleWidth: row.titleWidth, highlight: row.isPlaying ? beats.rise : 0)
+                HeroTabRow(favicon: row.favicon, titleWidth: row.titleWidth, highlight: row.isPlaying ? beats.rise : 0, height: 15)
                     .overlay(alignment: .trailing) {
                         if row.isPlaying {
                             Image(systemName: "speaker.wave.2.fill")
-                                .font(.system(size: 7))
+                                .font(.system(size: 8))
                                 .foregroundStyle(Color.accentColor)
                                 .padding(.trailing, 6)
                         }

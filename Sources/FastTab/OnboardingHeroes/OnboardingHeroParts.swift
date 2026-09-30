@@ -14,6 +14,9 @@ enum HeroInk {
     static let outlineWidth: CGFloat = 1
     /// Dash pattern for "goes here" outlines.
     static let dash: [CGFloat] = [3, 2]
+    /// Chibi corner radii: soft and round everywhere.
+    static let cardRadius = 6.0
+    static let panelRadius = 10.0
     /// Tab favicons in the mini lists: blue, orange, purple, green.
     static let favicons: [Color] = [.blue, .orange, .purple, .green]
 }
@@ -21,7 +24,7 @@ enum HeroInk {
 /// A placeholder line of text.
 struct HeroTextLine: View {
     var width: Double
-    var height: Double = 3
+    var height: Double = 4
     var color: Color = HeroInk.textLine
 
     var body: some View {
@@ -36,20 +39,20 @@ struct HeroTabRow: View {
     var titleWidth: Double
     var titleColor: Color = HeroInk.textLine
     var highlight: Double = 0
-    var height: Double = 14
+    var height: Double = 16
 
     var body: some View {
         HStack(spacing: 5) {
-            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
                 .fill(favicon)
-                .frame(width: 7, height: 7)
+                .frame(width: 9, height: 9)
             HeroTextLine(width: titleWidth, color: titleColor)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 5)
         .frame(height: height)
         .background(
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
+            Capsule(style: .continuous)
                 .fill(Color.accentColor.opacity(HeroInk.highlightOpacity * highlight))
         )
     }
@@ -63,21 +66,21 @@ struct HeroSearchField: View {
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 7, weight: .semibold))
+                .font(.system(size: 8, weight: .bold))
                 .foregroundStyle(.secondary)
             if !query.isEmpty {
                 Text(query)
-                    .font(.system(size: 8, weight: .medium))
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
                     .foregroundStyle(.primary)
                     .fixedSize()
             }
             if showsCaret {
-                Rectangle().fill(Color.accentColor).frame(width: 1, height: 8)
+                Capsule().fill(Color.accentColor).frame(width: 1.5, height: 9)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 5)
-        .frame(height: 14)
+        .padding(.horizontal, 6)
+        .frame(height: 16)
     }
 }
 
@@ -90,17 +93,17 @@ struct HeroCommandBar: View {
     /// outward into the edge ("notch style"), like the real bar.
     var attachedEdge: Edge? = nil
 
-    private static let titleWidths: [Double] = [46, 34, 40]
+    private static let titleWidths: [Double] = [44, 32, 38]
     private static let panelFill = Color.black
     private static let searchFill = Color(red: 0.2, green: 0.17, blue: 0.1)
     private static let cardFill = Color.white.opacity(0.07)
     private static let titleInk = Color.white.opacity(0.75)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             HeroSearchField()
-                .frame(height: 13)
-                .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Self.searchFill))
+                .frame(height: 15)
+                .background(Capsule(style: .continuous).fill(Self.searchFill))
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(0..<rowCount, id: \.self) { index in
                     HeroTabRow(
@@ -108,15 +111,15 @@ struct HeroCommandBar: View {
                         titleWidth: Self.titleWidths[index % Self.titleWidths.count],
                         titleColor: Self.titleInk,
                         highlight: index == 0 ? 1 : 0,
-                        height: 11
+                        height: 12
                     )
                 }
                 Spacer(minLength: 0)
             }
-            .padding(1.5)
-            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Self.cardFill))
+            .padding(2)
+            .background(RoundedRectangle(cornerRadius: HeroInk.cardRadius, style: .continuous).fill(Self.cardFill))
         }
-        .padding(3)
+        .padding(4)
         .background(
             HeroNotchPanelShape(attachedEdge: attachedEdge)
                 .fill(Self.panelFill)
@@ -131,8 +134,8 @@ struct HeroCommandBar: View {
 /// The flares draw just outside the frame, along the edge.
 struct HeroNotchPanelShape: Shape {
     var attachedEdge: Edge?
-    var radius: Double = 8
-    var flare: Double = 4
+    var radius: Double = 12
+    var flare: Double = 6
 
     func path(in rect: CGRect) -> Path {
         guard let attachedEdge else {
@@ -168,7 +171,7 @@ struct HeroNotchPanelShape: Shape {
 
 extension View {
     /// Window-like panel: bar fill, hairline outline, soft shadow.
-    func heroPanel(cornerRadius: Double = 7) -> some View {
+    func heroPanel(cornerRadius: Double = HeroInk.panelRadius) -> some View {
         background(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(HeroInk.barFill)
@@ -187,20 +190,22 @@ struct HeroKeycap: View {
     var press: Double = 0
 
     /// Wider caps for named keys ("Space", "Return").
+    static let height = 24.0
+
     static func width(for label: String) -> Double {
-        label.count > 1 ? max(34, Double(label.count) * 7 + 8) : 20
+        label.count > 1 ? max(40, Double(label.count) * 8 + 10) : 24
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
         Text(label)
-            .font(.system(size: label.count > 1 ? 8 : 10, weight: .semibold))
+            .font(.system(size: label.count > 1 ? 9 : 12, weight: .bold, design: .rounded))
             .foregroundStyle(press > 0.5 ? Color.accentColor : .primary)
-            .frame(width: Self.width(for: label), height: 20)
+            .frame(width: Self.width(for: label), height: Self.height)
             .background(shape.fill(HeroInk.barFill))
             .overlay(shape.strokeBorder(HeroInk.outline, lineWidth: HeroInk.outlineWidth))
             .overlay(shape.strokeBorder(Color.accentColor.opacity(press), lineWidth: 1.5))
-            .shadow(color: .black.opacity(0.2 * (1 - press)), radius: 0, y: 1.5 * (1 - press))
+            .shadow(color: .black.opacity(0.2 * (1 - press)), radius: 0, y: 2 * (1 - press))
             .scaleEffect(1 - 0.06 * press)
             .offset(y: 1.5 * press)
     }
@@ -232,12 +237,14 @@ struct HeroKeycapRow: View {
 
 /// The mouse pointer, tip at the view's top-left.
 struct HeroPointer: View {
+    static let size = CGSize(width: 14, height: 17)
+
     var body: some View {
         Image(systemName: "cursorarrow")
-            .font(.system(size: 12, weight: .regular))
+            .font(.system(size: 14, weight: .medium))
             .foregroundStyle(.primary)
-            .shadow(color: Color(nsColor: .windowBackgroundColor), radius: 0.8)
-            .frame(width: 12, height: 14, alignment: .topLeading)
+            .shadow(color: Color(nsColor: .windowBackgroundColor), radius: 1)
+            .frame(width: Self.size.width, height: Self.size.height, alignment: .topLeading)
     }
 }
 

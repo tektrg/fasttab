@@ -18,7 +18,7 @@ struct OnboardingHeroTrigger: View {
     private enum Layout {
         static let screen = CGRect(x: 25, y: 4, width: 150, height: 88)
         static let menuBarHeight = 6.0
-        static let notchSize = CGSize(width: 24, height: 5)
+        static let notchSize = CGSize(width: 28, height: 6)
         static let pointerStart = CGPoint(x: 80, y: 58)
         static let glideStart = 0.3
         static let glideDuration = 0.8
@@ -29,9 +29,9 @@ struct OnboardingHeroTrigger: View {
     static func frame(state: TriggerHeroState, time: Double) -> some View {
         ZStack(alignment: .topLeading) {
             screen(state: state, time: time)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(HeroInk.outline, lineWidth: HeroInk.outlineWidth)
                 )
                 .heroPlaced(in: Layout.screen)
@@ -49,8 +49,8 @@ struct OnboardingHeroTrigger: View {
                 HeroShortcutPress(
                     keycaps: keycaps,
                     time: time,
-                    barFrame: CGRect(x: 38, y: 10, width: 74, height: 44),
-                    keysCenter: CGPoint(x: Layout.screen.width / 2, y: 71),
+                    barFrame: CGRect(x: 33, y: 9, width: 84, height: 48),
+                    keysCenter: CGPoint(x: Layout.screen.width / 2, y: 72),
                     keysMaxWidth: Layout.screen.width - 8
                 )
             case .hover(let style):
@@ -76,14 +76,14 @@ struct OnboardingHeroTrigger: View {
         let width = Layout.screen.width
         switch style {
         case .leftEdge:
-            return HotSpot(pill: CGRect(x: 0, y: 30, width: 5, height: 26), pointerTarget: CGPoint(x: 3, y: 40),
-                           bar: CGRect(x: 0, y: 16, width: 72, height: 60), barAnchor: .leading, barEdge: .leading, barRows: 3, growsVertically: false)
+            return HotSpot(pill: CGRect(x: 0, y: 28, width: 6, height: 32), pointerTarget: CGPoint(x: 3, y: 40),
+                           bar: CGRect(x: 0, y: 8, width: 84, height: 72), barAnchor: .leading, barEdge: .leading, barRows: 3, growsVertically: false)
         case .rightEdge:
-            return HotSpot(pill: CGRect(x: width - 5, y: 30, width: 5, height: 26), pointerTarget: CGPoint(x: width - 6, y: 40),
-                           bar: CGRect(x: width - 72, y: 16, width: 72, height: 60), barAnchor: .trailing, barEdge: .trailing, barRows: 3, growsVertically: false)
+            return HotSpot(pill: CGRect(x: width - 6, y: 28, width: 6, height: 32), pointerTarget: CGPoint(x: width - 7, y: 40),
+                           bar: CGRect(x: width - 84, y: 8, width: 84, height: 72), barAnchor: .trailing, barEdge: .trailing, barRows: 3, growsVertically: false)
         case .notch, .off:
-            return HotSpot(pill: CGRect(x: (width - 30) / 2, y: 0, width: 30, height: 9), pointerTarget: CGPoint(x: width / 2 - 1, y: 6),
-                           bar: CGRect(x: 28, y: 0, width: 94, height: 50), barAnchor: .top, barEdge: .top, barRows: 2, growsVertically: true)
+            return HotSpot(pill: CGRect(x: (width - 36) / 2, y: 0, width: 36, height: 10), pointerTarget: CGPoint(x: width / 2 - 1, y: 6),
+                           bar: CGRect(x: (width - 112) / 2, y: 0, width: 112, height: 60), barAnchor: .top, barEdge: .top, barRows: 2, growsVertically: true)
         }
     }
 
@@ -106,7 +106,7 @@ struct OnboardingHeroTrigger: View {
             .opacity(min(peek * 2, 1) * fade)
             .heroPlaced(in: spot.pill)
         if style == .notch {
-            UnevenRoundedRectangle(bottomLeadingRadius: 2.5, bottomTrailingRadius: 2.5, style: .continuous)
+            UnevenRoundedRectangle(bottomLeadingRadius: 3.5, bottomTrailingRadius: 3.5, style: .continuous)
                 .fill(Color.black)
                 .heroPlaced(x: (Layout.screen.width - Layout.notchSize.width) / 2, y: 0,
                             width: Layout.notchSize.width, height: Layout.notchSize.height)
@@ -117,7 +117,7 @@ struct OnboardingHeroTrigger: View {
             .heroPlaced(in: spot.bar)
         HeroPointer()
             .opacity(min(MotionCurve.progress(time, start: 0, duration: 0.25) * fade, 1))
-            .heroPlaced(x: pointer.x, y: pointer.y, width: 12, height: 14)
+            .heroPlaced(x: pointer.x, y: pointer.y, width: HeroPointer.size.width, height: HeroPointer.size.height)
     }
 }
 

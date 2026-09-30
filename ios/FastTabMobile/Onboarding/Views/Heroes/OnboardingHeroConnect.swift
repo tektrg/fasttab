@@ -8,15 +8,15 @@ struct OnboardingHeroConnect: View {
     let state: ConnectHeroState
 
     private enum Layout {
-        static let phoneSize = CGSize(width: 36, height: 72)
-        static let macSize = CGSize(width: 54, height: 34)
+        static let phoneSize = CGSize(width: 42, height: 84)
+        static let macSize = CGSize(width: 62, height: 40)
         static let centerY = 60.0
         static let phoneSearchingX = 90.0
         static let phoneAsideX = 48.0
         static let macRestX = 134.0
         static let macOffstageX = 214.0
-        static let linkStartX = 68.0
-        static let linkEndX = 106.0
+        static let linkStartX = 72.0
+        static let linkEndX = 100.0
         static let ringPeriod = 2.4
         static let ringCount = 3
     }
@@ -32,7 +32,7 @@ struct OnboardingHeroConnect: View {
                 HeroPhone(width: Layout.phoneSize.width, height: Layout.phoneSize.height)
                     .position(x: phoneX(time: time), y: Layout.centerY)
                 if state == .found {
-                    MotionCheckmark(diameter: 16, tint: DS.Tint.success)
+                    MotionCheckmark(diameter: 20, tint: DS.Tint.success)
                         .scaleEffect(MotionCurve.progress(time, start: 1.3, duration: 0.4, ease: .spring))
                         .position(x: (Layout.linkStartX + Layout.linkEndX) / 2, y: Layout.centerY)
                 }
@@ -126,7 +126,7 @@ struct OnboardingHeroConnect: View {
         return HeroMac(width: Layout.macSize.width, height: Layout.macSize.height, look: look) {
             if state == .notFound {
                 Text("?")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .font(.system(size: 19, weight: .heavy, design: .rounded))
                     .foregroundStyle(.secondary)
                     .scaleEffect(MotionCurve.progress(time, start: 1.0, duration: 0.4, ease: .spring))
             }
@@ -134,9 +134,9 @@ struct OnboardingHeroConnect: View {
         .overlay(alignment: .topTrailing) {
             if state == .macOffline {
                 Image(systemName: "moon.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .offset(x: 8, y: -9)
+                    .offset(x: 9, y: -10)
                     .opacity(MotionCurve.progress(time, start: 0.7, duration: 0.4))
             }
         }

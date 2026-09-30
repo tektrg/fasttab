@@ -14,7 +14,7 @@ struct OnboardingHeroDone: View {
         ("ellipsis.circle", DS.Tint.action),
     ]
     private static let sealCenter = CGPoint(x: 90, y: 38)
-    private static let sealRadius = 26.0
+    private static let sealRadius = 30.0
     private static let firstTabLitAt = 1.3
     private static let tabLitSpacing = 0.4
     /// Built once: 145 trig samples are too many to redo every frame.
@@ -26,7 +26,7 @@ struct OnboardingHeroDone: View {
             ZStack(alignment: .topLeading) {
                 seal(time: time)
                 tabBar(time: time)
-                    .heroPlaced(x: 14, y: 78, width: 152, height: 34)
+                    .heroPlaced(x: 10, y: 78, width: 160, height: 36)
             }
             .opacity(MotionCurve.loopFade(time, playback: Self.playback))
         }
@@ -39,16 +39,16 @@ struct OnboardingHeroDone: View {
             Self.sealShape.fill(DS.Tint.success.opacity(0.14 * ring))
             Self.sealShape
                 .trim(from: 0, to: ring)
-                .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
             Self.checkShape
                 .trim(from: 0, to: check)
-                .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 3.5, lineCap: .round, lineJoin: .round))
+                .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
         }
     }
 
     private func tabBar(time: Double) -> some View {
         let rise = MotionCurve.progress(time, start: 0.9, duration: 0.4, ease: .spring)
-        let bar = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let bar = Capsule(style: .continuous)
         return HStack(spacing: 0) {
             ForEach(Self.tabs.indices, id: \.self) { index in
                 tabItem(index, time: time)
@@ -57,7 +57,7 @@ struct OnboardingHeroDone: View {
         }
         .frame(maxHeight: .infinity)
         .background(bar.fill(DS.Palette.surface))
-        .overlay(bar.strokeBorder(HeroInk.deviceOutline.opacity(0.6), lineWidth: 1))
+        .overlay(bar.strokeBorder(HeroInk.deviceOutline.opacity(0.6), lineWidth: 1.5))
         .offset(y: (1 - rise) * 14)
         .opacity(min(rise, 1))
     }
@@ -67,12 +67,12 @@ struct OnboardingHeroDone: View {
         let start = Self.firstTabLitAt + Self.tabLitSpacing * Double(index)
         let glow = sin(.pi * MotionCurve.progress(time, start: start, duration: Self.tabLitSpacing, ease: .linear))
         let spec = Self.tabs[index]
-        let symbol = Image(systemName: spec.symbol).font(.system(size: 14, weight: .semibold))
+        let symbol = Image(systemName: spec.symbol).font(.system(size: 16, weight: .bold))
         return VStack(spacing: 3) {
             symbol
                 .foregroundStyle(.secondary)
                 .overlay(symbol.foregroundStyle(spec.tint).opacity(glow))
-            Circle().fill(spec.tint).frame(width: 4, height: 4).opacity(glow)
+            Circle().fill(spec.tint).frame(width: 5, height: 5).opacity(glow)
         }
         .offset(y: 3 - 3 * glow)
     }
@@ -84,7 +84,7 @@ struct OnboardingHeroDone: View {
             let bumps = 12.0
             for step in 0...samples {
                 let angle = Double(step) / Double(samples) * 2 * .pi - .pi / 2
-                let wobble = radius + 2.2 * cos(bumps * angle)
+                let wobble = radius + 2.6 * cos(bumps * angle)
                 let point = CGPoint(x: center.x + wobble * cos(angle), y: center.y + wobble * sin(angle))
                 if step == 0 { path.move(to: point) } else { path.addLine(to: point) }
             }
@@ -94,9 +94,9 @@ struct OnboardingHeroDone: View {
 
     private static func checkPath(center: CGPoint) -> Path {
         Path { path in
-            path.move(to: CGPoint(x: center.x - 10, y: center.y + 1))
-            path.addLine(to: CGPoint(x: center.x - 3, y: center.y + 8))
-            path.addLine(to: CGPoint(x: center.x + 11, y: center.y - 8))
+            path.move(to: CGPoint(x: center.x - 12, y: center.y + 1))
+            path.addLine(to: CGPoint(x: center.x - 3.5, y: center.y + 9.5))
+            path.addLine(to: CGPoint(x: center.x + 13, y: center.y - 9.5))
         }
     }
 }

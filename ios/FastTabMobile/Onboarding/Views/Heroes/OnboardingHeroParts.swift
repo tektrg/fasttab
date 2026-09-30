@@ -7,7 +7,7 @@ enum HeroInk {
     static let deviceOutline = Color.primary.opacity(0.32)
     static let textLine = Color.primary.opacity(0.18)
     static let faintFill = Color.primary.opacity(0.06)
-    static let outlineWidth: CGFloat = 1.5
+    static let outlineWidth: CGFloat = 2
     /// Dash pattern for "not here yet" outlines.
     static let dash: [CGFloat] = [4, 3]
 }
@@ -32,19 +32,19 @@ struct HeroMac<Screen: View>: View {
     @ViewBuilder var screen: () -> Screen
 
     var body: some View {
-        VStack(spacing: 1) {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
+        VStack(spacing: 1.5) {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(look == .dashed ? Color.clear : HeroInk.deviceBody)
                 .overlay(screen().padding(3))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .strokeBorder(HeroInk.deviceOutline, style: look.stroke)
                 )
                 .frame(width: width, height: height)
             Capsule()
                 .strokeBorder(HeroInk.deviceOutline, style: look.stroke)
                 .background(Capsule().fill(look == .dashed ? Color.clear : HeroInk.deviceOutline.opacity(0.4)))
-                .frame(width: width * 1.2, height: 4)
+                .frame(width: width * 1.2, height: 5)
         }
         .opacity(look.opacity)
     }
@@ -63,14 +63,14 @@ struct HeroPhone<Screen: View>: View {
     @ViewBuilder var screen: () -> Screen
 
     var body: some View {
-        let corner = min(width * 0.22, 12)
+        let corner = min(width * 0.3, 18)
         RoundedRectangle(cornerRadius: corner, style: .continuous)
             .fill(HeroInk.deviceBody)
             .overlay(screen().clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous)))
             .overlay(alignment: .top) {
                 Capsule()
                     .fill(HeroInk.deviceOutline)
-                    .frame(width: min(width * 0.3, 14), height: min(max(3, width * 0.07), 4))
+                    .frame(width: min(width * 0.32, 16), height: min(max(4, width * 0.08), 5))
                     .padding(.top, width * 0.08)
             }
             .overlay(
@@ -90,7 +90,7 @@ extension HeroPhone where Screen == EmptyView {
 /// A placeholder line of text.
 struct HeroTextLine: View {
     var width: Double
-    var height: Double = 3
+    var height: Double = 4
     var color: Color = HeroInk.textLine
 
     var body: some View {

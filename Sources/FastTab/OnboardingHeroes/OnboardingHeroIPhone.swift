@@ -15,16 +15,16 @@ struct OnboardingHeroIPhone: View {
     }
 
     private enum Layout {
-        static let macScreen = CGRect(x: 8, y: 24, width: 70, height: 44)
-        static let macBase = CGRect(x: 2, y: 68, width: 82, height: 5)
-        static let phone = CGRect(x: 150, y: 10, width: 38, height: 78)
-        static let cloud = CGRect(x: 100, y: 4, width: 26, height: 18)
-        static let cardSize = CGSize(width: 26, height: 20)
+        static let macScreen = CGRect(x: 4, y: 20, width: 80, height: 50)
+        static let macBase = CGRect(x: 0, y: 70, width: 88, height: 6)
+        static let phone = CGRect(x: 148, y: 4, width: 44, height: 88)
+        static let cloud = CGRect(x: 99, y: 2, width: 30, height: 22)
+        static let cardSize = CGSize(width: 30, height: 23)
         static let flightControl = CGPoint(x: 113, y: -12)
-        static let linkStart = CGPoint(x: 80, y: 48)
-        static let linkEnd = CGPoint(x: 148, y: 48)
-        static let linkControl = CGPoint(x: 114, y: 26)
-        static let checkCenter = CGPoint(x: 114, y: 37)
+        static let linkStart = CGPoint(x: 88, y: 46)
+        static let linkEnd = CGPoint(x: 146, y: 46)
+        static let linkControl = CGPoint(x: 117, y: 24)
+        static let checkCenter = CGPoint(x: 117, y: 36)
     }
 
     private struct Beats {
@@ -60,7 +60,7 @@ struct OnboardingHeroIPhone: View {
             mac(glow: beats.macGlow * beats.fade)
             phone(readerPage: beats.settle * (state == .connected ? 1 : beats.fade))
             Image(systemName: "icloud.fill")
-                .font(.system(size: 18))
+                .font(.system(size: 22))
                 .foregroundStyle(Color.secondary.opacity(0.55))
                 .heroPlaced(in: Layout.cloud)
             if state == .teaching {
@@ -68,7 +68,7 @@ struct OnboardingHeroIPhone: View {
                 plane(beats: beats)
             } else {
                 linkLine(progress: beats.link)
-                MotionCheckmark(diameter: 16, progress: beats.check)
+                MotionCheckmark(diameter: 20, progress: beats.check)
                     .position(Layout.checkCenter)
             }
         }
@@ -76,18 +76,18 @@ struct OnboardingHeroIPhone: View {
 
     private static func mac(glow: Double) -> some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(HeroInk.barFill)
                 .overlay(alignment: .topLeading) {
                     HStack(spacing: 3) {
-                        RoundedRectangle(cornerRadius: 1.5).fill(HeroInk.textLine).frame(width: 18, height: 5)
-                        RoundedRectangle(cornerRadius: 1.5).fill(HeroInk.textLine).frame(width: 18, height: 5)
+                        Capsule().fill(HeroInk.textLine).frame(width: 20, height: 6)
+                        Capsule().fill(HeroInk.textLine).frame(width: 20, height: 6)
                     }
-                    .padding(5)
+                    .padding(6)
                 }
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .strokeBorder(HeroInk.outline, lineWidth: 1.5)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(HeroInk.outline, lineWidth: 2)
                 )
                 .shadow(color: Color.blue.opacity(0.8 * glow), radius: 6)
                 .heroPlaced(in: Layout.macScreen)
@@ -98,15 +98,15 @@ struct OnboardingHeroIPhone: View {
     }
 
     private static func phone(readerPage: Double) -> some View {
-        RoundedRectangle(cornerRadius: 7, style: .continuous)
+        RoundedRectangle(cornerRadius: 11, style: .continuous)
             .fill(HeroInk.barFill)
-            .overlay(readerPageContent.padding(4).padding(.top, 6).opacity(readerPage))
+            .overlay(readerPageContent.padding(5).padding(.top, 6).opacity(readerPage))
             .overlay(alignment: .top) {
-                Capsule().fill(HeroInk.outline).frame(width: 10, height: 3).padding(.top, 3)
+                Capsule().fill(HeroInk.outline).frame(width: 12, height: 4).padding(.top, 4)
             }
             .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(HeroInk.outline, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(HeroInk.outline, lineWidth: 2)
             )
             .heroPlaced(in: Layout.phone)
     }
@@ -114,9 +114,9 @@ struct OnboardingHeroIPhone: View {
     /// A clean Reader page: teal title, calm text lines.
     private static var readerPageContent: some View {
         VStack(alignment: .leading, spacing: 3.5) {
-            Capsule().fill(Color.teal).frame(width: 22, height: 4)
-            ForEach([26.0, 24, 27, 20, 25, 16], id: \.self) { width in
-                HeroTextLine(width: width, height: 2)
+            Capsule().fill(Color.teal).frame(width: 24, height: 5)
+            ForEach([30.0, 27, 31, 22, 28, 18], id: \.self) { width in
+                HeroTextLine(width: width, height: 3)
             }
             Spacer(minLength: 0)
         }
@@ -131,13 +131,13 @@ struct OnboardingHeroIPhone: View {
         let landing = CGPoint(x: Layout.phone.midX, y: Layout.phone.midY)
         let point = MotionPath.quadBezier(lifted, control: Layout.flightControl, landing, amount: beats.flight)
         return VStack(alignment: .leading, spacing: 2) {
-            Capsule().fill(Color.teal.opacity(beats.flight)).frame(width: 12, height: 2.5)
-            HeroTextLine(width: 18, height: 2)
-            HeroTextLine(width: 12, height: 2)
+            Capsule().fill(Color.teal.opacity(beats.flight)).frame(width: 14, height: 3.5)
+            HeroTextLine(width: 20, height: 3)
+            HeroTextLine(width: 14, height: 3)
         }
         .padding(3)
         .frame(width: Layout.cardSize.width, height: Layout.cardSize.height, alignment: .topLeading)
-        .heroPanel(cornerRadius: 3)
+        .heroPanel(cornerRadius: 6)
         .scaleEffect(MotionCurve.lerp(1, 1.25, beats.settle))
         .opacity(min(beats.lift * 3, 1) * (1 - beats.settle) * beats.fade)
         .position(point)
@@ -153,7 +153,7 @@ struct OnboardingHeroIPhone: View {
         let isFlying = beats.planeFlight > 0 && beats.planeFlight < 1
         // The symbol points up-right (-45°); turn it to face its heading.
         return Image(systemName: "paperplane.fill")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(Color.blue)
             .rotationEffect(Angle(radians: heading) + .degrees(45))
             .opacity(isFlying ? beats.fade : 0)

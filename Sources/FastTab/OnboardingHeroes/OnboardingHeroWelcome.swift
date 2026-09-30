@@ -12,11 +12,11 @@ struct OnboardingHeroWelcome: View {
     }
 
     private enum Layout {
-        static let iconOrigin = CGPoint(x: 6, y: 8)
-        static let iconSize = 30.0
+        static let iconOrigin = CGPoint(x: 3, y: 6)
+        static let iconSize = 36.0
         static let barOrigin = CGPoint(x: 44, y: 4)
         static let barSize = CGSize(width: 152, height: 88)
-        static let rowTop = 20.0
+        static let rowTop = 22.0
         static let rowPitch = 16.0
         static let query = "git"
         static let firstKeystroke = 1.3
@@ -68,7 +68,7 @@ struct OnboardingHeroWelcome: View {
         return ZStack(alignment: .topLeading) {
             HeroSearchField(query: typedQuery(at: time), showsCaret: time >= 0.8)
                 .padding(.horizontal, 3)
-                .offset(y: 3)
+                .offset(y: 4)
             ForEach(tabs.indices, id: \.self) { index in
                 let tab = tabs[index]
                 let cascade = MotionCurve.progress(time, start: 0.7 + 0.06 * Double(index), duration: 0.3, ease: .easeOut)
@@ -79,7 +79,8 @@ struct OnboardingHeroWelcome: View {
                 HeroTabRow(
                     favicon: tab.favicon,
                     titleWidth: tab.titleWidth,
-                    highlight: isTopMatch ? min(select + max(flash, 0) * 0.8, 1.6) : 0
+                    highlight: isTopMatch ? min(select + max(flash, 0) * 0.8, 1.6) : 0,
+                    height: 15
                 )
                 .padding(.horizontal, 3)
                 .offset(x: (1 - cascade) * -8, y: tab.matchesQuery ? MotionCurve.lerp(startY, filteredY, filter) : startY)

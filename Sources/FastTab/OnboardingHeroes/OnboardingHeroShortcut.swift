@@ -17,7 +17,7 @@ struct OnboardingHeroShortcut: View {
         HeroShortcutPress(
             keycaps: keycaps,
             time: time,
-            barFrame: CGRect(x: 50, y: 2, width: 100, height: 50),
+            barFrame: CGRect(x: 40, y: 1, width: 120, height: 56),
             keysCenter: CGPoint(x: HeroCanvas.size.width / 2, y: 74),
             keysMaxWidth: HeroCanvas.size.width - 8,
             showsRipple: true
@@ -66,8 +66,8 @@ struct HeroShortcutPress: View {
     private var ripple: some View {
         let spread = MotionCurve.progress(time, start: popTime, duration: 0.6, ease: .easeOut)
         return Capsule()
-            .strokeBorder(Color.accentColor, lineWidth: 1.5)
-            .frame(width: MotionCurve.lerp(40, 110, spread), height: MotionCurve.lerp(20, 40, spread))
+            .strokeBorder(Color.accentColor, lineWidth: 2)
+            .frame(width: MotionCurve.lerp(48, 130, spread), height: MotionCurve.lerp(24, 44, spread))
             .opacity(spread > 0 && spread < 1 ? 1 - spread : 0)
             .position(keysCenter)
     }

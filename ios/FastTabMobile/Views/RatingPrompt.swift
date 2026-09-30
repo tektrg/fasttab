@@ -64,6 +64,9 @@ final class RatingPromptCoordinator: ObservableObject {
 /// Presents the rating popup as a sheet from the app root.
 struct RatingPromptPresenter: ViewModifier {
     @ObservedObject private var coordinator = RatingPromptCoordinator.shared
+    /// At accessibility text sizes the half-height sheet hides the answer buttons
+    /// below the stars, so open it full height.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     func body(content: Content) -> some View {
         content.sheet(isPresented: Binding(
@@ -71,7 +74,7 @@ struct RatingPromptPresenter: ViewModifier {
             set: { if !$0 && coordinator.isPresented { coordinator.finish(.declined) } }
         )) {
             RatingPromptSheet { coordinator.finish($0) }
-                .presentationDetents([.medium, .large])
+                .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
                 .presentationDragIndicator(.visible)
         }
     }

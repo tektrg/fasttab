@@ -282,6 +282,15 @@
   }
   #ft-player-box.ft-visible { display: block; }
   #ft-player-box iframe { width: 100%; height: 100%; border: 0; }
+  #ft-pending-start {
+    display: none;
+    position: absolute; left: 6px; bottom: 6px;
+    font: 600 12px -apple-system, sans-serif;
+    color: #fff; background: rgba(0,0,0,0.7);
+    border-radius: 6px; padding: 2px 6px;
+    pointer-events: none; /* taps reach the iframe's own play button */
+  }
+  #ft-pending-start.ft-visible { display: block; }
   #ft-live-pill {
     display: none;
     position: fixed;
@@ -658,8 +667,9 @@ function ftParagraphIndexAtLine(tops, lineY) {
 // Only on transcript pages (ReaderArticle.youtubeVideoID). Paragraphs and timestamps carry
 // data-start-ms (TranscriptArticleBuilder). While the video plays and we are "following",
 // the current paragraph is highlighted and scrolled near the top; a manual scroll stops
-// following and shows "Back to live". While paused, a manual scroll instead cues the video
-// (still paused) to the paragraph at the reading line, so play continues from there.
+// following and shows "Back to live". While paused, a manual scroll instead picks the
+// paragraph at the reading line as the pending start ("▶ 3:12" on the player); whatever
+// starts playback next (our seek or the iframe's own play button) jumps there on PLAYING.
 (function setUpTranscriptPlayer() {
   var videoID = article.youtubeVideoID;
   if (!videoID) return;
@@ -667,13 +677,12 @@ function ftParagraphIndexAtLine(tops, lineY) {
   var starts = paragraphs.map(function(p) { return parseInt(p.dataset.startMs, 10) || 0; });
   var player = null, playerReady = false, pendingSeekMs = null, pollTimer = null, apiRequested = false;
   var following = true, currentIndex = -1, visible = false;
-  var playing = false, everStarted = false, pendingCueMs = null, holdPauseUntil = 0;
-  var userScrollActive = false, settleTimer = null;
-  var READING_LINE = 0.25, SETTLE_MS = 250, HOLD_PAUSE_MS = 1500;
+  var playing = false, pendingStartMs = null, settleTimer = null, programmaticScrollUntil = 0;
+  var READING_LINE = 0.25, SETTLE_MS = 250, PROGRAMMATIC_SCROLL_MS = 1000;
 
   var box = document.createElement('div');
   box.id = 'ft-player-box';
-  box.innerHTML = '<div id="ft-player"></div>';
+  box.innerHTML = '<div id="ft-player"></div><div id="ft-pending-start"></div>';
   document.body.appendChild(box);
   var pill = document.createElement('button');
   pill.id = 'ft-live-pill';
@@ -694,6 +703,7 @@ function ftParagraphIndexAtLine(tops, lineY) {
     var p = paragraphs[currentIndex];
     if (!p) return;
     var top = p.getBoundingClientRect().top + window.scrollY - 16;
+    programmaticScrollUntil = Date.now() + PROGRAMMATIC_SCROLL_MS; // smooth scroll emits scroll events
     window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   }
 
@@ -738,14 +748,14 @@ function ftParagraphIndexAtLine(tops, lineY) {
           onReady: function() {
             playerReady = true;
             if (pendingSeekMs !== null) { player.seekTo(pendingSeekMs / 1000, true); player.playVideo(); pendingSeekMs = null; }
-            else if (pendingCueMs !== null) { cuePaused(pendingCueMs); }
-            pendingCueMs = null;
           },
           onStateChange: function(e) {
             var S = YT.PlayerState;
-            if (e.data === S.PLAYING && Date.now() < holdPauseUntil) { player.pauseVideo(); return; } // our paused seek auto-started
             playing = e.data === S.PLAYING || e.data === S.BUFFERING;
-            if (e.data === S.PLAYING) { everStarted = true; startPolling(); }
+            if (e.data === S.PLAYING) {
+              if (pendingStartMs !== null) { player.seekTo(pendingStartMs / 1000, true); setPendingStart(null); }
+              startPolling();
+            }
             else {
               stopPolling();
               // CUED reports time 0 before the cue lands; only settled states re-sync the highlight.
@@ -789,33 +799,34 @@ function ftParagraphIndexAtLine(tops, lineY) {
     setVisible(true, true);
     showParagraph(indexAt(ms), false);
     setFollowing(true);
-    holdPauseUntil = 0;
-    pendingCueMs = null;
+    setPendingStart(null);
     if (player && playerReady) { player.seekTo(ms / 1000, true); player.playVideo(); }
     else { pendingSeekMs = ms; }
   }
 
-  // Move the video to ms without playing. Never-started players cue (seekTo would start them).
-  function cuePaused(ms) {
-    if (!player || !playerReady) { pendingCueMs = ms; return; }
-    holdPauseUntil = Date.now() + HOLD_PAUSE_MS;
-    if (everStarted) player.seekTo(ms / 1000, true);
-    else player.cueVideoById({ videoId: videoID, startSeconds: ms / 1000 });
+  var pendingLabel = box.querySelector('#ft-pending-start');
+  function formatClock(ms) {
+    var total = Math.floor(ms / 1000), sec = total % 60;
+    return Math.floor(total / 60) + ':' + (sec < 10 ? '0' : '') + sec;
+  }
+  // Where the next play starts; null = wherever the video already is.
+  function setPendingStart(ms) {
+    pendingStartMs = ms;
+    pendingLabel.textContent = ms === null ? '' : '\u25B6 ' + formatClock(ms);
+    pendingLabel.classList.toggle('ft-visible', ms !== null);
   }
 
-  // A person's scroll settled while paused: jump the video to the paragraph being read.
+  // A person's scroll settled while paused: the next play starts at the paragraph being read.
   function scrollSettled() {
-    clearTimeout(settleTimer); settleTimer = null;
-    if (!userScrollActive) return;
-    userScrollActive = false;
+    settleTimer = null;
     if (!visible || playing || !paragraphs.length) return;
     var tops = paragraphs.map(function(p) { return p.getBoundingClientRect().top; });
     var index = ftParagraphIndexAtLine(tops, window.innerHeight * READING_LINE);
-    if (index === currentIndex) return;
     highlight(index);
     following = true; // play resumes following from here; no scroll, the user is already there
     pill.classList.remove('ft-visible');
-    cuePaused(starts[index]);
+    var videoMs = player && playerReady && player.getCurrentTime ? player.getCurrentTime() * 1000 : 0;
+    setPendingStart(indexAt(videoMs) === index ? null : starts[index]);
   }
 
   document.addEventListener('click', function(e) {
@@ -826,23 +837,19 @@ function ftParagraphIndexAtLine(tops, lineY) {
   });
   pill.addEventListener('click', function() { setFollowing(true); });
 
-  // Only a person's scroll stops following: touch drags and wheel, never our scrollTo.
-  function userScrolled() {
-    if (!visible) return;
-    if (playing) { if (following) setFollowing(false); return; }
-    userScrollActive = true;
-    clearTimeout(settleTimer);
-    settleTimer = setTimeout(scrollSettled, SETTLE_MS);
+  // While playing, only a person's touch drag or wheel stops following (never our scrollTo).
+  function userScrolledWhilePlaying() {
+    if (visible && playing && following) setFollowing(false);
   }
-  // Momentum keeps scrolling after the finger lifts: push the settle out until it stops.
+  window.addEventListener('touchmove', userScrolledWhilePlaying, { passive: true });
+  window.addEventListener('wheel', userScrolledWhilePlaying, { passive: true });
+  // While paused, any scroll that is not ours picks the pending start once it settles.
+  // Plain scroll events, so momentum and any input count; our own scrollTo is skipped by time.
   window.addEventListener('scroll', function() {
-    if (!userScrollActive) return;
+    if (!visible || playing || Date.now() < programmaticScrollUntil) return;
     clearTimeout(settleTimer);
     settleTimer = setTimeout(scrollSettled, SETTLE_MS);
   }, { passive: true });
-  window.addEventListener('scrollend', function() { if (userScrollActive) scrollSettled(); });
-  window.addEventListener('touchmove', userScrolled, { passive: true });
-  window.addEventListener('wheel', userScrolled, { passive: true });
 
   if (article.videoVisible) setVisible(true, false);
 })();

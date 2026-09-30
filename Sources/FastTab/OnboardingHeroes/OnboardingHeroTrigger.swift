@@ -65,6 +65,8 @@ struct OnboardingHeroTrigger: View {
         let pointerTarget: CGPoint
         let bar: CGRect
         let barAnchor: UnitPoint
+        /// The screen edge the bar hangs from (notch-style corners there).
+        let barEdge: Edge
         let barRows: Int
         /// The bar grows out of the pill along this axis.
         let growsVertically: Bool
@@ -75,13 +77,13 @@ struct OnboardingHeroTrigger: View {
         switch style {
         case .leftEdge:
             return HotSpot(pill: CGRect(x: 0, y: 30, width: 5, height: 26), pointerTarget: CGPoint(x: 3, y: 40),
-                           bar: CGRect(x: 2, y: 16, width: 72, height: 60), barAnchor: .leading, barRows: 3, growsVertically: false)
+                           bar: CGRect(x: 0, y: 16, width: 72, height: 60), barAnchor: .leading, barEdge: .leading, barRows: 3, growsVertically: false)
         case .rightEdge:
             return HotSpot(pill: CGRect(x: width - 5, y: 30, width: 5, height: 26), pointerTarget: CGPoint(x: width - 6, y: 40),
-                           bar: CGRect(x: width - 74, y: 16, width: 72, height: 60), barAnchor: .trailing, barRows: 3, growsVertically: false)
+                           bar: CGRect(x: width - 72, y: 16, width: 72, height: 60), barAnchor: .trailing, barEdge: .trailing, barRows: 3, growsVertically: false)
         case .notch, .off:
             return HotSpot(pill: CGRect(x: (width - 30) / 2, y: 0, width: 30, height: 9), pointerTarget: CGPoint(x: width / 2 - 1, y: 6),
-                           bar: CGRect(x: 28, y: 8, width: 94, height: 46), barAnchor: .top, barRows: 2, growsVertically: true)
+                           bar: CGRect(x: 28, y: 0, width: 94, height: 50), barAnchor: .top, barEdge: .top, barRows: 2, growsVertically: true)
         }
     }
 
@@ -109,7 +111,7 @@ struct OnboardingHeroTrigger: View {
                 .heroPlaced(x: (Layout.screen.width - Layout.notchSize.width) / 2, y: 0,
                             width: Layout.notchSize.width, height: Layout.notchSize.height)
         }
-        HeroCommandBar(rowCount: spot.barRows)
+        HeroCommandBar(rowCount: spot.barRows, attachedEdge: spot.barEdge)
             .scaleEffect(x: spot.growsVertically ? 1 : barScale, y: spot.growsVertically ? barScale : 1, anchor: spot.barAnchor)
             .opacity(min(open * 3, 1) * fade)
             .heroPlaced(in: spot.bar)

@@ -86,6 +86,9 @@ struct HeroSearchField: View {
 /// dark card. Always dark, like the real bar, whatever the system appearance.
 struct HeroCommandBar: View {
     var rowCount: Int
+    /// The screen edge the bar hangs from, if any: its two corners there flare
+    /// outward into the edge ("notch style"), like the real bar.
+    var attachedEdge: Edge? = nil
 
     private static let titleWidths: [Double] = [46, 34, 40]
     private static let panelFill = Color.black
@@ -115,11 +118,51 @@ struct HeroCommandBar: View {
         }
         .padding(3)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            HeroNotchPanelShape(attachedEdge: attachedEdge)
                 .fill(Self.panelFill)
                 .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
         )
         .environment(\.colorScheme, .dark)
+    }
+}
+
+/// A rounded panel; on `attachedEdge` its two corners curve outward (reverse
+/// rounded) into that edge instead of inward, so it reads as growing out of it.
+/// The flares draw just outside the frame, along the edge.
+struct HeroNotchPanelShape: Shape {
+    var attachedEdge: Edge?
+    var radius: Double = 8
+    var flare: Double = 4
+
+    func path(in rect: CGRect) -> Path {
+        guard let attachedEdge else {
+            return RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
+        }
+        // Drawn hanging from the top edge in (along, away) coordinates, then
+        // mapped onto the real edge.
+        let vertical = attachedEdge == .leading || attachedEdge == .trailing
+        let length = vertical ? rect.height : rect.width
+        let depth = vertical ? rect.width : rect.height
+        func point(_ along: Double, _ away: Double) -> CGPoint {
+            switch attachedEdge {
+            case .top: return CGPoint(x: rect.minX + along, y: rect.minY + away)
+            case .bottom: return CGPoint(x: rect.minX + along, y: rect.maxY - away)
+            case .leading: return CGPoint(x: rect.minX + away, y: rect.minY + along)
+            case .trailing: return CGPoint(x: rect.maxX - away, y: rect.minY + along)
+            }
+        }
+        var path = Path()
+        path.move(to: point(-flare, 0))
+        path.addLine(to: point(length + flare, 0))
+        path.addQuadCurve(to: point(length, flare), control: point(length, 0))
+        path.addLine(to: point(length, depth - radius))
+        path.addQuadCurve(to: point(length - radius, depth), control: point(length, depth))
+        path.addLine(to: point(radius, depth))
+        path.addQuadCurve(to: point(0, depth - radius), control: point(0, depth))
+        path.addLine(to: point(0, flare))
+        path.addQuadCurve(to: point(-flare, 0), control: point(0, 0))
+        path.closeSubpath()
+        return path
     }
 }
 

@@ -49,11 +49,11 @@ struct NoMatchesMotionArt: View {
                 }
                 .padding(16)
                 .motionPanel(cornerRadius: 16, fill: MotionPalette.onInk, outline: palette.lavender.fill, outlineWidth: MotionStyle.boldStroke)
-                .position(x: 82, y: 62)
+                .position(x: 90, y: 62)
 
                 ArtMagnifier(tint: palette.blue.ink)
                     .scaleEffect(1 + 0.12 * (1 - land) * glide)
-                    .position(x: MotionCurve.lerp(56, 104, glide), y: MotionCurve.lerp(44, 70, glide) - 6 * sin(.pi * glide))
+                    .position(x: MotionCurve.lerp(64, 112, glide), y: MotionCurve.lerp(44, 70, glide) - 6 * sin(.pi * glide))
                     .opacity(fade)
 
                 Text(verbatim: "?")
@@ -62,7 +62,7 @@ struct NoMatchesMotionArt: View {
                     .frame(width: 30, height: 30)
                     .background(palette.rose.ink, in: Circle())
                     .scaleEffect(bubble)
-                    .position(x: 140, y: 34)
+                    .position(x: 146, y: 34)
                     .opacity(fade)
             }
         }

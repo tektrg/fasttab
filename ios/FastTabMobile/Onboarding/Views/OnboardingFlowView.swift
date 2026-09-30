@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieMotion
 
 /// How the guide was left, so the app can decide where to land.
 enum OnboardingExit {
@@ -37,6 +38,8 @@ struct OnboardingFlowView: View {
                     removal: .opacity
                 ))
                 .frame(maxHeight: .infinity)
+                // Scrolled text stops at the Back / Skip bar instead of sliding under it.
+                .clipped()
 
             if !route.isSingleStep {
                 OnboardingPageDots(count: route.steps.count, currentIndex: route.index)
@@ -76,16 +79,18 @@ struct OnboardingFlowView: View {
                 } label: {
                     Label("Back", systemImage: "chevron.left")
                 }
+                .buttonStyle(OnboardingBarButtonStyle())
             }
             Spacer()
             if !route.isLast {
                 Button("Skip") { onExit(.skipped) }
-                    .foregroundStyle(.secondary)
+                    .buttonStyle(OnboardingBarButtonStyle())
             }
         }
         .font(DS.Font.body.weight(.medium))
         .frame(minHeight: 44)
         .padding(.horizontal, DS.Space.gutter)
+        .padding(.vertical, DS.Space.xs)
     }
 
     @ViewBuilder
@@ -127,5 +132,20 @@ struct OnboardingFlowView: View {
     /// Moves VoiceOver to the new screen instead of leaving it on the old button.
     private func announceScreenChange() {
         UIAccessibility.post(notification: .screenChanged, argument: nil)
+    }
+}
+
+/// Back / Skip: a soft pastel lavender capsule (house chibi style), so the
+/// buttons read as buttons at any text size.
+private struct OnboardingBarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        let swatch = HeroInk.palette.lavender
+        configuration.label
+            .foregroundStyle(swatch.ink)
+            .padding(.horizontal, DS.Space.md)
+            .padding(.vertical, DS.Space.xs + 2)
+            .background(swatch.fill.opacity(0.45), in: Capsule())
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .contentShape(Capsule())
     }
 }

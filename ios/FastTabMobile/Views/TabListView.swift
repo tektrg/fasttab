@@ -1,5 +1,6 @@
 import SwiftUI
 import TipKit
+import IndieMotion
 import FastTabSync
 
 public enum TabSortMode: String, CaseIterable, Identifiable {
@@ -295,6 +296,8 @@ public struct TabListView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
 
+                SearchEveryMacTipRow()
+
                 switch sortMode {
                 case .recent:
                     ForEach(visibleTabs) { tab in
@@ -344,11 +347,16 @@ public struct TabListView: View {
     @ViewBuilder
     private var combinedSearchResultsView: some View {
         if matchingTabs.isEmpty && matchingBookmarks.isEmpty && matchingHistory.isEmpty {
-            DSEmptyState(
-                "No Matches for \"\(searchText)\"",
-                systemImage: "magnifyingglass",
-                message: "Check spelling or broaden your search keywords."
-            )
+            ScrollView {
+                MotionCard(
+                    .emptyState,
+                    title: String(localized: "No Matches for \"\(searchText)\""),
+                    message: String(localized: "Check spelling or broaden your search keywords.")
+                ) { size in
+                    NoMatchesMotionArt(size: size)
+                }
+                .padding(.top, DS.Space.xl)
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .dsCanvas()
         } else {

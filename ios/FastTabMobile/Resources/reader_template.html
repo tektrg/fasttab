@@ -279,8 +279,34 @@
     background: #000;
     box-shadow: 0 4px 16px rgba(0,0,0,0.3);
     z-index: 50;
+    transition: width 0.2s ease, height 0.2s ease, top 0.2s ease, right 0.2s ease, border-radius 0.2s ease;
   }
   #ft-player-box.ft-visible { display: block; }
+  /* Large: full content width, 16:9, pinned under the safe area; height capped at 50% (landscape). */
+  :root {
+    --ft-large-w: min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right)), calc(50vh * 16 / 9));
+    --ft-large-h: calc(var(--ft-large-w) * 9 / 16);
+  }
+  #ft-player-box.ft-large {
+    top: env(safe-area-inset-top);
+    right: max(env(safe-area-inset-right), calc((100vw - var(--ft-large-w)) / 2));
+    width: var(--ft-large-w); height: var(--ft-large-h);
+    border-radius: 0;
+  }
+  body.ft-player-large { padding-top: calc(env(safe-area-inset-top) + var(--ft-large-h)); }
+  body.ft-player-large .ft-transcript-paragraph { scroll-margin-top: calc(env(safe-area-inset-top) + var(--ft-large-h) + 8px); }
+  #ft-size-toggle {
+    position: absolute; top: 0; right: 0;
+    width: 44px; height: 44px; /* tap target in the corner, clear of YouTube's centered play button */
+    display: flex; align-items: flex-start; justify-content: flex-end;
+    padding: 4px; border: 0; background: transparent;
+    z-index: 1;
+  }
+  #ft-size-toggle span {
+    display: block; width: 24px; height: 24px; border-radius: 6px;
+    font: 600 15px/24px -apple-system, sans-serif; text-align: center;
+    color: #fff; background: rgba(0,0,0,0.6);
+  }
   #ft-player-box iframe { width: 100%; height: 100%; border: 0; }
   #ft-pending-start {
     display: none;
@@ -663,7 +689,7 @@ function ftParagraphIndexAtLine(tops, lineY) {
 }
 // FT_PURE_END
 
-// ── YouTube transcript: corner player + follow-along ──────────
+// ── YouTube transcript: player (Corner or Large) + follow-along ──────────
 // Only on transcript pages (ReaderArticle.youtubeVideoID). Paragraphs and timestamps carry
 // data-start-ms (TranscriptArticleBuilder). While the video plays and we are "following",
 // the current paragraph is highlighted and scrolled near the top; a manual scroll stops
@@ -679,10 +705,13 @@ function ftParagraphIndexAtLine(tops, lineY) {
   var following = true, currentIndex = -1, visible = false;
   var playing = false, pendingStartMs = null, settleTimer = null, programmaticScrollUntil = 0;
   var READING_LINE = 0.25, SETTLE_MS = 250, PROGRAMMATIC_SCROLL_MS = 1000;
+  var BELOW_PLAYER_GAP_PX = 8, RESIZE_MS = 200;
+  var large = false;
 
   var box = document.createElement('div');
   box.id = 'ft-player-box';
-  box.innerHTML = '<div id="ft-player"></div><div id="ft-pending-start"></div>';
+  box.innerHTML = '<div id="ft-player"></div><div id="ft-pending-start"></div>' +
+    '<button id="ft-size-toggle" type="button"><span></span></button>';
   document.body.appendChild(box);
   var pill = document.createElement('button');
   pill.id = 'ft-live-pill';
@@ -702,7 +731,7 @@ function ftParagraphIndexAtLine(tops, lineY) {
   function scrollToCurrent() {
     var p = paragraphs[currentIndex];
     if (!p) return;
-    var top = p.getBoundingClientRect().top + window.scrollY - 16;
+    var top = p.getBoundingClientRect().top + window.scrollY - (large && visible ? playerBottomY() + BELOW_PLAYER_GAP_PX : 16);
     programmaticScrollUntil = Date.now() + PROGRAMMATIC_SCROLL_MS; // smooth scroll emits scroll events
     window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   }
@@ -778,6 +807,7 @@ function ftParagraphIndexAtLine(tops, lineY) {
     if (on === visible) return;
     visible = on;
     box.classList.toggle('ft-visible', on);
+    document.body.classList.toggle('ft-player-large', on && large);
     if (on) {
       loadPlayer();
       // Unfollowed before the video was hidden: the pill is the only way back to live.
@@ -804,6 +834,28 @@ function ftParagraphIndexAtLine(tops, lineY) {
     else { pendingSeekMs = ms; }
   }
 
+  // ── Size: Corner (160×90) ↔ Large. Only the container resizes; the iframe is never recreated.
+  var sizeToggle = box.querySelector('#ft-size-toggle');
+  function playerBottomY() { return box.getBoundingClientRect().bottom; }
+  // Viewport Y of the line that decides "the paragraph being read": under the Large player, else 25%.
+  function readingLineY() {
+    return large && visible ? playerBottomY() + BELOW_PLAYER_GAP_PX : window.innerHeight * READING_LINE;
+  }
+  function setLarge(on, fromPage) {
+    large = on;
+    box.classList.toggle('ft-large', on);
+    document.body.classList.toggle('ft-player-large', on && visible);
+    sizeToggle.firstChild.textContent = on ? '\u2199' : '\u2197';
+    sizeToggle.setAttribute('aria-label', on ? 'Smaller video' : 'Larger video');
+    if (fromPage) {
+      programmaticScrollUntil = Date.now() + RESIZE_MS + SETTLE_MS; // the padding shift is not a person's scroll
+      try { window.webkit.messageHandlers.videoSize.postMessage({ large: on }); } catch(e) {}
+      // Padding changed under the text; once the resize settles, put the current paragraph back.
+      if (following && playing) setTimeout(scrollToCurrent, RESIZE_MS);
+    }
+  }
+  sizeToggle.addEventListener('click', function(e) { e.stopPropagation(); setLarge(!large, true); });
+
   var pendingLabel = box.querySelector('#ft-pending-start');
   function formatClock(ms) {
     var total = Math.floor(ms / 1000), sec = total % 60;
@@ -821,7 +873,7 @@ function ftParagraphIndexAtLine(tops, lineY) {
     settleTimer = null;
     if (!visible || playing || !paragraphs.length) return;
     var tops = paragraphs.map(function(p) { return p.getBoundingClientRect().top; });
-    var index = ftParagraphIndexAtLine(tops, window.innerHeight * READING_LINE);
+    var index = ftParagraphIndexAtLine(tops, readingLineY());
     highlight(index);
     following = true; // play resumes following from here; no scroll, the user is already there
     pill.classList.remove('ft-visible');
@@ -851,6 +903,7 @@ function ftParagraphIndexAtLine(tops, lineY) {
     settleTimer = setTimeout(scrollSettled, SETTLE_MS);
   }, { passive: true });
 
+  setLarge(!!article.videoLarge, false);
   if (article.videoVisible) setVisible(true, false);
 })();
 </script>

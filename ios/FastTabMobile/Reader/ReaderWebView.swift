@@ -11,6 +11,7 @@ private enum JSMessage: String, CaseIterable {
     case highlightTapped  // { id: String }
     case ready            // fired once template is ready
     case videoVisibility  // { visible: Bool } — transcript page opened/closed its corner player
+    case videoSize        // { large: Bool } — transcript player switched Corner ↔ Large
 }
 
 // MARK: - ReaderWebView
@@ -185,6 +186,7 @@ public struct ReaderWebView: UIViewRepresentable {
         let focusHighlightID: String?
         let youtubeVideoID: String?
         let videoVisible: Bool
+        let videoLarge: Bool
     }
 
     /// JS that applies the full settings-derived CSS-var set. Shared by the live
@@ -262,7 +264,8 @@ public struct ReaderWebView: UIViewRepresentable {
             highlights: highlightItems,
             focusHighlightID: focusHighlightID,
             youtubeVideoID: article.youtubeVideoID,
-            videoVisible: viewModel.isVideoVisible
+            videoVisible: viewModel.isVideoVisible,
+            videoLarge: viewModel.isVideoLarge
         )
 
         var jsonString = "{}"
@@ -425,6 +428,8 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                 let visible = body["visible"] as? Bool ?? false
                 self.lastVideoVisible = visible
                 self.viewModel.videoVisibilityChanged(visible)
+            case .videoSize:
+                self.viewModel.videoSizeChanged(large: body["large"] as? Bool ?? false)
             case .ready:
                 break
             }

@@ -53,6 +53,11 @@ public final class ReaderViewModel: ObservableObject {
     /// (a timestamp tap opens it) through `videoVisibilityChanged`.
     @Published var isVideoVisible = false
 
+    /// Transcript player size: Corner (false) or Large, full-width pinned at the top.
+    /// Chosen on the player itself; persisted so the next transcript page opens the same way.
+    private(set) var isVideoLarge = UserDefaults.standard.bool(forKey: ReaderViewModel.videoLargeKey)
+    private static let videoLargeKey = "reader.transcriptVideoLarge"
+
     @Published public var loadState: LoadState = .idle {
         didSet {
             // Count words as soon as a tracked article is on screen, off the main thread.
@@ -186,6 +191,11 @@ public final class ReaderViewModel: ObservableObject {
 
     func videoVisibilityChanged(_ visible: Bool) {
         if isVideoVisible != visible { isVideoVisible = visible }
+    }
+
+    func videoSizeChanged(large: Bool) {
+        isVideoLarge = large
+        UserDefaults.standard.set(large, forKey: Self.videoLargeKey)
     }
 
     /// Forces re-extraction of the article from the web, updating the cache.

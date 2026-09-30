@@ -82,7 +82,7 @@ struct GeneralSettingsView: View {
                     }
                     .pickerStyle(.menu)
 
-                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab directly into \(viewStore.hoverDefaultView.displayName). Runs a background mouse-position listener whenever this isn't Off.")
+                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab directly into \(viewStore.hoverDefaultView.displayName). Uses an invisible hover zone there, no background mouse tracking.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

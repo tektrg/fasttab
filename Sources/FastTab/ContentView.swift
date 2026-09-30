@@ -304,13 +304,13 @@ struct ContentView: View {
         .padding(.bottom, 8)
     }
 
-    var commandBarAnchor: EdgeRevealStyle {
-        edgeRevealStore.style == .off ? .notch : edgeRevealStore.style
+    var commandBarAnchor: CommandBarAnchor {
+        CommandBarAnchor(revealStyle: edgeRevealStore.style)
     }
 
     /// Narrow (half-width) edge-anchored surface — content wraps instead of
     /// truncating. See `EnvironmentValues.isCompactCommandBar`.
-    private func isCompact(_ anchor: EdgeRevealStyle) -> Bool {
+    private func isCompact(_ anchor: CommandBarAnchor) -> Bool {
         CommandBarLayout.isCompact(anchor)
     }
 
@@ -908,7 +908,7 @@ struct ContentView: View {
     /// Ambient shadow behind the surface. Sized and positioned exactly like the
     /// surface (the caller aligns it against the same edge), so it needs no
     /// knowledge of the canvas — only the direction to lean away from the edge.
-    private func ambientShadow(anchor: EdgeRevealStyle, surfaceSize: CGSize) -> some View {
+    private func ambientShadow(anchor: CommandBarAnchor, surfaceSize: CGSize) -> some View {
         let shadowColor = commandBarFullScreenShadowColor(for: colorScheme)
         let shift = CommandBarLayout.shadowShiftVector(for: anchor)
         let scale = revealScale(for: anchor, surfaceSize: surfaceSize)
@@ -956,7 +956,7 @@ struct ContentView: View {
     /// straight through, so the bar swells a hair past full size and eases
     /// back. It always overshoots *away* from the anchored edge, so it can
     /// never lift off that edge.
-    private func revealScale(for anchor: EdgeRevealStyle, surfaceSize: CGSize) -> CGSize {
+    private func revealScale(for anchor: CommandBarAnchor, surfaceSize: CGSize) -> CGSize {
         let depth = revealDepthProgress
         let spread = revealSpreadProgress
         guard depth != 1 || spread != 1 else { return CGSize(width: 1, height: 1) }

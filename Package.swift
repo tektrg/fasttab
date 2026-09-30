@@ -5,6 +5,7 @@ import PackageDescription
 let indieSearch: Target.Dependency = .product(name: "IndieSearch", package: "IndieLibKit")
 let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "IndieLibKit")
 let indieMotion: Target.Dependency = .product(name: "IndieMotion", package: "IndieLibKit")
+let indieEdgeReveal: Target.Dependency = .product(name: "IndieEdgeReveal", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -22,7 +23,8 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
         // Shared L1 library, sibling checkout (~/01_Project/IndieLibKit on both Macs).
         // Linked here: `IndieSearch` (the search folding every app shares), `IndieMetrics`
-        // (tab-activity statistics) and `IndieMotion` (onboarding hero clock + stage).
+        // (tab-activity statistics), `IndieMotion` (onboarding hero clock + stage) and
+        // `IndieEdgeReveal` (notch/edge/corner hover trigger).
         .package(path: "../IndieLibKit")
     ],
     targets: [
@@ -31,11 +33,11 @@ let package = Package(
             dependencies: [indieSearch]
         ),
         // Reusable command-bar building blocks shared with future apps.
-        // No dependencies and no resources on purpose: it links statically into
-        // the app binary, so `build-app.sh` keeps copying a single executable.
+        // Only static-library dependencies and no resources on purpose: it links
+        // into the app binary, so `build-app.sh` keeps copying a single executable.
         .target(
             name: "CommandBarKit",
-            dependencies: []
+            dependencies: [indieEdgeReveal]
         ),
         .executableTarget(
             name: "FastTab",
@@ -45,7 +47,8 @@ let package = Package(
                 "CommandBarKit",
                 indieSearch,
                 indieMetrics,
-                indieMotion
+                indieMotion,
+                indieEdgeReveal
             ]
         ),
         // Pure stdio<->socket relay launched by Chrome's native messaging.
@@ -61,7 +64,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "CommandBarKit", indieSearch, indieMetrics, indieMotion]
+            dependencies: ["FastTab", "FastTabSync", "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal]
         ),
         .testTarget(
             name: "AgentBarTests",
@@ -70,7 +73,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CommandBarKitTests",
-            dependencies: ["CommandBarKit"]
+            dependencies: ["CommandBarKit", indieEdgeReveal]
         )
     ]
 )

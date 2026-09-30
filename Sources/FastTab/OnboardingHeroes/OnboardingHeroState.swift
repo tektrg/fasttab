@@ -1,5 +1,6 @@
 import AppKit
 import CommandBarKit
+import IndieEdgeReveal
 import IndieMotion
 
 // Which picture each Mac onboarding hero shows, from its step's live state,
@@ -15,12 +16,12 @@ enum WelcomeHero {
 /// Step 2: where the hover trigger lives. Follows the step's radio choice live.
 enum TriggerHeroState: Hashable {
     /// Pointer glides to the hot spot, a pill peeks, the bar slides out of it.
-    case hover(EdgeRevealStyle)
+    case hover(CommandBarAnchor)
     /// Hovering is off: the user's shortcut keys press and the bar pops.
     case keyboard(keycaps: [String])
 
     init(style: EdgeRevealStyle, shortcutKeycaps: [String]) {
-        self = style == .off ? .keyboard(keycaps: shortcutKeycaps) : .hover(style)
+        self = style == .off ? .keyboard(keycaps: shortcutKeycaps) : .hover(CommandBarAnchor(revealStyle: style))
     }
 
     var playback: MotionPlayback {

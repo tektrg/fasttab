@@ -1,5 +1,6 @@
 import AppKit
 import CommandBarKit
+import IndieEdgeReveal
 import SwiftUI
 import Testing
 @testable import FastTab

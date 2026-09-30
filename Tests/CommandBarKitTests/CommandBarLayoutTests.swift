@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import CommandBarKit
+import IndieEdgeReveal
 
 @Test func commandBarReservesTopInsetOnlyForAPhysicallyNotchedDisplay() async throws {
     // Edge surfaces are vertically centered and never reach the top edge.
@@ -13,7 +14,7 @@ import Testing
     // clamshell, older MacBook) the reserved band is pure empty space, since
     // the bar already draws above the menu-bar layer.
     let openingScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
-    let isNotched = openingScreen.map { EdgeRevealGeometry.screenInfo(for: $0).hasPhysicalNotch } ?? false
+    let isNotched = openingScreen.map { EdgeRevealScreenInfo(screen: $0).hasPhysicalNotch } ?? false
 
     #expect((CommandBarLayout.surfaceTopInset(for: .notch) > 0) == isNotched)
 }
@@ -117,14 +118,13 @@ import Testing
     // display; dead centre on the first open after launch) before snapping
     // flush. Alignment resolves inside the same layout pass, so it cannot lag.
     #expect(CommandBarLayout.surfaceAlignment(for: .notch) == .top)
-    #expect(CommandBarLayout.surfaceAlignment(for: .off) == .top)
     #expect(CommandBarLayout.surfaceAlignment(for: .leftEdge) == .leading)
     #expect(CommandBarLayout.surfaceAlignment(for: .rightEdge) == .trailing)
 
     // Each anchor's alignment has to agree with the side its shape leaves flat
     // and the side the reveal scales out of, or the bar would grow out of one
     // edge while sitting against another.
-    for anchor in [EdgeRevealStyle.notch, .off, .leftEdge, .rightEdge] {
+    for anchor in CommandBarAnchor.allCases {
         let alignment = CommandBarLayout.surfaceAlignment(for: anchor)
         let unitPoint = CommandBarLayout.revealAnchorUnitPoint(for: anchor)
         if alignment == .top {
@@ -141,7 +141,6 @@ import Testing
     // Down for the notch, inboard for the side anchors — the shadow is only
     // ever cast away from the edge the panel is hinged on.
     #expect(CommandBarLayout.shadowShiftVector(for: .notch) == CGSize(width: 0, height: CommandBarLayout.shadowDirectionalShift))
-    #expect(CommandBarLayout.shadowShiftVector(for: .off) == CGSize(width: 0, height: CommandBarLayout.shadowDirectionalShift))
     #expect(CommandBarLayout.shadowShiftVector(for: .leftEdge) == CGSize(width: CommandBarLayout.shadowDirectionalShift, height: 0))
     #expect(CommandBarLayout.shadowShiftVector(for: .rightEdge) == CGSize(width: -CommandBarLayout.shadowDirectionalShift, height: 0))
 }

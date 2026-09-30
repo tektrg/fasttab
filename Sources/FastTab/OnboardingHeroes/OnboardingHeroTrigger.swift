@@ -72,7 +72,7 @@ struct OnboardingHeroTrigger: View {
         let growsVertically: Bool
     }
 
-    private static func hotSpot(for style: EdgeRevealStyle) -> HotSpot {
+    private static func hotSpot(for style: CommandBarAnchor) -> HotSpot {
         let width = Layout.screen.width
         switch style {
         case .leftEdge:
@@ -81,14 +81,14 @@ struct OnboardingHeroTrigger: View {
         case .rightEdge:
             return HotSpot(pill: CGRect(x: width - 6, y: 28, width: 6, height: 32), pointerTarget: CGPoint(x: width - 7, y: 40),
                            bar: CGRect(x: width - 84, y: 8, width: 84, height: 72), barAnchor: .trailing, barEdge: .trailing, barRows: 3, growsVertically: false)
-        case .notch, .off:
+        case .notch:
             return HotSpot(pill: CGRect(x: (width - 36) / 2, y: 0, width: 36, height: 10), pointerTarget: CGPoint(x: width / 2 - 1, y: 6),
                            bar: CGRect(x: (width - 112) / 2, y: 0, width: 112, height: 60), barAnchor: .top, barEdge: .top, barRows: 2, growsVertically: true)
         }
     }
 
     @ViewBuilder
-    private static func hover(style: EdgeRevealStyle, time: Double) -> some View {
+    private static func hover(style: CommandBarAnchor, time: Double) -> some View {
         let spot = hotSpot(for: style)
         let playback = TriggerHeroState.hover(style).playback
         let fade = MotionCurve.loopFade(time, playback: playback)
@@ -124,7 +124,7 @@ struct OnboardingHeroTrigger: View {
 /// The hover trigger's pill: a half-capsule flush against the screen edge it
 /// hugs, the way it sits at that edge once hovering is live.
 struct HeroEdgePill: View {
-    let style: EdgeRevealStyle
+    let style: CommandBarAnchor
 
     var body: some View {
         GeometryReader { proxy in
@@ -142,10 +142,9 @@ struct HeroEdgePill: View {
     }
 
     /// Square on the side touching the screen edge, round on the others.
-    private static func corners(for style: EdgeRevealStyle, radius: CGFloat)
+    private static func corners(for style: CommandBarAnchor, radius: CGFloat)
         -> (topLeading: CGFloat, bottomLeading: CGFloat, bottomTrailing: CGFloat, topTrailing: CGFloat) {
         switch style {
-        case .off: return (radius, radius, radius, radius)
         case .notch: return (0, radius, radius, 0)
         case .leftEdge: return (0, 0, radius, radius)
         case .rightEdge: return (radius, radius, 0, 0)

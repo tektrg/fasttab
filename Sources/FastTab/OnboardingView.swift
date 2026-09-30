@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import CommandBarKit
+import IndieEdgeReveal
 
 private let onboardingCompletedKey = "onboarding.v1.completed"
 
@@ -387,7 +388,7 @@ struct TriggerStyleStep: View {
                 .padding(.bottom, 18)
 
             VStack(spacing: 8) {
-                ForEach(EdgeRevealStyle.allCases) { style in
+                ForEach(EdgeRevealStyle.onboardingChoices) { style in
                     TriggerStyleRow(
                         style: style,
                         isSelected: edgeReveal.style == style,

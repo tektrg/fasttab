@@ -1,5 +1,6 @@
 import SwiftUI
 import CommandBarKit
+import IndieEdgeReveal
 
 /// "General" tab of Settings: how the app starts and how it's triggered.
 struct GeneralSettingsView: View {

@@ -152,7 +152,7 @@ extension CommandBarLayout {
     /// Row-count ceiling that keeps the panel within `expandedAllTabsMaxHeight`
     /// for the given anchor/row style — the `maxRows` used once "Show all
     /// tabs" is expanded, in place of the screen-fit quick-open limit.
-    static func expandedAllTabsMaxRows(for anchor: EdgeRevealStyle, rowStyle: ResultRowStyle, showFooter: Bool = true) -> Int {
+    static func expandedAllTabsMaxRows(for anchor: CommandBarAnchor, rowStyle: ResultRowStyle, showFooter: Bool = true) -> Int {
         let compact = isCompact(anchor)
         let perRow = rowStyle == .minimal ? minimalResultRowHeight : (compact ? compactResultRowHeight : resultRowHeight)
         var allowance = compact ? compactChromeAllowance : chromeAllowance
@@ -171,7 +171,7 @@ extension CommandBarLayout {
         view: CommandBarView,
         isShowingAllOpenTabs: Bool,
         isSearching: Bool,
-        anchor: EdgeRevealStyle,
+        anchor: CommandBarAnchor,
         rowStyle: ResultRowStyle,
         showFooter: Bool,
         quickOpenLimit: Int
@@ -238,7 +238,7 @@ extension CommandBarLayout {
     /// ceiling `rowCount` clamps against — defaults to the fixed live-search
     /// cap, but callers sizing the quick-open list pass its (screen-clamped)
     /// configurable limit instead.
-    static func resultsHeight(for anchor: EdgeRevealStyle, rowStyle: ResultRowStyle = .full, rowCount: Int = Int.max, maxRows: Int = Int(visibleResultRows)) -> CGFloat {
+    static func resultsHeight(for anchor: CommandBarAnchor, rowStyle: ResultRowStyle = .full, rowCount: Int = Int.max, maxRows: Int = Int(visibleResultRows)) -> CGFloat {
         let perRow = rowStyle == .minimal ? minimalResultRowHeight : (isCompact(anchor) ? compactResultRowHeight : resultRowHeight)
         let clampedCount = CGFloat(min(max(rowCount, 1), maxRows))
         return perRow * clampedCount
@@ -247,7 +247,7 @@ extension CommandBarLayout {
     /// `topInset` overrides the live `surfaceTopInset(for:)` lookup — only for
     /// callers that need a pure result independent of the current display
     /// (`minimumCanvasSize(fittingScreenHeight:reservedTopInset:)`, and tests).
-    static func surfaceSize(for anchor: EdgeRevealStyle, rowStyle: ResultRowStyle = .full, rowCount: Int = Int.max, maxRows: Int = Int(visibleResultRows), showFooter: Bool = true, topInset: CGFloat? = nil) -> CGSize {
+    static func surfaceSize(for anchor: CommandBarAnchor, rowStyle: ResultRowStyle = .full, rowCount: Int = Int.max, maxRows: Int = Int(visibleResultRows), showFooter: Bool = true, topInset: CGFloat? = nil) -> CGSize {
         let compact = isCompact(anchor)
         let width = automaticWidth(for: anchor, rowStyle: rowStyle)
         var allowance = compact ? compactChromeAllowance : chromeAllowance
@@ -287,10 +287,10 @@ extension CommandBarLayout {
     /// whichever screen edge `anchor` hugs — notch flush to the top, edges
     /// flush to their side — matching the trigger's own shape (see
     /// `CommandBarSurfaceShape`).
-    static func surfaceOffset(canvasSize: CGSize, anchor: EdgeRevealStyle, rowStyle: ResultRowStyle = .full, rowCount: Int = Int.max, maxRows: Int = Int(visibleResultRows), showFooter: Bool = true) -> CGSize {
+    static func surfaceOffset(canvasSize: CGSize, anchor: CommandBarAnchor, rowStyle: ResultRowStyle = .full, rowCount: Int = Int.max, maxRows: Int = Int(visibleResultRows), showFooter: Bool = true) -> CGSize {
         let size = surfaceSize(for: anchor, rowStyle: rowStyle, rowCount: rowCount, maxRows: maxRows, showFooter: showFooter)
         switch anchor {
-        case .off, .notch:
+        case .notch:
             return CGSize(width: 0, height: -(canvasSize.height - size.height) / 2)
         case .leftEdge:
             return CGSize(width: -(canvasSize.width - size.width) / 2, height: 0)
@@ -316,7 +316,7 @@ extension CommandBarLayout {
     /// never registered as "outside."
     static func surfaceFrame(
         in canvasFrame: CGRect,
-        anchor: EdgeRevealStyle,
+        anchor: CommandBarAnchor,
         rowStyle: ResultRowStyle = .full,
         maxRows: Int = maxQuickOpenItemLimit,
         showFooter: Bool = true
@@ -333,7 +333,7 @@ extension CommandBarLayout {
         )
     }
 
-    static func shouldDismissClick(at screenLocation: CGPoint, in canvasFrame: CGRect, anchor: EdgeRevealStyle) -> Bool {
+    static func shouldDismissClick(at screenLocation: CGPoint, in canvasFrame: CGRect, anchor: CommandBarAnchor) -> Bool {
         !surfaceFrame(in: canvasFrame, anchor: anchor).contains(screenLocation)
     }
 }

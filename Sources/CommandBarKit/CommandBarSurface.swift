@@ -3,7 +3,7 @@ import SwiftUI
 public struct CommandBarSurface<Content: View>: View {
     /// Which screen edge the bar hugs — determines the outer shape below
     /// (flat on that side, rounded on the rest). See `CommandBarSurfaceShape`.
-    var anchor: EdgeRevealStyle
+    var anchor: CommandBarAnchor
     /// The host app's "Background" appearance setting. Also handed down to
     /// every `CommandBarSurfaceBackground` inside `content` through
     /// `EnvironmentValues.commandBarOuterPanelEnabled`.
@@ -11,7 +11,7 @@ public struct CommandBarSurface<Content: View>: View {
     @ViewBuilder var content: Content
 
     public init(
-        anchor: EdgeRevealStyle,
+        anchor: CommandBarAnchor,
         outerPanelEnabled: Bool,
         @ViewBuilder content: () -> Content
     ) {
@@ -66,9 +66,9 @@ public struct CommandBarSurface<Content: View>: View {
 /// caller's negative padding); the bar itself is that rect inset back again,
 /// and the flare spans the difference.
 public struct CommandBarSurfaceShape: Shape {
-    var anchor: EdgeRevealStyle
+    var anchor: CommandBarAnchor
 
-    public init(anchor: EdgeRevealStyle) {
+    public init(anchor: CommandBarAnchor) {
         self.anchor = anchor
     }
 
@@ -85,7 +85,7 @@ public struct CommandBarSurfaceShape: Shape {
         let local = topHuggingPath(along: along, depth: depth, flareRoom: flareRoom)
         let oriented: Path
         switch anchor {
-        case .off, .notch:
+        case .notch:
             oriented = local
         case .leftEdge:
             // (x, y) -> (y, x): the hugged edge becomes the leading edge.

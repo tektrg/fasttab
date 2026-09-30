@@ -2,20 +2,26 @@ import Foundation
 import AppKit
 import Combine
 import CommandBarKit
+import IndieEdgeReveal
 
-/// `EdgeRevealStyle` itself lives in CommandBarKit; its `rawValue` is the
-/// persisted `FastTab.edgeReveal.style` value — do not rename without a migration.
-extension EdgeRevealStyle {
+/// `EdgeRevealStyle` itself lives in IndieLibKit (`IndieEdgeReveal`); its `rawValue` is the
+/// persisted `FastTab.edgeReveal.style` value (`off`/`notch`/`leftEdge`/`rightEdge` predate
+/// the move and are unchanged) — do not rename without a migration.
+extension CommandBarAnchor {
     /// Which screen edge the command bar's shape/position hugs — always
-    /// matches the configured hover-trigger spot, even when the bar was
-    /// opened another way (keyboard shortcut, menu bar). Falls back to
-    /// `.notch` when the hover trigger itself is off, since the bar still
-    /// needs some anchor to be shaped/positioned against.
+    /// follows the configured hover-trigger spot, even when the bar was
+    /// opened another way (keyboard shortcut, menu bar). `.notch` when the
+    /// hover trigger itself is off, since the bar still needs an anchor.
     @MainActor
-    static var commandBarAnchor: EdgeRevealStyle {
-        let style = EdgeRevealStore.shared.style
-        return style == .off ? .notch : style
+    static var current: CommandBarAnchor {
+        CommandBarAnchor(revealStyle: EdgeRevealStore.shared.style)
     }
+}
+
+extension EdgeRevealStyle {
+    /// The spots the onboarding step offers: the original four, which its
+    /// hero art and layout were designed for. Settings offers every case.
+    static let onboardingChoices: [EdgeRevealStyle] = [.off, .notch, .leftEdge, .rightEdge]
 }
 
 /// UserDefaults-backed observable setting for the hover-reveal trigger.
@@ -64,11 +70,11 @@ final class CommandBarRevealTrigger: ObservableObject {
     static let shared = CommandBarRevealTrigger()
 
     @Published private(set) var token: Int = 0
-    private(set) var anchor: EdgeRevealStyle = .notch
+    private(set) var anchor: CommandBarAnchor = .notch
 
     private init() {}
 
-    func fire(anchor: EdgeRevealStyle) {
+    func fire(anchor: CommandBarAnchor) {
         self.anchor = anchor
         token += 1
     }

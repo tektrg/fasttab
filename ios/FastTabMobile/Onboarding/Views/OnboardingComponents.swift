@@ -9,8 +9,10 @@ struct OnboardingStepLayout<Hero: View, Content: View, Actions: View>: View {
     let content: Content
     let actions: Actions
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    /// iPhone SE, landscape: a full-size hero would push the screen's content below the fold.
-    @State private var isShortScreen = false
+    /// The scroll area's size and the height of everything under the hero: the hero
+    /// takes whatever room is left, so the animation fills the screen.
+    @State private var scrollAreaSize = CGSize.zero
+    @State private var belowHeroHeight: CGFloat = 0
 
     init(
         title: String,
@@ -35,28 +37,36 @@ struct OnboardingStepLayout<Hero: View, Content: View, Actions: View>: View {
                     // (Heroes hide themselves from VoiceOver: `OnboardingHeroStage`.)
                     if !dynamicTypeSize.isAccessibilitySize {
                         hero
-                            .environment(\.onboardingHeroScale, isShortScreen ? OnboardingHeroSizing.shortScreenScale : 1)
+                            .environment(\.onboardingHeroScale, heroScale)
                     }
 
-                    VStack(spacing: DS.Space.sm) {
-                        Text(title)
-                            .font(DS.Font.display)
-                            .accessibilityAddTraits(.isHeader)
-                        if let message {
-                            Text(message)
-                                .font(DS.Font.body)
-                                .foregroundStyle(.secondary)
+                    VStack(spacing: DS.Space.lg) {
+                        VStack(spacing: DS.Space.sm) {
+                            Text(title)
+                                .font(DS.Font.display)
+                                .accessibilityAddTraits(.isHeader)
+                            if let message {
+                                Text(message)
+                                    .font(DS.Font.body)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                    }
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                    content
-                        .padding(.top, DS.Space.sm)
+                        content
+                            .padding(.top, DS.Space.sm)
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        withoutAnimation { belowHeroHeight = height }
+                    }
                 }
-                .padding(.top, DS.Space.xl)
+                .padding(.top, OnboardingHeroSizing.topPadding)
                 .padding(.horizontal, DS.Space.xl)
                 .padding(.bottom, DS.Space.xl)
+            }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                withoutAnimation { scrollAreaSize = size }
             }
             .scrollBounceBehavior(.basedOnSize)
 
@@ -67,22 +77,48 @@ struct OnboardingStepLayout<Hero: View, Content: View, Actions: View>: View {
             .padding(.top, DS.Space.sm)
             .padding(.bottom, DS.Space.md)
         }
-        .onGeometryChange(for: Bool.self) { proxy in
-            proxy.size.height < OnboardingHeroSizing.shortScreenHeight
-        } action: { isShort in
-            // Each new step measures afresh; never animate the hero shrinking mid-slide.
-            var instant = Transaction()
-            instant.disablesAnimations = true
-            withTransaction(instant) { isShortScreen = isShort }
-        }
+    }
+
+    private var heroScale: Double {
+        OnboardingHeroSizing.scale(
+            scrollAreaSize: scrollAreaSize,
+            belowHeroHeight: belowHeroHeight,
+            heroGap: DS.Space.lg,
+            horizontalPadding: DS.Space.xl,
+            verticalPadding: OnboardingHeroSizing.topPadding + DS.Space.xl
+        )
+    }
+
+    /// Size changes come from measuring, so never animate the hero growing mid-slide.
+    private func withoutAnimation(_ change: () -> Void) {
+        var instant = Transaction()
+        instant.disablesAnimations = true
+        withTransaction(instant, change)
     }
 }
 
-/// Short screens get a smaller hero (150 × 100 pt). Height is the whole step
-/// layout's, not just its scroll area, so every step of one guide picks the same size.
+/// The hero is the screen's key element: it grows to fill the height the words
+/// and buttons leave, up to the full content width, and never below `minimumScale`
+/// (then the page scrolls).
 enum OnboardingHeroSizing {
-    static let shortScreenHeight: CGFloat = 640
-    static let shortScreenScale = 5.0 / 6.0
+    static let minimumScale = 5.0 / 6.0
+    static let topPadding = DS.Space.lg
+
+    static func scale(
+        scrollAreaSize: CGSize,
+        belowHeroHeight: CGFloat,
+        heroGap: CGFloat,
+        horizontalPadding: CGFloat,
+        verticalPadding: CGFloat
+    ) -> Double {
+        let canvas = OnboardingHeroStage<EmptyView>.canvasSize
+        guard scrollAreaSize.height > 0, scrollAreaSize.width > 0 else { return 1 }
+        let widthLimit = (scrollAreaSize.width - 2 * horizontalPadding) / canvas.width
+        // 1 pt spare so rounding never makes the page scroll by a hair.
+        let freeHeight = scrollAreaSize.height - verticalPadding - heroGap - belowHeroHeight - 1
+        let heightLimit = freeHeight / canvas.height
+        return max(minimumScale, min(widthLimit, heightLimit))
+    }
 }
 
 /// Full-width primary button used for each screen's main action.

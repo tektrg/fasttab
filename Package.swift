@@ -6,6 +6,7 @@ let indieSearch: Target.Dependency = .product(name: "IndieSearch", package: "Ind
 let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "IndieLibKit")
 let indieMotion: Target.Dependency = .product(name: "IndieMotion", package: "IndieLibKit")
 let indieEdgeReveal: Target.Dependency = .product(name: "IndieEdgeReveal", package: "IndieLibKit")
+let indieEdgeRevealUI: Target.Dependency = .product(name: "IndieEdgeRevealUI", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -24,7 +25,8 @@ let package = Package(
         // Shared L1 library, sibling checkout (~/01_Project/IndieLibKit on both Macs).
         // Linked here: `IndieSearch` (the search folding every app shares), `IndieMetrics`
         // (tab-activity statistics), `IndieMotion` (onboarding hero clock + stage) and
-        // `IndieEdgeReveal` (notch/edge/corner hover trigger).
+        // `IndieEdgeReveal` (notch/edge/corner hover trigger) + `IndieEdgeRevealUI` (the black
+        // edge-hugging surface and its grow-out motion).
         .package(path: "../IndieLibKit")
     ],
     targets: [
@@ -37,7 +39,7 @@ let package = Package(
         // into the app binary, so `build-app.sh` keeps copying a single executable.
         .target(
             name: "CommandBarKit",
-            dependencies: [indieEdgeReveal]
+            dependencies: [indieEdgeReveal, indieEdgeRevealUI]
         ),
         .executableTarget(
             name: "FastTab",
@@ -73,7 +75,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CommandBarKitTests",
-            dependencies: ["CommandBarKit", indieEdgeReveal]
+            dependencies: ["CommandBarKit", indieEdgeReveal, indieEdgeRevealUI]
         )
     ]
 )

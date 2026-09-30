@@ -286,7 +286,7 @@ extension CommandBarLayout {
     /// SwiftUI-space offset (y-down) that flushes the surface against
     /// whichever screen edge `anchor` hugs — notch flush to the top, edges
     /// flush to their side — matching the trigger's own shape (see
-    /// `CommandBarSurfaceShape`).
+    /// `EdgeRevealSurfaceShape`).
     static func surfaceOffset(canvasSize: CGSize, anchor: CommandBarAnchor, rowStyle: ResultRowStyle = .full, rowCount: Int = Int.max, maxRows: Int = Int(visibleResultRows), showFooter: Bool = true) -> CGSize {
         let size = surfaceSize(for: anchor, rowStyle: rowStyle, rowCount: rowCount, maxRows: maxRows, showFooter: showFooter)
         switch anchor {

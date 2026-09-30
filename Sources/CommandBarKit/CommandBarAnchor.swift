@@ -17,4 +17,13 @@ public enum CommandBarAnchor: CaseIterable, Sendable {
         case .off, .notch, .bottomEdge: self = .notch
         }
     }
+
+    /// The screen edge the bar's surface sits flush against (shape, reveal anchor).
+    public var surfaceHug: EdgeRevealHug {
+        switch self {
+        case .notch: .top
+        case .leftEdge: .left
+        case .rightEdge: .right
+        }
+    }
 }

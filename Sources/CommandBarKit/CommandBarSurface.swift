@@ -1,8 +1,9 @@
+import IndieEdgeRevealUI
 import SwiftUI
 
 public struct CommandBarSurface<Content: View>: View {
     /// Which screen edge the bar hugs — determines the outer shape below
-    /// (flat on that side, rounded on the rest). See `CommandBarSurfaceShape`.
+    /// (flat on that side, rounded on the rest). See `EdgeRevealSurfaceShape` (IndieEdgeRevealUI).
     var anchor: CommandBarAnchor
     /// The host app's "Background" appearance setting. Also handed down to
     /// every `CommandBarSurfaceBackground` inside `content` through
@@ -34,102 +35,16 @@ public struct CommandBarSurface<Content: View>: View {
             return AnyView(content.environment(\.commandBarOuterPanelEnabled, false))
         }
 
-        // Forced dark so labels, pills, and section fills stay light against
-        // the black panel — in light mode they resolve to near-black otherwise.
+        // Black, forced-dark, edge-hugging shape with its flares: the shared IndieEdgeRevealUI surface.
         return AnyView(
-            content
-                .environment(\.commandBarOuterPanelEnabled, true)
-                .environment(\.colorScheme, .dark)
-                .background(
-                    CommandBarSurfaceShape(anchor: anchor)
-                        .fill(Color.black)
-                        // The silhouette flares out past the bar's own width
-                        // where it meets the screen edge; negative padding is
-                        // what gives the shape room to draw that flare instead
-                        // of having it clipped at the content's bounds.
-                        .padding(-CommandBarLayout.surfaceJoinRadius)
-                )
+            EdgeRevealSurface(
+                hug: anchor.surfaceHug,
+                cornerRadius: CommandBarLayout.surfaceCornerRadius,
+                joinRadius: CommandBarLayout.surfaceJoinRadius
+            ) {
+                content.environment(\.commandBarOuterPanelEnabled, true)
+            }
         )
-    }
-}
-
-/// The bar's outer silhouette: flat against the screen edge it hugs, softly
-/// rounded on the far side, and joined to that edge the way the MacBook notch is
-/// joined to the bezel — with a small outward flare rather than a hard right
-/// angle, so the bar reads as moulded into the edge it grew out of.
-///
-/// The path is authored once for a top-hugging bar and mirrored for the side
-/// anchors. The silhouette is symmetric along its edge, so mirroring across the
-/// diagonal is indistinguishable from rotating it and needs no trigonometry.
-///
-/// `rect` is the bar's bounds outset by `surfaceJoinRadius` on every side (the
-/// caller's negative padding); the bar itself is that rect inset back again,
-/// and the flare spans the difference.
-public struct CommandBarSurfaceShape: Shape {
-    var anchor: CommandBarAnchor
-
-    public init(anchor: CommandBarAnchor) {
-        self.anchor = anchor
-    }
-
-    public func path(in rect: CGRect) -> Path {
-        let flareRoom = CommandBarLayout.surfaceJoinRadius
-        let surface = rect.insetBy(dx: flareRoom, dy: flareRoom)
-        guard surface.width > 0, surface.height > 0 else { return Path() }
-
-        // Extent along the hugged edge, and depth away from it.
-        let sideways = CommandBarLayout.isCompact(anchor)
-        let along = sideways ? surface.height : surface.width
-        let depth = sideways ? surface.width : surface.height
-
-        let local = topHuggingPath(along: along, depth: depth, flareRoom: flareRoom)
-        let oriented: Path
-        switch anchor {
-        case .notch:
-            oriented = local
-        case .leftEdge:
-            // (x, y) -> (y, x): the hugged edge becomes the leading edge.
-            oriented = local.applying(CGAffineTransform(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0))
-        case .rightEdge:
-            // (x, y) -> (depth - y, x): the hugged edge becomes the trailing edge.
-            oriented = local.applying(CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: depth, ty: 0))
-        }
-        return oriented.applying(CGAffineTransform(translationX: surface.minX, y: surface.minY))
-    }
-
-    /// The silhouette with its hugged edge along `y == 0`, running `along` wide
-    /// and `depth` deep.
-    private func topHuggingPath(along: CGFloat, depth: CGFloat, flareRoom: CGFloat) -> Path {
-        let far = min(CommandBarLayout.surfaceCornerRadius, along / 2, depth / 2)
-        let flare = min(flareRoom, depth / 2, along / 4)
-
-        var path = Path()
-        // Start out past the bar's own width, level with the screen edge.
-        path.move(to: CGPoint(x: -flare, y: 0))
-        // Control point sits on the corner the two edges would otherwise have
-        // met at, which is exactly where their tangents cross: the curve leaves
-        // the screen edge horizontally and rejoins the side vertically, so
-        // there is no visible break at either end of the flare.
-        path.addQuadCurve(to: CGPoint(x: 0, y: flare), control: .zero)
-        path.addLine(to: CGPoint(x: 0, y: depth - far))
-        path.addArc(
-            tangent1End: CGPoint(x: 0, y: depth),
-            tangent2End: CGPoint(x: far, y: depth),
-            radius: far
-        )
-        path.addLine(to: CGPoint(x: along - far, y: depth))
-        path.addArc(
-            tangent1End: CGPoint(x: along, y: depth),
-            tangent2End: CGPoint(x: along, y: depth - far),
-            radius: far
-        )
-        path.addLine(to: CGPoint(x: along, y: flare))
-        path.addQuadCurve(
-            to: CGPoint(x: along + flare, y: 0),
-            control: CGPoint(x: along, y: 0)
-        )
-        path.closeSubpath()
-        return path
     }
 }
 

@@ -3,6 +3,7 @@ import SwiftUI
 import Testing
 @testable import CommandBarKit
 import IndieEdgeReveal
+import IndieEdgeRevealUI
 
 @Test func commandBarReservesTopInsetOnlyForAPhysicallyNotchedDisplay() async throws {
     // Edge surfaces are vertically centered and never reach the top edge.
@@ -32,19 +33,19 @@ import IndieEdgeReveal
     let surface = CGRect(x: 40, y: 60, width: 380, height: 300)
     let outset = surface.insetBy(dx: -flare, dy: -flare)
 
-    let notch = CommandBarSurfaceShape(anchor: .notch).path(in: outset).boundingRect
+    let notch = EdgeRevealSurfaceShape(hug: .top, cornerRadius: CommandBarLayout.surfaceCornerRadius, joinRadius: flare).path(in: outset).boundingRect
     #expect(abs(notch.minY - surface.minY) < 0.5)
     #expect(abs(notch.maxY - surface.maxY) < 0.5)
     #expect(notch.minX < surface.minX)
     #expect(notch.maxX > surface.maxX)
 
-    let left = CommandBarSurfaceShape(anchor: .leftEdge).path(in: outset).boundingRect
+    let left = EdgeRevealSurfaceShape(hug: .left, cornerRadius: CommandBarLayout.surfaceCornerRadius, joinRadius: flare).path(in: outset).boundingRect
     #expect(abs(left.minX - surface.minX) < 0.5)
     #expect(abs(left.maxX - surface.maxX) < 0.5)
     #expect(left.minY < surface.minY)
     #expect(left.maxY > surface.maxY)
 
-    let right = CommandBarSurfaceShape(anchor: .rightEdge).path(in: outset).boundingRect
+    let right = EdgeRevealSurfaceShape(hug: .right, cornerRadius: CommandBarLayout.surfaceCornerRadius, joinRadius: flare).path(in: outset).boundingRect
     #expect(abs(right.maxX - surface.maxX) < 0.5)
     #expect(abs(right.minX - surface.minX) < 0.5)
     #expect(right.minY < surface.minY)

@@ -82,6 +82,7 @@ def load_config(path=None):
         "machines": raw.get("machines") if isinstance(raw.get("machines"), dict) else {},
         "projectRoots": roots,
         "port": int(raw.get("port") or DEFAULT_PORT),
+        "localLabel": raw.get("localLabel") if isinstance(raw.get("localLabel"), str) and raw.get("localLabel").strip() else DEFAULT_LOCAL_LABEL,
         "configError": error,
     }
 
@@ -105,6 +106,10 @@ def _load_machines(project_roots, raw_machines):
     return herdr_transport.load_machines_config(fallback_root)
 
 
+#: Display name of the machine this dashboard runs on (machine id "local" is
+#: relative to the dashboard, so a UI needs a real name like "Pro" for it).
+DEFAULT_LOCAL_LABEL = "This Mac"
+
 _CONFIG = load_config()
 PROJECT_ROOTS = _CONFIG["projectRoots"]
 CONFIG_ERROR = _CONFIG["configError"]
@@ -118,3 +123,12 @@ LOCAL_REPO_ROOT = PROJECT_ROOTS[0] if PROJECT_ROOTS else DASHBOARD_HOME
 MACHINES, MACHINES_CONFIG_ERROR = _load_machines(PROJECT_ROOTS, _CONFIG["machines"])
 if CONFIG_ERROR and not MACHINES_CONFIG_ERROR:
     MACHINES_CONFIG_ERROR = CONFIG_ERROR
+
+LOCAL_MACHINE_LABEL = _CONFIG["localLabel"].strip()
+
+
+def machine_choices():
+    """[{id, label}] a persona can run on: "local" (this dashboard's own
+    Mac) first, then every configured remote machine."""
+    return [{"id": "local", "label": LOCAL_MACHINE_LABEL}] + [
+        {"id": name, "label": cfg["label"]} for name, cfg in MACHINES.items()]

@@ -211,6 +211,27 @@ for label, fields in [("bad idle", {"idle": "sometimes"}), ("NaN days", {"resume
 check("edit by address works",
       edit.apply_registry_action({"action": "edit", "persona": "local:~/01_Project/app",
                                   "fields": {"name": "app"}}).get("ok"), True)
+print("\n== runsOn ==")
+import dashboard_config  # noqa: E402
+check("default runsOn is local", app_entry["runsOn"], "local")
+check("registry lists machine choices, local first",
+      edit.registry_view()["machines"][0], {"id": "local", "label": dashboard_config.LOCAL_MACHINE_LABEL})
+check("edit refuses an unconfigured machine",
+      edit.apply_registry_action({"action": "edit", "persona": "app",
+                                  "fields": {"runsOn": "air-m1"}}).get("ok"), False)
+check("edit refuses a hostile machine id",
+      edit.apply_registry_action({"action": "edit", "persona": "app",
+                                  "fields": {"runsOn": SENTINEL}}).get("ok"), False)
+_saved_machines = dashboard_config.MACHINES
+dashboard_config.MACHINES = {"air-m1": {"label": "Air"}}
+r = edit.apply_registry_action({"action": "edit", "persona": "app", "fields": {"runsOn": "air-m1"}})
+check("edit accepts a configured machine", r.get("ok"), True)
+check("runsOn persisted", personas.load_registry()["personas"]["local:~/01_Project/app"]["runsOn"], "air-m1")
+check("machine choices carry its label", edit.registry_view()["machines"][1], {"id": "air-m1", "label": "Air"})
+dashboard_config.MACHINES = _saved_machines
+check("registry load keeps an unknown runsOn (start reports it)",
+      personas.load_registry()["personas"]["local:~/01_Project/app"]["runsOn"], "air-m1")
+
 check("edit refuses an unknown persona",
       edit.apply_registry_action({"action": "edit", "persona": "nope", "fields": {}}).get("ok"), False)
 check("edit refuses renaming onto another persona",

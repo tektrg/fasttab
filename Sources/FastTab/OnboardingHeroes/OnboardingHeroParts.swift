@@ -12,36 +12,24 @@ enum HeroInk {
     static let faintFill = Color.primary.opacity(0.06)
     /// Accent opacity of a selected row at `highlight` 1.
     static let highlightOpacity = 0.22
-    static let outlineWidth: CGFloat = 1
+    static let outlineWidth = MotionStyle.fineStroke
     /// Dash pattern for "goes here" outlines.
     static let dash: [CGFloat] = [3, 2]
     /// Chibi corner radii: soft and round everywhere.
-    static let cardRadius = 6.0
-    static let panelRadius = 10.0
+    static let cardRadius = MotionStyle.cardRadius
+    static let panelRadius = MotionStyle.panelRadius
     /// Tab favicons in the mini lists: blue, orange, purple, green.
     static let favicons: [Color] = [.blue, .orange, .purple, .green]
 }
 
-/// Springy beats shared by the heroes.
-enum HeroBeat {
-    /// A damped wobble around 0: jumps up, dips once, rests at exactly 0
-    /// after `duration`. Add it to a resting scale for a landing bounce
-    /// (`1 + 0.08 * kick`) without changing the settled frame.
-    static func kick(_ time: Double, start: Double, duration: Double) -> Double {
-        let linear = MotionCurve.progress(time, start: start, duration: duration, ease: .linear)
-        guard linear > 0, linear < 1 else { return 0 }
-        return sin(3 * .pi * linear) * exp(-4 * linear) / 0.55
-    }
-}
-
-/// A placeholder line of text.
+/// A placeholder line of text in the hero ink (IndieMotion's `MotionTextLine`).
 struct HeroTextLine: View {
     var width: Double
     var height: Double = 4
     var color: Color = HeroInk.textLine
 
     var body: some View {
-        Capsule().fill(color).frame(width: width, height: height)
+        MotionTextLine(width: width, height: height, color: color)
     }
 }
 
@@ -134,7 +122,7 @@ struct HeroCommandBar: View {
         }
         .padding(4)
         .background(
-            HeroNotchPanelShape(attachedEdge: attachedEdge)
+            MotionEdgePanelShape(attachedEdge: attachedEdge)
                 .fill(Self.panelFill)
                 .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
         )
@@ -142,122 +130,30 @@ struct HeroCommandBar: View {
     }
 }
 
-/// A rounded panel; on `attachedEdge` its two corners curve outward (reverse
-/// rounded) into that edge instead of inward, so it reads as growing out of it.
-/// The flares draw just outside the frame, along the edge.
-struct HeroNotchPanelShape: Shape {
-    var attachedEdge: Edge?
-    var radius: Double = 12
-    var flare: Double = 6
-
-    func path(in rect: CGRect) -> Path {
-        guard let attachedEdge else {
-            return RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
-        }
-        // Drawn hanging from the top edge in (along, away) coordinates, then
-        // mapped onto the real edge.
-        let vertical = attachedEdge == .leading || attachedEdge == .trailing
-        let length = vertical ? rect.height : rect.width
-        let depth = vertical ? rect.width : rect.height
-        func point(_ along: Double, _ away: Double) -> CGPoint {
-            switch attachedEdge {
-            case .top: return CGPoint(x: rect.minX + along, y: rect.minY + away)
-            case .bottom: return CGPoint(x: rect.minX + along, y: rect.maxY - away)
-            case .leading: return CGPoint(x: rect.minX + away, y: rect.minY + along)
-            case .trailing: return CGPoint(x: rect.maxX - away, y: rect.minY + along)
-            }
-        }
-        var path = Path()
-        path.move(to: point(-flare, 0))
-        path.addLine(to: point(length + flare, 0))
-        path.addQuadCurve(to: point(length, flare), control: point(length, 0))
-        path.addLine(to: point(length, depth - radius))
-        path.addQuadCurve(to: point(length - radius, depth), control: point(length, depth))
-        path.addLine(to: point(radius, depth))
-        path.addQuadCurve(to: point(0, depth - radius), control: point(0, depth))
-        path.addLine(to: point(0, flare))
-        path.addQuadCurve(to: point(-flare, 0), control: point(0, 0))
-        path.closeSubpath()
-        return path
-    }
-}
-
 extension View {
-    /// Window-like panel: bar fill, hairline outline, soft shadow.
+    /// Window-like panel in the hero inks (IndieMotion's `motionPanel`).
     func heroPanel(cornerRadius: Double = HeroInk.panelRadius) -> some View {
-        background(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(HeroInk.barFill)
-                .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(HeroInk.outline, lineWidth: HeroInk.outlineWidth)
-        )
+        motionPanel(cornerRadius: cornerRadius, fill: HeroInk.barFill, outline: HeroInk.outline)
     }
 }
 
-/// A keycap; `press` 0…1 pushes it down and tints it.
-struct HeroKeycap: View {
-    var label: String
-    var press: Double = 0
-
-    /// Wider caps for named keys ("Space", "Return").
-    static let height = 24.0
-
-    static func width(for label: String) -> Double {
-        label.count > 1 ? max(40, Double(label.count) * 8 + 10) : 24
-    }
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
-        Text(label)
-            .font(.system(size: label.count > 1 ? 9 : 12, weight: .bold, design: .rounded))
-            .foregroundStyle(press > 0.5 ? Color.accentColor : .primary)
-            .frame(width: Self.width(for: label), height: Self.height)
-            .background(shape.fill(HeroInk.barFill))
-            .overlay(shape.strokeBorder(HeroInk.outline, lineWidth: HeroInk.outlineWidth))
-            .overlay(shape.strokeBorder(Color.accentColor.opacity(press), lineWidth: 1.5))
-            .shadow(color: .black.opacity(0.2 * (1 - press)), radius: 0, y: 2 * (1 - press))
-            .scaleEffect(1 - 0.06 * press)
-            .offset(y: 1.5 * press)
-    }
-}
-
-/// A row of keycaps, each pressed per `press(index)`. Shrinks to `maxWidth`
-/// when a long shortcut (four modifiers plus "Backspace") would overflow.
+/// A row of keycaps in the hero inks (IndieMotion's `MotionKeycapRow`).
 struct HeroKeycapRow: View {
     var keycaps: [String]
     var maxWidth: Double
     var press: (Int) -> Double
 
-    static let spacing: Double = 5
-
-    static func naturalWidth(of keycaps: [String]) -> Double {
-        keycaps.map(HeroKeycap.width(for:)).reduce(0, +) + spacing * Double(max(keycaps.count - 1, 0))
-    }
-
     var body: some View {
-        HStack(spacing: Self.spacing) {
-            ForEach(Array(keycaps.enumerated()), id: \.offset) { index, label in
-                HeroKeycap(label: label, press: press(index))
-            }
-        }
-        .fixedSize()
-        .scaleEffect(min(1, maxWidth / max(Self.naturalWidth(of: keycaps), 1)))
+        MotionKeycapRow(keycaps: keycaps, maxWidth: maxWidth, fill: HeroInk.barFill, outline: HeroInk.outline, press: press)
     }
 }
 
-/// The mouse pointer, tip at the view's top-left.
+/// The mouse pointer with a window-coloured halo (IndieMotion's `MotionPointer`).
 struct HeroPointer: View {
-    static let size = CGSize(width: 14, height: 17)
+    static let size = MotionPointer.size
 
     var body: some View {
-        Image(systemName: "cursorarrow")
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(.primary)
-            .shadow(color: Color(nsColor: .windowBackgroundColor), radius: 1)
-            .frame(width: Self.size.width, height: Self.size.height, alignment: .topLeading)
+        MotionPointer(halo: HeroInk.surface)
     }
 }
 

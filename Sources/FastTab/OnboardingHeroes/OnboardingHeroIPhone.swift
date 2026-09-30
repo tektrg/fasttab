@@ -47,7 +47,7 @@ struct OnboardingHeroIPhone: View {
                 settle = MotionCurve.progress(time, start: 1.6, duration: 0.4)
                 planeFlight = MotionCurve.progress(time, start: 2.1, duration: 0.6)
                 macGlow = MotionCurve.progress(time, start: 2.65, duration: 0.2)
-                phoneLanding = HeroBeat.kick(time, start: 1.55, duration: 0.5)
+                phoneLanding = MotionCurve.kick(time, start: 1.55, duration: 0.5)
                 fade = MotionCurve.loopFade(time, playback: state.playback)
             case .connected:
                 settle = 1

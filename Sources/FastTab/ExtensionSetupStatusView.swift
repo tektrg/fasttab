@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieMotion
 
 /// Onboarding's extension status line. Says *why* the extension isn't usable
 /// yet — turned off in Settings, stale version, or not connected — and after
@@ -30,9 +31,13 @@ struct ExtensionSetupStatusView: View {
 
     private var statusLine: some View {
         HStack(spacing: 8) {
-            Image(systemName: iconName)
-                .foregroundStyle(iconColor)
-                .accessibilityHidden(true)
+            // Waiting pulses; landing on a result bounces once (IndieMotion).
+            MotionIcon(
+                systemName: iconName,
+                effect: setupState == .waiting ? .pulse : .bounce,
+                trigger: setupState == .waiting ? .whileVisible : .onChange(of: setupState)
+            )
+            .foregroundStyle(iconColor)
             Text(title)
                 .font(.callout)
                 .foregroundStyle(setupState == .waiting ? .tertiary : .secondary)

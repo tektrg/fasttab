@@ -89,7 +89,7 @@ struct OnboardingHeroSources: View {
 
     private static func field(state: SourcesHeroState, time: Double) -> some View {
         let lit = MotionCurve.progress(time, start: Layout.fieldLightsUp, duration: 0.3)
-        let lightUpBounce = HeroBeat.kick(time, start: Layout.fieldLightsUp, duration: 0.4)
+        let lightUpBounce = MotionCurve.kick(time, start: Layout.fieldLightsUp, duration: 0.4)
         let shape = Capsule(style: .continuous)
         return HStack(spacing: 5) {
             Image(systemName: "magnifyingglass")

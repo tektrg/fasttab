@@ -4,7 +4,7 @@ import Foundation
 /// Separates "nothing connected yet" from the two ways a connected extension
 /// can still be unusable, so setup UI never shows a bare "Waiting…" for a
 /// browser that is in fact connected.
-enum ExtensionSetupState: Equatable, Sendable {
+enum ExtensionSetupState: Hashable, Sendable {
     /// Connected, compatible, and FastTab's extension setting is on.
     case usable
     /// Connected and compatible, but the user turned the extension setting off

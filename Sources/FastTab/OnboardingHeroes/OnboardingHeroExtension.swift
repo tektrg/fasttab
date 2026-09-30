@@ -57,12 +57,12 @@ struct OnboardingHeroExtension: View {
         init(state: ExtensionHeroState, time: Double) {
             switch state {
             case .teaching:
-                pieceArrival = MotionCurve.progress(time, start: 0, duration: 0.5, ease: .easeOut)
+                pieceArrival = MotionCurve.progress(time, start: 0, duration: 0.5, ease: .bouncy)
                 let bobPhase = max(time - 0.5, 0) / 1.3 * 2 * .pi
                 bobOffset = -sin(bobPhase) * 2.5
                 fade = MotionCurve.loopFade(time, playback: state.playback)
             case .connected:
-                snap = MotionCurve.progress(time, start: 0, duration: 0.25, ease: .spring)
+                snap = MotionCurve.progress(time, start: 0, duration: 0.4, ease: .bouncy)
                 check = MotionCurve.progress(time, start: 0.25, duration: 0.25, ease: .spring)
                 reorder = MotionCurve.progress(time, start: 0.4, duration: 0.4)
                 rise = MotionCurve.progress(time, start: 0.8, duration: 0.3, ease: .spring)
@@ -82,7 +82,7 @@ struct OnboardingHeroExtension: View {
                 .font(.system(size: 20, weight: .regular))
                 .foregroundStyle(Color.accentColor)
                 .offset(x: (1 - beats.pieceArrival) * 16, y: beats.bobOffset)
-                .opacity(beats.pieceArrival * beats.fade)
+                .opacity(min(beats.pieceArrival, 1) * beats.fade)
                 .heroPlaced(
                     x: MotionCurve.lerp(Layout.pieceParkedX, Layout.pieceSnappedX, beats.snap),
                     y: Layout.pieceY,

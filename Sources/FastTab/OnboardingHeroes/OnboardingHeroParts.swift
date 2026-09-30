@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import IndieMotion
 
 /// Neutral inks shared by every Mac hero, from semantic system colors so
 /// they read the same in light and dark mode.
@@ -19,6 +20,18 @@ enum HeroInk {
     static let panelRadius = 10.0
     /// Tab favicons in the mini lists: blue, orange, purple, green.
     static let favicons: [Color] = [.blue, .orange, .purple, .green]
+}
+
+/// Springy beats shared by the heroes.
+enum HeroBeat {
+    /// A damped wobble around 0: jumps up, dips once, rests at exactly 0
+    /// after `duration`. Add it to a resting scale for a landing bounce
+    /// (`1 + 0.08 * kick`) without changing the settled frame.
+    static func kick(_ time: Double, start: Double, duration: Double) -> Double {
+        let linear = MotionCurve.progress(time, start: start, duration: duration, ease: .linear)
+        guard linear > 0, linear < 1 else { return 0 }
+        return sin(3 * .pi * linear) * exp(-4 * linear) / 0.55
+    }
 }
 
 /// A placeholder line of text.
@@ -64,23 +77,23 @@ struct HeroSearchField: View {
     var showsCaret = false
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 8, weight: .bold))
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.secondary)
             if !query.isEmpty {
                 Text(query)
-                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(.primary)
                     .fixedSize()
             }
             if showsCaret {
-                Capsule().fill(Color.accentColor).frame(width: 1.5, height: 9)
+                Capsule().fill(Color.accentColor).frame(width: 2, height: 10)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 6)
-        .frame(height: 16)
+        .padding(.horizontal, 7)
+        .frame(height: 18)
     }
 }
 
@@ -102,7 +115,7 @@ struct HeroCommandBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HeroSearchField()
-                .frame(height: 15)
+                .frame(height: 17)
                 .background(Capsule(style: .continuous).fill(Self.searchFill))
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(0..<rowCount, id: \.self) { index in

@@ -68,10 +68,10 @@ struct OnboardingHeroWelcome: View {
         return ZStack(alignment: .topLeading) {
             HeroSearchField(query: typedQuery(at: time), showsCaret: time >= 0.8)
                 .padding(.horizontal, 3)
-                .offset(y: 4)
+                .offset(y: 3)
             ForEach(tabs.indices, id: \.self) { index in
                 let tab = tabs[index]
-                let cascade = MotionCurve.progress(time, start: 0.7 + 0.06 * Double(index), duration: 0.3, ease: .easeOut)
+                let cascade = MotionCurve.progress(time, start: 0.7 + 0.06 * Double(index), duration: 0.45, ease: .bouncy)
                 let matchIndex = tabs[..<index].filter(\.matchesQuery).count
                 let filteredY = Layout.rowTop + Double(matchIndex) * Layout.rowPitch
                 let startY = Layout.rowTop + Double(index) * Layout.rowPitch
@@ -84,7 +84,7 @@ struct OnboardingHeroWelcome: View {
                 )
                 .padding(.horizontal, 3)
                 .offset(x: (1 - cascade) * -8, y: tab.matchesQuery ? MotionCurve.lerp(startY, filteredY, filter) : startY)
-                .opacity(cascade * (tab.matchesQuery ? 1 : 1 - filter))
+                .opacity(min(cascade, 1) * (tab.matchesQuery ? 1 : 1 - filter))
             }
         }
         .frame(width: Layout.barSize.width, height: Layout.barSize.height, alignment: .topLeading)

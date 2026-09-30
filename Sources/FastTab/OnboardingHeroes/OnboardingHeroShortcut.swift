@@ -17,7 +17,7 @@ struct OnboardingHeroShortcut: View {
         HeroShortcutPress(
             keycaps: keycaps,
             time: time,
-            barFrame: CGRect(x: 40, y: 1, width: 120, height: 56),
+            barFrame: CGRect(x: 40, y: 5, width: 120, height: 52),
             keysCenter: CGPoint(x: HeroCanvas.size.width / 2, y: 74),
             keysMaxWidth: HeroCanvas.size.width - 8,
             showsRipple: true
@@ -43,7 +43,7 @@ struct HeroShortcutPress: View {
 
     var body: some View {
         let fade = MotionCurve.loopFade(time, playback: playback)
-        let pop = MotionCurve.progress(time, start: popTime + 0.1, duration: 0.4, ease: .spring)
+        let pop = MotionCurve.progress(time, start: popTime + 0.1, duration: 0.55, ease: .bouncy)
         ZStack(alignment: .topLeading) {
             HeroCommandBar(rowCount: 2)
                 .scaleEffect(MotionCurve.lerp(0.6, 1, pop), anchor: .bottom)

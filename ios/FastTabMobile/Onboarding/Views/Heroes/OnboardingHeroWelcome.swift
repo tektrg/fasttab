@@ -39,7 +39,7 @@ struct OnboardingHeroWelcome: View {
     private func card(_ index: Int, time: Double) -> some View {
         let offset = Double(index)
         let flow = MotionCurve.progress(time, start: 0.3 + 0.12 * offset, duration: 0.7)
-        let fan = MotionCurve.progress(time, start: 1.6, duration: 0.5, ease: .spring)
+        let fan = MotionCurve.progress(time, start: 1.6, duration: 0.6, ease: .bouncy)
         let tintAmount = MotionCurve.progress(time, start: 1.6 + 0.3 * offset, duration: 0.35)
 
         let scale = MotionCurve.lerp(0.6, 1, flow)

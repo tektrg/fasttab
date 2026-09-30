@@ -18,7 +18,7 @@ struct OnboardingHeroSources: View {
         static let tileTop = 1.0
         static let chipSize = CGSize(width: 22, height: 10)
         static let chipsPerSource = 3
-        static let field = CGRect(x: 22, y: 68, width: 156, height: 24)
+        static let field = CGRect(x: 32, y: 64, width: 136, height: 26)
         static let streamStart = 0.2
         static let chipStagger = 0.3
         static let sourceStagger = 0.08
@@ -89,28 +89,30 @@ struct OnboardingHeroSources: View {
 
     private static func field(state: SourcesHeroState, time: Double) -> some View {
         let lit = MotionCurve.progress(time, start: Layout.fieldLightsUp, duration: 0.3)
+        let lightUpBounce = HeroBeat.kick(time, start: Layout.fieldLightsUp, duration: 0.4)
         let count = state.enabledSources.count
-        return HStack(spacing: 4) {
+        let shape = Capsule(style: .continuous)
+        return HStack(spacing: 5) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.secondary)
             ForEach(Array(state.enabledSources.enumerated()), id: \.element) { index, source in
-                let pop = MotionCurve.progress(time, start: Layout.fieldLightsUp + 0.06 * Double(index), duration: 0.3, ease: .spring)
-                appIcon(source, size: 13)
+                let pop = MotionCurve.progress(time, start: Layout.fieldLightsUp + 0.06 * Double(index), duration: 0.35, ease: .bouncy)
+                appIcon(source, size: 16)
                     .scaleEffect(pop)
                     .opacity(min(pop * 2, 1))
             }
             Spacer(minLength: 0)
             Text(count == 1 ? "1 source" : "\(count) sources")
-                .font(.system(size: 8, weight: .semibold, design: .rounded))
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
                 .opacity(lit)
         }
-        .padding(.horizontal, 8)
-        .heroPanel(cornerRadius: 12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.accentColor.opacity(0.6 * lit), lineWidth: 1.5)
-        )
+        .padding(.horizontal, 10)
+        // Fill the placed frame, so the panel is the full chunky capsule.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .heroPanel(cornerRadius: Layout.field.height / 2)
+        .overlay(shape.strokeBorder(Color.accentColor.opacity(0.6 * lit), lineWidth: 2))
+        .scaleEffect(1 + 0.06 * lightUpBounce)
     }
 }

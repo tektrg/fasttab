@@ -35,21 +35,24 @@ struct OnboardingHeroIPhone: View {
         var macGlow = 0.0
         var link = 0.0
         var check = 0.0
+        /// The phone's bounce as the card lands on it.
+        var phoneLanding = 0.0
         var fade = 1.0
 
         init(state: IPhoneHeroState, time: Double) {
             switch state {
             case .teaching:
-                lift = MotionCurve.progress(time, start: 0.3, duration: 0.4, ease: .easeOut)
+                lift = MotionCurve.progress(time, start: 0.3, duration: 0.4, ease: .spring)
                 flight = MotionCurve.progress(time, start: 0.7, duration: 0.9)
                 settle = MotionCurve.progress(time, start: 1.6, duration: 0.4)
                 planeFlight = MotionCurve.progress(time, start: 2.1, duration: 0.6)
                 macGlow = MotionCurve.progress(time, start: 2.65, duration: 0.2)
+                phoneLanding = HeroBeat.kick(time, start: 1.55, duration: 0.5)
                 fade = MotionCurve.loopFade(time, playback: state.playback)
             case .connected:
                 settle = 1
                 link = MotionCurve.progress(time, start: 0.2, duration: 0.5)
-                check = MotionCurve.progress(time, start: 0.7, duration: 0.3, ease: .spring)
+                check = MotionCurve.progress(time, start: 0.7, duration: 0.45, ease: .bouncy)
             }
         }
     }
@@ -58,7 +61,7 @@ struct OnboardingHeroIPhone: View {
         let beats = Beats(state: state, time: time)
         return ZStack(alignment: .topLeading) {
             mac(glow: beats.macGlow * beats.fade)
-            phone(readerPage: beats.settle * (state == .connected ? 1 : beats.fade))
+            phone(readerPage: beats.settle * (state == .connected ? 1 : beats.fade), landing: beats.phoneLanding)
             Image(systemName: "icloud.fill")
                 .font(.system(size: 22))
                 .foregroundStyle(Color.secondary.opacity(0.55))
@@ -97,7 +100,7 @@ struct OnboardingHeroIPhone: View {
         }
     }
 
-    private static func phone(readerPage: Double) -> some View {
+    private static func phone(readerPage: Double, landing: Double) -> some View {
         RoundedRectangle(cornerRadius: 11, style: .continuous)
             .fill(HeroInk.barFill)
             .overlay(readerPageContent.padding(5).padding(.top, 6).opacity(readerPage))
@@ -108,6 +111,7 @@ struct OnboardingHeroIPhone: View {
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .strokeBorder(HeroInk.outline, lineWidth: 2)
             )
+            .scaleEffect(1 + 0.06 * landing, anchor: .bottom)
             .heroPlaced(in: Layout.phone)
     }
 

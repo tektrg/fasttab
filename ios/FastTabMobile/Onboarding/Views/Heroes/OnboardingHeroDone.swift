@@ -35,6 +35,8 @@ struct OnboardingHeroDone: View {
     private func seal(time: Double) -> some View {
         let ring = MotionCurve.progress(time, start: 0, duration: 0.5)
         let check = MotionCurve.progress(time, start: 0.5, duration: 0.4, ease: .easeOut)
+        // The seal springs up as it closes, then settles.
+        let pop = MotionCurve.progress(time, start: 0.35, duration: 0.6, ease: .bouncy)
         return ZStack {
             Self.sealShape.fill(DS.Tint.success.opacity(0.14 * ring))
             Self.sealShape
@@ -44,10 +46,11 @@ struct OnboardingHeroDone: View {
                 .trim(from: 0, to: check)
                 .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
         }
+        .scaleEffect(MotionCurve.lerp(0.8, 1, pop))
     }
 
     private func tabBar(time: Double) -> some View {
-        let rise = MotionCurve.progress(time, start: 0.9, duration: 0.4, ease: .spring)
+        let rise = MotionCurve.progress(time, start: 0.9, duration: 0.55, ease: .bouncy)
         let bar = Capsule(style: .continuous)
         return HStack(spacing: 0) {
             ForEach(Self.tabs.indices, id: \.self) { index in

@@ -14,7 +14,7 @@ struct OnboardingHeroSend: View {
         static let phoneOrigin = CGPoint(x: 48, y: 46)
         static let phoneSize = CGSize(width: 84, height: 92)
         static let sheetTop = 40.0
-        static let chipSize = CGSize(width: 15, height: 7)
+        static let chipSize = CGSize(width: 16, height: 9)
         static let chipGap = 2.0
         static let appIconSize = 16.0
         /// Where the FastTab icon sits in the share sheet's app row (x, in phone points).
@@ -65,7 +65,7 @@ struct OnboardingHeroSend: View {
     // MARK: - Parts
 
     private func mac(time: Double, fade: Double) -> some View {
-        let arrival = MotionCurve.progress(time, start: Layout.flightStart + Layout.flightDuration, duration: 0.35, ease: .spring)
+        let arrival = MotionCurve.progress(time, start: Layout.flightStart + Layout.flightDuration, duration: 0.5, ease: .bouncy)
         return HeroMac(width: Layout.macSize.width, height: Layout.macSize.height, look: state == .noMac ? .dashed : .solid) {
             if state != .noMac {
                 HStack(spacing: Layout.chipGap) {

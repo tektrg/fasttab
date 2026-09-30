@@ -44,9 +44,9 @@ struct OnboardingHeroSafari: View {
         init(state: SafariHeroState, time: Double) {
             switch state {
             case .teaching:
-                lift = MotionCurve.progress(time, start: 0, duration: 0.3, ease: .easeOut)
+                lift = MotionCurve.progress(time, start: 0, duration: 0.3, ease: .spring)
                 drag = MotionCurve.progress(time, start: 0.3, duration: 0.9)
-                drop = MotionCurve.progress(time, start: 1.3, duration: 0.2)
+                drop = MotionCurve.progress(time, start: 1.3, duration: 0.45, ease: .bouncy)
                 toggle = MotionCurve.progress(time, start: 1.7, duration: 0.2)
                 unlock = MotionCurve.progress(time, start: 2.1, duration: 0.2)
                 fade = MotionCurve.loopFade(time, playback: state.playback)
@@ -81,7 +81,7 @@ struct OnboardingHeroSafari: View {
         return HeroAppIcon(size: size)
             .overlay(alignment: .bottomTrailing) { HeroPointer().offset(x: 7, y: 9) }
             .scaleEffect(MotionCurve.lerp(1, 1.08, beats.lift))
-            .opacity(0.75 * beats.lift * (1 - beats.drop) * beats.fade)
+            .opacity(0.75 * min(beats.lift, 1) * max(1 - beats.drop * 3, 0) * beats.fade)
             .position(point)
     }
 
@@ -125,13 +125,13 @@ struct OnboardingHeroSafari: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .strokeBorder(HeroInk.outline, style: StrokeStyle(lineWidth: 1, dash: HeroInk.dash))
-                        .opacity(1 - beats.drop)
+                        .opacity(max(1 - beats.drop, 0))
                     HeroAppIcon(size: Layout.slotIconSize)
                         .scaleEffect(MotionCurve.lerp(0.6, 1, beats.drop))
-                        .opacity(beats.drop)
+                        .opacity(min(beats.drop * 3, 1))
                 }
                 .frame(width: Layout.slotIconSize, height: Layout.slotIconSize)
-                HeroTextLine(width: 36).opacity(beats.drop)
+                HeroTextLine(width: 36).opacity(min(beats.drop, 1))
             } else {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(index == 0 ? Color.secondary : Color.blue)
@@ -143,7 +143,7 @@ struct OnboardingHeroSafari: View {
         }
         .padding(.horizontal, 7)
         .frame(height: Layout.rowHeight)
-        .background(isFastTabRow ? Color.accentColor.opacity(0.1 * beats.drop) : .clear)
+        .background(isFastTabRow ? Color.accentColor.opacity(0.1 * min(beats.drop, 1)) : .clear)
     }
 }
 

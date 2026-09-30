@@ -78,6 +78,10 @@ extension SyncedDevice {
     /// Additive field: old builds ignore it, and a record without it is a Mac.
     static let kindRecordKey = "deviceKind"
 
+    /// Every field `init(from:)` reads: the `desiredKeys` a partial fetch
+    /// must request to still decode a device.
+    public static let recordFieldKeys = ["name", "modelName", "lastSeenAt", "appVersion", kindRecordKey]
+
     public init?(from record: CKRecord) {
         guard record.recordType == Self.recordType else { return nil }
         guard let name = record["name"] as? String,

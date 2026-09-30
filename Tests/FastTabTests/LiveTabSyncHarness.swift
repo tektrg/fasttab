@@ -185,9 +185,17 @@ final class FakeStateZone {
     /// (a change CKSyncEngine dropped, e.g. across a crash).
     var deletesToLose = 0
 
+    /// The zone's change feed: every applied save/delete in order. A nil-token
+    /// read replays all of it, like CloudKit's, so a full walk costs history.
+    private var changeLog: [(recordName: String, savedTab: SyncedTab?)] = []
+    /// Changes per feed page (tiny, so walks span several pages).
+    private static let changesPerFeedPage = 2
+    private(set) var feedPageCount = 0
+
     func save(_ tab: SyncedTab) {
         saveCount += 1
         records[tab.id] = tab
+        changeLog.append((tab.id, tab))
     }
 
     /// Returns whether the delete was acknowledged.
@@ -198,11 +206,32 @@ final class FakeStateZone {
             return false
         }
         records.removeValue(forKey: recordName)
+        changeLog.append((recordName, nil))
         return true
     }
 
     /// A record left behind by an older build / naming scheme / reset.
-    func seedStrandedRecord(_ tab: SyncedTab) { records[tab.id] = tab }
+    func seedStrandedRecord(_ tab: SyncedTab) {
+        records[tab.id] = tab
+        changeLog.append((tab.id, tab))
+    }
+
+    /// One change-feed page after `token` (= changes already delivered).
+    func changeFeedPage(since token: Int?) -> StateZoneMirror<Int>.Page {
+        feedPageCount += 1
+        let start = token ?? 0
+        let end = min(start + Self.changesPerFeedPage, changeLog.count)
+        // Like CloudKit, a page reports each record's final state in it once.
+        var finalStateByName: [String: SyncedTab?] = [:]
+        for change in changeLog[start..<end] { finalStateByName[change.recordName] = change.savedTab }
+        return StateZoneMirror.Page(
+            modifiedRecords: finalStateByName.values.compactMap { $0?.toRecord(zoneID: SyncConstants.stateZoneID) },
+            unreadableRecordNames: [],
+            deletedRecordNames: finalStateByName.filter { $0.value == nil }.map(\.key),
+            token: end,
+            moreComing: end < changeLog.count
+        )
+    }
 }
 
 // MARK: - Simulated Mac app
@@ -228,6 +257,8 @@ final class LiveTabSyncHarness {
     }
     private var inFlightWork: [Task<Void, Never>] = []
     private(set) var reconcileRunCount = 0
+    /// Memory-only like production: rebuilt on every launch.
+    private(set) var stateZoneMirror: StateZoneMirror<Int>!
     /// Simulated duration of every all-browser read (0 = instant). A slow
     /// read stays in flight while timers and extension events keep coming.
     /// Set it after `launch()`: a reconcile that must refresh first would wait
@@ -246,6 +277,11 @@ final class LiveTabSyncHarness {
     /// timer and its startup attempts.
     func launch() async {
         publishState = LiveTabPublishState(deviceID: Self.deviceID, publishedTabRecordIDs: persistedLedger)
+        stateZoneMirror = StateZoneMirror(
+            fetchPage: { [unowned self] token in self.zone.changeFeedPage(since: token) },
+            isTokenExpired: { _ in false },
+            now: { [unowned self] in self.clock.now }
+        )
         let backends: [any BrowserBackend] = browsers
         pipeline = LiveTabRefreshPipeline(
             clock: clock.pipelineClock,
@@ -369,18 +405,22 @@ final class LiveTabSyncHarness {
     }
 
     /// `SyncService.reconcileStateZoneTabs()`: refresh first when the snapshot
-    /// is stale, then sweep the zone. Returns false when deferred.
+    /// is stale, catch the state-zone mirror up, then sweep it. Returns false
+    /// when deferred.
     private func reconcile() async -> Bool {
         if !isSnapshotFresh { await pipeline.refreshNowAndWait() }
         guard isSnapshotFresh else { return false }
+        guard (try? await stateZoneMirror.catchUp()) != nil else { return true }
         reconcileRunCount += 1
         let plan = publishState.planReconcile(
-            serverTabRecords: zone.records.values.map {
-                LiveTabPublishState.ServerTabRecord(
-                    recordID: CKRecord.ID(recordName: $0.id, zoneID: SyncConstants.stateZoneID),
-                    browserName: $0.browserName
-                )
-            },
+            serverTabRecords: stateZoneMirror.records
+                .filter { $0.recordType == SyncedTab.recordType }
+                .map {
+                    LiveTabPublishState.ServerTabRecord(
+                        recordID: $0.recordID,
+                        browserName: $0["browserName"] as? String ?? ""
+                    )
+                },
             snapshot: pipeline.snapshot,
             ghostTabs: [],
             isPendingSave: { _ in false }

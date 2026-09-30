@@ -12,9 +12,10 @@
 #   --disappear-timeout S   Max seconds for it to leave the server after close (default 90).
 #
 # What it does:
-#   1. Preflight: FastTab running, iCloud sync healthy (asks the app). The first
-#      probe after FastTab launches warms the app's server mirror (~3-4 min);
-#      later runs start in about a second.
+#   1. Preflight: FastTab running, iCloud sync healthy (asks the app). For the
+#      first ~2-4 min after FastTab launches (and once a day, when it rebuilds)
+#      the app's server mirror walks the whole change feed and the first
+#      answer waits for it; otherwise runs start in about a second.
 #   2. Opens a NEW window of the probe browser with its own marker URL
 #      (https://example.com/?fasttab-sync-probe=<uuid>). Existing tabs and
 #      windows are never touched.
@@ -43,8 +44,9 @@ appear_timeout_s=90
 disappear_timeout_s=90
 poll_interval_s=3
 answer_wait_s=20
-# The first request after FastTab launches walks the zone's whole change feed
-# (observed ~215 pages, ~3.5 min); later requests are incremental (<1s).
+# The app's shared state-zone mirror walks the zone's whole change feed after
+# launch and once a day (observed ~220 pages, ~2-4 min); otherwise requests
+# are incremental (<1s).
 warmup_wait_s=300
 
 usage() { sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
@@ -209,7 +211,7 @@ trap 'exit 1' INT TERM
 # --- 1. Preflight --------------------------------------------------------------
 
 pgrep -xq FastTab || { summary "PREFLIGHT-FAIL" "reason=\"FastTab is not running\""; exit 2; }
-log "asking FastTab for the server's view (first request after a FastTab launch takes ~3-4 min)"
+log "asking FastTab for the server's view (up to ~4 min right after a FastTab launch)"
 if ! ask_server "${warmup_wait_s}"; then
   summary "PREFLIGHT-FAIL" "reason=\"FastTab did not answer the probe request within ${warmup_wait_s}s (build predates the probe hook, or sync not started)\""
   exit 2

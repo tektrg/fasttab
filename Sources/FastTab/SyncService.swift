@@ -66,20 +66,19 @@ final class SyncService: NSObject, ObservableObject {
     /// Drives the periodic state-zone tab reconciliation.
     var tabReconcileTimer: Timer?
 
-    /// Serializes `reconcileStateZoneTabs()` — the zone re-read suspends, so a
-    /// timer tick arriving mid-reconcile must not start a second overlapping
-    /// read.
+    /// Serializes `reconcileStateZoneTabs()` — the mirror catch-up suspends,
+    /// so a timer tick arriving mid-reconcile must not start a second
+    /// overlapping reconcile.
     var isReconcilingTabs = false
+
+    /// Change-feed copy of the state zone shared by reconcile and the sync
+    /// probe (`StateZoneMirror`, `SyncService+StateZoneMirror.swift`).
+    lazy var stateZoneMirror = makeStateZoneMirror()
 
     /// Live sync probe responder state (`SyncService+ServerProbe.swift`).
     var isListeningForServerProbe = false
     var isAnsweringServerProbe = false
     var queuedServerProbeRequest: SyncServerProbe.Request?
-    /// The probe's own view of the state zone and its own change token —
-    /// independent of CKSyncEngine's. Memory-only: every launch starts from a
-    /// full walk.
-    var serverProbeMirror = SyncServerProbe.ZoneMirror()
-    var serverProbeChangeToken: CKServerChangeToken?
     var lastServerProbeCatchUp: SyncServerProbe.CatchUpResult?
 
     /// Set by the first CloudKit push this process actually receives.
@@ -814,6 +813,7 @@ final class SyncService: NSObject, ObservableObject {
         resetTabStatsPublishState()
         pendingRecordsToSave.removeAll()
         serverRecordsByID.removeAll()
+        stateZoneMirror.reset()
     }
 
 }

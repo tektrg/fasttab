@@ -6,9 +6,10 @@ import FastTabSync
 /// and writes the answer file. The CloudKit read lives in
 /// `SyncService+ServerProbe.swift`.
 ///
-/// Server truth: the probe keeps its own change token and mirror of the
-/// state zone (`ZoneMirror`), independent of CKSyncEngine's token and of the
-/// publish ledger — it only ever sees what CloudKit reports.
+/// Server truth: the probe reads `StateZoneMirror` (shared with the tab
+/// reconcile), which follows its own change token, independent of
+/// CKSyncEngine's token and of the publish ledger — it only ever sees what
+/// CloudKit reports.
 ///
 /// Transport: the script posts a distributed notification and reads the
 /// answer from a 0600 file inside a 0700 directory under this user's
@@ -42,21 +43,6 @@ enum SyncServerProbe {
         var url: String?
     }
 
-    /// The probe's copy of the state zone, kept current from its own change
-    /// feed (modifications + deletions). A full walk from a nil token is slow
-    /// on a zone with long tab churn (observed ~3 min: the feed pages through
-    /// every past change), so only the first probe after launch pays it.
-    struct ZoneMirror: Equatable, Sendable {
-        private(set) var recordsByName: [String: ServerRecordSummary] = [:]
-
-        mutating func apply(modified: [ServerRecordSummary], deletedRecordNames: [String]) {
-            for record in modified { recordsByName[record.recordName] = record }
-            for recordName in deletedRecordNames { recordsByName.removeValue(forKey: recordName) }
-        }
-
-        var records: [ServerRecordSummary] { Array(recordsByName.values) }
-    }
-
     /// How one change-feed catch-up ended. A request arriving within
     /// `catchUpReuseWindow` of the previous catch-up is answered from it
     /// (the mirror is at most that old), so a request flood cannot turn into
@@ -74,14 +60,14 @@ enum SyncServerProbe {
         return previous
     }
 
-    /// A change-feed page with per-record failures is not the server's full
-    /// truth (a failed entry could be the probe's own tab). The page is not
-    /// applied and the token not advanced, so the request answers `error` and
-    /// the script's next poll retries the same page.
-    struct IncompleteChangeFeedPage: LocalizedError, Equatable {
-        var failedRecordCount: Int
+    /// The shared mirror holds entries the feed reported but could not
+    /// deliver (one could be the probe's own tab), so the answer would not be
+    /// the server's full truth. Clears when those records next change or at
+    /// the mirror's next full walk.
+    struct UnreadableChangeFeedEntries: LocalizedError, Equatable {
+        var unreadableRecordCount: Int
         var errorDescription: String? {
-            "change feed returned \(failedRecordCount) unreadable record(s); retrying"
+            "change feed holds \(unreadableRecordCount) unreadable record(s); try again later"
         }
     }
 

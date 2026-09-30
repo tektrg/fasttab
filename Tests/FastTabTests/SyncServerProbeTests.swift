@@ -79,35 +79,6 @@ struct SyncServerProbeTests {
         #expect(SyncServerProbe.healthLabel(.failing("quota")) == "failing: quota")
     }
 
-    // MARK: - Zone mirror (the probe's own change feed)
-
-    /// A tab closed on the Mac arrives as a deletion; a positional record name
-    /// reused for another tab arrives as a modification with a new URL. Either
-    /// way the marker must leave the answer.
-    @Test func mirrorDropsDeletedAndOverwrittenMarkerRecords() {
-        let request = SyncServerProbe.Request(requestID: "r3", urlMarker: marker)
-        func matches(_ mirror: SyncServerProbe.ZoneMirror) -> [String] {
-            SyncServerProbe.makeResponse(
-                request: request, deviceID: deviceID, syncHealth: .ok, outcome: .ok,
-                serverRecords: mirror.records, completedAt: Date()
-            ).matchingTabs.map(\.recordName)
-        }
-        var mirror = SyncServerProbe.ZoneMirror()
-        mirror.apply(modified: [
-            tabRecord("MAC-1_Safari_win1_idx0", url: "https://example.com/?\(marker)"),
-            tabRecord("MAC-1_Safari_win0_idx0", url: "https://news.example.org/"),
-        ], deletedRecordNames: [])
-        #expect(matches(mirror) == ["MAC-1_Safari_win1_idx0"])
-
-        mirror.apply(modified: [tabRecord("MAC-1_Safari_win1_idx0", url: "https://other.example.org/")], deletedRecordNames: [])
-        #expect(matches(mirror).isEmpty)
-
-        mirror.apply(modified: [tabRecord("MAC-1_Safari_win2_idx0", url: "https://example.com/?\(marker)")], deletedRecordNames: [])
-        mirror.apply(modified: [], deletedRecordNames: ["MAC-1_Safari_win2_idx0", "never-seen"])
-        #expect(matches(mirror).isEmpty)
-        #expect(mirror.records.count == 2)
-    }
-
     // MARK: - Answer file
 
     @Test func answerFileIsOwnerOnlyAndRoundTrips() throws {
@@ -146,8 +117,8 @@ struct SyncServerProbeTests {
         #expect(SyncServerProbe.reusableCatchUp(previous, now: finishedAt.addingTimeInterval(SyncServerProbe.catchUpReuseWindow)) == nil)
     }
 
-    @Test func incompletePageReadsAsARetryableError() {
-        let message = SyncServerProbe.IncompleteChangeFeedPage(failedRecordCount: 2).localizedDescription
+    @Test func unreadableEntriesReadAsARetryableError() {
+        let message = SyncServerProbe.UnreadableChangeFeedEntries(unreadableRecordCount: 2).localizedDescription
         #expect(message.contains("2 unreadable record"))
     }
 }

@@ -4,9 +4,9 @@ import FastTabSync
 
 // Live sync probe responder (see `SyncServerProbe` and `scripts/sync-probe.sh`):
 // answers "which of this Mac's tab records does the server hold right now?"
-// from the probe's own change feed of the state zone (own token, own mirror —
-// never CKSyncEngine's token or the publish ledger). Strictly read-only: no
-// record saves/deletes, no ledger, `serverRecordsByID` or health changes.
+// from the shared `StateZoneMirror` (own change feed — never CKSyncEngine's
+// token or the publish ledger). Strictly read-only: no record saves/deletes,
+// no ledger, `serverRecordsByID` or health changes.
 
 extension SyncService {
     /// `.deliverImmediately`: FastTab is a background (accessory) app, and
@@ -49,7 +49,10 @@ extension SyncService {
     private func answerServerProbe(_ request: SyncServerProbe.Request) async {
         let startedAt = Date()
         let catchUp: SyncServerProbe.CatchUpResult
-        if let recent = SyncServerProbe.reusableCatchUp(lastServerProbeCatchUp, now: startedAt) {
+        // Reuse only while the mirror is whole and fully readable: a walk
+        // since (e.g. a reconcile's rebaseline) may have changed that.
+        if !stateZoneMirror.isRebuilding, stateZoneMirror.unreadableRecordNames.isEmpty,
+           let recent = SyncServerProbe.reusableCatchUp(lastServerProbeCatchUp, now: startedAt) {
             catchUp = recent
         } else {
             catchUp = await catchUpServerProbeMirrorReportingOutcome()
@@ -63,7 +66,7 @@ extension SyncService {
             syncHealth: syncHealth,
             outcome: outcome,
             errorMessage: errorMessage,
-            serverRecords: outcome == .ok ? serverProbeMirror.records : [],
+            serverRecords: outcome == .ok ? stateZoneMirror.records.map(Self.probeSummary(of:)) : [],
             completedAt: Date()
         )
         do {
@@ -78,12 +81,20 @@ extension SyncService {
         }
     }
 
+    /// `ok` only when the shared mirror is complete: an unreadable entry
+    /// could be the probe's own tab, so the answer would not be the truth.
     private func catchUpServerProbeMirrorReportingOutcome() async -> SyncServerProbe.CatchUpResult {
         let outcome: SyncServerProbe.Outcome
         var errorMessage: String?
         do {
-            try await catchUpServerProbeMirror()
-            outcome = .ok
+            try await catchUpStateZoneMirror(reason: "sync probe")
+            let unreadableCount = stateZoneMirror.unreadableRecordNames.count
+            if unreadableCount == 0 {
+                outcome = .ok
+            } else {
+                outcome = .error
+                errorMessage = SyncServerProbe.UnreadableChangeFeedEntries(unreadableRecordCount: unreadableCount).localizedDescription
+            }
         } catch where SyncHealthDiagnostics.isExpectedMissingZone(error) {
             outcome = .zoneMissing
         } catch {
@@ -91,57 +102,6 @@ extension SyncService {
             errorMessage = error.localizedDescription
         }
         return SyncServerProbe.CatchUpResult(outcome: outcome, errorMessage: errorMessage, finishedAt: Date())
-    }
-
-    /// Only the fields the probe reports; keeps each change-feed page small.
-    private nonisolated static let serverProbeDesiredKeys: [CKRecord.FieldKey] = ["browserName", "url"]
-
-    /// Pages the probe's change feed up to now. Each page is applied and its
-    /// token kept, so a failure mid-walk resumes where it stopped. An expired
-    /// token restarts from a full walk.
-    private func catchUpServerProbeMirror() async throws {
-        var pageCount = 0
-        while true {
-            let zoneChanges: (
-                modificationResultsByID: [CKRecord.ID: Result<CKDatabase.RecordZoneChange.Modification, Error>],
-                deletions: [CKDatabase.RecordZoneChange.Deletion],
-                changeToken: CKServerChangeToken,
-                moreComing: Bool
-            )
-            do {
-                zoneChanges = try await database.recordZoneChanges(
-                    inZoneWith: SyncConstants.stateZoneID,
-                    since: serverProbeChangeToken,
-                    desiredKeys: Self.serverProbeDesiredKeys
-                )
-            } catch let error as CKError where error.code == .changeTokenExpired {
-                logger.info("Sync probe change token expired; restarting full walk")
-                serverProbeMirror = SyncServerProbe.ZoneMirror()
-                serverProbeChangeToken = nil
-                continue
-            }
-            pageCount += 1
-            var modifiedRecords: [CKRecord] = []
-            var failedRecordCount = 0
-            for modificationResult in zoneChanges.modificationResultsByID.values {
-                switch modificationResult {
-                case .success(let modification): modifiedRecords.append(modification.record)
-                case .failure: failedRecordCount += 1
-                }
-            }
-            guard failedRecordCount == 0 else {
-                throw SyncServerProbe.IncompleteChangeFeedPage(failedRecordCount: failedRecordCount)
-            }
-            serverProbeMirror.apply(
-                modified: modifiedRecords.map(Self.probeSummary(of:)),
-                deletedRecordNames: zoneChanges.deletions.map(\.recordID.recordName)
-            )
-            serverProbeChangeToken = zoneChanges.changeToken
-            guard zoneChanges.moreComing else { break }
-        }
-        if pageCount > 1 {
-            logger.info("Sync probe walked \(pageCount) change-feed pages")
-        }
     }
 
     private nonisolated static func probeSummary(of record: CKRecord) -> SyncServerProbe.ServerRecordSummary {

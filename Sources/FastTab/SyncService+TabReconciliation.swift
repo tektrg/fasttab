@@ -8,11 +8,13 @@ import FastTabSync
 // converging to the tabs actually open in the browser.
 
 extension SyncService {
-    /// How often the state-zone reconciliation re-reads every tab record this
-    /// device has ever published. Deliberately slow: the publish path is the
-    /// primary sync mechanism, and this sweep is the safety net that catches
-    /// records stranded by a naming-scheme change, a reset, or a raced publish
-    /// — records the publish path's delete diff can never see.
+    /// How often the state-zone reconciliation compares this device's server
+    /// tab records with the open tabs. Cheap per run (the shared
+    /// `StateZoneMirror` only reads what changed), but still slow on purpose:
+    /// the publish path is the primary sync mechanism, and this sweep is the
+    /// safety net that catches records stranded by a naming-scheme change, a
+    /// reset, or a raced publish — records the publish path's delete diff can
+    /// never see.
     nonisolated static let tabReconcileInterval: TimeInterval = 10 * 60
 
     /// Maximum age of the authoritative live-tab snapshot a reconciliation is
@@ -74,8 +76,9 @@ extension SyncService {
         }
     }
 
-    /// Re-reads every `SyncedTab` record this device has ever published and
-    /// deletes any not present in the current authoritative live-tab snapshot.
+    /// Reads every `SyncedTab` record this device has on the server (via
+    /// `StateZoneMirror`) and deletes any not present in the current
+    /// authoritative live-tab snapshot.
     ///
     /// The publish path only deletes what its durable ledger remembers; a
     /// record stranded by a naming-scheme change, a `resetPublishState`, or a
@@ -108,35 +111,29 @@ extension SyncService {
             return false
         }
 
-        // Token-independent full re-read: every record in the state zone, so a
-        // record stranded outside the ledger is still found. Mirrors the
-        // pending-command sweep; a `CKQuery` would need queryable indexes this
-        // container does not define.
-        var allStateRecords: [CKRecord] = []
-        var changeToken: CKServerChangeToken?
-        while true {
-            do {
-                let zoneChanges = try await database.recordZoneChanges(
-                    inZoneWith: SyncConstants.stateZoneID,
-                    since: changeToken
-                )
-                allStateRecords.append(contentsOf: zoneChanges.modificationResultsByID.values.compactMap { try? $0.get().record })
-                guard zoneChanges.moreComing else { break }
-                changeToken = zoneChanges.changeToken
-            } catch {
-                if SyncHealthDiagnostics.isExpectedMissingZone(error) {
-                    logger.info("Tab reconciliation skipped: state zone does not exist yet")
-                } else {
-                    logger.error("Tab reconciliation failed: \(error.localizedDescription, privacy: .public)")
-                    applySyncFailure(error)
-                }
-                return true
+        // Ledger-independent view of every record in the state zone, so a
+        // record stranded outside the ledger is still found. Read from the
+        // shared change-feed mirror (full walk once per launch, then only
+        // what changed) instead of a nil-token walk every run; a `CKQuery`
+        // would need queryable indexes this container does not define.
+        do {
+            try await catchUpStateZoneMirror(reason: "tab reconcile")
+        } catch {
+            if SyncHealthDiagnostics.isExpectedMissingZone(error) {
+                logger.info("Tab reconciliation skipped: state zone does not exist yet")
+            } else if error is StateZoneMirror<CKServerChangeToken>.ResetDuringCatchUp {
+                logger.info("Tab reconciliation skipped: iCloud account changed mid-read")
+            } else {
+                logger.error("Tab reconciliation failed: \(error.localizedDescription, privacy: .public)")
+                applySyncFailure(error)
             }
+            return true
         }
+        let allStateRecords = stateZoneMirror.records
 
         // Token-independent pickup of phone records: a phone that published
         // before this Mac build understood them was fetched and dropped then,
-        // and the change token has moved past it.
+        // and CKSyncEngine's change token has moved past it.
         PairedPhoneStore.shared.absorb(allStateRecords)
 
         // Re-read the snapshot after the await: a publish may have refreshed
@@ -182,8 +179,10 @@ extension SyncService {
 
         // Retain server change tags so any later write updates rather than
         // re-creates a record. Orphans are being deleted — their tags are moot.
+        // Copies: the publish mutates these in place, and the mirror must
+        // keep showing what the server holds, not unsaved local edits.
         for record in myTabRecords where !orphanIDs.contains(record.recordID) {
-            serverRecordsByID[record.recordID] = record
+            serverRecordsByID[record.recordID] = record.copy() as? CKRecord
         }
         applySyncSuccess()
         return true

@@ -204,6 +204,41 @@ struct LiveTabSyncScenarioTests {
         #expect(seconds != nil, "lost delete never converged:\n\(harness.serverDescription)")
     }
 
+    /// The reconcile reads the zone through the incremental mirror now; a
+    /// record stranded after launch (another build, a raced publish) must
+    /// still reach it through the change feed.
+    @Test func orphanStrandedAfterLaunchIsRemovedByPeriodicReconcile() async {
+        let browser = chrome(threeTabs)
+        let harness = await launched(browser)
+        harness.zone.seedStrandedRecord(SyncedTab(
+            id: SyncService.tabRecordName(
+                deviceID: LiveTabSyncHarness.deviceID, browserName: browser.appName,
+                windowIndex: 9, tabIndex: 9, tabID: nil, fallbackIndex: 0
+            ),
+            deviceID: LiveTabSyncHarness.deviceID,
+            browserName: browser.appName,
+            title: "Stranded mid-session",
+            url: "https://stranded.example/"
+        ))
+
+        let seconds = await harness.secondsUntilServerMatchesOpenTabs(within: SyncService.tabReconcileInterval)
+        #expect(seconds != nil, "orphan stranded mid-session survived:\n\(harness.serverDescription)")
+    }
+
+    /// The full history walk is paid once per launch; a periodic reconcile
+    /// with nothing changed reads a single change-feed page.
+    @Test func periodicReconcileReadsOnlyWhatChangedSinceLaunch() async {
+        let harness = await launched(chrome(threeTabs))
+        let pagesAfterLaunch = harness.zone.feedPageCount
+        let runsAfterLaunch = harness.reconcileRunCount
+        #expect(pagesAfterLaunch > 1, "precondition: the launch walk spans several pages")
+
+        await harness.advance(by: SyncService.tabReconcileInterval)
+
+        #expect(harness.reconcileRunCount == runsAfterLaunch + 1)
+        #expect(harness.zone.feedPageCount - pagesAfterLaunch == 1)
+    }
+
     // MARK: 7–8. Quiet when nothing the phone shows changed
 
     @Test func noChangesMeansZeroServerWritesAcrossManyTicks() async {

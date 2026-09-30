@@ -644,11 +644,22 @@ window.addEventListener('load', function() {
   }
 });
 
+// FT_PURE_BEGIN — pure helpers, unit-tested via JavaScriptCore (YouTubeTranscriptReaderTests).
+// Index of the paragraph at the reading line: the last one whose top is at or above lineY.
+// tops are viewport-relative and ascending; lines above the first paragraph map to 0.
+function ftParagraphIndexAtLine(tops, lineY) {
+  var found = 0;
+  for (var i = 0; i < tops.length; i++) { if (tops[i] <= lineY) found = i; else break; }
+  return found;
+}
+// FT_PURE_END
+
 // ── YouTube transcript: corner player + follow-along ──────────
 // Only on transcript pages (ReaderArticle.youtubeVideoID). Paragraphs and timestamps carry
 // data-start-ms (TranscriptArticleBuilder). While the video plays and we are "following",
 // the current paragraph is highlighted and scrolled near the top; a manual scroll stops
-// following and shows "Back to live".
+// following and shows "Back to live". While paused, a manual scroll instead cues the video
+// (still paused) to the paragraph at the reading line, so play continues from there.
 (function setUpTranscriptPlayer() {
   var videoID = article.youtubeVideoID;
   if (!videoID) return;
@@ -656,6 +667,9 @@ window.addEventListener('load', function() {
   var starts = paragraphs.map(function(p) { return parseInt(p.dataset.startMs, 10) || 0; });
   var player = null, playerReady = false, pendingSeekMs = null, pollTimer = null, apiRequested = false;
   var following = true, currentIndex = -1, visible = false;
+  var playing = false, everStarted = false, pendingCueMs = null, holdPauseUntil = 0;
+  var userScrollActive = false, settleTimer = null;
+  var READING_LINE = 0.25, SETTLE_MS = 250, HOLD_PAUSE_MS = 1500;
 
   var box = document.createElement('div');
   box.id = 'ft-player-box';
@@ -683,11 +697,15 @@ window.addEventListener('load', function() {
     window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   }
 
+  function highlight(index) {
+    if (paragraphs[currentIndex]) paragraphs[currentIndex].classList.remove('ft-current');
+    currentIndex = index;
+    if (paragraphs[index]) paragraphs[index].classList.add('ft-current');
+  }
+
   function showParagraph(index, forceScroll) {
     if (index !== currentIndex) {
-      if (paragraphs[currentIndex]) paragraphs[currentIndex].classList.remove('ft-current');
-      currentIndex = index;
-      if (paragraphs[index]) paragraphs[index].classList.add('ft-current');
+      highlight(index);
       if (following) scrollToCurrent();
     } else if (forceScroll && following) {
       scrollToCurrent();
@@ -720,9 +738,19 @@ window.addEventListener('load', function() {
           onReady: function() {
             playerReady = true;
             if (pendingSeekMs !== null) { player.seekTo(pendingSeekMs / 1000, true); player.playVideo(); pendingSeekMs = null; }
+            else if (pendingCueMs !== null) { cuePaused(pendingCueMs); }
+            pendingCueMs = null;
           },
           onStateChange: function(e) {
-            if (e.data === YT.PlayerState.PLAYING) startPolling(); else { stopPolling(); tick(); }
+            var S = YT.PlayerState;
+            if (e.data === S.PLAYING && Date.now() < holdPauseUntil) { player.pauseVideo(); return; } // our paused seek auto-started
+            playing = e.data === S.PLAYING || e.data === S.BUFFERING;
+            if (e.data === S.PLAYING) { everStarted = true; startPolling(); }
+            else {
+              stopPolling();
+              // CUED reports time 0 before the cue lands; only settled states re-sync the highlight.
+              if (e.data === S.PAUSED || e.data === S.ENDED) tick();
+            }
           }
         }
       });
@@ -761,8 +789,33 @@ window.addEventListener('load', function() {
     setVisible(true, true);
     showParagraph(indexAt(ms), false);
     setFollowing(true);
+    holdPauseUntil = 0;
+    pendingCueMs = null;
     if (player && playerReady) { player.seekTo(ms / 1000, true); player.playVideo(); }
     else { pendingSeekMs = ms; }
+  }
+
+  // Move the video to ms without playing. Never-started players cue (seekTo would start them).
+  function cuePaused(ms) {
+    if (!player || !playerReady) { pendingCueMs = ms; return; }
+    holdPauseUntil = Date.now() + HOLD_PAUSE_MS;
+    if (everStarted) player.seekTo(ms / 1000, true);
+    else player.cueVideoById({ videoId: videoID, startSeconds: ms / 1000 });
+  }
+
+  // A person's scroll settled while paused: jump the video to the paragraph being read.
+  function scrollSettled() {
+    clearTimeout(settleTimer); settleTimer = null;
+    if (!userScrollActive) return;
+    userScrollActive = false;
+    if (!visible || playing || !paragraphs.length) return;
+    var tops = paragraphs.map(function(p) { return p.getBoundingClientRect().top; });
+    var index = ftParagraphIndexAtLine(tops, window.innerHeight * READING_LINE);
+    if (index === currentIndex) return;
+    highlight(index);
+    following = true; // play resumes following from here; no scroll, the user is already there
+    pill.classList.remove('ft-visible');
+    cuePaused(starts[index]);
   }
 
   document.addEventListener('click', function(e) {
@@ -774,7 +827,20 @@ window.addEventListener('load', function() {
   pill.addEventListener('click', function() { setFollowing(true); });
 
   // Only a person's scroll stops following: touch drags and wheel, never our scrollTo.
-  function userScrolled() { if (visible && following) setFollowing(false); }
+  function userScrolled() {
+    if (!visible) return;
+    if (playing) { if (following) setFollowing(false); return; }
+    userScrollActive = true;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(scrollSettled, SETTLE_MS);
+  }
+  // Momentum keeps scrolling after the finger lifts: push the settle out until it stops.
+  window.addEventListener('scroll', function() {
+    if (!userScrollActive) return;
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(scrollSettled, SETTLE_MS);
+  }, { passive: true });
+  window.addEventListener('scrollend', function() { if (userScrollActive) scrollSettled(); });
   window.addEventListener('touchmove', userScrolled, { passive: true });
   window.addEventListener('wheel', userScrolled, { passive: true });
 

@@ -265,3 +265,37 @@ final class StubTranscriptProtocol: URLProtocol {
     }
     override func stopLoading() {}
 }
+
+import JavaScriptCore
+
+/// Pure JS in reader_template.html between FT_PURE_BEGIN/END, run in JavaScriptCore.
+final class TranscriptReadingLineJSTests: XCTestCase {
+    private func context() throws -> JSContext {
+        let url = try XCTUnwrap(Bundle(for: ReaderWebViewWarmer.self).url(forResource: "reader_template", withExtension: "html"))
+        let html = try String(contentsOf: url, encoding: .utf8)
+        let begin = try XCTUnwrap(html.range(of: "// FT_PURE_BEGIN"))
+        let end = try XCTUnwrap(html.range(of: "// FT_PURE_END"))
+        let ctx = try XCTUnwrap(JSContext())
+        ctx.evaluateScript(String(html[begin.lowerBound..<end.lowerBound]))
+        return ctx
+    }
+
+    private func index(_ tops: [Double], _ line: Double) throws -> Int32 {
+        try context().objectForKeyedSubscript("ftParagraphIndexAtLine").call(withArguments: [tops, line]).toInt32()
+    }
+
+    func testPicksLastParagraphAboveReadingLine() throws {
+        XCTAssertEqual(try index([-300, -40, 120, 400], 200), 2)
+        XCTAssertEqual(try index([-300, -40, 220, 400], 200), 1)
+    }
+
+    func testLineAboveFirstParagraphIsZero() throws {
+        XCTAssertEqual(try index([150, 400], 100), 0)
+    }
+
+    func testBoundaryAndEnd() throws {
+        XCTAssertEqual(try index([0, 200], 200), 1)
+        XCTAssertEqual(try index([-900, -500, -100], 200), 2)
+        XCTAssertEqual(try index([], 200), 0)
+    }
+}

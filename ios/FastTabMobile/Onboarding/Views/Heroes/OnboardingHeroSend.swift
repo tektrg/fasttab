@@ -9,17 +9,17 @@ struct OnboardingHeroSend: View {
     let state: SendHeroState
 
     private enum Layout {
-        static let macOrigin = CGPoint(x: 53, y: 0)
-        static let macSize = CGSize(width: 62, height: 38)
-        static let phoneOrigin = CGPoint(x: 48, y: 46)
-        static let phoneSize = CGSize(width: 84, height: 92)
-        static let sheetTop = 40.0
-        static let chipSize = CGSize(width: 16, height: 9)
+        static let macOrigin = CGPoint(x: 50, y: 1)
+        static let macSize = CGSize(width: 66, height: 38)
+        static let phoneOrigin = CGPoint(x: 44, y: 47)
+        static let phoneSize = CGSize(width: 92, height: 72)
+        static let sheetTop = 26.0
+        static let chipSize = CGSize(width: 17, height: 10)
         static let chipGap = 2.0
-        static let appIconSize = 16.0
+        static let appIconSize = 17.0
         /// Where the FastTab icon sits in the share sheet's app row (x, in phone points).
-        static let fastTabIconX = 26.0
-        static let appIconTop = 8.0
+        static let fastTabIconX = 29.0
+        static let appIconTop = 10.0
         static let flightStart = 1.2
         static let flightDuration = 0.85
     }
@@ -88,18 +88,17 @@ struct OnboardingHeroSend: View {
     }
 
     private func phone(time: Double, fade: Double) -> some View {
-        let rise = MotionCurve.progress(time, start: 0.3, duration: 0.6, ease: .spring)
+        let rise = MotionCurve.settle(time, start: 0.3, duration: 0.6)
         return HeroPhone(width: Layout.phoneSize.width, height: Layout.phoneSize.height) {
             ZStack(alignment: .topLeading) {
                 VStack(alignment: .leading, spacing: 4) {
-                    HeroTextLine(width: 40)
-                    HeroTextLine(width: 60)
-                    HeroTextLine(width: 52)
+                    HeroTextLine(width: 44, height: 5)
+                    HeroTextLine(width: 64, height: 5)
                 }
-                .padding(.leading, 10)
-                .padding(.top, 14)
+                .padding(.leading, 12)
+                .padding(.top, 13)
 
-                shareSheet
+                shareSheet(time: time)
                     .offset(y: Layout.sheetTop + (1 - rise) * (Layout.phoneSize.height - Layout.sheetTop))
                     .opacity(fade)
             }
@@ -107,35 +106,34 @@ struct OnboardingHeroSend: View {
         }
     }
 
-    private var shareSheet: some View {
+    private func shareSheet(time: Double) -> some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(DS.Palette.surfaceMuted)
             Capsule().fill(HeroInk.deviceOutline)
-                .frame(width: 16, height: 3)
-                .offset(x: (Layout.phoneSize.width - 16) / 2, y: 3)
+                .frame(width: 18, height: 4)
+                .offset(x: (Layout.phoneSize.width - 18) / 2, y: 4)
             ForEach(Self.appTiles.indices, id: \.self) { index in
-                appTile(index)
-                    .offset(x: 7 + 19 * Double(index), y: Layout.appIconTop)
+                appTile(index, time: time)
+                    .offset(x: 9 + 20 * Double(index), y: Layout.appIconTop)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                HeroTextLine(width: 50)
-                HeroTextLine(width: 40)
-            }
-            .offset(x: 8, y: 30)
+            HeroTextLine(width: 52, height: 5)
+                .offset(x: 10, y: 34)
         }
         .frame(width: Layout.phoneSize.width, height: Layout.phoneSize.height - Layout.sheetTop)
     }
 
     @ViewBuilder
-    private func appTile(_ index: Int) -> some View {
-        let tile = RoundedRectangle(cornerRadius: 5, style: .continuous)
+    private func appTile(_ index: Int, time: Double) -> some View {
+        let tile = RoundedRectangle(cornerRadius: 7, style: .continuous)
         if index == Self.fastTabTileIndex {
             Image(systemName: "macwindow.on.rectangle")
-                .font(.system(size: 8, weight: .bold))
+                .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: Layout.appIconSize, height: Layout.appIconSize)
                 .background(tile.fill(Self.appTiles[index]))
+                // The tap: a quick squish-and-bounce, back to exactly 1 at rest.
+                .scaleEffect(1 - 0.12 * MotionCurve.kick(time, start: 0.85, duration: 0.45))
         } else {
             tile.fill(Self.appTiles[index].opacity(0.7))
                 .frame(width: Layout.appIconSize, height: Layout.appIconSize)
@@ -146,7 +144,7 @@ struct OnboardingHeroSend: View {
         let spread = MotionCurve.progress(time, start: 0.9, duration: 0.4, ease: .easeOut)
         let diameter = MotionCurve.lerp(Layout.appIconSize, 40, spread)
         return Circle()
-            .strokeBorder(DS.Tint.action, lineWidth: 2)
+            .strokeBorder(DS.Tint.action, lineWidth: 2.5)
             .frame(width: diameter, height: diameter)
             .opacity(spread > 0 && spread < 1 ? 1 - spread : 0)
             .position(fastTabIconCenter)
@@ -159,13 +157,13 @@ struct OnboardingHeroSend: View {
         let isParkedVisible = state == .noMac && time >= 0.8
         let isFlying = state != .noMac && time >= Layout.flightStart && flight < 1
         if isParkedVisible || isFlying {
-            let point = Self.quadBezier(fastTabIconCenter, control: CGPoint(x: 160, y: 62), newChipCenter, amount: flight)
-            let ahead = Self.quadBezier(fastTabIconCenter, control: CGPoint(x: 160, y: 62), newChipCenter, amount: min(flight + 0.02, 1))
+            let point = Self.quadBezier(fastTabIconCenter, control: CGPoint(x: 158, y: 60), newChipCenter, amount: flight)
+            let ahead = Self.quadBezier(fastTabIconCenter, control: CGPoint(x: 158, y: 60), newChipCenter, amount: min(flight + 0.02, 1))
             let heading = atan2(ahead.y - point.y, ahead.x - point.x)
             // The symbol points up-right (-45°); turn it to face its heading.
             let rotation = isFlying ? Angle(radians: heading) + .degrees(45) : .zero
             Image(systemName: "paperplane.fill")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(DS.Tint.shared)
                 .rotationEffect(rotation)
                 .scaleEffect(isFlying ? MotionCurve.lerp(1.2, 0.8, flight) : 1)

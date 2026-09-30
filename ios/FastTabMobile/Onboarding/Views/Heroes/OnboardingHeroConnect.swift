@@ -8,15 +8,15 @@ struct OnboardingHeroConnect: View {
     let state: ConnectHeroState
 
     private enum Layout {
-        static let phoneSize = CGSize(width: 42, height: 84)
-        static let macSize = CGSize(width: 62, height: 40)
+        static let phoneSize = CGSize(width: 46, height: 92)
+        static let macSize = CGSize(width: 66, height: 44)
         static let centerY = 60.0
         static let phoneSearchingX = 90.0
-        static let phoneAsideX = 48.0
-        static let macRestX = 134.0
+        static let phoneAsideX = 42.0
+        static let macRestX = 132.0
         static let macOffstageX = 214.0
-        static let linkStartX = 72.0
-        static let linkEndX = 100.0
+        static let linkStartX = 69.0
+        static let linkEndX = 95.0
         static let ringPeriod = 2.4
         static let ringCount = 3
     }
@@ -32,8 +32,8 @@ struct OnboardingHeroConnect: View {
                 HeroPhone(width: Layout.phoneSize.width, height: Layout.phoneSize.height)
                     .position(x: phoneX(time: time), y: Layout.centerY)
                 if state == .found {
-                    MotionCheckmark(diameter: 20, tint: DS.Tint.success)
-                        .scaleEffect(MotionCurve.progress(time, start: 1.3, duration: 0.4, ease: .spring))
+                    MotionCheckmark(diameter: 24, tint: DS.Tint.success)
+                        .scaleEffect(MotionCurve.settle(time, start: 1.3, duration: 0.5))
                         .position(x: (Layout.linkStartX + Layout.linkEndX) / 2, y: Layout.centerY)
                 }
             }
@@ -53,7 +53,7 @@ struct OnboardingHeroConnect: View {
     }
 
     private func slide(_ time: Double) -> Double {
-        state == .searching ? 0 : MotionCurve.progress(time, start: slideStart, duration: 0.5, ease: .spring)
+        state == .searching ? 0 : MotionCurve.progress(time, start: slideStart, duration: 0.5)
     }
 
     private func phoneX(time: Double) -> Double {
@@ -70,13 +70,13 @@ struct OnboardingHeroConnect: View {
             ForEach(0..<Layout.ringCount, id: \.self) { index in
                 let phase = (searchingTime / Layout.ringPeriod + Double(index) / Double(Layout.ringCount))
                     .truncatingRemainder(dividingBy: 1)
-                let diameter = MotionCurve.lerp(40, 118, phase)
+                let diameter = MotionCurve.lerp(44, 118, phase)
                 // Strong, 2 pt accent strokes so the pulse reads in dark mode too.
                 // Square-root falloff keeps the outer rings visible longer, then fades to 0 at the edge.
                 let strength = (1 - phase).squareRoot() * 0.95
                 Circle()
                     .fill(DS.Tint.action.opacity(0.10 * strength))
-                    .overlay(Circle().strokeBorder(DS.Tint.action.opacity(strength), lineWidth: 2))
+                    .overlay(Circle().strokeBorder(DS.Tint.action.opacity(strength), lineWidth: 2.5))
                     .frame(width: diameter, height: diameter)
             }
         }
@@ -95,10 +95,10 @@ struct OnboardingHeroConnect: View {
         case .found:
             linkPath
                 .trim(from: 0, to: MotionCurve.progress(time, start: 0.85, duration: 0.45))
-                .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 3, lineCap: .round))
         case .macOffline:
             linkPath
-                .stroke(HeroInk.deviceOutline, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 4]))
+                .stroke(HeroInk.deviceOutline, style: StrokeStyle(lineWidth: 3.5, lineCap: .round, dash: [0.1, 6.5]))
                 .opacity(MotionCurve.progress(time, start: 0.7, duration: 0.4))
         case .searching, .notFound, .accountBlocked:
             EmptyView()
@@ -112,13 +112,20 @@ struct OnboardingHeroConnect: View {
         switch state {
         case .accountBlocked:
             blockedCloud(time: time)
+                .scaleEffect(1 + 0.06 * landingKick(time))
                 .position(x: partnerX, y: Layout.centerY)
         case .found, .macOffline, .notFound:
             mac(time: time)
+                .scaleEffect(1 + 0.06 * landingKick(time))
                 .position(x: partnerX, y: Layout.centerY)
         case .searching:
             EmptyView()
         }
+    }
+
+    /// The partner glides in smoothly, then bounces once in place as it lands.
+    private func landingKick(_ time: Double) -> Double {
+        MotionCurve.kick(time, start: slideStart + 0.5, duration: 0.5)
     }
 
     private func mac(time: Double) -> some View {
@@ -126,18 +133,19 @@ struct OnboardingHeroConnect: View {
         return HeroMac(width: Layout.macSize.width, height: Layout.macSize.height, look: look) {
             if state == .notFound {
                 Text("?")
-                    .font(.system(size: 19, weight: .heavy, design: .rounded))
+                    .font(.system(size: 22, weight: .heavy, design: .rounded))
                     .foregroundStyle(.secondary)
-                    .scaleEffect(MotionCurve.progress(time, start: 1.0, duration: 0.4, ease: .spring))
+                    .scaleEffect(MotionCurve.settle(time, start: 1.0, duration: 0.5))
             }
         }
         .overlay(alignment: .topTrailing) {
             if state == .macOffline {
                 Image(systemName: "moon.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.secondary)
-                    .offset(x: 9, y: -10)
-                    .opacity(MotionCurve.progress(time, start: 0.7, duration: 0.4))
+                    .scaleEffect(MotionCurve.settle(time, start: 0.7, duration: 0.5))
+                    .offset(x: 6, y: -12)
+                    .opacity(MotionCurve.progress(time, start: 0.7, duration: 0.2))
             }
         }
     }
@@ -145,16 +153,16 @@ struct OnboardingHeroConnect: View {
     private func blockedCloud(time: Double) -> some View {
         let slash = Path { path in
             path.move(to: CGPoint(x: 8, y: 6))
-            path.addLine(to: CGPoint(x: 48, y: 38))
+            path.addLine(to: CGPoint(x: 52, y: 42))
         }
         return Image(systemName: "icloud")
-            .font(.system(size: 42, weight: .regular))
+            .font(.system(size: 46, weight: .semibold))
             .foregroundStyle(.secondary)
-            .frame(width: 56, height: 44)
+            .frame(width: 60, height: 48)
             .overlay(
                 slash
                     .trim(from: 0, to: MotionCurve.progress(time, start: 0.7, duration: 0.5))
-                    .stroke(DS.Tint.warning, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .stroke(DS.Tint.warning, style: StrokeStyle(lineWidth: 4, lineCap: .round))
             )
     }
 }

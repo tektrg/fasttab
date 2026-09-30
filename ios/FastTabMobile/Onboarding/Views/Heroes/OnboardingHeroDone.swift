@@ -14,7 +14,7 @@ struct OnboardingHeroDone: View {
         ("ellipsis.circle", DS.Tint.action),
     ]
     private static let sealCenter = CGPoint(x: 90, y: 38)
-    private static let sealRadius = 30.0
+    private static let sealRadius = 31.0
     private static let firstTabLitAt = 1.3
     private static let tabLitSpacing = 0.4
     /// Built once: 145 trig samples are too many to redo every frame.
@@ -26,7 +26,7 @@ struct OnboardingHeroDone: View {
             ZStack(alignment: .topLeading) {
                 seal(time: time)
                 tabBar(time: time)
-                    .heroPlaced(x: 10, y: 78, width: 160, height: 36)
+                    .heroPlaced(x: 6, y: 76, width: 168, height: 40)
             }
             .opacity(MotionCurve.loopFade(time, playback: Self.playback))
         }
@@ -46,7 +46,8 @@ struct OnboardingHeroDone: View {
                 .trim(from: 0, to: check)
                 .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
         }
-        .scaleEffect(MotionCurve.lerp(0.8, 1, pop))
+        // ...and bounces once more as the check lands.
+        .scaleEffect(MotionCurve.lerp(0.8, 1, pop) * (1 + 0.06 * MotionCurve.kick(time, start: 0.9, duration: 0.5)))
     }
 
     private func tabBar(time: Double) -> some View {
@@ -60,7 +61,7 @@ struct OnboardingHeroDone: View {
         }
         .frame(maxHeight: .infinity)
         .background(bar.fill(DS.Palette.surface))
-        .overlay(bar.strokeBorder(HeroInk.deviceOutline.opacity(0.6), lineWidth: 1.5))
+        .overlay(bar.strokeBorder(HeroInk.deviceOutline.opacity(0.6), lineWidth: 2))
         .offset(y: (1 - rise) * 14)
         .opacity(min(rise, 1))
     }
@@ -70,12 +71,12 @@ struct OnboardingHeroDone: View {
         let start = Self.firstTabLitAt + Self.tabLitSpacing * Double(index)
         let glow = sin(.pi * MotionCurve.progress(time, start: start, duration: Self.tabLitSpacing, ease: .linear))
         let spec = Self.tabs[index]
-        let symbol = Image(systemName: spec.symbol).font(.system(size: 16, weight: .bold))
+        let symbol = Image(systemName: spec.symbol).font(.system(size: 18, weight: .bold))
         return VStack(spacing: 3) {
             symbol
                 .foregroundStyle(.secondary)
                 .overlay(symbol.foregroundStyle(spec.tint).opacity(glow))
-            Circle().fill(spec.tint).frame(width: 5, height: 5).opacity(glow)
+            Circle().fill(spec.tint).frame(width: 6, height: 6).opacity(glow)
         }
         .offset(y: 3 - 3 * glow)
     }

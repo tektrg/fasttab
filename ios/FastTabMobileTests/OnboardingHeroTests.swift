@@ -1,5 +1,5 @@
 import XCTest
-import HeroMotion
+import IndieMotion
 @testable import FastTabMobile
 
 /// Onboarding hero animation logic: which picture each step's live state shows,
@@ -30,11 +30,11 @@ final class OnboardingHeroTests: XCTestCase {
 
     /// The Mac is usually found while the user is off at their Mac with the
     /// app in the background: its one-shot beat must wait and play on return,
-    /// not run out unseen (the stage feeds `HeroClock.sync` its pause state).
+    /// not run out unseen (the stage feeds `MotionClock.sync` its pause state).
     func testFoundBeatThatLandsInTheBackgroundPlaysOnReturn() {
         let found = ConnectHeroState.found.playback
         let arrived = Date()
-        var clock = HeroClock()
+        var clock = MotionClock()
         XCTAssertNil(clock.sync(key: ConnectHeroState.found, playback: found, canAnimate: false, at: arrived))
         let back = arrived.addingTimeInterval(60)
         XCTAssertEqual(clock.sync(key: ConnectHeroState.found, playback: found, canAnimate: true, at: back), found.oneShotDuration)
@@ -75,21 +75,21 @@ final class OnboardingHeroTests: XCTestCase {
 
     // MARK: - Rest frames
     //
-    // The clock and curves themselves are tested once, in the shared
-    // `HeroMotion` package (`Tests/HeroMotionTests`).
+    // The clock and curves themselves are tested once, in IndieLibKit's
+    // `IndieMotion` module (`Tests/IndieMotionTests`).
 
     /// Every faded loop's rest frame must sit outside its fade window, or Reduce
     /// Motion would show a half-faded picture. (The radar and shimmer don't fade.)
     @MainActor
     func testRestFramesAreFullyVisible() {
-        let fadedLoops: [HeroPlayback] = [
+        let fadedLoops: [MotionPlayback] = [
             OnboardingHeroWelcome.playback,
             ReaderHeroState.ready.playback,
             SendHeroState.teach.playback,
             OnboardingHeroDone.playback,
         ]
         for playback in fadedLoops {
-            XCTAssertEqual(HeroCurve.loopFade(playback.restTime, playback: playback), 1, "\(playback)")
+            XCTAssertEqual(MotionCurve.loopFade(playback.restTime, playback: playback), 1, "\(playback)")
         }
     }
 }

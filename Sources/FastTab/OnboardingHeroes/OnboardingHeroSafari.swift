@@ -1,5 +1,5 @@
 import SwiftUI
-import HeroMotion
+import IndieMotion
 
 /// Step 5: teaches the Full Disk Access grant. A ghost of FastTab's icon
 /// drags along an arc into the empty row of a mini System Settings list,
@@ -44,16 +44,16 @@ struct OnboardingHeroSafari: View {
         init(state: SafariHeroState, time: Double) {
             switch state {
             case .teaching:
-                lift = HeroCurve.progress(time, start: 0, duration: 0.3, ease: .easeOut)
-                drag = HeroCurve.progress(time, start: 0.3, duration: 0.9)
-                drop = HeroCurve.progress(time, start: 1.3, duration: 0.2)
-                toggle = HeroCurve.progress(time, start: 1.7, duration: 0.2)
-                unlock = HeroCurve.progress(time, start: 2.1, duration: 0.2)
-                fade = HeroCurve.loopFade(time, playback: state.playback)
+                lift = MotionCurve.progress(time, start: 0, duration: 0.3, ease: .easeOut)
+                drag = MotionCurve.progress(time, start: 0.3, duration: 0.9)
+                drop = MotionCurve.progress(time, start: 1.3, duration: 0.2)
+                toggle = MotionCurve.progress(time, start: 1.7, duration: 0.2)
+                unlock = MotionCurve.progress(time, start: 2.1, duration: 0.2)
+                fade = MotionCurve.loopFade(time, playback: state.playback)
             case .granted:
-                toggle = HeroCurve.progress(time, start: 0.25, duration: 0.2)
-                unlock = HeroCurve.progress(time, start: 0.55, duration: 0.2)
-                check = HeroCurve.progress(time, start: 0.85, duration: 0.3, ease: .spring)
+                toggle = MotionCurve.progress(time, start: 0.25, duration: 0.2)
+                unlock = MotionCurve.progress(time, start: 0.55, duration: 0.2)
+                check = MotionCurve.progress(time, start: 0.85, duration: 0.3, ease: .spring)
             }
         }
     }
@@ -68,7 +68,7 @@ struct OnboardingHeroSafari: View {
             if state == .teaching {
                 ghost(beats: beats)
             }
-            HeroSuccessCheck(progress: beats.check)
+            MotionCheckmark(diameter: 14, progress: beats.check)
                 .position(Layout.checkCenter)
         }
     }
@@ -76,11 +76,11 @@ struct OnboardingHeroSafari: View {
     /// The translucent copy of the icon being dragged, pointer attached.
     private static func ghost(beats: Beats) -> some View {
         let start = CGPoint(x: Layout.appIcon.midX, y: Layout.appIcon.midY)
-        let point = HeroPath.quadBezier(start, control: Layout.dragControl, slotIconCenter, amount: beats.drag)
-        let size = HeroCurve.lerp(Layout.appIcon.width, Layout.slotIconSize + 3, beats.drag)
+        let point = MotionPath.quadBezier(start, control: Layout.dragControl, slotIconCenter, amount: beats.drag)
+        let size = MotionCurve.lerp(Layout.appIcon.width, Layout.slotIconSize + 3, beats.drag)
         return HeroAppIcon(size: size)
             .overlay(alignment: .bottomTrailing) { HeroPointer().offset(x: 7, y: 9) }
-            .scaleEffect(HeroCurve.lerp(1, 1.08, beats.lift))
+            .scaleEffect(MotionCurve.lerp(1, 1.08, beats.lift))
             .opacity(0.75 * beats.lift * (1 - beats.drop) * beats.fade)
             .position(point)
     }
@@ -127,7 +127,7 @@ struct OnboardingHeroSafari: View {
                         .strokeBorder(HeroInk.outline, style: StrokeStyle(lineWidth: 1, dash: HeroInk.dash))
                         .opacity(1 - beats.drop)
                     HeroAppIcon(size: Layout.slotIconSize)
-                        .scaleEffect(HeroCurve.lerp(0.6, 1, beats.drop))
+                        .scaleEffect(MotionCurve.lerp(0.6, 1, beats.drop))
                         .opacity(beats.drop)
                 }
                 .frame(width: Layout.slotIconSize, height: Layout.slotIconSize)

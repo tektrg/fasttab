@@ -1,5 +1,5 @@
 import SwiftUI
-import HeroMotion
+import IndieMotion
 
 /// Step 3: a cluttered web page (banner, ads, sidebar, cookie bar) sheds its
 /// clutter, the text settles into one clean column under a teal title, and a
@@ -57,7 +57,7 @@ struct OnboardingHeroReader: View {
     private func page(time: Double) -> some View {
         // Preparing holds the busy page still under the shimmer.
         let transformTime = state == .ready ? time : 0
-        let fade = state == .ready ? HeroCurve.loopFade(time, playback: state.playback) : 1
+        let fade = state == .ready ? MotionCurve.loopFade(time, playback: state.playback) : 1
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return ZStack(alignment: .topLeading) {
             Group {
@@ -82,7 +82,7 @@ struct OnboardingHeroReader: View {
 
     private func clutterPiece(_ index: Int, time: Double) -> some View {
         let piece = Self.clutter[index]
-        let exit = HeroCurve.progress(time, start: 0.6 + 0.05 * Double(index), duration: 0.5)
+        let exit = MotionCurve.progress(time, start: 0.6 + 0.05 * Double(index), duration: 0.5)
         return RoundedRectangle(cornerRadius: 2, style: .continuous)
             .fill(piece.color)
             .overlay {
@@ -97,22 +97,22 @@ struct OnboardingHeroReader: View {
 
     private func textLine(_ index: Int, time: Double) -> some View {
         let line = Self.lines[index]
-        let settle = HeroCurve.progress(time, start: 1.1, duration: 0.6)
+        let settle = MotionCurve.progress(time, start: 1.1, duration: 0.6)
         let isTitle = index == 0
-        let height = isTitle ? HeroCurve.lerp(3, 5, settle) : 3
-        let color = isTitle && settle > 0 ? DS.Tint.recent.opacity(HeroCurve.lerp(0.3, 1, settle)) : HeroInk.textLine
-        return HeroTextLine(width: HeroCurve.lerp(line.clutteredWidth, line.cleanWidth, settle), height: height, color: color)
+        let height = isTitle ? MotionCurve.lerp(3, 5, settle) : 3
+        let color = isTitle && settle > 0 ? DS.Tint.recent.opacity(MotionCurve.lerp(0.3, 1, settle)) : HeroInk.textLine
+        return HeroTextLine(width: MotionCurve.lerp(line.clutteredWidth, line.cleanWidth, settle), height: height, color: color)
             .heroPlaced(
-                x: HeroCurve.lerp(line.clutteredX, line.cleanX, settle),
-                y: HeroCurve.lerp(line.clutteredY, line.cleanY, settle),
-                width: HeroCurve.lerp(line.clutteredWidth, line.cleanWidth, settle),
+                x: MotionCurve.lerp(line.clutteredX, line.cleanX, settle),
+                y: MotionCurve.lerp(line.clutteredY, line.cleanY, settle),
+                width: MotionCurve.lerp(line.clutteredWidth, line.cleanWidth, settle),
                 height: height
             )
     }
 
     private func highlight(time: Double) -> some View {
         let line = Self.lines[Self.highlightedLine]
-        let sweep = HeroCurve.progress(time, start: 1.8, duration: 0.7, ease: .linear)
+        let sweep = MotionCurve.progress(time, start: 1.8, duration: 0.7, ease: .linear)
         return RoundedRectangle(cornerRadius: 1.5, style: .continuous)
             .fill(DS.Tint.bookmark.opacity(0.45))
             .frame(width: (line.cleanWidth + 4) * sweep, height: 8)
@@ -121,11 +121,11 @@ struct OnboardingHeroReader: View {
     }
 
     private func shimmer(time: Double) -> some View {
-        let travel = HeroCurve.progress(time, start: 0, duration: 1.4, ease: .linear)
+        let travel = MotionCurve.progress(time, start: 0, duration: 1.4, ease: .linear)
         let glow = Color.white.opacity(colorScheme == .dark ? 0.16 : 0.85)
         return LinearGradient(colors: [.clear, glow, .clear], startPoint: .leading, endPoint: .trailing)
             .frame(width: 48, height: Self.pageSize.height * 1.4)
             .rotationEffect(.degrees(18))
-            .position(x: HeroCurve.lerp(-30, Self.pageSize.width + 30, travel), y: Self.pageSize.height / 2)
+            .position(x: MotionCurve.lerp(-30, Self.pageSize.width + 30, travel), y: Self.pageSize.height / 2)
     }
 }

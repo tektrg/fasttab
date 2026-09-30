@@ -1,5 +1,5 @@
 import Foundation
-import HeroMotion
+import IndieMotion
 
 /// Which picture the "Connect your Mac" hero shows, from the step's live state.
 enum ConnectHeroState: Equatable {
@@ -24,7 +24,7 @@ enum ConnectHeroState: Equatable {
     }
 
     /// Timings follow the approved storyboard (`onboarding-motion.html`, iPhone card 2).
-    var playback: HeroPlayback {
+    var playback: MotionPlayback {
         switch self {
         case .searching: return .loop(period: 2.4, restAt: 0)
         case .found: return .once(duration: 2.2)
@@ -46,7 +46,7 @@ enum ReaderHeroState: Equatable {
         self = isPreparing ? .preparing : .ready
     }
 
-    var playback: HeroPlayback {
+    var playback: MotionPlayback {
         switch self {
         case .preparing: return .loop(period: 1.4, restAt: 0.7)
         case .ready: return .loop(period: 4.0, restAt: 3.0)
@@ -74,7 +74,7 @@ enum SendHeroState: Equatable {
         }
     }
 
-    var playback: HeroPlayback {
+    var playback: MotionPlayback {
         switch self {
         case .teach: return .loop(period: 3.8, restAt: 3.0)
         case .sent: return .once(duration: 3.0)

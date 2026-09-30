@@ -168,23 +168,6 @@ struct HeroKeycapRow: View {
     }
 }
 
-/// Green circle with a check: the "it worked" beat. Pops in (springy
-/// scale, quick fade) as `progress` goes 0…1.
-struct HeroSuccessCheck: View {
-    var diameter: Double = 14
-    var progress: Double = 1
-
-    var body: some View {
-        Image(systemName: "checkmark")
-            .font(.system(size: diameter * 0.55, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: diameter, height: diameter)
-            .background(Color.green, in: Circle())
-            .scaleEffect(progress)
-            .opacity(min(progress * 2, 1))
-    }
-}
-
 /// The mouse pointer, tip at the view's top-left.
 struct HeroPointer: View {
     var body: some View {
@@ -205,15 +188,5 @@ struct HeroAppIcon: View {
             .resizable()
             .interpolation(.high)
             .frame(width: size, height: size)
-    }
-}
-
-enum HeroPath {
-    static func quadBezier(_ start: CGPoint, control: CGPoint, _ end: CGPoint, amount: Double) -> CGPoint {
-        let inverse = 1 - amount
-        return CGPoint(
-            x: inverse * inverse * start.x + 2 * inverse * amount * control.x + amount * amount * end.x,
-            y: inverse * inverse * start.y + 2 * inverse * amount * control.y + amount * amount * end.y
-        )
     }
 }

@@ -1,5 +1,5 @@
 import SwiftUI
-import HeroMotion
+import IndieMotion
 
 /// Step 7: the user's own shortcut keys press in order, a ripple spreads
 /// from them and the command bar pops up above. Recording a new shortcut
@@ -37,16 +37,16 @@ struct HeroShortcutPress: View {
     let keysMaxWidth: Double
     var showsRipple = false
 
-    private var playback: HeroPlayback { ShortcutHeroKeycaps.playback }
+    private var playback: MotionPlayback { ShortcutHeroKeycaps.playback }
     private var popTime: Double { ShortcutHeroKeycaps.barPopTime(keyCount: keycaps.count) }
     private var releaseTime: Double { popTime + ShortcutHeroKeycaps.releaseDelay }
 
     var body: some View {
-        let fade = HeroCurve.loopFade(time, playback: playback)
-        let pop = HeroCurve.progress(time, start: popTime + 0.1, duration: 0.4, ease: .spring)
+        let fade = MotionCurve.loopFade(time, playback: playback)
+        let pop = MotionCurve.progress(time, start: popTime + 0.1, duration: 0.4, ease: .spring)
         ZStack(alignment: .topLeading) {
             HeroCommandBar(rowCount: 2)
-                .scaleEffect(HeroCurve.lerp(0.6, 1, pop), anchor: .bottom)
+                .scaleEffect(MotionCurve.lerp(0.6, 1, pop), anchor: .bottom)
                 .opacity(min(pop * 2, 1) * fade)
                 .heroPlaced(in: barFrame)
             if showsRipple {
@@ -59,15 +59,15 @@ struct HeroShortcutPress: View {
 
     private func press(ofKeyAt index: Int) -> Double {
         let down = ShortcutHeroKeycaps.firstPressTime + Double(index) * ShortcutHeroKeycaps.pressStagger
-        return HeroCurve.progress(time, start: down, duration: 0.08)
-            - HeroCurve.progress(time, start: releaseTime, duration: ShortcutHeroKeycaps.releaseDuration)
+        return MotionCurve.progress(time, start: down, duration: 0.08)
+            - MotionCurve.progress(time, start: releaseTime, duration: ShortcutHeroKeycaps.releaseDuration)
     }
 
     private var ripple: some View {
-        let spread = HeroCurve.progress(time, start: popTime, duration: 0.6, ease: .easeOut)
+        let spread = MotionCurve.progress(time, start: popTime, duration: 0.6, ease: .easeOut)
         return Capsule()
             .strokeBorder(Color.accentColor, lineWidth: 1.5)
-            .frame(width: HeroCurve.lerp(40, 110, spread), height: HeroCurve.lerp(20, 40, spread))
+            .frame(width: MotionCurve.lerp(40, 110, spread), height: MotionCurve.lerp(20, 40, spread))
             .opacity(spread > 0 && spread < 1 ? 1 - spread : 0)
             .position(keysCenter)
     }

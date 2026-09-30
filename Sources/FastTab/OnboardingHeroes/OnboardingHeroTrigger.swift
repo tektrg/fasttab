@@ -1,6 +1,6 @@
 import SwiftUI
 import CommandBarKit
-import HeroMotion
+import IndieMotion
 
 /// Step 2: a mini screen. The pointer glides to the chosen hot spot (notch,
 /// left or right edge), the trigger pill peeks out and the bar slides open
@@ -89,15 +89,15 @@ struct OnboardingHeroTrigger: View {
     private static func hover(style: EdgeRevealStyle, time: Double) -> some View {
         let spot = hotSpot(for: style)
         let playback = TriggerHeroState.hover(style).playback
-        let fade = HeroCurve.loopFade(time, playback: playback)
-        let glide = HeroCurve.progress(time, start: Layout.glideStart, duration: Layout.glideDuration)
-        let peek = HeroCurve.progress(time, start: Layout.peekStart, duration: 0.3, ease: .spring)
-        let open = HeroCurve.progress(time, start: Layout.openStart, duration: 0.4, ease: .spring)
+        let fade = MotionCurve.loopFade(time, playback: playback)
+        let glide = MotionCurve.progress(time, start: Layout.glideStart, duration: Layout.glideDuration)
+        let peek = MotionCurve.progress(time, start: Layout.peekStart, duration: 0.3, ease: .spring)
+        let open = MotionCurve.progress(time, start: Layout.openStart, duration: 0.4, ease: .spring)
         let pointer = CGPoint(
-            x: HeroCurve.lerp(Layout.pointerStart.x, spot.pointerTarget.x, glide),
-            y: HeroCurve.lerp(Layout.pointerStart.y, spot.pointerTarget.y, glide)
+            x: MotionCurve.lerp(Layout.pointerStart.x, spot.pointerTarget.x, glide),
+            y: MotionCurve.lerp(Layout.pointerStart.y, spot.pointerTarget.y, glide)
         )
-        let barScale = HeroCurve.lerp(0.1, 1, open)
+        let barScale = MotionCurve.lerp(0.1, 1, open)
 
         HeroEdgePill(style: style)
             .scaleEffect(x: spot.growsVertically ? 1 : peek, y: spot.growsVertically ? peek : 1, anchor: spot.barAnchor)
@@ -114,7 +114,7 @@ struct OnboardingHeroTrigger: View {
             .opacity(min(open * 3, 1) * fade)
             .heroPlaced(in: spot.bar)
         HeroPointer()
-            .opacity(min(HeroCurve.progress(time, start: 0, duration: 0.25) * fade, 1))
+            .opacity(min(MotionCurve.progress(time, start: 0, duration: 0.25) * fade, 1))
             .heroPlaced(x: pointer.x, y: pointer.y, width: 12, height: 14)
     }
 }

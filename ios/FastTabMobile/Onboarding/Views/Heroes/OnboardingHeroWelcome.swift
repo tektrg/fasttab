@@ -1,11 +1,11 @@
 import SwiftUI
-import HeroMotion
+import IndieMotion
 
 /// Step 1: three tab cards flow from a small Mac into a stack on the iPhone,
 /// then fan out and take the tints of the three benefit rows below
 /// (purple revisit, teal reader, blue send). Loops.
 struct OnboardingHeroWelcome: View {
-    static let playback = HeroPlayback.loop(period: 4.0, restAt: 3.2)
+    static let playback = MotionPlayback.loop(period: 4.0, restAt: 3.2)
 
     /// Same symbols and tints as the benefit rows, in the same order.
     private static let cards: [(symbol: String, tint: Color)] = [
@@ -38,24 +38,24 @@ struct OnboardingHeroWelcome: View {
 
     private func card(_ index: Int, time: Double) -> some View {
         let offset = Double(index)
-        let flow = HeroCurve.progress(time, start: 0.3 + 0.12 * offset, duration: 0.7)
-        let fan = HeroCurve.progress(time, start: 1.6, duration: 0.5, ease: .spring)
-        let tintAmount = HeroCurve.progress(time, start: 1.6 + 0.3 * offset, duration: 0.35)
+        let flow = MotionCurve.progress(time, start: 0.3 + 0.12 * offset, duration: 0.7)
+        let fan = MotionCurve.progress(time, start: 1.6, duration: 0.5, ease: .spring)
+        let tintAmount = MotionCurve.progress(time, start: 1.6 + 0.3 * offset, duration: 0.35)
 
-        let scale = HeroCurve.lerp(0.6, 1, flow)
-        let left = HeroCurve.lerp(12 + 6 * offset, 126, flow)
+        let scale = MotionCurve.lerp(0.6, 1, flow)
+        let left = MotionCurve.lerp(12 + 6 * offset, 126, flow)
         let stackTop = 44 + 3 * offset
         let fanTop = 16 + 30 * offset
         // A gentle arc on the way over, like the card is carried.
         let lift = sin(.pi * flow) * 14
-        let top = HeroCurve.lerp(HeroCurve.lerp(12 + 5 * offset, stackTop, flow), fanTop, fan) - lift
+        let top = MotionCurve.lerp(MotionCurve.lerp(12 + 5 * offset, stackTop, flow), fanTop, fan) - lift
 
         let spec = Self.cards[index]
         return HeroTabCard(symbol: spec.symbol, tint: spec.tint, tintAmount: tintAmount)
             .frame(width: Self.cardSize.width, height: Self.cardSize.height)
             .scaleEffect(scale, anchor: .topLeading)
             .position(x: left + Self.cardSize.width / 2, y: top + Self.cardSize.height / 2)
-            .opacity(HeroCurve.loopFade(time, playback: Self.playback))
+            .opacity(MotionCurve.loopFade(time, playback: Self.playback))
     }
 }
 

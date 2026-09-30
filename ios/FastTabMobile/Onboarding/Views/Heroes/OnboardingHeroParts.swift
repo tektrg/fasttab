@@ -97,16 +97,3 @@ struct HeroTextLine: View {
         Capsule().fill(color).frame(width: width, height: height)
     }
 }
-
-/// Green circle with a check: the "it worked" beat.
-struct HeroSuccessCheck: View {
-    var diameter: Double = 16
-
-    var body: some View {
-        Image(systemName: "checkmark")
-            .font(.system(size: diameter * 0.55, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: diameter, height: diameter)
-            .background(DS.Tint.success, in: Circle())
-    }
-}

@@ -1,5 +1,5 @@
 import SwiftUI
-import HeroMotion
+import IndieMotion
 
 /// Step 4: without the extension, Recents is a guess. While not usable the
 /// puzzle piece bobs beside its socket (loops); once usable it snaps in, a
@@ -57,15 +57,15 @@ struct OnboardingHeroExtension: View {
         init(state: ExtensionHeroState, time: Double) {
             switch state {
             case .teaching:
-                pieceArrival = HeroCurve.progress(time, start: 0, duration: 0.5, ease: .easeOut)
+                pieceArrival = MotionCurve.progress(time, start: 0, duration: 0.5, ease: .easeOut)
                 let bobPhase = max(time - 0.5, 0) / 1.3 * 2 * .pi
                 bobOffset = -sin(bobPhase) * 2.5
-                fade = HeroCurve.loopFade(time, playback: state.playback)
+                fade = MotionCurve.loopFade(time, playback: state.playback)
             case .connected:
-                snap = HeroCurve.progress(time, start: 0, duration: 0.25, ease: .spring)
-                check = HeroCurve.progress(time, start: 0.25, duration: 0.25, ease: .spring)
-                reorder = HeroCurve.progress(time, start: 0.4, duration: 0.4)
-                rise = HeroCurve.progress(time, start: 0.8, duration: 0.3, ease: .spring)
+                snap = MotionCurve.progress(time, start: 0, duration: 0.25, ease: .spring)
+                check = MotionCurve.progress(time, start: 0.25, duration: 0.25, ease: .spring)
+                reorder = MotionCurve.progress(time, start: 0.4, duration: 0.4)
+                rise = MotionCurve.progress(time, start: 0.8, duration: 0.3, ease: .spring)
             }
         }
     }
@@ -84,12 +84,12 @@ struct OnboardingHeroExtension: View {
                 .offset(x: (1 - beats.pieceArrival) * 16, y: beats.bobOffset)
                 .opacity(beats.pieceArrival * beats.fade)
                 .heroPlaced(
-                    x: HeroCurve.lerp(Layout.pieceParkedX, Layout.pieceSnappedX, beats.snap),
+                    x: MotionCurve.lerp(Layout.pieceParkedX, Layout.pieceSnappedX, beats.snap),
                     y: Layout.pieceY,
                     width: Layout.pieceSize,
                     height: Layout.pieceSize
                 )
-            HeroSuccessCheck(progress: beats.check)
+            MotionCheckmark(diameter: 14, progress: beats.check)
                 .position(Layout.checkCenter)
         }
     }
@@ -101,8 +101,8 @@ struct OnboardingHeroExtension: View {
                 .frame(height: 16)
             ForEach(rows.indices, id: \.self) { index in
                 let row = rows[index]
-                let slot = HeroCurve.lerp(
-                    HeroCurve.lerp(Double(row.guessedSlot), Double(row.trueSlot), beats.reorder),
+                let slot = MotionCurve.lerp(
+                    MotionCurve.lerp(Double(row.guessedSlot), Double(row.trueSlot), beats.reorder),
                     Double(row.playingFirstSlot),
                     beats.rise
                 )

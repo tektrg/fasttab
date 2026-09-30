@@ -32,9 +32,9 @@ targets:
         codeSign: true
       - package: FastTabPackage
         product: FastTabSync
-      # Onboarding hero clock + easing, shared with the Mac onboarding (Sources/HeroMotion).
-      - package: FastTabPackage
-        product: HeroMotion
+      # Onboarding hero clock, easing and stage, shared with the Mac onboarding.
+      - package: IndieLibKit
+        product: IndieMotion
       - package: IndieLibKit
         product: IndieLinks
       # Generic metric events + time bucketing for the More tab's Statistics (FastTabMobile/Stats/).

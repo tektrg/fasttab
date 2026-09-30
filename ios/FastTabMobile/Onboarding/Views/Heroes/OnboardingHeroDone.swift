@@ -1,10 +1,10 @@
 import SwiftUI
-import HeroMotion
+import IndieMotion
 
 /// Step 5: a seal and its checkmark draw, then a mini tab bar rises and lights
 /// Read, Tabs, Shuffle and More in turn, matching the tour rows below. Loops.
 struct OnboardingHeroDone: View {
-    static let playback = HeroPlayback.loop(period: 4.0, restAt: 3.0)
+    static let playback = MotionPlayback.loop(period: 4.0, restAt: 3.0)
 
     /// Same symbols and tints as the tour rows, in the same order.
     private static let tabs: [(symbol: String, tint: Color)] = [
@@ -28,13 +28,13 @@ struct OnboardingHeroDone: View {
                 tabBar(time: time)
                     .heroPlaced(x: 14, y: 78, width: 152, height: 34)
             }
-            .opacity(HeroCurve.loopFade(time, playback: Self.playback))
+            .opacity(MotionCurve.loopFade(time, playback: Self.playback))
         }
     }
 
     private func seal(time: Double) -> some View {
-        let ring = HeroCurve.progress(time, start: 0, duration: 0.5)
-        let check = HeroCurve.progress(time, start: 0.5, duration: 0.4, ease: .easeOut)
+        let ring = MotionCurve.progress(time, start: 0, duration: 0.5)
+        let check = MotionCurve.progress(time, start: 0.5, duration: 0.4, ease: .easeOut)
         return ZStack {
             Self.sealShape.fill(DS.Tint.success.opacity(0.14 * ring))
             Self.sealShape
@@ -47,7 +47,7 @@ struct OnboardingHeroDone: View {
     }
 
     private func tabBar(time: Double) -> some View {
-        let rise = HeroCurve.progress(time, start: 0.9, duration: 0.4, ease: .spring)
+        let rise = MotionCurve.progress(time, start: 0.9, duration: 0.4, ease: .spring)
         let bar = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return HStack(spacing: 0) {
             ForEach(Self.tabs.indices, id: \.self) { index in
@@ -65,7 +65,7 @@ struct OnboardingHeroDone: View {
     /// Each tab lifts and takes its tint for 0.4 s, one after another.
     private func tabItem(_ index: Int, time: Double) -> some View {
         let start = Self.firstTabLitAt + Self.tabLitSpacing * Double(index)
-        let glow = sin(.pi * HeroCurve.progress(time, start: start, duration: Self.tabLitSpacing, ease: .linear))
+        let glow = sin(.pi * MotionCurve.progress(time, start: start, duration: Self.tabLitSpacing, ease: .linear))
         let spec = Self.tabs[index]
         let symbol = Image(systemName: spec.symbol).font(.system(size: 14, weight: .semibold))
         return VStack(spacing: 3) {

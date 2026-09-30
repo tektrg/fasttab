@@ -1,5 +1,5 @@
 import SwiftUI
-import HeroMotion
+import IndieMotion
 
 /// Step 4: the share sheet slides up on the iPhone, FastTab is tapped, and a
 /// paperplane arcs to the Mac, where a new tab chip glows. Teaching loops; a
@@ -30,7 +30,7 @@ struct OnboardingHeroSend: View {
 
     var body: some View {
         OnboardingHeroStage(playback: state.playback, replayKey: state) { time in
-            let fade = HeroCurve.loopFade(time, playback: state.playback)
+            let fade = MotionCurve.loopFade(time, playback: state.playback)
             ZStack(alignment: .topLeading) {
                 mac(time: time, fade: fade)
                     .heroPlaced(x: Layout.macOrigin.x, y: Layout.macOrigin.y, width: Layout.macSize.width * 1.2, height: Layout.macSize.height + 5)
@@ -65,7 +65,7 @@ struct OnboardingHeroSend: View {
     // MARK: - Parts
 
     private func mac(time: Double, fade: Double) -> some View {
-        let arrival = HeroCurve.progress(time, start: Layout.flightStart + Layout.flightDuration, duration: 0.35, ease: .spring)
+        let arrival = MotionCurve.progress(time, start: Layout.flightStart + Layout.flightDuration, duration: 0.35, ease: .spring)
         return HeroMac(width: Layout.macSize.width, height: Layout.macSize.height, look: state == .noMac ? .dashed : .solid) {
             if state != .noMac {
                 HStack(spacing: Layout.chipGap) {
@@ -88,7 +88,7 @@ struct OnboardingHeroSend: View {
     }
 
     private func phone(time: Double, fade: Double) -> some View {
-        let rise = HeroCurve.progress(time, start: 0.3, duration: 0.6, ease: .spring)
+        let rise = MotionCurve.progress(time, start: 0.3, duration: 0.6, ease: .spring)
         return HeroPhone(width: Layout.phoneSize.width, height: Layout.phoneSize.height) {
             ZStack(alignment: .topLeading) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -143,8 +143,8 @@ struct OnboardingHeroSend: View {
     }
 
     private func ripple(time: Double) -> some View {
-        let spread = HeroCurve.progress(time, start: 0.9, duration: 0.4, ease: .easeOut)
-        let diameter = HeroCurve.lerp(Layout.appIconSize, 36, spread)
+        let spread = MotionCurve.progress(time, start: 0.9, duration: 0.4, ease: .easeOut)
+        let diameter = MotionCurve.lerp(Layout.appIconSize, 36, spread)
         return Circle()
             .strokeBorder(DS.Tint.action, lineWidth: 2)
             .frame(width: diameter, height: diameter)
@@ -155,7 +155,7 @@ struct OnboardingHeroSend: View {
     /// Parked on the FastTab icon, then (with a Mac) along a curve to the new chip.
     @ViewBuilder
     private func plane(time: Double) -> some View {
-        let flight = state == .noMac ? 0 : HeroCurve.progress(time, start: Layout.flightStart, duration: Layout.flightDuration)
+        let flight = state == .noMac ? 0 : MotionCurve.progress(time, start: Layout.flightStart, duration: Layout.flightDuration)
         let isParkedVisible = state == .noMac && time >= 0.8
         let isFlying = state != .noMac && time >= Layout.flightStart && flight < 1
         if isParkedVisible || isFlying {
@@ -168,7 +168,7 @@ struct OnboardingHeroSend: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(DS.Tint.shared)
                 .rotationEffect(rotation)
-                .scaleEffect(isFlying ? HeroCurve.lerp(1.2, 0.8, flight) : 1)
+                .scaleEffect(isFlying ? MotionCurve.lerp(1.2, 0.8, flight) : 1)
                 .position(isFlying ? point : CGPoint(x: fastTabIconCenter.x + 8, y: fastTabIconCenter.y - 8))
         }
     }

@@ -1,5 +1,5 @@
 import SwiftUI
-import HeroMotion
+import IndieMotion
 
 /// Step 6: a tab card lifts off the Mac, arcs over iCloud to the iPhone and
 /// becomes a clean (teal) Reader page; then a (blue) paperplane flies back
@@ -40,16 +40,16 @@ struct OnboardingHeroIPhone: View {
         init(state: IPhoneHeroState, time: Double) {
             switch state {
             case .teaching:
-                lift = HeroCurve.progress(time, start: 0.3, duration: 0.4, ease: .easeOut)
-                flight = HeroCurve.progress(time, start: 0.7, duration: 0.9)
-                settle = HeroCurve.progress(time, start: 1.6, duration: 0.4)
-                planeFlight = HeroCurve.progress(time, start: 2.1, duration: 0.6)
-                macGlow = HeroCurve.progress(time, start: 2.65, duration: 0.2)
-                fade = HeroCurve.loopFade(time, playback: state.playback)
+                lift = MotionCurve.progress(time, start: 0.3, duration: 0.4, ease: .easeOut)
+                flight = MotionCurve.progress(time, start: 0.7, duration: 0.9)
+                settle = MotionCurve.progress(time, start: 1.6, duration: 0.4)
+                planeFlight = MotionCurve.progress(time, start: 2.1, duration: 0.6)
+                macGlow = MotionCurve.progress(time, start: 2.65, duration: 0.2)
+                fade = MotionCurve.loopFade(time, playback: state.playback)
             case .connected:
                 settle = 1
-                link = HeroCurve.progress(time, start: 0.2, duration: 0.5)
-                check = HeroCurve.progress(time, start: 0.7, duration: 0.3, ease: .spring)
+                link = MotionCurve.progress(time, start: 0.2, duration: 0.5)
+                check = MotionCurve.progress(time, start: 0.7, duration: 0.3, ease: .spring)
             }
         }
     }
@@ -68,7 +68,7 @@ struct OnboardingHeroIPhone: View {
                 plane(beats: beats)
             } else {
                 linkLine(progress: beats.link)
-                HeroSuccessCheck(diameter: 16, progress: beats.check)
+                MotionCheckmark(diameter: 16, progress: beats.check)
                     .position(Layout.checkCenter)
             }
         }
@@ -129,7 +129,7 @@ struct OnboardingHeroIPhone: View {
         let origin = CGPoint(x: Layout.macScreen.midX, y: Layout.macScreen.midY + 2)
         let lifted = CGPoint(x: origin.x, y: origin.y - 8 * beats.lift)
         let landing = CGPoint(x: Layout.phone.midX, y: Layout.phone.midY)
-        let point = HeroPath.quadBezier(lifted, control: Layout.flightControl, landing, amount: beats.flight)
+        let point = MotionPath.quadBezier(lifted, control: Layout.flightControl, landing, amount: beats.flight)
         return VStack(alignment: .leading, spacing: 2) {
             Capsule().fill(Color.teal.opacity(beats.flight)).frame(width: 12, height: 2.5)
             HeroTextLine(width: 18, height: 2)
@@ -138,7 +138,7 @@ struct OnboardingHeroIPhone: View {
         .padding(3)
         .frame(width: Layout.cardSize.width, height: Layout.cardSize.height, alignment: .topLeading)
         .heroPanel(cornerRadius: 3)
-        .scaleEffect(HeroCurve.lerp(1, 1.25, beats.settle))
+        .scaleEffect(MotionCurve.lerp(1, 1.25, beats.settle))
         .opacity(min(beats.lift * 3, 1) * (1 - beats.settle) * beats.fade)
         .position(point)
     }
@@ -147,8 +147,8 @@ struct OnboardingHeroIPhone: View {
         let start = CGPoint(x: Layout.phone.minX + 4, y: Layout.phone.maxY - 16)
         let end = CGPoint(x: Layout.macScreen.maxX - 8, y: Layout.macScreen.midY)
         let control = CGPoint(x: 112, y: 92)
-        let point = HeroPath.quadBezier(start, control: control, end, amount: beats.planeFlight)
-        let ahead = HeroPath.quadBezier(start, control: control, end, amount: min(beats.planeFlight + 0.02, 1))
+        let point = MotionPath.quadBezier(start, control: control, end, amount: beats.planeFlight)
+        let ahead = MotionPath.quadBezier(start, control: control, end, amount: min(beats.planeFlight + 0.02, 1))
         let heading = atan2(ahead.y - point.y, ahead.x - point.x)
         let isFlying = beats.planeFlight > 0 && beats.planeFlight < 1
         // The symbol points up-right (-45°); turn it to face its heading.

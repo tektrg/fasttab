@@ -1,5 +1,5 @@
 import SwiftUI
-import HeroMotion
+import IndieMotion
 
 /// Step 2: a live picture of the Mac search, driven by `ConnectHeroState`.
 /// Searching loops radar rings from the iPhone; every other state plays a
@@ -32,8 +32,8 @@ struct OnboardingHeroConnect: View {
                 HeroPhone(width: Layout.phoneSize.width, height: Layout.phoneSize.height)
                     .position(x: phoneX(time: time), y: Layout.centerY)
                 if state == .found {
-                    HeroSuccessCheck()
-                        .scaleEffect(HeroCurve.progress(time, start: 1.3, duration: 0.4, ease: .spring))
+                    MotionCheckmark(diameter: 16, tint: DS.Tint.success)
+                        .scaleEffect(MotionCurve.progress(time, start: 1.3, duration: 0.4, ease: .spring))
                         .position(x: (Layout.linkStartX + Layout.linkEndX) / 2, y: Layout.centerY)
                 }
             }
@@ -53,24 +53,24 @@ struct OnboardingHeroConnect: View {
     }
 
     private func slide(_ time: Double) -> Double {
-        state == .searching ? 0 : HeroCurve.progress(time, start: slideStart, duration: 0.5, ease: .spring)
+        state == .searching ? 0 : MotionCurve.progress(time, start: slideStart, duration: 0.5, ease: .spring)
     }
 
     private func phoneX(time: Double) -> Double {
-        HeroCurve.lerp(Layout.phoneSearchingX, Layout.phoneAsideX, slide(time))
+        MotionCurve.lerp(Layout.phoneSearchingX, Layout.phoneAsideX, slide(time))
     }
 
     /// Searching rings, or what is left of them as another state takes over:
     /// "not found" fades them slowly, the rest collapse them into the phone.
     private func rings(time: Double) -> some View {
-        let collapse = HeroCurve.progress(time, start: 0, duration: 0.35, ease: .easeInOut)
-        let fade = HeroCurve.progress(time, start: 0, duration: 0.8)
+        let collapse = MotionCurve.progress(time, start: 0, duration: 0.35, ease: .easeInOut)
+        let fade = MotionCurve.progress(time, start: 0, duration: 0.8)
         let searchingTime = state == .searching ? time : 0
         return ZStack {
             ForEach(0..<Layout.ringCount, id: \.self) { index in
                 let phase = (searchingTime / Layout.ringPeriod + Double(index) / Double(Layout.ringCount))
                     .truncatingRemainder(dividingBy: 1)
-                let diameter = HeroCurve.lerp(40, 118, phase)
+                let diameter = MotionCurve.lerp(40, 118, phase)
                 // Strong, 2 pt accent strokes so the pulse reads in dark mode too.
                 // Square-root falloff keeps the outer rings visible longer, then fades to 0 at the edge.
                 let strength = (1 - phase).squareRoot() * 0.95
@@ -94,12 +94,12 @@ struct OnboardingHeroConnect: View {
         switch state {
         case .found:
             linkPath
-                .trim(from: 0, to: HeroCurve.progress(time, start: 0.85, duration: 0.45))
+                .trim(from: 0, to: MotionCurve.progress(time, start: 0.85, duration: 0.45))
                 .stroke(DS.Tint.success, style: StrokeStyle(lineWidth: 2, lineCap: .round))
         case .macOffline:
             linkPath
                 .stroke(HeroInk.deviceOutline, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 4]))
-                .opacity(HeroCurve.progress(time, start: 0.7, duration: 0.4))
+                .opacity(MotionCurve.progress(time, start: 0.7, duration: 0.4))
         case .searching, .notFound, .accountBlocked:
             EmptyView()
         }
@@ -108,7 +108,7 @@ struct OnboardingHeroConnect: View {
     /// What slides in beside the phone: a Mac in some look, or the iCloud glyph.
     @ViewBuilder
     private func partner(time: Double) -> some View {
-        let partnerX = HeroCurve.lerp(Layout.macOffstageX, Layout.macRestX, slide(time))
+        let partnerX = MotionCurve.lerp(Layout.macOffstageX, Layout.macRestX, slide(time))
         switch state {
         case .accountBlocked:
             blockedCloud(time: time)
@@ -128,7 +128,7 @@ struct OnboardingHeroConnect: View {
                 Text("?")
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(.secondary)
-                    .scaleEffect(HeroCurve.progress(time, start: 1.0, duration: 0.4, ease: .spring))
+                    .scaleEffect(MotionCurve.progress(time, start: 1.0, duration: 0.4, ease: .spring))
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -137,7 +137,7 @@ struct OnboardingHeroConnect: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .offset(x: 8, y: -9)
-                    .opacity(HeroCurve.progress(time, start: 0.7, duration: 0.4))
+                    .opacity(MotionCurve.progress(time, start: 0.7, duration: 0.4))
             }
         }
     }
@@ -153,7 +153,7 @@ struct OnboardingHeroConnect: View {
             .frame(width: 56, height: 44)
             .overlay(
                 slash
-                    .trim(from: 0, to: HeroCurve.progress(time, start: 0.7, duration: 0.5))
+                    .trim(from: 0, to: MotionCurve.progress(time, start: 0.7, duration: 0.5))
                     .stroke(DS.Tint.warning, style: StrokeStyle(lineWidth: 3, lineCap: .round))
             )
     }

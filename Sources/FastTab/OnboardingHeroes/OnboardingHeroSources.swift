@@ -1,5 +1,5 @@
 import SwiftUI
-import HeroMotion
+import IndieMotion
 
 /// Step 3: one tile per source app. Enabled apps stream tab chips down into
 /// a single search field; disabled apps stay dimmed and send nothing.
@@ -34,7 +34,7 @@ struct OnboardingHeroSources: View {
     }
 
     static func frame(state: SourcesHeroState, time: Double) -> some View {
-        let fade = HeroCurve.loopFade(time, playback: state.playback)
+        let fade = MotionCurve.loopFade(time, playback: state.playback)
         return ZStack(alignment: .topLeading) {
             ForEach(Array(sources.enumerated()), id: \.element) { index, source in
                 tile(source, isEnabled: state.isEnabled(source))
@@ -72,7 +72,7 @@ struct OnboardingHeroSources: View {
     /// A tab chip falling from its app's tile into the field.
     private static func chip(_ source: SearchSource, sourceIndex: Int, chipIndex: Int, time: Double) -> some View {
         let start = Layout.streamStart + Double(chipIndex) * Layout.chipStagger + Double(sourceIndex) * Layout.sourceStagger
-        let flight = HeroCurve.progress(time, start: start, duration: Layout.chipFlight, ease: .easeInOut)
+        let flight = MotionCurve.progress(time, start: start, duration: Layout.chipFlight, ease: .easeInOut)
         let from = CGPoint(x: tileCenterX(sourceIndex), y: Layout.tileTop + Layout.tileSize + 4)
         let to = CGPoint(x: Layout.field.midX, y: Layout.field.midY)
         let isFlying = flight > 0 && flight < 1
@@ -82,20 +82,20 @@ struct OnboardingHeroSources: View {
         }
         .frame(width: Layout.chipSize.width, height: Layout.chipSize.height)
         .heroPanel(cornerRadius: 2.5)
-        .scaleEffect(HeroCurve.lerp(1, 0.6, flight))
+        .scaleEffect(MotionCurve.lerp(1, 0.6, flight))
         .opacity(isFlying ? min(flight * 5, (1 - flight) * 5, 1) : 0)
-        .position(x: HeroCurve.lerp(from.x, to.x, flight), y: HeroCurve.lerp(from.y, to.y, flight))
+        .position(x: MotionCurve.lerp(from.x, to.x, flight), y: MotionCurve.lerp(from.y, to.y, flight))
     }
 
     private static func field(state: SourcesHeroState, time: Double) -> some View {
-        let lit = HeroCurve.progress(time, start: Layout.fieldLightsUp, duration: 0.3)
+        let lit = MotionCurve.progress(time, start: Layout.fieldLightsUp, duration: 0.3)
         let count = state.enabledSources.count
         return HStack(spacing: 4) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundStyle(.secondary)
             ForEach(Array(state.enabledSources.enumerated()), id: \.element) { index, source in
-                let pop = HeroCurve.progress(time, start: Layout.fieldLightsUp + 0.06 * Double(index), duration: 0.3, ease: .spring)
+                let pop = MotionCurve.progress(time, start: Layout.fieldLightsUp + 0.06 * Double(index), duration: 0.3, ease: .spring)
                 appIcon(source, size: 10)
                     .scaleEffect(pop)
                     .opacity(min(pop * 2, 1))

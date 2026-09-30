@@ -1,6 +1,6 @@
 import AppKit
 import CommandBarKit
-import HeroMotion
+import IndieMotion
 
 // Which picture each Mac onboarding hero shows, from its step's live state,
 // and how its clock runs. Pure, so the mapping is unit-tested without
@@ -9,7 +9,7 @@ import HeroMotion
 
 /// Step 1: the core loop (open the bar, type, land on a tab). No live state.
 enum WelcomeHero {
-    static let playback = HeroPlayback.loop(period: 3.0, restAt: 2.6)
+    static let playback = MotionPlayback.loop(period: 3.0, restAt: 2.6)
 }
 
 /// Step 2: where the hover trigger lives. Follows the step's radio choice live.
@@ -23,7 +23,7 @@ enum TriggerHeroState: Hashable {
         self = style == .off ? .keyboard(keycaps: shortcutKeycaps) : .hover(style)
     }
 
-    var playback: HeroPlayback {
+    var playback: MotionPlayback {
         switch self {
         case .hover: return .loop(period: 3.0, restAt: 2.6)
         case .keyboard: return ShortcutHeroKeycaps.playback
@@ -42,7 +42,7 @@ struct SourcesHeroState: Hashable {
 
     func isEnabled(_ source: SearchSource) -> Bool { enabledSources.contains(source) }
 
-    var playback: HeroPlayback { .loop(period: 2.8, restAt: 2.3) }
+    var playback: MotionPlayback { .loop(period: 2.8, restAt: 2.3) }
 }
 
 /// Step 4: Recents is a guess until the extension's piece snaps in.
@@ -58,7 +58,7 @@ enum ExtensionHeroState: Hashable {
         self = setupState == .usable ? .connected : .teaching
     }
 
-    var playback: HeroPlayback {
+    var playback: MotionPlayback {
         switch self {
         case .teaching: return .loop(period: 3.0, restAt: 0.5)
         case .connected: return .once(duration: 1.2)
@@ -83,7 +83,7 @@ enum SafariHeroState: Hashable {
         self = isGranted ? .granted : .teaching
     }
 
-    var playback: HeroPlayback {
+    var playback: MotionPlayback {
         switch self {
         // Rests with the ghost parked over the empty row, ready to drop.
         case .teaching: return .loop(period: 3.2, restAt: 1.2)
@@ -102,7 +102,7 @@ enum IPhoneHeroState: Hashable {
         self = isPhoneConnected ? .connected : .teaching
     }
 
-    var playback: HeroPlayback {
+    var playback: MotionPlayback {
         switch self {
         case .teaching: return .loop(period: 3.2, restAt: 2.8)
         case .connected: return .once(duration: 1.3)
@@ -133,7 +133,7 @@ enum ShortcutHeroKeycaps {
     /// Keys stay down this long after the bar pops, then lift over `releaseDuration`.
     static let releaseDelay = 0.9
     static let releaseDuration = 0.15
-    static let playback = HeroPlayback.loop(period: 2.8, restAt: 2.3)
+    static let playback = MotionPlayback.loop(period: 2.8, restAt: 2.3)
 }
 
 extension ShortcutStore {

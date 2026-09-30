@@ -4,6 +4,7 @@ import PackageDescription
 
 let indieSearch: Target.Dependency = .product(name: "IndieSearch", package: "IndieLibKit")
 let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "IndieLibKit")
+let indieMotion: Target.Dependency = .product(name: "IndieMotion", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -15,26 +16,19 @@ let package = Package(
         .executable(name: "FastTab", targets: ["FastTab"]),
         .executable(name: "FastTabNativeHost", targets: ["FastTabNativeHost"]),
         .executable(name: "AgentBar", targets: ["AgentBar"]),
-        .library(name: "FastTabSync", targets: ["FastTabSync"]),
-        .library(name: "HeroMotion", targets: ["HeroMotion"])
+        .library(name: "FastTabSync", targets: ["FastTabSync"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
         // Shared L1 library, sibling checkout (~/01_Project/IndieLibKit on both Macs).
-        // Only Foundation-only products are linked here: `IndieSearch` (the search
-        // folding every app shares) and `IndieMetrics` (tab-activity statistics).
+        // Linked here: `IndieSearch` (the search folding every app shares), `IndieMetrics`
+        // (tab-activity statistics) and `IndieMotion` (onboarding hero clock + stage).
         .package(path: "../IndieLibKit")
     ],
     targets: [
         .target(
             name: "FastTabSync",
             dependencies: [indieSearch]
-        ),
-        // Onboarding hero timing math (loop / one-shot clock, easing), shared by
-        // the Mac onboarding and the iPhone app (`ios/project.yml`). Foundation only.
-        .target(
-            name: "HeroMotion",
-            dependencies: []
         ),
         // Reusable command-bar building blocks shared with future apps.
         // No dependencies and no resources on purpose: it links statically into
@@ -49,9 +43,9 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 "FastTabSync",
                 "CommandBarKit",
-                "HeroMotion",
                 indieSearch,
-                indieMetrics
+                indieMetrics,
+                indieMotion
             ]
         ),
         // Pure stdio<->socket relay launched by Chrome's native messaging.
@@ -67,7 +61,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "CommandBarKit", indieSearch, indieMetrics]
+            dependencies: ["FastTab", "FastTabSync", "CommandBarKit", indieSearch, indieMetrics, indieMotion]
         ),
         .testTarget(
             name: "AgentBarTests",
@@ -77,10 +71,6 @@ let package = Package(
         .testTarget(
             name: "CommandBarKitTests",
             dependencies: ["CommandBarKit"]
-        ),
-        .testTarget(
-            name: "HeroMotionTests",
-            dependencies: ["HeroMotion"]
         )
     ]
 )

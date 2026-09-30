@@ -1,6 +1,6 @@
 import AppKit
 import CommandBarKit
-import HeroMotion
+import IndieMotion
 import Testing
 @testable import FastTab
 
@@ -81,7 +81,7 @@ struct OnboardingHeroStateTests {
 
     // MARK: - Rest frames
 
-    private static let everyPlayback: [HeroPlayback] = [
+    private static let everyPlayback: [MotionPlayback] = [
         WelcomeHero.playback,
         TriggerHeroState.hover(.notch).playback,
         TriggerHeroState.keyboard(keycaps: ["⌘", "Space"]).playback,
@@ -98,8 +98,8 @@ struct OnboardingHeroStateTests {
     /// Reduce Motion shows the rest frame: it must sit inside the loop and
     /// outside the fade at its seam, or the still picture is half-faded.
     @Test(arguments: everyPlayback)
-    func restFrameIsFullyVisible(playback: HeroPlayback) {
-        #expect(HeroCurve.loopFade(playback.restTime, playback: playback) == 1, "\(playback)")
+    func restFrameIsFullyVisible(playback: MotionPlayback) {
+        #expect(MotionCurve.loopFade(playback.restTime, playback: playback) == 1, "\(playback)")
         if case .loop(let period, let restAt) = playback {
             #expect(restAt >= 0 && restAt < period)
         }

@@ -593,12 +593,7 @@ def _machine_label(machine):
 def _home_relative(folder):
     """`/Users/<me>/x` -> `~/x`, so a remote Mac (other user name) resolves
     it under its own home. Anything else is passed through."""
-    home = os.path.realpath(os.path.expanduser("~"))  # resolvedFolder is a realpath
-    if folder == home:
-        return "~"
-    if folder.startswith(home + os.sep):
-        return "~/" + folder[len(home) + 1:]
-    return folder
+    return personas.home_relative(folder)
 
 
 def _unreachable(machine, detail):

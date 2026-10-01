@@ -53,6 +53,7 @@ import copy
 import json
 import math
 import os
+import re
 import sys
 
 from chief_dashboard_feeds import machines_status  # noqa: E402
@@ -298,22 +299,75 @@ def offered_personas(registry):
     return offered
 
 
+_LOCAL_MACHINE = "local"
+_REMOTE_HOME_RE = re.compile(r"^/Users/[^/]+(?=/|$)")
+
+
+def home_relative(path):
+    """A LOCAL path -> `~`/`~/x` when it's under this Mac's home (realpath
+    on both sides), else the resolved path unchanged."""
+    path = _resolve_path(path)
+    home = _resolve_path("~")
+    if path == home:
+        return "~"
+    if path.startswith(home + os.sep):
+        return "~/" + path[len(home) + 1:]
+    return path
+
+
+def _portable_path(machine, path):
+    """A path on `machine` in a form comparable across Macs: `~/x` for
+    anything under that Mac's home. Remote paths can't be realpath'd from
+    here; a remote home is taken to be `/Users/<user>` (macOS)."""
+    if not path:
+        return None
+    if machine == _LOCAL_MACHINE:
+        return home_relative(path)
+    path = os.path.normpath(str(path))
+    if path.startswith("~"):
+        return path
+    return _REMOTE_HOME_RE.sub("~", path, count=1)
+
+
+def _folder_on(persona, machine):
+    """(persona folder, cwd normalizer) for comparing against a session on
+    `machine`: the persona's own machine compares resolved local paths
+    (today's rule); any OTHER Mac compares `~`-relative forms, so a
+    session in the same project folder on the Air counts for a persona
+    whose address is on the Pro (persona-start-on-air, slice 4)."""
+    if machine == persona["machine"] and machine == _LOCAL_MACHINE:
+        return persona["resolvedFolder"], _resolve_path
+    folder = _portable_path(persona["machine"], persona["folder"])
+    return folder, lambda p: _portable_path(machine, p)
+
+
+def _is_within(folder, path):
+    return path == folder or path.startswith(folder.rstrip("/") + "/")
+
+
+def persona_folder_match(persona, machine, cwd, *, exact=False):
+    """Length of the persona folder when `cwd` on `machine` is inside it
+    (or IS it, with `exact`), else -1."""
+    if not cwd or not machine:
+        return -1
+    folder, normalize = _folder_on(persona, machine)
+    path = normalize(cwd)
+    if not folder or not path:
+        return -1
+    hit = path == folder if exact else _is_within(folder, path)
+    return len(folder) if hit else -1
+
+
 def resolve_persona_for_cwd(personas, machine, cwd):
     """The address of the persona whose folder contains `cwd` on `machine`
-    — longest folder match wins, same machine only. None when `cwd`/
-    `machine` is missing or nothing matches."""
-    if not cwd or not machine:
-        return None
-    resolved_cwd = _resolve_path(cwd)
+    — longest folder match wins. Any Mac counts (the same `~/x` folder on
+    the other Mac is the same project). None when `cwd`/`machine` is
+    missing or nothing matches."""
     best_addr, best_len = None, -1
     for addr, p in personas.items():
-        if p["machine"] != machine:
-            continue
-        folder = p["resolvedFolder"]
-        if resolved_cwd == folder or resolved_cwd.startswith(folder + os.sep):
-            if len(folder) > best_len:
-                best_len = len(folder)
-                best_addr = addr
+        length = persona_folder_match(p, machine, cwd)
+        if length > best_len:
+            best_len, best_addr = length, addr
     return best_addr
 
 
@@ -346,7 +400,8 @@ def main_chiefs_by_persona(personas, chiefs, rows):
             continue
         root = chief.get("projectRoot")
         addr = resolve_persona_for_cwd(personas, chief.get("machine"), root)
-        if not addr or _resolve_path(root) != personas[addr]["resolvedFolder"]:
+        if not addr or persona_folder_match(personas[addr], chief.get("machine"), root,
+                                            exact=True) < 0:
             continue
         candidates.setdefault(addr, []).append(chief["id"])
     return {addr: min(ids, key=lambda i: (recency_by_id.get(i, no_data), i))
@@ -364,7 +419,9 @@ def main_session_for_persona(persona, rows_for_persona, chief_id):
     # so they never count: otherwise a busy Desktop chat in the folder would make
     # AgentBar open a new tab for every message.
     exact = [r for r in rows_for_persona
-             if r.get("paneId") and _resolve_path(r.get("cwd")) == persona["resolvedFolder"]]
+             if r.get("paneId")
+             and persona_folder_match(persona, r.get("machine") or persona["machine"],
+                                      r.get("cwd"), exact=True) >= 0]
     if not exact:
         return None
     exact.sort(key=_recency_key)

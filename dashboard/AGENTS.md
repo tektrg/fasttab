@@ -101,9 +101,11 @@ skipped with a stderr log line, never a crash. A persona with an empty
 never read an unreviewed draft).
 
 Session -> persona mapping: the persona whose folder contains the
-session's `cwd`, longest folder match wins, same `machine` only (`local`
-for every local session — this dashboard has no separate "pro"/"air" id
-for the machine it runs on, only for configured remote machines). Main
+session's `cwd`, longest folder match wins. On the persona's own machine
+paths compare resolved; a session on the OTHER Mac compares `~`-relative
+(`/Users/<anyone>/01_Project/X` = `~/01_Project/X`), so an Air session in
+the project counts for the persona — including as its main session — and
+AgentBar doesn't start a duplicate (slice 4, `persona_folder_match`). Main
 session: the persona folder's own live agent-tree chief, else the most
 recently active session whose `cwd` is exactly the folder, else none.
 

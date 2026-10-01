@@ -75,10 +75,35 @@ check("no cwd at all -> none",
       personas.resolve_persona_for_cwd(PERSONAS, "local", None),
       None)
 
-print("\n== machine mismatch -> none, even for an otherwise-matching folder ==")
-check("same folder, different machine, doesn't match",
-      personas.resolve_persona_for_cwd(PERSONAS, "air-m1", cwd("01_Project", "AptusFit")),
-      None)
+print("\n== the other Mac: same ~-relative folder is the same persona (slice 4) ==")
+AIR = "/Users/air-user"
+check("an Air session in ~/01_Project/AptusFit maps to chief-aptus",
+      personas.resolve_persona_for_cwd(PERSONAS, "air-m1", AIR + "/01_Project/AptusFit"),
+      "local:~/01_Project/AptusFit")
+check("an Air worktree still maps to its project, not portfolio",
+      personas.resolve_persona_for_cwd(PERSONAS, "air-m1",
+                                       AIR + "/01_Project/AptusFit/.claude/worktrees/x"),
+      "local:~/01_Project/AptusFit")
+check("Air prefix trap: ~/01_Project/AptusFit2 falls through to portfolio",
+      personas.resolve_persona_for_cwd(PERSONAS, "air-m1", AIR + "/01_Project/AptusFit2"),
+      "local:~/01_Project")
+check("an Air path outside any home folder -> none",
+      personas.resolve_persona_for_cwd(PERSONAS, "air-m1", "/tmp/01_Project/AptusFit"), None)
+check("an Air path in some other folder of its home -> none",
+      personas.resolve_persona_for_cwd(PERSONAS, "air-m1", AIR + "/Desktop"), None)
+check("a hostile cwd never matches or crashes",
+      personas.resolve_persona_for_cwd(PERSONAS, "air-m1", "$(echo INJECTED)"), None)
+check("Air main session: exact-folder Air row counts",
+      personas.main_session_for_persona(
+          PERSONAS["local:~/01_Project/AptusFit"],
+          [{"agentSession": "air-main", "paneId": "air-m1:w1:p1", "machine": "air-m1",
+            "cwd": AIR + "/01_Project/AptusFit", "hookSinceSec": 3}], chief_id=None),
+      "air-main")
+check("Air chief rooted in the folder is the front door",
+      personas.main_chiefs_by_persona(
+          PERSONAS, [{"id": "chief-air", "alive": True, "machine": "air-m1",
+                      "projectRoot": AIR + "/01_Project/command-bar-macos"}], []),
+      {"local:~/01_Project/command-bar-macos": "chief-air"})
 check("no machine given -> none",
       personas.resolve_persona_for_cwd(PERSONAS, None, cwd("01_Project", "AptusFit")),
       None)
@@ -139,14 +164,13 @@ got = personas.main_chiefs_by_persona(PERSONAS, [
     chief("chief-portfolio-old", cwd("01_Project")),
     chief("chief-portfolio-new", cwd("01_Project")),
     chief("chief-dead", cwd("01_Project", "command-bar-macos"), alive=False),
-    chief("chief-air", cwd("01_Project", "command-bar-macos"), machine="air-m1"),
 ], chief_rows)
 check("AptusFit chief (running in a worktree) is chief-aptus's front door",
       got.get("local:~/01_Project/AptusFit"), "chief-aptus-wt")
 check("a chief in a persona-less sibling project never becomes portfolio's front door; "
       "portfolio's own most recently active chief does",
       got.get("local:~/01_Project"), "chief-portfolio-new")
-check("a dead chief, or one on another machine, is nobody's front door",
+check("a dead chief is nobody's front door",
       "local:~/01_Project/command-bar-macos" in got, False)
 check("only the stray chief in the persona-less project -> portfolio has no chief",
       personas.main_chiefs_by_persona(

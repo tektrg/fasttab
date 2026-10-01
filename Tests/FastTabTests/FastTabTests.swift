@@ -4,6 +4,7 @@ import SwiftUI
 import Testing
 @testable import FastTab
 import CommandBarKit
+import IndieEdgeReveal
 
 @Test func searchResultsSortByTypePriorityBeforeRecency() async throws {
     let now = Date()
@@ -502,16 +503,6 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     #expect(!quickOpenNotch.contains(notchFooterPoint))
 }
 
-@Test func commandBarAnchorFallsBackToNotchWhenOff() async throws {
-    let displayFrame = CGRect(x: 0, y: 0, width: 1600, height: 1000)
-    let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
-
-    #expect(
-        CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .off)
-            == CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .notch)
-    )
-}
-
 @Test func commandBarSurfaceSizeHalvesWidthForEdgeAnchors() async throws {
     let notchSize = CommandBarLayout.surfaceSize(for: .notch)
     let leftSize = CommandBarLayout.surfaceSize(for: .leftEdge)
@@ -529,7 +520,7 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     // Guards the "5th item needs scrolling" regression: the results list must
     // stay tall enough for the full default quick-open list, and the surface
     // tall enough for the list plus its surrounding chrome.
-    for anchor in [EdgeRevealStyle.notch, .leftEdge, .rightEdge] {
+    for anchor in CommandBarAnchor.allCases {
         let resultsHeight = CommandBarLayout.resultsHeight(for: anchor)
         let rowHeight = CommandBarLayout.isCompact(anchor) ? 78.0 : 56.0
 
@@ -567,7 +558,7 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     // for anyone on Minimal rows with the helper panel hidden.
     let openingScreen = NSScreen.containing(NSEvent.mouseLocation) ?? NSScreen.main
     guard let openingScreen else { return }
-    let notch = EdgeRevealGeometry.notchZone(EdgeRevealGeometry.screenInfo(for: openingScreen))
+    let notch = EdgeRevealGeometry.notchZone(EdgeRevealScreenInfo(screen: openingScreen))
 
     for (rowStyle, showFooter) in [(ResultRowStyle.minimal, false), (ResultRowStyle.full, true)] {
         let surface = CommandBarLayout.surfaceSize(for: .notch, rowStyle: rowStyle, rowCount: 5, maxRows: 5, showFooter: showFooter)

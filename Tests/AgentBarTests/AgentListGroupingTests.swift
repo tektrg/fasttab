@@ -63,7 +63,7 @@ struct AgentListGroupingTests {
         // Chief "c" isn't shown at all right now (e.g. not currently a live agent) — only its worker is.
         let rows = AgentListGrouping.rows(for: [F.agent("w", section: .working)], tree: tree, frecency: [:], now: F.now)
         #expect(rows.map(\.id) == ["section-1", "chief-placeholder-1-c", "agent-w"])
-        guard case .chiefPlaceholder(let node, let section, let hint) = rows[1] else {
+        guard case .chiefPlaceholder(let node, let section, let hint, _) = rows[1] else {
             Issue.record("expected a chief placeholder")
             return
         }
@@ -102,8 +102,8 @@ struct AgentListGroupingTests {
         ]
         let rows = AgentListGrouping.rows(for: agents, tree: tree, frecency: [:], now: F.now)
         guard case .chief(let realHint, _) = nesting(rows, id: "agent-c") else { Issue.record("expected chief nesting"); return }
-        guard case .chiefPlaceholder(_, _, let placeholderHint) = rows.first(where: { row in
-            if case .chiefPlaceholder(let node, .parked, _) = row { return node.id == "c" }
+        guard case .chiefPlaceholder(_, _, let placeholderHint, _) = rows.first(where: { row in
+            if case .chiefPlaceholder(let node, .parked, _, _) = row { return node.id == "c" }
             return false
         }) else {
             Issue.record("expected a placeholder in Parked")
@@ -164,21 +164,86 @@ struct AgentListGroupingTests {
         #expect(rows.map(\.id) == ["section-0", "agent-blocked", "agent-c", "agent-w"])
     }
 
-    @Test func aGroupWithOneBlockedChildOutranksAnUnblockedGroupAndLooseAgents() {
+    @Test func aBlockedChildLeadsUnderAWaitingAnchorWhileItsIdleChiefStaysWithTheChiefGroups() {
         let tree = AgentTree(generatedAt: nil, chiefs: [
             chief("c1", children: [node("w1")]), chief("c2", children: [node("w2")])
         ], unassigned: [], parentGone: [])
         var w1 = F.agent("w1", section: .needsYou)
         w1.blocker = .permission
         // Client order: c2's group first, then a loose agent, then c1's group (whose only blocked
-        // member sorts last within it) — a group counts as blocked if ANY member is, so c1's group
-        // must still lead.
+        // member sorts last within it). Since 2026-10-01 only the blocked member leads (under a
+        // placeholder for c1); c1's own idle row stays in the chief-groups tier.
         let agents = [
             F.agent("c2", section: .needsYou), F.agent("w2", section: .needsYou),
             F.agent("loner", section: .needsYou), F.agent("c1", section: .needsYou), w1
         ]
         let rows = AgentListGrouping.rows(for: agents, tree: tree, frecency: [:], now: F.now)
-        #expect(rows.map(\.id) == ["section-0", "agent-c1", "agent-w1", "agent-c2", "agent-w2", "agent-loner"])
+        #expect(rows.map(\.id) == [
+            "section-0", "chief-placeholder-0-c1-waiting", "agent-w1",
+            "agent-c2", "agent-w2", "agent-c1", "agent-loner"
+        ])
+    }
+
+    // MARK: - Split: a chief group's waiting members lead, its idle siblings stay put (2026-10-01)
+
+    private func waitingWithoutCard(_ id: String) -> AgentSnapshot {
+        var agent = F.agent(id, section: .needsYou)
+        agent.awaitsPrompt = true   // e.g. a Claude Desktop session waiting, no held hook request
+        return agent
+    }
+
+    @Test func aWaitingWorkerSplitsFromItsIdleSiblingsAndAnotherWaitingAgentStillOutranksThem() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [
+            chief("c", children: [node("idle1"), node("idle2"), node("waiter"), node("idle3")])
+        ], unassigned: [], parentGone: [])
+        var waiter = F.agent("waiter", section: .needsYou)
+        waiter.blocker = .permission
+        let agents = [
+            F.agent("c", section: .needsYou), F.agent("idle1", section: .needsYou), F.agent("idle2", section: .needsYou),
+            waiter, F.agent("idle3", section: .needsYou), waitingWithoutCard("otherWaiter")
+        ]
+        let rows = AgentListGrouping.rows(for: agents, tree: tree, frecency: [:], now: F.now)
+        #expect(rows.map(\.id) == [
+            "section-0",
+            "chief-placeholder-0-c-waiting", "agent-waiter",   // anchor + only the waiting worker
+            "agent-otherWaiter",                               // another waiting agent, still above the siblings
+            "agent-c", "agent-idle1", "agent-idle2", "agent-idle3"  // chief tier: real chief + idle siblings
+        ])
+        guard case .child = nesting(rows, id: "agent-waiter") else { Issue.record("expected child nesting"); return }
+        guard case .chief(let hint, _) = nesting(rows, id: "agent-c") else { Issue.record("expected chief nesting"); return }
+        #expect(hint == 4)   // every child in Needs you, unchanged meaning
+    }
+
+    @Test func aWaitingChiefKeepsItsRealRowOnTopAndItsIdleChildrenGoUnderAPlaceholder() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [chief("c", children: [node("idle")])], unassigned: [], parentGone: [])
+        let agents = [F.agent("loner", section: .needsYou), F.agent("idle", section: .needsYou), waitingWithoutCard("c")]
+        let rows = AgentListGrouping.rows(for: agents, tree: tree, frecency: [:], now: F.now)
+        #expect(rows.map(\.id) == ["section-0", "agent-c", "chief-placeholder-0-c", "agent-idle", "agent-loner"])
+    }
+
+    @Test func aChiefAbsentFromTheSectionGetsTwoPlaceholdersWithDistinctIDs() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [chief("c", children: [node("waiter"), node("idle")])], unassigned: [], parentGone: [])
+        let agents = [F.agent("idle", section: .needsYou), waitingWithoutCard("waiter")]
+        let rows = AgentListGrouping.rows(for: agents, tree: tree, frecency: [:], now: F.now)
+        #expect(rows.map(\.id) == [
+            "section-0", "chief-placeholder-0-c-waiting", "agent-waiter", "chief-placeholder-0-c", "agent-idle"
+        ])
+    }
+
+    @Test func aStatusOnlyRowWaitingWithoutAHookRequestRanksInTheTopTier() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [chief("c", children: [node("w")])], unassigned: [], parentGone: [])
+        let agents = [F.agent("c", section: .needsYou), F.agent("w", section: .needsYou), waitingWithoutCard("desktop")]
+        let rows = AgentListGrouping.rows(for: agents, tree: tree, frecency: [:], now: F.now)
+        #expect(rows.map(\.id) == ["section-0", "agent-desktop", "agent-c", "agent-w"])
+    }
+
+    @Test func aParkedWaitingRowIsNotInTheTopTier() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [chief("c", children: [node("w")])], unassigned: [], parentGone: [])
+        var parkedWaiter = waitingWithoutCard("parkedWaiter").placed(in: .parked)
+        parkedWaiter.blocker = .permission
+        let agents = [parkedWaiter, F.agent("c", section: .parked), F.agent("w", section: .parked)]
+        let rows = AgentListGrouping.rows(for: agents, tree: tree, frecency: [:], now: F.now)
+        #expect(rows.map(\.id) == ["section-2", "agent-c", "agent-w", "agent-parkedWaiter"])
     }
 
     // MARK: - Parent-gone / untracked agents stay flat (loose), never indented, never hidden
@@ -248,7 +313,7 @@ struct AgentListGroupingTests {
         let tree = AgentTree(generatedAt: nil, chiefs: [airChiefNode], unassigned: [], parentGone: [])
         // Force the placeholder path by not showing the chief's own snapshot at all.
         let rows = AgentListGrouping.rows(for: [F.agent("w", section: .working)], tree: tree, frecency: [:], now: F.now)
-        guard case .chiefPlaceholder(let node, _, _) = rows.first(where: { $0.id == "chief-placeholder-1-c" }) else {
+        guard case .chiefPlaceholder(let node, _, _, _) = rows.first(where: { $0.id == "chief-placeholder-1-c" }) else {
             Issue.record("expected a placeholder")
             return
         }

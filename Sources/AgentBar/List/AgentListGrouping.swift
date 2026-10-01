@@ -15,10 +15,15 @@ import CommandBarKit
 /// A section's top-level entries (loose agents and chief groups) are ordered in three tiers, in
 /// this order (2026-09-25, PO decision — a chief's 7-child group was ranking last in a ~20-agent
 /// Needs you section under pure best-rank sorting, so it sat below the fold and went unseen):
-///   1. Blocked — any entry with a member blocked on a question/permission (`blockedOnYou != nil`;
-///      only possible in Needs you). A group counts as blocked if ANY member is — chief or child.
+///   1. Waiting on you — any entry with a member waiting on the user (`AgentSnapshot.isWaitingOnYou`:
+///      an answerable prompt, or a status-only session waiting without one; only possible in Needs you).
 ///   2. Chief groups (anchor + children) not already caught by (1).
 ///   3. Loose agents not already caught by (1).
+/// A chief group with waiting members is SPLIT (2026-10-01, PO decision — the whole group used to
+/// jump to tier 1, so a chief + ~8 idle siblings pushed other waiting agents past the 9-row panel):
+/// tier 1 gets an anchor + only the waiting members; the rest stay in tier 2 under a second anchor
+/// for the same chief. The chief's real row sits in whichever half its own state puts it; the other
+/// half gets a placeholder (`anchorsWaitingMembers` keeps the two placeholder ids apart).
 /// Within a tier, entries keep today's section ranking (`AgentRanking`) by their best-ranked member
 /// (the chief's own rank if its real row is present, plus every child's rank) — so inside a tier a
 /// lone high-ranked child can still pull its chief's placeholder above the tier's other groups.
@@ -30,10 +35,17 @@ import CommandBarKit
 enum AgentListGrouping {
     /// A section's top-level-entry tiers, in render order. See the type doc comment above.
     private enum UnitTier: Int, Comparable {
-        case blocked = 0
+        case waitingOnYou = 0
         case chiefGroup = 1
         case loose = 2
         static func < (lhs: UnitTier, rhs: UnitTier) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    /// One top-level entry of a section: its tier, its best member's rank, and the rows it draws.
+    private struct SectionUnit {
+        let tier: UnitTier
+        let rank: Int
+        let rows: [AgentListRow]
     }
 
     /// `agents` is every shown agent, any section — Needs you included. Nesting is no longer
@@ -75,7 +87,7 @@ enum AgentListGrouping {
             }
         }
 
-        var units: [(tier: UnitTier, rank: Int, rows: [AgentListRow])] = []
+        var units: [SectionUnit] = []
 
         for chiefID in Set(chiefAgentByChiefID.keys).union(childrenByChiefID.keys) {
             // Always true by construction: `chiefID` only ever comes from `index`, which sources
@@ -83,30 +95,27 @@ enum AgentListGrouping {
             guard let node = index.chief(withID: chiefID) else { continue }
             let children = childrenByChiefID[chiefID] ?? []
             let orderedChildren = ranked.filter { agent in children.contains { $0.id == agent.id } }
-            var memberRanks = orderedChildren.compactMap { rankOf[$0.id] }
-            var isBlocked = orderedChildren.contains { $0.blockedOnYou != nil }
+            let chiefAgent = chiefAgentByChiefID[chiefID]
+            let chiefIsWaiting = chiefAgent?.isWaitingOnYou ?? false
+            let group = ChiefGroup(node: node, section: section, needsYouHint: index.needsYouHint(node, needsYouIDs: needsYouIDs))
 
-            var rows: [AgentListRow] = []
-            let needsYouHint = index.needsYouHint(node, needsYouIDs: needsYouIDs)
-            if let chiefAgent = chiefAgentByChiefID[chiefID] {
-                if let rank = rankOf[chiefAgent.id] { memberRanks.append(rank) }
-                if chiefAgent.blockedOnYou != nil { isBlocked = true }
-                rows.append(.agent(chiefAgent, nesting: .chief(needsYouHint: needsYouHint, machineBadge: node.machineBadge)))
-            } else {
-                rows.append(.chiefPlaceholder(node, section: section, needsYouHint: needsYouHint))
+            let waitingChildren = orderedChildren.filter(\.isWaitingOnYou)
+            if chiefIsWaiting || !waitingChildren.isEmpty {
+                units.append(group.unit(
+                    tier: .waitingOnYou, chiefAgent: chiefIsWaiting ? chiefAgent : nil,
+                    children: waitingChildren, index: index, rankOf: rankOf
+                ))
             }
-            rows.append(contentsOf: orderedChildren.map { child in
-                let childNode = index.childMatch(for: child)?.node
-                return .agent(child, nesting: .child(crossProject: childNode?.crossProject ?? false, machineBadge: childNode?.machineBadge))
-            })
-
-            guard let bestRank = memberRanks.min() else { continue }
-            units.append((tier: isBlocked ? .blocked : .chiefGroup, rank: bestRank, rows: rows))
+            let otherChildren = orderedChildren.filter { !$0.isWaitingOnYou }
+            let otherChief = chiefIsWaiting ? nil : chiefAgent
+            if otherChief != nil || !otherChildren.isEmpty {
+                units.append(group.unit(tier: .chiefGroup, chiefAgent: otherChief, children: otherChildren, index: index, rankOf: rankOf))
+            }
         }
 
         for agent in looseAgents {
-            let tier: UnitTier = agent.blockedOnYou != nil ? .blocked : .loose
-            units.append((tier: tier, rank: rankOf[agent.id] ?? Int.max, rows: [.agent(agent, nesting: index.looseNesting(for: agent))]))
+            let tier: UnitTier = agent.isWaitingOnYou ? .waitingOnYou : .loose
+            units.append(SectionUnit(tier: tier, rank: rankOf[agent.id] ?? Int.max, rows: [.agent(agent, nesting: index.looseNesting(for: agent))]))
         }
 
         // Within a tier, every unit's best rank is a distinct agent's own rank index (each agent
@@ -115,6 +124,30 @@ enum AgentListGrouping {
             lhs.tier != rhs.tier ? lhs.tier < rhs.tier : lhs.rank < rhs.rank
         }
         return [.header(section)] + units.flatMap(\.rows)
+    }
+
+    /// One chief inside one section, drawn as one or two units (see the split rule above).
+    private struct ChiefGroup {
+        let node: AgentTreeNode
+        let section: AgentSection
+        let needsYouHint: Int
+
+        /// Anchor (the chief's real row when `chiefAgent` is given, else a placeholder) + `children`,
+        /// ranked by the best member. Never called with neither a chief nor a child.
+        func unit(
+            tier: UnitTier, chiefAgent: AgentSnapshot?, children: [AgentSnapshot],
+            index: TreeIndex, rankOf: [String: Int]
+        ) -> SectionUnit {
+            let anchor: AgentListRow = chiefAgent.map {
+                .agent($0, nesting: .chief(needsYouHint: needsYouHint, machineBadge: node.machineBadge))
+            } ?? .chiefPlaceholder(node, section: section, needsYouHint: needsYouHint, anchorsWaitingMembers: tier == .waitingOnYou)
+            let childRows: [AgentListRow] = children.map { child in
+                let childNode = index.childMatch(for: child)?.node
+                return .agent(child, nesting: .child(crossProject: childNode?.crossProject ?? false, machineBadge: childNode?.machineBadge))
+            }
+            let memberRanks = ([chiefAgent].compactMap { $0 } + children).compactMap { rankOf[$0.id] }
+            return SectionUnit(tier: tier, rank: memberRanks.min() ?? Int.max, rows: [anchor] + childRows)
+        }
     }
 }
 

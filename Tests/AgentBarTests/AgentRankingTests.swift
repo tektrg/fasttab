@@ -38,6 +38,24 @@ struct AgentRankingTests {
         #expect(order(.needsYou, ["a", "b"], frecency) == ["a", "b"])
     }
 
+    @Test func aWaitingRowWithoutAnAnswerCardStillLeadsNeedsYou() {
+        var desktop = F.agent("desktop", section: .needsYou)
+        desktop.awaitsPrompt = true   // waiting in the dashboard's Needs-you list, no hook request held
+        var blocked = F.agent("blocked", section: .needsYou)
+        blocked.blocker = .permission
+        let agents = [F.agent("idle", section: .needsYou), desktop, blocked]
+        #expect(desktop.blockedOnYou == nil)   // still no card / red button
+        #expect(AgentRanking.ordered(agents, in: .needsYou, frecency: [:], now: F.now).map(\.id) == ["desktop", "blocked", "idle"])
+    }
+
+    @Test func aParkedWaitingRowIsNotWaitingOnYou() {
+        var waiting = F.agent("waiting", section: .needsYou)
+        waiting.awaitsPrompt = true
+        waiting.blocker = .permission
+        #expect(waiting.isWaitingOnYou)
+        #expect(!waiting.placed(in: .parked).isWaitingOnYou)
+    }
+
     @Test func endedIsNotReRanked() {
         let frecency = ["old": visited(daysAgo: 0, count: 9)]
         #expect(order(.ended, ["newest", "old"], frecency) == ["newest", "old"])

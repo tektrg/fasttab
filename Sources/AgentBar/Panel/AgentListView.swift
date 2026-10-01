@@ -30,7 +30,7 @@ struct AgentListView: View {
         switch row {
         case .header(let section):
             SectionHeaderView(section: section)
-        case .chiefPlaceholder(let node, _, let needsYouHint):
+        case .chiefPlaceholder(let node, _, let needsYouHint, _):
             ChiefPlaceholderRowView(node: node, needsYouHint: needsYouHint)
                 .modifier(TreeDropTarget(agentID: node.id, isChief: true, treeModel: model.treeModel))
         case .agent(let agent, let nesting):

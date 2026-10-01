@@ -7,7 +7,7 @@ import CommandBarKit
 struct CommandBarLayoutViewSizingTests {
     @Test func outsideClickBoxAlwaysContainsOutsideHoverBox() {
         let canvasFrame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-        let anchors: [EdgeRevealStyle] = [.off, .notch, .leftEdge, .rightEdge]
+        let anchors = CommandBarAnchor.allCases
         let rowStyles: [ResultRowStyle] = [.minimal, .full]
         let footers: [Bool] = [true, false]
         let views: [CommandBarView] = CommandBarView.allCases

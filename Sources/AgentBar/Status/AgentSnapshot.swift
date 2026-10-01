@@ -51,16 +51,32 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// A status-only session that takes a message through its peer inbox right now (dashboard
     /// `messageVia: "inbox"`, and not waiting on a prompt). See `MessageRoute`.
     var messagesViaInbox: Bool = false
+    /// A herdr row the dashboard says it types messages into (`messageVia: "pane"`). Lets a pane row
+    /// with no hook data (a Claude agent on another machine, e.g. the Air) take a message; the
+    /// dashboard's `messageRefusal` still has the last word. See `RowButtons.messageRoute`.
+    var messagesViaPane: Bool = false
     /// "opencode" | "codex" for a herdr row of that tool with fresh exact status (dashboard `agentKind`); nil for
     /// Claude. Such a row takes a message as a plain prompt: no `/compact` / `/clear`, no leading `/` or `!`.
     var messageTool: String? = nil
     /// The dashboard's reason it would refuse a message to this row (`messageRefusal`); nil = it would not.
     var messageRefusal: String? = nil
+    /// The dashboard says this agent is waiting on the user's answer (its Needs-you list, or a screen
+    /// that needs a human) — `LiveAgentMapper`'s `hasPrompt`. Unlike `blocker` it does not mean there
+    /// is an Answer/Review card: a Claude Desktop / CLI session waiting without a held hook request has
+    /// this but no blocker. Ranking only — see `isWaitingOnYou`.
+    var awaitsPrompt: Bool = false
 
     /// The blocker while the row sits in Needs you. Parking sets a row aside, and
     /// with it the Blocked badge, the answer action and the top-of-section spot.
     var blockedOnYou: AgentBlocker? {
         section == .needsYou ? blocker : nil
+    }
+
+    /// Ranks the row in the top "waiting on you" tier (`AgentRanking`, `AgentListGrouping`): blocked on
+    /// an answerable prompt, or waiting on the user without one. Parked rows never do (same as
+    /// `blockedOnYou`). Buttons, corner card and sounds keep keying on `blockedOnYou` alone.
+    var isWaitingOnYou: Bool {
+        section == .needsYou && (blocker != nil || awaitsPrompt)
     }
 
     /// The same agent shown under another section.

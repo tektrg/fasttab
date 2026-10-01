@@ -6,8 +6,8 @@ enum AgentRanking {
     /// - Working / Parked: higher frecency (the user's own past switches, keyed by
     ///   agent id) first; ties, including every never-visited agent, keep the
     ///   status client's order.
-    /// - Needs you: agents blocked on a question or permission box come first
-    ///   (they cannot go on without the user). Beyond that the client's order is
+    /// - Needs you: agents waiting on the user (`isWaitingOnYou`: a question or permission box,
+    ///   answerable here or not) come first (they cannot go on without the user). Beyond that the client's order is
     ///   urgency, and a snapshot does not expose urgency levels, so ties cannot
     ///   be told apart from real differences: keep the client's order as is.
     /// - Ended / Sleeping: newest first as delivered; frecency would bury the most recent.
@@ -19,7 +19,7 @@ enum AgentRanking {
     ) -> [AgentSnapshot] {
         switch section {
         case .needsYou:
-            return agents.filter { $0.blockedOnYou != nil } + agents.filter { $0.blockedOnYou == nil }
+            return agents.filter(\.isWaitingOnYou) + agents.filter { !$0.isWaitingOnYou }
         case .ended, .sleeping:
             return agents
         case .working, .parked:

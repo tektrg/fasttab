@@ -27,13 +27,16 @@ enum AgentListRow: Equatable, Identifiable {
     /// of the chief's children is in `section` while the chief's own row is shown elsewhere (or not
     /// shown at all) — the group still needs something to nest those children under. `needsYouHint`
     /// mirrors `.chief`'s (same chief, so the same count, wherever its anchor is drawn).
-    case chiefPlaceholder(AgentTreeNode, section: AgentSection, needsYouHint: Int)
+    /// `anchorsWaitingMembers`: this anchor heads the chief's split-off "waiting on you" unit
+    /// (`AgentListGrouping`), so a section can hold two placeholders for one chief — distinct ids.
+    case chiefPlaceholder(AgentTreeNode, section: AgentSection, needsYouHint: Int, anchorsWaitingMembers: Bool = false)
 
     var id: String {
         switch self {
         case .header(let section): "section-\(section.rawValue)"
         case .agent(let agent, _): "agent-\(agent.id)"
-        case .chiefPlaceholder(let node, let section, _): "chief-placeholder-\(section.rawValue)-\(node.id)"
+        case .chiefPlaceholder(let node, let section, _, let anchorsWaitingMembers):
+            "chief-placeholder-\(section.rawValue)-\(node.id)" + (anchorsWaitingMembers ? "-waiting" : "")
         }
     }
 

@@ -1,5 +1,7 @@
 import AppKit
 import SwiftUI
+import IndieEdgeReveal
+import IndieEdgeRevealUI
 
 /// Anchor-driven geometry for a command bar that hugs a screen edge: widths,
 /// the silhouette's radii, where it aligns and casts its shadow, and the
@@ -14,20 +16,20 @@ public enum CommandBarLayout {
     /// Radius of the flare where the bar meets the screen edge it hugs — the
     /// same detail the MacBook notch uses where it meets the bezel. Small on
     /// purpose: at much more than this it stops reading as a moulded join and
-    /// starts reading as two ears on the bar. See `CommandBarSurfaceShape`.
+    /// starts reading as two ears on the bar. See `EdgeRevealSurfaceShape`.
     public static let surfaceJoinRadius: CGFloat = 12
     public static let defaultCanvasSize = CGSize(width: 1600, height: 1000)
     public static let shadowOverscan: CGFloat = 900
     public static let shadowEndRadius: CGFloat = 520
 
-    /// Minimal row style narrows the notch/off panel to this fraction of
+    /// Minimal row style narrows the notch panel to this fraction of
     /// `surfaceWidth` by default — icon+title rows need far less width than
     /// the full metadata layout.
     public static let minimalWidthFraction: CGFloat = 2.0 / 3.0
 
-    public static func isCompact(_ anchor: EdgeRevealStyle) -> Bool {
+    public static func isCompact(_ anchor: CommandBarAnchor) -> Bool {
         switch anchor {
-        case .off, .notch:            return false
+        case .notch:            return false
         case .leftEdge, .rightEdge:   return true
         }
     }
@@ -35,7 +37,7 @@ public enum CommandBarLayout {
     /// The panel width before any manual drag override — full width in Full
     /// row style, narrowed for Minimal, unaffected for the fixed-width edge
     /// anchors.
-    public static func automaticWidth(for anchor: EdgeRevealStyle, rowStyle: ResultRowStyle) -> CGFloat {
+    public static func automaticWidth(for anchor: CommandBarAnchor, rowStyle: ResultRowStyle) -> CGFloat {
         guard !isCompact(anchor) else { return edgeSurfaceWidth }
         return rowStyle == .minimal ? surfaceWidth * minimalWidthFraction : surfaceWidth
     }
@@ -49,10 +51,10 @@ public enum CommandBarLayout {
     ///   have nothing to clear. The bar draws above the menu-bar layer, so
     ///   reserving space there only read as an empty band at the top of the
     ///   panel — which is exactly what it looked like.
-    public static func surfaceTopInset(for anchor: EdgeRevealStyle) -> CGFloat {
+    public static func surfaceTopInset(for anchor: CommandBarAnchor) -> CGFloat {
         guard !isCompact(anchor) else { return 0 }
         guard let screen = notchClearanceScreen else { return 0 }
-        let info = EdgeRevealGeometry.screenInfo(for: screen)
+        let info = EdgeRevealScreenInfo(screen: screen)
         guard info.hasPhysicalNotch else { return 0 }
         return EdgeRevealGeometry.notchZone(info).height
     }
@@ -62,10 +64,10 @@ public enum CommandBarLayout {
     /// not the full (much wider) panel width, so it reads as the notch
     /// extending down a little rather than a wide black bar across the top.
     /// Zero under the same conditions as `surfaceTopInset` (nothing to draw).
-    public static func notchConnectorWidth(for anchor: EdgeRevealStyle) -> CGFloat {
+    public static func notchConnectorWidth(for anchor: CommandBarAnchor) -> CGFloat {
         guard !isCompact(anchor) else { return 0 }
         guard let screen = notchClearanceScreen else { return 0 }
-        let info = EdgeRevealGeometry.screenInfo(for: screen)
+        let info = EdgeRevealScreenInfo(screen: screen)
         guard info.hasPhysicalNotch else { return 0 }
         return EdgeRevealGeometry.notchZone(info).width
     }
@@ -107,9 +109,9 @@ public enum CommandBarLayout {
     /// with a visible gap between it and the screen edge, before the panel
     /// caught up. Scaled along with everything else, the shadow stays tucked
     /// under the surface from the very first frame.
-    public static func shadowShiftVector(for anchor: EdgeRevealStyle) -> CGSize {
+    public static func shadowShiftVector(for anchor: CommandBarAnchor) -> CGSize {
         switch anchor {
-        case .off, .notch:
+        case .notch:
             return CGSize(width: 0, height: shadowDirectionalShift)
         case .leftEdge:
             return CGSize(width: shadowDirectionalShift, height: 0)
@@ -138,9 +140,9 @@ public enum CommandBarLayout {
     /// after launch (canvas still 0x0) — snapping flush a frame later. An
     /// alignment is resolved by SwiftUI inside the same layout pass, so it is
     /// always consistent with the size the window actually has.
-    public static func surfaceAlignment(for anchor: EdgeRevealStyle) -> Alignment {
+    public static func surfaceAlignment(for anchor: CommandBarAnchor) -> Alignment {
         switch anchor {
-        case .off, .notch:
+        case .notch:
             return .top
         case .leftEdge:
             return .leading
@@ -149,75 +151,29 @@ public enum CommandBarLayout {
         }
     }
 
-    /// One axis of the reveal: `progress` 0 leaves the axis at its pre-reveal
-    /// sliver fraction, 1 lands it at full size, past 1 overshoots. Each axis
-    /// gets its own spring, so each gets its own progress.
+    // The grow-from-edge reveal math lives in IndieEdgeRevealUI (`EdgeRevealMotion`), shared
+    // with other apps; these forward to it so the bar's call sites keep their names.
+
     public static func revealAxis(from start: CGFloat, progress: Double) -> CGFloat {
-        start + (1 - start) * progress
+        EdgeRevealMotion.axis(from: start, progress: progress)
     }
 
-    /// Spring kinematics for the reveal animation when emerging from the notch or screen edge.
-    /// Tuned for a fast, responsive entrance with tactile overshoot (~5-7%) and a quick damped settle (~260-280ms).
-    public static let revealDepthSpring: Animation = .spring(response: 0.28, dampingFraction: 0.74)
-    public static let revealSpreadSpring: Animation = .spring(response: 0.32, dampingFraction: 0.78)
+    public static let revealDepthSpring: Animation = EdgeRevealMotion.depthSpring
+    public static let revealSpreadSpring: Animation = EdgeRevealMotion.spreadSpring
+    public static let revealContentFadeRange: ClosedRange<Double> = EdgeRevealMotion.contentFadeRange
+    public static let revealSurfaceFadeCeiling: Double = EdgeRevealMotion.surfaceFadeCeiling
 
-    /// Progress at which the content starts fading in, and the one at which it
-    /// is fully opaque.
-    /// The upper bound is short of 1 so the fade finishes while the panel is
-    /// still growing, leaving the spring's settle to play out on already-solid
-    /// content rather than on something still resolving.
-    public static let revealContentFadeRange: ClosedRange<Double> = 0.35...0.85
-
-    /// Content opacity for a given reveal progress. Applied to what's *inside*
-    /// the surface only, never the surface's own background: fading the whole
-    /// panel would make the desktop show through it mid-reveal, which reads as
-    /// a rendering glitch rather than an entrance. The fade also covers for the
-    /// fact that the reveal scales the panel — text is squashed at small
-    /// scales, and this keeps that distortion under the fade instead of on
-    /// display.
-    ///
-    /// Takes the *lower* of the two axis progresses so the content only reaches
-    /// full opacity once both axes have essentially arrived, and clamps at 1 so
-    /// the spring's overshoot past 1 can't push it into an invalid opacity.
     public static func revealContentOpacity(depthProgress: Double, spreadProgress: Double) -> Double {
-        let progress = min(depthProgress, spreadProgress)
-        let range = revealContentFadeRange
-        let span = range.upperBound - range.lowerBound
-        return min(max((progress - range.lowerBound) / span, 0), 1)
+        EdgeRevealMotion.contentOpacity(depth: depthProgress, spread: spreadProgress)
     }
 
-    /// Progress below which the surface itself (background included, not just
-    /// its content) starts fading out.
-    public static let revealSurfaceFadeCeiling: Double = 0.25
-
-    /// Opacity of the whole surface — the shell, not just what's inside it (see
-    /// `revealContentOpacity` for that). Exists to soften the end of the
-    /// collapse: the pre-reveal scale is a *notch-sized block*, not zero, so a
-    /// collapse that only shrank would still have a visible block on screen at
-    /// the instant the window is ordered out, which reads as the bar being
-    /// snatched away. Fading the last stretch lets it dissolve into the bezel
-    /// instead.
-    ///
-    /// Safe to fade the background here (unlike during the reveal) precisely
-    /// because it only happens at the tail, where the panel is already down to
-    /// notch/sliver size and flush against the edge — there's no large
-    /// translucent slab for the desktop to show through.
     public static func revealSurfaceOpacity(depthProgress: Double, spreadProgress: Double) -> Double {
-        let progress = min(depthProgress, spreadProgress)
-        return min(max(progress / revealSurfaceFadeCeiling, 0), 1)
+        EdgeRevealMotion.surfaceOpacity(depth: depthProgress, spread: spreadProgress)
     }
 
-    /// SwiftUI anchor the grow-from-edge reveal animation scales around —
-    /// matches whichever side `CommandBarSurfaceShape` leaves flat.
-    public static func revealAnchorUnitPoint(for anchor: EdgeRevealStyle) -> UnitPoint {
-        switch anchor {
-        case .off, .notch:
-            return .top
-        case .leftEdge:
-            return .leading
-        case .rightEdge:
-            return .trailing
-        }
+    /// The point the reveal scales around: the side the surface leaves flat.
+    public static func revealAnchorUnitPoint(for anchor: CommandBarAnchor) -> UnitPoint {
+        EdgeRevealMotion.anchorPoint(for: anchor.surfaceHug)
     }
 
     /// Starting (pre-animation) scale for the grow-from-edge reveal. Edge
@@ -232,19 +188,16 @@ public enum CommandBarLayout {
     /// much the user's real settings differ — the reveal could start ~1.5x
     /// smaller than the notch, or *larger* and hang visibly below it before the
     /// animation began.
-    public static func revealInitialScale(for anchor: EdgeRevealStyle, surfaceSize: CGSize) -> CGSize {
+    public static func revealInitialScale(for anchor: CommandBarAnchor, surfaceSize: CGSize) -> CGSize {
         switch anchor {
-        case .off, .notch:
+        case .notch:
             guard let screen = notchClearanceScreen, surfaceSize.width > 0, surfaceSize.height > 0 else {
                 return CGSize(width: 0.35, height: 0.12)
             }
-            let notch = EdgeRevealGeometry.notchZone(EdgeRevealGeometry.screenInfo(for: screen))
-            return CGSize(
-                width: max(0.02, min(1, notch.width / surfaceSize.width)),
-                height: max(0.02, min(1, notch.height / surfaceSize.height))
-            )
+            let notch = EdgeRevealGeometry.notchZone(EdgeRevealScreenInfo(screen: screen))
+            return EdgeRevealMotion.initialScale(for: .top, surfaceSize: surfaceSize, landmark: notch.size)
         case .leftEdge, .rightEdge:
-            return CGSize(width: 0.12, height: 0.35)
+            return EdgeRevealMotion.initialScale(for: anchor.surfaceHug, surfaceSize: surfaceSize)
         }
     }
 }

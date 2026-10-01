@@ -3,6 +3,7 @@ import AppKit
 import OSLog
 import Combine
 import CommandBarKit
+import IndieEdgeReveal
 
 private let appLogger = Logger(subsystem: "com.trungluong.FastTab", category: "AppDelegate")
 let fastTabPresentLicenseActivationNotification = Notification.Name("FastTabPresentLicenseActivation")
@@ -157,7 +158,7 @@ class AppState: ObservableObject {
     }
 
     /// - Parameter revealStyle: non-nil when this open was triggered by the
-    ///   notch/edge hover reveal (`EdgeRevealService`), rather than the
+    ///   notch/edge hover reveal (`EdgeRevealCoordinator`), rather than the
     ///   keyboard shortcut or menu-bar icon. Plays a brief grow-from-that-side
     ///   animation instead of appearing instantly.
     /// - Parameter openedBy: Whether triggered via keyboard shortcut or mouse
@@ -268,13 +269,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appLogger.info("Application did finish launching")
         NSApp.setActivationPolicy(.accessory)
         // No idle-sleep-disable / App-Nap-exemption activity token here: the
-        // notch/edge hover trigger (`EdgeRevealService`) is invisible
+        // notch/edge hover trigger (`EdgeRevealCoordinator`) is invisible
         // `NSTrackingArea` windows, not a continuous global mouse monitor, so
         // detection is delivered on demand by the window server instead of
         // depending on this process staying unthrottled in the background.
         CommandBarPanelController.shared.prepare()
         setupGlobalShortcut()
-        EdgeRevealService.shared.start()
+        EdgeRevealCoordinator.shared.start()
         ExtensionBridge.shared.start()
         NativeHostInstaller.shared.installIfNeeded()
         LicenseService.shared.validateForLaunch()
@@ -574,7 +575,7 @@ private final class CommandBarPanelController: NSObject {
     /// stays fully disarmed until this passes, so a cursor that happens to be
     /// resting outside the surface at open time can't start the dismiss dwell
     /// before the user has even looked at the bar. Hover-triggered opens
-    /// (`EdgeRevealService`) skip this — the cursor is already on the surface
+    /// (`EdgeRevealCoordinator`) skip this — the cursor is already on the surface
     /// there, so there's nothing to guard against.
     private var hoverDismissArmDeadline: Date?
 
@@ -583,7 +584,7 @@ private final class CommandBarPanelController: NSObject {
     private static let hoverDismissOutset: CGFloat = 6
     /// Long enough that glancing away for a moment doesn't collapse the bar,
     /// short enough that leaving it read as intentional. Slightly longer than
-    /// `EdgeRevealService`'s reveal dwell since a false collapse is more
+    /// the hover trigger's reveal dwell since a false collapse is more
     /// disruptive than a delayed reveal.
     private static let hoverDismissDwell: TimeInterval = 0.35
     /// Grace window after a shortcut/menu-bar open before hover-dismiss can
@@ -635,7 +636,7 @@ private final class CommandBarPanelController: NSObject {
             return CommandBarLayout.shouldDismissClick(
                 at: screenLocation,
                 in: panel.frame,
-                anchor: EdgeRevealStyle.commandBarAnchor
+                anchor: CommandBarAnchor.current
             )
         }
         panel.onDismiss = { AppState.shared.hideCommandBar() }
@@ -719,7 +720,7 @@ private final class CommandBarPanelController: NSObject {
     /// expanding from the edge, since the anchor was applied to the entire
     /// canvas rather than just the visible surface within it.
     func playRevealAnimation(from style: EdgeRevealStyle) {
-        CommandBarRevealTrigger.shared.fire(anchor: style)
+        CommandBarRevealTrigger.shared.fire(anchor: CommandBarAnchor(revealStyle: style))
     }
 
     func startOutsideClickMonitoring() {
@@ -745,8 +746,7 @@ private final class CommandBarPanelController: NSObject {
     /// is empty — an idle, untouched bar shouldn't linger on screen. Gated on
     /// empty search so it never yanks the bar away mid-query.
     ///
-    /// Needs both a global and a local mouse-moved monitor for the same reason
-    /// `EdgeRevealService` does: the global monitor alone goes quiet while one
+    /// Needs both a global and a local mouse-moved monitor: the global monitor alone goes quiet while one
     /// of our own windows is frontmost, which is exactly when this needs to
     /// keep tracking the cursor leaving that window.
     func startHoverDismissMonitoring() {
@@ -835,7 +835,7 @@ private final class CommandBarPanelController: NSObject {
             view: CommandBarViewStore.shared.activeView,
             isShowingAllOpenTabs: AppState.shared.isShowingAllOpenTabs,
             isSearching: false,
-            anchor: EdgeRevealStyle.commandBarAnchor,
+            anchor: CommandBarAnchor.current,
             rowStyle: rowStyle,
             showFooter: showFooter,
             quickOpenLimit: limitSetting
@@ -843,7 +843,7 @@ private final class CommandBarPanelController: NSObject {
 
         let surface = CommandBarLayout.surfaceFrame(
             in: panel.frame,
-            anchor: EdgeRevealStyle.commandBarAnchor,
+            anchor: CommandBarAnchor.current,
             rowStyle: rowStyle,
             maxRows: maxRows,
             showFooter: showFooter

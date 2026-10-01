@@ -71,6 +71,7 @@ struct StatusOnlyMapperTests {
         #expect(row.statusText == "Input needed")
         #expect(row.secondsInStatus == 12)            // the needsYou entry's clock
         #expect(row.blocker == nil)                   // nothing AgentBar can answer: no red button, no card
+        #expect(row.isWaitingOnYou)                   // but it still ranks with the agents waiting on you
         #expect(row.actions == .none)                 // Done never offered
         #expect(row.canFocus)
     }
@@ -81,6 +82,7 @@ struct StatusOnlyMapperTests {
         let idle = try S.snapshot(agents: [S.desktopRow(status: "idle", hookState: "idle")])
         #expect(idle.agents.first?.section == .needsYou)
         #expect(idle.agents.first?.blocker == nil)
+        #expect(idle.agents.first?.isWaitingOnYou == false)   // finished, not asking: not top tier
     }
 
     @Test func cliSessionsCarryTheirTmuxTarget() throws {

@@ -51,6 +51,10 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// A status-only session that takes a message through its peer inbox right now (dashboard
     /// `messageVia: "inbox"`, and not waiting on a prompt). See `MessageRoute`.
     var messagesViaInbox: Bool = false
+    /// A herdr row the dashboard says it types messages into (`messageVia: "pane"`). Lets a pane row
+    /// with no hook data (a Claude agent on another machine, e.g. the Air) take a message; the
+    /// dashboard's `messageRefusal` still has the last word. See `RowButtons.messageRoute`.
+    var messagesViaPane: Bool = false
     /// "opencode" | "codex" for a herdr row of that tool with fresh exact status (dashboard `agentKind`); nil for
     /// Claude. Such a row takes a message as a plain prompt: no `/compact` / `/clear`, no leading `/` or `!`.
     var messageTool: String? = nil

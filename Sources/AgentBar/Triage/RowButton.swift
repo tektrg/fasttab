@@ -159,18 +159,23 @@ enum RowButtons {
 
     /// Same eligibility gate as `messageButton` — Compact/Clear are typed through the same
     /// Message pipeline (`MessageCardModel.sendDirect`), so a row that cannot take a message
-    /// cannot take these either.
+    /// cannot take these either. Mirrors the web remote's `canMessage`: hook data, or the
+    /// dashboard's `messageVia: "pane"` (a remote Claude pane has no hook data), and no
+    /// `messageRefusal` (the dashboard's blind-agent gate). The card still reads the pane before
+    /// every send, and the dashboard re-reads it.
     private static func messageRoute(for agent: AgentSnapshot) -> MessageRoute? {
-        guard agent.blocker == nil, agent.rowId != nil, agent.canFocus, agent.hasHookData,
+        guard agent.blocker == nil, agent.rowId != nil, agent.canFocus,
+              agent.hasHookData || agent.messagesViaPane,
               agent.messageRefusal == nil else { return nil }
         return MessageRoute(agent: agent)
     }
 
     /// Whether `agent` can take `/compact` / `/clear` right now: message-eligible (not asking
-    /// anything, a Claude agent the dashboard addresses) through a real terminal, never an inbox.
-    /// The one gate for the ⋯ menu's Compact/Clear and Park's automatic `/compact`.
+    /// anything, a Claude agent the dashboard addresses) through a real terminal, never an inbox,
+    /// and with hook data (as the web remote's `takesQuickCommands`: a remote pane without hooks
+    /// takes free text only). The one gate for the ⋯ menu's Compact/Clear and Park's automatic `/compact`.
     static func takesQuickCommands(_ agent: AgentSnapshot) -> Bool {
-        messageRoute(for: agent)?.allowsQuickCommands == true
+        agent.hasHookData && messageRoute(for: agent)?.allowsQuickCommands == true
     }
 
     /// Compact/Clear need a real terminal: never offered on an inbox route.

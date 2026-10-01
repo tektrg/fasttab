@@ -121,16 +121,11 @@ public struct ReaderWebView: UIViewRepresentable {
                 "window.ftSetVideoVisible && ftSetVideoVisible(\(viewModel.isVideoVisible));", completionHandler: nil)
         }
 
-        // Transcript clean-up: push only the paragraphs whose shown text or version changed.
-        if let cleanup = viewModel.transcriptCleanup {
-            let shown = cleanup.shownTexts
-            let changed = shown.filter { context.coordinator.pushedTranscript[$0.i] != $0 }
-            if !changed.isEmpty, let data = try? JSONEncoder().encode(changed),
-               let json = String(data: data, encoding: .utf8) {
-                changed.forEach { context.coordinator.pushedTranscript[$0.i] = $0 }
-                webView.evaluateJavaScript("window.ftSetTranscriptTexts && ftSetTranscriptTexts(\(json));",
-                                           completionHandler: nil)
-            }
+        // Transcript clean-up: on a new revision, push the paragraphs whose text or version changed.
+        if let cleanup = viewModel.transcriptCleanup, cleanup.revision != context.coordinator.pushedTranscriptRevision {
+            context.coordinator.pushedTranscriptRevision = cleanup.revision
+            let changed = cleanup.shownTexts.filter { context.coordinator.pushedTranscript[$0.i] != $0 }
+            context.coordinator.pushTranscript(changed)
         }
 
         // If viewModel requests a new highlight, apply it safely via JSON payload
@@ -326,9 +321,24 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     /// Transcript paragraphs as the page shows them, by index (bootstrap, then pushes).
     var pushedTranscript: [Int: TranscriptCleanupSession.ParagraphText] = [:]
 
+    var pushedTranscriptRevision: Int?
+    /// What the page was loaded with (bootstrap). Pushes sent before the page is ready are
+    /// lost, so `ready` re-sends whatever differs from this.
+    private var loadedTranscript: [Int: TranscriptCleanupSession.ParagraphText] = [:]
+
     /// The page is about to load with the session's current texts.
     @MainActor func resetPushedTranscript(_ cleanup: TranscriptCleanupSession?) {
-        pushedTranscript = Dictionary(uniqueKeysWithValues: (cleanup?.shownTexts ?? []).map { ($0.i, $0) })
+        loadedTranscript = Dictionary(uniqueKeysWithValues: (cleanup?.shownTexts ?? []).map { ($0.i, $0) })
+        pushedTranscript = loadedTranscript
+        pushedTranscriptRevision = cleanup?.revision
+    }
+
+    @MainActor func pushTranscript(_ texts: [TranscriptCleanupSession.ParagraphText]) {
+        guard let webView, !texts.isEmpty, let data = try? JSONEncoder().encode(texts),
+              let json = String(data: data, encoding: .utf8) else { return }
+        texts.forEach { pushedTranscript[$0.i] = $0 }
+        webView.evaluateJavaScript("window.ftSetTranscriptTexts && ftSetTranscriptTexts(\(json));",
+                                   completionHandler: nil)
     }
     private let viewModel: ReaderViewModel
     private let onTextSelected: ((String, String) -> Void)?
@@ -460,7 +470,12 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                     self.viewModel.transcriptParagraphsVisible(first: first, last: last)
                 }
             case .ready:
-                break
+                // A push made while the page was still loading was a no-op there; send what
+                // changed since the page's bootstrap now that it can take it.
+                if let cleanup = self.viewModel.transcriptCleanup {
+                    self.pushedTranscriptRevision = cleanup.revision
+                    self.pushTranscript(cleanup.shownTexts.filter { self.loadedTranscript[$0.i] != $0 })
+                }
             }
         }
     }

@@ -75,10 +75,11 @@ final class TranscriptCleanupSessionTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    private func session(_ model: FakeModel, canClean: Bool = true, originals: [String] = ["one two", "three four"]) -> TranscriptCleanupSession {
+    private func session(_ model: FakeModel, canClean: Bool = true, originals: [String] = ["one two", "three four"],
+                         retryDelay: Duration = .seconds(10)) -> TranscriptCleanupSession {
         TranscriptCleanupSession(videoID: "vid", originals: originals, cleaner: model, canClean: canClean,
                                  store: TranscriptCleanupStore(directory: directory), defaults: defaults,
-                                 isAppActive: { true })
+                                 isAppActive: { true }, firstRetryDelay: retryDelay)
     }
 
     private func waitUntilIdle(_ session: TranscriptCleanupSession) async throws {
@@ -138,6 +139,37 @@ final class TranscriptCleanupSessionTests: XCTestCase {
         XCTAssertTrue(cleanup.isComplete)
     }
 
+    func testRetriesOnItsOwnWhileOpen() async throws {
+        let model = FakeModel()
+        await model.setUnavailable(true)
+        let cleanup = session(model, retryDelay: .milliseconds(50))
+        cleanup.open()
+        try await waitUntilIdle(cleanup)
+        XCTAssertFalse(cleanup.isComplete)
+        await model.setUnavailable(false)
+        for _ in 0..<100 where !cleanup.isComplete { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(cleanup.isComplete)
+        cleanup.close()
+    }
+
+    func testUnchangedParagraphStaysOriginal() async throws {
+        let cleanup = session(FakeModel(), originals: ["ALREADY CLEAN", "lower"])
+        cleanup.open()
+        try await waitUntilIdle(cleanup)
+        XCTAssertEqual(cleanup.shownTexts.map(\.v), ["original", "clean"])
+    }
+
+    func testRevisionMovesOnlyWhenShownTextsChange() async throws {
+        let cleanup = session(FakeModel())
+        let before = cleanup.revision
+        cleanup.open()
+        try await waitUntilIdle(cleanup)
+        let afterClean = cleanup.revision
+        XCTAssertGreaterThan(afterClean, before)
+        cleanup.setShowsClean(false)
+        XCTAssertGreaterThan(cleanup.revision, afterClean)
+    }
+
     func testCloseStopsWithoutLosingProgress() async throws {
         let cleanup = session(FakeModel())
         cleanup.open()
@@ -148,14 +180,32 @@ final class TranscriptCleanupSessionTests: XCTestCase {
 
 /// `ftTranscriptHighlightShows` in reader_template.html (FT_PURE block), run in JavaScriptCore.
 final class TranscriptHighlightVersionJSTests: XCTestCase {
-    private func shows(_ desc: [String: Any], _ versions: [String]) throws -> Bool {
+    private func pure() throws -> JSContext {
         let url = try XCTUnwrap(Bundle(for: ReaderWebViewWarmer.self).url(forResource: "reader_template", withExtension: "html"))
         let html = try String(contentsOf: url, encoding: .utf8)
         let begin = try XCTUnwrap(html.range(of: "// FT_PURE_BEGIN"))
         let end = try XCTUnwrap(html.range(of: "// FT_PURE_END"))
         let ctx = try XCTUnwrap(JSContext())
         ctx.evaluateScript(String(html[begin.lowerBound..<end.lowerBound]))
-        return ctx.objectForKeyedSubscript("ftTranscriptHighlightShows").call(withArguments: [desc, versions]).toBool()
+        return ctx
+    }
+
+    private func shows(_ desc: [String: Any], _ versions: [String]) throws -> Bool {
+        try pure().objectForKeyedSubscript("ftTranscriptHighlightShows").call(withArguments: [desc, versions]).toBool()
+    }
+
+    private func anchor(_ start: Int, _ len: Int) throws -> [String: Int]? {
+        // Two paragraphs: "0:00 " + 10 words chars, "0:05 " + 8 chars.
+        let bounds = [["start": 5, "end": 15], ["start": 20, "end": 28]]
+        let value = try pure().objectForKeyedSubscript("ftAnchorAt").call(withArguments: [start, len, bounds])
+        return value?.isNull == true ? nil : value?.toDictionary() as? [String: Int]
+    }
+
+    func testOlderHighlightAnchorsToItsParagraphs() throws {
+        XCTAssertEqual(try anchor(7, 3), ["p": 0, "pe": 0, "ls": 2, "trim": 0])
+        XCTAssertEqual(try anchor(12, 10), ["p": 0, "pe": 1, "ls": 7, "trim": 0])
+        // Starts on the second timestamp: anchored at its first word, timestamp part trimmed.
+        XCTAssertEqual(try anchor(17, 6), ["p": 1, "pe": 1, "ls": 0, "trim": 3])
     }
 
     func testAnchoredHighlightShowsOnlyOnItsVersion() throws {

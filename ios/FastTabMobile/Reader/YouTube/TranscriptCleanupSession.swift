@@ -18,6 +18,8 @@ final class TranscriptCleanupSession: ObservableObject {
 
     @Published private(set) var isCleaning = false
     @Published private(set) var showsClean: Bool
+    /// Bumps whenever `shownTexts` changes, so the reader pushes to the page only then.
+    private(set) var revision = 0
 
     let videoID: String
     let originals: [String]
@@ -27,7 +29,16 @@ final class TranscriptCleanupSession: ObservableObject {
     private let store: TranscriptCleanupStore
     private let defaults: UserDefaults
     private let isAppActive: @MainActor () -> Bool
-    private var runTask: Task<Void, Never>?
+    private var runTask: Task<Void, Never>? {
+        didSet { runCanceller.task = runTask }
+    }
+    /// Cancels the run if the session goes away without `close()`.
+    private let runCanceller = CancelOnDeinit()
+    private var retryTask: Task<Void, Never>?
+    /// Wait before asking a model that said it was unavailable again (doubles, capped).
+    private var retryDelay: Duration
+    private let firstRetryDelay: Duration
+    static let maxRetryDelay: Duration = .seconds(120)
     private var run: ChunkedTextCleanup?
     /// Paragraph index for each item of the current run.
     private var runIndices: [Int] = []
@@ -42,7 +53,10 @@ final class TranscriptCleanupSession: ObservableObject {
          canClean: Bool = FoundationModelTextCleaner.isAvailable,
          store: TranscriptCleanupStore = .shared,
          defaults: UserDefaults = .standard,
-         isAppActive: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState == .active }) {
+         isAppActive: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState == .active },
+         firstRetryDelay: Duration = .seconds(10)) {
+        self.firstRetryDelay = firstRetryDelay
+        self.retryDelay = firstRetryDelay
         self.isAppActive = isAppActive
         self.videoID = videoID
         self.originals = originals
@@ -63,7 +77,10 @@ final class TranscriptCleanupSession: ObservableObject {
     /// Every paragraph as it should be shown now.
     var shownTexts: [ParagraphText] {
         originals.indices.map { index in
-            if showsClean, let clean = cleaned[index] { return ParagraphText(i: index, text: clean, v: "clean") }
+            // A paragraph the model left as it was stays "original", so its highlights keep showing.
+            if showsClean, let clean = cleaned[index], clean != originals[index] {
+                return ParagraphText(i: index, text: clean, v: "clean")
+            }
             return ParagraphText(i: index, text: originals[index], v: "original")
         }
     }
@@ -84,6 +101,8 @@ final class TranscriptCleanupSession: ObservableObject {
     /// The reader closed: stop asking the model. Saved progress stays.
     func close() {
         isOpen = false
+        retryTask?.cancel()
+        retryTask = nil
         runTask?.cancel()
         runTask = nil
         run = nil
@@ -94,6 +113,7 @@ final class TranscriptCleanupSession: ObservableObject {
 
     func setShowsClean(_ on: Bool) {
         showsClean = on
+        revision += 1
         defaults.set(on, forKey: Self.showsCleanKey)
     }
 
@@ -135,6 +155,8 @@ final class TranscriptCleanupSession: ObservableObject {
             changed = true
         }
         guard changed else { return }
+        retryDelay = firstRetryDelay
+        revision += 1
         store.save(TranscriptCleanupRecord(sourceDigest: TranscriptCleanupStore.digest(originals), texts: cleaned),
                    videoID: videoID)
         objectWillChange.send()
@@ -147,5 +169,26 @@ final class TranscriptCleanupSession: ObservableObject {
         run = nil
         runTask = nil
         isCleaning = false
+        scheduleRetryIfNeeded()
     }
+
+    /// The model said it was unavailable while the reader is still open and in front (a
+    /// background trip retries on its own via didBecomeActive): try again after a growing wait.
+    private func scheduleRetryIfNeeded() {
+        guard isOpen, canClean, !isComplete, retryTask == nil else { return }
+        let delay = retryDelay
+        retryDelay = min(retryDelay * 2, Self.maxRetryDelay)
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.retryTask = nil
+            self.resumeIfNeeded()
+        }
+    }
+}
+
+/// Holds a task and cancels it on deinit (nonisolated, so a main-actor owner's teardown works).
+private final class CancelOnDeinit: @unchecked Sendable {
+    var task: Task<Void, Never>?
+    deinit { task?.cancel() }
 }

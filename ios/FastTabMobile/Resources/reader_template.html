@@ -409,6 +409,30 @@ function ftSetTexts(list) {
     ftParagraphs[item.i].dataset.version = item.v;
   });
 }
+// Where each paragraph's words start and end in the page text.
+function ftTextBounds() {
+  return ftParagraphs.map(function(p, i) {
+    var start = ftBodyOffset(ftTextEl(i), 0);
+    return { start: start, end: start + ftTextEl(i).textContent.length };
+  });
+}
+// Older highlights hold page-wide offsets into the original text. Anchor them to their
+// paragraphs now, while the page still shows the original, so they follow that version.
+if (ftParagraphs.length) {
+  var ftBounds = ftTextBounds();
+  (article.highlights || []).forEach(function(h) {
+    try {
+      var d = JSON.parse(h.range);
+      if (!d || typeof d.p === 'number' || typeof d.start !== 'number') return;
+      var a = ftAnchorAt(d.start, d.len, ftBounds);
+      if (!a || a.trim >= d.len) return;
+      d.p = a.p; d.pe = a.pe; d.ls = a.ls; d.v = 'original';
+      d.len -= a.trim;
+      if (typeof d.text === 'string') d.text = d.text.slice(a.trim);
+      h.range = JSON.stringify(d);
+    } catch(e) {}
+  });
+}
 ftSetTexts(article.transcriptTexts);
 
 // Appearance from ViewModel (ReaderReadingSettings): explicit values win over
@@ -552,10 +576,17 @@ function serializeRange(range) {
     var p = ftParagraphIndexOf(range.startContainer);
     if (p >= 0) {
       var textStart = ftBodyOffset(ftTextEl(p), 0);
-      desc.p = p;
-      desc.pe = Math.max(p, ftParagraphIndexOf(range.endContainer));
-      desc.ls = Math.max(0, startIdx - textStart);
-      desc.v = ftParagraphs[p].dataset.version;
+      // Started on the timestamp: the highlight starts at the first word.
+      var trim = Math.max(0, textStart - startIdx);
+      if (trim < desc.len) {
+        desc.p = p;
+        desc.pe = Math.max(p, ftParagraphIndexOf(range.endContainer));
+        desc.ls = Math.max(0, startIdx - textStart);
+        desc.v = ftParagraphs[p].dataset.version;
+        desc.start = startIdx + trim;
+        desc.len -= trim;
+        desc.text = selectedText.slice(trim);
+      }
     }
     return JSON.stringify(desc);
   } catch(e) {
@@ -603,7 +634,11 @@ function applyHighlight(id, serializedRange, color) {
     var len       = desc.len;
     if (ftParagraphs.length) {
       if (!ftTranscriptHighlightShows(desc, ftVersions())) return;
-      if (typeof desc.p === 'number') startIdx = ftBodyOffset(ftTextEl(desc.p), 0) + desc.ls;
+      if (typeof desc.p === 'number') {
+        startIdx = ftBodyOffset(ftTextEl(desc.p), 0) + desc.ls;
+        // The words changed under it (re-cleaned transcript): skip rather than mark the wrong ones.
+        if (typeof desc.text === 'string' && bodyText.substr(startIdx, len) !== desc.text) return;
+      }
     }
 
     if (startIdx < 0 || startIdx + len > bodyText.length) return;
@@ -746,7 +781,8 @@ window.ftSetTranscriptTexts = function(list) {
     var h = ftAppliedHighlights[id];
     applyHighlight(id, h.range, h.color);
   });
-  if (anchor) {
+  var playerScrolls = window.ftPlayerIsFollowing && window.ftPlayerIsFollowing();
+  if (anchor && !playerScrolls) {
     var shift = anchor.getBoundingClientRect().top - anchorTop;
     if (Math.abs(shift) > 0.5) {
       isRestoringScroll = true;
@@ -825,6 +861,18 @@ function ftTranscriptHighlightShows(desc, versions) {
   if (desc.p < 0 || end >= versions.length) return false;
   for (var i = desc.p; i <= end; i++) { if (versions[i] !== v) return false; }
   return true;
+}
+// Paragraph anchor for a page-wide range [start, start+len): first/last paragraph, offset in
+// the first one's words, and how many leading characters fall on a timestamp (dropped).
+function ftAnchorAt(start, len, bounds) {
+  var p = -1, pe = -1;
+  for (var i = 0; i < bounds.length; i++) {
+    if (p < 0 && start < bounds[i].end) p = i;
+    if (start + len > bounds[i].start) pe = i;
+  }
+  if (p < 0 || pe < p) return null;
+  var trim = Math.max(0, bounds[p].start - start);
+  return { p: p, pe: pe, ls: Math.max(0, start - bounds[p].start), trim: trim };
 }
 // FT_PURE_END
 
@@ -961,6 +1009,8 @@ function ftTranscriptHighlightShows(desc, versions) {
       try { window.webkit.messageHandlers.videoVisibility.postMessage({ visible: on }); } catch(e) {}
     }
   }
+  // True while playback scrolls the page itself (a text swap then leaves scrolling to it).
+  window.ftPlayerIsFollowing = function() { return visible && playing && following; };
   // Called by ReaderWebView when the "Show video" toolbar button toggles.
   window.ftSetVideoVisible = function(on) { setVisible(!!on, false); };
 

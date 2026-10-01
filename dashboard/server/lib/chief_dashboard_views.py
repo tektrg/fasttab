@@ -71,6 +71,8 @@ def build_agents_view(feeds_snap):
             "focused": bool(a.get("focused")),
             "hookState": hook_state,
             "hookSinceSec": since_sec,
+            # Remote rows only (no hook there); see the remote loop below.
+            "screenActivitySec": None,
             "herdrStatus": herdr_status,
             "disagree": disagree,
             # Evidence a firing `disagree` alert carries (chief_wake_fingerprint):
@@ -141,6 +143,12 @@ def build_agents_view(feeds_snap):
                 # the Air itself claimed — never read by derived:state.
                 "hookState": None,
                 "hookSinceSec": None,
+                # Seconds since this pane's screen last changed (remote
+                # paneScreen sweep, ~15s), None until a change is seen. An
+                # ACTIVITY clock for ranking (Jev candidates, persona main
+                # session) — deliberately NOT hookSinceSec, so busy/idle,
+                # sounds and hasHookData stay hook-only.
+                "screenActivitySec": pane_screen_signals.screen_activity_sec(screen, now),
                 "herdrStatus": None,
                 "herdrStatusUnverified": a.get("agent_status"),
                 "disagree": False,

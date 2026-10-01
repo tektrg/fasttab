@@ -46,13 +46,13 @@ enum RouteCandidateBuilder {
         }
     }
 
-    /// Most recently active first: `secondsInStatus` (the dashboard's `hookSinceSec`) ascending,
-    /// rows without one last, dashboard order on ties. How long ago the agent itself last did
+    /// Most recently active first: `activitySeconds` (the dashboard's `hookSinceSec`, or for a hook-less
+    /// Air pane its last screen change) ascending, rows without one last, dashboard order on ties. How long ago the agent itself last did
     /// something — not how often the user switched to it (frecency), which says nothing about
     /// which session is on the topic right now.
     private static func orderedByActivity(_ agents: [AgentSnapshot]) -> [AgentSnapshot] {
         agents.enumerated().sorted { lhs, rhs in
-            let (lhsSeconds, rhsSeconds) = (lhs.element.secondsInStatus ?? .infinity, rhs.element.secondsInStatus ?? .infinity)
+            let (lhsSeconds, rhsSeconds) = (lhs.element.activitySeconds ?? .infinity, rhs.element.activitySeconds ?? .infinity)
             return lhsSeconds != rhsSeconds ? lhsSeconds < rhsSeconds : lhs.offset < rhs.offset
         }.map(\.element)
     }

@@ -45,8 +45,9 @@ rather than path containment — that distinction matters for `portfolio`,
 which contains the other pilots' folders AND every project with no persona
 of its own: a chief in `~/01_Project/AptusFit` or `~/01_Project/speechtodo`
 must never become `portfolio`'s main session.
-"Most recently active" ranks by `hookSinceSec` ascending (seconds since the
-last hook event — smaller is more recent); rows with no hook data sort
+"Most recently active" ranks by `row_activity_sec` ascending (`hookSinceSec`,
+else — remote rows have no hook — `screenActivitySec`, seconds since the
+pane's screen last changed; smaller is more recent); rows with neither sort
 last, never crash the comparison.
 """
 import copy
@@ -372,10 +373,19 @@ def resolve_persona_for_cwd(personas, machine, cwd):
     return best_addr
 
 
-def _recency_key(row):
-    """Sort key for "most recently active": ascending `hookSinceSec`
-    (smaller = more recent); rows with no hook data sort last."""
+def row_activity_sec(row):
+    """Seconds since this row's agent last did something, or None: the hook's
+    `hookSinceSec`, else `screenActivitySec` (remote panes: last screen change).
+    THE activity clock for ranking — the Mac's RouteCandidateBuilder mirrors it
+    (`AgentSnapshot.activitySeconds`)."""
     since = row.get("hookSinceSec")
+    return since if since is not None else row.get("screenActivitySec")
+
+
+def _recency_key(row):
+    """Sort key for "most recently active": ascending `row_activity_sec`
+    (smaller = more recent); rows with no activity clock sort last."""
+    since = row_activity_sec(row)
     return (since is None, since if since is not None else float("inf"))
 
 
@@ -392,7 +402,7 @@ def main_chiefs_by_persona(personas, chiefs, rows):
     `.claude/worktrees/x` still counts for `chief-aptus`.
 
     Several chiefs for one persona: the most recently active one (its
-    dashboard row's `hookSinceSec`), then lowest id — deterministic."""
+    dashboard row's `row_activity_sec`), then lowest id — deterministic."""
     recency_by_id = {resolve_agent_row_id(r): _recency_key(r) for r in rows}
     no_data = (True, float("inf"))
     candidates = {}

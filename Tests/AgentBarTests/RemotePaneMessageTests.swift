@@ -35,6 +35,20 @@ struct RemotePaneMessageTests {
         #expect(MessageRoute(agent: agent) == .pane(paneId: "air-m1:w8:p3"))
     }
 
+    @Test func anAirRowsScreenActivityIsItsActivityClockButNotHookData() throws {
+        let json = airRow().replacingOccurrences(of: "\"machine\": \"air-m1\",", with: "\"machine\": \"air-m1\", \"screenActivitySec\": 42.0,")
+        let agent = try row(json)
+        #expect(agent.screenActivitySeconds == 42)
+        #expect(agent.activitySeconds == 42)
+        #expect(agent.secondsInStatus == nil)
+        #expect(!agent.hasHookData)
+    }
+
+    @Test func anAirRowWithoutScreenActivityHasNoActivityClock() throws {
+        let agent = try row(airRow())
+        #expect(agent.activitySeconds == nil)
+    }
+
     @Test func anAirPaneRowTakesNoCompactOrClear() throws {
         let agent = try row(airRow())
         #expect(!RowButtons.takesQuickCommands(agent))

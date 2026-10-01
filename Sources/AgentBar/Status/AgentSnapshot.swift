@@ -20,6 +20,10 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// Seconds the agent has been in its current status, as of the server's
     /// clock at fetch time. Nil when unknown. UI may add `now - fetchedAt`.
     let secondsInStatus: TimeInterval?
+    /// Remote (Air) panes: seconds since the dashboard saw the pane's screen change (dashboard
+    /// `screenActivitySec`, ~15s granularity); nil when unseen or for any other row. Ranking only — never
+    /// status, sounds or `hasHookData`. Read it through `activitySeconds`.
+    var screenActivitySeconds: TimeInterval? = nil
     let hasUnpushedCommits: Bool
     /// The dashboard's marker text, e.g. "3 ahead — not pushed".
     let unpushedText: String?
@@ -71,6 +75,11 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// is an Answer/Review card: a Claude Desktop / CLI session waiting without a held hook request has
     /// this but no blocker. Ranking only — see `isWaitingOnYou`.
     var awaitsPrompt: Bool = false
+
+    /// How long ago the agent itself last did something: `secondsInStatus` (hook / needs-you clock), else the
+    /// screen-change clock a hook-less remote pane has. Nil = unknown (ranks oldest). Mirrors the dashboard's
+    /// `personas.row_activity_sec`.
+    var activitySeconds: TimeInterval? { secondsInStatus ?? screenActivitySeconds }
 
     /// The blocker while the row sits in Needs you. Parking sets a row aside, and
     /// with it the Blocked badge, the answer action and the top-of-section spot.

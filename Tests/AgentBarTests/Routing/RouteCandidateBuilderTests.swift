@@ -69,6 +69,39 @@ struct RouteCandidateBuilderTests {
         #expect(candidates.map(\.agentID) == ["recent", "tieA", "tieB", "unknown"])
     }
 
+    // MARK: Air (remote) rows — screen-change clock stands in for the missing hook clock
+
+    /// An Air pane as the dashboard serves it: no hook data, no hook clock, typed into via its pane.
+    private static func airAgent(_ id: String, screenActivitySeconds: TimeInterval?) -> AgentSnapshot {
+        var agent = F.agent(id, section: .working, hasHookData: false, secondsInStatus: nil)
+        agent.messagesViaPane = true
+        agent.agentKind = "claude"
+        agent.screenActivitySeconds = screenActivitySeconds
+        return agent
+    }
+
+    @Test func anAirRowWithRecentScreenActivityRanksAmongTheTopOverStaleLocalRows() {
+        // 15 local rows, all quiet for 10+ minutes — enough to push a clock-less row past the cap.
+        let stale = (0..<15).map { F.agent("local\($0)", section: .working, secondsInStatus: TimeInterval(600 + $0)) }
+        let candidates = RouteCandidateBuilder.candidates(from: stale + [Self.airAgent("air", screenActivitySeconds: 20)])
+        #expect(candidates.first?.agentID == "air")
+        #expect(candidates.count == RouteCandidateBuilder.sessionCap)
+    }
+
+    @Test func anAirRowWithUnknownScreenActivityStillRanksLast() {
+        let agents = [Self.airAgent("airUnknown", screenActivitySeconds: nil), F.agent("local", section: .working, secondsInStatus: 900)]
+        let candidates = RouteCandidateBuilder.candidates(from: agents)
+        #expect(candidates.map(\.agentID) == ["local", "airUnknown"])
+    }
+
+    @Test func theHookClockWinsOverTheScreenClockWhenBothExist() {
+        var hooked = F.agent("hooked", section: .working, secondsInStatus: 500)
+        hooked.screenActivitySeconds = 1
+        #expect(hooked.activitySeconds == 500)
+        let candidates = RouteCandidateBuilder.candidates(from: [hooked, Self.airAgent("air", screenActivitySeconds: 30)])
+        #expect(candidates.map(\.agentID) == ["air", "hooked"])
+    }
+
     // MARK: Personas
 
     @Test func personasBecomeCandidatesAheadOfSessions() {

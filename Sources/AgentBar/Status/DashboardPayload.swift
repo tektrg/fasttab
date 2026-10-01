@@ -143,6 +143,9 @@ struct DashboardAgent: Decodable {
     let cwd: String?
     let hookState: String?
     let hookSinceSec: Double?
+    /// Remote (Air) panes only: seconds since the pane's screen last changed (~15s sweep); null until a change is
+    /// seen. An activity clock for ranking, not hook data — see `AgentSnapshot.activitySeconds`.
+    let screenActivitySec: Double?
     let hasHookData: Bool?
     let residue: Bool?
     let agentSession: String?
@@ -172,7 +175,7 @@ struct DashboardAgent: Decodable {
     let transcriptQuestion: DashboardTranscriptQuestion?
 
     private enum CodingKeys: String, CodingKey {
-        case paneId, label, cwd, hookState, hookSinceSec, hasHookData, residue
+        case paneId, label, cwd, hookState, hookSinceSec, screenActivitySec, hasHookData, residue
         case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
         case source, openUrl, tmuxTarget, messageVia, agentKind, messageRefusal, acceptsImages, hookRequest, transcriptQuestion
     }
@@ -184,6 +187,7 @@ struct DashboardAgent: Decodable {
         cwd = container.lenient(.cwd)
         hookState = container.lenient(.hookState)
         hookSinceSec = container.lenient(.hookSinceSec)
+        screenActivitySec = container.lenient(.screenActivitySec)
         hasHookData = container.lenient(.hasHookData)
         residue = container.lenient(.residue)
         agentSession = container.lenient(.agentSession)

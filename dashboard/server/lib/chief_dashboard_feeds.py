@@ -690,6 +690,7 @@ def poll_pane_screen_remote(machine):
     herdr_feed = FEEDS[herdr_feed_key(machine)]
     max_workers = (MACHINES.get(machine) or {}).get("maxParallel", 4)
     cap = min(max_workers, PANE_SCREEN_MAX_PANES)
+    motion_history = {}
     while not STOP.is_set():
         t0 = time.time()
         try:
@@ -720,6 +721,13 @@ def poll_pane_screen_remote(machine):
                         continue
                     if got is not None:
                         screens[got[0]] = got[1]
+            # Same motion stamp as the local sweep: remote rows have no hook,
+            # so "last screen change" is their only activity clock (Jev
+            # ranking, views: screenActivitySec). No extra ssh read.
+            pane_screen_signals.stamp_sweep_motion(
+                screens, motion_history, time.time(),
+                live_keys={sanitize_pane_id(herdr_transport.make_pane_key(machine, pid))
+                           for pid in pane_ids})
             if not screens:
                 feed.set_error(
                     f"none of {len(pane_ids)} panes on {machine} could be read",

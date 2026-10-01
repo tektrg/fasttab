@@ -96,6 +96,7 @@ enum LiveAgentMapper {
                 screenSignal: screenSignal, askedHeader: askedHeader, askedQuestion: askedQuestion
             ),
             secondsInStatus: needsYouEntry?.sinceSec ?? agent.hookSinceSec,
+            screenActivitySeconds: agent.screenActivitySec,
             hasUnpushedCommits: pushText != nil,
             unpushedText: pushText,
             promptExcerpt: questionText ?? StatusTextCleaner.singleLine(agent.screenSignal, maxLength: promptExcerptMaxLength),

@@ -108,6 +108,14 @@ the project counts for the persona — including as its main session — and
 AgentBar doesn't start a duplicate (slice 4, `persona_folder_match`). Main
 session: the persona folder's own live agent-tree chief, else the most
 recently active session whose `cwd` is exactly the folder, else none.
+"Most recently active" = `personas.row_activity_sec`: `hookSinceSec`, else
+`screenActivitySec` — remote (Air) rows only, seconds since the pane's screen
+last changed, stamped by the remote paneScreen sweep (~15s, no extra ssh;
+`pane_screen_signals.stamp_sweep_motion` / `screen_activity_sec`). None until
+a change is SEEN (first look, or idle since a dashboard restart) = oldest,
+never "active at restart". Ranking only: busy/idle, sounds and `hasHookData`
+stay hook-based. AgentBar's Jev candidates read the same clock
+(`AgentSnapshot.activitySeconds`).
 
 Pilots (hand-written, see the file): `chief-aptus` (~/01_Project/AptusFit),
 `fasttab-dev` (~/01_Project/command-bar-macos — this repo, FastTab +

@@ -377,15 +377,20 @@ def stamp_screen_motion(entry, previous, now):
     `changedAt` is when the entry's `digest` last differed from the sweep before;
     `motionKnown` is False on a pane's first look (one sample can never show a
     screen is NOT moving, so it is 'unknown', never 'moving' or 'frozen').
+    `changeObserved` is True once this dashboard has SEEN the digest change
+    (not just a first look): only then is `changedAt` a real "last drew
+    something" time (screen_activity_sec), not "when the dashboard started".
     """
     digest = entry.get("digest")
     if isinstance(previous, dict) and previous.get("digest") is not None and digest is not None:
         entry["motionKnown"] = True
         same = previous["digest"] == digest and previous.get("changedAt") is not None
         entry["changedAt"] = previous["changedAt"] if same else now
+        entry["changeObserved"] = bool(previous.get("changeObserved")) if same else True
     else:
         entry["motionKnown"] = False
         entry["changedAt"] = now
+        entry["changeObserved"] = False
     return entry
 
 
@@ -401,7 +406,8 @@ def stamp_sweep_motion(screens, history, now, live_keys=()):
     """
     for key, entry in screens.items():
         stamp_screen_motion(entry, history.get(key), now)
-        history[key] = {"digest": entry.get("digest"), "changedAt": entry["changedAt"]}
+        history[key] = {"digest": entry.get("digest"), "changedAt": entry["changedAt"],
+                        "changeObserved": entry["changeObserved"]}
     if live_keys:
         for key in [k for k in history if k not in live_keys]:
             del history[key]
@@ -424,6 +430,21 @@ def screen_unchanged_sec(entry, now):
     read_at = entry.get("ts")
     end = min(now, read_at) if isinstance(read_at, (int, float)) else now
     return max(0.0, end - changed_at)
+
+
+def screen_activity_sec(entry, now):
+    """Seconds since this pane's screen last CHANGED, or None when no change has
+    been seen yet (first look, or every look identical since the dashboard
+    started). The activity clock for rows without hook data (remote panes):
+    unknown sorts as oldest - after a restart an idle pane stays unknown until it
+    draws something, rather than every pane looking active "at restart time".
+    Granularity = one sweep (~15 s). Measured to `now`: activity only ages."""
+    if not isinstance(entry, dict) or not entry.get("changeObserved"):
+        return None
+    changed_at = entry.get("changedAt")
+    if not isinstance(changed_at, (int, float)):
+        return None
+    return max(0.0, now - changed_at)
 
 
 def live_work_evidence(hook_state, screen_state, hook_age_sec=None, *,

@@ -313,7 +313,7 @@ def herdr_cmd_text(machine, argv, *, repo_root, machines=None, timeout=15,
 
 
 def remote_shell_text(machine, script, *, repo_root, machines=None,
-                      timeout=120):
+                      timeout=120, args=()):
     """Run one non-herdr shell script on a REMOTE machine (e.g. the harness's
     own `scripts/session-worktree.sh new` in that machine's repoRoot) over the
     same ControlMaster + quoting as herdr_cmd_text, instead of a caller
@@ -324,7 +324,9 @@ def remote_shell_text(machine, script, *, repo_root, machines=None,
     cfg = machines.get(machine)
     if machine == LOCAL_MACHINE or cfg is None:
         raise UnknownMachine(f"machine {machine!r} is not a configured remote")
-    return _run_over_ssh(machine, cfg, "/bin/bash", ["-c", script],
+    # `args` reach the script as $1..$n (quoted like every other token), so
+    # data never has to be spliced into the script text itself.
+    return _run_over_ssh(machine, cfg, "/bin/bash", ["-c", script, "remote-shell", *args],
                          cwd=repo_root, timeout=timeout, what="shell")
 
 

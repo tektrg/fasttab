@@ -49,8 +49,11 @@ def check(label, got, want):
 class FakeHerdr:
     """Records every herdr call; optionally fails one step."""
 
-    def __init__(self, fail_at=None, on_pane_run=None, close_fails=False, tab_id="t9"):
+    def __init__(self, fail_at=None, on_pane_run=None, close_fails=False, tab_id="t9",
+                 prepare=None):
         self.calls = []
+        self.machine = "local"
+        self.prepare = prepare  # remote prep outcome: exception to raise, or None
         self.fail_at = fail_at
         self.on_pane_run = on_pane_run
         self.close_fails = close_fails
@@ -59,6 +62,16 @@ class FakeHerdr:
     def _maybe_fail(self, step):
         if self.fail_at == step:
             raise ps.herdr_transport.HerdrError(f"fake {step} failure")
+
+    def for_machine(self, machine):
+        self.machine = machine
+        return self
+
+    def prepare_remote(self, folder, filename, instructions):
+        self.calls.append(("prepare_remote", folder, filename, instructions))
+        if self.prepare is not None:
+            raise self.prepare
+        return f"/Users/remote/prompts/{filename}", folder.replace("~", "/Users/remote", 1)
 
     def tab_create(self, folder, label, env):
         self.calls.append(("tab_create", folder, label, dict(env)))
@@ -180,7 +193,7 @@ SENTINEL_BACKTICK = "`echo INJECTED`"
 # ─────────────────────────────────────────────────────────────────────────
 print("== happy path: fresh start, shape of the typed command ==")
 result, herdr = start({"persona": "test-echo", "text": "who are you"})
-check("ok", result, {"ok": True, "paneId": "w1:p42", "mode": "started"})
+check("ok", result, {"ok": True, "paneId": "w1:p42", "machine": "local", "mode": "started"})
 check("herdr steps in order", herdr.steps(), ["tab_create", "wait_shell_ready", "pane_run"])
 check("tab created in the persona folder, labelled with its name, message in its env",
       herdr.calls[0], ("tab_create", ECHO_RESOLVED, "test-echo",
@@ -296,6 +309,57 @@ for label, name, needle in (("not in the registry", "no-such-persona", "unknown 
     check(f"{label}: refused", (result.get("ok"), needle in (result.get("error") or "")),
           (False, True))
     check(f"{label}: herdr never called", herdr.calls, [])
+
+print("\n== start on another machine (runsOn / one-off override) ==")
+import dashboard_config  # noqa: E402
+_saved_machines = dashboard_config.MACHINES
+dashboard_config.MACHINES = {"air-m1": {"label": "Air"}}
+try:
+    result, herdr = start({"persona": "test-echo", "text": "hi", "machine": "air-m1"})
+    check("override: ok on Air", (result.get("ok"), result.get("machine")), (True, "air-m1"))
+    check("override: herdr ran on Air", herdr.machine, "air-m1")
+    check("override: prep, then tab, then run", herdr.steps(),
+          ["prepare_remote", "tab_create", "wait_shell_ready", "pane_run"])
+    prep = herdr.calls[0]
+    check("folder sent home-relative so the Air's own home applies",
+          prep[1], "~/" + os.path.relpath(ECHO_RESOLVED, os.path.realpath(FAKE_HOME)))
+    check("instructions go to the Air (not written locally first)",
+          "Echo the message back." in prep[3], True)
+    check("tab opens in the Air's resolved folder", herdr.calls[1][1].startswith("/Users/remote/"), True)
+    check("command points at the Air's instructions file",
+          "/Users/remote/prompts/" in herdr.command(), True)
+    check("pane id is namespaced to the Air", result.get("paneId"), "air-m1:w1:p42")
+    check("remote start is fresh (remote history: slice 3)", result.get("mode"), "started")
+
+    REG_AIR = write_registry({f"local:{make_folder('air-default')}":
+                              persona_entry("air-default", runsOn="air-m1")})
+    result, herdr = start({"persona": "air-default", "text": "hi"}, registry=REG_AIR)
+    check("runsOn air-m1 starts there without an override", (result.get("ok"), herdr.machine),
+          (True, "air-m1"))
+    result, herdr = start({"persona": "air-default", "text": "hi", "machine": "local"},
+                          registry=REG_AIR)
+    check("override local beats runsOn", (result.get("ok"), herdr.machine), (True, "local"))
+
+    unreachable = ps.herdr_transport.SshUnreachable("ssh trungs-air timed out")
+    result, herdr = start({"persona": "test-echo", "text": "hi", "machine": "air-m1"},
+                          herdr=FakeHerdr(prepare=unreachable))
+    check("unreachable: refused, flagged, nothing opened",
+          (result.get("ok"), result.get("unreachable"), herdr.steps()),
+          (False, True, ["prepare_remote"]))
+    check("unreachable: offers the other Mac for a one-press retry",
+          result.get("retryOn"), {"id": "local", "label": dashboard_config.LOCAL_MACHINE_LABEL})
+    check("unreachable: plain message, no ssh detail",
+          ("Air is unreachable" in result["error"], "trungs-air" in result["error"]), (True, False))
+    result, herdr = start({"persona": "test-echo", "text": "hi", "machine": "air-m1"},
+                          herdr=FakeHerdr(prepare=ValueError("folder /x doesn't exist there")))
+    check("folder missing on the Air: clear refusal, no tab",
+          (result.get("ok"), "on Air" in result["error"], herdr.steps()),
+          (False, True, ["prepare_remote"]))
+    result, herdr = start({"persona": "test-echo", "text": "hi", "machine": "$(echo INJECTED)"})
+    check("unknown/hostile machine refused before herdr",
+          (result.get("ok"), herdr.calls, "INJECTED" in result["error"]), (False, [], False))
+finally:
+    dashboard_config.MACHINES = _saved_machines
 
 print("\n== resume vs fresh ==")
 projects = os.path.join(FAKE_HOME, "projects-resume")
@@ -470,7 +534,7 @@ check("a backwards wall-clock step doesn't pin a stale scan (TTL is monotonic)",
       ps.idle_start_for(echo_persona, set(), now=t0 - 3600, monotonic_now=m0 + ttl + 1,
                         projects_dir=step_projects), "resume")
 script_persona = {**echo_persona, "start": "script"}
-remote_persona = {**echo_persona, "machine": "air-m1"}
+remote_persona = {**echo_persona, "machine": "air-m1", "runsOn": "air-m1"}
 check("start:script -> fresh (no scan)",
       ps.idle_start_for(script_persona, set(), now=t0, projects_dir=idle_projects), "fresh")
 check("remote persona -> fresh (no scan)",

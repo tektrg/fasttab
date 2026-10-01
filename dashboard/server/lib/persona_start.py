@@ -130,6 +130,22 @@ HERDR_CALL_TIMEOUT_SEC = 4
 SHELL_READY_TIMEOUT_MS = 16000
 TAB_CLOSE_TIMEOUT_SEC = 2
 
+#: Remote prep (instructions file + folder check) is one ssh call.
+REMOTE_PREPARE_TIMEOUT_SEC = 8
+
+#: $1 instructions, $2 file name, $3 folder (`~`-relative or absolute).
+#: Prints `OK\n<instructions path>\n<folder>` or `NO_FOLDER <folder>`.
+REMOTE_PREPARE_SCRIPT = r"""set -e
+umask 077
+d="$HOME/Library/Application Support/agent-dashboard/persona-prompts"
+mkdir -p "$d"; chmod 700 "$d"
+f="$d/$2"
+printf '%s' "$1" > "$f.tmp-$$"; mv "$f.tmp-$$" "$f"
+case "$3" in "~") dir="$HOME";; "~/"*) dir="$HOME/${3#"~/"}";; *) dir="$3";; esac
+[ -d "$dir" ] || { printf 'NO_FOLDER %s\n' "$dir"; exit 0; }
+printf 'OK\n%s\n%s\n' "$f" "$dir"
+"""
+
 #: The new shell's env var holding the message (brief: `$PERSONA_MESSAGE`).
 MESSAGE_ENV_VAR = "PERSONA_MESSAGE"
 
@@ -237,7 +253,7 @@ def idle_start_for(persona, live_session_ids, *, now=None, monotonic_now=None,
     scan forever; only the transcript-age check uses `now` (`time.time`),
     because transcript mtimes are wall-clock epochs."""
     if persona.get("start") != "in-place" or \
-            persona.get("machine") != herdr_transport.LOCAL_MACHINE:
+            persona.get("runsOn", persona.get("machine")) != herdr_transport.LOCAL_MACHINE:
         return "fresh"
     now = now if now is not None else time.time()
     monotonic_now = monotonic_now if monotonic_now is not None else time.monotonic()
@@ -328,18 +344,41 @@ def build_start_command(instructions_path, *, resume_session_id=None, claude_bin
 # ── herdr I/O (local host only; tests pass a fake with the same methods) ──
 
 class HerdrTabOps:
-    """The 4 herdr calls a start makes, all through the one transport door
-    (`herdr_cmd_json`/`herdr_cmd_text`), all on the local machine."""
+    """The herdr calls a start makes, all through the one transport door
+    (`herdr_cmd_json`/`herdr_cmd_text`/`remote_shell_text`), on whichever
+    machine the start targets (`self.machine`, set per start)."""
+
+    machine = herdr_transport.LOCAL_MACHINE
+
+    def for_machine(self, machine):
+        ops = copy.copy(self)
+        ops.machine = machine
+        return ops
 
     def _json(self, argv, timeout=HERDR_CALL_TIMEOUT_SEC):
         return herdr_transport.herdr_cmd_json(
-            herdr_transport.LOCAL_MACHINE, argv,
+            self.machine, argv,
             repo_root=REPO_ROOT, machines=MACHINES, timeout=timeout)
 
     def _text(self, argv, timeout=HERDR_CALL_TIMEOUT_SEC):
         return herdr_transport.herdr_cmd_text(
-            herdr_transport.LOCAL_MACHINE, argv,
+            self.machine, argv,
             repo_root=REPO_ROOT, machines=MACHINES, timeout=timeout)
+
+    def prepare_remote(self, folder, filename, instructions):
+        """One ssh call on a remote target: write the instructions file
+        there, resolve the folder (`~` = that Mac's home) and check it
+        exists. Returns (instructions_path, folder) or raises ValueError
+        when the folder is missing; HerdrError/SshUnreachable pass through."""
+        out = herdr_transport.remote_shell_text(
+            self.machine, REMOTE_PREPARE_SCRIPT, repo_root=REPO_ROOT, machines=MACHINES,
+            timeout=REMOTE_PREPARE_TIMEOUT_SEC, args=(instructions, filename, folder))
+        lines = out.splitlines()
+        if lines and lines[0].startswith("NO_FOLDER"):
+            raise ValueError(f"folder {lines[0][len('NO_FOLDER '):]} doesn't exist there")
+        if len(lines) < 3 or lines[0] != "OK":
+            raise herdr_transport.HerdrError(f"unexpected prepare output: {out[:200]!r}")
+        return lines[1], lines[2]
 
     def tab_create(self, folder, label, env):
         """(tab_id, pane_id) of a new unfocused tab whose shell runs in
@@ -456,26 +495,65 @@ def start_persona(body, deps=None):
 
 
 def _validate_request(body):
-    """(name, text, fresh, None) or (None, None, None, error)."""
+    """(name, text, fresh, machine-or-None, None) or (..., error).
+    `machine` is the caller's one-off override of the persona's Runs on."""
+    bad = lambda reason: (None, None, None, None, reason)  # noqa: E731
     if not isinstance(body, dict):
-        return None, None, None, "malformed request body"
+        return bad("malformed request body")
     name = body.get("persona")
     if not isinstance(name, str) or not name.strip():
-        return None, None, None, "missing persona name"
+        return bad("missing persona name")
     fresh = body.get("fresh", False)
     if not isinstance(fresh, bool):
-        return None, None, None, "'fresh' must be true or false"
+        return bad("'fresh' must be true or false")
+    machine = body.get("machine")
+    if machine is not None and machine not in _machine_ids():
+        return bad(f"unknown machine — choose one of: {', '.join(_machine_ids())}")
     text = body.get("text")
     if not isinstance(text, str):
-        return None, None, None, "missing text"
+        return bad("missing text")
     ok, cleaned_or_reason = validate_message_text(text)
     if not ok:
-        return None, None, None, cleaned_or_reason
-    return name, cleaned_or_reason, fresh, None
+        return bad(cleaned_or_reason)
+    return name, cleaned_or_reason, fresh, machine, None
+
+
+def _machine_ids():
+    return [m["id"] for m in dashboard_config.machine_choices()]
+
+
+def _machine_label(machine):
+    return next((m["label"] for m in dashboard_config.machine_choices()
+                 if m["id"] == machine), machine)
+
+
+def _home_relative(folder):
+    """`/Users/<me>/x` -> `~/x`, so a remote Mac (other user name) resolves
+    it under its own home. Anything else is passed through."""
+    home = os.path.realpath(os.path.expanduser("~"))  # resolvedFolder is a realpath
+    if folder == home:
+        return "~"
+    if folder.startswith(home + os.sep):
+        return "~/" + folder[len(home) + 1:]
+    return folder
+
+
+def _unreachable(machine, detail):
+    """Refusal for a target Mac that can't be reached, plus the machine a
+    one-press retry would use. Nothing is ever started elsewhere on its
+    own (user decision 2026-10-01)."""
+    label = _machine_label(machine)
+    print(f"[persona_start] {machine} unreachable: {detail}", file=sys.stderr)
+    result = _refuse(f"{label} is unreachable (asleep or offline?) — nothing was started.")
+    result["unreachable"] = True
+    other = next((m for m in dashboard_config.machine_choices() if m["id"] != machine), None)
+    if other:
+        result["retryOn"] = other
+    return result
 
 
 def _start_persona(body, deps):
-    name, text, fresh, error = _validate_request(body)
+    name, text, fresh, machine_override, error = _validate_request(body)
     if error:
         return _refuse(error)
 
@@ -485,10 +563,12 @@ def _start_persona(body, deps):
         return _refuse(f"unknown persona {name!r}")
     if persona["start"] == "script":
         return _refuse(f"persona {name!r} uses start:script — not supported yet")
-    if persona["machine"] != herdr_transport.LOCAL_MACHINE:
-        return _refuse(f"starting on {persona['machine']} isn't supported yet")
+    target = machine_override or persona["runsOn"]
+    if target not in _machine_ids():
+        return _refuse(f"{name!r} runs on {target!r}, which isn't a configured "
+                       "machine — change Runs on in Settings")
     folder = persona["resolvedFolder"]
-    if not os.path.isdir(folder):
+    if target == herdr_transport.LOCAL_MACHINE and not os.path.isdir(folder):
         return _refuse(f"{name!r}'s folder {folder} doesn't exist")
 
     known_names = sorted(p["name"] for p in personas.offered_personas(registry).values())
@@ -503,40 +583,55 @@ def _start_persona(body, deps):
         return _refuse(refusal)
     succeeded = False
     try:
-        result = _launch(deps, persona, text, fresh, instructions)
+        result = _launch(deps, persona, text, fresh, instructions, target)
         succeeded = result["ok"]
     finally:
         deps.guard.release(name, deps.monotonic_fn(), succeeded)
     if succeeded:
-        print(f"[persona_start] {name!r} address={address!r}: mode={result['mode']} "
+        print(f"[persona_start] {name!r} address={address!r} on={target}: mode={result['mode']} "
               f"pane={result['paneId']}", file=sys.stderr)
     return result
 
 
-def _launch(deps, persona, text, fresh, instructions):
-    """Resume decision, instructions file, then the herdr tab. Closes the
-    tab again if anything after `tab create` fails."""
-    live_ids = live_session_ids_for_machine(deps.live_agent_rows(), persona["machine"])
-    resume_id = decide_resume(
-        persona, latest_conversation_for_folder(persona["resolvedFolder"], deps.projects_dir),
-        fresh=fresh, live_session_ids=live_ids, now=deps.wall_clock_fn())
-    instructions_path = write_instructions_file(
-        deps.instructions_dir or default_instructions_dir(), persona["name"], instructions)
+def _launch(deps, persona, text, fresh, instructions, target):
+    """Resume decision, instructions file, then the herdr tab — all on
+    `target`. Closes the tab again if anything after `tab create` fails."""
+    herdr = deps.herdr.for_machine(target)
+    live_ids = live_session_ids_for_machine(deps.live_agent_rows(), target)
+    if target == herdr_transport.LOCAL_MACHINE:
+        latest = latest_conversation_for_folder(persona["resolvedFolder"], deps.projects_dir)
+        folder = persona["resolvedFolder"]
+        instructions_path = write_instructions_file(
+            deps.instructions_dir or default_instructions_dir(), persona["name"], instructions)
+    else:
+        latest = (None, None)  # remote history lookup: not yet (starts fresh)
+        try:
+            instructions_path, folder = herdr.prepare_remote(
+                _home_relative(persona["resolvedFolder"]),
+                _instructions_filename(persona["name"]), instructions)
+        except herdr_transport.SshUnreachable as e:
+            return _unreachable(target, e)
+        except ValueError as e:
+            return _refuse(f"{persona['name']!r} can't start on {_machine_label(target)}: {e}")
+    resume_id = decide_resume(persona, latest, fresh=fresh, live_session_ids=live_ids,
+                              now=deps.wall_clock_fn())
     command = build_start_command(instructions_path, resume_session_id=resume_id)
 
     try:
-        tab_id, pane_id = deps.herdr.tab_create(
-            persona["resolvedFolder"], persona["name"], {MESSAGE_ENV_VAR: text})
+        tab_id, pane_id = herdr.tab_create(folder, persona["name"], {MESSAGE_ENV_VAR: text})
+    except herdr_transport.SshUnreachable as e:
+        return _unreachable(target, e)
     except Exception as e:  # noqa: BLE001 — no pane id -> no tab we could close
         return _refuse(f"herdr couldn't open a tab: {e} (if a new "
                        f"{persona['name']!r} tab appeared anyway, close it by hand)")
     try:
-        deps.herdr.wait_shell_ready(pane_id)
-        deps.herdr.pane_run(pane_id, command)
+        herdr.wait_shell_ready(pane_id)
+        herdr.pane_run(pane_id, command)
     except Exception as e:  # noqa: BLE001 — any failure here leaves a half-made tab
-        cleanup_note = _close_tab_quietly(deps.herdr, tab_id)
+        cleanup_note = _close_tab_quietly(herdr, tab_id)
         return _refuse(f"herdr failed after opening a tab: {e}{cleanup_note}")
-    return {"ok": True, "paneId": pane_id, "mode": "resumed" if resume_id else "started"}
+    return {"ok": True, "paneId": herdr_transport.make_pane_key(target, pane_id), "machine": target,
+            "mode": "resumed" if resume_id else "started"}
 
 
 def _close_tab_quietly(herdr, tab_id):

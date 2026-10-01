@@ -176,8 +176,9 @@ def _normalize_persona(address, raw):
 
     # Which machine a start opens the session on: "local" (this dashboard's
     # Mac) or a configured machine id. Distinct from the address's machine,
-    # which is where the persona's folder is matched against sessions.
-    runs_on = raw.get("runsOn", "local")
+    # which is where the persona's folder is matched against sessions (and
+    # the default when unset).
+    runs_on = raw.get("runsOn", machine)
     if not isinstance(runs_on, str) or not runs_on.strip():
         _warn(address, "'runsOn' must be a machine id")
         return None

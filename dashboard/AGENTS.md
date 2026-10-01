@@ -120,6 +120,14 @@ folder is matched). Settings edits it; `GET /api/personas/registry` lists the
 choices as `machines: [{id, label}]`. `localLabel` in config.json names
 "local" for the UI (default "This Mac"; the Pro sets "Pro"). The dashboard
 runs on the Pro only, so "local" = Pro in practice.
+`POST /api/persona/start` takes an optional `machine` (one-off override of
+Runs on). Remote target: one ssh call (`REMOTE_PREPARE_SCRIPT`) writes the
+instructions file under that Mac's own state dir and resolves the folder
+home-relative (`~/...`, the Air's user is `wifey`, the Pro's `trungluong`),
+then the herdr tab opens over ssh; reply `paneId` is namespaced
+(`air-m1:w2:p3`). Unreachable target -> `{ok:false, unreachable:true,
+retryOn:{id,label}}` — nothing starts elsewhere unless the client re-POSTs
+with `machine: retryOn.id` (user ruling: one press, never silent).
 
 Names are unique among OFFERED personas (hidden/undescribed entries are
 filtered first, then a duplicate name keeps the first in registry order).

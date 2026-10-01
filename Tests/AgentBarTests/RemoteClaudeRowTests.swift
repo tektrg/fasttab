@@ -68,6 +68,12 @@ struct RemoteClaudeRowTests {
         #expect(try row(paneRow(paneId: "w1:p1", kind: "claude", hasHookData: true, acceptsImages: true)).acceptsImages)
         // An older dashboard without the flag keeps today's behaviour (the server still refuses remote images).
         #expect(try row(paneRow(paneId: "w1:p1", kind: "claude", hasHookData: true)).acceptsImages)
+        // null / a wrong type reads as absent (lenient decode), never fails the whole row.
+        for raw in ["null", "\"no\"", "0"] {
+            let json = paneRow(paneId: "w1:p1", kind: "claude", hasHookData: true)
+                .replacingOccurrences(of: "\"messageVia\"", with: "\"acceptsImages\": \(raw), \"messageVia\"")
+            #expect(try row(json).acceptsImages)
+        }
     }
 
     @Test func aRemoteRowsCardTakesNoImagesAndSaysSo() throws {

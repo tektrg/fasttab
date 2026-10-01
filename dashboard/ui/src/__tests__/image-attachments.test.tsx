@@ -164,6 +164,38 @@ describe("image attachments", () => {
     unmount();
   });
 
+  test("images attached, then a row on another machine joins the selection: Send off until they are removed", async () => {
+    const calls = stubFetch({ ok: true, id: "d".repeat(32) });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const render = (rows: BoardRow[]) =>
+      act(() => {
+        root.render(
+          <MantineProvider theme={theme}>
+            <Composer rows={rows} onToast={() => {}} />
+          </MantineProvider>,
+        );
+      });
+    render([row]);
+    await attach(host);
+    render([row, airRow]);
+    const send = () => [...host.querySelectorAll("button")].find((b) => b.textContent === "Send")!;
+    expect(host.querySelectorAll(".image-attach-thumb").length).toBe(1); // kept, still removable
+    expect(host.querySelector(".image-attach-button")).toBeNull();
+    expect(host.textContent).toContain("Remove the images to send");
+    expect(send().disabled).toBe(true);
+    await clickSend(host);
+    expect(calls.length).toBe(0); // nothing uploaded, nothing sent
+    await act(async () => {
+      (host.querySelector('[aria-label="remove image"]') as HTMLButtonElement).click();
+    });
+    expect(host.querySelectorAll(".image-attach-thumb").length).toBe(0);
+    expect(host.textContent).not.toContain("Remove the images to send");
+    expect(host.textContent).toContain("Images can only go to agents on this Mac");
+    act(() => root.unmount());
+  });
+
   test(`at most ${MAX_IMAGES} images`, async () => {
     stubFetch({ ok: true, id: "b".repeat(32) });
     const { host, unmount } = mount();

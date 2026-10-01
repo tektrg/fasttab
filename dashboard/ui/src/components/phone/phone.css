@@ -159,8 +159,10 @@ button.phone-section-head { cursor: pointer; }
 .phone-block:first-child { border-top: none; padding-top: 0; }
 
 /* The agent's last message can be long: it scrolls inside its own block so
-   the actions below stay reachable; code stays mono and wrapped. */
-.phone-block.latest-message { max-height: 40vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+   the actions below stay reachable; code stays mono and wrapped. The sheet
+   body is a flex column: without flex-shrink 0 a scroll box is squashed to
+   one line whenever a long question card sits below it. */
+.phone-block.latest-message { flex-shrink: 0; max-height: 40vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .phone-block.latest-message pre, .phone-block.latest-message code { font-family: var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ── Inbox: inline Yes/No quick answer under a question row ── */

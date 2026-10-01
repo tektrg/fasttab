@@ -21,6 +21,7 @@ export function LatestMessage({
   onToast,
   phone,
   messageOnly,
+  quietWhenUnavailable,
 }: {
   rowId: string;
   paneId: string | null;
@@ -29,6 +30,9 @@ export function LatestMessage({
   phone?: boolean;
   /** Skip the pending-question form (a permission/plan card is shown instead). */
   messageOnly?: boolean;
+  /** Render nothing (not the reason) when there is no transcript to read —
+   *  for context above a prompt card, where a reason would only be noise. */
+  quietWhenUnavailable?: boolean;
 }) {
   const [latest, setLatest] = useState<SessionLatestResponse | null>(null);
 
@@ -45,6 +49,7 @@ export function LatestMessage({
   if (latest === null) return null;
 
   if (!latest.ok) {
+    if (quietWhenUnavailable) return null;
     return (
       <Block phone={phone} className="latest-message">
         <Text size="xs" c="dimmed">

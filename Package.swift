@@ -25,7 +25,7 @@ let package = Package(
         // Shared L1 library, sibling checkout (~/01_Project/IndieLibKit on both Macs).
         // Linked here: `IndieSearch` (the search folding every app shares), `IndieMetrics`
         // (tab-activity statistics), `IndieMotion` (onboarding hero clock + stage) and
-        // `IndieFeedback`/`IndieFeedbackUI` (Settings > About > Send Feedback…).
+        // `IndieFeedback`/`IndieFeedbackUI` (Settings > About > Chat with the Creator…).
         .package(path: "../IndieLibKit")
     ],
     targets: [

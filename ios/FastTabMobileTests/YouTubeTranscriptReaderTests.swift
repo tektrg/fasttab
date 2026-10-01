@@ -29,8 +29,8 @@ final class TranscriptArticleBuilderTests: XCTestCase {
             TranscriptParagraph(startMs: 3_725_000, endMs: 3_730_000, text: "Later."),
         ])
         XCTAssertTrue(html.contains("<p class=\"ft-transcript-paragraph\" data-start-ms=\"0\">"))
-        XCTAssertTrue(html.contains("data-start-ms=\"0\">0:00</button> Hello.</p>"))
-        XCTAssertTrue(html.contains("data-start-ms=\"3725000\">1:02:05</button> Later.</p>"))
+        XCTAssertTrue(html.contains("data-start-ms=\"0\">0:00</button> <span class=\"ft-text\">Hello.</span></p>"))
+        XCTAssertTrue(html.contains("data-start-ms=\"3725000\">1:02:05</button> <span class=\"ft-text\">Later.</span></p>"))
     }
 
     func testTimestampFormat() {

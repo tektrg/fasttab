@@ -62,6 +62,9 @@ public struct FastTabMobileApp: App {
             .environment(accountSession)
             .ratingPrompt()
             .task { await accountSession.restoreIfNeeded() }
+            #if DEBUG
+            .task { await TranscriptCleanupSpeedTest.runIfRequested() }
+            #endif
             .fullScreenCover(item: $widgetReaderItem) { item in
                 ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
             }

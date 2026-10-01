@@ -124,6 +124,7 @@ if len(devices) > 1:
 
 dev = devices[0]
 if dev.get("connectionProperties", {}).get("tunnelState") != "connected":
+    print(dev["identifier"])  # the caller wakes the tunnel with it
     sys.exit(2)
 name = dev.get("deviceProperties", {}).get("name", "iPhone")
 model = dev.get("hardwareProperties", {}).get("marketingName") or dev.get("hardwareProperties", {}).get("productType", "")
@@ -143,6 +144,12 @@ while true; do
   device_info="$(find_reachable_device)" || status=$?
   [[ "${status}" -eq 0 ]] && break
   [[ "${status}" -ne 2 ]] && exit 1
+  # The list only reports the tunnel, which idles until a real command opens it; an
+  # unlocked phone answers this and the next check sees it connected.
+  [[ -n "${device_info}" ]] && xcrun devicectl device info details --device "${device_info}" >/dev/null 2>&1 || true
+  status=0
+  device_info="$(find_reachable_device)" || status=$?
+  [[ "${status}" -eq 0 ]] && break
   if [[ "${WAIT_FOR_DEVICE}" != true ]] || (( SECONDS >= wait_deadline )); then
     echo "${UNREACHABLE_MSG}" >&2
     [[ "${WAIT_FOR_DEVICE}" != true ]] && echo "    (or rerun with --wait to poll for up to $(( WAIT_SECONDS / 60 )) min)" >&2

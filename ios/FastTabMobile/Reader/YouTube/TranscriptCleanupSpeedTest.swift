@@ -36,6 +36,8 @@ enum TranscriptCleanupSpeedTest {
         _ = try? await FoundationModelTextCleaner().clean("[[1]]\nok so um hello", instruction: TranscriptCleanup.instruction)
 
         for level in levels {
+            // A short rest between levels so one level's load doesn't throttle the next.
+            try? await Task.sleep(for: .seconds(10))
             let start = ContinuousClock.now
             let firstChunk = FirstChunkClock()
             let run = ChunkedTextCleanup(items: items, instruction: TranscriptCleanup.instruction,
@@ -48,9 +50,14 @@ enum TranscriptCleanupSpeedTest {
             let fallbacks = Dictionary(grouping: result.compactMap(\.fallback), by: { kind($0) }).mapValues(\.count)
             report("level=\(level) total=\(seconds(total))s firstChunk=\(firstAfter.map(seconds) ?? "-")s "
                    + "cleaned=\(result.filter(\.isCleaned).count)/\(result.count) fallbacks=\(fallbacks)")
-            if level == levels.first, let sample = result.first(where: \.isCleaned) {
-                report("sample before: \(items[sample.index].prefix(300))")
-                report("sample after:  \(sample.text.prefix(300))")
+            if case .cleanerFailed(let detail)? = result.first(where: { !$0.isCleaned })?.fallback {
+                report("level=\(level) first error: \(detail)")
+            }
+            if level == levels.first {
+                for sample in result.filter(\.isCleaned).prefix(2) {
+                    report("sample before: \(items[sample.index].prefix(300))")
+                    report("sample after:  \(sample.text.prefix(300))")
+                }
             }
         }
         report("done")

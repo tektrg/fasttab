@@ -78,6 +78,8 @@ try:
     check("cwd carried through", r["cwd"], "/home/wifey/aptus")
     check("no hook data — never invented for a remote row",
           r["hasHookData"], False)
+    check("remote row takes no images (attachments live on this Mac's disk)",
+          r["acceptsImages"], False)
     check("hookState is None, not borrowed from anywhere", r["hookState"], None)
     check("the Air's own status claim is kept but renamed, unverified",
           r["herdrStatusUnverified"], "idle")
@@ -116,6 +118,7 @@ try:
     local_rows = views.build_agents_view(snap2)
     check("exactly one local row", len(local_rows), 1)
     check("local row's machine is 'local'", local_rows[0]["machine"], "local")
+    check("local row takes images", local_rows[0]["acceptsImages"], True)
     check("local derived:state still reads the hook, unchanged",
           store.derived_values_for_agent(local_rows[0])["derived:state"],
           "working")

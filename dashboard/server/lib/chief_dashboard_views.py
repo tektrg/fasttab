@@ -12,6 +12,7 @@ import chief_dashboard_herdr as herdr_transport
 import claude_sessions  # P4: non-herdr Claude sessions as status-only rows
 import desktop_sessions  # sleeping Claude Desktop sessions (no live process)
 import hook_permissions  # prompts answerable via the PermissionRequest hook
+import image_attachments  # acceptsImages: which rows can Read an attached image
 import message_gate  # non-Claude panes are never typed into
 import pane_screen_signals
 import tui_status_events  # OpenCode/Codex exact status (plugin / hooks)
@@ -192,6 +193,10 @@ def build_agents_view(feeds_snap):
     rows.extend(claude_sessions.build_status_only_rows(
         claude_sessions_data, herdr_session_ids, now,
         machine=herdr_transport.LOCAL_MACHINE, hook_requests=hook_requests))
+    # Images live on this Mac's disk: clients hide image attach where the
+    # send would be refused (same rule as /api/session/message).
+    for r in rows:
+        r["acceptsImages"] = image_attachments.accepts_images(r, herdr_transport.LOCAL_MACHINE)
 
     # Hook files with no matching herdr pane. The hook only deletes one on a
     # graceful SessionEnd, so a closed tab or a killed session leaves it behind

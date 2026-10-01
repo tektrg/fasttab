@@ -184,6 +184,19 @@ describe("PersonaMessageSheet", () => {
     unmount();
   });
 
+  test("main session on another machine: no image attach; on this Mac: attach offered", async () => {
+    stubFetch({});
+    let unmount = mount([liveRow("main-1", { paneId: "air-m1:w2:p1", acceptsImages: false })]);
+    await settle();
+    expect(document.body.textContent).toContain("→ send to main session");
+    expect(document.querySelector(".image-attach-button")).toBeNull();
+    unmount();
+    unmount = mount([liveRow("main-1")]);
+    await settle();
+    expect(document.querySelector(".image-attach-button")).not.toBeNull();
+    unmount();
+  });
+
   test("machine offline: the persona isn't offered", async () => {
     stubFetch({});
     const unmount = mount([]);

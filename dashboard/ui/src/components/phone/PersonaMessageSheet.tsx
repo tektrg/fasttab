@@ -6,6 +6,7 @@ import { listPersonas, routeWithJev, startPersona, type PersonaSummary } from ".
 import { isQueued, sendMessage } from "../../sessionActions";
 import { imagesFromClipboard, uploadImages, useImageAttachments } from "../../imageAttachments";
 import { ImageAttachBar } from "../ImageAttachBar";
+import { REMOTE_IMAGE_CAPTION, acceptsImages } from "../../messageGates";
 import {
   EFFECT_TEXT,
   deriveEffect,
@@ -107,10 +108,18 @@ export function PersonaMessageSheet({
           : null;
   const hasText = text.trim() !== "";
   const hasImages = attach.images.length > 0;
+  // A running main session on another machine can't Read an image from this Mac.
+  const main = chosen && effect === "sendToMain" ? mainSession(chosen, rows) : null;
+  const mainRow = main && main.kind !== "absent" ? main.row : undefined;
+  const imagesAllowed = !mainRow || acceptsImages(mainRow.derived);
   // Images go only to a running session (persona start takes text only).
-  const imageRefusal = hasImages && effect && isStartEffect(effect)
-    ? "Images can only go to a running session — remove them to start one."
-    : null;
+  const imageRefusal = !hasImages || !effect
+    ? null
+    : isStartEffect(effect)
+      ? "Images can only go to a running session — remove them to start one."
+      : !imagesAllowed
+        ? `${REMOTE_IMAGE_CAPTION} Remove them to send.`
+        : null;
   const canSubmit = !!chosen && !!effect && (hasText || (hasImages && effect === "sendToMain"))
     && !refusal && !imageRefusal && busy === null;
 
@@ -211,6 +220,7 @@ export function PersonaMessageSheet({
           enterKeyHint="send"
           disabled={busy === "jev"}
           onPaste={(e) => {
+            if (!imagesAllowed) return;
             const files = imagesFromClipboard(e.clipboardData);
             if (files.length) {
               e.preventDefault();
@@ -226,6 +236,7 @@ export function PersonaMessageSheet({
           images={attach.images}
           error={attach.error}
           disabled={busy !== null}
+          canAdd={imagesAllowed}
           onAdd={(files) => void attach.add(files)}
           onRemove={attach.remove}
         />

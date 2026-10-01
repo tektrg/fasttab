@@ -32,7 +32,8 @@ struct AgentListSettings: Equatable, Sendable {
 
     var endedWindowHours: Int
     var maxEndedRows: Int
-    /// Plain shells and other CLIs (OpenCode): panes with no Claude hook data.
+    /// Plain shells and other CLIs (OpenCode) whose status is a best guess (`AgentSnapshot.isBestGuessNonClaudePane`).
+    /// Claude agents on another machine are not affected (no hook data, but Claude).
     var showsNonClaudePanes: Bool
     /// Status-only Claude sessions outside herdr (Claude Desktop, CLI in tmux): `AgentHost`.
     var showsClaudeOutsideHerdr: Bool
@@ -80,7 +81,7 @@ struct AgentListSettings: Equatable, Sendable {
         var endedKept = 0
         let sleepingWindow = sleepingWindowSeconds(isSearching: isSearching)
         return agents.filter { agent in
-            if !showsNonClaudePanes && !agent.hasHookData { return false }
+            if !showsNonClaudePanes && agent.isBestGuessNonClaudePane { return false }
             if !showsClaudeOutsideHerdr && !agent.host.isHerdr { return false }
             if agent.section == .sleeping { return sleepingWindow > 0 && (agent.secondsInStatus ?? .infinity) <= sleepingWindow }
             guard agent.section == .ended else { return true }

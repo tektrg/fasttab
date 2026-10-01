@@ -21,10 +21,7 @@ struct MultiLineAnswerField: NSViewRepresentable {
         textView.onLeave = { context.coordinator.parent.onLeave() }
         textView.onLeaveUp = { context.coordinator.parent.onLeaveUp() }
         textView.onLeaveDown = { context.coordinator.parent.onLeaveDown() }
-        if onImages != nil {
-            textView.onImages = { context.coordinator.parent.onImages?($0) }
-            textView.registerForDraggedTypes(textView.registeredDraggedTypes + [.png, .tiff, .fileURL])
-        }
+        syncImageHandler(textView, context: context)
         textView.delegate = context.coordinator
         textView.string = text
         textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))   // typing continues where it was left
@@ -40,8 +37,20 @@ struct MultiLineAnswerField: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
-        guard let textView = scroll.documentView as? AnswerTextView, textView.string != text else { return }
+        guard let textView = scroll.documentView as? AnswerTextView else { return }
+        syncImageHandler(textView, context: context)
+        guard textView.string != text else { return }
         textView.string = text
+    }
+
+    /// The view can outlive a card (SwiftUI reuses it): images go to the current `onImages`, and with none an
+    /// image paste falls through to plain text paste instead of vanishing.
+    private func syncImageHandler(_ textView: AnswerTextView, context: Context) {
+        textView.onImages = onImages == nil ? nil : { context.coordinator.parent.onImages?($0) }
+        let imageDragTypes: [NSPasteboard.PasteboardType] = [.png, .tiff, .fileURL]
+        if onImages != nil, !Set(imageDragTypes).isSubset(of: textView.registeredDraggedTypes) {
+            textView.registerForDraggedTypes(textView.registeredDraggedTypes + imageDragTypes)
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {

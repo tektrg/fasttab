@@ -48,14 +48,20 @@ function stubFetch(upload: { ok: boolean; id?: string; error?: string }) {
   return calls;
 }
 
-function mount(onToast: (m: string, ok: boolean) => void = () => {}) {
+const airRow: BoardRow = {
+  ...row,
+  rowId: "r-air",
+  derived: { ...row.derived, paneId: "air-m1:w2:p1", hasHookData: false, agentKind: "claude", acceptsImages: false },
+};
+
+function mount(onToast: (m: string, ok: boolean) => void = () => {}, rows: BoardRow[] = [row]) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
   act(() => {
     root.render(
       <MantineProvider theme={theme}>
-        <Composer rows={[row]} onToast={onToast} />
+        <Composer rows={rows} onToast={onToast} />
       </MantineProvider>,
     );
   });
@@ -68,6 +74,16 @@ async function attach(host: HTMLElement, count = 1) {
   Object.defineProperty(input, "files", { value: files, configurable: true });
   await act(async () => {
     input.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+async function pasteImage(input: HTMLInputElement) {
+  const png = new File([new Uint8Array([1])], "x.png", { type: "image/png" });
+  const paste = new Event("paste", { bubbles: true, cancelable: true }) as Event & { clipboardData: unknown };
+  paste.clipboardData = { files: [png], getData: () => "" };
+  await act(async () => {
+    input.dispatchEvent(paste);
     await new Promise((r) => setTimeout(r, 0));
   });
 }
@@ -115,6 +131,35 @@ describe("image attachments", () => {
     await clickSend(host);
     expect(calls.filter((c) => c.url === "/api/session/message").length).toBe(0);
     expect(toasts.some((t) => t.includes("not an image"))).toBe(true);
+    expect(host.querySelectorAll(".image-attach-thumb").length).toBe(1);
+    unmount();
+  });
+
+  test("a row on another machine: no attach button, paste ignored, text messaging unchanged", async () => {
+    const calls = stubFetch({ ok: true, id: "c".repeat(32) });
+    const { host, unmount } = mount(() => {}, [airRow]);
+    expect(host.querySelector(".image-attach-button")).toBeNull();
+    expect(host.textContent).toContain("Images can only go to agents on this Mac");
+    const input = host.querySelector("input:not([type=file])") as HTMLInputElement;
+    await pasteImage(input);
+    expect(host.querySelectorAll(".image-attach-thumb").length).toBe(0);
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "hello air");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await clickSend(host);
+    expect(calls.map((c) => c.url)).toEqual(["/api/session/message"]);
+    expect((calls[0].body as { text: string }).text).toBe("hello air");
+    unmount();
+  });
+
+  test("a local row keeps the attach button, takes a pasted image, no remote note", async () => {
+    stubFetch({ ok: true });
+    const { host, unmount } = mount();
+    expect(host.querySelector(".image-attach-button")).not.toBeNull();
+    expect(host.textContent).not.toContain("Images can only go to agents on this Mac");
+    await pasteImage(host.querySelector("input:not([type=file])") as HTMLInputElement);
     expect(host.querySelectorAll(".image-attach-thumb").length).toBe(1);
     unmount();
   });

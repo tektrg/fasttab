@@ -820,8 +820,7 @@ def _handle_reach_action(action, body, row_id, actor):
     if blind:
         return _refused_before_typing(blind)
     pane_id = agent.get("paneId")
-    if image_paths and (agent.get("machine") or herdr_transport.LOCAL_MACHINE) not in (
-            herdr_transport.LOCAL_MACHINE, "unknown"):
+    if image_paths and not image_attachments.accepts_images(agent, herdr_transport.LOCAL_MACHINE):
         return _refused_before_typing(_REMOTE_IMAGE_REFUSAL)
     if not pane_id and session_inbox.message_via(agent) == "inbox":
         return _handle_inbox_message(agent, body, row_id, actor, text)

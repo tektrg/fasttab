@@ -58,10 +58,10 @@ struct MessageCardView: View {
                     text: Binding(get: { card.draft }, set: { message.setDraft($0) }),
                     onSubmit: { message.pressSend() },
                     onLeave: { message.handleEscape() },
-                    onImages: { message.addImages($0) }
+                    onImages: card.acceptsImages ? { message.addImages($0) } : nil
                 )
                 if card.draft.isEmpty {
-                    Text("Message \(card.label)…   ↩ sends · ⌘V or drop an image")
+                    Text(card.placeholder)
                         .font(.system(size: 13))
                         .foregroundStyle(.tertiary)
                         .padding(.top, 2)

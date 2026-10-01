@@ -258,6 +258,10 @@ export interface AgentRow {
   // Set when the server refuses every message to this row (a non-Claude
   // pane whose prompts it can't see — server/lib/message_gate.py).
   messageRefusal?: string | null;
+  // False when the agent runs on another machine: it can't Read an image
+  // attached from this Mac (server/lib/image_attachments.py accepts_images).
+  // Absent (older server) = true.
+  acceptsImages?: boolean;
   // A prompt the PermissionRequest hook holds for this session, if any.
   hookRequest?: HookRequest | null;
   // Claude Desktop rows only: claude://code/continue?session=local_… (opens

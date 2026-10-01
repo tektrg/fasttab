@@ -119,6 +119,14 @@ def resolve_paths(ids, directory=None):
     return paths, None
 
 
+def accepts_images(agent_row, local_machine):
+    """True when this row's agent can Read a file from THIS Mac's attachment
+    folder: it runs here. A row with no `machine` is a local one (status-only
+    rows, older shapes). The one rule behind both the send-path refusal and
+    the `acceptsImages` row flag every client hides its image attach on."""
+    return ((agent_row or {}).get("machine") or local_machine) == local_machine
+
+
 def attachment_note(path):
     return f" [Image attached: {path} — open it with the Read tool]"
 

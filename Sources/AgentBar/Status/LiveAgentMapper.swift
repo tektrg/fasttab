@@ -115,6 +115,8 @@ enum LiveAgentMapper {
             messagesViaPane: host.isHerdr && agent.messageVia == "pane",
             messageTool: host.isHerdr ? Self.messageTool(forAgentKind: agent.agentKind) : nil,
             messageRefusal: agent.messageRefusal,
+            acceptsImages: agent.acceptsImages ?? true,
+            agentKind: host.isHerdr ? agent.agentKind : nil,
             awaitsPrompt: hasPrompt
         )
         return (snapshot, hasPrompt)

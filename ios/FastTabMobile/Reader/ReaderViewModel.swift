@@ -64,8 +64,16 @@ public final class ReaderViewModel: ObservableObject {
             if case .loaded(let article) = loadState, statsRecorder.isTracked(url) {
                 startWordCountIfNeeded(article)
             }
+            if case .loaded(let article) = loadState { setUpTranscriptCleanup(for: article) }
         }
     }
+
+    /// On-device clean-up of a transcript page; nil for articles. Its changes re-render the
+    /// reader (forwarded), which pushes swapped paragraphs to the page.
+    private(set) var transcriptCleanup: TranscriptCleanupSession?
+    private var transcriptCleanupCancellable: AnyCancellable?
+    /// Builds the clean-up session for tests (fake model, temp store).
+    private let makeTranscriptCleanup: (_ videoID: String, _ originals: [String]) -> TranscriptCleanupSession
     /// Current reading scroll progress [0.0 – 1.0]. Not @Published to prevent redundant
     /// SwiftUI view-graph invalidations and main-thread re-renders during active scrolling.
     public var scrollProgress: Double = 0.0
@@ -116,7 +124,9 @@ public final class ReaderViewModel: ObservableObject {
     /// never write to the real reading log.
     init(url: URL, title: String, focusHighlightID: String? = nil,
          statsRecorder: ReadingStatsRecorder?, fitsOnScreenDwell: Duration = .seconds(4),
-         transcriptLoader: YouTubeTranscriptLoader? = nil) {
+         transcriptLoader: YouTubeTranscriptLoader? = nil,
+         makeTranscriptCleanup: ((String, [String]) -> TranscriptCleanupSession)? = nil) {
+        self.makeTranscriptCleanup = makeTranscriptCleanup ?? { TranscriptCleanupSession(videoID: $0, originals: $1) }
         self.route = ReaderContentRoute.route(for: url)
         self.transcriptLoader = transcriptLoader ?? .live
         self.url = url
@@ -187,6 +197,39 @@ public final class ReaderViewModel: ObservableObject {
         guard let cached = articleCache.article(for: url) else { return nil }
         let isTranscriptRoute = route != .article
         return (cached.youtubeVideoID != nil) == isTranscriptRoute ? cached : nil
+    }
+
+    // MARK: - Transcript clean-up
+
+    /// A new transcript (first load or reload) gets a fresh session; the same one keeps it.
+    private func setUpTranscriptCleanup(for article: ReaderArticle) {
+        guard let videoID = article.youtubeVideoID else { return }
+        let originals = TranscriptArticleBuilder.paragraphTexts(fromHTML: article.content)
+        if let current = transcriptCleanup, current.videoID == videoID, current.originals == originals { return }
+        transcriptCleanup?.close()
+        let session = makeTranscriptCleanup(videoID, originals)
+        transcriptCleanup = session
+        transcriptCleanupCancellable = session.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+        if isReaderOpen { session.open() }
+    }
+
+    private var isReaderOpen = false
+
+    /// The reader is on screen: clean-up runs (and resumes when the app comes back to front).
+    func readerDidOpen() {
+        isReaderOpen = true
+        transcriptCleanup?.open()
+    }
+
+    func readerDidClose() {
+        isReaderOpen = false
+        transcriptCleanup?.close()
+    }
+
+    func transcriptParagraphsVisible(first: Int, last: Int) {
+        guard first <= last else { return }
+        transcriptCleanup?.paragraphsVisible(first...last)
     }
 
     func videoVisibilityChanged(_ visible: Bool) {

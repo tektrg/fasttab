@@ -12,6 +12,7 @@ private enum JSMessage: String, CaseIterable {
     case ready            // fired once template is ready
     case videoVisibility  // { visible: Bool } — transcript page opened/closed its corner player
     case videoSize        // { large: Bool } — transcript player switched Corner ↔ Large
+    case transcriptVisible // { first: Int, last: Int } — transcript paragraphs on screen
 }
 
 // MARK: - ReaderWebView
@@ -120,6 +121,13 @@ public struct ReaderWebView: UIViewRepresentable {
                 "window.ftSetVideoVisible && ftSetVideoVisible(\(viewModel.isVideoVisible));", completionHandler: nil)
         }
 
+        // Transcript clean-up: on a new revision, push the paragraphs whose text or version changed.
+        if let cleanup = viewModel.transcriptCleanup, cleanup.revision != context.coordinator.pushedTranscriptRevision {
+            context.coordinator.pushedTranscriptRevision = cleanup.revision
+            let changed = cleanup.shownTexts.filter { context.coordinator.pushedTranscript[$0.i] != $0 }
+            context.coordinator.pushTranscript(changed)
+        }
+
         // If viewModel requests a new highlight, apply it safely via JSON payload
         if let h = viewModel.pendingHighlightToApply {
             let payload: [String: String] = [
@@ -185,6 +193,8 @@ public struct ReaderWebView: UIViewRepresentable {
         let highlights: [HighlightItem]
         let focusHighlightID: String?
         let youtubeVideoID: String?
+        /// Transcript paragraphs shown in their clean version at load (TranscriptCleanupSession).
+        let transcriptTexts: [TranscriptCleanupSession.ParagraphText]
         let videoVisible: Bool
         let videoLarge: Bool
     }
@@ -213,6 +223,7 @@ public struct ReaderWebView: UIViewRepresentable {
     }
 
     private func loadTemplate(into webView: WKWebView, coordinator: Coordinator) {
+        coordinator.resetPushedTranscript(viewModel.transcriptCleanup)
         Self.loadTemplate(into: webView, viewModel: viewModel, article: article,
                           focusHighlightID: viewModel.focusHighlightID)
         // Rebuild the full template on demand: iOS kills the WKWebView content
@@ -220,8 +231,9 @@ public struct ReaderWebView: UIViewRepresentable {
         // leaving a blank page. The reload reads fresh progress/highlights/
         // fontSize from the viewModel so scroll position is restored (and skips
         // the one-time focus-highlight jump, which already happened).
-        coordinator.reloadHandler = { [weak webView, viewModel, article] in
+        coordinator.reloadHandler = { [weak webView, weak coordinator, viewModel, article] in
             guard let webView else { return }
+            coordinator?.resetPushedTranscript(viewModel.transcriptCleanup)
             Self.loadTemplate(into: webView, viewModel: viewModel, article: article,
                               focusHighlightID: nil)
         }
@@ -264,6 +276,7 @@ public struct ReaderWebView: UIViewRepresentable {
             highlights: highlightItems,
             focusHighlightID: focusHighlightID,
             youtubeVideoID: article.youtubeVideoID,
+            transcriptTexts: viewModel.transcriptCleanup?.shownTexts.filter { $0.v == "clean" } ?? [],
             videoVisible: viewModel.isVideoVisible,
             videoLarge: viewModel.isVideoLarge
         )
@@ -305,6 +318,28 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     var lastAppliedSettingsSignature: String?
     /// Player visibility last pushed to (or reported by) the page.
     var lastVideoVisible = false
+    /// Transcript paragraphs as the page shows them, by index (bootstrap, then pushes).
+    var pushedTranscript: [Int: TranscriptCleanupSession.ParagraphText] = [:]
+
+    var pushedTranscriptRevision: Int?
+    /// What the page was loaded with (bootstrap). Pushes sent before the page is ready are
+    /// lost, so `ready` re-sends whatever differs from this.
+    private var loadedTranscript: [Int: TranscriptCleanupSession.ParagraphText] = [:]
+
+    /// The page is about to load with the session's current texts.
+    @MainActor func resetPushedTranscript(_ cleanup: TranscriptCleanupSession?) {
+        loadedTranscript = Dictionary(uniqueKeysWithValues: (cleanup?.shownTexts ?? []).map { ($0.i, $0) })
+        pushedTranscript = loadedTranscript
+        pushedTranscriptRevision = cleanup?.revision
+    }
+
+    @MainActor func pushTranscript(_ texts: [TranscriptCleanupSession.ParagraphText]) {
+        guard let webView, !texts.isEmpty, let data = try? JSONEncoder().encode(texts),
+              let json = String(data: data, encoding: .utf8) else { return }
+        texts.forEach { pushedTranscript[$0.i] = $0 }
+        webView.evaluateJavaScript("window.ftSetTranscriptTexts && ftSetTranscriptTexts(\(json));",
+                                   completionHandler: nil)
+    }
     private let viewModel: ReaderViewModel
     private let onTextSelected: ((String, String) -> Void)?
     private let onTextDeselected: (() -> Void)?
@@ -430,8 +465,17 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                 self.viewModel.videoVisibilityChanged(visible)
             case .videoSize:
                 self.viewModel.videoSizeChanged(large: body["large"] as? Bool ?? false)
+            case .transcriptVisible:
+                if let first = body["first"] as? Int, let last = body["last"] as? Int {
+                    self.viewModel.transcriptParagraphsVisible(first: first, last: last)
+                }
             case .ready:
-                break
+                // A push made while the page was still loading was a no-op there; send what
+                // changed since the page's bootstrap now that it can take it.
+                if let cleanup = self.viewModel.transcriptCleanup {
+                    self.pushedTranscriptRevision = cleanup.revision
+                    self.pushTranscript(cleanup.shownTexts.filter { self.loadedTranscript[$0.i] != $0 })
+                }
             }
         }
     }

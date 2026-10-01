@@ -57,6 +57,9 @@ targets:
         product: IndieTranscripts
       - package: IndieLibKit
         product: IndiePowerUps
+      # On-device transcript clean-up (FastTabMobile/Reader/YouTube/TranscriptCleanup*.swift).
+      - package: IndieLibKit
+        product: IndieTextCleanup
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile
       DEVELOPMENT_TEAM: 56S46Y7CKN

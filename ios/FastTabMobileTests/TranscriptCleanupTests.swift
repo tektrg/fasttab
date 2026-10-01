@@ -230,3 +230,16 @@ final class TranscriptHighlightVersionJSTests: XCTestCase {
         XCTAssertFalse(try shows(desc, ["original", "clean"]))
     }
 }
+
+final class TranscriptCleanupPolishTests: XCTestCase {
+    func testDropsFillerOpenersAndCapitalises() {
+        XCTAssertEqual(TranscriptCleanup.polish("Okay, so we start here. So, the next part. Alright so it works."),
+                       "We start here. The next part. It works.")
+        XCTAssertEqual(TranscriptCleanup.polish("First point.\n\nSo the second one."), "First point.\n\nThe second one.")
+    }
+
+    func testKeepsSoInsideASentence() {
+        XCTAssertEqual(TranscriptCleanup.polish("It was late, so we left."), "It was late, so we left.")
+        XCTAssertEqual(TranscriptCleanup.polish("Sooner or later. Okayish."), "Sooner or later. Okayish.")
+    }
+}

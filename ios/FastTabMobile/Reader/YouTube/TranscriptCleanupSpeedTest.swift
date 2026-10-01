@@ -81,6 +81,7 @@ enum TranscriptCleanupSpeedTest {
         case .malformedReply: "malformed"
         case .lengthOutOfRange: "length"
         case .refusal: "refusal"
+        case .inventedText: "invented"
         }
     }
 

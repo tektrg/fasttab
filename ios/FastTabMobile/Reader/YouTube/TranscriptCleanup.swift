@@ -10,7 +10,7 @@ enum TranscriptCleanup {
 
     /// Bump when the instruction changes in a way worth re-cleaning saved videos for
     /// (TranscriptCleanupStore drops records made under another version).
-    static let instructionVersion = 2
+    static let instructionVersion = 3
 
     /// Filler and opener removal shortens more than plain punctuation does, so the floor sits
     /// at half the original length (a summary still lands well under it).
@@ -34,4 +34,20 @@ enum TranscriptCleanup {
 
     The second stage is fine tuning, where we change the data set.
     """
+
+    /// Sentence openers the model often keeps despite the instruction ("Okay, so", "So,").
+    /// Removed here, deterministically, from the start of every sentence and paragraph.
+    private static let openers = try! Regex(#"(?i)(^|[.?!]\s+|\n\s*)((?:okay|ok|alright|all right|so|and so|anyway)(?:,\s*|\s+))+(?=\w)"#)
+
+    /// The model's text with leftover filler openers removed and the next word capitalised.
+    static func polish(_ text: String) -> String {
+        var result = text
+        while let match = result.firstMatch(of: openers) {
+            let lead = match.output[1].substring.map(String.init) ?? ""
+            let rest = result[match.range.upperBound...]
+            let capitalised = rest.prefix(1).uppercased() + rest.dropFirst()
+            result = String(result[..<match.range.lowerBound]) + lead + capitalised
+        }
+        return result
+    }
 }

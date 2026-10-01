@@ -152,7 +152,7 @@ final class TranscriptCleanupSession: ObservableObject {
         guard finishedRun === run else { return }
         var changed = false
         for item in items where item.isSettled && item.index < runIndices.count {
-            cleaned[runIndices[item.index]] = item.text
+            cleaned[runIndices[item.index]] = item.isCleaned ? TranscriptCleanup.polish(item.text) : item.text
             changed = true
         }
         guard changed else { return }

@@ -11,6 +11,9 @@ struct PersonaRegistry: Decodable, Equatable, Sendable {
     let personas: [RegistryPersona]
     /// Hidden folders that are not personas (hidden suggestions), so they can be un-hidden.
     let hiddenSuggestions: [String]
+    /// Machines a persona may run on (`"local"` first). Nil from a dashboard without machine
+    /// routing — the editor then shows no "Runs on" picker.
+    let machines: [PersonaMachine]?
 
     var usesDefaultGlobalInstructions: Bool { globalInstructions == defaultGlobalInstructions }
 }
@@ -31,6 +34,8 @@ struct RegistryPersona: Decodable, Equatable, Sendable, Identifiable {
     let resumeWithinDays: Double
     /// `in-place` or `script`: shown, never edited from Settings (a script is a command line).
     let start: String
+    /// Machine id it starts on by default; nil from a dashboard without machine routing.
+    let runsOn: String?
     let hidden: Bool
     /// True when Jev may pick it: not hidden and a saved description.
     let offered: Bool
@@ -59,6 +64,9 @@ struct PersonaDraft: Equatable, Sendable {
     var extraInstructions = ""
     var idle = RegistryPersona.IdleMode.resume
     var resumeWithinDays = 3
+    /// Sent only when set (editing a persona whose dashboard reports `runsOn`); adopting leaves it
+    /// nil and the dashboard defaults the new persona to its folder's machine.
+    var runsOn: String?
 
     init() {}
 
@@ -70,6 +78,7 @@ struct PersonaDraft: Equatable, Sendable {
         extraInstructions = persona.extraInstructions
         idle = persona.idle
         resumeWithinDays = Int(persona.resumeWithinDays.rounded())
+        runsOn = persona.runsOn
     }
 
     /// Adopting prefills the description from the folder's own instructions, and the name from the
@@ -82,7 +91,7 @@ struct PersonaDraft: Equatable, Sendable {
 
     /// The `fields`/`persona` object the dashboard validates (it trims and drops blank lines too).
     var wireFields: [String: Any] {
-        [
+        var fields: [String: Any] = [
             "name": name.trimmingCharacters(in: .whitespacesAndNewlines),
             "description": description.trimmingCharacters(in: .whitespacesAndNewlines),
             "routesWhen": Self.lines(routesWhenText),
@@ -91,6 +100,8 @@ struct PersonaDraft: Equatable, Sendable {
             "idle": idle.rawValue,
             "resumeWithinDays": resumeWithinDays,
         ]
+        if let runsOn { fields["runsOn"] = runsOn }
+        return fields
     }
 
     var hasName: Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

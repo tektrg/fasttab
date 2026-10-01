@@ -214,14 +214,16 @@ struct DashboardEndpoint: Sendable {
     }
 
     /// `POST /api/persona/start`. `fresh` is sent only when `true`, so the dashboard applies the
-    /// persona's own `idleStart` default whenever the caller didn't force a new session.
-    func personaStartRequest(persona: String, text: String, fresh: Bool) -> URLRequest {
+    /// persona's own `idleStart` default whenever the caller didn't force a new session. `machine`
+    /// is sent only when given (a dashboard without machine routing never sees the key).
+    func personaStartRequest(persona: String, text: String, fresh: Bool, machine: String? = nil) -> URLRequest {
         var request = request(path: "/api/persona/start")
         request.httpMethod = "POST"
         request.timeoutInterval = Self.personaStartTimeoutSeconds
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["persona": persona, "text": text]
         if fresh { body["fresh"] = true }
+        if let machine { body["machine"] = machine }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return request
     }

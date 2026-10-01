@@ -10,6 +10,7 @@ final class FakePersonaDirectorySource: PersonaDirectorySource, @unchecked Senda
         let name: String
         let text: String
         let fresh: Bool
+        var machine: String? = nil
     }
 
     private let lock = NSLock()
@@ -32,8 +33,8 @@ final class FakePersonaDirectorySource: PersonaDirectorySource, @unchecked Senda
 
     func fetchPersonas() async -> [Persona]? { personas }
 
-    func startPersona(_ name: String, text: String, fresh: Bool) async -> PersonaStartOutcome {
-        lock.withLock { _startCalls.append(StartCall(name: name, text: text, fresh: fresh)) }
+    func startPersona(_ name: String, text: String, fresh: Bool, machine: String?) async -> PersonaStartOutcome {
+        lock.withLock { _startCalls.append(StartCall(name: name, text: text, fresh: fresh, machine: machine)) }
         guard gatesStart else { return startOutcome }
         return await withCheckedContinuation { continuation in
             lock.withLock { pending.append(continuation) }

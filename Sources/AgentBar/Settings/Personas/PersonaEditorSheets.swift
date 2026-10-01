@@ -52,6 +52,17 @@ struct PersonaEditorSheet: View {
                         }
                         .disabled(editor.draft.idle == .fresh)
                     }
+                    if editor.draft.runsOn != nil, let machines = model.registry?.machines, machines.count > 1 {
+                        Section {
+                            Picker("Runs on", selection: draft(\.runsOn)) {
+                                ForEach(machines, id: \.id) { Text($0.label).tag(Optional($0.id)) }
+                            }
+                            .pickerStyle(.segmented)
+                        } footer: {
+                            Text("Where AgentBar starts or resumes this persona. The confirm row can still pick another machine for one start.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 .formStyle(.grouped)
                 footer(editor)

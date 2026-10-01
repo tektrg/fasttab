@@ -106,10 +106,14 @@ struct SearchFieldView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         case .confirmingPersona(let pick):
-            Text("→ \(pick.persona.name) · \(pick.effect.text)")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            HStack(spacing: 6) {
+                Text("→ \(pick.persona.name) · \(pick.effect.text)")
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                PersonaMachineChips(chips: pick.machineChips, selectedID: pick.machineID)
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
         case .startingPersona(let name):
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
@@ -168,8 +172,10 @@ struct SearchFieldView: View {
             }
             .onKeyPress(.upArrow) { model.moveSelectionOrAnswerHighlight(by: -1); return .handled }
             .onKeyPress(.downArrow) { model.moveSelectionOrAnswerHighlight(by: 1); return .handled }
-            .onKeyPress(.leftArrow) { model.moveButtonHighlight(by: -1) ? .handled : .ignored }
-            .onKeyPress(.rightArrow) { model.moveButtonHighlight(by: 1) ? .handled : .ignored }
+            // A persona confirm row with machine chips claims Left/Right first (same fallthrough
+            // shape as Tab below): otherwise the arrows keep their row-button / text-cursor jobs.
+            .onKeyPress(.leftArrow) { model.movePersonaMachine(by: -1) || model.moveButtonHighlight(by: -1) ? .handled : .ignored }
+            .onKeyPress(.rightArrow) { model.movePersonaMachine(by: 1) || model.moveButtonHighlight(by: 1) ? .handled : .ignored }
             .onKeyPress(.tab, phases: .down) { _ in
                 // While a card is open, Tab stays a no-op (`answerCardKeyPress` below already
                 // ignores it there) rather than tagging a row the user can no longer see.

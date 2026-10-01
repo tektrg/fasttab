@@ -7,6 +7,8 @@ struct DashboardPersonaStartResponse: Decodable {
     let paneId: String?
     let mode: String?
     let error: String?
+    let unreachable: Bool?
+    let retryOn: PersonaMachine?
 
     /// Shown for a 404 instead of its terse "not found": the dashboard predates persona starts.
     static let endpointMissingMessage = "This dashboard can't start personas yet — update it."
@@ -15,7 +17,10 @@ struct DashboardPersonaStartResponse: Decodable {
     /// `paneId`/a recognized `mode` — the caller turns nil into its own "unreadable reply" text,
     /// same as everywhere else a `nil` decode-result reaches `AgentPanelModel`).
     var outcome: PersonaStartOutcome? {
-        guard ok == true else { return error.map(PersonaStartOutcome.failed) }
+        guard ok == true else {
+            guard let error else { return nil }
+            return unreachable == true ? .unreachable(reason: error, retryOn: retryOn) : .failed(error)
+        }
         guard let paneId else { return nil }
         switch mode {
         case "started": return .started(paneId: paneId)

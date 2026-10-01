@@ -153,7 +153,14 @@ try:
     check("every row has the documented keys",
           sorted(by_address["local:~/01_Project/AptusFit"].keys()),
           sorted(["name", "address", "description", "routesWhen", "notFor",
-                  "idle", "start", "offline", "mainRowId", "sessionRowIds", "idleStart"]))
+                  "idle", "start", "offline", "mainRowId", "sessionRowIds", "idleStart",
+                  "runsOn", "machines"]))
+    check("runsOn: a local persona defaults to local",
+          by_address["local:~/01_Project/AptusFit"]["runsOn"], "local")
+    check("runsOn: a remote-folder persona runs on its own machine",
+          by_address["air-m1:~/remote-project"]["runsOn"], "air-m1")
+    check("machines: the dashboard's machine choices, local first",
+          [m["id"] for m in by_address["local:~/01_Project/AptusFit"]["machines"]][:1], ["local"])
 
     print("\n== idleStart: resume only for a recent, not-live conversation in the exact folder ==")
     check("chief-aptus: recent transcript -> resume",

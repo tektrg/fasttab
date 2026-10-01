@@ -56,6 +56,7 @@ import os
 import re
 import sys
 
+import dashboard_config  # noqa: E402
 from chief_dashboard_feeds import machines_status  # noqa: E402
 from chief_dashboard_store import resolve_agent_row_id  # noqa: E402
 from chief_dashboard_views import get_agent_tree_state, get_full_state  # noqa: E402
@@ -431,7 +432,11 @@ def main_session_for_persona(persona, rows_for_persona, chief_id):
 def get_personas_state():
     """GET /api/personas's payload: `[{name, address, description,
     routesWhen, notFor, idle, start, offline, mainRowId, sessionRowIds,
-    idleStart}]`. `offline` is true only for a configured REMOTE machine
+    idleStart, runsOn, machines}]`. `runsOn` is the persona's default
+    machine id and `machines` the [{id, label}] it may be started on
+    (`dashboard_config.machine_choices()`, "local" first) — AgentBar's
+    confirm row draws these as chips and sends the chosen one as
+    `/api/persona/start`'s `machine`. `offline` is true only for a configured REMOTE machine
     currently unreachable (`machines_status()` status "broken") — always
     false for "local". `idleStart` (P3) is `persona_start.idle_start_for`'s
     verdict — "resume" or "fresh" — so AgentBar can label the confirm row
@@ -467,6 +472,7 @@ def get_personas_state():
         for m in {p["runsOn"] for p in personas.values()}
     }
 
+    machine_choices = dashboard_config.machine_choices()
     result = []
     for addr, persona in personas.items():
         rows = sessions_by_persona.get(addr, [])
@@ -485,5 +491,7 @@ def get_personas_state():
             "idleStart": persona_start.idle_start_for(
                 persona, live_ids_by_machine.get(persona["runsOn"], set()),
                 offline_machines=offline_machines),
+            "runsOn": persona["runsOn"],
+            "machines": machine_choices,
         })
     return result

@@ -246,6 +246,10 @@ final class AgentPanelModel: ObservableObject {
     func togglePersonaDeliveryOverride() -> Bool {
         guard case .confirmingPersona(var pick) = routingState else { return false }
         dismissRefusalNotice(leaving: pick)
+        if pick.unreachableHint != nil {
+            pick.unreachableHint = nil
+            dismissFooterNotice()
+        }
         pick.forcedStartNew.toggle()
         routingState = .confirmingPersona(pick)
         return true
@@ -285,9 +289,9 @@ final class AgentPanelModel: ObservableObject {
         case .mainUnreachable:
             refusePersonaDelivery(pick, "\(pick.persona.name)'s main session can't take messages here. Tab to start a new session.")
         case .resumeLast:
-            startPersonaSession(pick.persona, fresh: false)
+            startPersonaSession(pick, fresh: false)
         case .startNew:
-            startPersonaSession(pick.persona, fresh: true)
+            startPersonaSession(pick, fresh: true)
         }
     }
 
@@ -301,7 +305,8 @@ final class AgentPanelModel: ObservableObject {
     /// `POST /api/persona/start`, reached only through `deliverPersonaPick`. Runs the exact same
     /// `MessageDraftValidator` check every other send does first — a persona start is not exempt
     /// from the empty/slash-command/too-long rules `send(to:)` and `sendToTaggedIfPending()` apply.
-    private func startPersonaSession(_ persona: Persona, fresh: Bool) {
+    private func startPersonaSession(_ pick: PersonaPick, fresh: Bool) {
+        let persona = pick.persona
         routingEpoch += 1
         switch MessageDraftValidator.check(routingText) {
         case .empty:
@@ -323,8 +328,8 @@ final class AgentPanelModel: ObservableObject {
             let epoch = routingEpoch
             let typedText = routingText
             Task { [weak self] in
-                let outcome = await personaSource.startPersona(persona.name, text: text, fresh: fresh)
-                self?.finishPersonaStart(outcome, personaName: persona.name, typedText: typedText, epoch: epoch)
+                let outcome = await personaSource.startPersona(persona.name, text: text, fresh: fresh, machine: pick.startMachineID)
+                self?.finishPersonaStart(outcome, pick: pick, typedText: typedText, epoch: epoch)
             }
         }
     }
@@ -335,7 +340,11 @@ final class AgentPanelModel: ObservableObject {
     /// Only a reply to the route still on screen clears the row. A success clears the box too —
     /// after Esc only while it still holds the text that was sent (`typedText`), so a delivered
     /// message isn't left there inviting a re-send, and anything typed since is left alone.
-    private func finishPersonaStart(_ outcome: PersonaStartOutcome, personaName: String, typedText: String, epoch: Int) {
+    /// An `.unreachable` reply on the route still on screen puts the confirm row back with its chip
+    /// on the dashboard's `retryOn` and the reason + "Return to start on <label>" in the footer —
+    /// one more Return starts there; nothing is retried by itself.
+    private func finishPersonaStart(_ outcome: PersonaStartOutcome, pick: PersonaPick, typedText: String, epoch: Int) {
+        let personaName = pick.persona.name
         let isCurrentRoute = epoch == routingEpoch && routingState == .startingPersona(name: personaName)
         if isCurrentRoute { routingState = nil }
         let clearsSentText = isCurrentRoute || query.trimmingCharacters(in: .whitespacesAndNewlines) == typedText
@@ -348,7 +357,25 @@ final class AgentPanelModel: ObservableObject {
             showFailureNotice(.created("Resumed \(personaName)"))
         case .failed(let reason):
             showAnswerNotice(reason)
+        case .unreachable(let reason, let retryOn):
+            guard isCurrentRoute, let retryOn else { return showAnswerNotice(reason) }
+            var retry = pick
+            retry.offerRetry(on: retryOn, reason: reason)
+            routingState = .confirmingPersona(retry)
+            showAnswerNotice(retry.unreachableHint ?? reason)
         }
+    }
+
+    /// Left/Right while a persona confirm row shows machine chips: moves the selected machine
+    /// (`PersonaPick.moveMachine`). False otherwise, so the arrow keeps its usual job.
+    @discardableResult
+    func movePersonaMachine(by step: Int) -> Bool {
+        guard case .confirmingPersona(var pick) = routingState else { return false }
+        let hadRetryHint = pick.unreachableHint != nil
+        guard pick.moveMachine(by: step) else { return false }
+        if hadRetryHint { dismissFooterNotice() }
+        routingState = .confirmingPersona(pick)
+        return true
     }
 
     /// Return while a route is `.confirming`: sends. Returns false so `activateSelected` falls

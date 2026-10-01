@@ -199,9 +199,9 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
     /// — becomes `.failed`, never `.uncertain`: the spec calls for showing the error and never
     /// auto-retrying, with no "it may have gone through" framing (unlike `sendMessage`, this isn't
     /// a plain retry-safe pane write; the caller decides what to do next, if anything).
-    func startPersona(_ name: String, text: String, fresh: Bool) async -> PersonaStartOutcome {
+    func startPersona(_ name: String, text: String, fresh: Bool, machine: String?) async -> PersonaStartOutcome {
         do {
-            let request = endpoint.personaStartRequest(persona: name, text: text, fresh: fresh)
+            let request = endpoint.personaStartRequest(persona: name, text: text, fresh: fresh, machine: machine)
             let (body, statusCode) = try await transport.response(for: request)
             // A dashboard without the endpoint answers a bare `{"error": "not found"}` 404.
             if statusCode == 404 { return .failed(DashboardPersonaStartResponse.endpointMissingMessage) }

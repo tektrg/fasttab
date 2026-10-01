@@ -7,7 +7,7 @@ struct PersonaStartRequestTests {
     private func startOutcome(_ json: String, status: Int) async -> PersonaStartOutcome {
         let transport = ScriptedDashboardTransport { _ in .body(Data(json.utf8), statusCode: status) }
         let source = DashboardStatusSource(endpoint: DashboardEndpoint(baseURL: URL(string: "http://127.0.0.1:4799")!), transport: transport)
-        return await source.startPersona("air-notes", text: "triage the inbox", fresh: false)
+        return await source.startPersona("air-notes", text: "triage the inbox", fresh: false, machine: nil)
     }
 
     @Test func aDashboardWithoutTheEndpointSaysToUpdateItNotTheBareNotFound() async {

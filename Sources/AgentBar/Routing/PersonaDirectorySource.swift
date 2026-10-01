@@ -8,6 +8,10 @@ enum PersonaStartOutcome: Equatable, Sendable {
     /// timeout failure alike — the confirm-row spec draws no distinction between them ("never
     /// auto-retry a start" either way), so callers just show `reason`.
     case failed(String)
+    /// The target machine couldn't be reached (`{ok:false, unreachable:true, retryOn}`) — nothing
+    /// was started. `retryOn` is the dashboard's suggested other machine, offered on the confirm
+    /// row for one more Return; nil when it named none (then it reads like `.failed`).
+    case unreachable(reason: String, retryOn: PersonaMachine?)
 }
 
 /// The dashboard's persona registry, as `AgentPanelModel` needs it — `DashboardStatusSource`
@@ -20,6 +24,7 @@ protocol PersonaDirectorySource: Sendable {
     func fetchPersonas() async -> [Persona]?
 
     /// `POST /api/persona/start`. `fresh: true` only for an explicit "start new"; otherwise the
-    /// dashboard applies the persona's own `idleStart` default.
-    func startPersona(_ name: String, text: String, fresh: Bool) async -> PersonaStartOutcome
+    /// dashboard applies the persona's own `idleStart` default. `machine` (a machine id) overrides
+    /// the persona's `runsOn` for this one start; nil sends none.
+    func startPersona(_ name: String, text: String, fresh: Bool, machine: String?) async -> PersonaStartOutcome
 }

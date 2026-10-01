@@ -256,6 +256,8 @@
     transition: background-color 0.3s ease;
   }
   .ft-transcript-paragraph.ft-current { background: var(--code-bg); }
+  /* Cleaned text may break a paragraph where the speaker moves on (TranscriptCleanup). */
+  .ft-transcript-paragraph .ft-text { white-space: pre-line; }
   .ft-ts {
     font: 600 0.72em -apple-system, sans-serif;
     font-variant-numeric: tabular-nums;

@@ -34,11 +34,20 @@ final class TranscriptCleanupStoreTests: XCTestCase {
     func testRoundTripsForTheSameTranscriptOnly() {
         let store = TranscriptCleanupStore(directory: directory)
         let originals = ["a", "b"]
-        let record = TranscriptCleanupRecord(sourceDigest: TranscriptCleanupStore.digest(originals), texts: ["A.", nil])
+        let record = TranscriptCleanupRecord(sourceDigest: TranscriptCleanupStore.digest(originals), texts: ["A.", nil],
+                                             instructionVersion: TranscriptCleanup.instructionVersion)
         store.save(record, videoID: "vid_1-x")
         XCTAssertEqual(store.record(videoID: "vid_1-x", originals: originals), record)
         XCTAssertNil(store.record(videoID: "vid_1-x", originals: ["a", "changed"]))
         XCTAssertNil(store.record(videoID: "other", originals: originals))
+    }
+
+    func testRecordFromAnOlderInstructionIsCleanedAgain() {
+        let store = TranscriptCleanupStore(directory: directory)
+        let originals = ["a"]
+        store.save(TranscriptCleanupRecord(sourceDigest: TranscriptCleanupStore.digest(originals), texts: ["A."],
+                                           instructionVersion: nil), videoID: "v")
+        XCTAssertNil(store.record(videoID: "v", originals: originals))
     }
 
     func testVideoIDCannotEscapeTheFolder() {

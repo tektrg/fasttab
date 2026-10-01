@@ -41,7 +41,8 @@ enum TranscriptCleanupSpeedTest {
             let start = ContinuousClock.now
             let firstChunk = FirstChunkClock()
             let run = ChunkedTextCleanup(items: items, instruction: TranscriptCleanup.instruction,
-                                         cleaner: FoundationModelTextCleaner(), maxConcurrentChunks: level)
+                                         cleaner: FoundationModelTextCleaner(), maxConcurrentChunks: level,
+                                         validator: TranscriptCleanup.validator)
             guard let result = try? await run.run(onChunkSettled: { _ in await firstChunk.mark() }) else {
                 report("level=\(level) cancelled"); continue
             }

@@ -8,6 +8,8 @@ struct TranscriptCleanupRecord: Codable, Equatable {
     /// language) no longer matches and is cleaned afresh.
     var sourceDigest: String
     var texts: [String?]
+    /// `TranscriptCleanup.instructionVersion` it was made with; nil = before versions (1).
+    var instructionVersion: Int?
 }
 
 /// Saved clean-ups, one JSON file per video in Application Support (not Caches: highlights made
@@ -23,6 +25,7 @@ struct TranscriptCleanupStore: Sendable {
         guard let data = try? Data(contentsOf: fileURL(videoID)),
               let record = try? JSONDecoder().decode(TranscriptCleanupRecord.self, from: data),
               record.sourceDigest == Self.digest(originals),
+              (record.instructionVersion ?? 1) == TranscriptCleanup.instructionVersion,
               record.texts.count == originals.count else { return nil }
         return record
     }

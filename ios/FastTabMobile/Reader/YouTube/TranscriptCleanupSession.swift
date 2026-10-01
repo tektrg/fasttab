@@ -130,7 +130,8 @@ final class TranscriptCleanupSession: ObservableObject {
         let run = ChunkedTextCleanup(items: pending.map { originals[$0] },
                                      instruction: TranscriptCleanup.instruction,
                                      cleaner: cleaner,
-                                     maxConcurrentChunks: TranscriptCleanup.maxConcurrentChunks)
+                                     maxConcurrentChunks: TranscriptCleanup.maxConcurrentChunks,
+                                     validator: TranscriptCleanup.validator)
         self.run = run
         runIndices = pending
         isCleaning = true
@@ -157,7 +158,8 @@ final class TranscriptCleanupSession: ObservableObject {
         guard changed else { return }
         retryDelay = firstRetryDelay
         revision += 1
-        store.save(TranscriptCleanupRecord(sourceDigest: TranscriptCleanupStore.digest(originals), texts: cleaned),
+        store.save(TranscriptCleanupRecord(sourceDigest: TranscriptCleanupStore.digest(originals), texts: cleaned,
+                                           instructionVersion: TranscriptCleanup.instructionVersion),
                    videoID: videoID)
         objectWillChange.send()
     }

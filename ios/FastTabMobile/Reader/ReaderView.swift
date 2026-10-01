@@ -124,10 +124,12 @@ public struct ReaderView: View {
         }
         .task {
             viewModel.loadInitialState()
+            viewModel.readerDidOpen()
             await viewModel.extractIfNeeded()
         }
         .onDisappear {
             viewModel.flushPendingProgress()
+            viewModel.readerDidClose()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
@@ -310,6 +312,10 @@ public struct ReaderView: View {
                 .accessibilityLabel(viewModel.isVideoVisible ? "Hide video" : "Show video")
             }
 
+            if let cleanup = viewModel.transcriptCleanup, cleanup.isOffered {
+                TranscriptCleanupToggle(cleanup: cleanup)
+            }
+
             // Highlights list
             Menu {
                 if viewModel.highlights.isEmpty {
@@ -447,7 +453,7 @@ public struct ReaderView: View {
 
 /// 44pt minimum tap target for the floating bottom-bar controls (HIG).
 /// Applied inside the label so badges overlaid on the glyph stay anchored.
-private extension View {
+extension View {
     func readerBarTapTarget() -> some View {
         self
             .frame(minWidth: 44, minHeight: 44)
@@ -457,7 +463,7 @@ private extension View {
 
 /// Liquid Glass pill on iOS 26+, regular-material capsule on earlier versions
 /// (deployment target is iOS 17).
-private extension View {
+extension View {
     @ViewBuilder
     func readerBottomBarGlass() -> some View {
         if #available(iOS 26, *) {

@@ -48,8 +48,12 @@ enum TranscriptCleanupSpeedTest {
             let total = start.duration(to: .now)
             let firstAfter = await firstChunk.elapsed(since: start)
             let fallbacks = Dictionary(grouping: result.compactMap(\.fallback), by: { kind($0) }).mapValues(\.count)
+            let ratios = result.compactMap { item -> String? in
+                if case .lengthOutOfRange(let ratio)? = item.fallback { return String(format: "%.2f", ratio) }
+                return nil
+            }
             report("level=\(level) total=\(seconds(total))s firstChunk=\(firstAfter.map(seconds) ?? "-")s "
-                   + "cleaned=\(result.filter(\.isCleaned).count)/\(result.count) fallbacks=\(fallbacks)")
+                   + "cleaned=\(result.filter(\.isCleaned).count)/\(result.count) fallbacks=\(fallbacks) rejectedRatios=\(ratios)")
             if case .cleanerFailed(let detail)? = result.first(where: { !$0.isCleaned })?.fallback {
                 report("level=\(level) first error: \(detail)")
             }
@@ -72,6 +76,7 @@ enum TranscriptCleanupSpeedTest {
     private static func kind(_ reason: CleanupFallbackReason) -> String {
         switch reason {
         case .cleanerFailed(let detail): "error:\(detail.prefix(60))"
+        case .cleanerUnavailable: "unavailable"
         case .malformedReply: "malformed"
         case .lengthOutOfRange: "length"
         case .refusal: "refusal"

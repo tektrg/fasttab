@@ -3,6 +3,10 @@ import Foundation
 /// FastTab's wording for the on-device transcript clean-up (engine: IndieTextCleanup).
 /// LIGHT only: the reader must still be able to trust every sentence as what was said.
 enum TranscriptCleanup {
+    /// One chunk at a time: measured on an iPhone 16e (2026-10-01), 2 at once was slower and
+    /// hit rate limits, 4 at once was refused outright (TranscriptCleanupSpeedTest).
+    static let maxConcurrentChunks = 1
+
     static let instruction = """
     You turn raw speech-to-text into readable prose. The input has no punctuation; you must \
     add it: split it into sentences with periods, commas and question marks, and capitalise \

@@ -56,11 +56,23 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     var messageTool: String? = nil
     /// The dashboard's reason it would refuse a message to this row (`messageRefusal`); nil = it would not.
     var messageRefusal: String? = nil
+    /// The dashboard says this agent is waiting on the user's answer (its Needs-you list, or a screen
+    /// that needs a human) — `LiveAgentMapper`'s `hasPrompt`. Unlike `blocker` it does not mean there
+    /// is an Answer/Review card: a Claude Desktop / CLI session waiting without a held hook request has
+    /// this but no blocker. Ranking only — see `isWaitingOnYou`.
+    var awaitsPrompt: Bool = false
 
     /// The blocker while the row sits in Needs you. Parking sets a row aside, and
     /// with it the Blocked badge, the answer action and the top-of-section spot.
     var blockedOnYou: AgentBlocker? {
         section == .needsYou ? blocker : nil
+    }
+
+    /// Ranks the row in the top "waiting on you" tier (`AgentRanking`, `AgentListGrouping`): blocked on
+    /// an answerable prompt, or waiting on the user without one. Parked rows never do (same as
+    /// `blockedOnYou`). Buttons, corner card and sounds keep keying on `blockedOnYou` alone.
+    var isWaitingOnYou: Bool {
+        section == .needsYou && (blocker != nil || awaitsPrompt)
     }
 
     /// The same agent shown under another section.

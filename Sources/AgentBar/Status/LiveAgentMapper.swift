@@ -113,7 +113,8 @@ enum LiveAgentMapper {
             // A status-only session's needsYou entry = it is asking something: no message until answered.
             messagesViaInbox: !host.isHerdr && agent.messageVia == "inbox" && needsYouEntry == nil,
             messageTool: host.isHerdr ? Self.messageTool(forAgentKind: agent.agentKind) : nil,
-            messageRefusal: agent.messageRefusal
+            messageRefusal: agent.messageRefusal,
+            awaitsPrompt: hasPrompt
         )
         return (snapshot, hasPrompt)
     }

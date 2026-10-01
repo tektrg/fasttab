@@ -30,6 +30,9 @@ struct MessageCard: Equatable, Sendable {
     /// Nil for agents without a Claude session: nothing to read a message from.
     let sessionId: String?
     private(set) var draft = ""
+    /// False for an agent on another machine (`AgentSnapshot.acceptsImages`): it can't Read a file from this
+    /// Mac, so the card takes no paste/drop of images and says so.
+    let acceptsImages: Bool
     /// Pasted or dropped images (at most `MessageImage.maxCount`), sent with the text.
     private(set) var images: [MessageImage] = []
     /// Why the last paste/drop added no image. Cleared by the next edit.
@@ -52,6 +55,7 @@ struct MessageCard: Equatable, Sendable {
         self.projectName = agent.projectName
         self.identityText = agent.identityText
         self.sessionId = agent.sessionId
+        self.acceptsImages = agent.acceptsImages
         self.sessionContext = agent.sessionId == nil ? .empty : nil
     }
 
@@ -117,12 +121,18 @@ struct MessageCard: Equatable, Sendable {
         draftChanged()
     }
 
+    /// The field's placeholder: how to send, and how to add an image where images can go.
+    var placeholder: String {
+        let howToSend = "Message \(label)…   ↩ sends"
+        return acceptsImages ? howToSend + " · ⌘V or drop an image" : howToSend + " · no images (agent on another Mac)"
+    }
+
     static let tooManyImagesHint = "At most \(MessageImage.maxCount) images per message."
     static let unreadableImageHint = "Couldn't read that image (or it stays over 5 MB)."
 
     /// A paste or drop. `prepared` holds nil for each image that couldn't be read or sized down.
     mutating func addImages(_ prepared: [MessageImage?]) {
-        guard phase == .editing, !prepared.isEmpty else { return }
+        guard acceptsImages, phase == .editing, !prepared.isEmpty else { return }
         let readable = prepared.compactMap { $0 }
         let room = MessageImage.maxCount - images.count
         images += readable.prefix(max(0, room))

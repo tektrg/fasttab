@@ -73,6 +73,11 @@ for bad in ("../../etc/passwd", SENTINEL, png_id + "/x", png_id.upper(), 5):
 check("unknown id refused", ia.resolve_paths(["0" * 32])[0], None)
 check("over 4 refused", ia.resolve_paths([png_id] * 5)[0], None)
 check("not a list refused", ia.resolve_paths(png_id)[0], None)
+print("\n== accepts_images (the row flag + send-path rule) ==")
+check("local row", ia.accepts_images({"machine": "local"}, "local"), True)
+check("row without machine = local", ia.accepts_images({}, "local"), True)
+check("Air row", ia.accepts_images({"machine": "air-m1"}, "local"), False)
+check("None row: no crash", ia.accepts_images(None, "local"), True)
 check("note text", ia.with_attachment_notes("look", ["/a.png"]),
       "look [Image attached: /a.png — open it with the Read tool]")
 check("image-only message gets a default text",

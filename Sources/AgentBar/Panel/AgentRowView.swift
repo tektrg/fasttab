@@ -224,12 +224,13 @@ struct AgentRowView: View {
     /// Ended rows are clearly out of play (unless their pane is still open and
     /// waiting to be closed); sleeping sessions are greyed (not running, Enter wakes one) —
     /// except the selected one, whose Open in Claude button must not read as disabled;
-    /// non-Claude panes are a shade quieter because their status is only a guess.
+    /// best-guess non-Claude panes are a shade quieter (`isBestGuessNonClaudePane`); a Claude agent on another
+    /// machine is not, though it has no hook data.
     private var dimming: Double { Self.dimming(of: agent, isSelected: isSelected) }
 
     static func dimming(of agent: AgentSnapshot, isSelected: Bool) -> Double {
         if agent.section == .ended { return agent.canFocus ? 0.85 : 0.45 }
         if agent.section == .sleeping { return isSelected ? 1 : 0.55 }
-        return agent.hasHookData ? 1 : 0.7
+        return agent.isBestGuessNonClaudePane ? 0.7 : 1
     }
 }

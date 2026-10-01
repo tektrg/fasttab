@@ -28,8 +28,8 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     let promptExcerpt: String?
     /// False for ended rows and anything without a live pane.
     let canFocus: Bool
-    /// False for non-Claude panes (plain shells, other CLIs): no hook data,
-    /// so their section is a best guess.
+    /// False for non-Claude panes (plain shells, other CLIs) and for Claude panes on another machine (the
+    /// hook cache is this Mac's only): their section is read off the screen. "Is it Claude?" is `isClaude`.
     let hasHookData: Bool
     /// The dashboard's row id (the session id): what stop/close are addressed to.
     /// Nil when the dashboard gave none.
@@ -60,6 +60,12 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     var messageTool: String? = nil
     /// The dashboard's reason it would refuse a message to this row (`messageRefusal`); nil = it would not.
     var messageRefusal: String? = nil
+    /// The dashboard says this agent can Read an image attached from this Mac (`acceptsImages`): false for an
+    /// agent on another machine (e.g. the Air), whose Message card then takes no images. Absent = true.
+    var acceptsImages: Bool = true
+    /// herdr's tool for a herdr row (dashboard `agentKind`: "claude" | "opencode" | "codex" | …); nil for a
+    /// status-only row, an ended/sleeping row, or an older dashboard. See `isClaude`.
+    var agentKind: String? = nil
     /// The dashboard says this agent is waiting on the user's answer (its Needs-you list, or a screen
     /// that needs a human) — `LiveAgentMapper`'s `hasPrompt`. Unlike `blocker` it does not mean there
     /// is an Answer/Review card: a Claude Desktop / CLI session waiting without a held hook request has
@@ -78,6 +84,19 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     var isWaitingOnYou: Bool {
         section == .needsYou && (blocker != nil || awaitsPrompt)
     }
+
+    /// A Claude agent: herdr says `claude` (hook data or not — an Air pane never has any), or a status-only
+    /// Desktop/CLI session. With no kind (older dashboard, ended/sleeping rows) hook data stands in, as before.
+    var isClaude: Bool {
+        guard host.isHerdr else { return true }
+        if let agentKind { return agentKind == "claude" }
+        return hasHookData
+    }
+
+    /// A non-Claude pane whose status is only a screen guess (a plain shell; OpenCode/Codex without its
+    /// plugin/hook): setting "Show non-Claude panes" hides it and the list dims it. A Claude agent on another
+    /// machine and an OpenCode/Codex pane with exact status are first-class.
+    var isBestGuessNonClaudePane: Bool { !isClaude && !hasHookData }
 
     /// The same agent shown under another section.
     func placed(in newSection: AgentSection) -> AgentSnapshot {

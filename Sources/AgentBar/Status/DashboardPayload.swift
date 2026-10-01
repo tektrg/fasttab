@@ -164,6 +164,8 @@ struct DashboardAgent: Decodable {
     let agentKind: String?
     /// Why the dashboard would refuse a message to this row; null when it would not (absent = older dashboard).
     let messageRefusal: String?
+    /// False when the agent can't Read an image attached from this Mac (it runs on another machine); absent = older dashboard.
+    let acceptsImages: Bool?
     /// A status-only row's pending hook-bridge prompt (also on its `needsYou` entry).
     let hookRequest: DashboardHookRequest?
     /// A waiting status-only row's question read from its transcript (display only; never next to a `hookRequest`).
@@ -172,7 +174,7 @@ struct DashboardAgent: Decodable {
     private enum CodingKeys: String, CodingKey {
         case paneId, label, cwd, hookState, hookSinceSec, hasHookData, residue
         case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
-        case source, openUrl, tmuxTarget, messageVia, agentKind, messageRefusal, hookRequest, transcriptQuestion
+        case source, openUrl, tmuxTarget, messageVia, agentKind, messageRefusal, acceptsImages, hookRequest, transcriptQuestion
     }
 
     init(from decoder: Decoder) throws {
@@ -197,6 +199,7 @@ struct DashboardAgent: Decodable {
         messageVia = container.lenient(.messageVia)
         agentKind = container.lenient(.agentKind)
         messageRefusal = container.lenient(.messageRefusal)
+        acceptsImages = container.lenient(.acceptsImages)
         hookRequest = container.lenient(.hookRequest)
         transcriptQuestion = container.lenient(.transcriptQuestion)
     }

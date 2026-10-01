@@ -27,6 +27,15 @@ export function blindAgentCaption(agentKind: string | null | undefined): string 
   return `Messages are off for ${tool}: the dashboard has no live status from it (its AgentBar plugin/hook is not installed or not reporting), so a message could answer a question nobody saw. Use its terminal.`;
 }
 
+/** The server's `acceptsImages`: images are stored on this Mac's disk, so an
+ *  agent on another machine can't Read them and the send would be refused. */
+export function acceptsImages(row: Pick<AgentRow, "acceptsImages">): boolean {
+  return row.acceptsImages !== false;
+}
+
+/** Said where image attach is hidden because a target is on another machine. */
+export const REMOTE_IMAGE_CAPTION = "Images can only go to agents on this Mac.";
+
 /** An OpenCode or Codex session (messaged as a plain prompt, not a Claude one). */
 export function isToolAgent(row: AgentRow): boolean {
   return row.agentKind === "opencode" || row.agentKind === "codex";

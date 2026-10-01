@@ -11,7 +11,7 @@ import {
   type SessionActionResult,
 } from "../sessionActions";
 import { INBOX_CAPTION, WAKE_CAPTION, messagesViaInbox, wakesToMessage } from "../openInClaude";
-import { TOOL_MESSAGE_CAPTION, isToolAgent } from "../messageGates";
+import { REMOTE_IMAGE_CAPTION, TOOL_MESSAGE_CAPTION, acceptsImages, isToolAgent } from "../messageGates";
 import { imagesFromClipboard, uploadImages, useImageAttachments } from "../imageAttachments";
 import { ImageAttachBar } from "./ImageAttachBar";
 
@@ -74,8 +74,13 @@ export function Composer({
   // refetch can end rows under us, and ended rows must never be POSTed.
   const evaled = evaluateMessageBulk(rows);
   const targets = evaled.ready;
+  // One target on another machine = no images for the whole send (the server
+  // would refuse that row); thumbnails already attached stay removable.
+  const imagesAllowed = targets.every((m) => acceptsImages(m.row.derived));
+  const imagesBlocked = !imagesAllowed && attach.images.length > 0;
   const canSend =
-    !busy && (text.trim().length > 0 || attach.images.length > 0) && targets.length > 0 && !pending;
+    !busy && (text.trim().length > 0 || attach.images.length > 0) && targets.length > 0 && !pending
+    && !imagesBlocked;
   // Claude Desktop / CLI rows have no pane: say "session", not "pane".
   const anyInbox = targets.some((m) => messagesViaInbox(m.row.derived));
   const allInbox = targets.length > 0 && targets.every((m) => messagesViaInbox(m.row.derived));
@@ -205,6 +210,7 @@ export function Composer({
           disabled={targets.length === 0}
           onChange={(e) => setText(e.currentTarget.value)}
           onPaste={(e) => {
+            if (!imagesAllowed) return;
             const files = imagesFromClipboard(e.clipboardData);
             if (files.length) {
               e.preventDefault();
@@ -232,14 +238,20 @@ export function Composer({
           {pending ? `Confirm queue (${pending.length})` : "Send"}
         </Button>
       </Group>
-      {targets.length > 0 && (
+      {targets.length > 0 && (imagesAllowed || attach.images.length > 0) && (
         <ImageAttachBar
           images={attach.images}
           error={attach.error}
           disabled={busy || !!pending}
+          canAdd={imagesAllowed}
           onAdd={(files) => void attach.add(files)}
           onRemove={attach.remove}
         />
+      )}
+      {targets.length > 0 && !imagesAllowed && (
+        <Text size="xs" c={imagesBlocked ? "red" : "dimmed"} mt={4} className="composer-remote-image-note">
+          {imagesBlocked ? `${REMOTE_IMAGE_CAPTION} Remove the images to send.` : REMOTE_IMAGE_CAPTION}
+        </Text>
       )}
       {anyInbox && (
         <Text size="xs" c="dimmed" mt={4} className="composer-inbox-note">

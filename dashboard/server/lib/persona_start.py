@@ -133,18 +133,75 @@ TAB_CLOSE_TIMEOUT_SEC = 2
 #: Remote prep (instructions file + folder check) is one ssh call.
 REMOTE_PREPARE_TIMEOUT_SEC = 8
 
+#: Shared bash: `resolve_dir <folder>` sets $dir (`~` = that Mac's home);
+#: `latest_conversation` prints `<mtime> <uuid>` of the newest UUID-named
+#: transcript for $dir's realpath (same encoding + UUID-first rule as
+#: `latest_conversation_for_folder`), or an empty line.
+_REMOTE_SHELL_LIB = r"""
+resolve_dir() { case "$1" in "~") dir="$HOME";; "~/"*) dir="$HOME/${1#"~/"}";; *) dir="$1";; esac; }
+latest_conversation() {
+  local real enc
+  real=$(cd "$dir" && pwd -P) || { echo; return; }
+  enc=$(printf '%s' "$real" | LC_ALL=C sed 's/[^A-Za-z0-9]/-/g')
+  { stat -f '%m %N' "$HOME/.claude/projects/$enc"/*.jsonl 2>/dev/null || true; } \
+    | sed -E 's#^([0-9]+) .*/([^/]*)\.jsonl$#\1 \2#' \
+    | grep -E '^[0-9]+ [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' \
+    | sort -rn | head -1
+  echo
+}
+"""
+
 #: $1 instructions, $2 file name, $3 folder (`~`-relative or absolute).
-#: Prints `OK\n<instructions path>\n<folder>` or `NO_FOLDER <folder>`.
-REMOTE_PREPARE_SCRIPT = r"""set -e
+#: Prints `OK\n<instructions path>\n<folder>\n<latest>` or `NO_FOLDER <folder>`.
+REMOTE_PREPARE_SCRIPT = _REMOTE_SHELL_LIB + r"""set -e
 umask 077
 d="$HOME/Library/Application Support/agent-dashboard/persona-prompts"
 mkdir -p "$d"; chmod 700 "$d"
 f="$d/$2"
 printf '%s' "$1" > "$f.tmp-$$"; mv "$f.tmp-$$" "$f"
-case "$3" in "~") dir="$HOME";; "~/"*) dir="$HOME/${3#"~/"}";; *) dir="$3";; esac
+resolve_dir "$3"
 [ -d "$dir" ] || { printf 'NO_FOLDER %s\n' "$dir"; exit 0; }
 printf 'OK\n%s\n%s\n' "$f" "$dir"
+latest_conversation
 """
+
+#: $1 folder. Prints `OK\n<latest>` or `NO_FOLDER <folder>` — the read-only
+#: lookup behind a remote persona's `idleStart`.
+REMOTE_LATEST_SCRIPT = _REMOTE_SHELL_LIB + r"""set -e
+resolve_dir "$1"
+[ -d "$dir" ] || { printf 'NO_FOLDER %s\n' "$dir"; exit 0; }
+echo OK
+latest_conversation
+"""
+
+#: A remote `idleStart` lookup must never stall GET /api/personas for long.
+REMOTE_LATEST_TIMEOUT_SEC = 3
+
+
+def parse_remote_latest(line):
+    """`<mtime> <uuid>` -> (uuid, mtime); anything else -> (None, None)."""
+    parts = (line or "").split()
+    if len(parts) != 2 or not parts[0].isdigit() or not _SESSION_UUID_RE.fullmatch(parts[1]):
+        return None, None
+    return parts[1], float(parts[0])
+
+
+def remote_latest_conversation(machine, resolved_folder):
+    """(uuid, mtime) of the newest conversation for this persona folder on
+    a REMOTE machine, over ssh. (None, None) when there's none, the folder
+    is missing there, or the machine can't be asked — the caller then
+    starts fresh, never fails."""
+    try:
+        out = herdr_transport.remote_shell_text(
+            machine, REMOTE_LATEST_SCRIPT, repo_root=REPO_ROOT, machines=MACHINES,
+            timeout=REMOTE_LATEST_TIMEOUT_SEC, args=(_home_relative(resolved_folder),))
+    except herdr_transport.HerdrError as e:
+        print(f"[persona_start] {machine} history lookup failed: {e}", file=sys.stderr)
+        return None, None
+    lines = out.splitlines()
+    if not lines or lines[0] != "OK":
+        return None, None
+    return parse_remote_latest(lines[1] if len(lines) > 1 else "")
 
 #: The new shell's env var holding the message (brief: `$PERSONA_MESSAGE`).
 MESSAGE_ENV_VAR = "PERSONA_MESSAGE"
@@ -240,29 +297,34 @@ _idle_start_scan_cache = {}
 
 
 def idle_start_for(persona, live_session_ids, *, now=None, monotonic_now=None,
-                   projects_dir=None):
-    """GET /api/personas's `idleStart`: "resume" or "fresh". Only a local
-    `start: in-place` persona can resume from here (a script persona or a
-    remote one is refused by the start endpoint anyway, and this Mac's disk
-    says nothing about a remote machine's history). The folder scan is
+                   projects_dir=None, offline_machines=(), remote_lookup=None):
+    """GET /api/personas's `idleStart`: "resume" or "fresh", for the
+    persona's Runs-on machine. A script persona is always "fresh"; a remote
+    Runs-on machine is asked over ssh (`remote_latest_conversation`), never
+    while `offline_machines` lists it. The folder scan (local or remote) is
     reused for `IDLE_START_CACHE_TTL_SEC` — the endpoint is polled, the
-    start path always rescans.
+    start path always rescans. `live_session_ids` must be the Runs-on
+    machine's.
 
     Two clocks on purpose: the cache TTL runs on `monotonic_now`
     (`time.monotonic`), so a backwards wall-clock step can't pin a stale
     scan forever; only the transcript-age check uses `now` (`time.time`),
     because transcript mtimes are wall-clock epochs."""
-    if persona.get("start") != "in-place" or \
-            persona.get("runsOn", persona.get("machine")) != herdr_transport.LOCAL_MACHINE:
+    runs_on = persona.get("runsOn", persona.get("machine"))
+    if persona.get("start") != "in-place" or runs_on in (offline_machines or ()):
         return "fresh"
     now = now if now is not None else time.time()
     monotonic_now = monotonic_now if monotonic_now is not None else time.monotonic()
     projects_dir = projects_dir or claude_projects_dir()
-    key = (projects_dir, persona["resolvedFolder"])
+    key = (runs_on, projects_dir, persona["resolvedFolder"])
     cached = _idle_start_scan_cache.get(key)
     if cached is None or monotonic_now - cached[0] > IDLE_START_CACHE_TTL_SEC:
-        cached = (monotonic_now,
-                  latest_conversation_for_folder(persona["resolvedFolder"], projects_dir))
+        if runs_on == herdr_transport.LOCAL_MACHINE:
+            latest = latest_conversation_for_folder(persona["resolvedFolder"], projects_dir)
+        else:
+            latest = (remote_lookup or remote_latest_conversation)(
+                runs_on, persona["resolvedFolder"])
+        cached = (monotonic_now, latest)
         _idle_start_scan_cache[key] = cached
     resume_id = decide_resume(persona, cached[1], live_session_ids=live_session_ids, now=now)
     return "resume" if resume_id else "fresh"
@@ -368,7 +430,8 @@ class HerdrTabOps:
     def prepare_remote(self, folder, filename, instructions):
         """One ssh call on a remote target: write the instructions file
         there, resolve the folder (`~` = that Mac's home) and check it
-        exists. Returns (instructions_path, folder) or raises ValueError
+        exists, and report its newest conversation there. Returns
+        (instructions_path, folder, (uuid, mtime) or (None, None)) or raises ValueError
         when the folder is missing; HerdrError/SshUnreachable pass through."""
         out = herdr_transport.remote_shell_text(
             self.machine, REMOTE_PREPARE_SCRIPT, repo_root=REPO_ROOT, machines=MACHINES,
@@ -378,7 +441,7 @@ class HerdrTabOps:
             raise ValueError(f"folder {lines[0][len('NO_FOLDER '):]} doesn't exist there")
         if len(lines) < 3 or lines[0] != "OK":
             raise herdr_transport.HerdrError(f"unexpected prepare output: {out[:200]!r}")
-        return lines[1], lines[2]
+        return lines[1], lines[2], parse_remote_latest(lines[3] if len(lines) > 3 else "")
 
     def tab_create(self, folder, label, env):
         """(tab_id, pane_id) of a new unfocused tab whose shell runs in
@@ -604,9 +667,8 @@ def _launch(deps, persona, text, fresh, instructions, target):
         instructions_path = write_instructions_file(
             deps.instructions_dir or default_instructions_dir(), persona["name"], instructions)
     else:
-        latest = (None, None)  # remote history lookup: not yet (starts fresh)
         try:
-            instructions_path, folder = herdr.prepare_remote(
+            instructions_path, folder, latest = herdr.prepare_remote(
                 _home_relative(persona["resolvedFolder"]),
                 _instructions_filename(persona["name"]), instructions)
         except herdr_transport.SshUnreachable as e:

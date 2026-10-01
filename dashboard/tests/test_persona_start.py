@@ -50,10 +50,11 @@ class FakeHerdr:
     """Records every herdr call; optionally fails one step."""
 
     def __init__(self, fail_at=None, on_pane_run=None, close_fails=False, tab_id="t9",
-                 prepare=None):
+                 prepare=None, remote_latest=(None, None)):
         self.calls = []
         self.machine = "local"
         self.prepare = prepare  # remote prep outcome: exception to raise, or None
+        self.remote_latest = remote_latest
         self.fail_at = fail_at
         self.on_pane_run = on_pane_run
         self.close_fails = close_fails
@@ -71,7 +72,8 @@ class FakeHerdr:
         self.calls.append(("prepare_remote", folder, filename, instructions))
         if self.prepare is not None:
             raise self.prepare
-        return f"/Users/remote/prompts/{filename}", folder.replace("~", "/Users/remote", 1)
+        return (f"/Users/remote/prompts/{filename}", folder.replace("~", "/Users/remote", 1),
+                self.remote_latest)
 
     def tab_create(self, folder, label, env):
         self.calls.append(("tab_create", folder, label, dict(env)))
@@ -310,6 +312,8 @@ for label, name, needle in (("not in the registry", "no-such-persona", "unknown 
           (False, True))
     check(f"{label}: herdr never called", herdr.calls, [])
 
+UUID_RECENT = "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"
+
 print("\n== start on another machine (runsOn / one-off override) ==")
 import dashboard_config  # noqa: E402
 _saved_machines = dashboard_config.MACHINES
@@ -329,7 +333,24 @@ try:
     check("command points at the Air's instructions file",
           "/Users/remote/prompts/" in herdr.command(), True)
     check("pane id is namespaced to the Air", result.get("paneId"), "air-m1:w1:p42")
-    check("remote start is fresh (remote history: slice 3)", result.get("mode"), "started")
+    check("no history on the Air -> fresh", result.get("mode"), "started")
+    air_recent = (UUID_RECENT, FakeClock()() - 3600)
+    result, herdr = start({"persona": "test-echo", "text": "hi", "machine": "air-m1"},
+                          herdr=FakeHerdr(remote_latest=air_recent))
+    check("recent Air history -> resumed on the Air",
+          (result.get("mode"), f"'--resume' '{UUID_RECENT}'" in herdr.command()), ("resumed", True))
+    result, herdr = start({"persona": "test-echo", "text": "hi", "machine": "air-m1"},
+                          herdr=FakeHerdr(remote_latest=air_recent),
+                          agent_rows=[{"machine": "air-m1", "agentSession": UUID_RECENT}])
+    check("that conversation live on the Air -> fresh", result.get("mode"), "started")
+    result, herdr = start({"persona": "test-echo", "text": "hi", "machine": "air-m1"},
+                          herdr=FakeHerdr(remote_latest=air_recent),
+                          agent_rows=[{"machine": "local", "agentSession": UUID_RECENT}])
+    check("same id live on the OTHER Mac doesn't block resuming on the Air",
+          result.get("mode"), "resumed")
+    result, herdr = start({"persona": "test-echo", "text": "hi", "machine": "air-m1"},
+                          herdr=FakeHerdr(remote_latest=(UUID_RECENT, FakeClock()() - 30 * 86400)))
+    check("old Air history -> fresh", result.get("mode"), "started")
 
     REG_AIR = write_registry({f"local:{make_folder('air-default')}":
                               persona_entry("air-default", runsOn="air-m1")})
@@ -364,7 +385,6 @@ finally:
 print("\n== resume vs fresh ==")
 projects = os.path.join(FAKE_HOME, "projects-resume")
 clock = FakeClock()
-UUID_RECENT = "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"
 transcript("aaaaaaaa-0000-4000-8000-000000000000", clock.now - 2 * 86400, projects_dir=projects)
 transcript(UUID_RECENT, clock.now - 3600, projects_dir=projects)
 result, herdr = start({"persona": "test-echo", "text": "continue"}, clock=clock,
@@ -537,8 +557,22 @@ script_persona = {**echo_persona, "start": "script"}
 remote_persona = {**echo_persona, "machine": "air-m1", "runsOn": "air-m1"}
 check("start:script -> fresh (no scan)",
       ps.idle_start_for(script_persona, set(), now=t0, projects_dir=idle_projects), "fresh")
-check("remote persona -> fresh (no scan)",
-      ps.idle_start_for(remote_persona, set(), now=t0, projects_dir=idle_projects), "fresh")
+asked = []
+fake_lookup = lambda machine, folder: asked.append((machine, folder)) or (UUID_RECENT, t0)
+ps._idle_start_scan_cache.clear()
+check("runs on an offline Mac -> fresh, Mac not asked",
+      (ps.idle_start_for(remote_persona, set(), now=t0, projects_dir=idle_projects,
+                         offline_machines={"air-m1"}, remote_lookup=fake_lookup), asked), ("fresh", []))
+check("runs on the Air -> its own history decides (resume)",
+      ps.idle_start_for(remote_persona, set(), now=t0, monotonic_now=m0, projects_dir=idle_projects,
+                        remote_lookup=fake_lookup), "resume")
+check("the Air was asked about the persona's folder", asked, [("air-m1", ECHO_RESOLVED)])
+ps.idle_start_for(remote_persona, set(), now=t0, monotonic_now=m0 + 1, projects_dir=idle_projects,
+                  remote_lookup=fake_lookup)
+check("remote lookup is cached too (one ssh per TTL)", len(asked), 1)
+check("parse_remote_latest refuses junk",
+      [ps.parse_remote_latest(x) for x in ("", "12 not-a-uuid", "x " + UUID_RECENT,
+                                            f"12 {UUID_RECENT} extra")], [(None, None)] * 4)
 check("projects dir defaults to the CLAUDE_PROJECTS_DIR override",
       ps.claude_projects_dir(), FAKE_PROJECTS_DIR)
 

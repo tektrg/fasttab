@@ -128,6 +128,11 @@ then the herdr tab opens over ssh; reply `paneId` is namespaced
 (`air-m1:w2:p3`). Unreachable target -> `{ok:false, unreachable:true,
 retryOn:{id,label}}` — nothing starts elsewhere unless the client re-POSTs
 with `machine: retryOn.id` (user ruling: one press, never silent).
+Resume on a remote Mac: the same prep call also prints that Mac's newest
+UUID transcript for the folder (`_REMOTE_SHELL_LIB.latest_conversation`,
+same encoding + UUID-first rule as the local scan); the live-session guard
+uses the TARGET machine's sessions. `idleStart` follows Runs on: a remote
+Mac is asked over ssh (3s, cached 30s), never while it's offline.
 
 Names are unique among OFFERED personas (hidden/undescribed entries are
 filtered first, then a duplicate name keeps the first in registry order).

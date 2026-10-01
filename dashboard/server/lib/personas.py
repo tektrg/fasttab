@@ -407,7 +407,7 @@ def get_personas_state():
 
     live_ids_by_machine = {
         m: persona_start.live_session_ids_for_machine(agent_rows, m)
-        for m in {p["machine"] for p in personas.values()}
+        for m in {p["runsOn"] for p in personas.values()}
     }
 
     result = []
@@ -426,6 +426,7 @@ def get_personas_state():
                 persona, rows, main_chief_by_persona.get(addr)),
             "sessionRowIds": [resolve_agent_row_id(r) for r in rows],
             "idleStart": persona_start.idle_start_for(
-                persona, live_ids_by_machine.get(persona["machine"], set())),
+                persona, live_ids_by_machine.get(persona["runsOn"], set()),
+                offline_machines=offline_machines),
         })
     return result

@@ -603,6 +603,11 @@ document.addEventListener('selectionchange', function() {
     try {
       window.webkit.messageHandlers.textDeselected.postMessage({});
     } catch(e) {}
+    if (sel && sel.isCollapsed && ftDeferredTexts.length) {
+      var deferred = ftDeferredTexts;
+      ftDeferredTexts = [];
+      window.ftSetTranscriptTexts(deferred);
+    }
     return;
   }
   var text  = sel.toString().trim();
@@ -768,8 +773,22 @@ function focusHighlight(id) {
 // ── Transcript swap from Swift (TranscriptCleanupSession) ──────
 // Replaces paragraph texts in place, keeps the paragraph being read where it is on screen,
 // then re-places highlights for the versions now shown.
+// Swaps for paragraphs under a live text selection wait until the selection ends, so the
+// selection (and the highlight it may become) is not pulled from under the person.
+var ftDeferredTexts = [];
 window.ftSetTranscriptTexts = function(list) {
   if (!ftParagraphs.length || !list || !list.length) return;
+  var sel = window.getSelection();
+  var selRange = sel && !sel.isCollapsed && sel.rangeCount ? sel.getRangeAt(0) : null;
+  if (selRange) {
+    var now = [];
+    list.forEach(function(item) {
+      var p = ftParagraphs[item.i];
+      if (p && selRange.intersectsNode(p)) ftDeferredTexts.push(item); else now.push(item);
+    });
+    list = now;
+    if (!list.length) return;
+  }
   var anchor = null, anchorTop = 0;
   for (var i = 0; i < ftParagraphs.length; i++) {
     var rect = ftParagraphs[i].getBoundingClientRect();

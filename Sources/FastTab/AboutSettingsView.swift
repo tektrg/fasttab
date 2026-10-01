@@ -1,10 +1,12 @@
 import SwiftUI
 import AppKit
+import IndieFeedbackUI
 
 /// "About" tab of Settings: support contact and the installed version.
 struct AboutSettingsView: View {
     @EnvironmentObject var licenseService: LicenseService
     @State private var didCopySupportEmail = false
+    @State private var isSendingFeedback = false
 
     private let supportEmailAddress = "yourfriend@theindie.app"
 
@@ -21,6 +23,8 @@ struct AboutSettingsView: View {
                 }
 
                 HStack(spacing: 8) {
+                    Button("Send Feedback…") { isSendingFeedback = true }
+
                     Button("Email \(supportEmailAddress)") {
                         licenseService.openSupport()
                     }
@@ -61,6 +65,9 @@ struct AboutSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $isSendingFeedback) {
+            SendFeedbackView(client: FastTabFeedback.makeClient()) { isSendingFeedback = false }
+        }
     }
 
     private var appVersion: String {

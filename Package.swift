@@ -5,6 +5,8 @@ import PackageDescription
 let indieSearch: Target.Dependency = .product(name: "IndieSearch", package: "IndieLibKit")
 let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "IndieLibKit")
 let indieMotion: Target.Dependency = .product(name: "IndieMotion", package: "IndieLibKit")
+let indieFeedbackUI: Target.Dependency = .product(name: "IndieFeedbackUI", package: "IndieLibKit")
+let indieFeedback: Target.Dependency = .product(name: "IndieFeedback", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -22,7 +24,8 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
         // Shared L1 library, sibling checkout (~/01_Project/IndieLibKit on both Macs).
         // Linked here: `IndieSearch` (the search folding every app shares), `IndieMetrics`
-        // (tab-activity statistics) and `IndieMotion` (onboarding hero clock + stage).
+        // (tab-activity statistics), `IndieMotion` (onboarding hero clock + stage) and
+        // `IndieFeedback`/`IndieFeedbackUI` (Settings > About > Send Feedback…).
         .package(path: "../IndieLibKit")
     ],
     targets: [
@@ -45,7 +48,9 @@ let package = Package(
                 "CommandBarKit",
                 indieSearch,
                 indieMetrics,
-                indieMotion
+                indieMotion,
+                indieFeedback,
+                indieFeedbackUI
             ]
         ),
         // Pure stdio<->socket relay launched by Chrome's native messaging.

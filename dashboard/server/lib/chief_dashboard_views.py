@@ -119,7 +119,10 @@ def build_agents_view(feeds_snap):
         remote_agents_raw = remote_herdr.get("agents", [])
         remote_tabs_by_id = {t.get("tab_id"): t
                              for t in remote_herdr.get("tabs", [])}
-        remote_screens = (feeds_snap.get(pane_screen_feed_key(machine)) or {}).get("data") or {}
+        remote_screen_feed = feeds_snap.get(pane_screen_feed_key(machine)) or {}
+        remote_screens = remote_screen_feed.get("data") or {}
+        # Survives a failed read of one pane (screen absent, clock kept).
+        remote_activity = remote_screen_feed.get("screenActivity") or {}
         for a in remote_agents_raw:
             raw_pane_id = a.get("pane_id")
             if not raw_pane_id:
@@ -144,11 +147,13 @@ def build_agents_view(feeds_snap):
                 "hookState": None,
                 "hookSinceSec": None,
                 # Seconds since this pane's screen last changed (remote
-                # paneScreen sweep, ~15s), None until a change is seen. An
+                # paneScreen sweep, ~15s; kept through a failed read of this
+                # pane), None until a change is seen. An
                 # ACTIVITY clock for ranking (Jev candidates, persona main
                 # session) — deliberately NOT hookSinceSec, so busy/idle,
                 # sounds and hasHookData stay hook-only.
-                "screenActivitySec": pane_screen_signals.screen_activity_sec(screen, now),
+                "screenActivitySec": pane_screen_signals.screen_activity_sec(
+                    remote_activity.get(sid), now),
                 "herdrStatus": None,
                 "herdrStatusUnverified": a.get("agent_status"),
                 "disagree": False,

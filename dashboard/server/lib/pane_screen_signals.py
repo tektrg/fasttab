@@ -432,6 +432,21 @@ def screen_unchanged_sec(entry, now):
     return max(0.0, end - changed_at)
 
 
+def remembered_activity(history):
+    """The activity clock of every pane in a sweep's motion `history` that has
+    been SEEN changing: {key: {"changedAt", "changeObserved": True}}.
+
+    Published beside the feed's screens, not inside them: a pane whose read
+    failed this sweep keeps its last-change time (ranking must not drop it to
+    "oldest" for one sweep) while its screen stays ABSENT - a stub screen entry
+    would look like a successful read with stale content to the needs-you /
+    question / permission readers and to the feed's own "none could be read"
+    check. Only the clock survives a failed read, never the content."""
+    return {key: {"changedAt": h["changedAt"], "changeObserved": True}
+            for key, h in history.items()
+            if h.get("changeObserved") and isinstance(h.get("changedAt"), (int, float))}
+
+
 def screen_activity_sec(entry, now):
     """Seconds since this pane's screen last CHANGED, or None when no change has
     been seen yet (first look, or every look identical since the dashboard

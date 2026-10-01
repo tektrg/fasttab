@@ -109,6 +109,14 @@ class Feed:
         self.last_success_ts = None
         self.last_attempt_ts = None
         self.last_duration_sec = None
+        # Remote paneScreen feeds only: per-pane "last screen change" clock
+        # (pane_screen_signals.remembered_activity), refreshed every sweep even
+        # when a pane's read fails. None = not published (key left out).
+        self.screen_activity = None
+
+    def set_screen_activity(self, activity):
+        with self._lock:
+            self.screen_activity = activity
 
     def set_success(self, data, duration_sec=None):
         with self._lock:
@@ -141,7 +149,7 @@ class Feed:
                 # past this window, never-succeeded is still broken.
                 warming = (now - self.created_ts) <= stale_after
                 broken = not warming
-            return {
+            snap = {
                 "name": self.name,
                 "refreshIntervalSec": self.refresh_interval_sec,
                 "warming": warming,
@@ -153,6 +161,9 @@ class Feed:
                 "error": self.error,
                 "data": self.data,
             }
+            if self.screen_activity is not None:
+                snap["screenActivity"] = self.screen_activity
+            return snap
 
 
 def herdr_feed_key(machine):
@@ -728,6 +739,10 @@ def poll_pane_screen_remote(machine):
                 screens, motion_history, time.time(),
                 live_keys={sanitize_pane_id(herdr_transport.make_pane_key(machine, pid))
                            for pid in pane_ids})
+            # From history, not `screens`: a pane whose read failed this sweep
+            # keeps its clock, while its screen stays absent (never stale
+            # content standing in for a read).
+            feed.set_screen_activity(pane_screen_signals.remembered_activity(motion_history))
             if not screens:
                 feed.set_error(
                     f"none of {len(pane_ids)} panes on {machine} could be read",

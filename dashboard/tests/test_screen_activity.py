@@ -9,7 +9,7 @@ expose it as `screenActivitySec`, and ranking reads one accessor
 (`personas.row_activity_sec`, mirrored by Swift `AgentSnapshot.activitySeconds`).
 
 Bar: the clock moves only when the screen content changes; an unchanged poll or
-a dropped read keeps it; a pane never seen changing (first look, or idle since a
+a dropped read keeps it (clock only, never the screen); a pane never seen changing (first look, or idle since a
 dashboard restart) is None = oldest; it never makes a row look hook-backed.
 """
 import os
@@ -71,6 +71,24 @@ check("an entry with no stamp at all reads None",
       signals.screen_activity_sec({"state": "ACTIVE"}, T0), None)
 
 
+print("== a failed read keeps the clock (published from history), never the screen ==")
+hist = {}
+signals.stamp_sweep_motion({"a": {"digest": "1"}, "b": {"digest": "1"}}, hist, T0, live_keys={"a", "b"})
+signals.stamp_sweep_motion({"a": {"digest": "2"}, "b": {"digest": "1"}}, hist, T0 + 15, live_keys={"a", "b"})
+failed_sweep = {"b": {"digest": "1"}}  # "a"'s read failed this sweep
+signals.stamp_sweep_motion(failed_sweep, hist, T0 + 30, live_keys={"a", "b"})
+activity = signals.remembered_activity(hist)
+check("failed read: pane keeps its last-change clock, measured to now",
+      signals.screen_activity_sec(activity.get("a"), T0 + 40), 25.0)
+check("failed read: the published screens still lack the pane (no stale content)",
+      "a" in failed_sweep, False)
+check("never seen changing: left out of the activity map (stays None)",
+      ("b" in activity, signals.screen_activity_sec(activity.get("b"), T0 + 40)), (False, None))
+signals.stamp_sweep_motion({}, hist, T0 + 45, live_keys={"b"})
+check("closed pane: dropped from the activity map",
+      "a" in signals.remembered_activity(hist), False)
+
+
 print("== remote rows expose it; local rows and hook fields are untouched ==")
 
 
@@ -97,11 +115,19 @@ snap["paneScreen:air-m1"] = empty_feed()
 busy_sid = feeds.sanitize_pane_id(herdr_transport.make_pane_key("air-m1", "w2:p1"))
 idle_sid = feeds.sanitize_pane_id(herdr_transport.make_pane_key("air-m1", "w2:p2"))
 recent_change = time.time() - 30
+failed_sid = feeds.sanitize_pane_id(herdr_transport.make_pane_key("air-m1", "w2:p3"))
+snap["herdr:air-m1"]["data"]["agents"].append(
+    {"pane_id": "w2:p3", "tab_id": "w2:t3", "agent": "claude"})
+# w2:p3's read failed this sweep: absent from `data`, clock kept in screenActivity.
 snap["paneScreen:air-m1"]["data"] = {
     busy_sid: {"state": "ACTIVE", "digest": "d1", "motionKnown": True,
                "changedAt": recent_change, "changeObserved": True},
     idle_sid: {"state": "WAITING", "digest": "d2", "motionKnown": True,
                "changedAt": recent_change, "changeObserved": False},
+}
+snap["paneScreen:air-m1"]["screenActivity"] = {
+    busy_sid: {"changedAt": recent_change, "changeObserved": True},
+    failed_sid: {"changedAt": recent_change - 60, "changeObserved": True},
 }
 
 _ORIG_MACHINES = dict(feeds.MACHINES)
@@ -122,6 +148,24 @@ check("Air row never seen changing: screenActivitySec None", idle["screenActivit
 check("Air row still has no hook data", (busy["hasHookData"], busy["hookSinceSec"], busy["hookState"]),
       (False, None, None))
 check("local row: screenActivitySec None (it has the hook clock)", local["screenActivitySec"], None)
+failed = rows["air-m1:w2:p3"]
+check("Air row whose read failed: keeps its clock (~90s), not None",
+      failed["screenActivitySec"] is not None and 89 <= failed["screenActivitySec"] <= 100, True)
+check("Air row whose read failed: no screen reading (no stale state/question/permission)",
+      (failed["screenState"], failed["screenSignal"], failed["screenQuestion"], failed["screenPermission"]),
+      (None, None, None, None))
+
+
+print("== the remote feed publishes the clock beside its screens ==")
+f = feeds.Feed("paneScreen:x", refresh_interval_sec=15)
+check("not published -> no screenActivity key (local feed shape unchanged)",
+      "screenActivity" in f.snapshot(), False)
+f.set_screen_activity({"k": {"changedAt": T0, "changeObserved": True}})
+f.set_error("none of 1 panes on x could be read")
+check("published even when the sweep's reads all failed",
+      f.snapshot()["screenActivity"], {"k": {"changedAt": T0, "changeObserved": True}})
+check("...and that failed sweep is still an error, not a success",
+      f.snapshot()["lastSuccessTs"], None)
 
 
 print("== ranking reads hook clock first, then the screen clock ==")

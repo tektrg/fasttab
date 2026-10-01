@@ -426,8 +426,12 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
   (Edit/MultiEdit/Write/NotebookEdit) show `- old` / `+ new` lines after
   the path; a hook row's timer counts from the prompt, not the file status.
 - Hook fails open: any error -> exit 0, no stdout (~0.25s); dashboard down -> re-send (below) or, when not eligible, the same fast exit.
-  Env `AGENTBAR_DASHBOARD_URL` (default :4711). NOT installed anywhere yet;
-  install = `PermissionRequest` matcher `*`, timeout 86400.
+  Env `AGENTBAR_DASHBOARD_URL` (default :4711). Installed on the **Pro only**
+  (`~/.claude/settings.json` `PermissionRequest` matcher `*`, timeout 86400 →
+  `dashboard/hooks/agentbar-permission-hook.py`); **removed from the Air**
+  2026-10-01 (Pro dashboard can't match Air sessions; Air prompts use the
+  screen path) — see "Air agents have no permission hook" in
+  `Sources/AgentBar/AGENTS.md`. Install is manual.
 - Gotchas: **first decision wins** — Claude runs hooks in parallel with its
   own prompt, and whoever answers first wins (a later AgentBar answer is
   moot). **No signal when answered elsewhere** — the hook is never told; the

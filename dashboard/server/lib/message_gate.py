@@ -5,13 +5,16 @@ permission boxes, and the dashboard reads them only by screen heuristics
 (`other_tui_screens.py`, wording partly guessed). Free text typed into such
 a pane can land in a box nobody saw and answer it. AgentBar therefore only
 messages a pane row when it has hook data (`RowButtons.messageRoute`,
-`agent.hasHookData`), and hook data only ever comes from Claude's hooks.
+`agent.hasHookData`; hook data only ever comes from Claude's hooks) or when
+this server says `messageVia == "pane"` with no `messageRefusal` (since
+2026-10-01, for Air / remote Claude panes; same as the web remote's
+`canMessage`).
 
 This module is that rule on the server, so EVERY client (AgentBar, the web
 UI, the phone PWA, a curl) gets it on `POST /api/session/message`
-(Compact/Clear go through the same route). It is a strict subset of
-AgentBar's own gate — a row AgentBar would message (hasHookData) always
-passes here — so AgentBar never sees a new refusal.
+(Compact/Clear go through the same route), and its verdict is what
+`messageRefusal` reports. A row with hook data always passes here, so
+AgentBar never sees a new refusal.
 
 Rule: a herdr pane row whose `agentKind` (herdr's `agent` field) is not
 `claude` and that has no hook data is refused. A herdr row with no

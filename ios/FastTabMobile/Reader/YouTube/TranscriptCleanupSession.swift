@@ -1,5 +1,6 @@
 import Foundation
 import IndieTextCleanup
+import OSLog
 import UIKit
 
 /// On-device clean-up of the open transcript (engine: IndieTextCleanup). Runs while the reader is
@@ -47,6 +48,14 @@ final class TranscriptCleanupSession: ObservableObject {
     private var activeObserver: NSObjectProtocol?
 
     static let showsCleanKey = "reader.transcriptShowsClean"
+    private static let logger = Logger(subsystem: "app.theindie.FastTabMobile", category: "transcriptCleanup")
+
+    private func log(_ message: String) {
+        Self.logger.info("\(self.videoID, privacy: .public): \(message, privacy: .public)")
+        #if DEBUG
+        print("[transcript-cleanup] \(videoID): \(message)")
+        #endif
+    }
 
     init(videoID: String, originals: [String],
          cleaner: any TextCleaning = FoundationModelTextCleaner(),
@@ -87,6 +96,7 @@ final class TranscriptCleanupSession: ObservableObject {
 
     /// The reader opened (or came back): start or resume cleaning what is missing.
     func open() {
+        log("open, \(cleaned.filter { $0 != nil }.count)/\(originals.count) saved")
         isOpen = true
         if activeObserver == nil {
             activeObserver = NotificationCenter.default.addObserver(
@@ -100,6 +110,7 @@ final class TranscriptCleanupSession: ObservableObject {
 
     /// The reader closed: stop asking the model. Saved progress stays.
     func close() {
+        log("close")
         isOpen = false
         retryTask?.cancel()
         retryTask = nil
@@ -127,6 +138,7 @@ final class TranscriptCleanupSession: ObservableObject {
         guard isOpen, canClean, runTask == nil, !isComplete,
               isAppActive() else { return }
         let pending = cleaned.indices.filter { cleaned[$0] == nil }
+        log("run: \(pending.count) paragraphs")
         let run = ChunkedTextCleanup(items: pending.map { originals[$0] },
                                      instruction: TranscriptCleanup.instruction,
                                      cleaner: cleaner,
@@ -150,6 +162,7 @@ final class TranscriptCleanupSession: ObservableObject {
 
     private func settle(_ items: [CleanedItem], from finishedRun: ChunkedTextCleanup) {
         guard finishedRun === run else { return }
+        log("settled \(items.map { "\($0.index):\($0.fallback.map { String(describing: $0) } ?? "clean")" }.joined(separator: " "))")
         var changed = false
         for item in items where item.isSettled && item.index < runIndices.count {
             cleaned[runIndices[item.index]] = item.isCleaned ? TranscriptCleanup.polish(item.text) : item.text
@@ -168,6 +181,7 @@ final class TranscriptCleanupSession: ObservableObject {
     /// limit): the rest resumes on the next foreground or open.
     private func runFinished(_ finishedRun: ChunkedTextCleanup) {
         guard finishedRun === run else { return }
+        log("run ended, \(cleaned.filter { $0 != nil }.count)/\(originals.count) saved")
         run = nil
         runTask = nil
         isCleaning = false
@@ -179,6 +193,7 @@ final class TranscriptCleanupSession: ObservableObject {
     private func scheduleRetryIfNeeded() {
         guard isOpen, canClean, !isComplete, retryTask == nil else { return }
         let delay = retryDelay
+        log("retry in \(delay)")
         retryDelay = min(retryDelay * 2, Self.maxRetryDelay)
         retryTask = Task { [weak self] in
             try? await Task.sleep(for: delay)

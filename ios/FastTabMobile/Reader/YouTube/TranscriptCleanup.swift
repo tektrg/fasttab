@@ -10,7 +10,7 @@ enum TranscriptCleanup {
 
     /// Bump when the instruction changes in a way worth re-cleaning saved videos for
     /// (TranscriptCleanupStore drops records made under another version).
-    static let instructionVersion = 3
+    static let instructionVersion = 4
 
     /// Filler and opener removal shortens more than plain punctuation does, so the floor sits
     /// at half the original length (a summary still lands well under it).

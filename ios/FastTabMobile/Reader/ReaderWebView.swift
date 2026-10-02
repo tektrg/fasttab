@@ -35,15 +35,21 @@ public struct ReaderWebView: UIViewRepresentable {
     public var onHighlightTapped: ((String) -> Void)?
     /// Called as the user scrolls: `true` to hide the navigation header, `false` to show it.
     public var onHeaderHiddenChanged: ((Bool) -> Void)?
+    /// Read Aloud progress to highlight; nil when Read Aloud has never started.
+    var readAloud: ReadAloudPageState?
+    /// The user started dragging the page (Read Aloud pauses auto-scroll).
+    var onUserBeganScrolling: (() -> Void)?
 
-    public init(
+    init(
         viewModel: ReaderViewModel,
         article: ReaderArticle,
         systemIsDark: Bool = false,
         onTextSelected: ((String, String) -> Void)? = nil,
         onTextDeselected: (() -> Void)? = nil,
         onHighlightTapped: ((String) -> Void)? = nil,
-        onHeaderHiddenChanged: ((Bool) -> Void)? = nil
+        onHeaderHiddenChanged: ((Bool) -> Void)? = nil,
+        readAloud: ReadAloudPageState? = nil,
+        onUserBeganScrolling: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.article = article
@@ -52,6 +58,8 @@ public struct ReaderWebView: UIViewRepresentable {
         self.onTextDeselected = onTextDeselected
         self.onHighlightTapped = onHighlightTapped
         self.onHeaderHiddenChanged = onHeaderHiddenChanged
+        self.readAloud = readAloud
+        self.onUserBeganScrolling = onUserBeganScrolling
     }
 
     // MARK: - UIViewRepresentable
@@ -119,6 +127,12 @@ public struct ReaderWebView: UIViewRepresentable {
             context.coordinator.lastVideoVisible = viewModel.isVideoVisible
             webView.evaluateJavaScript(
                 "window.ftSetVideoVisible && ftSetVideoVisible(\(viewModel.isVideoVisible));", completionHandler: nil)
+        }
+
+        context.coordinator.onUserBeganScrolling = onUserBeganScrolling
+        if let readAloud {
+            context.coordinator.readAloudSync.webView = webView
+            context.coordinator.readAloudSync.apply(readAloud)
         }
 
         // Transcript clean-up: on a new revision, push the paragraphs whose text or version changed.
@@ -322,6 +336,8 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     var pushedTranscript: [Int: TranscriptCleanupSession.ParagraphText] = [:]
 
     var pushedTranscriptRevision: Int?
+    @MainActor lazy var readAloudSync = ReadAloudPageSync()
+    var onUserBeganScrolling: (() -> Void)?
     /// What the page was loaded with (bootstrap). Pushes sent before the page is ready are
     /// lost, so `ready` re-sends whatever differs from this.
     private var loadedTranscript: [Int: TranscriptCleanupSession.ParagraphText] = [:]
@@ -424,6 +440,10 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
         } else if delta < 0 {
             setHeaderHidden(false)
         }
+    }
+
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        onUserBeganScrolling?()
     }
 
     private func setHeaderHidden(_ hidden: Bool) {

@@ -9,10 +9,16 @@ final class ReadAloudController: ObservableObject {
     enum PlaybackState: Equatable { case idle, playing, paused }
 
     @Published private(set) var state: PlaybackState = .idle
+    /// Word being spoken; nil while paused or stopped (the page clears its highlight).
+    @Published private(set) var spokenPosition: ReadAloudSpokenPosition?
+    /// Set when the user scrolls by hand during playback; "Back to reading" clears it.
+    @Published var isAutoScrollPaused = false
+    /// The chunks of the current session, for mapping `spokenPosition` onto the page.
+    private(set) var chunks: [String] = []
+    private var sessionID = 0
 
     private let engine: SpeechEngine
     private let settingsStore: ReaderReadingSettingsStore
-    private var chunks: [String] = []
     private var chunkIndex = 0
     private var articleTitle = ""
     private var siteName = ""
@@ -47,6 +53,8 @@ final class ReadAloudController: ObservableObject {
             among: engine.availableVoices
         )?.id
         chunkIndex = 0
+        sessionID += 1
+        isAutoScrollPaused = false
         activateAudioSession()
         registerRemoteCommands()
         state = .playing
@@ -57,6 +65,7 @@ final class ReadAloudController: ObservableObject {
         guard state == .playing else { return }
         engine.pause()
         state = .paused
+        spokenPosition = nil
         updateNowPlaying()
     }
 
@@ -73,6 +82,8 @@ final class ReadAloudController: ObservableObject {
         guard state != .idle else { return }
         engine.stop()
         state = .idle
+        spokenPosition = nil
+        isAutoScrollPaused = false
         chunks = []
         unregisterRemoteCommands()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -88,7 +99,12 @@ final class ReadAloudController: ObservableObject {
         engine.speak(
             chunks[chunkIndex],
             voiceIdentifier: voiceIdentifier,
-            rate: settingsStore.settings.effectiveSpeechRate
+            rate: settingsStore.settings.effectiveSpeechRate,
+            progress: { [weak self] wordRange in
+                guard let self, self.state == .playing else { return }
+                self.spokenPosition = ReadAloudSpokenPosition(
+                    sessionID: self.sessionID, chunkIndex: self.chunkIndex, wordRange: wordRange)
+            }
         ) { [weak self] in
             guard let self, self.state != .idle else { return }
             self.chunkIndex += 1

@@ -333,6 +333,9 @@
     z-index: 51;
   }
   #ft-live-pill.ft-visible { display: block; }
+/* Read Aloud: CSS Custom Highlight API (no DOM rewrite). --link follows the reader theme. */
+::highlight(ft-read-para) { background-color: color-mix(in srgb, var(--link) 10%, transparent); }
+::highlight(ft-read-word) { background-color: color-mix(in srgb, var(--link) 38%, transparent); }
 </style>
 </head>
 <body>
@@ -1115,6 +1118,71 @@ function ftAnchorAt(start, len, bounds) {
 
   setLarge(!!article.videoLarge, false);
   if (article.videoVisible) setVisible(true, false);
+})();
+</script>
+<script>
+// Read Aloud (driven from Swift, see ReaderWebView.Coordinator + ReadAloudTextLocator).
+// ftReadAloudText() returns the title + body text with whitespace collapsed; Swift finds
+// each spoken chunk in it and sends back UTF-16 offsets into that same string.
+(function() {
+  var map = null; // { nodes: [Text], offsets: [Int] } per normalised UTF-16 unit
+  var supportsHighlights = !!(window.CSS && CSS.highlights && window.Highlight);
+
+  function buildMap() {
+    var text = '', nodes = [], offsets = [], lastWasSpace = true;
+    ['reader-title', 'reader-body'].forEach(function(id) {
+      var root = document.getElementById(id);
+      if (!root) return;
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+        var data = node.data;
+        for (var i = 0; i < data.length; i++) {
+          var isSpace = /\s/.test(data[i]);
+          if (isSpace && lastWasSpace) continue;
+          text += isSpace ? ' ' : data[i];
+          nodes.push(node);
+          offsets.push(i);
+          lastWasSpace = isSpace;
+        }
+      }
+    });
+    map = { nodes: nodes, offsets: offsets };
+    return text;
+  }
+
+  function domRange(start, length) {
+    if (!map || length <= 0 || start < 0 || start + length > map.nodes.length) return null;
+    var end = start + length - 1;
+    var range = document.createRange();
+    range.setStart(map.nodes[start], map.offsets[start]);
+    range.setEnd(map.nodes[end], map.offsets[end] + 1);
+    return range;
+  }
+
+  // Keep the spoken word roughly in the upper third of the screen.
+  function keepInView(range) {
+    var rect = range.getBoundingClientRect();
+    var h = window.innerHeight;
+    if (rect.top >= h * 0.15 && rect.bottom <= h * 0.6) return;
+    window.scrollBy({ top: rect.top - h / 3, behavior: 'smooth' });
+  }
+
+  window.ftReadAloudText = buildMap;
+
+  window.ftReadAloudShow = function(paraStart, paraLength, wordStart, wordLength, autoScroll) {
+    var para = domRange(paraStart, paraLength), word = domRange(wordStart, wordLength);
+    if (supportsHighlights) {
+      if (para) CSS.highlights.set('ft-read-para', new Highlight(para)); else CSS.highlights.delete('ft-read-para');
+      if (word) CSS.highlights.set('ft-read-word', new Highlight(word)); else CSS.highlights.delete('ft-read-word');
+    }
+    if (autoScroll && (word || para)) keepInView(word || para);
+  };
+
+  window.ftReadAloudClear = function() {
+    if (!supportsHighlights) return;
+    CSS.highlights.delete('ft-read-para');
+    CSS.highlights.delete('ft-read-word');
+  };
 })();
 </script>
 </body>

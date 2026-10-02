@@ -7,8 +7,16 @@ import AVFoundation
 protocol SpeechEngine: AnyObject {
     /// Voices this engine can speak with (shown in the voice picker).
     var availableVoices: [ReadAloudVoiceOption] { get }
-    /// Speaks one chunk; `completion` fires once it finishes naturally (not after `stop`).
-    func speak(_ text: String, voiceIdentifier: String?, rate: Double, completion: @escaping @MainActor () -> Void)
+    /// Speaks one chunk. `progress` reports the UTF-16 range of the word about to be
+    /// spoken (drives live highlighting; a cloud engine can derive it from timestamps).
+    /// `completion` fires once the chunk finishes naturally (not after `stop`).
+    func speak(
+        _ text: String,
+        voiceIdentifier: String?,
+        rate: Double,
+        progress: @escaping @MainActor (NSRange) -> Void,
+        completion: @escaping @MainActor () -> Void
+    )
     func pause()
     func resume()
     func stop()
@@ -18,6 +26,7 @@ protocol SpeechEngine: AnyObject {
 @MainActor
 final class AppleSpeechEngine: NSObject, SpeechEngine {
     private let synthesizer = AVSpeechSynthesizer()
+    private var progress: (@MainActor (NSRange) -> Void)?
     private var completion: (@MainActor () -> Void)?
 
     override init() {
@@ -38,13 +47,20 @@ final class AppleSpeechEngine: NSObject, SpeechEngine {
         }
     }
 
-    func speak(_ text: String, voiceIdentifier: String?, rate: Double, completion: @escaping @MainActor () -> Void) {
+    func speak(
+        _ text: String,
+        voiceIdentifier: String?,
+        rate: Double,
+        progress: @escaping @MainActor (NSRange) -> Void,
+        completion: @escaping @MainActor () -> Void
+    ) {
         let utterance = AVSpeechUtterance(string: text)
         if let voiceIdentifier {
             utterance.voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier)
         }
         utterance.rate = Self.utteranceRate(forMultiplier: rate)
         utterance.postUtteranceDelay = 0.25 // a breath between paragraphs
+        self.progress = progress
         self.completion = completion
         synthesizer.speak(utterance)
     }
@@ -53,6 +69,7 @@ final class AppleSpeechEngine: NSObject, SpeechEngine {
     func resume() { synthesizer.continueSpeaking() }
 
     func stop() {
+        progress = nil
         completion = nil
         synthesizer.stopSpeaking(at: .immediate)
     }
@@ -73,6 +90,7 @@ final class AppleSpeechEngine: NSObject, SpeechEngine {
 
     fileprivate func utteranceDidFinish() {
         let finished = completion
+        progress = nil
         completion = nil
         finished?()
     }
@@ -81,5 +99,13 @@ final class AppleSpeechEngine: NSObject, SpeechEngine {
 extension AppleSpeechEngine: AVSpeechSynthesizerDelegate {
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in self.utteranceDidFinish() }
+    }
+
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        willSpeakRangeOfSpeechString characterRange: NSRange,
+        utterance: AVSpeechUtterance
+    ) {
+        Task { @MainActor in self.progress?(characterRange) }
     }
 }

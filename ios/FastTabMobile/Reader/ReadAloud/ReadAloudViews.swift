@@ -19,6 +19,23 @@ struct ReadAloudButton: View {
     private var isPlaying: Bool { controller.state == .playing }
 }
 
+/// Shown after the user scrolls away during Read Aloud; resumes following the spoken word.
+struct ReadAloudBackToReadingButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Back to reading", systemImage: "arrow.down.to.line")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, DS.Space.lg)
+                .padding(.vertical, DS.Space.sm)
+                .background(.regularMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .dsShadow(.floating)
+    }
+}
+
 /// "Read Aloud" section of the reading settings sheet: speed + voice.
 struct ReadAloudSettingsSection: View {
     @ObservedObject var store: ReaderReadingSettingsStore

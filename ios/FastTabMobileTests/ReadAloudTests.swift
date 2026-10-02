@@ -80,6 +80,45 @@ final class ReadAloudTests: XCTestCase {
         XCTAssertNil(ReadAloudVoiceSelector.select(preferredIdentifier: nil, languageCode: "ja", among: voices))
     }
 
+    // MARK: - Chunk ↔ page text mapping
+
+    private func position(_ chunk: Int, _ location: Int, _ length: Int) -> ReadAloudSpokenPosition {
+        ReadAloudSpokenPosition(sessionID: 1, chunkIndex: chunk, wordRange: NSRange(location: location, length: length))
+    }
+
+    func testChunksMapInReadingOrderIncludingRepeats() {
+        // Page text as `ftReadAloudText` builds it: title + body, whitespace collapsed, no separators.
+        let page = "Title Hello world.Hello world.Line break"
+        let chunks = ["Title", "Hello world.", "Hello world.", "Line", "break"]
+        let locator = ReadAloudTextLocator(documentText: page, chunks: chunks)
+        XCTAssertEqual(locator.chunkStarts, [0, 6, 18, 30, 35])
+    }
+
+    func testWordRangeIsOffsetByChunkStart() {
+        let locator = ReadAloudTextLocator(documentText: "My Title Hello brave world.", chunks: ["My Title", "Hello brave world."])
+        XCTAssertEqual(
+            locator.documentRanges(for: position(1, 6, 5)),
+            ReadAloudDocumentRanges(paragraph: NSRange(location: 9, length: 18), word: NSRange(location: 15, length: 5))
+        )
+    }
+
+    func testOffsetsAreUTF16LikeJavaScript() {
+        let locator = ReadAloudTextLocator(documentText: "😀 emoji then text", chunks: ["then text"])
+        XCTAssertEqual(locator.chunkStarts, [9]) // the emoji is 2 UTF-16 units
+    }
+
+    func testMissingChunkHasNoRangeAndDoesNotBreakLaterChunks() {
+        let locator = ReadAloudTextLocator(documentText: "Alpha Gamma", chunks: ["Alpha", "Beta (re-cleaned)", "Gamma"])
+        XCTAssertEqual(locator.chunkStarts, [0, nil, 6])
+        XCTAssertNil(locator.documentRanges(for: position(1, 0, 4)))
+        XCTAssertNil(locator.documentRanges(for: position(9, 0, 1)))
+    }
+
+    func testWordRangeIsClampedToChunk() {
+        let locator = ReadAloudTextLocator(documentText: "Short", chunks: ["Short"])
+        XCTAssertEqual(locator.documentRanges(for: position(0, 3, 50))?.word, NSRange(location: 3, length: 2))
+    }
+
     // MARK: - Settings
 
     func testSettingsSavedBeforeReadAloudStillDecode() throws {

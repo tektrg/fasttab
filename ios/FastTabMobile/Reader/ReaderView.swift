@@ -117,6 +117,10 @@ public struct ReaderView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(10)
                     }
+                    if readAloud.isAutoScrollPaused, readAloud.state != .idle {
+                        ReadAloudBackToReadingButton { readAloud.isAutoScrollPaused = false }
+                            .transition(.opacity)
+                    }
                     if isLoaded {
                         bottomControlBar
                     }
@@ -200,6 +204,14 @@ public struct ReaderView: View {
             },
             onHeaderHiddenChanged: { hidden in
                 isHeaderHidden = hidden
+            },
+            readAloud: ReadAloudPageState(
+                position: readAloud.spokenPosition,
+                chunks: readAloud.chunks,
+                autoScroll: !readAloud.isAutoScrollPaused
+            ),
+            onUserBeganScrolling: {
+                if readAloud.state == .playing { readAloud.isAutoScrollPaused = true }
             }
         )
         .ignoresSafeArea(edges: .bottom)

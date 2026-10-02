@@ -8,9 +8,12 @@ public struct ReaderSettingsSheet: View {
     @ObservedObject var store: ReaderReadingSettingsStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    /// Voices for the open article's language; empty hides the voice picker.
+    let readAloudVoices: [ReadAloudVoiceOption]
 
-    public init(store: ReaderReadingSettingsStore = .shared) {
+    init(store: ReaderReadingSettingsStore = .shared, readAloudVoices: [ReadAloudVoiceOption] = []) {
         self.store = store
+        self.readAloudVoices = readAloudVoices
     }
 
     public var body: some View {
@@ -20,6 +23,7 @@ public struct ReaderSettingsSheet: View {
                 sizeSection
                 fontSection
                 appearanceSection
+                ReadAloudSettingsSection(store: store, voices: readAloudVoices)
                 resetSection
             }
             .dsListStyle()

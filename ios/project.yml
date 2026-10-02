@@ -85,6 +85,7 @@ targets:
         # Lets a CloudKit silent push wake the app while it is off screen.
         # Without it a push only lands when the app is already running.
         UIBackgroundModes:
+          - audio
           - remote-notification
         # `fasttab://` deep links from the home-screen widgets (Shared/Widgets/WidgetDeepLink.swift).
         CFBundleURLTypes:

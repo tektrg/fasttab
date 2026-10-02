@@ -23,6 +23,7 @@ public struct ReaderNavigationItem: Identifiable, Hashable {
 public struct ReaderView: View {
 
     @StateObject private var viewModel: ReaderViewModel
+    @StateObject private var readAloud = ReadAloudController()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
@@ -128,6 +129,7 @@ public struct ReaderView: View {
             await viewModel.extractIfNeeded()
         }
         .onDisappear {
+            readAloud.stop()
             viewModel.flushPendingProgress()
             viewModel.readerDidClose()
         }
@@ -297,9 +299,13 @@ public struct ReaderView: View {
                     .readerBarTapTarget()
             }
             .sheet(isPresented: $showReadingSettings) {
-                ReaderSettingsSheet()
+                ReaderSettingsSheet(readAloudVoices: readAloudVoicesForCurrentArticle)
             }
             .accessibilityLabel("Reading settings")
+
+            if case .loaded(let article) = viewModel.loadState {
+                ReadAloudButton(controller: readAloud, article: article)
+            }
 
             if case .loaded(let article) = viewModel.loadState, article.youtubeVideoID != nil {
                 Button {
@@ -390,6 +396,13 @@ public struct ReaderView: View {
         .offset(y: isHeaderHidden ? 120 : 0)
         .opacity(isHeaderHidden ? 0 : 1)
         .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)
+    }
+
+    /// Voices for the loaded article's language, for the settings sheet's voice picker.
+    private var readAloudVoicesForCurrentArticle: [ReadAloudVoiceOption] {
+        guard case .loaded(let article) = viewModel.loadState,
+              let language = ReadAloudText.dominantLanguage(of: ReadAloudText.chunks(for: article)) else { return [] }
+        return ReadAloudVoiceSelector.voices(for: language, among: readAloud.availableVoices)
     }
 
     // MARK: - Highlights Sheet

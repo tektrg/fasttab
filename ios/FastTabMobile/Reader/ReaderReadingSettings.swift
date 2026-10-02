@@ -135,6 +135,10 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
     public static let defaultFontSize = 18
     public static let defaultLightBackgroundHex = "#FAFAF8"
     public static let defaultDarkBackgroundHex = "#141414"
+    public static let defaultSpeechRate = 1.0
+    public static let speechRateOptions: [Double] = [0.75, 1.0, 1.25, 1.5, 2.0]
+
+    public var effectiveSpeechRate: Double { speechRate ?? Self.defaultSpeechRate }
 
     public var fontSize: Int
     public var fontFamily: ReaderFontFamily
@@ -142,6 +146,12 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
     public var lineHeight: ReaderLineHeight
     public var lightBackgroundHex: String
     public var darkBackgroundHex: String
+    /// Read Aloud speed multiplier (1.0 = normal). Optional so settings saved
+    /// before Read Aloud existed still decode; nil reads as `defaultSpeechRate`.
+    public var speechRate: Double?
+    /// Read Aloud voice the user picked (`AVSpeechSynthesisVoice.identifier`).
+    /// Nil = automatic (best installed voice for the article's language).
+    public var speechVoiceIdentifier: String?
     public var updatedAt: Date
 
     public static var defaults: Self {
@@ -163,6 +173,8 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
         lineHeight: ReaderLineHeight = .regular,
         lightBackgroundHex: String = defaultLightBackgroundHex,
         darkBackgroundHex: String = defaultDarkBackgroundHex,
+        speechRate: Double? = nil,
+        speechVoiceIdentifier: String? = nil,
         updatedAt: Date = Date()
     ) {
         self.fontSize = min(max(fontSize, Self.fontSizeRange.lowerBound), Self.fontSizeRange.upperBound)
@@ -171,6 +183,8 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
         self.lineHeight = lineHeight
         self.lightBackgroundHex = Self.normalizedHex(lightBackgroundHex) ?? Self.defaultLightBackgroundHex
         self.darkBackgroundHex = Self.normalizedHex(darkBackgroundHex) ?? Self.defaultDarkBackgroundHex
+        self.speechRate = speechRate
+        self.speechVoiceIdentifier = speechVoiceIdentifier
         self.updatedAt = updatedAt
     }
 
@@ -385,6 +399,15 @@ public final class ReaderReadingSettingsStore: ObservableObject {
     public func setDarkBackground(hex: String) {
         guard let normalized = ReaderReadingSettings.normalizedHex(hex) else { return }
         update { $0.darkBackgroundHex = normalized }
+    }
+
+    public func setSpeechRate(_ rate: Double) {
+        update { $0.speechRate = rate == ReaderReadingSettings.defaultSpeechRate ? nil : rate }
+    }
+
+    /// Nil = automatic voice for the article's language.
+    public func setSpeechVoice(identifier: String?) {
+        update { $0.speechVoiceIdentifier = identifier }
     }
 
     public func resetToDefaults() {

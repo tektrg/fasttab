@@ -321,7 +321,7 @@ final class NaturalVoiceEngineTests: XCTestCase {
         server.script("One.", .init(status: 503, body: FakeTTSServer.json(["code": "tts_disabled"])))
         speak(from: 1)
         await waitUntil { !self.device.runs.isEmpty }
-        XCTAssertEqual(notices, ["Natural voice unavailable, using device voice"])
+        XCTAssertEqual(notices, ["Natural voice unavailable (HTTP 503 tts_disabled), using device voice"])
         XCTAssertEqual(device.runs[0].chunks[1], "One. Two.")
         server.script("One.", .init(status: 200, body: FakeTTSServer.audio("One.")))
         speak(from: 1, generation: 2)

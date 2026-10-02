@@ -139,6 +139,19 @@ final class ReadAloudTests: XCTestCase {
         XCTAssertNil(locator.documentRanges(for: position(9, 0, 1)))
     }
 
+    func testTappedOffsetMapsToTheChunkContainingIt() {
+        // Page text as ftReadAloudText builds it; "let x = 1" is a code block no chunk speaks.
+        let page = "Title First para.let x = 1Second para."
+        let locator = ReadAloudTextLocator(documentText: page, chunks: ["Title", "First para.", "Second para."])
+        XCTAssertEqual(locator.chunkIndex(containing: 0), 0)
+        XCTAssertEqual(locator.chunkIndex(containing: 6), 1)   // "F"
+        XCTAssertEqual(locator.chunkIndex(containing: 16), 1)  // final "."
+        XCTAssertNil(locator.chunkIndex(containing: 5))        // space between title and body
+        XCTAssertNil(locator.chunkIndex(containing: 20))       // inside the code block
+        XCTAssertEqual(locator.chunkIndex(containing: 27), 2)
+        XCTAssertNil(locator.chunkIndex(containing: 999))
+    }
+
     func testWordRangeIsClampedToChunk() {
         let locator = ReadAloudTextLocator(documentText: "Short", chunks: ["Short"])
         XCTAssertEqual(locator.documentRanges(for: position(0, 3, 50))?.word, NSRange(location: 3, length: 2))

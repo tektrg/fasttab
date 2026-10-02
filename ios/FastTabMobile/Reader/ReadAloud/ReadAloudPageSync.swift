@@ -5,10 +5,13 @@ struct ReadAloudPageState: Equatable {
     var position: ReadAloudSpokenPosition?
     var chunks: [String]
     var autoScroll: Bool
+    /// Tapping a paragraph jumps there (only once Read Aloud was used in this article).
+    var tapToJumpEnabled: Bool
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         // `chunks` only change with a new session, which `position.sessionID` already captures.
         lhs.position == rhs.position && lhs.autoScroll == rhs.autoScroll
+            && lhs.tapToJumpEnabled == rhs.tapToJumpEnabled
     }
 }
 
@@ -28,6 +31,9 @@ final class ReadAloudPageSync {
 
     func apply(_ state: ReadAloudPageState) {
         guard state != lastState else { return }
+        if state.tapToJumpEnabled != lastState?.tapToJumpEnabled {
+            evaluate("window.ftReadAloudTapEnabled = \(state.tapToJumpEnabled);", purpose: "tap flag")
+        }
         lastState = state
         guard let position = state.position else {
             evaluate("window.ftReadAloudClear && ftReadAloudClear();", purpose: "clear")

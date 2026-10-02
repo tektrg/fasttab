@@ -23,6 +23,9 @@ final class ReadAloudController: ObservableObject {
     private(set) var chunks: [String] = []
     /// Paragraph being spoken (or about to resume).
     private(set) var currentChunk = 0
+    /// True once Read Aloud was started in this reader; only then does tapping a
+    /// paragraph start/jump playback (no surprise speech on an ordinary tap).
+    @Published private(set) var hasBeenUsed = false
 
     private let engine: SpeechEngine
     private let settingsStore: ReaderReadingSettingsStore
@@ -65,7 +68,7 @@ final class ReadAloudController: ObservableObject {
         }
     }
 
-    func start(article: ReaderArticle) {
+    func start(article: ReaderArticle, fromChunk startChunk: Int = 0) {
         stop()
         chunks = ReadAloudText.chunks(for: article)
         guard !chunks.isEmpty else { return }
@@ -78,7 +81,30 @@ final class ReadAloudController: ObservableObject {
             registerRemoteCommands()
             observeAudioSession()
         }
-        runEngine(from: 0, settings: settingsStore.settings)
+        hasBeenUsed = true
+        runEngine(from: min(max(startChunk, 0), chunks.count - 1), settings: settingsStore.settings)
+    }
+
+    /// Tap on the page: `pageText`/`offset` come from the page's normalised text map.
+    /// Plays from the tapped paragraph whether playing, paused or stopped. Ignored until
+    /// Read Aloud was used in this article, and for text no chunk speaks.
+    func handleTap(pageText: String, offset: Int, article: ReaderArticle) {
+        guard hasBeenUsed else { return }
+        let targetChunks = state == .idle ? ReadAloudText.chunks(for: article) : chunks
+        guard let chunk = ReadAloudTextLocator(documentText: pageText, chunks: targetChunks)
+            .chunkIndex(containing: offset) else { return }
+        jump(to: chunk, article: article)
+    }
+
+    func jump(to chunk: Int, article: ReaderArticle) {
+        readAloudLog.info("jump to chunk \(chunk) from \(String(describing: self.state))")
+        guard state != .idle, chunks.indices.contains(chunk) else {
+            start(article: article, fromChunk: chunk)
+            return
+        }
+        isAutoScrollPaused = false
+        if integratesWithSystem { activateAudioSession() }
+        runEngine(from: chunk, settings: settingsStore.settings)
     }
 
     func pause() {

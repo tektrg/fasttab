@@ -208,10 +208,14 @@ public struct ReaderView: View {
             readAloud: ReadAloudPageState(
                 position: readAloud.spokenPosition,
                 chunks: readAloud.chunks,
-                autoScroll: !readAloud.isAutoScrollPaused
+                autoScroll: !readAloud.isAutoScrollPaused,
+                tapToJumpEnabled: readAloud.hasBeenUsed
             ),
             onUserBeganScrolling: {
                 if readAloud.state == .playing { readAloud.isAutoScrollPaused = true }
+            },
+            onReadAloudTap: { pageText, offset in
+                readAloud.handleTap(pageText: pageText, offset: offset, article: article)
             }
         )
         .ignoresSafeArea(edges: .bottom)

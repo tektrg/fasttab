@@ -13,6 +13,7 @@ private enum JSMessage: String, CaseIterable {
     case videoVisibility  // { visible: Bool } — transcript page opened/closed its corner player
     case videoSize        // { large: Bool } — transcript player switched Corner ↔ Large
     case transcriptVisible // { first: Int, last: Int } — transcript paragraphs on screen
+    case readAloudTap     // { text: String, offset: Int } — paragraph tapped (Read Aloud jump)
 }
 
 // MARK: - ReaderWebView
@@ -39,6 +40,8 @@ public struct ReaderWebView: UIViewRepresentable {
     var readAloud: ReadAloudPageState?
     /// The user started dragging the page (Read Aloud pauses auto-scroll).
     var onUserBeganScrolling: (() -> Void)?
+    /// A paragraph was tapped: the page's normalised text + the tapped UTF-16 offset in it.
+    var onReadAloudTap: ((String, Int) -> Void)?
 
     init(
         viewModel: ReaderViewModel,
@@ -49,7 +52,8 @@ public struct ReaderWebView: UIViewRepresentable {
         onHighlightTapped: ((String) -> Void)? = nil,
         onHeaderHiddenChanged: ((Bool) -> Void)? = nil,
         readAloud: ReadAloudPageState? = nil,
-        onUserBeganScrolling: (() -> Void)? = nil
+        onUserBeganScrolling: (() -> Void)? = nil,
+        onReadAloudTap: ((String, Int) -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.article = article
@@ -60,6 +64,7 @@ public struct ReaderWebView: UIViewRepresentable {
         self.onHeaderHiddenChanged = onHeaderHiddenChanged
         self.readAloud = readAloud
         self.onUserBeganScrolling = onUserBeganScrolling
+        self.onReadAloudTap = onReadAloudTap
     }
 
     // MARK: - UIViewRepresentable
@@ -130,6 +135,7 @@ public struct ReaderWebView: UIViewRepresentable {
         }
 
         context.coordinator.onUserBeganScrolling = onUserBeganScrolling
+        context.coordinator.onReadAloudTap = onReadAloudTap
         if let readAloud {
             context.coordinator.readAloudSync.webView = webView
             context.coordinator.readAloudSync.apply(readAloud)
@@ -338,6 +344,7 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     var pushedTranscriptRevision: Int?
     @MainActor lazy var readAloudSync = ReadAloudPageSync()
     var onUserBeganScrolling: (() -> Void)?
+    var onReadAloudTap: ((String, Int) -> Void)?
     /// What the page was loaded with (bootstrap). Pushes sent before the page is ready are
     /// lost, so `ready` re-sends whatever differs from this.
     private var loadedTranscript: [Int: TranscriptCleanupSession.ParagraphText] = [:]
@@ -478,6 +485,10 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
             case .highlightTapped:
                 if let id = body["id"] as? String {
                     self.onHighlightTapped?(id)
+                }
+            case .readAloudTap:
+                if let text = body["text"] as? String, let offset = body["offset"] as? Int {
+                    self.onReadAloudTap?(text, offset)
                 }
             case .videoVisibility:
                 let visible = body["visible"] as? Bool ?? false

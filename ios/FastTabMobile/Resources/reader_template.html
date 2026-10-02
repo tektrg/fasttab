@@ -1209,6 +1209,32 @@ function ftAnchorAt(start, len, bounds) {
   };
 
   window.ftReadAloudClear = clearHighlights;
+
+  // Tap a paragraph to read from there. Enabled by Swift only once Read Aloud was used
+  // in this article. Links, highlights, transcript timestamps, the player and blocks
+  // that are not spoken (code, media) keep their own behaviour; so do text selections.
+  // iOS sends no click after a scroll or long-press, so those never get here.
+  window.ftReadAloudTapEnabled = false;
+  var tapIgnored = 'a, button, mark, .ft-ts, pre, code, img, picture, figure, video, iframe, svg, #ft-player';
+  document.addEventListener('click', function(e) {
+    if (!window.ftReadAloudTapEnabled || e.defaultPrevented) return;
+    if (!e.target.closest || e.target.closest(tapIgnored)) return;
+    if (!e.target.closest('#reader-title, #reader-body')) return;
+    var selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    var caret = document.caretRangeFromPoint && document.caretRangeFromPoint(e.clientX, e.clientY);
+    if (!caret || caret.startContainer.nodeType !== Node.TEXT_NODE) return;
+    var text = buildMap(); // fresh map: the DOM may have changed since playback started
+    var offset = -1;
+    for (var i = 0; i < map.nodes.length; i++) {
+      if (map.nodes[i] === caret.startContainer && map.offsets[i] >= Math.min(caret.startOffset, caret.startContainer.length - 1)) {
+        offset = i;
+        break;
+      }
+    }
+    if (offset < 0) return;
+    try { window.webkit.messageHandlers.readAloudTap.postMessage({ text: text, offset: offset }); } catch (err) {}
+  });
 })();
 </script>
 </body>

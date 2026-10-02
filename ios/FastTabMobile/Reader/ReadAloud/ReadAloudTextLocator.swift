@@ -47,6 +47,15 @@ struct ReadAloudTextLocator {
         chunkLengths = chunks.map { ($0 as NSString).length }
     }
 
+    /// Chunk covering a UTF-16 offset of the document text (a tapped point), if any.
+    /// Whitespace between chunks and text no chunk speaks (code blocks) map to nil.
+    func chunkIndex(containing offset: Int) -> Int? {
+        chunkStarts.indices.first { index in
+            guard let start = chunkStarts[index] else { return false }
+            return offset >= start && offset < start + chunkLengths[index]
+        }
+    }
+
     func documentRanges(for position: ReadAloudSpokenPosition) -> ReadAloudDocumentRanges? {
         guard chunkStarts.indices.contains(position.chunkIndex),
               let chunkStart = chunkStarts[position.chunkIndex] else { return nil }

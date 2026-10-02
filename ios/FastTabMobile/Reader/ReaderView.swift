@@ -216,6 +216,9 @@ public struct ReaderView: View {
             },
             onReadAloudTap: { pageText, offset in
                 readAloud.handleTap(pageText: pageText, offset: offset, article: article)
+            },
+            onReadAloudPageReady: { page in
+                if readAloud.page !== page { readAloud.page = page }
             }
         )
         .ignoresSafeArea(edges: .bottom)

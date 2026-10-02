@@ -42,6 +42,8 @@ public struct ReaderWebView: UIViewRepresentable {
     var onUserBeganScrolling: (() -> Void)?
     /// A paragraph was tapped: the page's normalised text + the tapped UTF-16 offset in it.
     var onReadAloudTap: ((String, Int) -> Void)?
+    /// Hands the page's Read Aloud bridge to its owner (for "start where I am").
+    var onReadAloudPageReady: ((ReadAloudPageSync) -> Void)?
 
     init(
         viewModel: ReaderViewModel,
@@ -53,7 +55,8 @@ public struct ReaderWebView: UIViewRepresentable {
         onHeaderHiddenChanged: ((Bool) -> Void)? = nil,
         readAloud: ReadAloudPageState? = nil,
         onUserBeganScrolling: (() -> Void)? = nil,
-        onReadAloudTap: ((String, Int) -> Void)? = nil
+        onReadAloudTap: ((String, Int) -> Void)? = nil,
+        onReadAloudPageReady: ((ReadAloudPageSync) -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.article = article
@@ -65,6 +68,7 @@ public struct ReaderWebView: UIViewRepresentable {
         self.readAloud = readAloud
         self.onUserBeganScrolling = onUserBeganScrolling
         self.onReadAloudTap = onReadAloudTap
+        self.onReadAloudPageReady = onReadAloudPageReady
     }
 
     // MARK: - UIViewRepresentable
@@ -138,6 +142,7 @@ public struct ReaderWebView: UIViewRepresentable {
         context.coordinator.onReadAloudTap = onReadAloudTap
         if let readAloud {
             context.coordinator.readAloudSync.webView = webView
+            onReadAloudPageReady?(context.coordinator.readAloudSync)
             context.coordinator.readAloudSync.apply(readAloud)
         }
 

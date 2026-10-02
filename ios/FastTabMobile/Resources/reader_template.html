@@ -1214,6 +1214,28 @@ function ftAnchorAt(start, len, bounds) {
   // in this article. Links, highlights, transcript timestamps, the player and blocks
   // that are not spoken (code, media) keep their own behaviour; so do text selections.
   // iOS sends no click after a scroll or long-press, so those never get here.
+  // Where Play should start: first/last character offsets (in the text map) on screen,
+  // and whether the page is scrolled to the very top. Binary search over the map, since
+  // characters are laid out top-to-bottom in reading order.
+  window.ftReadAloudViewport = function() {
+    var text = buildMap(), count = map.nodes.length;
+    if (!count) return null;
+    function rectOf(i) {
+      var range = document.createRange();
+      range.setStart(map.nodes[i], map.offsets[i]);
+      range.setEnd(map.nodes[i], map.offsets[i] + 1);
+      return range.getBoundingClientRect();
+    }
+    function firstIndexWhere(predicate) {
+      var lo = 0, hi = count;
+      while (lo < hi) { var mid = (lo + hi) >> 1; if (predicate(rectOf(mid))) hi = mid; else lo = mid + 1; }
+      return lo;
+    }
+    var first = firstIndexWhere(function(r) { return r.bottom > 0; });
+    var last = firstIndexWhere(function(r) { return r.top >= window.innerHeight; }) - 1;
+    return { text: text, first: first, last: Math.max(first, last), atTop: window.scrollY < 24 };
+  };
+
   window.ftReadAloudTapEnabled = false;
   var tapIgnored = 'a, button, mark, .ft-ts, pre, code, img, picture, figure, video, iframe, svg, #ft-player';
   document.addEventListener('click', function(e) {

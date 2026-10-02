@@ -26,6 +26,10 @@ final class ReadAloudController: ObservableObject {
     /// True once Read Aloud was started in this reader; only then does tapping a
     /// paragraph start/jump playback (no surprise speech on an ordinary tap).
     @Published private(set) var hasBeenUsed = false
+    /// The last run read through to the end: the next Play starts from the title.
+    private(set) var finishedArticle = false
+    /// The open page, asked what is on screen when Play is pressed (set by the reader).
+    weak var page: ReadAloudPageSync?
 
     private let engine: SpeechEngine
     private let settingsStore: ReaderReadingSettingsStore
@@ -59,17 +63,36 @@ final class ReadAloudController: ObservableObject {
 
     var availableVoices: [ReadAloudVoiceOption] { engine.availableVoices }
 
-    /// Play/Pause button: starts the article, pauses, or resumes.
+    /// Play/Pause button. Play starts where `ReadAloudStartPoint` says (resume, title,
+    /// or the paragraph at the top of the screen).
     func togglePlayback(article: ReaderArticle) {
-        switch state {
-        case .idle: start(article: article)
-        case .playing: pause()
-        case .paused: resume()
+        guard state != .playing else { pause(); return }
+        guard let page else { play(article: article, viewport: nil); return }
+        page.probeViewport { [weak self] viewport in
+            guard let self, self.state != .playing else { return }
+            self.play(article: article, viewport: viewport)
+        }
+    }
+
+    func play(article: ReaderArticle, viewport: ReadAloudViewport?) {
+        let isPaused = state == .paused
+        let startPoint = ReadAloudStartPoint.decide(
+            isPaused: isPaused,
+            pausedChunk: currentChunk,
+            finishedArticle: finishedArticle,
+            chunks: isPaused ? chunks : ReadAloudText.chunks(for: article),
+            viewport: viewport
+        )
+        readAloudLog.info("play: \(String(describing: startPoint))")
+        switch startPoint {
+        case .resume: resume()
+        case .chunk(let chunk): jump(to: chunk, article: article)
         }
     }
 
     func start(article: ReaderArticle, fromChunk startChunk: Int = 0) {
         stop()
+        finishedArticle = false
         chunks = ReadAloudText.chunks(for: article)
         guard !chunks.isEmpty else { return }
         articleTitle = article.title
@@ -185,6 +208,7 @@ final class ReadAloudController: ObservableObject {
             guard chunk == chunks.count - 1 else { return }
             readAloudLog.info("article finished")
             stop()
+            finishedArticle = true
         }
     }
 

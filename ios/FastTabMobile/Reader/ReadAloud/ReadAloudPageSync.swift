@@ -84,6 +84,17 @@ final class ReadAloudPageSync {
         }
     }
 
+    /// What is on screen now, for choosing where Play starts. Nil when the page can't say.
+    func probeViewport(completion: @escaping @MainActor (ReadAloudViewport?) -> Void) {
+        guard let webView else { completion(nil); return }
+        webView.evaluateJavaScript("window.ftReadAloudViewport ? ftReadAloudViewport() : null") { [weak self] result, error in
+            if let error { readAloudLog.error("viewport probe failed: \(error.localizedDescription)") }
+            // The probe rebuilt the page's text map: rebuild the locator before the next highlight.
+            self?.locatorSessionID = nil
+            completion(ReadAloudViewport(javaScriptResult: result))
+        }
+    }
+
     private func evaluate(_ js: String, purpose: String) {
         webView?.evaluateJavaScript(js) { _, error in
             if let error { readAloudLog.error("\(purpose) JS failed: \(error.localizedDescription)") }

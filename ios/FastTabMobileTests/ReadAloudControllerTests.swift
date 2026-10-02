@@ -157,6 +157,61 @@ final class ReadAloudControllerTests: XCTestCase {
         XCTAssertEqual(engine.runs.last?.from, 2)
     }
 
+    // MARK: - Play starts from the reading position
+
+    private func viewport(first: Int, last: Int, atTop: Bool = false) -> ReadAloudViewport {
+        ReadAloudViewport(pageText: pageText, firstVisibleOffset: first, lastVisibleOffset: last, isAtTop: atTop)
+    }
+
+    func testPlayAtTopOfArticleStartsWithTitle() {
+        controller.play(article: article, viewport: viewport(first: 0, last: 23, atTop: true))
+        XCTAssertEqual(engine.runs.last?.from, 0)
+    }
+
+    func testPlayScrolledDownStartsAtFirstParagraphOnScreen() {
+        controller.play(article: article, viewport: viewport(first: 9, last: 23)) // mid "One two."
+        XCTAssertEqual(engine.runs.last?.from, 1)
+        controller.stop()
+        controller.play(article: article, viewport: viewport(first: 13, last: 23))
+        XCTAssertEqual(engine.runs.last?.from, 2)
+    }
+
+    func testPlayAfterPauseResumesWhilePausedParagraphIsOnScreen() {
+        controller.play(article: article, viewport: viewport(first: 5, last: 23))
+        engine.send(.chunkStarted(1))
+        controller.pause()
+        controller.play(article: article, viewport: viewport(first: 10, last: 23)) // still shows chunk 1
+        XCTAssertEqual(controller.state, .playing)
+        XCTAssertEqual(engine.runs.count, 1) // resumed, not restarted
+    }
+
+    func testPlayAfterPauseStartsAtScreenWhenPausedParagraphScrolledAway() {
+        controller.play(article: article, viewport: viewport(first: 0, last: 23, atTop: true))
+        engine.send(.chunkStarted(0))
+        controller.pause()
+        controller.play(article: article, viewport: viewport(first: 14, last: 23)) // title off screen
+        XCTAssertEqual(engine.runs.count, 2)
+        XCTAssertEqual(engine.runs.last?.from, 2)
+        XCTAssertEqual(controller.state, .playing)
+    }
+
+    func testPlayAfterReachingTheEndRestartsFromTitle() {
+        controller.play(article: article, viewport: viewport(first: 13, last: 23))
+        engine.send(.chunkStarted(2)); engine.send(.chunkFinished(2))
+        XCTAssertEqual(controller.state, .idle)
+        controller.play(article: article, viewport: viewport(first: 13, last: 23))
+        XCTAssertEqual(engine.runs.last?.from, 0)
+    }
+
+    func testPlayWithoutPageInfoStartsFromTitleOrResumes() {
+        controller.play(article: article, viewport: nil)
+        XCTAssertEqual(engine.runs.last?.from, 0)
+        controller.pause()
+        controller.play(article: article, viewport: nil)
+        XCTAssertEqual(engine.runs.count, 1)
+        XCTAssertEqual(controller.state, .playing)
+    }
+
     func testTapOutsideAnySpokenChunkIsIgnored() {
         controller.start(article: article)
         controller.pause()

@@ -56,6 +56,21 @@ struct ReadAloudTextLocator {
         }
     }
 
+    /// First chunk that contains `offset` or starts after it (the paragraph at the top
+    /// of the screen when `offset` is the first visible character).
+    func firstChunk(atOrAfter offset: Int) -> Int? {
+        chunkStarts.indices.first { index in
+            guard let start = chunkStarts[index] else { return false }
+            return start + chunkLengths[index] > offset
+        }
+    }
+
+    /// Whether any of chunk `index` lies within document offsets `lower...upper`.
+    func chunk(_ index: Int, overlaps lower: Int, _ upper: Int) -> Bool {
+        guard chunkStarts.indices.contains(index), let start = chunkStarts[index] else { return false }
+        return start <= upper && start + chunkLengths[index] > lower
+    }
+
     func documentRanges(for position: ReadAloudSpokenPosition) -> ReadAloudDocumentRanges? {
         guard chunkStarts.indices.contains(position.chunkIndex),
               let chunkStart = chunkStarts[position.chunkIndex] else { return nil }

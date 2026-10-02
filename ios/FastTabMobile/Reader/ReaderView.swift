@@ -120,6 +120,7 @@ public struct ReaderView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(10)
                     }
+                    ReadAloudNoticeView(notice: readAloud.engineNotice)
                     if readAloud.isAutoScrollPaused, readAloud.state != .idle {
                         ReadAloudBackToReadingButton { readAloud.isAutoScrollPaused = false }
                             .transition(.opacity)

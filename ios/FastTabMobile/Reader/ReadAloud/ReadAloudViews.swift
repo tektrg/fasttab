@@ -42,6 +42,34 @@ struct ReadAloudTapFeedbackView: View {
     }
 }
 
+/// Small capsule (e.g. "Natural voice unavailable, using device voice") shown for a few
+/// seconds whenever the controller posts a new engine notice.
+struct ReadAloudNoticeView: View {
+    let notice: ReadAloudController.EngineNotice?
+    @State private var visibleMessage: String?
+
+    var body: some View {
+        Group {
+            if let visibleMessage {
+                Text(visibleMessage)
+                    .font(.footnote.weight(.medium))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, DS.Space.lg)
+                    .padding(.vertical, DS.Space.sm)
+                    .background(.regularMaterial, in: Capsule())
+                    .transition(.opacity)
+            }
+        }
+        .allowsHitTesting(false)
+        .task(id: notice) {
+            guard let notice else { return }
+            withAnimation { visibleMessage = notice.message }
+            try? await Task.sleep(for: .seconds(4))
+            withAnimation { visibleMessage = nil }
+        }
+    }
+}
+
 /// Shown after the user scrolls away during Read Aloud; resumes following the spoken word.
 struct ReadAloudBackToReadingButton: View {
     let action: () -> Void
@@ -85,11 +113,23 @@ struct ReadAloudSettingsSection: View {
                     }
                 }
             }
+            if AppDistribution.isDebugOrTestFlight {
+                Toggle("Natural voice (beta)", isOn: Binding(
+                    get: { store.settings.naturalVoiceEnabled ?? false },
+                    set: { store.setNaturalVoiceEnabled($0) }
+                ))
+            }
         } header: {
             Text("Read Aloud")
         } footer: {
-            Text("Automatic picks the best voice installed for the article's language. Download Enhanced or Premium voices in Settings › Accessibility › Spoken Content › Voices.")
+            Text(footer)
         }
+    }
+
+    private var footer: String {
+        let voices = "Automatic picks the best voice installed for the article's language. Download Enhanced or Premium voices in Settings › Accessibility › Spoken Content › Voices."
+        guard AppDistribution.isDebugOrTestFlight else { return voices }
+        return voices + " Natural voice streams a more human voice from the internet and falls back to the device voice when it isn't available."
     }
 
     /// The saved voice when it is in this language's list; otherwise "Automatic".

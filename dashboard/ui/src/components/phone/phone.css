@@ -132,6 +132,10 @@ button.phone-section-head { cursor: pointer; }
 .persona-sheet-jev { color: inherit; }
 /* 375px: the switch label + Ask Jev + "Confirm resume" don't fit one row. */
 .persona-sheet-actions { flex-wrap: wrap; }
+/* Start-on machine chips ([Pro] [Air]) — only when a send would start. */
+.persona-sheet-machines { display: flex; gap: var(--s2); margin-top: 12px; }
+.persona-sheet-machines > button { min-height: 36px; min-width: 64px; }
+.persona-sheet-retry { margin-top: 8px; min-height: 44px; }
 .persona-sheet-fresh { flex: 1 0 100%; align-self: center; }
 
 /* Hook prompt answers: numbered full-width 48pt rows (HookRequestCard phone). */

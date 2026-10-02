@@ -152,12 +152,17 @@ be `"resume"`; the folder scan is cached 30s.
 
 **Remote listener** (`server/lib/persona_remote.py`): `GET /api/personas`
 returns every offered persona as `[{name, description, idleStart, offline,
-mainRowId}]` — no address/folder/instructions/routing hints.
+mainRowId, runsOn, machines}]` (`machines` trimmed to `[{id, label}]`) —
+no address/folder/instructions/routing hints.
 The phone messages a running persona's `mainRowId` through the normal
 `POST /api/session/message` rules, and may START any of them (below). PWA: the "Message a persona" sheet
 (`ui/src/components/phone/PersonaMessageSheet.tsx`, the `+` in the phone
 search bar; effect wording = AgentBar's `PersonaDeliveryEffect`, copied in
-`ui/src/personaDelivery.ts`).
+`ui/src/personaDelivery.ts`). When a send would START/RESUME and 2+
+machines are offered, the sheet shows machine chips ([Pro] [Air], Runs on
+pre-selected) and sends the chosen id as `machine`; an unreachable reply
+shows the server's error plus a "Start on <retryOn.label> instead" button
+(one tap re-POSTs with `machine: retryOn.id`; text kept, never automatic).
 
 ### `POST /api/jev/route` (`server/lib/jev_route.py`, 2026-09-28)
 Jev (OpenRouter Decisions API) picks the persona for a message ON THE
@@ -223,7 +228,7 @@ exists) is exempt; the final reply is still checked.
 
 - Request: `{"persona": "<name>", "text": "<first message>", "fresh": true?}`
   — a name, never a path. **Remote listener, stricter**: only the keys
-  `persona`/`text`/`fresh`/`confirm`, and `confirm` must be JSON `true`
+  `persona`/`text`/`fresh`/`machine`/`confirm`, and `confirm` must be JSON `true`
   (the phone's second press) — folder/command/args always come from the
   registry. The remote audit line's `rowId` is the persona name.
   `text` follows the Send message rules

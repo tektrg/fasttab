@@ -10,12 +10,13 @@ already required auth and refused a foreign Origin
 Content-Type gate before calling in here.
 
 - `remote_personas()` — `GET /api/personas` on the remote listener:
-  `[{name, description, idleStart, offline, mainRowId}]` for
-  every OFFERED persona. No address/folder/instructions/routing hints:
+  `[{name, description, idleStart, offline, mainRowId, runsOn, machines}]`
+  for every OFFERED persona (`machines` trimmed to `[{id, label}]` — the
+  phone's start chips). No address/folder/instructions/routing hints:
   paths never leave this Mac. `mainRowId` is a row id the phone already
   sees in `/api/state`.
 - `start_persona_remote(body)` — `POST /api/persona/start` there. Stricter
-  than localhost: only `persona`/`text`/`fresh`/`confirm` keys (no
+  than localhost: only `persona`/`text`/`fresh`/`machine`/`confirm` keys (no
   free-form folder/command/args — the registry decides those), `confirm`
   must be `true` (the phone's explicit second press). Then hands off to
   `persona_start.start_persona`, which refuses any name that isn't offered
@@ -26,14 +27,17 @@ import os
 import persona_start
 import personas
 
-REMOTE_START_KEYS = {"persona", "text", "fresh", "confirm"}
-REMOTE_ROW_KEYS = ("name", "description", "idleStart", "offline", "mainRowId")
+REMOTE_START_KEYS = {"persona", "text", "fresh", "machine", "confirm"}
+REMOTE_ROW_KEYS = ("name", "description", "idleStart", "offline", "mainRowId", "runsOn")
 
 
 def remote_personas(personas_state=None):
     """The phone's persona list: the local `/api/personas` rows, trimmed."""
     rows = personas_state if personas_state is not None else personas.get_personas_state()
-    return [{k: row.get(k) for k in REMOTE_ROW_KEYS} for row in rows]
+    return [dict({k: row.get(k) for k in REMOTE_ROW_KEYS},
+                 machines=[{"id": m.get("id"), "label": m.get("label")}
+                           for m in row.get("machines") or [] if isinstance(m, dict)])
+            for row in rows]
 
 
 def start_persona_remote(body, deps=None):

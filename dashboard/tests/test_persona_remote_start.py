@@ -80,7 +80,9 @@ print("\n== remote GET /api/personas payload ==")
 STATE_ROWS = [  # what personas.get_personas_state() returns locally
     {"name": "phone-ok", "address": f"local:{PHONE_DIR}", "description": "phone-ok does test things.",
      "routesWhen": ["x"], "notFor": [], "idle": "fresh", "start": "in-place", "offline": False,
-     "mainRowId": "row-1", "sessionRowIds": ["row-1", "row-2"], "idleStart": "fresh"},
+     "mainRowId": "row-1", "sessionRowIds": ["row-1", "row-2"], "idleStart": "fresh",
+     "runsOn": "air", "machines": [{"id": "local", "label": "Pro", "path": FAKE_HOME},
+                                   {"id": "air", "label": "Air", "address": "100.64.0.9"}]},
     {"name": "desk-only", "address": f"local:{DESK_DIR}", "description": "desk-only does test things.",
      "routesWhen": [], "notFor": [], "idle": "resume", "start": "in-place", "offline": False,
      "mainRowId": None, "sessionRowIds": [], "idleStart": "resume"},
@@ -89,7 +91,12 @@ listed = persona_remote.remote_personas(personas_state=STATE_ROWS)
 check("every offered persona is listed (messaging needs them all)",
       [p["name"] for p in listed], ["phone-ok", "desk-only"])
 check("only the phone's fields (no startable flag)", sorted(listed[0]),
-      ["description", "idleStart", "mainRowId", "name", "offline"])
+      ["description", "idleStart", "machines", "mainRowId", "name", "offline", "runsOn"])
+check("runsOn carried", listed[0]["runsOn"], "air")
+check("machines trimmed to id + label", listed[0]["machines"],
+      [{"id": "local", "label": "Pro"}, {"id": "air", "label": "Air"}])
+check("no machine address leaks", "100.64.0.9" in json.dumps(listed), False)
+check("older rows without machines -> []", listed[1]["machines"], [])
 check("mainRowId carried", listed[0]["mainRowId"], "row-1")
 check("no folder path leaks", FAKE_HOME in json.dumps(listed), False)
 check("no personas -> []", persona_remote.remote_personas(personas_state=[]), [])
@@ -136,6 +143,8 @@ try:
     check("same body passed through, minus confirm", calls[0][0],
           {"persona": "phone-ok", "text": "hi $(echo INJECTED)", "fresh": True})
     check("start uses the same registry snapshot", calls[0][1], REG)
+    result = remote_start({"persona": "phone-ok", "text": "hi", "machine": "air", "confirm": True})
+    check("machine (chip choice) passes through", calls[0][0].get("machine"), "air")
     for name in ("desk-only", "old-flag"):
         result = remote_start({"persona": name, "text": "hi", "confirm": True})
         check(f"{name!r} (no/stale remoteStart) starts after confirm",
@@ -145,6 +154,14 @@ try:
 finally:
     persona_start.start_persona = _real_start
 
+persona_start.start_persona = lambda body, deps=None: {
+    "ok": False, "error": "Air is unreachable (asleep or offline?) — nothing was started.",
+    "unreachable": True, "retryOn": {"id": "local", "label": "Pro"}}
+result = persona_remote.start_persona_remote({"persona": "phone-ok", "text": "hi", "machine": "air",
+                                              "confirm": True}, persona_start.StartDeps(registry=REG))
+check("unreachable reply keeps retryOn + error for the phone",
+      (result.get("unreachable"), result.get("retryOn"), result["error"].startswith("Air is unreachable")),
+      (True, {"id": "local", "label": "Pro"}, True))
 persona_start.start_persona = lambda body, deps=None: {
     "ok": False, "error": f"'phone-ok''s folder {PHONE_DIR} doesn't exist; home {os.path.expanduser('~')}/x"}
 try:
@@ -258,7 +275,7 @@ try:
     h.do_GET()
     check("remote GET /api/personas -> remote list", h.sent,
           ([{"name": "local-view", "description": None, "idleStart": None, "offline": None,
-             "mainRowId": None}], 200))
+             "mainRowId": None, "runsOn": None, "machines": []}], 200))
     h = FakeHandler({}, remote=False, path="/api/personas")
     h.do_GET()
     check("local GET /api/personas unchanged", h.sent[0][0]["name"], "local-view")

@@ -396,3 +396,91 @@ describe("PersonaMessageSheet", () => {
     unmount();
   });
 });
+
+describe("PersonaMessageSheet machine chips", () => {
+  const MACHINES = [{ id: "local", label: "Pro" }, { id: "air", label: "Air" }];
+  const ON_AIR = [
+    { name: "running", description: "Main.", idleStart: "fresh", mainRowId: "main-1", runsOn: "local", machines: MACHINES },
+    { name: "airy", description: "On Air.", idleStart: "fresh", mainRowId: null, runsOn: "air", machines: MACHINES },
+    { name: "solo", description: "One machine.", idleStart: "fresh", mainRowId: null, runsOn: "local",
+      machines: [MACHINES[0]] },
+  ];
+  const chip = (label: string) =>
+    [...document.querySelectorAll('[aria-label="Start on"] button')].find((b) => b.textContent === label);
+
+  /** Replies to /api/persona/start in order. */
+  function stubStarts(replies: object[]) {
+    const calls: { url: string; body: unknown }[] = [];
+    globalThis.fetch = (async (url: unknown, init?: { body?: string }) => {
+      const body = init?.body ? JSON.parse(init.body) : null;
+      calls.push({ url: String(url), body });
+      const reply = String(url) === "/api/personas" ? ON_AIR : replies.shift() ?? { ok: false, error: "unstubbed" };
+      return { ok: true, status: 200, json: async () => reply } as Response;
+    }) as typeof fetch;
+    return calls;
+  }
+
+  async function startVia() {
+    act(() => button("Start")!.click());
+    act(() => button("Confirm start")!.click());
+    await settle();
+  }
+
+  test("chips default to runsOn; tapping one changes the machine sent", async () => {
+    const calls = stubStarts([{ ok: true, mode: "started", machine: "local" }]);
+    const unmount = mount([liveRow("main-1")]);
+    await settle();
+    pick("airy");
+    expect(chip("Air")?.getAttribute("aria-pressed")).toBe("true");
+    expect(chip("Pro")?.getAttribute("aria-pressed")).toBe("false");
+    act(() => (chip("Pro") as HTMLButtonElement).click());
+    expect(chip("Pro")?.getAttribute("aria-pressed")).toBe("true");
+    typeMessage("go $(echo INJECTED)");
+    await startVia();
+    expect(posts(calls, "/api/persona/start")[0]?.body).toEqual({
+      persona: "airy", text: "go $(echo INJECTED)", fresh: true, machine: "local", confirm: true,
+    });
+    unmount();
+  });
+
+  test("no chips for a live-main send or a single machine; no machine sent", async () => {
+    const calls = stubStarts([{ ok: true, mode: "started" }]);
+    const unmount = mount([liveRow("main-1")]);
+    await settle();
+    pick("running");
+    expect(document.querySelector('[aria-label="Start on"]')).toBeNull();
+    pick("solo");
+    expect(document.querySelector('[aria-label="Start on"]')).toBeNull();
+    typeMessage("hi");
+    await startVia();
+    expect(posts(calls, "/api/persona/start")[0]?.body).toEqual({
+      persona: "solo", text: "hi", fresh: true, confirm: true,
+    });
+    unmount();
+  });
+
+  test("unreachable: shows the error and a one-tap retry on retryOn, text kept", async () => {
+    const calls = stubStarts([
+      { ok: false, error: "Air is unreachable (asleep or offline?) — nothing was started.", unreachable: true,
+        retryOn: { id: "local", label: "Pro" } },
+      { ok: true, mode: "started", machine: "local" },
+    ]);
+    let toast = "";
+    const unmount = mount([liveRow("main-1")], () => {}, (m) => (toast = m));
+    await settle();
+    pick("airy");
+    typeMessage("keep me");
+    await startVia();
+    expect(document.body.textContent).toContain("Air is unreachable");
+    const input = document.querySelector('input[aria-label="message"]') as HTMLInputElement;
+    expect(input.value).toBe("keep me");
+    expect(posts(calls, "/api/persona/start").length).toBe(1); // never retried silently
+    act(() => button("Start on Pro instead")!.click());
+    await settle();
+    const starts = posts(calls, "/api/persona/start");
+    expect(starts.length).toBe(2);
+    expect(starts[1]?.body).toEqual({ persona: "airy", text: "keep me", fresh: true, machine: "local", confirm: true });
+    expect(toast).toBe("started: airy on Pro");
+    unmount();
+  });
+});

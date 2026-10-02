@@ -428,6 +428,22 @@ export interface PersonaSummary {
   idleStart?: "resume" | "fresh";
   offline?: boolean;
   mainRowId?: string | null;
+  /** Default machine id for a start; older servers omit it. */
+  runsOn?: string;
+  /** Machines a start may target ("local" first); chips show when 2+. */
+  machines?: { id: string; label: string }[];
+}
+
+export interface PersonaStartReply {
+  ok: boolean;
+  error?: string;
+  paneId?: string;
+  mode?: "started" | "resumed";
+  machine?: string;
+  /** The chosen machine didn't answer; nothing was started. */
+  unreachable?: boolean;
+  /** Where the server suggests starting instead (one tap, never automatic). */
+  retryOn?: { id: string; label: string };
 }
 
 export async function listPersonas(): Promise<PersonaSummary[] | null> {
@@ -452,7 +468,8 @@ export async function startPersona(input: {
   persona: string;
   text: string;
   fresh: boolean;
-}): Promise<{ ok: boolean; error?: string; paneId?: string; mode?: "started" | "resumed" }> {
+  machine?: string;
+}): Promise<PersonaStartReply> {
   return requestJson("/api/persona/start", "POST", { ...input, confirm: true });
 }
 

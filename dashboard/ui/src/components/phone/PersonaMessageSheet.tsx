@@ -53,6 +53,9 @@ export function PersonaMessageSheet({
   // Second-press states: a start, or queueing into a busy main session.
   const [armedStart, setArmedStart] = useState(false);
   const [queueReason, setQueueReason] = useState<string | null>(null);
+  // Start target (machine chips) and the server's "start there instead" offer.
+  const [machine, setMachine] = useState<string | null>(null);
+  const [retryOn, setRetryOn] = useState<{ id: string; label: string } | null>(null);
   // Read by the async Jev reply: drop it if the text changed or the sheet closed.
   const askedTextRef = useRef(text);
   askedTextRef.current = text;
@@ -73,6 +76,7 @@ export function PersonaMessageSheet({
     setArmedStart(false);
     setQueueReason(null);
     setJevPick(null);
+    setRetryOn(null);
     listPersonas().then((list) => {
       if (dead) return;
       const offered = (list ?? []).filter((p) => !p.offline);
@@ -90,13 +94,23 @@ export function PersonaMessageSheet({
   const effectOf = (p: PersonaSummary, forced: boolean): PersonaEffect =>
     deriveEffect(mainSession(p, rows), p.idleStart, forced);
   const effect = chosen ? effectOf(chosen, forceNew) : null;
+  // Chips only for a start, and only when the server offers 2+ machines.
+  const machines = chosen?.machines ?? [];
+  const showMachines = !!effect && isStartEffect(effect) && machines.length > 1;
+  const machineLabel = machines.find((m) => m.id === machine)?.label;
+
+  // Each persona opens on its own Runs-on machine.
+  useEffect(() => {
+    setMachine(chosen?.runsOn ?? chosen?.machines?.[0]?.id ?? null);
+    setRetryOn(null);
+  }, [chosen?.name, chosen?.runsOn]);
 
   // Any change to what would happen (incl. the board: the main session
   // ended or got busy) disarms a pending confirm.
   useEffect(() => {
     setArmedStart(false);
     setQueueReason(null);
-  }, [persona, text, forceNew, effect]);
+  }, [persona, text, forceNew, effect, machine]);
   const refusal = !chosen || !effect
     ? null
     : effect === "mainWaitingOnYou"
@@ -176,10 +190,35 @@ export function PersonaMessageSheet({
     }
   };
 
-  const start = async () => {
-    const res = await startPersona({ persona, text: text.trim(), fresh: effect === "startNew" });
-    if (res.ok) finish(`${res.mode === "resumed" ? "resumed" : "started"}: ${persona}`);
-    else setError(res.error || "start failed");
+  const start = async (target: string | null) => {
+    const res = await startPersona({
+      persona,
+      text: text.trim(),
+      fresh: effect === "startNew",
+      ...(showMachines && target ? { machine: target } : {}),
+    });
+    if (res.ok) {
+      const where = showMachines ? ` on ${machines.find((m) => m.id === target)?.label ?? target}` : "";
+      finish(`${res.mode === "resumed" ? "resumed" : "started"}: ${persona}${where}`);
+      return;
+    }
+    setError(res.error || "start failed");
+    // Offer the other machine as an explicit tap — never retried silently.
+    setRetryOn(res.unreachable && res.retryOn && res.retryOn.id !== target ? res.retryOn : null);
+  };
+
+  // "Start on <label> instead": the tap is the confirm (the start was already confirmed once).
+  const startInstead = async () => {
+    if (!retryOn || !canSubmit || !effect || !isStartEffect(effect) || inFlight.current) return;
+    const target = retryOn.id;
+    setMachine(target);
+    inFlight.current = true;
+    setBusy("send");
+    setError(null);
+    setRetryOn(null);
+    await start(target);
+    inFlight.current = false;
+    setBusy(null);
   };
 
   const submit = async () => {
@@ -192,8 +231,9 @@ export function PersonaMessageSheet({
     inFlight.current = true;
     setBusy("send");
     setError(null);
+    setRetryOn(null);
     if (effect === "sendToMain" && main.kind === "ready") await send(main.row, queueReason !== null);
-    else if (isStartEffect(effect)) await start();
+    else if (isStartEffect(effect)) await start(machine);
     inFlight.current = false;
     setBusy(null);
   };
@@ -310,18 +350,50 @@ export function PersonaMessageSheet({
             check it, then confirm below.
           </div>
         )}
+        {showMachines && (
+          <div className="persona-sheet-machines" role="group" aria-label="Start on">
+            {machines.map((m) => (
+              <Button
+                key={m.id}
+                size="xs"
+                radius="xl"
+                variant={m.id === machine ? "filled" : "default"}
+                aria-pressed={m.id === machine}
+                disabled={busy !== null}
+                onClick={() => {
+                  setMachine(m.id);
+                  setRetryOn(null);
+                }}
+              >
+                {m.label}
+              </Button>
+            ))}
+          </div>
+        )}
         {queueReason && <div className="persona-sheet-note">{queueReason}</div>}
         {armedStart && chosen && effect && (
           <div className="persona-sheet-note">
             {effect === "resumeLast"
-              ? `Reopens ${chosen.name}'s last conversation on the Mac and sends it your message.`
-              : `Starts ${chosen.name} on the Mac in a new conversation and sends it your message.`}{" "}
+              ? `Reopens ${chosen.name}'s last conversation on ${showMachines && machineLabel ? machineLabel : "the Mac"} and sends it your message.`
+              : `Starts ${chosen.name} on ${showMachines && machineLabel ? machineLabel : "the Mac"} in a new conversation and sends it your message.`}{" "}
             Press again to confirm.
           </div>
         )}
         {refusal && <div className="persona-sheet-note">{refusal}</div>}
         {imageRefusal && <div className="persona-sheet-note">{imageRefusal}</div>}
         {error && <div className="persona-sheet-error">{error}</div>}
+        {retryOn && (
+          <Button
+            size="sm"
+            variant="light"
+            className="persona-sheet-retry"
+            disabled={!canSubmit}
+            loading={busy === "send"}
+            onClick={() => void startInstead()}
+          >
+            Start on {retryOn.label} instead
+          </Button>
+        )}
     </Sheet>
   );
 }

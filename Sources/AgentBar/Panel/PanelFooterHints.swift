@@ -24,7 +24,11 @@ enum PanelFooterHints {
         /// Tab-tagged an explicit send target (`AgentPanelModel.taggedAgentID`): mutually exclusive
         /// with `routingMode`.
         var isTagged = false
+        /// New worker mode (`AgentPanelModel.newWorker`): nil the rest of the time.
+        var newWorkerMode: NewWorkerHintMode?
     }
+
+    enum NewWorkerHintMode { case pickingFolder, composing, composingMachines }
 
     /// `confirmingPersonaRefusal`: a persona confirm row whose Return delivers nothing
     /// (`PersonaDeliveryEffect.refusesDelivery`) — Tab is the only way forward.
@@ -34,6 +38,7 @@ enum PanelFooterHints {
     static func text(for context: Context) -> String {
         if context.hasDismissibleNotice { return "esc dismiss notice" }
         if let routingMode = context.routingMode { return routingText(for: routingMode) }
+        if let newWorkerMode = context.newWorkerMode { return newWorkerText(for: newWorkerMode) }
         // Card modes precede `isTagged`: `AgentPanelModel.press(_:on:)` already clears the tag the
         // moment a card opens, but keeping this order too (matching `activateSelected()`'s own
         // card-then-tag precedence) means the footer never claims Return sends the tagged message
@@ -59,6 +64,14 @@ enum PanelFooterHints {
         case .confirmingPersonaRefusal: "tab start new   esc cancel"
         // Esc only hides the row: the start is already on its way and its outcome still shows.
         case .startingPersona: "esc hide"
+        }
+    }
+
+    private static func newWorkerText(for mode: NewWorkerHintMode) -> String {
+        switch mode {
+        case .pickingFolder: "↑↓ select   ↩ pick folder   esc cancel"
+        case .composing: "↩ start fresh   esc back"
+        case .composingMachines: "↩ start fresh   ←→ machine   esc back"
         }
     }
 

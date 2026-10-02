@@ -89,10 +89,15 @@ final class ReadAloudPageSync {
         guard let webView else { completion(nil); return }
         webView.evaluateJavaScript("window.ftReadAloudViewport ? ftReadAloudViewport() : null") { [weak self] result, error in
             if let error { readAloudLog.error("viewport probe failed: \(error.localizedDescription)") }
-            // The probe rebuilt the page's text map: rebuild the locator before the next highlight.
-            self?.locatorSessionID = nil
+            self?.invalidateLocator() // the probe rebuilt the page's text map
+
             completion(ReadAloudViewport(javaScriptResult: result))
         }
+    }
+
+    /// The page rebuilt its text map: rebuild the locator before the next highlight.
+    func invalidateLocator() {
+        locatorSessionID = nil
     }
 
     private func evaluate(_ js: String, purpose: String) {

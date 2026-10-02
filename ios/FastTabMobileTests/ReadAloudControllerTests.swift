@@ -117,7 +117,7 @@ final class ReadAloudControllerTests: XCTestCase {
         XCTAssertNotEqual(controller.spokenPosition?.sessionID, oldSession)
     }
 
-    // MARK: - Tap to jump
+    // MARK: - Tap on the article
 
     /// Page text for `article` as the page's text map builds it (title + body, no separators).
     private let pageText = "TitleOne two.Three four."
@@ -128,29 +128,53 @@ final class ReadAloudControllerTests: XCTestCase {
         XCTAssertTrue(engine.runs.isEmpty)
     }
 
-    func testTapWhilePlayingJumpsUnderNewRunAndDropsStaleCallbacks() {
+    func testTapAnywhereWhilePlayingPauses() {
         controller.start(article: article)
         engine.send(.chunkStarted(0)); engine.send(word(0, 0))
+        controller.handleTap(pageText: pageText, offset: 15, article: article) // on another paragraph
+        XCTAssertEqual(controller.state, .paused)
+        XCTAssertEqual(engine.runs.count, 1) // paused, no jump
+        XCTAssertNil(controller.spokenPosition)
+        XCTAssertEqual(controller.tapFeedback?.kind, .paused)
+
+        controller.resume()
+        controller.handleTap(pageText: pageText, offset: -1, article: article) // margin
+        XCTAssertEqual(controller.state, .paused)
+    }
+
+    func testTapWhilePausedOnPausedParagraphOrOffTextResumes() {
+        controller.start(article: article)
+        engine.send(.chunkStarted(1))
+        controller.pause()
+        controller.handleTap(pageText: pageText, offset: 6, article: article) // "One two." = paused chunk
+        XCTAssertEqual(controller.state, .playing)
+        XCTAssertEqual(engine.runs.count, 1) // resumed, not restarted
+        XCTAssertEqual(controller.tapFeedback?.kind, .playing)
+
+        controller.pause()
+        controller.handleTap(pageText: pageText, offset: -1, article: article)
+        XCTAssertEqual(controller.state, .playing)
+        XCTAssertEqual(engine.runs.count, 1)
+    }
+
+    func testTapWhilePausedOnAnotherParagraphReadsFromThereUnderNewRun() {
+        controller.start(article: article)
+        engine.send(.chunkStarted(0)); engine.send(word(0, 0))
+        controller.pause()
         controller.isAutoScrollPaused = true
-        controller.handleTap(pageText: pageText, offset: 15, article: article) // in "Three four."
+        controller.handleTap(pageText: pageText, offset: 15, article: article) // "Three four."
+        XCTAssertEqual(controller.state, .playing)
         XCTAssertEqual(engine.runs.count, 2)
         XCTAssertEqual(engine.runs[1].from, 2)
-        XCTAssertEqual(controller.currentChunk, 2)
-        XCTAssertNil(controller.spokenPosition)   // highlight cleared
         XCTAssertFalse(controller.isAutoScrollPaused)
-        engine.send(word(0, 2), run: 0)            // late word from the old run
+        engine.send(word(0, 2), run: 0) // late word from the old run
         XCTAssertNil(controller.spokenPosition)
         engine.send(.chunkStarted(2)); engine.send(word(2, 0))
         XCTAssertEqual(controller.spokenPosition?.chunkIndex, 2)
     }
 
-    func testTapWhilePausedOrStoppedStartsPlayingThere() {
+    func testTapWhenStoppedReadsFromTappedParagraph() {
         controller.start(article: article)
-        controller.pause()
-        controller.handleTap(pageText: pageText, offset: 6, article: article) // "One two."
-        XCTAssertEqual(controller.state, .playing)
-        XCTAssertEqual(engine.runs.last?.from, 1)
-
         controller.stop()
         controller.handleTap(pageText: pageText, offset: 15, article: article)
         XCTAssertEqual(controller.state, .playing)
@@ -212,11 +236,13 @@ final class ReadAloudControllerTests: XCTestCase {
         XCTAssertEqual(controller.state, .playing)
     }
 
-    func testTapOutsideAnySpokenChunkIsIgnored() {
+    func testTapWhenStoppedOffAnyParagraphDoesNothing() {
         controller.start(article: article)
-        controller.pause()
-        controller.handleTap(pageText: pageText + "code", offset: 25, article: article)
-        XCTAssertEqual(controller.state, .paused)
+        controller.stop()
+        controller.handleTap(pageText: pageText + "code", offset: 25, article: article) // code block
+        controller.handleTap(pageText: pageText, offset: -1, article: article)          // margin
+        XCTAssertEqual(controller.state, .idle)
         XCTAssertEqual(engine.runs.count, 1)
+        XCTAssertNil(controller.tapFeedback)
     }
 }

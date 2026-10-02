@@ -13,7 +13,7 @@ private enum JSMessage: String, CaseIterable {
     case videoVisibility  // { visible: Bool } — transcript page opened/closed its corner player
     case videoSize        // { large: Bool } — transcript player switched Corner ↔ Large
     case transcriptVisible // { first: Int, last: Int } — transcript paragraphs on screen
-    case readAloudTap     // { text: String, offset: Int } — paragraph tapped (Read Aloud jump)
+    case readAloudTap     // { text: String, offset: Int } — article tapped (-1: not on text)
 }
 
 // MARK: - ReaderWebView
@@ -493,6 +493,8 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                 }
             case .readAloudTap:
                 if let text = body["text"] as? String, let offset = body["offset"] as? Int {
+                    // The page rebuilt its text map for the tap: rebuild the locator too.
+                    self.readAloudSync.invalidateLocator()
                     self.onReadAloudTap?(text, offset)
                 }
             case .videoVisibility:

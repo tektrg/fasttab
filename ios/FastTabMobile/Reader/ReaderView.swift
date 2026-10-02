@@ -102,6 +102,9 @@ public struct ReaderView: View {
                     }
                 }
             }
+            .overlay {
+                ReadAloudTapFeedbackView(feedback: readAloud.tapFeedback)
+            }
             .overlay(alignment: .bottom) {
                 VStack(spacing: DS.Space.sm) {
                     if showHighlightBar {

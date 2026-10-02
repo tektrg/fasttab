@@ -19,6 +19,29 @@ struct ReadAloudButton: View {
     private var isPlaying: Bool { controller.state == .playing }
 }
 
+/// Centred play/pause glyph that fades in and out after a tap on the article.
+struct ReadAloudTapFeedbackView: View {
+    let feedback: ReadAloudController.TapFeedback?
+    @State private var isVisible = false
+
+    var body: some View {
+        Image(systemName: feedback?.kind == .paused ? "pause.fill" : "play.fill")
+            .font(.system(size: 28, weight: .semibold))
+            .foregroundStyle(.primary)
+            .frame(width: 72, height: 72)
+            .background(.regularMaterial, in: Circle())
+            .opacity(isVisible ? 1 : 0)
+            .scaleEffect(isVisible ? 1 : 0.85)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: feedback) { _, newValue in
+                guard newValue != nil else { return }
+                withAnimation(.easeOut(duration: 0.15)) { isVisible = true }
+                withAnimation(.easeIn(duration: 0.35).delay(0.5)) { isVisible = false }
+            }
+    }
+}
+
 /// Shown after the user scrolls away during Read Aloud; resumes following the spoken word.
 struct ReadAloudBackToReadingButton: View {
     let action: () -> Void

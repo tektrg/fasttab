@@ -108,15 +108,41 @@ final class ReadAloudController: ObservableObject {
         runEngine(from: min(max(startChunk, 0), chunks.count - 1), settings: settingsStore.settings)
     }
 
-    /// Tap on the page: `pageText`/`offset` come from the page's normalised text map.
-    /// Plays from the tapped paragraph whether playing, paused or stopped. Ignored until
-    /// Read Aloud was used in this article, and for text no chunk speaks.
+    /// Tap on the article (`offset` in the page's text map, -1 when not on text).
+    /// Ignored until Read Aloud was used in this article. Then:
+    /// - playing → pause;
+    /// - paused → resume, unless a *different* paragraph was tapped: read from there;
+    /// - stopped → read from the tapped paragraph (nothing when not on one).
     func handleTap(pageText: String, offset: Int, article: ReaderArticle) {
         guard hasBeenUsed else { return }
+        if state == .playing {
+            pause()
+            showTapFeedback(.paused)
+            return
+        }
         let targetChunks = state == .idle ? ReadAloudText.chunks(for: article) : chunks
-        guard let chunk = ReadAloudTextLocator(documentText: pageText, chunks: targetChunks)
-            .chunkIndex(containing: offset) else { return }
-        jump(to: chunk, article: article)
+        let tappedChunk = ReadAloudTextLocator(documentText: pageText, chunks: targetChunks)
+            .chunkIndex(containing: offset)
+        if let tappedChunk, !(state == .paused && tappedChunk == currentChunk) {
+            jump(to: tappedChunk, article: article)
+        } else if state == .paused {
+            resume()
+        } else {
+            return // stopped, and the tap wasn't on a paragraph
+        }
+        showTapFeedback(.playing)
+    }
+
+    /// Brief centred play/pause glyph so a tap on the page doesn't feel invisible.
+    struct TapFeedback: Equatable {
+        enum Kind { case playing, paused }
+        let kind: Kind
+        let id: Int
+    }
+    @Published private(set) var tapFeedback: TapFeedback?
+
+    private func showTapFeedback(_ kind: TapFeedback.Kind) {
+        tapFeedback = TapFeedback(kind: kind, id: (tapFeedback?.id ?? 0) + 1)
     }
 
     func jump(to chunk: Int, article: ReaderArticle) {

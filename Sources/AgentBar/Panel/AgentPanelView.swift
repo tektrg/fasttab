@@ -82,12 +82,14 @@ struct AgentPanelView: View {
         // handler since nothing else claims ⌘]/⌘[/⌘⌫).
         .background {
             Group {
-                Button("Report to nearest chief", action: model.treeModel.indentSelected).keyboardShortcut("]", modifiers: .command)
-                Button("Stop reporting (Unassigned)", action: model.treeModel.outdentSelected).keyboardShortcut("[", modifiers: .command)
-                // Only while the search is empty — otherwise ⌘⌫ belongs to the text field (delete to line start).
-                // Not in New worker mode: the agent list (and its selection) is hidden there.
-                if model.query.isEmpty, model.newWorker == nil {
-                    Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
+                // None in New worker mode: the agent list (and its selection) is hidden there.
+                if model.newWorker == nil {
+                    Button("Report to nearest chief", action: model.treeModel.indentSelected).keyboardShortcut("]", modifiers: .command)
+                    Button("Stop reporting (Unassigned)", action: model.treeModel.outdentSelected).keyboardShortcut("[", modifiers: .command)
+                    // Only while the search is empty — otherwise ⌘⌫ belongs to the text field (delete to line start).
+                    if model.query.isEmpty {
+                        Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
+                    }
                 }
             }
             .hidden()

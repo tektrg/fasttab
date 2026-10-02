@@ -91,6 +91,9 @@ private struct NewWorkerFolderRow: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Color.accentColor.opacity(0.22) : .clear))
         .padding(.horizontal, 10)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint("Starts a new worker in this folder")
     }
 
     private var subtitle: String {

@@ -36,9 +36,10 @@ extension AgentPanelModel {
         newWorker?.folders = personas.map { .loaded($0) } ?? .failed
     }
 
-    /// Return with `/new` in the box (outside the mode).
+    /// Return with `/new` in the box (outside the mode). Not while Tab-tagged: there the box is a
+    /// message to that agent, so `/new` gets the usual slash-command refusal and the tag stays.
     func enterNewWorkerIfCommand() -> Bool {
-        guard newWorker == nil, NewWorkerMode.isEntryCommand(query) else { return false }
+        guard newWorker == nil, taggedAgentID == nil, NewWorkerMode.isEntryCommand(query) else { return false }
         enterNewWorkerMode()
         return true
     }
@@ -83,6 +84,12 @@ extension AgentPanelModel {
         guard var mode = newWorker, mode.moveMachine(by: offset) else { return false }
         newWorker = mode
         return true
+    }
+
+    /// The target chip's ✕ (same as Esc in step 2), then the keyboard back to the box.
+    func backOutOfNewWorkerByClick() {
+        _ = backOutOfNewWorker()
+        refocusSearchField()
     }
 
     /// Esc: step 2 → step 1 (filter restored), step 1 → the normal list.

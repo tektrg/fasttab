@@ -56,7 +56,7 @@ struct SearchFieldView: View {
                 .padding(.top, AgentPanelMetrics.tagChipTopPadding)
             } else if let pick = model.newWorkerPick {
                 // New worker step 2: same slot and budget as the tag chip row above.
-                NewWorkerTargetRow(pick: pick, onBack: { _ = model.backOutOfNewWorker() })
+                NewWorkerTargetRow(pick: pick, onBack: model.backOutOfNewWorkerByClick)
                     .frame(height: AgentPanelMetrics.tagRowHeight)
                     .padding(.top, AgentPanelMetrics.tagChipTopPadding)
             }

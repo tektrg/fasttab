@@ -95,6 +95,20 @@ struct NewWorkerModeTests {
         #expect(rig.model.newWorker == nil)
     }
 
+    /// Tab-tagged, the box is a message to that agent: `/new` must not drop the tag and switch modes.
+    @Test func slashNewWhileComposingToATaggedAgentIsRefusedNotEntered() {
+        let rig = rig()
+        rig.model.receive(F.snapshot([F.agent("w", section: .working)]))
+        rig.model.tagSelected()
+        #expect(rig.model.taggedAgentID == "w")
+        rig.model.query = "/new"
+        rig.model.activateSelected()
+        #expect(rig.model.newWorker == nil)
+        #expect(rig.model.taggedAgentID == "w")
+        #expect(rig.model.query == "/new")
+        #expect(rig.model.footerNotice?.text == MessageDraftValidator.slashCommandHint)
+    }
+
     // MARK: - Step 1
 
     @Test func typingFiltersByNameAndArrowsMoveClamped() async {
@@ -147,6 +161,15 @@ struct NewWorkerModeTests {
         #expect(rig.model.backOutOfButtons())
         #expect(rig.model.newWorker == nil)
         #expect(rig.model.query == "")
+    }
+
+    @Test func chipCloseClickGoesBackAndHandsTheKeyboardToTheBox() async {
+        let rig = await composingRig(folder: "agentbar")
+        let before = rig.model.focusRequest
+        rig.model.backOutOfNewWorkerByClick()
+        #expect(rig.model.newWorker?.isComposing == false)
+        #expect(rig.model.query == "agentbar")
+        #expect(rig.model.focusRequest == before + 1)
     }
 
     @Test func showingThePanelAgainLeavesTheMode() async {

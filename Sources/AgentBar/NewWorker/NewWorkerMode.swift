@@ -86,7 +86,7 @@ struct NewWorkerMode: Equatable {
         return folderFilter
     }
 
-    /// Left/Right in step 2 (`PersonaPick.moveMachine`). False when no chips show.
+    /// Up/Down in step 2 (`PersonaPick.moveMachine`). False when no chips show.
     mutating func moveMachine(by offset: Int) -> Bool {
         guard var pick = composingPick, pick.moveMachine(by: offset) else { return false }
         step = .composing(pick)

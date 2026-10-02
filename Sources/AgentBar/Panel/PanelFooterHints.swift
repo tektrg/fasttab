@@ -32,7 +32,7 @@ enum PanelFooterHints {
 
     /// `confirmingPersonaRefusal`: a persona confirm row whose Return delivers nothing
     /// (`PersonaDeliveryEffect.refusesDelivery`) — Tab is the only way forward.
-    /// `confirmingPersonaMachines`: a persona confirm row showing machine chips (Left/Right pick).
+    /// `confirmingPersonaMachines`: a persona confirm row showing machine chips (Up/Down pick).
     /// `confirmingFreshStart(Machines)`: a New worker pick's confirm row (its unreachable retry):
     /// Tab can't toggle it (`PersonaPick.locksStartNew`).
     enum RoutingHintMode {
@@ -75,10 +75,10 @@ enum PanelFooterHints {
         case .loading: "esc cancel"
         case .confirming: "↩ send   esc cancel"
         case .confirmingPersona: "↩ send   tab toggle   esc cancel"
-        case .confirmingPersonaMachines: "↩ send   ←→ machine   tab toggle   esc cancel"
+        case .confirmingPersonaMachines: "↩ send   ↑↓ machine   tab toggle   esc cancel"
         case .confirmingPersonaRefusal: "tab start new   esc cancel"
         case .confirmingFreshStart: "↩ start fresh   esc cancel"
-        case .confirmingFreshStartMachines: "↩ start fresh   ←→ machine   esc cancel"
+        case .confirmingFreshStartMachines: "↩ start fresh   ↑↓ machine   esc cancel"
         // Esc only hides the row: the start is already on its way and its outcome still shows.
         case .startingPersona: "esc hide"
         }
@@ -88,7 +88,7 @@ enum PanelFooterHints {
         switch mode {
         case .pickingFolder: "↑↓ select   ↩ pick folder   esc cancel"
         case .composing: "↩ start fresh   esc back"
-        case .composingMachines: "↩ start fresh   ←→ machine   esc back"
+        case .composingMachines: "↩ start fresh   ↑↓ machine   esc back"
         }
     }
 

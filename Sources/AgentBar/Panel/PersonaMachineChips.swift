@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The persona confirm row's machine choice, e.g. `[Pro] [Air]` — the selected one filled
-/// (`PersonaPick.machineChips` / `machineID`; Left/Right move it). Sized to the 20pt routing row
+/// (`PersonaPick.machineChips` / `machineID`; Up/Down move it). Sized to the 20pt routing row
 /// (`AgentPanelMetrics.routingRowHeight`): never taller, so the panel's fixed height budget holds.
 struct PersonaMachineChips: View {
     let chips: [PersonaMachine]

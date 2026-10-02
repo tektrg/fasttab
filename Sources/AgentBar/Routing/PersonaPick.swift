@@ -30,7 +30,7 @@ struct PersonaPick: Equatable, Sendable {
     /// New worker mode's pick (`NewWorkerMode`): always a fresh start, so Tab can't flip
     /// `forcedStartNew` back — not even on the unreachable retry row.
     var locksStartNew = false
-    /// The machine chip selected on the confirm row (Left/Right, `moveMachine(by:)`); starts as the
+    /// The machine chip selected on the confirm row (Up/Down, `moveMachine(by:)`); starts as the
     /// persona's own `runsOn`. Nil when the dashboard sends no machine routing (older dashboard).
     var machineID: String?
     /// Set after a start came back `.unreachable`: the row moved its chip to the dashboard's
@@ -67,7 +67,7 @@ extension PersonaPick {
     /// and the reply's chosen machine never depends on the server re-reading the registry).
     var startMachineID: String? { machineID }
 
-    /// Left/Right on the confirm row: moves the selected chip, clamped at both ends. False when no
+    /// Up/Down on the confirm row: moves the selected chip, clamped at both ends. False when no
     /// chips are showing, so the arrow keeps its usual job (moving the text cursor).
     mutating func moveMachine(by step: Int) -> Bool {
         let chips = machineChips

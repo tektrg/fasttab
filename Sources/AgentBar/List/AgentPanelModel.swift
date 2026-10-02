@@ -375,7 +375,7 @@ final class AgentPanelModel: ObservableObject {
         }
     }
 
-    /// Left/Right while a persona confirm row shows machine chips: moves the selected machine
+    /// Up/Down while a persona confirm row (or New worker step 2) shows machine chips: moves the selected machine
     /// (`PersonaPick.moveMachine`). False otherwise, so the arrow keeps its usual job.
     @discardableResult
     func movePersonaMachine(by step: Int) -> Bool {
@@ -943,6 +943,9 @@ final class AgentPanelModel: ObservableObject {
     /// ↑/↓ from the keyboard: moves the highlight inside an open answer card,
     /// else the selection in the list.
     func moveSelectionOrAnswerHighlight(by step: Int) {
+        // Machine chips (Jev persona confirm row, New worker step 2) claim Up/Down first: Left/Right
+        // stay with the text caret. Up = previous chip, Down = next.
+        if movePersonaMachine(by: step) { return }
         if moveNewWorkerSelection(by: step) { return }
         if answer.isOpen {
             answer.handle(step < 0 ? .up : .down)

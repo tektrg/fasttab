@@ -195,6 +195,18 @@ struct NewWorkerModeTests {
         #expect(rig.model.footerNotice?.text == "Started chief-aptus")
     }
 
+    /// User decision: Up/Down switch machine chips so Left/Right keep moving the caret in the task.
+    @Test func upDownSwitchTheMachineChipAndLeftRightAreLeftToTheCaret() async {
+        let rig = await composingRig(folder: "chief-aptus")
+        rig.model.query = "task"
+        rig.model.moveSelectionOrAnswerHighlight(by: 1)
+        #expect(rig.model.newWorkerPick?.machineID == "air-m1")
+        rig.model.moveSelectionOrAnswerHighlight(by: -1)
+        #expect(rig.model.newWorkerPick?.machineID == "local")
+        #expect(!rig.model.moveButtonHighlight(by: 1))   // ← / → handler: not claimed, caret moves
+        #expect(rig.model.newWorkerPick?.machineID == "local")
+    }
+
     @Test func noChipsMeansArrowsAreNotClaimedAndNoMachineIsSent() async {
         let rig = await composingRig(folder: "bi")
         #expect(!rig.model.movePersonaMachine(by: 1))
@@ -264,11 +276,11 @@ struct NewWorkerModeTests {
         #expect(PanelFooterHints.RoutingHintMode(confirming: pick) == .confirmingPersonaMachines)
         pick.locksStartNew = true
         pick.forcedStartNew = true
-        #expect(PanelFooterHints.text(for: .init(routingMode: .init(confirming: pick))) == "↩ start fresh   ←→ machine   esc cancel")
+        #expect(PanelFooterHints.text(for: .init(routingMode: .init(confirming: pick))) == "↩ start fresh   ↑↓ machine   esc cancel")
     }
 
     @Test func footerHintsNameTheModeKeys() {
         #expect(PanelFooterHints.text(for: .init(newWorkerMode: .pickingFolder)) == "↑↓ select   ↩ pick folder   esc cancel")
-        #expect(PanelFooterHints.text(for: .init(newWorkerMode: .composingMachines)) == "↩ start fresh   ←→ machine   esc back")
+        #expect(PanelFooterHints.text(for: .init(newWorkerMode: .composingMachines)) == "↩ start fresh   ↑↓ machine   esc back")
     }
 }

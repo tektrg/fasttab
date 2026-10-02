@@ -79,7 +79,7 @@ extension AgentPanelModel {
         return true
     }
 
-    /// Left/Right in step 2 with machine chips. False otherwise (the caret keeps the arrows).
+    /// Up/Down in step 2 with machine chips. False otherwise.
     func moveNewWorkerMachine(by offset: Int) -> Bool {
         guard var mode = newWorker, mode.moveMachine(by: offset) else { return false }
         newWorker = mode

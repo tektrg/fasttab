@@ -27,6 +27,9 @@ struct PersonaPick: Equatable, Sendable {
     /// smallest version of the spec's Tab-tag menu that fits a single confirm row: no separate
     /// menu UI, the effect text alone shows which one will happen.
     var forcedStartNew = false
+    /// New worker mode's pick (`NewWorkerMode`): always a fresh start, so Tab can't flip
+    /// `forcedStartNew` back — not even on the unreachable retry row.
+    var locksStartNew = false
     /// The machine chip selected on the confirm row (Left/Right, `moveMachine(by:)`); starts as the
     /// persona's own `runsOn`. Nil when the dashboard sends no machine routing (older dashboard).
     var machineID: String?

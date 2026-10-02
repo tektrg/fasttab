@@ -71,6 +71,7 @@ struct NewWorkerMode: Equatable {
         guard case .pickingFolder = step, let persona = selectedFolder(filter: filter) else { return false }
         var pick = PersonaPick(persona: persona, confidence: 1, mainSession: .absent)
         pick.forcedStartNew = true
+        pick.locksStartNew = true
         folderFilter = filter
         selectedFolderName = persona.name
         step = .composing(pick)

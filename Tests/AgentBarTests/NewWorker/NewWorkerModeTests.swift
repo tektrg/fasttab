@@ -212,6 +212,38 @@ struct NewWorkerModeTests {
         #expect(rig.personas.startCalls.last == .init(name: "agentbar", text: "task", fresh: true, machine: "local"))
     }
 
+    /// Persona fixture resumes by default and has a main row: an unlocked Tab would turn the retry
+    /// into a resume / send-to-main. The New worker pick must stay a fresh start.
+    @Test func tabOnTheUnreachableRetryRowCannotUnforceTheFreshStart() async {
+        let rig = await composingRig(folder: "agentbar")
+        rig.personas.startOutcome = .unreachable(reason: "Air is unreachable.", retryOn: Self.pro)
+        rig.model.query = "task"
+        rig.model.activateSelected()
+        await waitUntil { if case .confirmingPersona = rig.model.routingState { true } else { false } }
+        guard case .confirmingPersona(let before) = rig.model.routingState else { return }
+        #expect(rig.model.togglePersonaDeliveryOverride())   // swallowed, not passed on to row tagging
+        guard case .confirmingPersona(let after) = rig.model.routingState else {
+            Issue.record("retry row gone after Tab")
+            return
+        }
+        #expect(after == before)
+        #expect(after.effect == .startNew)
+        #expect(rig.model.taggedAgentID == nil)
+        #expect(PanelFooterHints.RoutingHintMode(confirming: after) == .confirmingFreshStartMachines)
+        rig.personas.startOutcome = .started(paneId: "w1:p1")
+        rig.model.activateSelected()
+        await waitUntil { rig.personas.startCalls.count == 2 }
+        #expect(rig.personas.startCalls.last?.fresh == true)
+    }
+
+    @Test func onlyALockedPickDropsTabToggleFromTheHint() {
+        var pick = PersonaPick(persona: Self.persona("chief-aptus"), confidence: 0.9, mainSession: .absent)
+        #expect(PanelFooterHints.RoutingHintMode(confirming: pick) == .confirmingPersonaMachines)
+        pick.locksStartNew = true
+        pick.forcedStartNew = true
+        #expect(PanelFooterHints.text(for: .init(routingMode: .init(confirming: pick))) == "↩ start fresh   ←→ machine   esc cancel")
+    }
+
     @Test func footerHintsNameTheModeKeys() {
         #expect(PanelFooterHints.text(for: .init(newWorkerMode: .pickingFolder)) == "↑↓ select   ↩ pick folder   esc cancel")
         #expect(PanelFooterHints.text(for: .init(newWorkerMode: .composingMachines)) == "↩ start fresh   ←→ machine   esc back")

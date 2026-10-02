@@ -252,6 +252,8 @@ final class AgentPanelModel: ObservableObject {
     @discardableResult
     func togglePersonaDeliveryOverride() -> Bool {
         guard case .confirmingPersona(var pick) = routingState else { return false }
+        // A New worker pick (e.g. its unreachable retry row) only ever starts fresh: Tab is swallowed.
+        guard !pick.locksStartNew else { return true }
         dismissRefusalNotice(leaving: pick)
         if pick.unreachableHint != nil {
             pick.unreachableHint = nil

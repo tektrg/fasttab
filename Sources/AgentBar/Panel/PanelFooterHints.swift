@@ -33,7 +33,22 @@ enum PanelFooterHints {
     /// `confirmingPersonaRefusal`: a persona confirm row whose Return delivers nothing
     /// (`PersonaDeliveryEffect.refusesDelivery`) — Tab is the only way forward.
     /// `confirmingPersonaMachines`: a persona confirm row showing machine chips (Left/Right pick).
-    enum RoutingHintMode { case loading, confirming, confirmingPersona, confirmingPersonaMachines, confirmingPersonaRefusal, startingPersona }
+    /// `confirmingFreshStart(Machines)`: a New worker pick's confirm row (its unreachable retry):
+    /// Tab can't toggle it (`PersonaPick.locksStartNew`).
+    enum RoutingHintMode {
+        case loading, confirming, confirmingPersona, confirmingPersonaMachines, confirmingPersonaRefusal
+        case confirmingFreshStart, confirmingFreshStartMachines, startingPersona
+
+        init(confirming pick: PersonaPick) {
+            if pick.effect.refusesDelivery { self = .confirmingPersonaRefusal; return }
+            switch (pick.locksStartNew, pick.machineChips.isEmpty) {
+            case (true, true): self = .confirmingFreshStart
+            case (true, false): self = .confirmingFreshStartMachines
+            case (false, true): self = .confirmingPersona
+            case (false, false): self = .confirmingPersonaMachines
+            }
+        }
+    }
 
     static func text(for context: Context) -> String {
         if context.hasDismissibleNotice { return "esc dismiss notice" }
@@ -62,6 +77,8 @@ enum PanelFooterHints {
         case .confirmingPersona: "↩ send   tab toggle   esc cancel"
         case .confirmingPersonaMachines: "↩ send   ←→ machine   tab toggle   esc cancel"
         case .confirmingPersonaRefusal: "tab start new   esc cancel"
+        case .confirmingFreshStart: "↩ start fresh   esc cancel"
+        case .confirmingFreshStartMachines: "↩ start fresh   ←→ machine   esc cancel"
         // Esc only hides the row: the start is already on its way and its outcome still shows.
         case .startingPersona: "esc hide"
         }

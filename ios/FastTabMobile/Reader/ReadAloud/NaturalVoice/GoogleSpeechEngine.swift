@@ -34,8 +34,9 @@ final class GoogleSpeechEngine: SpeechEngine {
         onEvent: @escaping @MainActor (Int, SpeechEngineEvent) -> Void
     ) {
         stop()
+        NaturalVoiceDiagnostics.lastFailure = nil
         let sentences = ReadAloudSentences.sentences(of: chunks, from: startIndex)
-        let languageCode = ReadAloudText.dominantLanguage(of: chunks) ?? "en"
+        let languageCode = NaturalVoiceLanguage.code(for: ReadAloudText.dominantLanguage(of: chunks) ?? "en")
         let requests = sentences.map {
             NaturalVoiceRequest(text: $0.text, languageCode: languageCode, voice: nil, speakingRate: rate)
         }

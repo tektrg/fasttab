@@ -72,6 +72,11 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
         case .quotaExhausted(nil):
             return "Natural voice used up — using device voice"
         case .unavailable, .sentenceRejected:
+            #if DEBUG
+            if let reason = NaturalVoiceDiagnostics.lastFailure {
+                return "Natural voice unavailable (\(reason)), using device voice"
+            }
+            #endif
             return "Natural voice unavailable, using device voice"
         }
     }

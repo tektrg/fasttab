@@ -371,4 +371,12 @@ final class NaturalVoiceEngineTests: XCTestCase {
         XCTAssertNil(controller.spokenPosition)
         XCTAssertTrue(device.runs.isEmpty)
     }
+
+    func testLanguageCodeIsRegionalForTheServer() {
+        XCTAssertEqual(NaturalVoiceLanguage.code(for: "vi"), "vi-VN")
+        XCTAssertEqual(NaturalVoiceLanguage.code(for: "en"), "en-US")
+        XCTAssertEqual(NaturalVoiceLanguage.code(for: "zh-Hans"), "cmn-CN")
+        XCTAssertEqual(NaturalVoiceLanguage.code(for: "en-GB"), "en-GB")
+        XCTAssertEqual(NaturalVoiceLanguage.code(for: "xx"), "en-US")
+    }
 }

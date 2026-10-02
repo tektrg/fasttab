@@ -45,8 +45,18 @@ struct NaturalVoiceClient: Sendable {
             cache.store(body, forKey: key)
             return body
         }
-        readAloudLog.error("natural voice HTTP \(status)")
+        let code = Self.errorCode(in: body) ?? "-"
+        readAloudLog.error("natural voice HTTP \(status) code \(code, privacy: .public)")
+        NaturalVoiceDiagnostics.lastFailure = "HTTP \(status) \(code)"
         throw Self.error(status: status, body: body)
+    }
+
+    /// The server's error code (`{code}` flat, or `{error: {code}}`), for logs.
+    static func errorCode(in body: Data) -> String? {
+        struct Nested: Decodable { let code: String? }
+        struct Body: Decodable { let code: String?; let error: Nested? }
+        let decoded = try? JSONDecoder().decode(Body.self, from: body)
+        return decoded?.code ?? decoded?.error?.code
     }
 
     /// Maps a non-200 answer onto what Read Aloud should do about it.
@@ -75,6 +85,7 @@ struct NaturalVoiceClient: Sendable {
         } catch let error as URLError where error.code == .cancelled {
             throw CancellationError()
         } catch {
+            NaturalVoiceDiagnostics.lastFailure = "network: \(error.localizedDescription)"
             readAloudLog.error("natural voice network error: \(error.localizedDescription)")
             throw NaturalVoiceError.unavailable
         }
@@ -115,5 +126,26 @@ enum NaturalVoiceInstallID {
         let created = UUID().uuidString.lowercased()
         try? keychain.writeData(Data(created.utf8), account: KeychainAccount.installID)
         return created
+    }
+}
+
+/// Why the last natural-voice request failed, shown in the DEBUG fallback notice.
+enum NaturalVoiceDiagnostics {
+    nonisolated(unsafe) static var lastFailure: String?
+}
+
+/// theindie-api `/v1/tts` wants a regional BCP-47 code ("vi-VN"); NLLanguageRecognizer gives
+/// a bare one ("vi"). Maps the bare code onto the Google Chirp 3 HD locale.
+enum NaturalVoiceLanguage {
+    private static let regions: [String: String] = [
+        "en": "en-US", "vi": "vi-VN", "ja": "ja-JP", "ko": "ko-KR", "zh-Hans": "cmn-CN",
+        "zh-Hant": "cmn-TW", "fr": "fr-FR", "de": "de-DE", "es": "es-ES", "it": "it-IT",
+        "pt": "pt-BR", "ru": "ru-RU", "hi": "hi-IN", "th": "th-TH", "id": "id-ID", "nl": "nl-NL",
+    ]
+
+    static func code(for language: String) -> String {
+        if let mapped = regions[language] { return mapped }
+        if language.range(of: "^[a-z]{2,3}-[A-Z]{2}$", options: .regularExpression) != nil { return language }
+        return regions["en"]!
     }
 }

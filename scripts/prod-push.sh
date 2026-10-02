@@ -43,7 +43,7 @@ sync_main_with_pro() {
   fi
   # Fast-forward the Pro: a side branch, then --ff-only there (fails, leaving the Pro as it was,
   # if its checkout isn't on main or its own uncommitted edits touch incoming files).
-  run git push pro "HEAD:refs/heads/prod-push-sync"
+  run git push pro "+HEAD:refs/heads/prod-push-sync"   # throwaway: a leftover never blocks
   run ssh "${PRO}" "cd '${PRO_REPO}' && [ \"\$(git rev-parse --abbrev-ref HEAD)\" = main ] && git merge --ff-only prod-push-sync; rc=\$?; git branch -D prod-push-sync >/dev/null; exit \$rc" \
     || die "the Pro's main can't fast-forward (not on main, moved meanwhile, or its uncommitted edits are in the way) — nothing was deployed"
   echo "==> main synced: Air and Pro at $(git rev-parse --short HEAD)"

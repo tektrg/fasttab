@@ -32,18 +32,42 @@ enum ReadAloudText {
             .filter { !$0.isEmpty }
     }
 
-    /// Keeps chunks under `maxChunkLength` by packing whole sentences.
+    /// Keeps chunks under `maxChunkLength` by packing whole sentences. A "sentence" the
+    /// tokenizer can't break (no capitalised next sentence, run-on transcript text) is
+    /// split at spaces instead. Pieces keep the paragraph's own spacing, so every chunk
+    /// is still a substring of the page text (`ReadAloudTextLocator` relies on that).
     static func splitLongParagraph(_ paragraph: String) -> [String] {
         guard paragraph.count > maxChunkLength else { return [paragraph] }
-        var chunks: [String] = []
-        var current = ""
+        var pieces: [String] = []
         paragraph.enumerateSubstrings(in: paragraph.startIndex..., options: .bySentences) { sentence, _, _, _ in
             guard let sentence else { return }
-            if !current.isEmpty, current.count + sentence.count > maxChunkLength {
+            pieces += sentence.count > maxChunkLength ? wordPieces(of: sentence) : [sentence]
+        }
+        return pack(pieces)
+    }
+
+    /// Words with their trailing space ("word "), so joining them restores the text.
+    private static func wordPieces(of text: String) -> [String] {
+        var pieces: [String] = []
+        var current = ""
+        for character in text {
+            current.append(character)
+            if character == " " { pieces.append(current); current = "" }
+        }
+        if !current.isEmpty { pieces.append(current) }
+        return pieces
+    }
+
+    /// Greedily joins consecutive pieces into chunks of at most `maxChunkLength`.
+    private static func pack(_ pieces: [String]) -> [String] {
+        var chunks: [String] = []
+        var current = ""
+        for piece in pieces {
+            if !current.isEmpty, current.count + piece.count > maxChunkLength {
                 chunks.append(normalizedWhitespace(current))
                 current = ""
             }
-            current += sentence + " "
+            current += piece
         }
         let tail = normalizedWhitespace(current)
         if !tail.isEmpty { chunks.append(tail) }

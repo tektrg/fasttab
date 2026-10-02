@@ -32,12 +32,37 @@ final class ReadAloudTests: XCTestCase {
     }
 
     func testLongParagraphIsSplitAtSentencesUnderLimit() {
-        let sentence = String(repeating: "word ", count: 60) + "end. " // ~305 chars
-        let paragraph = String(repeating: sentence, count: 10)
+        // Capitalised sentence starts, so the sentence tokenizer sees real boundaries.
+        let sentence = "Word " + String(repeating: "word ", count: 59) + "end. " // ~305 chars
+        let paragraph = String(repeating: sentence, count: 10).trimmingCharacters(in: .whitespaces)
         let chunks = ReadAloudText.splitLongParagraph(paragraph)
         XCTAssertGreaterThan(chunks.count, 1)
         XCTAssertTrue(chunks.allSatisfy { $0.count <= ReadAloudText.maxChunkLength })
         XCTAssertTrue(chunks.allSatisfy { $0.hasSuffix("end.") })
+    }
+
+    func testRunOnTextWithoutSentenceBoundariesIsSplitAtSpaces() {
+        // Lower-case after each period: the tokenizer finds no boundary (transcripts look like this).
+        let paragraph = String(repeating: "word word word end. ", count: 200).trimmingCharacters(in: .whitespaces)
+        let chunks = ReadAloudText.splitLongParagraph(paragraph)
+        XCTAssertGreaterThan(chunks.count, 1)
+        XCTAssertTrue(chunks.allSatisfy { $0.count <= ReadAloudText.maxChunkLength })
+        XCTAssertEqual(chunks.joined(separator: " "), paragraph) // nothing lost, no word cut
+    }
+
+    func testSplitChunksStillMapOntoPageText() {
+        let paragraph = String(repeating: "alpha beta gamma. ", count: 150).trimmingCharacters(in: .whitespaces)
+        let chunks = ["Title"] + ReadAloudText.splitLongParagraph(paragraph)
+        let page = "Title" + paragraph // as ftReadAloudText joins title + body
+        let locator = ReadAloudTextLocator(documentText: page, chunks: chunks)
+        XCTAssertFalse(locator.chunkStarts.contains { $0 == nil })
+        let pageText = page as NSString
+        for (index, chunk) in chunks.enumerated() {
+            let ranges = locator.documentRanges(
+                for: ReadAloudSpokenPosition(sessionID: 1, chunkIndex: index, wordRange: NSRange(location: 0, length: 5)))
+            XCTAssertEqual(ranges.map { pageText.substring(with: $0.paragraph) }, chunk)
+            XCTAssertEqual(ranges.map { pageText.substring(with: $0.word) }, String(chunk.prefix(5)))
+        }
     }
 
     func testDominantLanguageDetectsEnglish() {

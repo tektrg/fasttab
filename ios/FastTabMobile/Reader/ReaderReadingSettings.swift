@@ -139,6 +139,8 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
     public static let speechRateOptions: [Double] = [0.75, 1.0, 1.25, 1.5, 2.0]
 
     public var effectiveSpeechRate: Double { speechRate ?? Self.defaultSpeechRate }
+    /// Natural voice is on and offered in this build (DEBUG / TestFlight only for now).
+    var usesNaturalVoice: Bool { (naturalVoiceEnabled ?? false) && AppDistribution.isDebugOrTestFlight }
 
     public var fontSize: Int
     public var fontFamily: ReaderFontFamily
@@ -152,6 +154,8 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
     /// Read Aloud voice the user picked (`AVSpeechSynthesisVoice.identifier`).
     /// Nil = automatic (best installed voice for the article's language).
     public var speechVoiceIdentifier: String?
+    /// "Natural voice (beta)": Google voice via theindie-api. Nil/false = device voice.
+    public var naturalVoiceEnabled: Bool?
     public var updatedAt: Date
 
     public static var defaults: Self {
@@ -175,6 +179,7 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
         darkBackgroundHex: String = defaultDarkBackgroundHex,
         speechRate: Double? = nil,
         speechVoiceIdentifier: String? = nil,
+        naturalVoiceEnabled: Bool? = nil,
         updatedAt: Date = Date()
     ) {
         self.fontSize = min(max(fontSize, Self.fontSizeRange.lowerBound), Self.fontSizeRange.upperBound)
@@ -185,6 +190,7 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
         self.darkBackgroundHex = Self.normalizedHex(darkBackgroundHex) ?? Self.defaultDarkBackgroundHex
         self.speechRate = speechRate
         self.speechVoiceIdentifier = speechVoiceIdentifier
+        self.naturalVoiceEnabled = naturalVoiceEnabled
         self.updatedAt = updatedAt
     }
 
@@ -408,6 +414,10 @@ public final class ReaderReadingSettingsStore: ObservableObject {
     /// Nil = automatic voice for the article's language.
     public func setSpeechVoice(identifier: String?) {
         update { $0.speechVoiceIdentifier = identifier }
+    }
+
+    public func setNaturalVoiceEnabled(_ enabled: Bool) {
+        update { $0.naturalVoiceEnabled = enabled }
     }
 
     public func resetToDefaults() {

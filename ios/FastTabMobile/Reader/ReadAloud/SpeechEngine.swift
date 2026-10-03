@@ -9,12 +9,16 @@ enum SpeechEngineEvent: Equatable {
     case chunkStarted(Int)
     /// UTF-16 range, within the chunk, of the word about to be spoken.
     case word(chunk: Int, range: NSRange)
+    /// UTF-16 range, within the chunk, of the sentence being spoken (natural voice:
+    /// it highlights whole sentences, the device voice highlights words).
+    case sentence(chunk: Int, range: NSRange)
     case chunkFinished(Int)
+    /// Short message for the listener, e.g. the natural voice fell back to the device voice.
+    case notice(String)
 }
 
-/// Seam between Read Aloud and whatever produces the audio. Today only the free
-/// on-device engine exists; a paid cloud "natural voice" engine can conform later
-/// (e.g. emitting `.word` from timestamps) without touching `ReadAloudController`.
+/// Seam between Read Aloud and whatever produces the audio: the free on-device
+/// `AppleSpeechEngine`, or `NaturalVoiceSpeechEngine` (Google voice + device fallback).
 @MainActor
 protocol SpeechEngine: AnyObject {
     /// Voices this engine can speak with (shown in the voice picker).

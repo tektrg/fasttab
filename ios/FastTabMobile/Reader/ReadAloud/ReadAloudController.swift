@@ -31,7 +31,12 @@ final class ReadAloudController: ObservableObject {
     /// The open page, asked what is on screen when Play is pressed (set by the reader).
     weak var page: ReadAloudPageSync?
 
-    private let engine: SpeechEngine
+    /// Free device voice; also the natural voice's fallback.
+    private let deviceEngine: SpeechEngine
+    private let makeNaturalEngine: (SpeechEngine) -> SpeechEngine
+    private lazy var naturalEngine: SpeechEngine = makeNaturalEngine(deviceEngine)
+    /// The engine of the current run (picked from settings on every (re)start).
+    private var engine: SpeechEngine
     private let settingsStore: ReaderReadingSettingsStore
     private let integratesWithSystem: Bool
     /// Bumped on every engine (re)start; also the page's session id for its text map.
@@ -47,21 +52,37 @@ final class ReadAloudController: ObservableObject {
     /// `integratesWithSystem: false` keeps tests away from the audio session and lock screen.
     init(
         engine: SpeechEngine? = nil,
+        naturalEngine makeNaturalEngine: ((_ deviceEngine: SpeechEngine) -> SpeechEngine)? = nil,
         settingsStore: ReaderReadingSettingsStore = .shared,
         integratesWithSystem: Bool = true
     ) {
-        self.engine = engine ?? AppleSpeechEngine()
+        let deviceEngine = engine ?? AppleSpeechEngine()
+        self.deviceEngine = deviceEngine
+        self.engine = deviceEngine
+        self.makeNaturalEngine = makeNaturalEngine ?? { device in
+            NaturalVoiceSpeechEngine(natural: GoogleSpeechEngine(), device: device)
+        }
         self.settingsStore = settingsStore
         self.integratesWithSystem = integratesWithSystem
-        // Speed / voice changes restart the current paragraph with the new settings.
+        // Speed / voice / natural-voice changes restart the current paragraph with the new settings.
         // `$settings` fires before the store's value changes, so the new value is passed on.
         settingsSubscription = settingsStore.$settings
-            .removeDuplicates { $0.speechRate == $1.speechRate && $0.speechVoiceIdentifier == $1.speechVoiceIdentifier }
+            .removeDuplicates {
+                $0.speechRate == $1.speechRate && $0.speechVoiceIdentifier == $1.speechVoiceIdentifier
+                    && $0.naturalVoiceEnabled == $1.naturalVoiceEnabled
+            }
             .dropFirst()
             .sink { [weak self] settings in self?.settingsDidChange(settings) }
     }
 
-    var availableVoices: [ReadAloudVoiceOption] { engine.availableVoices }
+    var availableVoices: [ReadAloudVoiceOption] { deviceEngine.availableVoices }
+
+    /// Latest engine notice (e.g. natural voice fell back); the view shows it briefly.
+    struct EngineNotice: Equatable {
+        let message: String
+        let id: Int
+    }
+    @Published private(set) var engineNotice: EngineNotice?
 
     /// Play/Pause button. Play starts where `ReadAloudStartPoint` says (resume, title,
     /// or the paragraph at the top of the screen).
@@ -198,12 +219,13 @@ final class ReadAloudController: ObservableObject {
     /// (Re)starts the engine at `chunk` under a fresh generation.
     private func runEngine(from chunk: Int, settings: ReaderReadingSettings) {
         engine.stop()
+        engine = settings.usesNaturalVoice ? naturalEngine : deviceEngine
         generation += 1
         currentChunk = chunk
         voiceIdentifier = ReadAloudVoiceSelector.select(
             preferredIdentifier: settings.speechVoiceIdentifier,
             languageCode: languageCode,
-            among: engine.availableVoices
+            among: deviceEngine.availableVoices
         )?.id
         transition(to: .playing)
         engine.speak(
@@ -226,7 +248,7 @@ final class ReadAloudController: ObservableObject {
         case .chunkStarted(let chunk):
             readAloudLog.debug("utterance start chunk \(chunk) gen \(eventGeneration)")
             currentChunk = chunk
-        case .word(let chunk, let range):
+        case .word(let chunk, let range), .sentence(let chunk, let range):
             guard chunk == currentChunk, state == .playing else { return }
             spokenPosition = ReadAloudSpokenPosition(sessionID: generation, chunkIndex: chunk, wordRange: range)
         case .chunkFinished(let chunk):
@@ -235,6 +257,9 @@ final class ReadAloudController: ObservableObject {
             readAloudLog.info("article finished")
             stop()
             finishedArticle = true
+        case .notice(let message):
+            readAloudLog.info("engine notice: \(message)")
+            engineNotice = EngineNotice(message: message, id: (engineNotice?.id ?? 0) + 1)
         }
     }
 

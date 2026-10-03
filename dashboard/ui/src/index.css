@@ -412,11 +412,19 @@ body.rp-resizing .rp-resize { background:var(--ask); }
   overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0.4em 0;
   border: 1px solid var(--hair); border-radius: var(--r-sm);
 }
-.md-table { border-collapse: collapse; width: 100%; font-size: 0.92em; }
+/* max-content: every column gets its natural width up to the .md-cell cap
+   (not squeezed to one word per line); min-width fills narrow tables. */
+.md-table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 0.92em; }
 .md-table th, .md-table td {
   padding: 6px 10px; border-bottom: 1px solid var(--hair);
-  text-align: left; white-space: nowrap;
+  text-align: left; white-space: normal; vertical-align: top;
 }
+/* Long cells wrap inside a capped box so one column can't stretch the table
+   off a phone screen; a table still too wide scrolls inside .md-table-scroll.
+   break-word (not the container's `anywhere`) keeps each column at least one
+   word wide, so narrow columns don't collapse to a letter per line; a long
+   path/URL still breaks at the cap. */
+.md-cell { max-width: min(18rem, 70vw); overflow-wrap: break-word; }
 .md-table th { color: var(--ink-3); font-weight: 600; background: var(--paper); }
 .md-table tr:last-child td { border-bottom: none; }
 

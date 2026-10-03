@@ -9,6 +9,8 @@
 import { describe, expect, test } from "bun:test";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Markdown } from "../components/Markdown";
 
 function render(text: string): HTMLElement {
@@ -123,6 +125,27 @@ describe("Markdown GFM tables", () => {
     const host = render(md);
     const headerCells = host.querySelectorAll("thead th");
     expect(headerCells.length).toBe(2);
+  });
+});
+
+describe("Markdown table cells stay readable on a phone", () => {
+  // happy-dom does no layout, so the width cap is pinned as markup + CSS rule.
+  const css = readFileSync(join(import.meta.dir, "../index.css"), "utf8");
+
+  test("every header and body cell wraps its content in a capped .md-cell box, alignment kept", () => {
+    const md = "| Path | Note |\n| --- | ---: |\n| `/a/very/long/path/to/some/file.tsx` | right |";
+    const host = render(md);
+    const cells = Array.from(host.querySelectorAll("th, td"));
+    expect(cells.length).toBe(4);
+    for (const cell of cells) expect(cell.firstElementChild?.className).toBe("md-cell");
+    expect(host.querySelector("td .md-cell code")?.textContent).toBe("/a/very/long/path/to/some/file.tsx");
+    expect((host.querySelectorAll("td")[1] as HTMLElement).style.textAlign).toBe("right");
+  });
+
+  test("CSS: cells wrap (no nowrap) and .md-cell has a max width + word wrapping", () => {
+    expect(css).toMatch(/\.md-table th, \.md-table td \{[^}]*white-space:\s*normal/);
+    expect(css).toMatch(/\.md-cell \{[^}]*max-width:\s*min\([^)]*vw\)[^}]*overflow-wrap:\s*break-word/);
+    expect(css).toMatch(/\.md-table-scroll \{[^}]*overflow-x:\s*auto/);
   });
 });
 

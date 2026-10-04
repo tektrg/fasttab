@@ -53,7 +53,9 @@ def _secret():
     except OSError:
         value = ""
     if not value:
-        raise FeedbackProxyError(f"feedback admin secret missing: put it in {DEFAULT_SECRET_FILE}", 503)
+        raise FeedbackProxyError(
+            f"feedback admin secret missing: save the theindie-api FEEDBACK_ADMIN_SECRET value in {DEFAULT_SECRET_FILE}"
+            " on the dashboard's Mac (one line), then Retry", 503)
     return value
 
 
@@ -90,15 +92,21 @@ def _call_upstream(method, upstream_path, body=None):
     try:
         payload = json.loads(raw or b"{}")
     except ValueError:
-        raise FeedbackProxyError(f"theindie-api returned non-JSON (HTTP {status})", 502)
+        if status < 400:
+            raise FeedbackProxyError(f"theindie-api returned non-JSON (HTTP {status})", 502)
+        payload = None
     if status >= 400:
         upstream_error = payload.get("error") if isinstance(payload, dict) else None
         message = upstream_error.get("message") if isinstance(upstream_error, dict) else None
         if status == 401:
             message = "theindie-api refused the admin secret"
+        elif status == 429:
+            message = "theindie-api is rate limiting: wait a minute, then Retry"
         elif isinstance(message, str):
             message = message.replace(secret, "[redacted]")
         raise FeedbackProxyError(message or f"theindie-api HTTP {status}", status if status < 500 else 502)
+    if not isinstance(payload, dict):
+        raise FeedbackProxyError("theindie-api reply is not a JSON object", 502)
     return payload
 
 

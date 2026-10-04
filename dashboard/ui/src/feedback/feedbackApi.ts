@@ -1,6 +1,6 @@
 /** Feedback tab data: dashboard server proxy (`server/lib/feedback_admin_proxy.py`)
  *  -> theindie-api admin routes. The admin secret stays on the server. */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FeedbackThread } from "./feedbackTableView";
 
 export interface FeedbackMessage {
@@ -52,13 +52,18 @@ export function createResolveGuard() {
   };
 }
 
-/** Thread list + refetch. `error` is shown verbatim (the proxy writes it for people). */
+/** Thread list + refetch. `error` is shown verbatim (the proxy writes it for people).
+ *  Only the newest request may write state: overlapping reloads (two quick resolves)
+ *  can reply out of order, and an older list would undo a newer resolve. */
 export function useFeedbackThreads() {
   const [threads, setThreads] = useState<FeedbackThread[] | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const latestRequest = useRef(0);
   const reload = useCallback(async () => {
+    const request = ++latestRequest.current;
     const reply = await fetchFeedbackThreads();
+    if (request !== latestRequest.current) return;
     if (!reply.ok) {
       setError(reply.error || "could not load feedback");
       return;

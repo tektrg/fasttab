@@ -127,6 +127,30 @@ fake(raise_exc=urllib.error.HTTPError("u", 400, "bad", {}, io.BytesIO(("{\"error
 payload, _ = proxy.handle_post(f"/api/feedback/threads/{TID}/resolve", lambda: {})
 check("secret never in error text", SENTINEL in json.dumps(payload), False)
 
+print("QA pass 2")
+write_secret()
+for raw in (b"null", b"[]", b'"x"'):
+    proxy.send_request = lambda request, raw=raw: (200, raw)
+    for label, call in (("detail", lambda: proxy.handle_get(f"/api/feedback/threads/{TID}", {})),
+                        ("resolve", lambda: proxy.handle_post(f"/api/feedback/threads/{TID}/resolve", lambda: {}))):
+        try:
+            got = call()[1]
+        except Exception as e:  # noqa: BLE001
+            got = type(e).__name__
+        check(f"{label} non-object JSON {raw!r} -> 502", got, 502)
+proxy.send_request = lambda request: (429, b"<html>rate</html>")
+check("429 non-JSON keeps 429", proxy.handle_get("/api/feedback/threads", {})[1], 429)
+proxy.send_request = lambda request: (404, b'{"error":{"message":"Thread not found"}}')
+check("404 passes through", proxy.handle_get(f"/api/feedback/threads/{TID}", {}), ({"ok": False, "error": "Thread not found"}, 404))
+write_secret("SECRET-A")
+fake(status=200, payload={"threads": []})
+proxy.handle_get("/api/feedback/threads", {})
+write_secret("SECRET-B")
+proxy.handle_get("/api/feedback/threads", {})
+check("rotated secret used next request", calls[-1].get_header("Authorization"), "Bearer SECRET-B")
+os.remove(SECRET_FILE)
+check("missing secret says how to fix", "wrangler" in proxy.handle_get("/api/feedback/threads", {})[0]["error"] or "FEEDBACK_ADMIN_SECRET" in proxy.handle_get("/api/feedback/threads", {})[0]["error"], True)
+
 if fails:
     print("\n".join(fails))
     sys.exit(1)

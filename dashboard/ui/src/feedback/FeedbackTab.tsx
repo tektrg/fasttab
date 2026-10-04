@@ -1,6 +1,6 @@
 /** Feedback tab: one component, two layouts over the same engine result —
  *  desktop `table`, phone `cards`. Status change -> proxy -> refetch. */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import type { SourceRow } from "@indie/table-core";
 import { createResolveGuard, fetchFeedbackThread, resolveFeedbackThread, useFeedbackThreads, type FeedbackMessage } from "./feedbackApi";
 import {
@@ -45,6 +45,7 @@ function StatusControl({ row, busy, onResolve }: { row: SourceRow; busy: boolean
       disabled={busy || row.status !== "open"}
       title={row.status !== "open" ? "Reopens automatically when the user replies" : undefined}
       onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
       onChange={(e) => e.currentTarget.value === "resolved" && onResolve(String(row.id))}
     >
       {FEEDBACK_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
@@ -105,12 +106,24 @@ export function FeedbackTab({ layout, onToast }: { layout: Layout; onToast: Noti
     }
   };
   const toggle = (threadID: string) => setOpenThreadID((current) => (current === threadID ? null : threadID));
+  /** Click / Enter / Space opens a thread; the row says whether it is open. */
+  const rowProps = (row: SourceRow) => ({
+    tabIndex: 0,
+    "aria-expanded": openThreadID === row.id,
+    onClick: () => toggle(String(row.id)),
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      toggle(String(row.id));
+    },
+  });
 
-  if (error) return <div className="feedback-error" role="alert">{error} <button type="button" onClick={() => void reload()}>Retry</button></div>;
-  if (!threads) return <div className="small">loading feedback…</div>;
+  const errorBanner = error && <div className="feedback-error" role="alert">{error} <button type="button" onClick={() => void reload()}>Retry</button></div>;
+  if (!threads) return errorBanner || <div className="small">loading feedback…</div>;
 
   return (
     <div className={`feedback-tab feedback-tab--${layout}`}>
+      {errorBanner}
       <FilterBar filter={filter} apps={apps} onChange={setFilter} />
       {groups.length === 0 && <div className="small">No feedback matches.</div>}
       {groups.map((group) => (
@@ -126,7 +139,7 @@ export function FeedbackTab({ layout, onToast }: { layout: Layout; onToast: Noti
               </thead>
               <tbody>
                 {group.rows.map((row) => [
-                  <tr key={row.id} onClick={() => toggle(String(row.id))} data-waiting={row.waitingOnYou || undefined}>
+                  <tr key={row.id} {...rowProps(row)} data-waiting={row.waitingOnYou || undefined}>
                     <td>{String(row.title)}</td>
                     <td><StatusControl row={row} busy={guard.has(String(row.id))} onResolve={resolve} /></td>
                     <td>{shortDate(row.lastActivityAt)}</td>
@@ -142,7 +155,7 @@ export function FeedbackTab({ layout, onToast }: { layout: Layout; onToast: Noti
           ) : (
             <ul className="feedback-cards">
               {group.rows.map((row) => (
-                <li key={row.id} className="feedback-card" data-waiting={row.waitingOnYou || undefined} onClick={() => toggle(String(row.id))}>
+                <li key={row.id} className="feedback-card" data-waiting={row.waitingOnYou || undefined} {...rowProps(row)}>
                   <div className="feedback-card__title">{String(row.title)}</div>
                   <div className="feedback-card__meta">
                     <StatusControl row={row} busy={guard.has(String(row.id))} onResolve={resolve} />

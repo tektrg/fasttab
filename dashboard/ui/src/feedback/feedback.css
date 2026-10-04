@@ -8,6 +8,7 @@
 .feedback-cards { list-style: none; padding: 0; margin: 0; }
 .feedback-card { padding: 12px; border-bottom: 1px solid rgba(127,127,127,.2); }
 .feedback-card__meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.feedback-card__title, .feedback-messages, .feedback-table td { overflow-wrap: anywhere; }
 .feedback-messages { margin: 6px 0; padding-left: 18px; white-space: pre-wrap; }
 .feedback-messages li[data-author="creator"] { opacity: .75; }
 .feedback-error { color: #d33; padding: 8px 0; }

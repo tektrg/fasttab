@@ -197,8 +197,8 @@ print("== happy path: fresh start, shape of the typed command ==")
 result, herdr = start({"persona": "test-echo", "text": "who are you"})
 check("ok", result, {"ok": True, "paneId": "w1:p42", "machine": "local", "mode": "started"})
 check("herdr steps in order", herdr.steps(), ["tab_create", "wait_shell_ready", "pane_run"])
-check("tab created in the persona folder, labelled with its name, message in its env",
-      herdr.calls[0], ("tab_create", ECHO_RESOLVED, "test-echo",
+check("tab created in the persona folder, labelled name · first words, message in its env",
+      herdr.calls[0], ("tab_create", ECHO_RESOLVED, "test-echo · who are you",
                        {ps.MESSAGE_ENV_VAR: "who are you"}))
 argv = argv_of(herdr.command())
 check("argv[0] is claude", argv[0], ps.CLAUDE_BIN)
@@ -238,6 +238,8 @@ for label, hostile in (("command substitution", SENTINEL_SUBST),
           herdr.tab_env(), {ps.MESSAGE_ENV_VAR: f"{hostile} there"})
     check(f"{label}: typed line doesn't contain it",
           "INJECTED" in herdr.command(), False)
+    check(f"{label}: tab label keeps none of its shell characters",
+          any(c in herdr.calls[0][2] for c in "$`;'\"()="), False)
 
 print("\n== a message that starts with '-' is the prompt, never a claude flag ==")
 result, herdr = start({"persona": "test-echo", "text": "--dangerously-skip-permissions now"})

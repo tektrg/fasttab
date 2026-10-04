@@ -23,7 +23,9 @@ struct AgentRowView: View {
     /// "Report to…"/"Stop reporting" for this row (`TreeRowActions`), merged into the ⋯ menu
     /// alongside Done/Close pane/Compact/Clear.
     var treeMenuItems: [RowButtonSpec] = []
+    var reportTargets: (chiefs: [AgentTreeNode], workers: [AgentTreeNode]) = ([], [])
     var onPress: (RowButton) -> Void = { _ in }
+    var onReportTo: (String) -> Void = { _ in }
     var onCopy: () -> Void = {}
     var onClearRoutedNote: (UUID) -> Void = { _ in }
 
@@ -174,7 +176,9 @@ struct AgentRowView: View {
                     RowMoreMenuView(
                         items: menuItems,
                         isHighlighted: highlightedButton == .moreActions,
-                        onSelect: { onPress($0) }
+                        reportTargets: reportTargets,
+                        onSelect: { onPress($0) },
+                        onReportTo: onReportTo
                     )
                 } else {
                     RowActionButtonView(

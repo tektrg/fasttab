@@ -47,7 +47,9 @@ struct AgentListView: View {
                 isCopied: model.copier.copiedAgentID == agent.id,
                 routedNotes: model.routedNotes(for: agent.id),
                 treeMenuItems: TreeRowActions.menuItems(forAgentID: agent.id, tree: model.treeModel.tree),
+                reportTargets: model.treeModel.tree?.reportTargets(for: agent.id) ?? ([], []),
                 onPress: { model.press($0, on: agent.id) },
+                onReportTo: { model.reportTo($0, from: agent.id) },
                 onCopy: { model.copyIdentity(of: agent) },
                 onClearRoutedNote: { model.clearRoutedNote($0, for: agent.id) }
             )

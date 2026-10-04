@@ -1140,6 +1140,17 @@ final class AgentPanelModel: ObservableObject {
     /// Park / Unpark act at once; Done / Close pane ask the dashboard, and the
     /// returned task ends when it has answered (tests await it).
     @discardableResult
+    /// The row ⋯ menu's "Report to" submenu: attach `agentID` under the picked `targetID` (a chief
+    /// or an Unassigned worker, `AgentTree.reportTargets`). Same gate as pressing "Report to…".
+    func reportTo(_ targetID: String, from agentID: String) {
+        guard let agent = presentation.agents.first(where: { $0.id == agentID }),
+              isPressable(.reportTo, on: agent),
+              let tree = treeModel.tree, let child = tree.node(withID: agentID), let parent = tree.node(withID: targetID)
+        else { return }
+        treeModel.selectedNodeID = agentID
+        treeModel.attach(child: child, to: parent)
+    }
+
     func press(_ button: RowButton, on agentID: String) -> Task<Void, Never>? {
         guard let agent = presentation.agents.first(where: { $0.id == agentID }),
               isPressable(button, on: agent) else { return nil }

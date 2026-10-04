@@ -165,11 +165,11 @@ final class AgentTreeModel: ObservableObject {
             errorMessage = "\(child.label) is a chief — a chief can't report to another chief (two levels only)."
             return
         }
-        // Defensive: every caller (indent, drag-drop, the confirm/picker retries) should already
-        // have picked an actual chief, but `movingChild` no-ops silently on a bad parent id — catch
-        // it here instead, so a future caller's mistake surfaces as a message, not a quiet freeze.
-        guard tree.isChief(parent.id) else {
-            errorMessage = "\(parent.label) isn't a chief — pick a chief to attach \(child.label) to."
+        // Defensive: every caller (indent, drag-drop, the "Report to" submenu, the confirm/picker
+        // retries) should already have picked a valid parent, but `movingChild` no-ops silently on a
+        // bad parent id — catch it here instead, so a mistake surfaces as a message, not a quiet freeze.
+        guard tree.canBeParent(parent.id) else {
+            errorMessage = "\(parent.label) already reports to someone — pick a chief or an unassigned worker for \(child.label)."
             return
         }
         errorMessage = nil

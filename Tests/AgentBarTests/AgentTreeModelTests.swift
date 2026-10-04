@@ -317,18 +317,30 @@ struct AgentTreeModelTests {
         #expect(editing.attachCalls.isEmpty)
     }
 
-    @Test func attachingToAParentThatIsntAChiefIsRefusedClientSideWithNoOptimisticMove() async {
+    @Test func attachingToAParentThatAlreadyReportsToSomeoneIsRefusedClientSideWithNoOptimisticMove() async {
         // `movingChild` itself no-ops silently on a bad parent id — this is the defensive check one
         // level up, so a caller's mistake (a future drag-drop or picker bug) surfaces as a message
-        // instead of a quiet freeze.
+        // instead of a quiet freeze. A nested worker can't take reports (two levels only).
         let editing = AgentTreeFakeEditing()
         let model = AgentTreeModel(editing: editing)
-        model.receive(snapshot(AgentTree(generatedAt: nil, chiefs: [chief("c1")], unassigned: [node("w1"), node("not-a-chief")], parentGone: [])))
-        model.attach(child: node("w1"), to: node("not-a-chief"))
+        model.receive(snapshot(AgentTree(generatedAt: nil, chiefs: [chief("c1", children: [node("nested")])], unassigned: [node("w1")], parentGone: [])))
+        model.attach(child: node("w1"), to: node("nested"))
         await settleTasks()
         #expect(editing.attachCalls.isEmpty)
-        #expect(model.errorMessage?.contains("isn't a chief") == true)
-        #expect(model.tree?.unassigned.map(\.id).sorted() == ["not-a-chief", "w1"])   // untouched
+        #expect(model.errorMessage?.contains("already reports to someone") == true)
+        #expect(model.tree?.unassigned.map(\.id) == ["w1"])   // untouched
+    }
+
+    @Test func attachingToAnUnassignedWorkerPromotesItToAChiefOptimistically() async {
+        let editing = AgentTreeFakeEditing()
+        let model = AgentTreeModel(editing: editing)
+        model.receive(snapshot(AgentTree(generatedAt: nil, chiefs: [], unassigned: [node("w1"), node("boss")], parentGone: [])))
+        model.attach(child: node("w1"), to: node("boss"))
+        #expect(model.tree?.chiefs.map(\.id) == ["boss"])
+        #expect(model.tree?.chiefs.first?.children.map(\.id) == ["w1"])
+        #expect(model.tree?.unassigned.isEmpty == true)
+        await waitUntil { !editing.attachCalls.isEmpty }
+        #expect(editing.attachCalls == [.init(child: "w1", parent: "boss", confirmCrossProject: false)])
     }
 
     // MARK: - Mid-flight snapshot race (QA-flagged: a stale revert must not clobber fresher SSE state)

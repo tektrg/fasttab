@@ -5,6 +5,7 @@ import { TabBar } from "./TabBar";
 import { InboxTab } from "./InboxTab";
 import { AgentsTab } from "./AgentsTab";
 import { SettingsTab } from "./SettingsTab";
+import { FeedbackTab } from "../../feedback/FeedbackTab";
 import { PhoneSheet } from "./PhoneSheet";
 import { PromptSheet } from "./PromptSheet";
 import { PersonaMessageSheet } from "./PersonaMessageSheet";
@@ -19,12 +20,12 @@ import {
 } from "./phoneModel";
 import "./phone.css";
 
-const TITLE: Record<PhoneTab, string> = { inbox: "Inbox", agents: "Agents", settings: "Settings" };
+const TITLE: Record<PhoneTab, string> = { inbox: "Inbox", agents: "Agents", feedback: "Feedback", settings: "Settings" };
 
 // One row per session: the key survives the prompt changing (question -> permission).
 const promptKey = (n: NeedsYouRow) => n.agentSession ?? n.label;
 
-/** The phone app: three tabs (Inbox / Agents / Settings) over the same
+/** The phone app: four tabs (Inbox / Agents / Feedback / Settings) over the same
  *  dashboard state and session board the desktop reads. A row opens a bottom
  *  sheet (peek -> full); the header "+" opens the persona message sheet.
  *  Mounted by App.tsx instead of the desktop chrome below ~640px, inside a
@@ -99,6 +100,7 @@ export function PhoneShell({ state }: { state: FullState }) {
         />
       )}
       {tab === "agents" && <AgentsTab agents={agents} onOpen={openAgent} onToast={onToast} onUndo={onUndo} onRefetch={reload} />}
+      {tab === "feedback" && <FeedbackTab layout="cards" onToast={onToast} />}
       {tab === "settings" && <SettingsTab state={state} />}
 
       <TabBar tab={tab} onTab={setTab} inboxBadge={inboxBadgeCount(needsYou)} />

@@ -7,6 +7,7 @@ import { FeedStrip } from "./components/FeedStrip";
 import { NeedsYou } from "./components/NeedsYou";
 import { BoardSection } from "./components/BoardSection";
 import { PhoneShell } from "./components/phone/PhoneShell";
+import { FeedbackTab } from "./feedback/FeedbackTab";
 import { ToastProvider } from "./ui/Toast";
 import { filterAgents, type SearchableAgent } from "./agentMatch";
 import type { NeedsYouRow } from "./types";
@@ -21,6 +22,7 @@ export default function App() {
   const phone = usePhoneLayout();
   useQuestionAlerts(state?.computed.needsYou);
   const [query, setQuery] = useState("");
+  const [desktopTab, setDesktopTab] = useState<"agents" | "feedback">("agents");
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   // Desktop-only: "/" focuses the search field (unless already typing
@@ -98,6 +100,17 @@ export default function App() {
         </div>
       </header>
 
+      <nav className="desktop-tabs" aria-label="Dashboard sections">
+        {(["agents", "feedback"] as const).map((t) => (
+          <button key={t} type="button" aria-current={desktopTab === t ? "page" : undefined} onClick={() => setDesktopTab(t)}>
+            {t === "agents" ? "Agents" : "Feedback"}
+          </button>
+        ))}
+      </nav>
+
+      {desktopTab === "feedback" && <FeedbackTab layout="table" onToast={onToast} />}
+
+      {desktopTab === "agents" && (<>
       <FeedStrip state={state} />
 
       <div className="desktop-search-bar">
@@ -140,6 +153,7 @@ export default function App() {
         </h2>
         <BoardSection onToast={onToast} onFocus={onFocus} />
       </section>
+      </>)}
 
       <footer>
         Editable only for custom board columns plus two existing buttons: row

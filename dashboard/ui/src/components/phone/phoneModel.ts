@@ -6,7 +6,7 @@ import type { UiStatus } from "../../ui/status";
 import type { SearchableAgent } from "../../agentMatch";
 import { folderBasename, type FolderGroupable } from "./folderGrouping";
 
-export type PhoneTab = "inbox" | "agents" | "settings";
+export type PhoneTab = "inbox" | "agents" | "feedback" | "settings";
 
 // ── Inbox ────────────────────────────────────────────────────────────────
 

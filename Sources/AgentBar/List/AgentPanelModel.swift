@@ -144,8 +144,10 @@ final class AgentPanelModel: ObservableObject {
     /// Shift+Return with text in the box: asks Jev which shown, message-eligible agent should get
     /// it. No-op with an empty box, a card open, or a route already running (one at a time, like
     /// a message send). The box is not cleared: a failure leaves the text exactly as typed.
+    /// `/new` enters New worker mode instead, same as a plain Return.
     func startRouting() {
         guard !isCardOpen, routingState == nil, taggedAgentID == nil, newWorker == nil else { return }
+        if enterNewWorkerIfCommand() { return }   // `/new` is a command, never a message for Jev
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard let apiKey = routingAPIKeyStore?.get(), !apiKey.isEmpty else {

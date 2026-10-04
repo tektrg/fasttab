@@ -5,9 +5,7 @@ struct StatusMessageView: View {
     let state: AgentListState
     /// Where the dashboard is expected, e.g. "127.0.0.1:4711" (it can be overridden).
     let dashboardAddress: String
-    /// `/new` is in the search box: "No matches" would mislead — say what Return does instead.
-    var isNewWorkerCommandTyped = false
-    /// Offered on "No agents running" (New worker mode).
+    /// Offered on "No agents running" and with `/new` typed (New worker mode).
     var onNewWorker: (() -> Void)?
 
     var body: some View {
@@ -25,7 +23,7 @@ struct StatusMessageView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
-            if state == .noAgents, let onNewWorker {
+            if state == .noAgents || state == .newWorkerCommand, let onNewWorker {
                 Button("New worker…", action: onNewWorker)
                     .controlSize(.small)
                     .help("New worker (/new)")
@@ -45,7 +43,7 @@ struct StatusMessageView: View {
             ("Status feed down", reason, "Is the chief dashboard running at \(dashboardAddress)?", true)
         case .noAgents:
             ("No agents running", nil, nil, false)
-        case .noMatches where isNewWorkerCommandTyped:
+        case .newWorkerCommand:
             ("New worker", "Press Return to pick a folder.", nil, false)
         case .noMatches:
             ("No matches", nil, nil, false)

@@ -60,6 +60,9 @@ enum AgentListState: Equatable {
     case noAgents
     /// Agents exist but the search query excludes all of them.
     case noMatches
+    /// `/new` is in the box: the body is the single "New worker" action (Return / click enters
+    /// New worker mode), never agent rows that merely match the text.
+    case newWorkerCommand
     case list
 }
 

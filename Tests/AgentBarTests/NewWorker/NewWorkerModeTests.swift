@@ -80,6 +80,44 @@ struct NewWorkerModeTests {
         #expect(rig.model.newWorkerSelectedFolderName == "chief-aptus")
     }
 
+    /// Live-like typing over rows that match "new" (label, project, prompt): the body becomes the
+    /// one "New worker" action (no agent row to highlight, Tab or peek), and Return enters the mode.
+    @Test func slashNewOverMatchingRowsShowsOnlyTheNewWorkerActionAndReturnEnters() {
+        let rig = rig()
+        rig.model.receive(F.snapshot([
+            F.agent("a", label: "new-onboarding", section: .working),
+            F.agent("b", project: "renewals", section: .needsYou, excerpt: "add /new command"),
+        ]))
+        for typed in ["/", "/n", "/ne", "/New "] { rig.model.query = typed }
+        #expect(rig.model.presentation.state == .newWorkerCommand)
+        #expect(rig.model.presentation.rows.isEmpty)
+        #expect(rig.model.selectedAgentID == nil)
+        rig.model.moveSelectionOrAnswerHighlight(by: 1)
+        rig.model.tagSelected()
+        #expect(rig.model.taggedAgentID == nil)
+        rig.model.activateSelected()
+        #expect(rig.model.newWorker != nil)
+        #expect(rig.model.query == "")
+    }
+
+    @Test func slashNewWithNoAgentsShowsTheActionToo() {
+        let rig = rig()
+        rig.model.query = "/new"
+        #expect(rig.model.presentation.state == .newWorkerCommand)
+        rig.model.query = "/newer"
+        #expect(rig.model.presentation.state == .noAgents)
+    }
+
+    /// Shift+Return is the Jev routing key; `/new` must not be sent to Jev as a message.
+    @Test func shiftReturnWithSlashNewEntersInsteadOfRouting() {
+        let rig = rig()
+        rig.model.query = "/new"
+        rig.model.startRouting()
+        #expect(rig.model.newWorker != nil)
+        #expect(rig.model.routingState == nil)
+        #expect(rig.model.footerNotice == nil)
+    }
+
     @Test func plusButtonPathEntersTooAndNoDashboardShowsFailed() {
         let rig = rig()
         rig.model.personaSource = nil

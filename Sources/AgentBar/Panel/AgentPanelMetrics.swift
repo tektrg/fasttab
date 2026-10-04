@@ -139,7 +139,7 @@ enum AgentPanelMetrics {
     static func bodyHeight(for presentation: AgentListPresentation, maxListHeight: CGFloat = maxListHeight) -> CGFloat {
         switch presentation.state {
         case .list: min(listContentHeight(for: presentation.rows), maxListHeight)
-        case .connecting, .feedDown, .noAgents, .noMatches: messageHeight
+        case .connecting, .feedDown, .noAgents, .noMatches, .newWorkerCommand: messageHeight
         }
     }
 

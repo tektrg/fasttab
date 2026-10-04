@@ -176,7 +176,6 @@ struct AgentPanelView: View {
             StatusMessageView(
                 state: model.presentation.state,
                 dashboardAddress: model.dashboardAddress,
-                isNewWorkerCommandTyped: NewWorkerMode.isEntryCommand(model.query),
                 onNewWorker: model.enterNewWorkerMode
             )
         }

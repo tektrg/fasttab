@@ -3267,6 +3267,7 @@ class Handler(BaseHTTPRequestHandler):
         if job_reply is not None:
             self._send_json(*job_reply)
             return
+        self._note_remote_audit_row(feedback_admin_proxy.resolve_thread_id_of(path))
         feedback_reply = feedback_admin_proxy.handle_post(path, self._read_json_body)
         if feedback_reply is not None:
             self._send_json(*feedback_reply)

@@ -42,6 +42,16 @@ export function resolveFeedbackThread(threadID: string, input: { message?: strin
   return feedbackRequest<{ messageID: string | null }>(`${THREADS_URL}/${encodeURIComponent(threadID)}/resolve`, "POST", input);
 }
 
+/** Resolve pushes a real message to a customer: one request per thread at a time. */
+export function createResolveGuard() {
+  const inFlight = new Set<string>();
+  return {
+    start: (threadID: string) => (inFlight.has(threadID) ? false : (inFlight.add(threadID), true)),
+    finish: (threadID: string) => void inFlight.delete(threadID),
+    has: (threadID: string) => inFlight.has(threadID),
+  };
+}
+
 /** Thread list + refetch. `error` is shown verbatim (the proxy writes it for people). */
 export function useFeedbackThreads() {
   const [threads, setThreads] = useState<FeedbackThread[] | null>(null);

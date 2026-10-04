@@ -88,3 +88,22 @@ describe("feedback default view", () => {
     expect(evaluateFeedback(fixture, DEFAULT_FEEDBACK_FILTER).map((g) => [g.app, g.rows.map((r) => r.id)])).toEqual(oracle);
   });
 });
+
+describe("QA pass 1", () => {
+  test("a thread with no/invalid lastMessageAt does not crash the tab", () => {
+    const bad = thread({ threadID: "z", lastMessageAt: undefined as unknown as number });
+    expect(() => evaluateFeedback([bad, THREADS[0]], DEFAULT_FEEDBACK_FILTER)).not.toThrow();
+  });
+  test("Vietnamese search ignores accents and case", () => {
+    const ids = evaluateFeedback(THREADS, { ...DEFAULT_FEEDBACK_FILTER, text: "khong dong bo" }).flatMap((g) => g.rows.map((r) => r.id));
+    expect(ids).toEqual(["a"]);
+  });
+  test("resolve guard: second submit while in flight is refused", async () => {
+    const { createResolveGuard } = await import("../feedback/feedbackApi");
+    const guard = createResolveGuard();
+    expect(guard.start("a")).toBe(true);
+    expect(guard.start("a")).toBe(false);
+    guard.finish("a");
+    expect(guard.start("a")).toBe(true);
+  });
+});

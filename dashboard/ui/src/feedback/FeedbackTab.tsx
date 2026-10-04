@@ -2,7 +2,7 @@
  *  desktop `table`, phone `cards`. Status change -> proxy -> refetch. */
 import { useEffect, useMemo, useState } from "react";
 import type { SourceRow } from "@indie/table-core";
-import { fetchFeedbackThread, resolveFeedbackThread, useFeedbackThreads, type FeedbackMessage } from "./feedbackApi";
+import { createResolveGuard, fetchFeedbackThread, resolveFeedbackThread, useFeedbackThreads, type FeedbackMessage } from "./feedbackApi";
 import {
   DEFAULT_FEEDBACK_FILTER,
   FEEDBACK_STATUSES,
@@ -37,12 +37,12 @@ function FilterBar({ filter, apps, onChange }: { filter: FeedbackFilterInput; ap
 }
 
 /** Only open -> resolved exists upstream; reopen happens when the user writes again. */
-function StatusControl({ row, onResolve }: { row: SourceRow; onResolve: (threadID: string) => void }) {
+function StatusControl({ row, busy, onResolve }: { row: SourceRow; busy: boolean; onResolve: (threadID: string) => void }) {
   return (
     <select
       aria-label="Thread status"
       value={String(row.status)}
-      disabled={row.status !== "open"}
+      disabled={busy || row.status !== "open"}
       title={row.status !== "open" ? "Reopens automatically when the user replies" : undefined}
       onClick={(e) => e.stopPropagation()}
       onChange={(e) => e.currentTarget.value === "resolved" && onResolve(String(row.id))}
@@ -88,10 +88,21 @@ export function FeedbackTab({ layout, onToast }: { layout: Layout; onToast: Noti
   const ownerFields = useMemo(() => detectOwnerFields(allThreads), [allThreads]);
   const apps = useMemo(() => feedbackFields(allThreads).find((field) => field.id === "app")?.options ?? [], [allThreads]);
 
+  const [guard] = useState(createResolveGuard);
+  const [, setBusyTick] = useState(0);
   const resolve = async (threadID: string) => {
-    const reply = await resolveFeedbackThread(threadID);
-    onToast(reply.ok ? "feedback resolved" : "resolve failed: " + (reply.error || "?"), reply.ok);
-    await reload();
+    if (guard.has(threadID)) return;
+    if (!window.confirm("Mark resolved? The customer gets a \"solved\" push notification right away.")) return;
+    if (!guard.start(threadID)) return;
+    setBusyTick((n) => n + 1);
+    try {
+      const reply = await resolveFeedbackThread(threadID);
+      onToast(reply.ok ? "feedback resolved" : "resolve failed: " + (reply.error || "?"), reply.ok);
+      await reload();
+    } finally {
+      guard.finish(threadID);
+      setBusyTick((n) => n + 1);
+    }
   };
   const toggle = (threadID: string) => setOpenThreadID((current) => (current === threadID ? null : threadID));
 
@@ -117,7 +128,7 @@ export function FeedbackTab({ layout, onToast }: { layout: Layout; onToast: Noti
                 {group.rows.map((row) => [
                   <tr key={row.id} onClick={() => toggle(String(row.id))} data-waiting={row.waitingOnYou || undefined}>
                     <td>{String(row.title)}</td>
-                    <td><StatusControl row={row} onResolve={resolve} /></td>
+                    <td><StatusControl row={row} busy={guard.has(String(row.id))} onResolve={resolve} /></td>
                     <td>{shortDate(row.lastActivityAt)}</td>
                     <td>{row.shippedInVersion ?? ""}</td>
                     {ownerFields.map((id) => <td key={id}>{row[id] == null ? "" : String(row[id])}</td>)}
@@ -134,7 +145,7 @@ export function FeedbackTab({ layout, onToast }: { layout: Layout; onToast: Noti
                 <li key={row.id} className="feedback-card" data-waiting={row.waitingOnYou || undefined} onClick={() => toggle(String(row.id))}>
                   <div className="feedback-card__title">{String(row.title)}</div>
                   <div className="feedback-card__meta">
-                    <StatusControl row={row} onResolve={resolve} />
+                    <StatusControl row={row} busy={guard.has(String(row.id))} onResolve={resolve} />
                     <span className="small">{shortDate(row.lastActivityAt)}</span>
                     {ownerFields.map((id) => row[id] != null && <span key={id} className="small">{id}: {String(row[id])}</span>)}
                   </div>

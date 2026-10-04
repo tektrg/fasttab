@@ -75,7 +75,7 @@ export function toFeedbackSourceRows(threads: FeedbackThread[]): SourceRow[] {
       title: threadTitle(thread),
       app: appLabel(thread.app),
       status: thread.status,
-      lastActivityAt: new Date(thread.lastMessageAt).toISOString(),
+      lastActivityAt: Number.isFinite(thread.lastMessageAt) ? new Date(thread.lastMessageAt).toISOString() : null,
       waitingOnYou: thread.status === "open" && thread.lastAuthor === "user",
       shippedInVersion: thread.shippedInVersion ?? null,
     };

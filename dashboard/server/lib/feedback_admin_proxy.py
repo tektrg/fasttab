@@ -73,7 +73,8 @@ send_request = _default_send
 def _call_upstream(method, upstream_path, body=None):
     data = json.dumps(body).encode("utf-8") if body is not None else None
     request = urllib.request.Request(_api_base() + upstream_path, data=data, method=method)
-    request.add_header("Authorization", "Bearer " + _secret())
+    secret = _secret()
+    request.add_header("Authorization", "Bearer " + secret)
     request.add_header("Accept", "application/json")
     if data is not None:
         request.add_header("Content-Type", "application/json")
@@ -95,6 +96,8 @@ def _call_upstream(method, upstream_path, body=None):
         message = upstream_error.get("message") if isinstance(upstream_error, dict) else None
         if status == 401:
             message = "theindie-api refused the admin secret"
+        elif isinstance(message, str):
+            message = message.replace(secret, "[redacted]")
         raise FeedbackProxyError(message or f"theindie-api HTTP {status}", status if status < 500 else 502)
     return payload
 
@@ -108,7 +111,7 @@ def _parse_limit(raw):
 
 
 def _thread_id(raw):
-    if not _UUID_RE.match(raw or ""):
+    if not _UUID_RE.fullmatch(raw or ""):
         raise FeedbackProxyError("bad thread id")
     return raw.lower()
 
@@ -144,7 +147,8 @@ def resolve_thread(thread_id, body):
             continue
         if not isinstance(value, str) or len(value) > max_chars:
             raise FeedbackProxyError(f"{key} must be text up to {max_chars} characters")
-        upstream_body[key] = value.strip()
+        if value.strip():
+            upstream_body[key] = value.strip()
     payload = _call_upstream("POST", f"/v1/admin/feedback/threads/{_thread_id(thread_id)}/resolve", upstream_body)
     return {"ok": True, "messageID": payload.get("messageID")}
 
@@ -165,11 +169,18 @@ def handle_get(path, query):
     return None
 
 
+def resolve_thread_id_of(path):
+    """Thread id of a resolve path (for the remote audit line), else None."""
+    if path.startswith(PREFIX + "/") and path.endswith("/resolve"):
+        return path[len(PREFIX) + 1:-len("/resolve")]
+    return None
+
+
 def handle_post(path, read_body):
     """(payload, status) for a feedback POST, else None."""
-    if not (path.startswith(PREFIX + "/") and path.endswith("/resolve")):
+    thread_id = resolve_thread_id_of(path)
+    if thread_id is None:
         return None
-    thread_id = path[len(PREFIX) + 1:-len("/resolve")]
 
     def run():
         try:

@@ -115,6 +115,18 @@ check("upstream 500 -> 502", proxy.handle_get("/api/feedback/threads", {})[1], 5
 proxy.send_request = lambda request: (200, b'{"nope":1}')
 check("missing threads list -> 502", proxy.handle_get("/api/feedback/threads", {})[1], 502)
 
+print("QA pass 1")
+write_secret()
+fake(status=200, payload={"messageID": None})
+proxy.handle_post(f"/api/feedback/threads/{TID}/resolve", lambda: {"message": "   "})
+check("whitespace-only message not sent", json.loads(calls[-1].data), {})
+check("thread id with trailing newline refused", proxy.handle_get(f"/api/feedback/threads/{TID}\n", {})[1], 400)
+check("resolve id helper", proxy.resolve_thread_id_of(f"/api/feedback/threads/{TID}/resolve"), TID)
+check("resolve id helper other path", proxy.resolve_thread_id_of("/api/links"), None)
+fake(raise_exc=urllib.error.HTTPError("u", 400, "bad", {}, io.BytesIO(("{\"error\":{\"message\":\"echo " + SENTINEL + "\"}}").encode())))
+payload, _ = proxy.handle_post(f"/api/feedback/threads/{TID}/resolve", lambda: {})
+check("secret never in error text", SENTINEL in json.dumps(payload), False)
+
 if fails:
     print("\n".join(fails))
     sys.exit(1)

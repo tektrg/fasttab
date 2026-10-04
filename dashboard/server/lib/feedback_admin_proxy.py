@@ -78,6 +78,8 @@ def _call_upstream(method, upstream_path, body=None):
     secret = _secret()
     request.add_header("Authorization", "Bearer " + secret)
     request.add_header("Accept", "application/json")
+    # Cloudflare 403s urllib's default "Python-urllib/x.y" User-Agent (bot rule).
+    request.add_header("User-Agent", "agent-dashboard-feedback-proxy/1")
     if data is not None:
         request.add_header("Content-Type", "application/json")
     try:

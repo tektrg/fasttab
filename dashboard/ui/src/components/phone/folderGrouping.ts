@@ -30,8 +30,9 @@ export { folderBasename, folderGroupKey } from "./agentTableView";
  *  anything else (server order otherwise). Ordering + grouping run on the
  *  shared table engine via `FOLDER_VIEW_SPEC` (see agentTableView.ts). */
 export function groupByFolder<T extends FolderGroupable>(rows: T[]): FolderGroup<T>[] {
+  const rowsById = new Map(rows.map((row) => [row.rowId, row]));
   return evaluateAgentView(rows).map((leaf) => {
-    const groupRows = (leaf.rows ?? []).map((source) => rows[source.sourceIndex as number]!);
+    const groupRows = (leaf.rows ?? []).map((source) => rowsById.get(source.id as FolderGroupable["rowId"])!);
     const first = groupRows[0]!;
     const folderPath = first.cwd || "(no folder)";
     return {

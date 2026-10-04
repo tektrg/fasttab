@@ -22,7 +22,11 @@ function legacyGroupByFolder<T extends FolderGroupable>(rows: T[]) {
   }
   const groups = [...map.values()];
   for (const g of groups) g.rows = [...g.rows].sort((a, b) => (a.needsYouKind ? rank[a.needsYouKind] : 99) - (b.needsYouKind ? rank[b.needsYouKind] : 99));
-  groups.sort((a, b) => (a.hasNeedsYou !== b.hasNeedsYou ? (a.hasNeedsYou ? -1 : 1) : a.folderName.localeCompare(b.folderName)));
+  // One deliberate change vs the frozen original (`a.folderName.localeCompare(b.folderName)`): names that differ
+  // only by case ("Zeta" / "zeta") now order by code point (uppercase first), as table-core "natural" collation
+  // does; localeCompare put lowercase first. Every other ordering is unchanged.
+  const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" }) || (a < b ? -1 : a > b ? 1 : 0);
+  groups.sort((a, b) => (a.hasNeedsYou !== b.hasNeedsYou ? (a.hasNeedsYou ? -1 : 1) : byName(a.folderName, b.folderName)));
   return groups;
 }
 

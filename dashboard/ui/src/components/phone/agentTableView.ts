@@ -2,12 +2,10 @@
  *  IndieLibKit/ts/table-core). The "Group: Folder" list is expressed as a
  *  ViewSpec and ordered/grouped by the engine's in-memory `evaluate()`.
  *
- *  Two rules the engine can't express by itself are precomputed here as
- *  number fields, so the result stays identical to the pre-engine list:
- *  - folder names compare with `localeCompare` (engine compares code points)
- *    -> `folderNameRank`;
- *  - ties keep server order (engine breaks ties by row id)
- *    -> `folderFirstSeen` / `sourceIndex`. */
+ *  Folder names use the engine's "natural" collation (case/accent-insensitive,
+ *  numeric-aware); rows tie in server order via `tieBreak: "sourceOrder"`.
+ *  `folderFirstSeen` stays: same-named folders (two machines, two parents)
+ *  are ordered by first appearance, which no collation can express. */
 import { evaluate, type FieldDefinition, type FieldRoleMap, type GroupNode, type SourceRow, type ViewSpec } from "@indie/table-core";
 import type { FolderGroupable, NeedsYouKind } from "./folderGrouping";
 
@@ -24,10 +22,9 @@ export const AGENT_FIELDS: FieldDefinition[] = [
   { id: "lastActivityAt", label: "Last activity", type: "date" },
   { id: "folderKey", label: "Folder", type: "text" },
   { id: "folderHasNeedsYou", label: "Folder needs you", type: "boolean" },
-  { id: "folderNameRank", label: "Folder name order", type: "number" },
+  { id: "folderName", label: "Folder name", type: "text" },
   { id: "folderFirstSeen", label: "Folder first seen", type: "number" },
   { id: "needsYouRank", label: "Needs-you rank", type: "number" },
-  { id: "sourceIndex", label: "Server order", type: "number" },
 ];
 
 export const AGENT_DEFAULT_ROLES: FieldRoleMap = { title: "name", status: "status", date: "lastActivityAt" };
@@ -39,13 +36,11 @@ export const FOLDER_VIEW_SPEC: ViewSpec = {
   viewType: "list",
   groupBy: [
     { fieldId: "folderHasNeedsYou", direction: "desc" },
-    { fieldId: "folderNameRank", direction: "asc" },
+    { fieldId: "folderName", direction: "asc", collation: "natural" },
     { fieldId: "folderFirstSeen", direction: "asc" },
   ],
-  sort: [
-    { fieldId: "needsYouRank", direction: "asc" },
-    { fieldId: "sourceIndex", direction: "asc" },
-  ],
+  sort: [{ fieldId: "needsYouRank", direction: "asc" }],
+  tieBreak: "sourceOrder",
 };
 
 const NEEDSYOU_RANK: Record<Exclude<NeedsYouKind, null>, number> = { blocked: 0, question: 1, "feed-broken": 2 };
@@ -78,10 +73,7 @@ export function toAgentSourceRows(agents: AgentTableInput[], nowMs: number = Dat
     if (!firstSeen.has(key)) firstSeen.set(key, firstSeen.size);
     if (agent.needsYouKind) needsYouFolders.add(key);
   });
-  const names = [...new Set(agents.map((agent) => folderBasename(folderOf(agent.cwd))))].sort((a, b) => a.localeCompare(b));
-  const nameRank = new Map(names.map((name, index) => [name, index]));
-
-  return agents.map((agent, index) => {
+  return agents.map((agent) => {
     const key = folderGroupKey(agent.machine, agent.cwd);
     return {
       id: agent.rowId,
@@ -90,10 +82,9 @@ export function toAgentSourceRows(agents: AgentTableInput[], nowMs: number = Dat
       lastActivityAt: agent.ageSec == null ? null : new Date(nowMs - agent.ageSec * 1000).toISOString(),
       folderKey: key,
       folderHasNeedsYou: needsYouFolders.has(key),
-      folderNameRank: nameRank.get(folderBasename(folderOf(agent.cwd)))!,
+      folderName: folderBasename(folderOf(agent.cwd)),
       folderFirstSeen: firstSeen.get(key)!,
       needsYouRank: agent.needsYouKind ? NEEDSYOU_RANK[agent.needsYouKind] : NOT_NEEDED_RANK,
-      sourceIndex: index,
     };
   });
 }

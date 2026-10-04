@@ -7,6 +7,8 @@ let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "I
 let indieMotion: Target.Dependency = .product(name: "IndieMotion", package: "IndieLibKit")
 let indieEdgeReveal: Target.Dependency = .product(name: "IndieEdgeReveal", package: "IndieLibKit")
 let indieEdgeRevealUI: Target.Dependency = .product(name: "IndieEdgeRevealUI", package: "IndieLibKit")
+let indieFeedbackUI: Target.Dependency = .product(name: "IndieFeedbackUI", package: "IndieLibKit")
+let indieFeedback: Target.Dependency = .product(name: "IndieFeedback", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -27,6 +29,7 @@ let package = Package(
         // (tab-activity statistics), `IndieMotion` (onboarding hero clock + stage) and
         // `IndieEdgeReveal` (notch/edge/corner hover trigger) + `IndieEdgeRevealUI` (the black
         // edge-hugging surface and its grow-out motion).
+        // `IndieFeedback`/`IndieFeedbackUI` (Settings > About > Chat with the Creator…).
         .package(path: "../IndieLibKit")
     ],
     targets: [
@@ -50,7 +53,9 @@ let package = Package(
                 indieSearch,
                 indieMetrics,
                 indieMotion,
-                indieEdgeReveal
+                indieEdgeReveal,
+                indieFeedback,
+                indieFeedbackUI
             ]
         ),
         // Pure stdio<->socket relay launched by Chrome's native messaging.

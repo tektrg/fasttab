@@ -1,12 +1,12 @@
-/** Adapter: phone agent rows -> the shared table engine (`@indie/table-core`,
- *  IndieLibKit/ts/table-core). The "Group: Folder" list is expressed as a
+/** Adapter: phone agent rows -> the shared table engine (`@tektrg/table-core`,
+ *  github.com/tektrg/table-core). The "Group: Folder" list is expressed as a
  *  ViewSpec and ordered/grouped by the engine's in-memory `evaluate()`.
  *
  *  Folder names use the engine's "natural" collation (case/accent-insensitive,
  *  numeric-aware); rows tie in server order via `tieBreak: "sourceOrder"`.
  *  `folderFirstSeen` stays: same-named folders (two machines, two parents)
  *  are ordered by first appearance, which no collation can express. */
-import { evaluate, type FieldDefinition, type FieldRoleMap, type GroupNode, type SourceRow, type ViewSpec } from "@indie/table-core";
+import { evaluate, type FieldDefinition, type FieldRoleMap, type GroupNode, type SourceRow, type ViewSpec } from "@tektrg/table-core";
 import type { FolderGroupable, NeedsYouKind } from "./folderGrouping";
 
 /** Optional display data; present on real phone agents, absent in bare fixtures. */

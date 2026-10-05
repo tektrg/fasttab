@@ -16,6 +16,7 @@
     "@mantine/core": "^9.6.0",
     "@mantine/hooks": "^9.6.0",
     "@tanstack/react-table": "^8.21.3",
+    "@tektrg/table-core": "1.0.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",

@@ -1,11 +1,11 @@
 /** Adapter: theindie-api feedback threads -> the shared table engine
- *  (`@indie/table-core`). Desktop table and phone list both render the
+ *  (`@tektrg/table-core`). Desktop table and phone list both render the
  *  result of `evaluate()` on the same ViewSpec, so they never disagree.
  *
  *  Row id = thread id (stable). Owner fields (priority/notes/direction) are
  *  not in the API yet: they become fields only when some thread carries them
  *  (feature detection), so the view never shows empty columns for them. */
-import { evaluate, type FieldDefinition, type FieldRoleMap, type FilterNode, type GroupNode, type SourceRow, type ViewSpec } from "@indie/table-core";
+import { evaluate, type FieldDefinition, type FieldRoleMap, type FilterNode, type GroupNode, type SourceRow, type ViewSpec } from "@tektrg/table-core";
 
 /** One thread as the dashboard proxy returns it (theindie-api `adminThreadJson`). */
 export interface FeedbackThread {

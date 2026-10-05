@@ -14,9 +14,7 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    // Shared L1 engine, consumed from source (no copy): ~/01_Project/IndieLibKit/ts/table-core
-    "paths": { "@indie/table-core": ["../../../IndieLibKit/ts/table-core/src/index.ts"] }
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["src"]
 }

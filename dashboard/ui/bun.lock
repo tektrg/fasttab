@@ -11,6 +11,7 @@
         "@mantine/core": "^9.6.0",
         "@mantine/hooks": "^9.6.0",
         "@tanstack/react-table": "^8.21.3",
+        "@tektrg/table-core": "1.0.2",
         "react": "^19.1.1",
         "react-dom": "^19.1.1",
         "react-markdown": "^10.1.0",
@@ -245,6 +246,8 @@
     "@tanstack/react-table": ["@tanstack/react-table@8.21.3", "", { "dependencies": { "@tanstack/table-core": "8.21.3" }, "peerDependencies": { "react": ">=16.8", "react-dom": ">=16.8" } }, "sha512-5nNMTSETP4ykGegmVkhjcS8tTLW6Vl4axfEGQN3v0zdHYbK4UfoqfPChclTrJ4EoK9QynqAu9oUf8VEmrpZ5Ww=="],
 
     "@tanstack/table-core": ["@tanstack/table-core@8.21.3", "", {}, "sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg=="],
+
+    "@tektrg/table-core": ["@tektrg/table-core@1.0.2", "https://npm.pkg.github.com/download/@tektrg/table-core/1.0.2/651e49fbac3468556eacf959541bcc3d03213f9d", { "peerDependencies": { "esbuild": ">=0.21" } }, "sha512-wkIpShKh0EJl7AvwQBYAj9x9U4mqbAxQrWVzCscVBeFGpqC0ktnAHeak2T3CHgk2et4dc/58hsUINWLOAiBZiQ=="],
 
     "@types/babel__core": ["@types/babel__core@7.20.5", "", { "dependencies": { "@babel/parser": "^7.20.7", "@babel/types": "^7.20.7", "@types/babel__generator": "*", "@types/babel__template": "*", "@types/babel__traverse": "*" } }, "sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA=="],
 

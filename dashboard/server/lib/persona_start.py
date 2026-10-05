@@ -95,6 +95,7 @@ import traceback
 import chief_dashboard_herdr as herdr_transport  # noqa: E402
 import dashboard_config  # noqa: E402
 import personas  # noqa: E402
+from persona_tab_label import persona_tab_label  # noqa: E402
 from chief_dashboard_actions import (  # noqa: E402
     find_terminal_control_char, validate_message_text)
 from chief_dashboard_feeds import REPO_ROOT, MACHINES  # noqa: E402
@@ -675,7 +676,8 @@ def _launch(deps, persona, text, fresh, instructions, target):
     command = build_start_command(instructions_path, resume_session_id=resume_id)
 
     try:
-        tab_id, pane_id = herdr.tab_create(folder, persona["name"], {MESSAGE_ENV_VAR: text})
+        tab_id, pane_id = herdr.tab_create(folder, persona_tab_label(persona["name"], text),
+                                         {MESSAGE_ENV_VAR: text})
     except herdr_transport.SshUnreachable as e:
         return _unreachable(target, e)
     except Exception as e:  # noqa: BLE001 — no pane id -> no tab we could close

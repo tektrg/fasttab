@@ -21,6 +21,9 @@ enum AgentListBuilder {
         }
 
         let note = !snapshot.boardIsCurrent
+        if NewWorkerMode.isEntryCommand(query) {
+            return AgentListPresentation(state: .newWorkerCommand, rows: [], showsBoardNote: note)
+        }
         let isSearching = !searchWords(in: query).isEmpty
         let shown = shownAgents(in: snapshot, settings: settings, triage: triage, isSearching: isSearching)
         guard !shown.isEmpty else {

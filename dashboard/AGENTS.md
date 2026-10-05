@@ -207,7 +207,9 @@ needs `Content-Type: application/json` (same gate as `/api/persona/start`).
 
 ### `POST /api/persona/start` — P3 (`server/lib/persona_start.py`)
 Starts or resumes an idle persona's Claude session in a new herdr tab in
-its registry folder. **Remote listener: any offered persona** (user
+its registry folder. Tab label = `<persona> · <first ≤4 words, ≤28 chars>`
+of the message, fresh and resume alike (`persona_tab_label.py`; display only —
+personas map to rows by folder, never by label). **Remote listener: any offered persona** (user
 decision 2026-09-28 — the earlier per-persona `"remoteStart": true` opt-in
 is gone; a leftover key in personas.json is ignored and no longer editable)
 via `persona_remote.start_persona_remote`, after the remote listener's

@@ -1,0 +1,324 @@
+import Foundation
+import Testing
+@testable import AgentBar
+
+/// New worker mode: `/new` (or "+") → pick a persona folder → type the first task → Return starts a
+/// FRESH session on the chosen machine through the Jev persona start path. Fakes only.
+@MainActor
+struct NewWorkerModeTests {
+    typealias F = AgentListFixtures
+
+    private static let pro = PersonaMachine(id: "local", label: "Pro")
+    private static let air = PersonaMachine(id: "air-m1", label: "Air")
+    private static let hostile = "$(echo INJECTED)"
+
+    private static func persona(_ name: String, offline: Bool = false, runsOn: String? = "local",
+                                machines: [PersonaMachine]? = [pro, air]) -> Persona {
+        var persona = PersonaFixtures.persona(name, offline: offline, mainRowId: "row-live", idleStart: .resume)
+        persona.runsOn = runsOn
+        persona.machines = machines
+        return persona
+    }
+
+    private static let folders = [
+        persona("chief-aptus"),
+        persona("agentbar", runsOn: "air-m1"),
+        persona("asleep", offline: true),
+        persona("bi", runsOn: nil, machines: nil),
+    ]
+
+    private struct Rig {
+        let model: AgentPanelModel
+        let personas: FakePersonaDirectorySource
+    }
+
+    private func rig(personas: [Persona] = folders) -> Rig {
+        let defaults = makeScratchDefaults("new-worker-\(UUID().uuidString)")
+        let model = AgentPanelModel(
+            store: FrecencyStore(defaults: defaults),
+            triageStore: TriageStore(defaults: defaults),
+            routedNoteStore: RoutedNoteStore(defaults: defaults),
+            now: { F.now }
+        )
+        model.statusSource = MessageFakeSource()
+        let source = FakePersonaDirectorySource()
+        source.personas = personas
+        model.personaSource = source
+        model.receive(F.snapshot([]))
+        return Rig(model: model, personas: source)
+    }
+
+    private func enteredRig(personas: [Persona] = folders) async -> Rig {
+        let rig = rig(personas: personas)
+        rig.model.query = "/new"
+        rig.model.activateSelected()
+        await waitUntil { rig.model.newWorker?.folders != .loading }
+        return rig
+    }
+
+    private func composingRig(folder: String) async -> Rig {
+        let rig = await enteredRig()
+        rig.model.query = folder
+        rig.model.activateSelected()
+        return rig
+    }
+
+    // MARK: - Entry
+
+    @Test func entryCommandIsSlashNewOnly() {
+        #expect(NewWorkerMode.isEntryCommand("/new"))
+        #expect(NewWorkerMode.isEntryCommand("  /NEW "))
+        #expect(!NewWorkerMode.isEntryCommand("/newer"))
+        #expect(!NewWorkerMode.isEntryCommand("new"))
+    }
+
+    @Test func slashNewReturnEntersStepOneWithOnlineFolders() async {
+        let rig = await enteredRig()
+        #expect(rig.model.query == "")
+        #expect(rig.model.newWorker?.isComposing == false)
+        #expect(rig.model.newWorkerFolders.map(\.name) == ["chief-aptus", "agentbar", "bi"])
+        #expect(rig.model.newWorkerSelectedFolderName == "chief-aptus")
+    }
+
+    /// Live-like typing over rows that match "new" (label, project, prompt): the body becomes the
+    /// one "New worker" action (no agent row to highlight, Tab or peek), and Return enters the mode.
+    @Test func slashNewOverMatchingRowsShowsOnlyTheNewWorkerActionAndReturnEnters() {
+        let rig = rig()
+        rig.model.receive(F.snapshot([
+            F.agent("a", label: "new-onboarding", section: .working),
+            F.agent("b", project: "renewals", section: .needsYou, excerpt: "add /new command"),
+        ]))
+        for typed in ["/", "/n", "/ne", "/New "] { rig.model.query = typed }
+        #expect(rig.model.presentation.state == .newWorkerCommand)
+        #expect(rig.model.presentation.rows.isEmpty)
+        #expect(rig.model.selectedAgentID == nil)
+        rig.model.moveSelectionOrAnswerHighlight(by: 1)
+        rig.model.tagSelected()
+        #expect(rig.model.taggedAgentID == nil)
+        rig.model.activateSelected()
+        #expect(rig.model.newWorker != nil)
+        #expect(rig.model.query == "")
+    }
+
+    @Test func slashNewWithNoAgentsShowsTheActionToo() {
+        let rig = rig()
+        rig.model.query = "/new"
+        #expect(rig.model.presentation.state == .newWorkerCommand)
+        rig.model.query = "/newer"
+        #expect(rig.model.presentation.state == .noAgents)
+    }
+
+    /// Shift+Return is the Jev routing key; `/new` must not be sent to Jev as a message.
+    @Test func shiftReturnWithSlashNewEntersInsteadOfRouting() {
+        let rig = rig()
+        rig.model.query = "/new"
+        rig.model.startRouting()
+        #expect(rig.model.newWorker != nil)
+        #expect(rig.model.routingState == nil)
+        #expect(rig.model.footerNotice == nil)
+    }
+
+    @Test func plusButtonPathEntersTooAndNoDashboardShowsFailed() {
+        let rig = rig()
+        rig.model.personaSource = nil
+        rig.model.enterNewWorkerMode()
+        #expect(rig.model.newWorker?.folders == .failed)
+        #expect(rig.model.newWorkerFolders.isEmpty)
+    }
+
+    @Test func plainReturnWithoutSlashNewDoesNotEnter() {
+        let rig = rig()
+        rig.model.query = "agentbar"
+        rig.model.activateSelected()
+        #expect(rig.model.newWorker == nil)
+    }
+
+    /// Tab-tagged, the box is a message to that agent: `/new` must not drop the tag and switch modes.
+    @Test func slashNewWhileComposingToATaggedAgentIsRefusedNotEntered() {
+        let rig = rig()
+        rig.model.receive(F.snapshot([F.agent("w", section: .working)]))
+        rig.model.tagSelected()
+        #expect(rig.model.taggedAgentID == "w")
+        rig.model.query = "/new"
+        rig.model.activateSelected()
+        #expect(rig.model.newWorker == nil)
+        #expect(rig.model.taggedAgentID == "w")
+        #expect(rig.model.query == "/new")
+        #expect(rig.model.footerNotice?.text == MessageDraftValidator.slashCommandHint)
+    }
+
+    // MARK: - Step 1
+
+    @Test func typingFiltersByNameAndArrowsMoveClamped() async {
+        let rig = await enteredRig()
+        rig.model.moveSelectionOrAnswerHighlight(by: 1)
+        #expect(rig.model.newWorkerSelectedFolderName == "agentbar")
+        rig.model.moveSelectionOrAnswerHighlight(by: 5)
+        #expect(rig.model.newWorkerSelectedFolderName == "bi")
+        rig.model.query = "A"
+        #expect(rig.model.newWorkerFolders.map(\.name) == ["chief-aptus", "agentbar"])
+        #expect(rig.model.newWorkerSelectedFolderName == "chief-aptus")   // filter change → first match
+        rig.model.moveSelectionOrAnswerHighlight(by: -1)
+        #expect(rig.model.newWorkerSelectedFolderName == "chief-aptus")
+    }
+
+    @Test func spaceAndTabStayInertOverTheFolderList() async {
+        let rig = await enteredRig()
+        #expect(!rig.model.togglePeek())
+        rig.model.tagSelected()
+        #expect(rig.model.taggedAgentID == nil)
+        #expect(!rig.model.moveButtonHighlight(by: 1))
+    }
+
+    @Test func returnPicksTheFolderAsAForcedFreshStartOnRunsOn() async {
+        let rig = await composingRig(folder: "agentbar")
+        let pick = rig.model.newWorkerPick
+        #expect(pick?.persona.name == "agentbar")
+        #expect(pick?.forcedStartNew == true)
+        #expect(pick?.effect == .startNew)
+        #expect(pick?.machineID == "air-m1")
+        #expect(rig.model.query == "")
+    }
+
+    @Test func returnWithNoMatchingFolderStaysOnStepOne() async {
+        let rig = await enteredRig()
+        rig.model.query = "zzz"
+        rig.model.activateSelected()
+        #expect(rig.model.newWorker?.isComposing == false)
+    }
+
+    // MARK: - Back
+
+    @Test func escGoesBackToStepOneThenLeavesTheMode() async {
+        let rig = await composingRig(folder: "agentbar")
+        rig.model.query = "half-typed task"
+        #expect(rig.model.backOutOfButtons())
+        #expect(rig.model.newWorker?.isComposing == false)
+        #expect(rig.model.query == "agentbar")
+        #expect(rig.model.newWorkerSelectedFolderName == "agentbar")
+        #expect(rig.model.backOutOfButtons())
+        #expect(rig.model.newWorker == nil)
+        #expect(rig.model.query == "")
+    }
+
+    @Test func chipCloseClickGoesBackAndHandsTheKeyboardToTheBox() async {
+        let rig = await composingRig(folder: "agentbar")
+        let before = rig.model.focusRequest
+        rig.model.backOutOfNewWorkerByClick()
+        #expect(rig.model.newWorker?.isComposing == false)
+        #expect(rig.model.query == "agentbar")
+        #expect(rig.model.focusRequest == before + 1)
+    }
+
+    @Test func showingThePanelAgainLeavesTheMode() async {
+        let rig = await enteredRig()
+        rig.model.resetForShow()
+        #expect(rig.model.newWorker == nil)
+    }
+
+    // MARK: - Start
+
+    @Test func returnStartsFreshOnTheChosenMachine() async {
+        let rig = await composingRig(folder: "chief-aptus")
+        #expect(rig.model.movePersonaMachine(by: 1))
+        #expect(rig.model.newWorkerPick?.machineID == "air-m1")
+        rig.personas.startOutcome = .started(paneId: "w1:p1")
+        rig.model.query = Self.hostile
+        rig.model.activateSelected()
+        await waitUntil { rig.model.footerNotice != nil }
+        #expect(rig.personas.startCalls == [.init(name: "chief-aptus", text: Self.hostile, fresh: true, machine: "air-m1")])
+        #expect(rig.model.newWorker == nil)
+        #expect(rig.model.query == "")
+        #expect(rig.model.routingState == nil)
+        #expect(rig.model.footerNotice?.text == "Started chief-aptus")
+    }
+
+    /// User decision: Up/Down switch machine chips so Left/Right keep moving the caret in the task.
+    @Test func upDownSwitchTheMachineChipAndLeftRightAreLeftToTheCaret() async {
+        let rig = await composingRig(folder: "chief-aptus")
+        rig.model.query = "task"
+        rig.model.moveSelectionOrAnswerHighlight(by: 1)
+        #expect(rig.model.newWorkerPick?.machineID == "air-m1")
+        rig.model.moveSelectionOrAnswerHighlight(by: -1)
+        #expect(rig.model.newWorkerPick?.machineID == "local")
+        #expect(!rig.model.moveButtonHighlight(by: 1))   // ← / → handler: not claimed, caret moves
+        #expect(rig.model.newWorkerPick?.machineID == "local")
+    }
+
+    @Test func noChipsMeansArrowsAreNotClaimedAndNoMachineIsSent() async {
+        let rig = await composingRig(folder: "bi")
+        #expect(!rig.model.movePersonaMachine(by: 1))
+        rig.personas.startOutcome = .started(paneId: "w1:p1")
+        rig.model.query = "do the thing"
+        rig.model.activateSelected()
+        await waitUntil { !rig.personas.startCalls.isEmpty }
+        #expect(rig.personas.startCalls == [.init(name: "bi", text: "do the thing", fresh: true, machine: nil)])
+    }
+
+    @Test func emptyOrSlashFirstTaskIsBlockedAndStaysOnStepTwo() async {
+        let rig = await composingRig(folder: "agentbar")
+        rig.model.activateSelected()
+        #expect(rig.model.footerNotice?.text == "Nothing to send.")
+        #expect(rig.model.newWorker?.isComposing == true)
+        rig.model.query = "/compact"
+        rig.model.activateSelected()
+        #expect(rig.model.footerNotice?.text == MessageDraftValidator.slashCommandHint)
+        #expect(rig.model.newWorker?.isComposing == true)
+        #expect(rig.model.query == "/compact")
+        #expect(rig.personas.startCalls.isEmpty)
+    }
+
+    @Test func unreachableReusesTheJevRetryRow() async {
+        let rig = await composingRig(folder: "agentbar")
+        let reason = "Air is unreachable (asleep or offline?) — nothing was started."
+        rig.personas.startOutcome = .unreachable(reason: reason, retryOn: Self.pro)
+        rig.model.query = "task"
+        rig.model.activateSelected()
+        await waitUntil { if case .confirmingPersona = rig.model.routingState { true } else { false } }
+        guard case .confirmingPersona(let retry) = rig.model.routingState else { return }
+        #expect(retry.machineID == "local")
+        #expect(retry.effect == .startNew)
+        #expect(rig.model.footerNotice?.text == "\(reason) Return to start on Pro.")
+        rig.personas.startOutcome = .started(paneId: "w1:p1")
+        rig.model.activateSelected()
+        await waitUntil { rig.personas.startCalls.count == 2 }
+        #expect(rig.personas.startCalls.last == .init(name: "agentbar", text: "task", fresh: true, machine: "local"))
+    }
+
+    /// Persona fixture resumes by default and has a main row: an unlocked Tab would turn the retry
+    /// into a resume / send-to-main. The New worker pick must stay a fresh start.
+    @Test func tabOnTheUnreachableRetryRowCannotUnforceTheFreshStart() async {
+        let rig = await composingRig(folder: "agentbar")
+        rig.personas.startOutcome = .unreachable(reason: "Air is unreachable.", retryOn: Self.pro)
+        rig.model.query = "task"
+        rig.model.activateSelected()
+        await waitUntil { if case .confirmingPersona = rig.model.routingState { true } else { false } }
+        guard case .confirmingPersona(let before) = rig.model.routingState else { return }
+        #expect(rig.model.togglePersonaDeliveryOverride())   // swallowed, not passed on to row tagging
+        guard case .confirmingPersona(let after) = rig.model.routingState else {
+            Issue.record("retry row gone after Tab")
+            return
+        }
+        #expect(after == before)
+        #expect(after.effect == .startNew)
+        #expect(rig.model.taggedAgentID == nil)
+        #expect(PanelFooterHints.RoutingHintMode(confirming: after) == .confirmingFreshStartMachines)
+        rig.personas.startOutcome = .started(paneId: "w1:p1")
+        rig.model.activateSelected()
+        await waitUntil { rig.personas.startCalls.count == 2 }
+        #expect(rig.personas.startCalls.last?.fresh == true)
+    }
+
+    @Test func onlyALockedPickDropsTabToggleFromTheHint() {
+        var pick = PersonaPick(persona: Self.persona("chief-aptus"), confidence: 0.9, mainSession: .absent)
+        #expect(PanelFooterHints.RoutingHintMode(confirming: pick) == .confirmingPersonaMachines)
+        pick.locksStartNew = true
+        pick.forcedStartNew = true
+        #expect(PanelFooterHints.text(for: .init(routingMode: .init(confirming: pick))) == "↩ start fresh   ↑↓ machine   esc cancel")
+    }
+
+    @Test func footerHintsNameTheModeKeys() {
+        #expect(PanelFooterHints.text(for: .init(newWorkerMode: .pickingFolder)) == "↑↓ select   ↩ pick folder   esc cancel")
+        #expect(PanelFooterHints.text(for: .init(newWorkerMode: .composingMachines)) == "↩ start fresh   ↑↓ machine   esc back")
+    }
+}

@@ -76,13 +76,35 @@ struct AgentTree: Equatable, Sendable {
         return nil
     }
 
-    /// `child` reassigned to report to the chief `parentID`: removed from wherever it was (another
-    /// chief's children, unassigned, or parent-gone) and appended under the new chief. A no-op if
-    /// `parentID` isn't a chief or `childID` is one itself — callers should already have refused
-    /// that (the two-level rule), this is only a last line of defense against a stale optimistic apply.
+    /// True when `id` can take a report: a chief, or an Unassigned worker (who becomes a chief by
+    /// taking one — the server's two-level rule only refuses a parent that itself reports to someone,
+    /// so a nested or Parent-gone worker can't).
+    func canBeParent(_ id: String) -> Bool { isChief(id) || unassigned.contains { $0.id == id } }
+
+    /// Who the row `childID` can report to ("Report to" submenu): live chiefs, then live Unassigned
+    /// workers — never itself, nor the chief it already reports to. Same-project ones first within
+    /// each group, server order otherwise. Empty for a chief (two levels only) or an unknown id.
+    func reportTargets(for childID: String) -> (chiefs: [AgentTreeNode], workers: [AgentTreeNode]) {
+        guard !isChief(childID), let child = node(withID: childID) else { return ([], []) }
+        func eligible(_ nodes: [AgentTreeNode]) -> [AgentTreeNode] {
+            let live = nodes.filter { $0.alive && $0.id != childID }
+            return live.filter { $0.project == child.project } + live.filter { $0.project != child.project }
+        }
+        let currentParents = chiefs.filter { $0.children.contains { $0.id == childID } }
+        return (eligible(chiefs.filter { !currentParents.contains($0) }), eligible(unassigned))
+    }
+
+    /// `child` reassigned to report to `parentID` (a chief, or an Unassigned worker promoted to a
+    /// chief by this): removed from wherever it was (another chief's children, unassigned, or
+    /// parent-gone) and appended under the new parent. A no-op if `parentID` can't be a parent or
+    /// `childID` is a chief itself — callers should already have refused that (the two-level rule),
+    /// this is only a last line of defense against a stale optimistic apply.
     func movingChild(_ childID: String, toChiefID parentID: String) -> AgentTree {
-        guard !isChief(childID), let child = node(withID: childID), isChief(parentID) else { return self }
+        guard !isChief(childID), let child = node(withID: childID), canBeParent(parentID), childID != parentID else { return self }
         var tree = removingChild(childID)
+        if let index = tree.unassigned.firstIndex(where: { $0.id == parentID }) {
+            tree.chiefs.append(tree.unassigned.remove(at: index))
+        }
         tree.chiefs = tree.chiefs.map { chief in
             guard chief.id == parentID else { return chief }
             var chief = chief

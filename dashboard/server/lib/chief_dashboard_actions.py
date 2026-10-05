@@ -26,6 +26,7 @@ import time
 
 import chief_dashboard_herdr as herdr_transport
 import claude_sessions  # P4: status-only (paneless) rows
+from persona_tab_label import LABEL_SEPARATOR
 
 try:
     from chief_dashboard_feeds import REPO_ROOT, MACHINES
@@ -180,6 +181,18 @@ def uncommitted_count_fe(force=False, _now=None):
     return count
 
 
+#: An item number in a tab label: 3-5 digits.
+_LABEL_ITEM_NUMBER_RE = re.compile(r"\d{3,5}")
+
+
+def item_numbers_in_label(label):
+    """Item numbers in a tab label (heuristic owner link). Only the part
+    before a persona start's ` · <message words>` suffix counts: a number
+    the user typed in a message ("fix 1867") is not a claim on that item."""
+    tab_name = (label or "").split(LABEL_SEPARATOR, 1)[0]
+    return set(_LABEL_ITEM_NUMBER_RE.findall(tab_name))
+
+
 def owners_of_session(row_id, agent, runs, manual_links):
     """Work-item refs (itemIds) this session owns, for the confirm string.
 
@@ -188,13 +201,6 @@ def owners_of_session(row_id, agent, runs, manual_links):
     item number in the tab label (heuristic), manual board links (certain).
     Returns ["1867 (claimed)", ...] sorted. Empty = owns nothing.
     """
-    try:
-        from chief_dashboard_store import item_numbers_in_label
-    except Exception:  # pragma: no cover
-        import re
-        def item_numbers_in_label(label):
-            return set(re.compile(r"\d{3,5}").findall(label or ""))
-
     agent_session = (agent or {}).get("agentSession")
     pane_id = (agent or {}).get("paneId")
     label = (agent or {}).get("label") or ""

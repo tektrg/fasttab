@@ -205,4 +205,57 @@ struct TreeRowActionsPanelModelTests {
         await waitUntil { !editing.attachCalls.isEmpty }
         #expect(editing.attachCalls == [.init(child: "w2", parent: "c", confirmCrossProject: false)])
     }
+
+    @Test func reportToATargetFromTheSubmenuAttachesUnderThatPickedAgent() async {
+        let editing = AgentTreeFakeEditing()
+        let model = makeModel(editing: editing)
+        let tree = AgentTree(generatedAt: nil, chiefs: [chief("c1"), chief("c2")], unassigned: [node("w1")], parentGone: [])
+        model.receive(treeSnapshot(tree, agents: [F.agent("c1", section: .working), F.agent("c2", section: .working), F.agent("w1", section: .working)]))
+
+        model.reportTo("c1", from: "w1")   // not the nearest chief (c2) — the one picked
+
+        #expect(model.treeModel.tree?.chiefs.first { $0.id == "c1" }?.children.map(\.id) == ["w1"])
+        await waitUntil { !editing.attachCalls.isEmpty }
+        #expect(editing.attachCalls == [.init(child: "w1", parent: "c1", confirmCrossProject: false)])
+    }
+}
+
+/// `AgentTree.reportTargets` — who the "Report to" submenu offers.
+struct ReportTargetsTests {
+    private func node(_ id: String, project: String = "proj", alive: Bool = true, children: [AgentTreeNode] = []) -> AgentTreeNode {
+        AgentTreeNode(
+            id: id, label: id, project: project, projectRoot: nil, machine: "local", paneId: nil,
+            alive: alive, status: nil, crossProject: false, isChiefMode: false, children: children
+        )
+    }
+
+    @Test func offersLiveChiefsAndUnassignedWorkersButNotItselfItsCurrentChiefNestedOrDeadAgents() {
+        let tree = AgentTree(
+            generatedAt: nil,
+            chiefs: [node("mine", children: [node("me"), node("sibling")]), node("other"), node("deadChief", alive: false)],
+            unassigned: [node("free"), node("deadFree", alive: false)],
+            parentGone: [.init(node: node("orphan"), lostParentID: "x", lostParentLabel: "x")]
+        )
+        let targets = tree.reportTargets(for: "me")
+        #expect(targets.chiefs.map(\.id) == ["other"])
+        #expect(targets.workers.map(\.id) == ["free"])
+    }
+
+    @Test func sameProjectTargetsComeFirstWithinEachGroup() {
+        let tree = AgentTree(
+            generatedAt: nil,
+            chiefs: [node("cFar", project: "far"), node("cNear")],
+            unassigned: [node("me"), node("wFar", project: "far"), node("wNear")],
+            parentGone: []
+        )
+        let targets = tree.reportTargets(for: "me")
+        #expect(targets.chiefs.map(\.id) == ["cNear", "cFar"])
+        #expect(targets.workers.map(\.id) == ["wNear", "wFar"])
+    }
+
+    @Test func aChiefGetsNoTargets() {
+        let tree = AgentTree(generatedAt: nil, chiefs: [node("c")], unassigned: [node("w")], parentGone: [])
+        let targets = tree.reportTargets(for: "c")
+        #expect(targets.chiefs.isEmpty && targets.workers.isEmpty)
+    }
 }

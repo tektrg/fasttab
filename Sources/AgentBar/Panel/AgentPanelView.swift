@@ -16,7 +16,8 @@ struct AgentPanelView: View {
             // bottom edge and grows upward (`AgentPanelPlacement`), so the box never moves as the list filters.
             VStack(spacing: 0) {
                 bodyContent
-                if model.presentation.showsBoardNote, model.taggedAgentID == nil {
+                // Hidden whenever the body collapses (`AgentPanelMetrics.height(isComposing:)`).
+                if model.presentation.showsBoardNote, model.taggedAgentID == nil, model.newWorker?.isComposing != true {
                     BoardNoteView()
                 }
             }
@@ -36,12 +37,14 @@ struct AgentPanelView: View {
                     routingMode: model.routingState.map { switch $0 {
                         case .loading: .loading
                         case .confirming: .confirming
-                        case .confirmingPersona(let pick):
-                            pick.effect.refusesDelivery ? .confirmingPersonaRefusal
-                                : pick.machineChips.isEmpty ? .confirmingPersona : .confirmingPersonaMachines
+                        case .confirmingPersona(let pick): .init(confirming: pick)
                         case .startingPersona: .startingPersona
                     } },
-                    isTagged: model.taggedAgentID != nil
+                    isTagged: model.taggedAgentID != nil,
+                    newWorkerMode: model.newWorker.map { mode in
+                        guard let pick = mode.composingPick else { return .pickingFolder }
+                        return pick.machineChips.isEmpty ? .composing : .composingMachines
+                    }
                 ),
                 onOpenSettings: onOpenSettings
             )
@@ -79,11 +82,14 @@ struct AgentPanelView: View {
         // handler since nothing else claims ⌘]/⌘[/⌘⌫).
         .background {
             Group {
-                Button("Report to nearest chief", action: model.treeModel.indentSelected).keyboardShortcut("]", modifiers: .command)
-                Button("Stop reporting (Unassigned)", action: model.treeModel.outdentSelected).keyboardShortcut("[", modifiers: .command)
-                // Only while the search is empty — otherwise ⌘⌫ belongs to the text field (delete to line start).
-                if model.query.isEmpty {
-                    Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
+                // None in New worker mode: the agent list (and its selection) is hidden there.
+                if model.newWorker == nil {
+                    Button("Report to nearest chief", action: model.treeModel.indentSelected).keyboardShortcut("]", modifiers: .command)
+                    Button("Stop reporting (Unassigned)", action: model.treeModel.outdentSelected).keyboardShortcut("[", modifiers: .command)
+                    // Only while the search is empty — otherwise ⌘⌫ belongs to the text field (delete to line start).
+                    if model.query.isEmpty {
+                        Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
+                    }
                 }
             }
             .hidden()
@@ -145,6 +151,16 @@ struct AgentPanelView: View {
                 ),
                 onOpen: { model.openPeekAgent() }
             )
+        } else if let newWorker = model.newWorker {
+            // Step 2 collapses the body like a Tab-tag compose (the target is the chip above the box).
+            if !newWorker.isComposing {
+                NewWorkerFolderListView(
+                    model: model,
+                    bodyHeight: AgentPanelMetrics.fullBodyHeight(
+                        maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
+                    )
+                )
+            }
         } else if model.taggedAgentID != nil {
             // Composing: the target is already chosen (the chip in the search field), so the
             // list/status below has nothing left to contribute — matches
@@ -157,7 +173,11 @@ struct AgentPanelView: View {
                 fetchedAt: model.snapshot?.fetchedAt ?? Date()
             )
         } else {
-            StatusMessageView(state: model.presentation.state, dashboardAddress: model.dashboardAddress)
+            StatusMessageView(
+                state: model.presentation.state,
+                dashboardAddress: model.dashboardAddress,
+                onNewWorker: model.enterNewWorkerMode
+            )
         }
     }
 }

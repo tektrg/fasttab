@@ -54,16 +54,21 @@ final class AgentPanelController {
                     model.$routingState.map { $0 != nil }.removeDuplicates(),
                     // Tagged: the chip gets its own row above the field (AgentPanelMetrics.tagRowHeight),
                     // and it does hide the list/status message below — a third, independent size input.
-                    model.$taggedAgentID.map { $0 != nil }.removeDuplicates()
+                    // New worker mode: step 1 (false) shows the folder list at full body height like a
+                    // card; step 2 (true) collapses the body like a Tab-tag compose.
+                    model.$taggedAgentID.map { $0 != nil }
+                        .combineLatest(model.$newWorker.map { $0?.isComposing })
+                        .removeDuplicates(by: ==)
                 )
             )
         )
         .sink { [weak self] presentation, listSettings, isPeeking, cardsAndSearchArea in
             let (answerOpen, permissionOpen, messageOpen, searchArea) = cardsAndSearchArea
-            let (searchFieldLineCount, showsRoutingRow, isComposing) = searchArea
+            let (searchFieldLineCount, showsRoutingRow, (isTagged, newWorkerComposing)) = searchArea
             self?.applySize(
                 for: presentation, listSettings: listSettings, isPeeking: isPeeking,
-                isAnswering: answerOpen || permissionOpen || messageOpen, isComposing: isComposing,
+                isAnswering: answerOpen || permissionOpen || messageOpen || newWorkerComposing == false,
+                isComposing: isTagged || newWorkerComposing == true,
                 searchFieldLineCount: searchFieldLineCount, showsRoutingRow: showsRoutingRow
             )
         }

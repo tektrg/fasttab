@@ -3,7 +3,7 @@ import Testing
 @testable import AgentBar
 
 /// Persona machine routing ("persona start on Air"): the `runsOn`/`machines` wire shape, the
-/// confirm row's machine chips (default + Left/Right), the `machine` the start POST carries, the
+/// confirm row's machine chips (default + Up/Down), the `machine` the start POST carries, the
 /// unreachable reply's one-press retry offer, and Settings' "Runs on" save. Fakes only.
 @MainActor
 struct PersonaMachineRoutingTests {
@@ -147,8 +147,9 @@ struct PersonaMachineRoutingTests {
     @Test func arrowsPickAMachineAndTheStartCarriesIt() async {
         let rig = await routedRig(Self.persona())
         #expect(shownPick(rig)?.machineID == "air-m1")
-        #expect(rig.model.movePersonaMachine(by: -1))
+        rig.model.moveSelectionOrAnswerHighlight(by: -1)   // Up (Left/Right stay with the caret)
         #expect(shownPick(rig)?.machineID == "local")
+        #expect(!rig.model.moveButtonHighlight(by: 1))
         rig.personas.startOutcome = .started(paneId: "w1:p1")
         rig.model.activateSelected()
         await waitUntil { !rig.personas.startCalls.isEmpty }

@@ -213,6 +213,7 @@ import image_attachments  # noqa: E402  (image uploads -> path notes in Send mes
 import jev_route  # noqa: E402  (POST /api/jev/route — pick a persona server-side)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
 import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
+import feedback_admin_proxy  # noqa: E402  (Feedback tab -> theindie-api admin)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -3110,6 +3111,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.end_headers()
                 return
         self._note_agentbar_seen()
+        feedback_reply = feedback_admin_proxy.handle_get(path, parse_qs(parsed.query))
+        if feedback_reply is not None:
+            self._send_json(*feedback_reply)
+            return
         if path.startswith(tui_jobs.PREFIX + "/wait") and not self._is_remote_listener():
             # Job queue carries the user's messages and answers: only the plugin
             # (custom header, no Origin, loopback Host) may poll it.
@@ -3261,6 +3266,11 @@ class Handler(BaseHTTPRequestHandler):
         job_reply = tui_jobs.handle_post(path, self._read_json_body, self._is_remote_listener())
         if job_reply is not None:
             self._send_json(*job_reply)
+            return
+        self._note_remote_audit_row(feedback_admin_proxy.resolve_thread_id_of(path))
+        feedback_reply = feedback_admin_proxy.handle_post(path, self._read_json_body)
+        if feedback_reply is not None:
+            self._send_json(*feedback_reply)
             return
         if hook_permission_routes.is_hook_path(path):
             self._note_remote_audit_row(hook_permission_routes.request_id_of(path))

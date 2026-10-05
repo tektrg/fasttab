@@ -35,6 +35,17 @@ enum MessageDraftValidator {
         "\(over) characters over the \(maxLength) limit."
     }
 
+    /// The footer notice for a send with no card to show the problem on (Jev routing, Tab-tag
+    /// compose, persona start, new worker); nil when the draft is ready to send.
+    static func headlessRefusal(for verdict: Verdict) -> String? {
+        switch verdict {
+        case .empty: "Nothing to send."
+        case .slashCommand: slashCommandHint
+        case .tooLong(let over): tooLongHint(over: over)
+        case .ready: nil
+        }
+    }
+
     /// The text as it will be sent: every line break becomes one space (the dashboard refuses
     /// newlines), blank lines and the spaces around a break vanish, ends trimmed, control characters dropped.
     static func sanitized(_ raw: String) -> String {

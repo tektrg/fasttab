@@ -33,15 +33,22 @@ final class AgentPanelModel: ObservableObject {
     @Published private(set) var rowActionStates: [String: RowActionState] = [:]
     /// Bumped on every show so the search field re-grabs keyboard focus.
     @Published private(set) var focusRequest = 0
+    /// Hands the keyboard back to the search box (e.g. after a click on a panel button).
+    func refocusSearchField() { focusRequest += 1 }
     /// Typing re-filters and always jumps back to the first row.
     @Published var query = "" {
         didSet {
             guard query != oldValue else { return }
+            if newWorker?.isComposing == false { newWorker?.selectedFolderName = nil }
             rebuild()
             selectedAgentID = presentation.selectableAgentIDs.first
             closePeek()
         }
     }
+
+    /// New worker mode (`NewWorker/NewWorkerMode`, driven by `AgentPanelModel+NewWorker`), or nil.
+    /// Set only from that extension.
+    @Published var newWorker: NewWorkerMode?
 
     /// The pane-screen peek (Space), or nil while the list shows.
     @Published private(set) var peek: PanePeek?
@@ -137,8 +144,10 @@ final class AgentPanelModel: ObservableObject {
     /// Shift+Return with text in the box: asks Jev which shown, message-eligible agent should get
     /// it. No-op with an empty box, a card open, or a route already running (one at a time, like
     /// a message send). The box is not cleared: a failure leaves the text exactly as typed.
+    /// `/new` enters New worker mode instead, same as a plain Return.
     func startRouting() {
-        guard !isCardOpen, routingState == nil, taggedAgentID == nil else { return }
+        guard !isCardOpen, routingState == nil, taggedAgentID == nil, newWorker == nil else { return }
+        if enterNewWorkerIfCommand() { return }   // `/new` is a command, never a message for Jev
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard let apiKey = routingAPIKeyStore?.get(), !apiKey.isEmpty else {
@@ -245,6 +254,8 @@ final class AgentPanelModel: ObservableObject {
     @discardableResult
     func togglePersonaDeliveryOverride() -> Bool {
         guard case .confirmingPersona(var pick) = routingState else { return false }
+        // A New worker pick (e.g. its unreachable retry row) only ever starts fresh: Tab is swallowed.
+        guard !pick.locksStartNew else { return true }
         dismissRefusalNotice(leaving: pick)
         if pick.unreachableHint != nil {
             pick.unreachableHint = nil
@@ -308,30 +319,30 @@ final class AgentPanelModel: ObservableObject {
     private func startPersonaSession(_ pick: PersonaPick, fresh: Bool) {
         let persona = pick.persona
         routingEpoch += 1
-        switch MessageDraftValidator.check(routingText) {
-        case .empty:
+        let verdict = MessageDraftValidator.check(routingText)
+        guard case .ready(let text) = verdict else {
             routingState = nil
-            showAnswerNotice("Nothing to send.")
-        case .slashCommand:
-            routingState = nil
-            showAnswerNotice(MessageDraftValidator.slashCommandHint)
-        case .tooLong(let over):
-            routingState = nil
-            showAnswerNotice(MessageDraftValidator.tooLongHint(over: over))
-        case .ready(let text):
-            guard let personaSource else {
-                routingState = nil
-                showAnswerNotice("No status dashboard to start \(persona.name) on.")
-                return
-            }
-            routingState = .startingPersona(name: persona.name)
-            let epoch = routingEpoch
-            let typedText = routingText
-            Task { [weak self] in
-                let outcome = await personaSource.startPersona(persona.name, text: text, fresh: fresh, machine: pick.startMachineID)
-                self?.finishPersonaStart(outcome, pick: pick, typedText: typedText, epoch: epoch)
-            }
+            return showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
         }
+        guard let personaSource else {
+            routingState = nil
+            showAnswerNotice("No status dashboard to start \(persona.name) on.")
+            return
+        }
+        routingState = .startingPersona(name: persona.name)
+        let epoch = routingEpoch
+        let typedText = routingText
+        Task { [weak self] in
+            let outcome = await personaSource.startPersona(persona.name, text: text, fresh: fresh, machine: pick.startMachineID)
+            self?.finishPersonaStart(outcome, pick: pick, typedText: typedText, epoch: epoch)
+        }
+    }
+
+    /// New worker mode's Return (`AgentPanelModel+NewWorker`): the exact start path a Jev persona
+    /// pick takes — same "Starting…" row, notices and unreachable retry — always fresh.
+    func startFreshPersonaSession(_ pick: PersonaPick, typedText: String) {
+        routingText = typedText
+        startPersonaSession(pick, fresh: true)
     }
 
     /// The `POST /api/persona/start` reply: never auto-retried, whatever it says (spec) — a failure
@@ -366,10 +377,11 @@ final class AgentPanelModel: ObservableObject {
         }
     }
 
-    /// Left/Right while a persona confirm row shows machine chips: moves the selected machine
+    /// Up/Down while a persona confirm row (or New worker step 2) shows machine chips: moves the selected machine
     /// (`PersonaPick.moveMachine`). False otherwise, so the arrow keeps its usual job.
     @discardableResult
     func movePersonaMachine(by step: Int) -> Bool {
+        if moveNewWorkerMachine(by: step) { return true }
         guard case .confirmingPersona(var pick) = routingState else { return false }
         let hadRetryHint = pick.unreachableHint != nil
         guard pick.moveMachine(by: step) else { return false }
@@ -418,17 +430,12 @@ final class AgentPanelModel: ObservableObject {
     private func send(to agent: AgentSnapshot) {
         routingEpoch += 1
         routingState = nil
-        switch MessageDraftValidator.check(routingText) {
-        case .empty:
-            showAnswerNotice("Nothing to send.")
-        case .slashCommand:
-            showAnswerNotice(MessageDraftValidator.slashCommandHint)
-        case .tooLong(let over):
-            showAnswerNotice(MessageDraftValidator.tooLongHint(over: over))
-        case .ready(let text):
-            guard sendDirectMessage(to: agent, text: text) else { return }
-            query = ""
+        let verdict = MessageDraftValidator.check(routingText)
+        guard case .ready(let text) = verdict else {
+            return showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
         }
+        guard sendDirectMessage(to: agent, text: text) else { return }
+        query = ""
     }
 
     /// `message.sendDirect`, plus the retry shared by every direct-send path — Jev routing,
@@ -555,7 +562,7 @@ final class AgentPanelModel: ObservableObject {
     /// selectable is message-eligible.
     func tagSelected() {
         if case .startingPersona = routingState { return }
-        guard !isCardOpen, let agent = selectedAgent, RowButtons.usableButtons(for: agent).contains(.message) else { return }
+        guard !isCardOpen, newWorker == nil, let agent = selectedAgent, RowButtons.usableButtons(for: agent).contains(.message) else { return }
         let wasRouting = cancelRoutingIfActive()
         // Same as every card-opening path below: composing hides the list/peek area entirely
         // (AgentPanelView, AgentPanelMetrics.isComposing), so a Peek left open behind the tag
@@ -606,18 +613,14 @@ final class AgentPanelModel: ObservableObject {
         guard let agentID = taggedAgentID,
               let agent = presentation.agents.first(where: { $0.id == agentID }) ?? snapshot?.agents.first(where: { $0.id == agentID })
         else { return false }
-        switch MessageDraftValidator.check(query) {
-        case .empty:
-            showAnswerNotice("Nothing to send.")
-        case .slashCommand:
-            showAnswerNotice(MessageDraftValidator.slashCommandHint)
-        case .tooLong(let over):
-            showAnswerNotice(MessageDraftValidator.tooLongHint(over: over))
-        case .ready(let text):
-            guard sendDirectMessage(to: agent, text: text) else { return true }
-            query = ""
-            taggedAgentID = nil
+        let verdict = MessageDraftValidator.check(query)
+        guard case .ready(let text) = verdict else {
+            showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
+            return true
         }
+        guard sendDirectMessage(to: agent, text: text) else { return true }
+        query = ""
+        taggedAgentID = nil
         return true
     }
 
@@ -899,6 +902,7 @@ final class AgentPanelModel: ObservableObject {
         _ = cancelRoutingIfActive()
         routingText = ""
         taggedAgentID = nil
+        newWorker = nil
     }
 
     /// Fresh start for each summon: empty search, first row selected.
@@ -914,6 +918,7 @@ final class AgentPanelModel: ObservableObject {
         // from the abandoned route can pass `finishRouting`'s `epoch == routingEpoch` check and hijack it.
         _ = cancelRoutingIfActive()
         taggedAgentID = nil
+        newWorker = nil
         query = ""
         rebuild()
         selectedAgentID = presentation.selectableAgentIDs.first
@@ -940,6 +945,10 @@ final class AgentPanelModel: ObservableObject {
     /// ↑/↓ from the keyboard: moves the highlight inside an open answer card,
     /// else the selection in the list.
     func moveSelectionOrAnswerHighlight(by step: Int) {
+        // Machine chips (Jev persona confirm row, New worker step 2) claim Up/Down first: Left/Right
+        // stay with the text caret. Up = previous chip, Down = next.
+        if movePersonaMachine(by: step) { return }
+        if moveNewWorkerSelection(by: step) { return }
         if answer.isOpen {
             answer.handle(step < 0 ? .up : .down)
         } else if permission.isOpen {
@@ -970,7 +979,7 @@ final class AgentPanelModel: ObservableObject {
         // (the box is usually non-empty by then anyway, which already falls through below — but
         // right after tagging, before anything is typed, `query` is still empty and this would
         // otherwise open the pane peek on the very first keystroke).
-        guard taggedAgentID == nil, query.isEmpty else { return false }
+        guard taggedAgentID == nil, newWorker == nil, query.isEmpty else { return false }
         if peek != nil {
             closePeek()
         } else {
@@ -1045,6 +1054,7 @@ final class AgentPanelModel: ObservableObject {
             message.pressSend()
             return
         }
+        if handleNewWorkerReturn() || enterNewWorkerIfCommand() { return }
         if sendToTaggedIfPending() { return }
         guard let selectedAgentID else { return }
         if let highlightedButton {
@@ -1082,7 +1092,7 @@ final class AgentPanelModel: ObservableObject {
     /// un-highlights it and cancels a pending confirmation.
     @discardableResult
     func moveButtonHighlight(by step: Int) -> Bool {
-        guard query.isEmpty else { return false }
+        guard query.isEmpty, newWorker == nil else { return false }
         if permission.isOpen {
             permission.handle(.other)   // a stray key never carries a pending "Allow always" over
             return true
@@ -1100,6 +1110,7 @@ final class AgentPanelModel: ObservableObject {
     /// goes on to close the peek / panel.
     func backOutOfButtons() -> Bool {
         if cancelRoutingIfActive() { return true }
+        if backOutOfNewWorker() { return true }
         // A card takes precedence over an (invisible, background) tag: `press(_:on:)` already
         // clears the tag the moment a card opens, but this ordering is the same belt-and-suspenders
         // rule `activateSelected()` already applies (its card checks precede `sendToTaggedIfPending()`
@@ -1129,6 +1140,17 @@ final class AgentPanelModel: ObservableObject {
     /// Park / Unpark act at once; Done / Close pane ask the dashboard, and the
     /// returned task ends when it has answered (tests await it).
     @discardableResult
+    /// The row ⋯ menu's "Report to" submenu: attach `agentID` under the picked `targetID` (a chief
+    /// or an Unassigned worker, `AgentTree.reportTargets`). Same gate as pressing "Report to…".
+    func reportTo(_ targetID: String, from agentID: String) {
+        guard let agent = presentation.agents.first(where: { $0.id == agentID }),
+              isPressable(.reportTo, on: agent),
+              let tree = treeModel.tree, let child = tree.node(withID: agentID), let parent = tree.node(withID: targetID)
+        else { return }
+        treeModel.selectedNodeID = agentID
+        treeModel.attach(child: child, to: parent)
+    }
+
     func press(_ button: RowButton, on agentID: String) -> Task<Void, Never>? {
         guard let agent = presentation.agents.first(where: { $0.id == agentID }),
               isPressable(button, on: agent) else { return nil }
@@ -1397,7 +1419,7 @@ final class AgentPanelModel: ObservableObject {
         if permission.isOpen { permission.handle(.other) }
     }
 
-    private func showAnswerNotice(_ sentence: String) {
+    func showAnswerNotice(_ sentence: String) {
         guard !isOpeningCardForCorner else { return }
         showFailureNotice(.actionFailed(sentence))
     }

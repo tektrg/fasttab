@@ -19,14 +19,21 @@ import SwiftUI
 struct RowMoreMenuView: View {
     let items: [RowButtonSpec]
     let isHighlighted: Bool
+    /// Who "Report to" offers (`AgentTree.reportTargets`) — the item is a submenu of these.
+    var reportTargets: (chiefs: [AgentTreeNode], workers: [AgentTreeNode]) = ([], [])
     let onSelect: (RowButton) -> Void
+    var onReportTo: (String) -> Void = { _ in }
 
     var body: some View {
         Menu {
             ForEach(items, id: \.button.title) { spec in
-                Button(spec.label) { onSelect(spec.button) }
-                    .disabled(!spec.isEnabled)
-                    .help(spec.disabledReason ?? "")   // same "why" tooltip a disabled capsule gives via RowActionButtonView
+                if spec.button == .reportTo {
+                    reportToSubmenu
+                } else {
+                    Button(spec.label) { onSelect(spec.button) }
+                        .disabled(!spec.isEnabled)
+                        .help(spec.disabledReason ?? "")   // same "why" tooltip a disabled capsule gives via RowActionButtonView
+                }
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -41,5 +48,30 @@ struct RowMoreMenuView: View {
         .overlay(Circle().strokeBorder(isHighlighted ? Color.accentColor : .clear, lineWidth: 1.5))
         .help("More actions")
         .accessibilityLabel("More actions")
+    }
+
+    private var reportToSubmenu: some View {
+        Menu("Report to") {
+            if reportTargets.chiefs.isEmpty && reportTargets.workers.isEmpty {
+                Button("No one to report to") {}.disabled(true)
+            }
+            if !reportTargets.chiefs.isEmpty {
+                Section("Chiefs") { targetButtons(reportTargets.chiefs) }
+            }
+            if !reportTargets.workers.isEmpty {
+                Section("Workers") { targetButtons(reportTargets.workers) }
+            }
+        }
+    }
+
+    private func targetButtons(_ nodes: [AgentTreeNode]) -> some View {
+        ForEach(nodes) { node in
+            Button(Self.targetTitle(node)) { onReportTo(node.id) }
+        }
+    }
+
+    /// "label · project" plus " · Air" when it runs there — enough to tell same-named agents apart.
+    static func targetTitle(_ node: AgentTreeNode) -> String {
+        ([node.label, node.project] + [node.machineBadge].compactMap { $0 }).joined(separator: " · ")
     }
 }

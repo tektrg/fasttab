@@ -24,16 +24,36 @@ enum PanelFooterHints {
         /// Tab-tagged an explicit send target (`AgentPanelModel.taggedAgentID`): mutually exclusive
         /// with `routingMode`.
         var isTagged = false
+        /// New worker mode (`AgentPanelModel.newWorker`): nil the rest of the time.
+        var newWorkerMode: NewWorkerHintMode?
     }
+
+    enum NewWorkerHintMode { case pickingFolder, composing, composingMachines }
 
     /// `confirmingPersonaRefusal`: a persona confirm row whose Return delivers nothing
     /// (`PersonaDeliveryEffect.refusesDelivery`) — Tab is the only way forward.
-    /// `confirmingPersonaMachines`: a persona confirm row showing machine chips (Left/Right pick).
-    enum RoutingHintMode { case loading, confirming, confirmingPersona, confirmingPersonaMachines, confirmingPersonaRefusal, startingPersona }
+    /// `confirmingPersonaMachines`: a persona confirm row showing machine chips (Up/Down pick).
+    /// `confirmingFreshStart(Machines)`: a New worker pick's confirm row (its unreachable retry):
+    /// Tab can't toggle it (`PersonaPick.locksStartNew`).
+    enum RoutingHintMode {
+        case loading, confirming, confirmingPersona, confirmingPersonaMachines, confirmingPersonaRefusal
+        case confirmingFreshStart, confirmingFreshStartMachines, startingPersona
+
+        init(confirming pick: PersonaPick) {
+            if pick.effect.refusesDelivery { self = .confirmingPersonaRefusal; return }
+            switch (pick.locksStartNew, pick.machineChips.isEmpty) {
+            case (true, true): self = .confirmingFreshStart
+            case (true, false): self = .confirmingFreshStartMachines
+            case (false, true): self = .confirmingPersona
+            case (false, false): self = .confirmingPersonaMachines
+            }
+        }
+    }
 
     static func text(for context: Context) -> String {
         if context.hasDismissibleNotice { return "esc dismiss notice" }
         if let routingMode = context.routingMode { return routingText(for: routingMode) }
+        if let newWorkerMode = context.newWorkerMode { return newWorkerText(for: newWorkerMode) }
         // Card modes precede `isTagged`: `AgentPanelModel.press(_:on:)` already clears the tag the
         // moment a card opens, but keeping this order too (matching `activateSelected()`'s own
         // card-then-tag precedence) means the footer never claims Return sends the tagged message
@@ -55,10 +75,20 @@ enum PanelFooterHints {
         case .loading: "esc cancel"
         case .confirming: "↩ send   esc cancel"
         case .confirmingPersona: "↩ send   tab toggle   esc cancel"
-        case .confirmingPersonaMachines: "↩ send   ←→ machine   tab toggle   esc cancel"
+        case .confirmingPersonaMachines: "↩ send   ↑↓ machine   tab toggle   esc cancel"
         case .confirmingPersonaRefusal: "tab start new   esc cancel"
+        case .confirmingFreshStart: "↩ start fresh   esc cancel"
+        case .confirmingFreshStartMachines: "↩ start fresh   ↑↓ machine   esc cancel"
         // Esc only hides the row: the start is already on its way and its outcome still shows.
         case .startingPersona: "esc hide"
+        }
+    }
+
+    private static func newWorkerText(for mode: NewWorkerHintMode) -> String {
+        switch mode {
+        case .pickingFolder: "↑↓ select   ↩ pick folder   esc cancel"
+        case .composing: "↩ start fresh   esc back"
+        case .composingMachines: "↩ start fresh   ↑↓ machine   esc back"
         }
     }
 

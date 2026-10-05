@@ -56,6 +56,14 @@ const blockComponents: Components = {
       <table className="md-table">{children}</table>
     </div>
   ),
+  // Cell content sits in a capped box: browsers ignore max-width on a table
+  // cell itself, so the cap lives on this inner div (see .md-cell CSS).
+  th: ({ node: _node, children, ...props }) => (
+    <th {...props}><div className="md-cell">{children}</div></th>
+  ),
+  td: ({ node: _node, children, ...props }) => (
+    <td {...props}><div className="md-cell">{children}</div></td>
+  ),
   pre: ({ children }) => <pre className="md-pre">{children}</pre>,
   code: ({ className, children, ...props }) => {
     // Fenced blocks carry a `language-xxx` className from remark; inline

@@ -54,17 +54,35 @@ struct SearchFieldView: View {
                 // `tagRowHeight` (matching the extra budgeted in `AgentPanelMetrics.height(for:...)`)
                 // instead of squeezing the already-sized row down to fit inside it.
                 .padding(.top, AgentPanelMetrics.tagChipTopPadding)
+            } else if let pick = model.newWorkerPick {
+                // New worker step 2: same slot and budget as the tag chip row above.
+                NewWorkerTargetRow(pick: pick, onBack: model.backOutOfNewWorkerByClick)
+                    .frame(height: AgentPanelMetrics.tagRowHeight)
+                    .padding(.top, AgentPanelMetrics.tagChipTopPadding)
             }
             // Unconditionally present either way — `field`'s one and only call site (see doc comment
             // above). Untagged: the magnifying glass shares this row with it, same as always. Tagged:
             // the icon has already been drawn in the chip row above, so this row is the field alone,
             // at its full width regardless of how long the tagged agent's name is.
             HStack(spacing: 10) {
-                if model.taggedAgentLabel == nil {
-                    Image(systemName: "magnifyingglass")
+                if let leadingIcon {
+                    Image(systemName: leadingIcon)
                         .foregroundStyle(.secondary)
                 }
                 field
+                if showsNewWorkerButton {
+                    Button(action: model.enterNewWorkerMode) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .focusable(false)
+                    .help("New worker (/new)")
+                    .accessibilityLabel("New worker")
+                }
             }
             .frame(height: fieldRowHeight)
             if let routingState = model.routingState {
@@ -81,7 +99,21 @@ struct SearchFieldView: View {
     /// — the total across both rows is unchanged, only re-split; see `AgentPanelMetrics.height(for:...)`).
     private var fieldRowHeight: CGFloat {
         let total = AgentPanelMetrics.searchFieldHeight(forLineCount: lineCount)
-        return model.taggedAgentLabel == nil ? total : total - AgentPanelMetrics.tagRowHeight
+        return hasChipRow ? total - AgentPanelMetrics.tagRowHeight : total
+    }
+
+    /// The Tab-tag chip or the new worker target sits on its own row above the field.
+    private var hasChipRow: Bool { model.taggedAgentLabel != nil || model.newWorkerPick != nil }
+
+    /// Nil while a chip row above already carries the icon.
+    private var leadingIcon: String? {
+        if hasChipRow { return nil }
+        return model.newWorker == nil ? "magnifyingglass" : "folder"
+    }
+
+    /// The "+" (New worker mode) on the plain search box only.
+    private var showsNewWorkerButton: Bool {
+        model.newWorker == nil && model.taggedAgentLabel == nil && !model.isCardOpen && model.routingState == nil
     }
 
     /// Shift+Return routing (`AgentPanelModel.routingState`): Jev thinking, or its pick waiting for a
@@ -147,7 +179,10 @@ struct SearchFieldView: View {
     /// While tagged the field IS the message; naming who it goes to (mirrors FastTab's alias
     /// placeholder, "Search \(alias)…", the same idea one level up: name the destination).
     private var fieldPlaceholder: String {
-        model.taggedAgentLabel.map { "Message \($0)…" } ?? "Search agents"
+        if let taggedLabel = model.taggedAgentLabel { return "Message \(taggedLabel)…" }
+        if let pick = model.newWorkerPick { return "First task for \(pick.persona.name)…" }
+        if model.newWorker != nil { return "New worker — pick a folder" }
+        return "Search agents"
     }
 
     private var field: some View {
@@ -172,10 +207,11 @@ struct SearchFieldView: View {
             }
             .onKeyPress(.upArrow) { model.moveSelectionOrAnswerHighlight(by: -1); return .handled }
             .onKeyPress(.downArrow) { model.moveSelectionOrAnswerHighlight(by: 1); return .handled }
-            // A persona confirm row with machine chips claims Left/Right first (same fallthrough
+            // Left/Right never move machine chips (Up/Down do, `moveSelectionOrAnswerHighlight`), so
+            // the caret keeps them while typing a task.
             // shape as Tab below): otherwise the arrows keep their row-button / text-cursor jobs.
-            .onKeyPress(.leftArrow) { model.movePersonaMachine(by: -1) || model.moveButtonHighlight(by: -1) ? .handled : .ignored }
-            .onKeyPress(.rightArrow) { model.movePersonaMachine(by: 1) || model.moveButtonHighlight(by: 1) ? .handled : .ignored }
+            .onKeyPress(.leftArrow) { model.moveButtonHighlight(by: -1) ? .handled : .ignored }
+            .onKeyPress(.rightArrow) { model.moveButtonHighlight(by: 1) ? .handled : .ignored }
             .onKeyPress(.tab, phases: .down) { _ in
                 // While a card is open, Tab stays a no-op (`answerCardKeyPress` below already
                 // ignores it there) rather than tagging a row the user can no longer see.

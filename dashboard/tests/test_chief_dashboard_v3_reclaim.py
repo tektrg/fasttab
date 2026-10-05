@@ -262,6 +262,11 @@ check("label digits join", act.owners_of_session(
     ["1867 (claimed)"])
 check("no match, no owner", act.owners_of_session(
     "sess-9", {"agentSession": "sess-9", "label": "other"}, runs, []), [])
+check("digits in a persona start's message suffix never link", act.owners_of_session(
+    "sess-9", {"agentSession": "sess-9", "label": "portfolio · fix 1867"}, runs, []), [])
+check("digits before the suffix still link", act.owners_of_session(
+    "sess-9", {"agentSession": "sess-9", "label": "deliver-1867 · check it"}, runs, []),
+    ["1867 (claimed)"])
 check("null record pane never matches a null sanitized pane", act.owners_of_session(
     "pane:w8-p38",
     {"agentSession": None, "paneId": "w8:p38", "label": "hubble-large-file-muse"},

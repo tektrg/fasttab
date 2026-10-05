@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validateSpec } from "@indie/table-core";
+import { validateSpec } from "@tektrg/table-core";
 import {
   DEFAULT_FEEDBACK_FILTER,
   FEEDBACK_DEFAULT_ROLES,

@@ -1,7 +1,7 @@
 /** Feedback tab: one component, two layouts over the same engine result —
  *  desktop `table`, phone `cards`. Status change -> proxy -> refetch. */
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
-import type { SourceRow } from "@indie/table-core";
+import type { SourceRow } from "@tektrg/table-core";
 import { createResolveGuard, fetchFeedbackThread, resolveFeedbackThread, useFeedbackThreads, type FeedbackMessage } from "./feedbackApi";
 import {
   DEFAULT_FEEDBACK_FILTER,

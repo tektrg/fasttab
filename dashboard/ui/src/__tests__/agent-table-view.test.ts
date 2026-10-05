@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AGENT_DEFAULT_ROLES, AGENT_FIELDS, FOLDER_VIEW_SPEC, toAgentSourceRows, type AgentTableInput } from "../components/phone/agentTableView";
 import { groupByFolder, type FolderGroupable, type NeedsYouKind } from "../components/phone/folderGrouping";
-import { validateSpec } from "@indie/table-core";
+import { validateSpec } from "@tektrg/table-core";
 
 function agent(over: Partial<AgentTableInput> & { rowId: string }): AgentTableInput {
   return { cwd: null, machine: "local", needsYouKind: null, ...over };

@@ -214,7 +214,11 @@ private struct ResultRowView: View {
 
                 Group {
                     if rowStyle == .minimal {
+                        // Hover narrows the text, so ViewThatFits may drop the
+                        // window chip (taller than plain text). Pin the height
+                        // to the chip's so the row doesn't shrink on hover.
                         minimalContent
+                            .frame(minHeight: windowTag != nil ? MetadataPill.height : nil)
                     } else {
                         fullContent
                     }
@@ -458,6 +462,9 @@ private struct ResultRowView: View {
 private struct MetadataPill: View {
     @Environment(\.colorScheme) private var colorScheme
     let title: String
+
+    /// caption2 line (~13pt) + 3pt vertical padding on each side.
+    static let height: CGFloat = 19
 
     var body: some View {
         Text(title)

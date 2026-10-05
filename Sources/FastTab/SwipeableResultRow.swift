@@ -191,8 +191,13 @@ private struct ResultRowView: View {
 
     /// Trailing clearance reserved while the action overlay is visible, so the
     /// title truncates before the buttons instead of running underneath them.
+    ///
+    /// Reserved permanently when the title/metadata can wrap (compact width
+    /// or Full style): toggling it on hover narrowed the text, re-wrapped it
+    /// and changed the row's height — a layout shift under the cursor.
     private var actionReserveWidth: CGFloat {
-        guard isActionsVisible else { return 0 }
+        let canWrap = isCompact || rowStyle != .minimal
+        guard canWrap || isActionsVisible else { return 0 }
         let buttonCount = result.type == .tab ? 3 : 2
         return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: buttonCount)
     }

@@ -18,6 +18,7 @@ struct GuidanceBarView: View {
     var showProfileName: Bool = false
 
     @Environment(\.isCompactCommandBar) private var isCompact
+    @State private var stableHeight: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -69,7 +70,20 @@ struct GuidanceBarView: View {
         }
         .animation(.easeInOut(duration: 0.15), value: hint)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Hover swaps the status line and hint tokens, which can change how
+        // many lines the bar wraps to. Hold the tallest height seen so the
+        // results list above never shifts under the cursor.
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: GuidanceBarHeightKey.self, value: proxy.size.height)
+        })
+        .frame(minHeight: stableHeight, alignment: .top)
+        .onPreferenceChange(GuidanceBarHeightKey.self) { stableHeight = max(stableHeight, $0) }
     }
+}
+
+private struct GuidanceBarHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Hovered row's type icon, recency, window/profile, and URL — the same

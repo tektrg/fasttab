@@ -1,13 +1,10 @@
 import SwiftUI
 import AppKit
-import IndieFeedbackUI
 
 /// "About" tab of Settings: support contact and the installed version.
 struct AboutSettingsView: View {
     @EnvironmentObject var licenseService: LicenseService
     @State private var didCopySupportEmail = false
-    @State private var isChattingWithCreator = false
-    @State private var feedbackUnread = FeedbackUnreadCounter(client: FastTabFeedback.makeClient())
 
     private let supportEmailAddress = "yourfriend@theindie.app"
 
@@ -24,15 +21,6 @@ struct AboutSettingsView: View {
                 }
 
                 HStack(spacing: 8) {
-                    Button {
-                        isChattingWithCreator = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text("Chat with the Creator…")
-                            FeedbackUnreadBadge(count: feedbackUnread.count)
-                        }
-                    }
-
                     Button("Email \(supportEmailAddress)") {
                         licenseService.openSupport()
                     }
@@ -73,21 +61,6 @@ struct AboutSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .task { await feedbackUnread.refresh() }
-        .sheet(isPresented: $isChattingWithCreator) {
-            feedbackUnread.clear()
-        } content: {
-            NavigationStack {
-                FeedbackChatView(client: FastTabFeedback.makeClient())
-                    .navigationTitle("Chat with the Creator")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { isChattingWithCreator = false }
-                        }
-                    }
-            }
-            .frame(minWidth: 420, minHeight: 520)
-        }
     }
 
     private var appVersion: String {

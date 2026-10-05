@@ -3,6 +3,7 @@ import AppKit
 import OSLog
 import Combine
 import CommandBarKit
+import IndieFeedbackUI
 import IndieEdgeReveal
 
 private let appLogger = Logger(subsystem: "com.trungluong.FastTab", category: "AppDelegate")
@@ -280,6 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NativeHostInstaller.shared.installIfNeeded()
         LicenseService.shared.validateForLaunch()
         registerForCloudKitPushes()
+        FastTabFeedback.start()
 
         if CommandLine.arguments.contains("--cloudkit-spike") {
             CloudKitSpike.run()
@@ -467,8 +469,11 @@ struct FastTabApp: App {
         // menu's status line and in Settings, never as a badge on the icon:
         // sync starts unconditionally at launch, so a Mac-only user who never
         // signs into iCloud would wear a permanent, undismissable warning.
-        MenuBarExtra("FastTab", systemImage: "command", isInserted: $menuBarIconInserted) {
+        MenuBarExtra(isInserted: $menuBarIconInserted) {
             menuBarContent
+        } label: {
+            // Red dot on the icon while the creator has something new (reply or release note).
+            Image(nsImage: FeedbackNewsIcon.image(symbolName: "command", hasNews: FastTabFeedback.center.hasNews, accessibilityDescription: "FastTab"))
         }
         .menuBarExtraStyle(.menu)
         .onChange(of: menuBarIconPreference, initial: true) { _, newValue in
@@ -528,6 +533,16 @@ struct FastTabApp: App {
 
         Button(OnboardingWindowController.replayMenuTitle) {
             OnboardingWindowController.shared.show()
+        }
+
+        Button {
+            FastTabFeedback.chatWindow.show()
+        } label: {
+            Label {
+                Text(FastTabFeedback.menuTitle + "…")
+            } icon: {
+                Image(nsImage: FeedbackNewsIcon.image(symbolName: FastTabFeedback.symbolName, hasNews: FastTabFeedback.center.hasNews))
+            }
         }
 
         Button("Feedback & Support…") {

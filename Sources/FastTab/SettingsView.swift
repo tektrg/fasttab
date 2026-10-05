@@ -1,10 +1,11 @@
 import SwiftUI
+import IndieFeedbackUI
 import AppKit
 
 /// One entry in the Settings sidebar. Each case's content lives in its own
 /// `*SettingsView` file — this file only owns the sidebar and routing.
 enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
-    case general, appearance, shortcuts, sources, bookmarks, sync, searchAliases, advanced, license, about
+    case general, appearance, shortcuts, sources, bookmarks, sync, searchAliases, advanced, license, feedback, about
 
     var id: String { rawValue }
 
@@ -19,6 +20,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .searchAliases: return "Search Aliases"
         case .advanced: return "Advanced"
         case .license: return "License"
+        case .feedback: return FastTabFeedback.menuTitle
         case .about: return "About"
         }
     }
@@ -34,6 +36,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .searchAliases: return "magnifyingglass"
         case .advanced: return "wrench.and.screwdriver"
         case .license: return "key"
+        case .feedback: return FastTabFeedback.symbolName
         case .about: return "info.circle"
         }
     }
@@ -104,6 +107,8 @@ struct SettingsView: View {
             }
 
             Section {
+                FeedbackNewsLabel(SettingsTab.feedback.title, systemImage: SettingsTab.feedback.systemImage, center: FastTabFeedback.center)
+                    .tag(SettingsTab.feedback)
                 Label(SettingsTab.about.title, systemImage: SettingsTab.about.systemImage)
                     .tag(SettingsTab.about)
             }
@@ -138,6 +143,8 @@ struct SettingsView: View {
             AdvancedSettingsView()
         case .license:
             LicenseSettingsView()
+        case .feedback:
+            FeedbackCenterView(center: FastTabFeedback.center)
         case .about:
             AboutSettingsView()
         }

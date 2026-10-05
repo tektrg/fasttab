@@ -144,7 +144,8 @@ struct SettingsView: View {
         case .license:
             LicenseSettingsView()
         case .feedback:
-            FeedbackCenterView(center: FastTabFeedback.center)
+            // Settings is a fixed 680x420: start with the release note collapsed so the chat has room.
+            FeedbackCenterView(center: FastTabFeedback.center, noteStartsExpanded: false)
         case .about:
             AboutSettingsView()
         }

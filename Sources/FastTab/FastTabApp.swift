@@ -473,7 +473,7 @@ struct FastTabApp: App {
             menuBarContent
         } label: {
             // Red dot on the icon while the creator has something new (reply or release note).
-            Image(nsImage: FeedbackNewsIcon.image(symbolName: "command", hasNews: FastTabFeedback.center.hasNews, accessibilityDescription: "FastTab"))
+            FeedbackNewsIconLabel(symbolName: "command", center: FastTabFeedback.center)
         }
         .menuBarExtraStyle(.menu)
         .onChange(of: menuBarIconPreference, initial: true) { _, newValue in
@@ -541,7 +541,7 @@ struct FastTabApp: App {
             Label {
                 Text(FastTabFeedback.menuTitle + "…")
             } icon: {
-                Image(nsImage: FeedbackNewsIcon.image(symbolName: FastTabFeedback.symbolName, hasNews: FastTabFeedback.center.hasNews))
+                Image(nsImage: FeedbackNewsIcon.menuItemImage(symbolName: FastTabFeedback.symbolName, hasNews: FastTabFeedback.center.hasNews))
             }
         }
 

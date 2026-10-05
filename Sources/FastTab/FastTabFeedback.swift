@@ -21,10 +21,6 @@ enum FastTabFeedback {
         )
     }
 
-    static func makeClient() -> FeedbackClient {
-        FeedbackClient(configuration: makeConfiguration())
-    }
-
     /// The single source of every "something new from the creator" dot.
     @MainActor static let center = FeedbackCenter(configuration: makeConfiguration())
 

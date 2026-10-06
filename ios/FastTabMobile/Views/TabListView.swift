@@ -16,6 +16,7 @@ public struct TabListView: View {
     public let device: SyncedDevice?
 
     @State private var searchText: String = ""
+    @State private var searchResults = SearchResults()
     @State private var sortMode: TabSortMode = .recent
     @State private var selectedBrowserURL: URL?
     @State private var readerItem: ReaderNavigationItem?
@@ -94,47 +95,77 @@ public struct TabListView: View {
     }
 
     // Combined search results
-    private var matchingTabs: [SyncedTab] {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return [] }
+    //
+    // Folding every title/URL across all tabs, bookmarks and history is too heavy
+    // for the main thread (it used to run several times per keystroke), so matching
+    // happens once per query, off-main, after a short typing pause. The body only
+    // reads the finished `searchResults`.
+    private struct SearchResults: Sendable {
+        var tabs: [SyncedTab] = []
+        var bookmarks: [(blob: SyncedBookmarkBlob, item: SyncedBookmarkItem)] = []
+        var history: [(slice: SyncedHistorySlice, entry: SyncedHistoryEntry)] = []
+    }
+
+    private struct SearchKey: Equatable {
+        let text: String
+        let syncedAt: Date?
+        let deviceID: String?
+    }
+
+    private var searchKey: SearchKey {
+        SearchKey(
+            text: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+            syncedAt: localCache.state.lastSyncedAt,
+            deviceID: activeDevice?.id
+        )
+    }
+
+    private nonisolated static func computeSearch(
+        _ q: String, state: CachedSyncState, deviceID: String?
+    ) -> SearchResults {
+        guard !q.isEmpty else { return SearchResults() }
         let search = SyncSearchQuery(q)
-        return visibleTabs.filter { tab in
-            search.matches(title: tab.title, url: tab.url)
+        var out = SearchResults()
+        out.tabs = state.tabs.filter { tab in
+            (deviceID == nil || tab.deviceID == deviceID) && search.matches(title: tab.title, url: tab.url)
         }
+        for blob in state.bookmarkBlobs where deviceID == nil || blob.deviceID == deviceID {
+            for bm in blob.bookmarks where search.matches(title: bm.title, url: bm.url) {
+                out.bookmarks.append((blob, bm))
+            }
+        }
+        for slice in state.historySlices where deviceID == nil || slice.deviceID == deviceID {
+            for entry in slice.entries where search.matches(title: entry.title, url: entry.url) {
+                out.history.append((slice, entry))
+            }
+        }
+        return out
+    }
+
+    private func refreshSearchResults(for key: SearchKey) async {
+        guard !key.text.isEmpty else { searchResults = SearchResults(); return }
+        // Typing pause: a newer keystroke cancels this task before any work starts.
+        try? await Task.sleep(for: .milliseconds(180))
+        guard !Task.isCancelled else { return }
+        let state = localCache.state
+        let found = await Task.detached(priority: .userInitiated) {
+            Self.computeSearch(key.text, state: state, deviceID: key.deviceID)
+        }.value
+        guard !Task.isCancelled else { return }
+        searchResults = found
+    }
+
+    private var matchingTabs: [SyncedTab] {
+        let hidden = hiddenTabIDs
+        return hidden.isEmpty ? searchResults.tabs : searchResults.tabs.filter { !hidden.contains($0.id) }
     }
 
     private var matchingBookmarks: [(blob: SyncedBookmarkBlob, item: SyncedBookmarkItem)] {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return [] }
-        let search = SyncSearchQuery(q)
-
-        var results: [(blob: SyncedBookmarkBlob, item: SyncedBookmarkItem)] = []
-        for blob in localCache.state.bookmarkBlobs {
-            if let dev = activeDevice, blob.deviceID != dev.id { continue }
-            for bm in blob.bookmarks {
-                if search.matches(title: bm.title, url: bm.url) {
-                    results.append((blob, bm))
-                }
-            }
-        }
-        return results
+        searchResults.bookmarks
     }
 
     private var matchingHistory: [(slice: SyncedHistorySlice, entry: SyncedHistoryEntry)] {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return [] }
-        let search = SyncSearchQuery(q)
-
-        var results: [(slice: SyncedHistorySlice, entry: SyncedHistoryEntry)] = []
-        for slice in localCache.state.historySlices {
-            if let dev = activeDevice, slice.deviceID != dev.id { continue }
-            for entry in slice.entries {
-                if search.matches(title: entry.title, url: entry.url) {
-                    results.append((slice, entry))
-                }
-            }
-        }
-        return results
+        searchResults.history
     }
 
     /// A tab awaiting a "save as bookmark" destination. Wraps the tab so the
@@ -235,6 +266,7 @@ public struct TabListView: View {
                 .accessibilityLabel("App Switcher Deck")
             }
         }
+        .task(id: searchKey) { await refreshSearchResults(for: searchKey) }
         .onChange(of: localCache.state.tabs.count) {
             pruneFinishedCloses()
         }
@@ -349,6 +381,9 @@ public struct TabListView: View {
 
     @ViewBuilder
     private var combinedSearchResultsView: some View {
+        let matchingTabs = self.matchingTabs
+        let matchingBookmarks = self.matchingBookmarks
+        let matchingHistory = self.matchingHistory
         if matchingTabs.isEmpty && matchingBookmarks.isEmpty && matchingHistory.isEmpty {
             ScrollView {
                 MotionCard(

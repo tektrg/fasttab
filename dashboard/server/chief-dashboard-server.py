@@ -375,7 +375,12 @@ def _live_pane_ids_cached(machine=herdr_transport.LOCAL_MACHINE):
     if cached and now - cached["ts"] < _PANE_FEED_TTL_SEC:
         return set(cached["ids"])
     try:
-        panes = session_actions._live_panes(machine=machine)
+        # Request path (every /api/state): a remote machine gets a short
+        # budget; an unreachable one fails instantly via the breaker and the
+        # last-known set below stands in.
+        panes = session_actions._live_panes(
+            machine=machine,
+            timeout=10 if machine == herdr_transport.LOCAL_MACHINE else 2)
         ids = {herdr_transport.make_pane_key(machine, p.get("pane_id"))
                for p in panes if p.get("pane_id")}
     except Exception:

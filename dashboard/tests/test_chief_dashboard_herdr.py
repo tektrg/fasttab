@@ -266,6 +266,7 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         del os.environ["CHIEF_SSH_BIN"]
 
+    herdr.reset_breakers()  # the 255 above tripped the per-machine breaker
     fake_ssh_hang = os.path.join(tmp, "fake-ssh-hang")
     with open(fake_ssh_hang, "w") as f:
         f.write("#!/bin/sh\nsleep 30 &\nwait $!\n")
@@ -339,6 +340,7 @@ with tempfile.TemporaryDirectory() as tmp:
     with open(fake_ssh, "w") as f:
         f.write(f'#!/bin/sh\necho "$@" >> "{ssh_log}"\necho \'{{"ok":true}}\'\n')
     os.chmod(fake_ssh, 0o755)
+    herdr.reset_breakers()  # earlier hang/255 cases tripped the in-process breaker
     remote_cfg = json.dumps({"air-m1": {"sshAlias": "trungs-air",
                                          "herdrPath": "/x/herdr", "label": "Air"}})
     rc, out, err = run_cli(

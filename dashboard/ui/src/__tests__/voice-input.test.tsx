@@ -313,6 +313,36 @@ describe("transcription", () => {
     expect(calls[0].url).toBe("/api/attachments/audio");
   });
 
+  test("offline mid-upload: plain message (no raw TypeError), recording kept, Retry re-uploads it", async () => {
+    stubServer({});
+    globalThis.fetch = (async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    const { host } = mount();
+    await recordFor(host, 3_000);
+    await wait();
+    const shown = host.querySelector(".voice-error")?.textContent ?? "";
+    expect(shown).toContain("Check your connection");
+    expect(shown).not.toContain("TypeError");
+    stubServer({ polls: [{ ok: true, state: "done", text: "back online" }] });
+    const texts: string[] = [];
+    await press(host, "retry transcription");
+    await wait();
+    expect(calls[0].url).toBe("/api/attachments/audio");
+    expect(texts.length).toBe(0);
+    expect(host.querySelector(".voice-error")).toBeNull();
+  });
+
+  test("Vietnamese transcript with diacritics arrives intact", async () => {
+    const spoken = "Xin chào, tôi là Trung. Đây là bản ghi thử nghiệm: ạ ệ ữ ơ";
+    stubServer({ polls: [{ ok: true, state: "done", text: spoken }] });
+    const texts: string[] = [];
+    const { host } = mount((t) => texts.push(t));
+    await recordFor(host, 3_000);
+    await wait();
+    expect(texts).toEqual([spoken]);
+  });
+
   test("gives up with a plain message when it never finishes", async () => {
     stubServer({ polls: [{ ok: true, state: "pending" }] });
     const { host } = mount(() => {}, 40);
@@ -374,6 +404,26 @@ describe("in the message box", () => {
     const input = host.querySelector('input[type="text"], input:not([type])') as HTMLInputElement;
     expect(input.value).toBe("fix the login bug and run the tests");
     expect(calls.some((c) => c.url.includes("/api/sessions") || c.url.includes("message"))).toBe(false);
+    act(() => root.unmount());
+  });
+
+  test("the last target ending mid-recording keeps Stop reachable (mic never stranded)", async () => {
+    stubServer({});
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const render = (rows: BoardRow[]) =>
+      act(() =>
+        root.render(
+          <MantineProvider theme={theme}>
+            <Composer rows={rows} onToast={() => {}} />
+          </MantineProvider>,
+        ),
+      );
+    render([row]);
+    await press(host, "record voice message");
+    render([]);
+    expect(host.querySelector('button[aria-label="stop recording"]')).toBeTruthy();
     act(() => root.unmount());
   });
 

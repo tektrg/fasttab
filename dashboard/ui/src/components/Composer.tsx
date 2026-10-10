@@ -260,7 +260,7 @@ export function Composer({
           onRemove={attach.remove}
         />
       )}
-      {targets.length > 0 && <VoiceRecorderBar voice={voice} disabled={busy || !!pending} />}
+      {(targets.length > 0 || voice.phase !== "idle") && <VoiceRecorderBar voice={voice} disabled={busy || !!pending} />}
       {targets.length > 0 && !imagesAllowed && (
         <Text size="xs" c={imagesBlocked ? "red" : "dimmed"} mt={4} className="composer-remote-image-note">
           {imagesBlocked ? `${REMOTE_IMAGE_CAPTION} Remove the images to send.` : REMOTE_IMAGE_CAPTION}

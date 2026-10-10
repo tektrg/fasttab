@@ -2888,6 +2888,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         data = self.rfile.read(length) if length else b""
         self._request_body_read = True
+        if len(data) != length:  # the phone's connection dropped mid-upload
+            self._send_json({"ok": False, "error": f"the {noun} upload was cut off — try again"}, status=400)
+            return
         try:
             payload, status = store(data, self.headers.get("Content-Type"))
         except OSError as e:

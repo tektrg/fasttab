@@ -340,6 +340,38 @@ check("key from GOOGLE_API_KEY env as last resort",
 check("no key anywhere -> None", vt.read_gemini_key({}, {}), None)
 vt.DEFAULT_KEY_FILE = real_default
 
+print("\n== pass-2 QA: failure wording, restart, leftovers, Vietnamese ==")
+for label, text, want in (
+        ("bad key", "[GoogleGenerativeAI Error]: API key not valid. Please pass a valid API key.", vt.KEY_REJECTED_MESSAGE),
+        ("rate limit", "429 Too Many Requests", vt.QUOTA_MESSAGE),
+        ("offline", "TypeError: fetch failed ... ENOTFOUND generativelanguage.googleapis.com", vt.OFFLINE_MESSAGE),
+        ("unknown", "something odd", vt.GENERIC_FAILURE_MESSAGE)):
+    check(f"cli output {label} -> fixed sentence", vt.SpeechToDoCliTranscriber._failure_message(text), want)
+vi = "  Xin chào, tôi là Trung.\u200b Đây là bản ghi: ạ ệ ữ ơ \u0301  "
+check("Vietnamese survives normalizing", vt.normalize_transcript(vi), "Xin chào, tôi là Trung. Đây là bản ghi: ạ ệ ữ ơ \u0301")
+check("sentinel stays literal text", vt.normalize_transcript("/" + SENTINEL), SENTINEL)
+# A done result on disk from before a restart is NOT transcribed again by a re-POST.
+d_fake = FakeTranscriber("first")
+d_jobs = vt.TranscriptionJobs(d_fake)
+d_id = new_audio()
+d_jobs.start(d_id)
+wait_state(d_jobs, d_id, "done")
+d_fake2 = FakeTranscriber("second")
+d_jobs2 = vt.TranscriptionJobs(d_fake2)
+check("re-POST after restart returns done, no second run",
+      (d_jobs2.start(d_id)[0]["state"], d_fake2.calls), ("done", 0))
+# Workspaces of a killed dashboard are swept; fresh ones are not.
+root = tempfile.mkdtemp(prefix="ws-root-", dir=_tmp)
+old_ws = os.path.join(root, "voice-transcribe-old")
+new_ws = os.path.join(root, "voice-transcribe-new")
+other = os.path.join(root, "someone-elses")
+for p_ in (old_ws, new_ws, other):
+    os.mkdir(p_)
+os.utime(old_ws, (time.time() - 7200, time.time() - 7200))
+os.utime(other, (time.time() - 7200, time.time() - 7200))
+check("stale workspace swept", vt.sweep_stale_workspaces(root=root), 1)
+check("fresh + foreign dirs kept", sorted(os.listdir(root)), ["someone-elses", "voice-transcribe-new"])
+
 print("\n== HTTP wiring (both listeners) ==")
 _spec = importlib.util.spec_from_file_location(
     "chief_dashboard_server_voice_test", os.path.join(DASHBOARD_ROOT, "server", "chief-dashboard-server.py"))

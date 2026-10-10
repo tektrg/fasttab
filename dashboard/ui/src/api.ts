@@ -485,6 +485,9 @@ export async function routeWithJev(
 /** Voice messages: the phone records, uploads the audio, the Mac transcribes
  *  it (server/lib: audio upload + transcribe jobs). Nothing is sent to an
  *  agent — the transcript only lands in the message box for review. */
+/** Shown instead of the browser's raw "TypeError: Failed to fetch". */
+export const VOICE_OFFLINE_ERROR =
+  "Couldn't reach the dashboard. Check your connection, then tap Retry (the recording is kept).";
 export type TranscribeState = "pending" | "done" | "failed";
 
 export interface TranscribeStatus {
@@ -513,8 +516,8 @@ export async function uploadAudio(
     const res = (await r.json()) as { ok?: boolean; id?: string; error?: string };
     if (!res.ok || !res.id) return { ok: false, error: res.error || "the dashboard refused the recording" };
     return { ok: true, id: res.id };
-  } catch (e) {
-    return { ok: false, error: String(e) };
+  } catch {
+    return { ok: false, error: VOICE_OFFLINE_ERROR };
   }
 }
 
@@ -541,7 +544,7 @@ async function pollTranscribeRequest(url: string, method: string, body?: unknown
       return { ok: false, unknownId: true, error: parsed.error || "The dashboard no longer has this recording." };
     }
     return { ...parsed, ok: r.ok && parsed.ok !== false };
-  } catch (e) {
-    return { ok: false, error: String(e) };
+  } catch {
+    return { ok: false, error: VOICE_OFFLINE_ERROR };
   }
 }

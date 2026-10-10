@@ -46,6 +46,8 @@ NO_SPEECH_MESSAGE = "No speech detected"
 TIMEOUT_MESSAGE = "Transcription took too long. Try a shorter recording."
 GENERIC_FAILURE_MESSAGE = "Transcription failed. Try again."
 QUOTA_MESSAGE = "The transcription service is out of quota right now. Try again later."
+KEY_REJECTED_MESSAGE = "The Mac's Gemini key was rejected. Update the key in SpeechToDo on the Mac."
+OFFLINE_MESSAGE = "The Mac couldn't reach the transcription service. Check its internet connection and try again."
 INTERRUPTED_MESSAGE = "Transcription was interrupted. Try again."
 NOT_FOUND_MESSAGE = "That recording wasn't found. It may have expired. Record it again."
 
@@ -57,7 +59,15 @@ DEFAULT_KEY_FILE = os.path.expanduser(
 
 _MOBILE_MARKER_SUFFIX = ".speechtodo-owner-pending.json"
 _RESULT_SUFFIX = ".transcript.json"
-_QUOTA_HINTS = ("resource_exhausted", "quota")
+_QUOTA_HINTS = ("resource_exhausted", "quota", "rate limit", "too many requests")
+_KEY_REJECTED_HINTS = ("api key not valid", "api_key_invalid", "invalid api key", "permission_denied",
+                       "unauthenticated", "api key expired")
+_OFFLINE_HINTS = ("enotfound", "econnrefused", "econnreset", "etimedout", "eai_again", "enetunreach",
+                  "fetch failed", "getaddrinfo")
+#: Per-job workspaces older than this are leftovers of a crashed/restarted
+#: dashboard (a job is at most MAX_TIMEOUT_SEC + the 60 s init step).
+_STALE_WORKSPACE_SEC = 30 * 60
+_WORKSPACE_PREFIX = "voice-transcribe-"
 
 
 class TranscribeError(Exception):
@@ -161,7 +171,7 @@ class SpeechToDoCliTranscriber:
             raise TranscribeError(KEY_MISSING_MESSAGE)
         if not (os.path.isfile(self.node_path) and os.path.isfile(self.cli_path)):
             raise TranscribeError("Transcription isn't set up on the Mac (SpeechToDo CLI not found)")
-        workspace = tempfile.mkdtemp(prefix="voice-transcribe-")
+        workspace = tempfile.mkdtemp(prefix=_WORKSPACE_PREFIX)
         try:
             return self._run(audio_path, workspace, key, timeout_sec)
         finally:
@@ -188,7 +198,13 @@ class SpeechToDoCliTranscriber:
     @staticmethod
     def _failure_message(output):
         lowered = output.lower()
-        return QUOTA_MESSAGE if any(h in lowered for h in _QUOTA_HINTS) else GENERIC_FAILURE_MESSAGE
+        if any(h in lowered for h in _KEY_REJECTED_HINTS):
+            return KEY_REJECTED_MESSAGE
+        if any(h in lowered for h in _QUOTA_HINTS):
+            return QUOTA_MESSAGE
+        if any(h in lowered for h in _OFFLINE_HINTS):
+            return OFFLINE_MESSAGE
+        return GENERIC_FAILURE_MESSAGE
 
     def _cli(self, args, key, timeout_sec, workspace, ready=None):
         """Run the CLI in its own process group; returns its output text.
@@ -248,6 +264,28 @@ class SpeechToDoCliTranscriber:
         return None
 
 
+def sweep_stale_workspaces(now=None, root=None):
+    """Delete job workspaces a killed dashboard never got to clean up."""
+    root = root or tempfile.gettempdir()
+    now = time.time() if now is None else now
+    removed = 0
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return 0
+    for name in names:
+        path = os.path.join(root, name)
+        try:
+            if (name.startswith(_WORKSPACE_PREFIX) and os.path.isdir(path)
+                    and not os.path.islink(path)
+                    and now - os.path.getmtime(path) > _STALE_WORKSPACE_SEC):
+                shutil.rmtree(path, ignore_errors=True)
+                removed += 1
+        except OSError:
+            pass
+    return removed
+
+
 # ---------------------------------------------------------------- jobs
 
 class TranscriptionJobs:
@@ -291,6 +329,11 @@ class TranscriptionJobs:
             return {"ok": False, "error": NOT_FOUND_MESSAGE}, 404
         with self._lock:
             current = self._jobs.get(audio_id)
+        if current is None:
+            # A finished result from before a restart: don't transcribe twice.
+            current = self._load_from_disk(audio_id)
+        with self._lock:
+            current = self._jobs.get(audio_id, current)
             if current and current["state"] in ("pending", "done"):
                 return {"ok": True, "id": audio_id, "state": current["state"]}, 200
             self._jobs[audio_id] = {"state": "pending"}
@@ -356,6 +399,7 @@ def get_jobs():
     global _JOBS
     with _JOBS_LOCK:
         if _JOBS is None:
+            sweep_stale_workspaces()
             _JOBS = TranscriptionJobs(SpeechToDoCliTranscriber())
         return _JOBS
 

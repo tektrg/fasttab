@@ -168,7 +168,7 @@ class SpeechToDoCliTranscriber:
             shutil.rmtree(workspace, ignore_errors=True)
 
     def _run(self, audio_path, workspace, key, timeout_sec):
-        self._cli(["init", "--workspace", workspace], key, 60)
+        self._cli(["init", "--workspace", workspace], key, 60, workspace)
         ext = os.path.splitext(audio_path)[1] or ".m4a"
         copied = os.path.join(workspace, "voice" + ext)
         shutil.copyfile(audio_path, copied)
@@ -177,37 +177,57 @@ class SpeechToDoCliTranscriber:
         with open(copied + _MOBILE_MARKER_SUFFIX, "w") as f:
             json.dump(marker, f)
         output = self._cli(["process-pending", "--provider", "gemini", "--workspace", workspace],
-                           key, timeout_sec)
+                           key, timeout_sec, workspace,
+                           ready=lambda: self._read_transcript(workspace) is not None)
         text = self._read_transcript(workspace)
         if text is None:
             self._log(f"voice-transcribe: no transcript produced: {_scrub(output, [key])[-300:]!r}")
-            lowered = output.lower()
-            raise TranscribeError(QUOTA_MESSAGE if any(h in lowered for h in _QUOTA_HINTS)
-                                  else GENERIC_FAILURE_MESSAGE)
+            raise TranscribeError(self._failure_message(output))
         return text
 
-    def _cli(self, args, key, timeout_sec):
-        """Run the CLI in its own process group; returns stdout+stderr text."""
+    @staticmethod
+    def _failure_message(output):
+        lowered = output.lower()
+        return QUOTA_MESSAGE if any(h in lowered for h in _QUOTA_HINTS) else GENERIC_FAILURE_MESSAGE
+
+    def _cli(self, args, key, timeout_sec, workspace, ready=None):
+        """Run the CLI in its own process group; returns its output text.
+
+        The real CLI writes the transcript and then lingers for minutes with
+        an open handle, so when `ready()` turns true the group is killed
+        right away instead of waiting for it to exit."""
         env = {"PATH": f"{os.path.dirname(self.node_path)}:/usr/bin:/bin",
                "HOME": os.path.expanduser("~"), "GOOGLE_API_KEY": key,
                "TMPDIR": tempfile.gettempdir()}
-        proc = subprocess.Popen(
-            [self.node_path, self.cli_path] + args, env=env, stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True, text=True)
-        try:
-            output, _ = proc.communicate(timeout=timeout_sec)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                pass
-            proc.communicate()
+        output_path = os.path.join(workspace, ".cli-output.log")
+        with open(output_path, "w") as sink:
+            proc = subprocess.Popen(
+                [self.node_path, self.cli_path] + args, env=env, stdin=subprocess.DEVNULL,
+                stdout=sink, stderr=subprocess.STDOUT, start_new_session=True, text=True)
+            deadline = time.monotonic() + timeout_sec
+            timed_out = False
+            ready_seen = False
+            while proc.poll() is None:
+                if ready is not None and ready():
+                    ready_seen = True
+                    break
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    break
+                time.sleep(0.2)
+            if proc.poll() is None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            proc.wait()
+        with open(output_path, errors="replace") as f:
+            output = f.read()
+        if timed_out:
             raise TranscribeError(TIMEOUT_MESSAGE)
-        if proc.returncode != 0:
+        if proc.returncode != 0 and not ready_seen:
             self._log(f"voice-transcribe: cli exited {proc.returncode}: {_scrub(output, [key])[-300:]!r}")
-            lowered = output.lower()
-            raise TranscribeError(QUOTA_MESSAGE if any(h in lowered for h in _QUOTA_HINTS)
-                                  else GENERIC_FAILURE_MESSAGE)
+            raise TranscribeError(self._failure_message(output))
         return output
 
     @staticmethod

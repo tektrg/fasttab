@@ -311,6 +311,28 @@ except OSError:
     still_alive = False
 check("timeout killed the whole process group", still_alive, False)
 
+lingering_node = fake_node("node-lingering", f'''
+if [ "$2" = init ]; then exit 0; fi
+ws="$6"
+mkdir -p "$ws/.speechtodo/outputs/voice-1"
+printf '{{"segments":[{{"text":"lingered ok"}}]}}' > "$ws/.speechtodo/outputs/voice-1/transcript.json"
+sleep 300 &
+echo $! > "{pid_file}.linger"
+wait
+''')
+started = time.time()
+lingered = vt.SpeechToDoCliTranscriber(settings={**settings, "nodePath": lingering_node}, environ={},
+                                       log=log_lines.append).transcribe(audio_path, 60)
+check("transcript read without waiting for a lingering CLI", lingered, "lingered ok")
+check("returned promptly", time.time() - started < 15, True)
+time.sleep(0.3)
+try:
+    os.kill(int(open(pid_file + ".linger").read().strip()), 0)
+    linger_alive = True
+except OSError:
+    linger_alive = False
+check("lingering CLI group killed", linger_alive, False)
+
 check("key read from config file", vt.read_gemini_key({"geminiKeyFile": key_file}, {}), KEY)
 vt.DEFAULT_KEY_FILE = os.path.join(_tmp, "no-default-key")
 check("key from GOOGLE_API_KEY env as last resort",

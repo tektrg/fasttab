@@ -481,3 +481,67 @@ export async function routeWithJev(
 ): Promise<{ ok: boolean; error?: string; persona?: string; confidence?: number }> {
   return requestJson("/api/jev/route", "POST", { text });
 }
+
+/** Voice messages: the phone records, uploads the audio, the Mac transcribes
+ *  it (server/lib: audio upload + transcribe jobs). Nothing is sent to an
+ *  agent — the transcript only lands in the message box for review. */
+export type TranscribeState = "pending" | "done" | "failed";
+
+export interface TranscribeStatus {
+  ok: boolean;
+  state?: TranscribeState;
+  text?: string;
+  error?: string;
+  /** The server no longer knows this id (404): re-upload instead of retrying. */
+  unknownId?: boolean;
+}
+
+/** POST /api/attachments/audio — raw bytes, Content-Type = the recorder's
+ *  mime without a codecs param. 25 MB cap (413), unsupported type (415). */
+export async function uploadAudio(
+  blob: Blob,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  try {
+    const r = await fetch("/api/attachments/audio", {
+      method: "POST",
+      headers: { "Content-Type": blob.type },
+      body: blob,
+    });
+    if (r.status === 401) return { ok: false, error: LOGGED_OUT_ERROR };
+    if (r.status === 413) return { ok: false, error: "That recording is too large to upload (25 MB limit). Record a shorter one." };
+    if (r.status === 415) return { ok: false, error: "This browser recorded audio in a format the dashboard can't read." };
+    const res = (await r.json()) as { ok?: boolean; id?: string; error?: string };
+    if (!res.ok || !res.id) return { ok: false, error: res.error || "the dashboard refused the recording" };
+    return { ok: true, id: res.id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** POST /api/transcribe — start the job, or re-run a failed one (same id). */
+export async function startTranscribe(id: string): Promise<TranscribeStatus> {
+  return pollTranscribeRequest("/api/transcribe", "POST", { id });
+}
+
+/** GET /api/transcribe/<id> — current state; `text` is already one clean line. */
+export async function getTranscribe(id: string): Promise<TranscribeStatus> {
+  return pollTranscribeRequest(`/api/transcribe/${encodeURIComponent(id)}`, "GET");
+}
+
+async function pollTranscribeRequest(url: string, method: string, body?: unknown): Promise<TranscribeStatus> {
+  try {
+    const r = await fetch(url, {
+      method,
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (r.status === 401) return { ok: false, error: LOGGED_OUT_ERROR };
+    const parsed = (await r.json().catch(() => ({}))) as TranscribeStatus;
+    if (r.status === 404) {
+      return { ok: false, unknownId: true, error: parsed.error || "The dashboard no longer has this recording." };
+    }
+    return { ...parsed, ok: r.ok && parsed.ok !== false };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}

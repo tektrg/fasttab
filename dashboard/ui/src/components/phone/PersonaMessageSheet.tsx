@@ -6,6 +6,9 @@ import { listPersonas, routeWithJev, startPersona, type PersonaSummary } from ".
 import { isQueued, sendMessage } from "../../sessionActions";
 import { imagesFromClipboard, uploadImages, useImageAttachments } from "../../imageAttachments";
 import { ImageAttachBar } from "../ImageAttachBar";
+import { VoiceRecorderBar } from "../VoiceRecorderBar";
+import { useVoiceInput } from "../../voice/useVoiceInput";
+import { appendTranscript } from "../../voice/transcript";
 import { REMOTE_IMAGE_CAPTION, acceptsImages } from "../../messageGates";
 import {
   EFFECT_TEXT,
@@ -46,6 +49,14 @@ export function PersonaMessageSheet({
   const [persona, setPersona] = useState<string>("");
   const [text, setText] = useState("");
   const attach = useImageAttachments();
+  const textInputRef = useRef<HTMLInputElement>(null);
+  // The transcript joins the end of the draft; Send stays the user's tap.
+  const voice = useVoiceInput({
+    onText: (spoken) => {
+      setText((current) => appendTranscript(current, spoken));
+      textInputRef.current?.focus();
+    },
+  });
   const [forceNew, setForceNew] = useState(false);
   const [busy, setBusy] = useState<"send" | "jev" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +77,11 @@ export function PersonaMessageSheet({
   // Same-tick double tap / Enter + tap: `busy` only disables the buttons on
   // the next render, so both presses would pass (ReviewCard's guard).
   const inFlight = useRef(false);
+
+  // Closing the sheet drops a recording or a pending transcript.
+  useEffect(() => {
+    if (!opened) voice.cancel();
+  }, [opened]);
 
   useEffect(() => {
     if (!opened) return;
@@ -253,6 +269,7 @@ export function PersonaMessageSheet({
   const footer = (
       <div className="phone-sheet-footer">
         <TextInput
+          ref={textInputRef}
           value={text}
           onChange={(e) => setText(e.currentTarget.value)}
           placeholder="Message…"
@@ -280,6 +297,7 @@ export function PersonaMessageSheet({
           onAdd={(files) => void attach.add(files)}
           onRemove={attach.remove}
         />
+        <VoiceRecorderBar voice={voice} disabled={busy !== null || !personas?.length} />
         <div className="phone-sheet-actions persona-sheet-actions">
           <Switch
             checked={forceNew}

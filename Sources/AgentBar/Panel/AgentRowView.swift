@@ -180,6 +180,7 @@ struct AgentRowView: View {
                         onSelect: { onPress($0) },
                         onReportTo: onReportTo
                     )
+                    .equatable()   // a refresh with the same menu text must not rebuild an open menu
                 } else {
                     RowActionButtonView(
                         spec: spec,

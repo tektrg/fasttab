@@ -57,11 +57,18 @@ struct ChromiumBackend: BrowserBackend {
                 repeat with w from 1 to winCount
                     set activeTabIndex to active tab index of window w
                     set windowTitle to title of window w
+                    -- Custom name from Chrome's "Name Window…"; not every
+                    -- Chromium browser exposes it, so fall back to "".
+                    set givenName to ""
+                    try
+                        set givenName to given name of window w
+                    end try
+                    if givenName is missing value then set givenName to ""
                     set tabTitles to title of every tab of window w
                     set tabURLs to URL of every tab of window w
                     repeat with t from 1 to count of tabTitles
                         set isActive to (t is equal to activeTabIndex) as string
-                        set rowData to "\(appName)" & fieldSep & w & fieldSep & t & fieldSep & (item t of tabTitles) & fieldSep & (item t of tabURLs) & fieldSep & isActive & fieldSep & windowTitle
+                        set rowData to "\(appName)" & fieldSep & w & fieldSep & t & fieldSep & (item t of tabTitles) & fieldSep & (item t of tabURLs) & fieldSep & isActive & fieldSep & windowTitle & fieldSep & givenName
                         if tabData is "" then
                             set tabData to rowData
                         else
@@ -101,8 +108,12 @@ struct ChromiumBackend: BrowserBackend {
             let title = parts[3]
             let url = parts[4]
             let isActive = parts[5] == "true"
-            let windowName = parts[6]
-            let hasMediaIndicator = browserWindowMediaIndicatorBelongsToTab(tabTitle: title, windowName: windowName)
+            let windowTitle = parts[6]
+            let givenName = parts.count > 7 ? parts[7].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            // Show the user's window name when set; the title (active tab +
+            // profile suffix) is the fallback and the profile's source.
+            let windowName = givenName.isEmpty ? windowTitle : givenName
+            let hasMediaIndicator = browserWindowMediaIndicatorBelongsToTab(tabTitle: title, windowName: windowTitle)
             let key = makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
             let urlKey = makeTabURLRecencyKey(browserName: appName, url: url)
             // The active tab of the FRONT window (winIdx == 1) of the
@@ -141,7 +152,7 @@ struct ChromiumBackend: BrowserBackend {
                     windowIndex: winIdx,
                     tabIndex: tabIdx,
                     windowName: windowName,
-                    profileName: Frecency.profileFromWindowTitle(windowName),
+                    profileName: Frecency.profileFromWindowTitle(windowTitle),
                     isCurrentFlowActiveTab: isCurrentFlowActiveTab,
                     hasMediaIndicator: hasMediaIndicator
                 )

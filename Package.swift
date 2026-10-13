@@ -9,6 +9,7 @@ let indieEdgeReveal: Target.Dependency = .product(name: "IndieEdgeReveal", packa
 let indieEdgeRevealUI: Target.Dependency = .product(name: "IndieEdgeRevealUI", package: "IndieLibKit")
 let indieFeedbackUI: Target.Dependency = .product(name: "IndieFeedbackUI", package: "IndieLibKit")
 let indieFeedback: Target.Dependency = .product(name: "IndieFeedback", package: "IndieLibKit")
+let indieComments: Target.Dependency = .product(name: "IndieComments", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -35,7 +36,8 @@ let package = Package(
     targets: [
         .target(
             name: "FastTabSync",
-            dependencies: [indieSearch]
+            // IndieComments: reader comment threads synced by ReaderSyncBridge.
+            dependencies: [indieSearch, indieComments]
         ),
         // Reusable command-bar building blocks shared with future apps.
         // Only static-library dependencies and no resources on purpose: it links
@@ -71,7 +73,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal]
+            dependencies: ["FastTab", "FastTabSync", "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments]
         ),
         .testTarget(
             name: "AgentBarTests",

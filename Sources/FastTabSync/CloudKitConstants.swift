@@ -8,7 +8,10 @@ public enum SyncConstants {
     // CloudKit Custom Zones
     public static let stateZoneName = "StateZone"
     public static let commandsZoneName = "CommandsZone"
+    /// Reader highlights and their comment events (ReaderSyncBridge), written by both apps.
+    public static let readerZoneName = "ReaderZone"
 
     public static let stateZoneID = CKRecordZone.ID(zoneName: stateZoneName, ownerName: CKCurrentUserDefaultName)
     public static let commandsZoneID = CKRecordZone.ID(zoneName: commandsZoneName, ownerName: CKCurrentUserDefaultName)
+    public static let readerZoneID = CKRecordZone.ID(zoneName: readerZoneName, ownerName: CKCurrentUserDefaultName)
 }

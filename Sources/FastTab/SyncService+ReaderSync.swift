@@ -53,4 +53,43 @@ extension SyncService {
             NotificationCenter.default.post(name: .readerMirrorDidChange, object: nil)
         }
     }
+
+    /// Reads `ReaderZone` changes straight from CloudKit since the last saved token. Why: the
+    /// engine fetches only after a push marks a zone dirty ("no zone IDs needing to be
+    /// fetched"), and pushes don't reliably reach this Mac, so phone comments arrived only on
+    /// relaunch (seen 2026-10-13). Same remedy as the commands-zone sweep.
+    func catchUpReaderZone() {
+        guard !readerZoneCatchUpInFlight else { return }
+        readerZoneCatchUpInFlight = true
+        Task { @MainActor in
+            defer { readerZoneCatchUpInFlight = false }
+            let tokenURL = ReaderMirror.directory(supportDirectory: fastTabSupportDirectory)
+                .appendingPathComponent("zone_change_token.dat")
+            var token = (try? Data(contentsOf: tokenURL)).flatMap {
+                try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: $0)
+            }
+            do {
+                while true {
+                    let changes = try await database.recordZoneChanges(inZoneWith: SyncConstants.readerZoneID, since: token)
+                    let records = changes.modificationResultsByID.values.compactMap { try? $0.get().record }
+                    await readerSync.absorb(records)
+                    readerSync.absorbDeletions(changes.deletions.map(\.recordID))
+                    token = changes.changeToken
+                    if let data = try? NSKeyedArchiver.archivedData(withRootObject: changes.changeToken, requiringSecureCoding: true) {
+                        try? data.write(to: tokenURL, options: .atomic)
+                    }
+                    if !records.isEmpty || !changes.deletions.isEmpty {
+                        NotificationCenter.default.post(name: .readerMirrorDidChange, object: nil)
+                    }
+                    guard changes.moreComing else { break }
+                }
+            } catch let error as CKError where error.code == .changeTokenExpired {
+                try? FileManager.default.removeItem(at: tokenURL)
+            } catch let error as CKError where error.code == .zoneNotFound {
+                // No reader data yet; the phone creates the zone with its first highlight.
+            } catch {
+                logger.error("Reader zone catch-up failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
 }

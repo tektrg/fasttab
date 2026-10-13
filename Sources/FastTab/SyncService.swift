@@ -29,6 +29,7 @@ final class SyncService: NSObject, ObservableObject {
     var pendingRecordsToSave: [CKRecord.ID: CKRecord] = [:]
     /// The phone's reader highlights + comment threads (SyncService+ReaderSync.swift).
     lazy var readerSync = ReaderMirror.makeBridge(supportDirectory: fastTabSupportDirectory)
+    var readerZoneCatchUpInFlight = false
     // Server-backed records retain CloudKit system fields such as change tags.
     // Domain updates must be applied to these objects instead of recreating IDs.
     var serverRecordsByID: [CKRecord.ID: CKRecord] = [:]
@@ -164,6 +165,7 @@ final class SyncService: NSObject, ObservableObject {
         publishDevice()
         fetchLatestChanges()
         queueReaderChanges()
+        catchUpReaderZone()
         Task { @MainActor in
             // AppState owns BrowserTabService.shared and is still initializing here.
             // Yield before resolving it to avoid recursively entering AppState.shared.
@@ -200,6 +202,7 @@ final class SyncService: NSObject, ObservableObject {
                 }
                 self.fetchLatestChanges()
                 self.queueReaderChanges()
+                self.catchUpReaderZone()
                 self.refreshPendingChangeCount()
             }
         }

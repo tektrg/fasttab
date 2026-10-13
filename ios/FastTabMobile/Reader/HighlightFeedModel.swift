@@ -14,11 +14,14 @@ public struct HighlightFeedEntry: Identifiable, Hashable {
     /// The folder tags the row shows: `bookmarkFolderTags` minus any equal to a user tag
     /// (the user tag shows instead).
     public let folderTags: [TagPath]
+    /// The highlight's comments in order (opener, then replies); empty when it has none.
+    public let comments: [String]
 
     public var id: String { highlight.id }
 
-    public init(highlight: ReaderHighlight, articleTitle: String, folderTags: [TagPath]) {
+    public init(highlight: ReaderHighlight, articleTitle: String, folderTags: [TagPath], comments: [String] = []) {
         self.highlight = highlight
+        self.comments = comments
         self.articleTitle = articleTitle
         let userTags = highlight.tags.compactMap(TagPath.init)
         self.userTags = userTags
@@ -81,14 +84,16 @@ public enum HighlightFeedModel {
     public static func entries(
         from highlightsNewestFirst: [ReaderHighlight],
         articleTitle: (ReaderHighlight) -> String,
-        folderTags: (ReaderHighlight) -> [TagPath]
+        folderTags: (ReaderHighlight) -> [TagPath],
+        comments: (ReaderHighlight) -> [String] = { _ in [] }
     ) -> [HighlightFeedEntry] {
         highlightsNewestFirst.map {
-            HighlightFeedEntry(highlight: $0, articleTitle: articleTitle($0), folderTags: folderTags($0))
+            HighlightFeedEntry(
+                highlight: $0, articleTitle: articleTitle($0), folderTags: folderTags($0), comments: comments($0))
         }
     }
 
-    /// Entries passing `filter` whose text, article title or tag names contain every word of
+    /// Entries passing `filter` whose text, article title, tag names or comments contain every word of
     /// `searchText` (any order, ignoring case, accents and punctuation). Order is kept.
     /// Whitespace-only is no search; a query of only punctuation or symbols (`#`, `-`, `/`)
     /// matches entries containing it as typed, like `TagSearch`.
@@ -137,7 +142,7 @@ public enum HighlightFeedModel {
         guard !queryWords.isEmpty else {
             // No words for the word match to look for, so it would pass every entry.
             return { entry in
-                ([entry.highlight.selectedText, entry.articleTitle] + entry.allTags.map(\.displayPath))
+                ([entry.highlight.selectedText, entry.articleTitle] + entry.allTags.map(\.displayPath) + entry.comments)
                     .contains { $0.localizedStandardContains(trimmedQuery) }
             }
         }
@@ -147,6 +152,6 @@ public enum HighlightFeedModel {
     private static func foldedSearchKeys(for entry: HighlightFeedEntry) -> [String] {
         // Tag segments as words so `ssv` finds `work/ssv` without gluing segments together.
         let tagWords = entry.allTags.map { $0.displayPath.replacingOccurrences(of: "/", with: " ") }
-        return ([entry.highlight.selectedText, entry.articleTitle] + tagWords).map(foldForMatching)
+        return ([entry.highlight.selectedText, entry.articleTitle] + tagWords + entry.comments).map(foldForMatching)
     }
 }

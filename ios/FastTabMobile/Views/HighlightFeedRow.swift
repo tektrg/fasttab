@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// One row of the Highlights feed: the full highlight (tap opens the article at it) and,
-/// under it, the tag / folder / article chips that filter the feed.
+/// under it, its latest comment and the tag / folder / article chips that filter the feed.
 struct HighlightFeedRow: View {
     let entry: HighlightFeedEntry
     @Binding var filter: HighlightFeedFilter
@@ -19,6 +19,17 @@ struct HighlightFeedRow: View {
                 showsArticleTitle: false,
                 onSelect: onOpen
             )
+            if let latest = entry.comments.last {
+                Label {
+                    Text(entry.comments.count > 1 ? "\(latest) · \(entry.comments.count) comments" : latest)
+                        .lineLimit(2)
+                } icon: {
+                    Image(systemName: "text.bubble")
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.leading, Self.chipsLeadingInset)
+            }
             HighlightRowChips(entry: entry, filter: $filter)
                 .padding(.leading, Self.chipsLeadingInset)
                 .padding(.bottom, DS.Space.xs)

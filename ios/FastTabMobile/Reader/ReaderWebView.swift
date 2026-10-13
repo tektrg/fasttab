@@ -170,6 +170,10 @@ public struct ReaderWebView: UIViewRepresentable {
             }
         }
 
+        if viewModel.commentedHighlightIDs != context.coordinator.pushedCommentedIDs {
+            context.coordinator.pushCommentedHighlights(viewModel.commentedHighlightIDs)
+        }
+
         // If viewModel requests highlight removal, remove from DOM
         if let removeID = viewModel.highlightToRemoveID {
             let removeJS = "removeHighlight('\(removeID)');"
@@ -347,6 +351,8 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     var pushedTranscript: [Int: TranscriptCleanupSession.ParagraphText] = [:]
 
     var pushedTranscriptRevision: Int?
+    /// Highlights last sent to the page as having open comments (💬).
+    var pushedCommentedIDs: Set<String> = []
     @MainActor lazy var readAloudSync = ReadAloudPageSync()
     var onUserBeganScrolling: (() -> Void)?
     var onReadAloudTap: ((String, Int) -> Void)?
@@ -359,6 +365,14 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
         loadedTranscript = Dictionary(uniqueKeysWithValues: (cleanup?.shownTexts ?? []).map { ($0.i, $0) })
         pushedTranscript = loadedTranscript
         pushedTranscriptRevision = cleanup?.revision
+    }
+
+    @MainActor func pushCommentedHighlights(_ ids: Set<String>) {
+        pushedCommentedIDs = ids
+        guard let webView, let data = try? JSONEncoder().encode(ids.sorted()),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.ftSetCommentedHighlights && ftSetCommentedHighlights(\(json));",
+                                   completionHandler: nil)
     }
 
     @MainActor func pushTranscript(_ texts: [TranscriptCleanupSession.ParagraphText]) {
@@ -510,6 +524,7 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
             case .ready:
                 // A push made while the page was still loading was a no-op there; send what
                 // changed since the page's bootstrap now that it can take it.
+                self.pushCommentedHighlights(self.viewModel.commentedHighlightIDs)
                 if let cleanup = self.viewModel.transcriptCleanup {
                     self.pushedTranscriptRevision = cleanup.revision
                     self.pushTranscript(cleanup.shownTexts.filter { self.loadedTranscript[$0.i] != $0 })

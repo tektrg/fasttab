@@ -50,6 +50,10 @@ targets:
         product: IndieTags
       - package: IndieLibKit
         product: IndieSearch
+      # Anchored comment threads on highlights (FastTabMobile/Reader/ReaderCommentThreads.swift),
+      # MDLY's model and file format.
+      - package: IndieLibKit
+        product: IndieComments
       - package: IndieLibKit
         product: IndieShareSync
       # YouTube transcripts in the reader (FastTabMobile/Reader/YouTube/) + the power-up gate.

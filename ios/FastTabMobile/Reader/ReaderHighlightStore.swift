@@ -27,6 +27,10 @@ public final class ReaderHighlightStore: ObservableObject {
         store.values.flatMap { $0 }.sorted { $0.createdAt > $1.createdAt }
     }
 
+    public func highlight(id: String, urlKey: String) -> ReaderHighlight? {
+        store[urlKey]?.first { $0.id == id }
+    }
+
     public func add(_ highlight: ReaderHighlight) {
         var list = store[highlight.urlKey] ?? []
         list.append(highlight)
@@ -36,6 +40,7 @@ public final class ReaderHighlightStore: ObservableObject {
 
     public func remove(id: String, url: URL) {
         let key = canonical(url)
+        deleteCommentThreads(of: store[key]?.filter { $0.id == id } ?? [])
         store[key]?.removeAll { $0.id == id }
         saveToDisk()
     }
@@ -43,6 +48,7 @@ public final class ReaderHighlightStore: ObservableObject {
     /// Removes a highlight without needing to reconstruct its article `URL` — `urlKey` is
     /// already canonical, so it doubles as the store's dictionary key directly.
     public func remove(_ highlight: ReaderHighlight) {
+        deleteCommentThreads(of: store[highlight.urlKey]?.filter { $0.id == highlight.id } ?? [])
         store[highlight.urlKey]?.removeAll { $0.id == highlight.id }
         saveToDisk()
     }
@@ -59,9 +65,25 @@ public final class ReaderHighlightStore: ObservableObject {
         saveToDisk()
     }
 
+    /// Links a highlight to its comment thread (set when its first comment is written).
+    public func setCommentThreadId(_ threadId: String, for highlightID: String, urlKey: String) {
+        guard let index = store[urlKey]?.firstIndex(where: { $0.id == highlightID }),
+              let highlight = store[urlKey]?[index] else { return }
+        store[urlKey]?[index] = highlight.replacingCommentThreadId(threadId)
+        saveToDisk()
+    }
+
     public func removeAll(for url: URL) {
+        deleteCommentThreads(of: store[canonical(url)] ?? [])
         store.removeValue(forKey: canonical(url))
         saveToDisk()
+    }
+
+    /// A highlight's comments go with it (owner decision 2026-10-13).
+    private func deleteCommentThreads(of removed: [ReaderHighlight]) {
+        let commented = removed.filter { $0.commentThreadId != nil }
+        guard !commented.isEmpty else { return }
+        Task { await ReaderCommentThreads.shared.deleteThreads(of: commented) }
     }
 
     // MARK: - Persistence

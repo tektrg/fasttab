@@ -39,7 +39,7 @@ public struct ReaderView: View {
     // Highlight management sheet
     @State private var showHighlightsSheet: Bool = false
 
-    // Tapped existing highlight (for delete option)
+    // Tapped existing highlight: opens its comment thread (with Delete)
     @State private var tappedHighlightID: String? = nil
 
     // Extraction skeleton phase
@@ -149,14 +149,13 @@ public struct ReaderView: View {
         .sheet(isPresented: $showHighlightsSheet) {
             highlightsSheet
         }
-        .confirmationDialog("Remove Highlight?", isPresented: Binding(
+        .sheet(isPresented: Binding(
             get: { tappedHighlightID != nil },
             set: { if !$0 { tappedHighlightID = nil } }
-        ), titleVisibility: .visible) {
-            Button("Remove", role: .destructive) {
-                if let id = tappedHighlightID {
-                    viewModel.removeHighlight(id: id)
-                    tappedHighlightID = nil
+        )) {
+            if let highlight = viewModel.highlights.first(where: { $0.id == tappedHighlightID }) {
+                HighlightThreadSheet(highlight: highlight) {
+                    viewModel.removeHighlight(id: highlight.id)
                 }
             }
         }

@@ -61,11 +61,14 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
     /// Tags the user put on this highlight, as `TagPath` display strings (`work/ssv`).
     /// Bookmark-folder tags are not stored here: `HighlightFolderTags` derives them at read time.
     public let tags: [String]
+    /// The comment thread on this highlight (`ReaderCommentThreads`), once the first comment is
+    /// written. Absent on highlights without comments and on those saved before threads existed.
+    public let commentThreadId: String?
 
     // Explicit CodingKeys so old stored JSON (no `title`/`urlString`/`tags`) still decodes.
     // A decode failure here wipes every highlight on the next save, so new keys must stay optional.
     enum CodingKeys: String, CodingKey {
-        case id, urlKey, selectedText, color, serializedRange, createdAt, title, urlString, tags
+        case id, urlKey, selectedText, color, serializedRange, createdAt, title, urlString, tags, commentThreadId
     }
 
     public init(
@@ -77,7 +80,8 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         createdAt: Date = Date(),
         title: String? = nil,
         urlString: String? = nil,
-        tags: [String] = []
+        tags: [String] = [],
+        commentThreadId: String? = nil
     ) {
         self.id = id
         self.urlKey = urlKey
@@ -88,6 +92,7 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         self.title = title
         self.urlString = urlString
         self.tags = tags
+        self.commentThreadId = commentThreadId
     }
 
     public init(from decoder: Decoder) throws {
@@ -101,6 +106,7 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         title = try c.decodeIfPresent(String.self, forKey: .title)
         urlString = try c.decodeIfPresent(String.self, forKey: .urlString)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        commentThreadId = try c.decodeIfPresent(String.self, forKey: .commentThreadId)
     }
 
     /// This highlight with its user tags replaced (fields are `let`, so edits build a copy).
@@ -108,7 +114,16 @@ public struct ReaderHighlight: Codable, Identifiable, Hashable, Sendable {
         ReaderHighlight(
             id: id, urlKey: urlKey, selectedText: selectedText, color: color,
             serializedRange: serializedRange, createdAt: createdAt,
-            title: title, urlString: urlString, tags: newTags
+            title: title, urlString: urlString, tags: newTags, commentThreadId: commentThreadId
+        )
+    }
+
+    /// This highlight linked to comment thread `threadId`.
+    public func replacingCommentThreadId(_ threadId: String?) -> ReaderHighlight {
+        ReaderHighlight(
+            id: id, urlKey: urlKey, selectedText: selectedText, color: color,
+            serializedRange: serializedRange, createdAt: createdAt,
+            title: title, urlString: urlString, tags: tags, commentThreadId: threadId
         )
     }
 }

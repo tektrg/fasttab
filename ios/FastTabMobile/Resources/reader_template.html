@@ -219,6 +219,13 @@
     0%, 100% { filter: brightness(1); }
     50% { filter: brightness(1.6); }
   }
+  /* A highlight with open comments: a small bubble after its last piece. */
+  .reader-highlight-commented::after {
+    content: "\1F4AC";
+    font-size: 0.65em;
+    margin-left: 2px;
+    vertical-align: super;
+  }
   .reader-highlight-flash {
     animation: reader-highlight-flash 0.7s ease-in-out 2;
   }
@@ -593,6 +600,10 @@ function serializeRange(range) {
         desc.text = selectedText.slice(trim);
       }
     }
+    // Context around the passage, for the shared comment anchor (ReaderCommentThreads.anchor).
+    var bodyText = bodyEl.textContent || '';
+    desc.cb = bodyText.slice(Math.max(0, desc.start - 32), desc.start);
+    desc.ca = bodyText.slice(desc.start + desc.len, desc.start + desc.len + 32);
     return JSON.stringify(desc);
   } catch(e) {
     var selectedText = range.toString();
@@ -655,6 +666,7 @@ function applyHighlight(id, serializedRange, color) {
 
     // Walk text nodes to find and wrap the target range
     highlightTextRange(bodyEl, startIdx, len, id, color);
+    ftMarkCommented(id);
 
     // Clear native selection so highlight is cleanly visible
     if (window.getSelection) {
@@ -710,6 +722,25 @@ function highlightTextRange(root, startIdx, len, id, color) {
     target.parentNode.insertBefore(span, target);
     span.appendChild(target);
   }
+}
+
+// ── Comment markers from Swift ────────────────────────────────
+// Ids of highlights with open comments; re-marked whenever a highlight is (re)placed.
+var ftCommentedHighlights = {};
+
+window.ftSetCommentedHighlights = function(ids) {
+  ftCommentedHighlights = {};
+  ids.forEach(function(id) { ftCommentedHighlights[id] = true; });
+  document.querySelectorAll('mark.reader-highlight-commented').forEach(function(m) {
+    m.classList.remove('reader-highlight-commented');
+  });
+  ids.forEach(ftMarkCommented);
+};
+
+function ftMarkCommented(id) {
+  if (!ftCommentedHighlights[id]) return;
+  var marks = document.querySelectorAll('mark[data-highlight-id="' + id + '"]');
+  if (marks.length) marks[marks.length - 1].classList.add('reader-highlight-commented');
 }
 
 // ── Highlight Removal from Swift ──────────────────────────────

@@ -2,16 +2,19 @@ import SwiftUI
 
 /// Every saved highlight in one flat feed, newest first, each shown in full with chips for
 /// its tags, its bookmark folder and its article. Tapping a chip filters the feed (chips AND
-/// together, a parent tag covers its children); search matches text, article and tag names.
+/// together, a parent tag covers its children); search matches text, article, tag names and
+/// comments. Each highlight's comment thread opens from its swipe or context menu.
 /// Filtering lives in `HighlightFeedModel`. Reached from the Read tab's "See all" and from
 /// More → Highlights.
 public struct HighlightsListView: View {
     @ObservedObject private var store = ReaderHighlightStore.shared
     @ObservedObject private var localCache = LocalCache.shared
+    @ObservedObject private var commentThreads = ReaderCommentThreads.shared
     @State private var filter = HighlightFeedFilter()
     @State private var searchText = ""
     @State private var readerItem: ReaderNavigationItem? = nil
     @State private var taggingEntry: HighlightFeedEntry? = nil
+    @State private var commentingEntry: HighlightFeedEntry? = nil
 
     public init() {}
 
@@ -30,7 +33,8 @@ public struct HighlightsListView: View {
                 titlesByKey[highlight.urlKey] = title
                 return title
             },
-            folderTags: { folderTagsByKey[$0.urlKey] ?? [] }
+            folderTags: { folderTagsByKey[$0.urlKey] ?? [] },
+            comments: { commentThreads.thread(for: $0)?.messages.compactMap(\.text) ?? [] }
         )
     }
 
@@ -56,6 +60,10 @@ public struct HighlightsListView: View {
                     store.setTags(tags, for: entry.highlight)
                 }
             }
+            .sheet(item: $commentingEntry) { entry in
+                HighlightThreadSheet(highlight: entry.highlight) { delete(entry) }
+            }
+            .onAppear { commentThreads.load(store.allHighlightsNewestFirst()) }
             .fullScreenCover(item: $readerItem) { item in
                 ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
             }
@@ -88,8 +96,10 @@ public struct HighlightsListView: View {
             .swipeActions(edge: .leading) {
                 Button { taggingEntry = entry } label: { Label("Tags", systemImage: "tag") }
                     .tint(DS.Tint.action)
+                Button { commentingEntry = entry } label: { Label("Comments", systemImage: "text.bubble") }
             }
             .contextMenu {
+                Button { commentingEntry = entry } label: { Label("Comments", systemImage: "text.bubble") }
                 Button { taggingEntry = entry } label: { Label("Edit Tags", systemImage: "tag") }
                 Button(role: .destructive) { delete(entry) } label: { Label("Delete", systemImage: "trash") }
             }

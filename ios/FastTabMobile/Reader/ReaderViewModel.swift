@@ -86,6 +86,8 @@ public final class ReaderViewModel: ObservableObject {
     @Published public var pendingHighlightToApply: ReaderHighlight? = nil
     @Published public var highlightToRemoveID: String? = nil
     @Published public var pendingClearAllHighlights: Bool = false
+    /// Highlights on this page with an open comment thread: the page marks them 💬.
+    @Published public private(set) var commentedHighlightIDs: Set<String> = []
 
     // MARK: - Inputs
 
@@ -111,6 +113,7 @@ public final class ReaderViewModel: ObservableObject {
     private var articleWordCount: Int?
     private var wordCountTask: Task<Void, Never>?
     private var settingsCancellable: AnyCancellable?
+    private var commentsCancellable: AnyCancellable?
     private let route: ReaderContentRoute
     private let transcriptLoader: YouTubeTranscriptLoader
 
@@ -138,6 +141,12 @@ public final class ReaderViewModel: ObservableObject {
         settingsCancellable = settingsStore.$settings
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.readerSettings = $0 }
+        commentsCancellable = ReaderCommentThreads.shared.$threadsByHighlightID
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] threads in
+                let open = Set(threads.filter { $0.value.state == .open }.keys)
+                if self?.commentedHighlightIDs != open { self?.commentedHighlightIDs = open }
+            }
     }
 
     /// Called from `ReaderView.onAppear` — safe to record history side-effects here.
@@ -146,6 +155,7 @@ public final class ReaderViewModel: ObservableObject {
         scrollProgress = progressStore.progress(for: url)
         statsRecorder.beginReading(url: url, savedProgress: scrollProgress)
         highlights = highlightStore.highlights(for: url)
+        ReaderCommentThreads.shared.load(highlights)
 
         // Instant load from cache if previously processed
         if case .idle = loadState, let cached = cachedArticle() {

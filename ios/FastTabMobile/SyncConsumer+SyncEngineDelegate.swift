@@ -97,6 +97,7 @@ extension SyncConsumer: CKSyncEngineDelegate {
                     deletions: fetchedChanges.deletions.map(\.recordID))
 
             case .sentRecordZoneChanges(let sentChanges):
+                Self.readerTrace("sent: saved=\(sentChanges.savedRecords.map(\.recordID.recordName)) failed=\(sentChanges.failedRecordSaves.map { "\($0.record.recordID.recordName): \($0.error.code.rawValue)" })")
                 for saved in sentChanges.savedRecords {
                     self.confirmUpload(of: saved)
                     if ReaderSyncBridge.handles(saved.recordType) { self.readerSync.didSave(saved) }
@@ -129,9 +130,11 @@ extension SyncConsumer: CKSyncEngineDelegate {
                         self.pendingRecordsToSave.removeValue(forKey: failedSave.record.recordID)
                         continue
                     case .retry(let retryRecord):
+                        // Queued only: the engine sends it on its own. Calling sendChanges()
+                        // here, while this send is still finishing, trips a CloudKit assertion
+                        // (crashed on device 2026-10-13 when a comment's highlight hit a conflict).
                         self.pendingRecordsToSave[retryRecord.recordID] = retryRecord
                         syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(retryRecord.recordID)])
-                        queuedRetry = true
                         continue
                     }
                     if let retryRecord = Self.recordForRetry(
@@ -198,6 +201,7 @@ extension SyncConsumer: CKSyncEngineDelegate {
             (syncEngine.state.pendingRecordZoneChanges, self.pendingRecordsToSave)
         }
         guard !pendingChanges.isEmpty else { return nil }
+        Self.readerTrace("batch: pending=\(pendingChanges.count) bodies=\(records.count) zones=\(Set(pendingChanges.map { change -> String in switch change { case .saveRecord(let id), .deleteRecord(let id): return id.zoneID.zoneName; @unknown default: return "?" } }))")
 
         // Never hand the engine a silent nil: a pending save with no record body
         // is a bug (the outbox should have restored it), and leaving it in place

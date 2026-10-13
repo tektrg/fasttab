@@ -898,9 +898,10 @@ extension SyncService: CKSyncEngineDelegate {
                         self.pendingRecordsToSave.removeValue(forKey: failedSave.record.recordID)
                         continue
                     case .retry(let retryRecord):
+                        // Queued only; the engine sends it (a send from inside this callback
+                        // trips a CloudKit assertion — seen on iOS).
                         self.pendingRecordsToSave[retryRecord.recordID] = retryRecord
                         syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(retryRecord.recordID)])
-                        queuedSaveRetry = true
                         continue
                     case .notReader, .failed:
                         break

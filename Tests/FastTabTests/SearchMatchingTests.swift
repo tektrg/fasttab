@@ -126,7 +126,7 @@ func titlesMatchingInSQLite(query: String, rows: [(title: String, url: String)])
     try FileManager.default.createDirectory(atPath: scratchDirectory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(atPath: scratchDirectory) }
 
-    let inserts = rows.map { row in
+    let inserts = rows.map { row -> String in
         let title = row.title.replacingOccurrences(of: "'", with: "''")
         let url = row.url.replacingOccurrences(of: "'", with: "''")
         return "INSERT INTO urls (title, url) VALUES ('\(title)', '\(url)');"
@@ -134,11 +134,13 @@ func titlesMatchingInSQLite(query: String, rows: [(title: String, url: String)])
 
     let predicate = historySearchSQLPredicate(query: query, urlColumn: "url", titleColumn: "title")
     let scriptPath = scratchDirectory + "seed.sql"
-    try """
+    // Typed: with GRDB linked into the test target, an untyped literal becomes GRDB's `SQL`.
+    let script: String = """
     CREATE TABLE urls (title TEXT, url TEXT);
     \(inserts)
     SELECT title FROM urls WHERE \(predicate) ORDER BY title;
-    """.write(toFile: scriptPath, atomically: true, encoding: .utf8)
+    """
+    try script.write(toFile: scriptPath, atomically: true, encoding: .utf8)
 
     let sqlite = Process()
     sqlite.launchPath = "/usr/bin/sqlite3"

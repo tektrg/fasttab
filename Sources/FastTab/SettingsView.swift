@@ -5,7 +5,7 @@ import AppKit
 /// One entry in the Settings sidebar. Each case's content lives in its own
 /// `*SettingsView` file — this file only owns the sidebar and routing.
 enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
-    case general, appearance, shortcuts, sources, bookmarks, sync, searchAliases, advanced, license, feedback, about
+    case general, appearance, shortcuts, sources, bookmarks, highlights, sync, searchAliases, advanced, license, feedback, about
 
     var id: String { rawValue }
 
@@ -16,6 +16,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .shortcuts: return "Shortcuts"
         case .sources: return "Sources"
         case .bookmarks: return "Bookmarks"
+        case .highlights: return "Highlights"
         case .sync: return "Sync"
         case .searchAliases: return "Search Aliases"
         case .advanced: return "Advanced"
@@ -32,6 +33,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .shortcuts: return "keyboard"
         case .sources: return "list.bullet.rectangle"
         case .bookmarks: return "bookmark"
+        case .highlights: return "highlighter"
         case .sync: return "icloud"
         case .searchAliases: return "magnifyingglass"
         case .advanced: return "wrench.and.screwdriver"
@@ -42,7 +44,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
     }
 
     /// Top, ungrouped rows in the sidebar.
-    static let primaryTabs: [SettingsTab] = [.general, .appearance, .shortcuts, .sources, .bookmarks, .sync]
+    static let primaryTabs: [SettingsTab] = [.general, .appearance, .shortcuts, .sources, .bookmarks, .highlights, .sync]
 
     /// Rows under the sidebar's "Advanced" header.
     static let advancedTabs: [SettingsTab] = [.searchAliases, .advanced, .license]
@@ -133,6 +135,8 @@ struct SettingsView: View {
             SourcesSettingsView()
         case .bookmarks:
             BookmarksSettingsView()
+        case .highlights:
+            HighlightsSettingsView()
         case .sync:
             Form { SyncSettingsSection() }
                 .formStyle(.grouped)

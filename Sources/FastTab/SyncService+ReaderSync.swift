@@ -1,12 +1,24 @@
 import CloudKit
+import FastTabReader
 import FastTabSync
 import Foundation
+
+extension Notification.Name {
+    /// The reader mirror took changes from the phone (Settings > Highlights reloads).
+    static let readerMirrorDidChange = Notification.Name("FastTab.readerMirrorDidChange")
+}
 
 // Reader highlights and comment threads from the phone (`ReaderZone`), mirrored to disk by
 // `ReaderMirror` through the shared `ReaderSyncBridge`. Comments written on this Mac (agent
 // tools) go back the same way.
 
 extension SyncService {
+    /// The mirror as Settings > Highlights reads and writes it; same comment store as sync.
+    var readerLibrary: ReaderLibrary {
+        ReaderLibrary(directory: ReaderMirror.directory(supportDirectory: fastTabSupportDirectory),
+                      comments: readerSync.comments)
+    }
+
     /// Arms whatever the bridge says CloudKit lacks. Called at start and on every poll tick;
     /// confirmed records are skipped, armed ones are not re-armed.
     func queueReaderChanges() {
@@ -37,6 +49,7 @@ extension SyncService {
         Task { @MainActor in
             await readerSync.absorb(readerRecords)
             readerSync.absorbDeletions(readerDeletions)
+            NotificationCenter.default.post(name: .readerMirrorDidChange, object: nil)
         }
     }
 }

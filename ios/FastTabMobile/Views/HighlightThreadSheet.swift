@@ -67,7 +67,7 @@ struct HighlightThreadSheet: View {
     }
 
     private func messagesSection(_ thread: CommentThread) -> some View {
-        Section {
+        Section(footer: thread.state == .resolved ? Text("Resolved. Replying reopens it.") : nil) {
             ForEach(thread.messages) { message in
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     Text(Self.authorName(message.by))

@@ -156,6 +156,7 @@ public struct ReaderView: View {
             set: { if $0 == nil { tappedHighlightID = nil } }
         )) { tapped in
             HighlightThreadSheet(highlight: tapped.highlight) {
+                tappedHighlightID = nil
                 viewModel.removeHighlight(id: tapped.highlight.id)
             }
         }

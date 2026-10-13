@@ -66,11 +66,14 @@ public final class ReaderHighlightStore: ObservableObject {
     }
 
     /// Links a highlight to its comment thread (set when its first comment is written).
-    public func setCommentThreadId(_ threadId: String, for highlightID: String, urlKey: String) {
+    /// False when the highlight is gone (deleted meanwhile).
+    @discardableResult
+    public func setCommentThreadId(_ threadId: String, for highlightID: String, urlKey: String) -> Bool {
         guard let index = store[urlKey]?.firstIndex(where: { $0.id == highlightID }),
-              let highlight = store[urlKey]?[index] else { return }
+              let highlight = store[urlKey]?[index] else { return false }
         store[urlKey]?[index] = highlight.replacingCommentThreadId(threadId)
         saveToDisk()
+        return true
     }
 
     public func removeAll(for url: URL) {

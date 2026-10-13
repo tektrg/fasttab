@@ -39,7 +39,7 @@ final class ReaderCommentThreadsTests: XCTestCase {
     }
 
     func testFirstCommentOpensTheThreadThenRepliesAndResolveRoundTrip() async throws {
-        let threads = ReaderCommentThreads(directory: directory)
+        let threads = ReaderCommentThreads(directory: directory, linkThread: { _, _ in true })
         let h = highlight(range: #"{"text":"beta gamma","start":6,"len":10}"#)
 
         try await threads.post("first", on: h)
@@ -62,7 +62,7 @@ final class ReaderCommentThreadsTests: XCTestCase {
     }
 
     func testDeletingTheHighlightDeletesItsThread() async throws {
-        let threads = ReaderCommentThreads(directory: directory)
+        let threads = ReaderCommentThreads(directory: directory, linkThread: { _, _ in true })
         let h = highlight(range: #"{"text":"beta gamma","start":6,"len":10}"#)
         try await threads.post("note", on: h)
         let threadId = try XCTUnwrap(threads.thread(for: h)?.id)
@@ -88,5 +88,15 @@ final class ReaderCommentThreadsTests: XCTestCase {
             from: [h], articleTitle: { _ in "Title" }, folderTags: { _ in [] }, comments: { _ in ["remember the quarterly plan"] })
         XCTAssertEqual(HighlightFeedModel.visibleEntries(entries, filter: HighlightFeedFilter(), searchText: "quarterly").count, 1)
         XCTAssertEqual(HighlightFeedModel.visibleEntries(entries, filter: HighlightFeedFilter(), searchText: "absent").count, 0)
+    }
+
+    func testAThreadOpenedForAHighlightDeletedMeanwhileIsNotLeftBehind() async throws {
+        let threads = ReaderCommentThreads(directory: directory, linkThread: { _, _ in false })
+        let h = highlight(range: #"{"text":"beta gamma","start":6,"len":10}"#)
+        try await threads.post("note", on: h)
+        XCTAssertNil(threads.thread(for: h))
+        let store = CommentStore(log: CommentLog(directory: directory))
+        let live = try await store.threads(docId: ReaderCommentThreads.docId(urlKey: h.urlKey), text: "")
+        XCTAssertTrue(live.isEmpty)
     }
 }

@@ -23,9 +23,20 @@ public final class ReaderCommentThreads: ObservableObject {
     private var changedAt: [String: Int] = [:]
     private let highlightStore: () -> ReaderHighlightStore
 
-    init(directory: URL, highlightStore: @escaping () -> ReaderHighlightStore = { .shared }) {
+    /// Records the thread on its highlight; false when the highlight is gone.
+    private let linkThread: (_ threadId: String, _ highlight: ReaderHighlight) -> Bool
+
+    /// Tests pass `linkThread` so nothing is written to the real highlight store.
+    init(
+        directory: URL,
+        highlightStore: @escaping () -> ReaderHighlightStore = { .shared },
+        linkThread: ((String, ReaderHighlight) -> Bool)? = nil
+    ) {
         store = CommentStore(log: CommentLog(directory: directory))
         self.highlightStore = highlightStore
+        self.linkThread = linkThread ?? { threadId, highlight in
+            highlightStore().setCommentThreadId(threadId, for: highlight.id, urlKey: highlight.urlKey)
+        }
     }
 
     public func thread(for highlight: ReaderHighlight) -> CommentThread? {
@@ -68,7 +79,11 @@ public final class ReaderCommentThreads: ObservableObject {
         } else {
             let threadId = try await store.openThread(
                 docId: docId, author: Self.me, anchor: Self.anchor(for: highlight), text: body)
-            highlightStore().setCommentThreadId(threadId, for: highlight.id, urlKey: highlight.urlKey)
+            guard linkThread(threadId, highlight) else {
+                // Deleted while the thread was being written: don't leave it behind.
+                _ = try? await store.delete(docId: docId, threadId: threadId, author: Self.me)
+                return
+            }
             await refresh(highlight, threadId: threadId)
         }
     }
@@ -133,9 +148,11 @@ public final class ReaderCommentThreads: ObservableObject {
     }
 
     private func refresh(_ highlight: ReaderHighlight, threadId: String) async {
-        let thread = try? await store.thread(id: threadId, docId: Self.docId(urlKey: highlight.urlKey), text: "")
+        // A failed read keeps what is shown rather than blanking it.
+        guard let thread = try? await store.thread(id: threadId, docId: Self.docId(urlKey: highlight.urlKey), text: "")
+        else { return }
         markChanged(highlight.id)
-        threadsByHighlightID[highlight.id] = thread?.state == .deleted ? nil : thread
+        threadsByHighlightID[highlight.id] = thread.state == .deleted ? nil : thread
     }
 
     private func markChanged(_ highlightID: String) {

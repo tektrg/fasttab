@@ -372,7 +372,7 @@ private struct ResultRowView: View {
         }
     }
 
-    /// Which browser window the tab lives in, only when that's actually
+    /// Which browser window (shown as its profile when known) the tab lives in, only when that's actually
     /// informative — several windows are open for the browser (the same
     /// signal Full mode uses to decide whether to show the window pill at
     /// all) and the tab has a real window name to show. Finder windows are
@@ -386,6 +386,8 @@ private struct ResultRowView: View {
               !windowName.isEmpty else {
             return nil
         }
+        // The profile (e.g. "Work") reads better than a page-title window name.
+        if let profile = result.profileName, !profile.isEmpty { return profile }
         return windowName
     }
 

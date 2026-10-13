@@ -138,7 +138,7 @@ public final class ReaderSyncBridge {
                     // The hash of what this device now holds, re-encoded its own way, so an
                     // encoding difference never reads as a local edit (no echo).
                     confirmed[name] = highlights.syncedHighlights().first { $0.id == highlight.id }
-                        .map { Self.hash($0.payload) }
+                        .map { Self.hash($0.payload) } ?? Self.hash(highlight.payload)
                 }
             } else if let synced = SyncedCommentEvent(from: record),
                       let event = try? JSONDecoder().decode(CommentEvent.self, from: synced.payload) {
@@ -152,6 +152,7 @@ public final class ReaderSyncBridge {
         saveLedger()
     }
 
+    /// A delete from another device wins, even over an edit not yet sent from here.
     public func absorbDeletions(_ recordIDs: [CKRecord.ID]) {
         var changed = false
         for recordID in recordIDs where recordID.zoneID == zoneID {

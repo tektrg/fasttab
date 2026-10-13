@@ -58,12 +58,9 @@ public final class ReaderCommentThreads: ObservableObject {
             for (urlKey, group) in Dictionary(grouping: commented, by: \.urlKey) {
                 let threads = (try? await store.threads(docId: Self.docId(urlKey: urlKey), text: "")) ?? []
                 guard !threads.isEmpty else { continue }
-                for highlight in group {
-                    if let thread = ReaderHighlightThreads.thread(
-                        linkedThreadId: highlight.commentThreadId, anchor: Self.anchor(for: highlight), in: threads) {
-                        loaded[highlight.id] = thread
-                    }
-                }
+                loaded.merge(ReaderHighlightThreads.assign(
+                    group, threads: threads, id: \.id, linkedThreadId: \.commentThreadId,
+                    serializedRange: \.serializedRange, selectedText: \.selectedText)) { $1 }
             }
             // A post/resolve/delete that landed while this read ran is newer: keep it.
             let ids = Set(commented.map(\.id)).filter { (changedAt[$0] ?? 0) <= startedAt }

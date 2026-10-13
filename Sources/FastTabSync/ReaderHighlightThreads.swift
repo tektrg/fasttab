@@ -27,17 +27,36 @@ public enum ReaderHighlightThreads {
         )
     }
 
-    /// The highlight's thread among its article's live threads: the linked one, else the
-    /// oldest whose anchor sits on the same passage.
-    public static func thread(
-        linkedThreadId: String?, anchor: TextAnchor, in threads: [CommentThread]
-    ) -> CommentThread? {
-        if let linkedThreadId, let linked = threads.first(where: { $0.id == linkedThreadId }) {
-            return linked
+    /// Each highlight of one article paired with its thread: the linked one, else the oldest
+    /// unclaimed thread on exactly the same passage. A thread goes to one highlight only, and
+    /// a highlight without offsets in its descriptor never matches by anchor (its `from` 0
+    /// would collide with every other such highlight).
+    public static func assign<H>(
+        _ highlights: [H], threads: [CommentThread],
+        id: (H) -> String, linkedThreadId: (H) -> String?, serializedRange: (H) -> String, selectedText: (H) -> String
+    ) -> [String: CommentThread] {
+        var result: [String: CommentThread] = [:]
+        var claimed = Set(highlights.compactMap(linkedThreadId))
+        for highlight in highlights {
+            if let linked = linkedThreadId(highlight), let thread = threads.first(where: { $0.id == linked }) {
+                result[id(highlight)] = thread
+            }
         }
-        return threads.first { thread in
-            guard let other = thread.anchor else { return false }
-            return other.from == anchor.from && other.to == anchor.to && other.quote == anchor.quote
+        for highlight in highlights where linkedThreadId(highlight) == nil && hasOffsets(serializedRange(highlight)) {
+            let anchor = self.anchor(serializedRange: serializedRange(highlight), selectedText: selectedText(highlight))
+            if let thread = threads.first(where: { thread in
+                guard !claimed.contains(thread.id), let other = thread.anchor else { return false }
+                return other.from == anchor.from && other.to == anchor.to && other.quote == anchor.quote
+            }) {
+                claimed.insert(thread.id)
+                result[id(highlight)] = thread
+            }
         }
+        return result
+    }
+
+    static func hasOffsets(_ serializedRange: String) -> Bool {
+        struct Start: Decodable { let start: Int? }
+        return (try? JSONDecoder().decode(Start.self, from: Data(serializedRange.utf8)))?.start.map { $0 >= 0 } ?? false
     }
 }

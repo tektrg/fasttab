@@ -104,9 +104,16 @@ extension SyncConsumer: CKSyncEngineDelegate {
                 for deletedID in sentChanges.deletedRecordIDs {
                     self.readerSync.didDelete(deletedID)
                 }
-                for (recordID, _) in sentChanges.failedRecordDeletes where recordID.zoneID == SyncConstants.readerZoneID {
-                    // Only reader highlights are ever deleted from here; the engine backs off.
-                    syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
+                for (recordID, error) in sentChanges.failedRecordDeletes where recordID.zoneID == SyncConstants.readerZoneID {
+                    // Only reader highlights are deleted from here. Already gone counts as done;
+                    // a passing failure retries (the engine backs off); anything else gives up.
+                    if (error as CKError).code == .unknownItem {
+                        self.readerSync.didDelete(recordID)
+                    } else if SyncHealthMapping.isWorthRetrying(error) {
+                        syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
+                    } else {
+                        self.markSyncFailed(error, whileDoing: "deleting a highlight")
+                    }
                 }
                 if !sentChanges.savedRecords.isEmpty {
                     self.markSyncSucceeded()

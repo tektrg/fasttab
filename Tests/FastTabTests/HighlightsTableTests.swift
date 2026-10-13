@@ -89,3 +89,36 @@ struct HighlightsTableTests {
         }
     }
 }
+
+@Suite("Highlight ↔ thread assignment")
+struct ReaderHighlightThreadAssignmentTests {
+    struct H { let id: String; let link: String?; let range: String; let text: String }
+
+    func thread(_ id: String, from: Int, quote: String) -> CommentThread {
+        let opener = CommentEvent(id: id, threadId: id, kind: .threadOpened, prev: nil,
+                                  by: CommentAuthor(kind: .agent, id: "a"),
+                                  anchor: TextAnchor(from: from, to: from + quote.utf16.count, quote: quote), text: "t")
+        return CommentThreadBuilder.threads(docId: "d", events: [opener], text: "")[0]
+    }
+
+    func assign(_ highlights: [H], _ threads: [CommentThread]) -> [String: String] {
+        ReaderHighlightThreads.assign(highlights, threads: threads, id: \.id, linkedThreadId: \.link,
+                                      serializedRange: \.range, selectedText: \.text).mapValues(\.id)
+    }
+
+    @Test func aThreadGoesToOneHighlightOnly() {
+        let range = #"{"text":"same","start":4,"len":4}"#
+        let threads = [thread("t1", from: 4, quote: "same")]
+        // Linked elsewhere: the unlinked copy of the passage does not get it.
+        #expect(assign([H(id: "a", link: "t1", range: range, text: "same"), H(id: "b", link: nil, range: range, text: "same")],
+                       threads) == ["a": "t1"])
+        // Two unlinked copies: the first takes it.
+        #expect(assign([H(id: "a", link: nil, range: range, text: "same"), H(id: "b", link: nil, range: range, text: "same")],
+                       threads) == ["a": "t1"])
+    }
+
+    @Test func highlightsWithoutOffsetsNeverMatchByAnchor() {
+        #expect(assign([H(id: "a", link: nil, range: #"{"text":"same"}"#, text: "same")],
+                       [thread("t1", from: 0, quote: "same")]).isEmpty)
+    }
+}

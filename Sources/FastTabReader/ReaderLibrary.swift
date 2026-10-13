@@ -102,11 +102,10 @@ public struct ReaderLibrary: Sendable {
         for (urlKey, group) in Dictionary(grouping: highlights, by: \.urlKey) {
             let docId = ReaderCommentDocID.forArticle(urlKey: urlKey)
             let threads = (try? await comments.threads(docId: docId, text: "")) ?? []
-            for highlight in group {
-                let thread = ReaderHighlightThreads.thread(
-                    linkedThreadId: highlight.commentThreadId, anchor: highlight.anchor, in: threads)
-                entries.append(HighlightEntry(highlight: highlight, thread: thread))
-            }
+            let assigned = ReaderHighlightThreads.assign(
+                group, threads: threads, id: \.id, linkedThreadId: \.commentThreadId,
+                serializedRange: \.serializedRange, selectedText: \.selectedText)
+            entries += group.map { HighlightEntry(highlight: $0, thread: assigned[$0.id]) }
         }
         return entries.sorted { $0.highlight.createdAt > $1.highlight.createdAt }
     }

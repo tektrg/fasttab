@@ -44,7 +44,11 @@ final class SyncService: NSObject, ObservableObject {
     }
     private var lastPublishedBookmarkHashes: [String: String] = [:]
     private var lastPublishedHistoryHashes: [String: String] = [:]
-    private var lastPublishedTabOrderHash: String = ""
+    var lastPublishedTabOrderHash: String = ""
+    /// Holds title-only tab order changes (SyncService+TabOrder.swift).
+    var tabOrderGate = TabOrderPublishGate()
+    var tabOrderFlushTask: Task<Void, Never>?
+    var pendingTabOrderSlots: [OrderedTabSlot]?
     var tabStatsPublishState = TabStatsPublishState()
 
     private var tabDebounceTask: Task<Void, Never>?
@@ -444,40 +448,6 @@ final class SyncService: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Tab Order Publishing
-
-    func updateTabOrder(_ slots: [OrderedTabSlot]) {
-        guard let syncEngine else { return }
-
-        let syncedSlots = slots.map { slot in
-            SyncedOrderedSlot(
-                slotID: slot.slotID,
-                matchKey: slot.matchKey,
-                title: slot.title,
-                url: slot.url,
-                browserName: slot.browserName,
-                profileName: slot.profileName,
-                state: slot.state.rawValue,
-                ghostedAt: slot.ghostedAt,
-                isPinned: slot.isPinned
-            )
-        }
-
-        let tabOrder = SyncedTabOrder(deviceID: deviceID, slots: syncedSlots)
-        guard tabOrder.contentHash != lastPublishedTabOrderHash else {
-            return
-        }
-
-        let recordID = CKRecord.ID(recordName: tabOrder.id, zoneID: SyncConstants.stateZoneID)
-        let record = serverRecordsByID[recordID].flatMap { tabOrder.applying(to: $0) }
-            ?? tabOrder.toRecord(zoneID: SyncConstants.stateZoneID)
-
-        pendingRecordsToSave[recordID] = record
-        syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
-        lastPublishedTabOrderHash = tabOrder.contentHash
-        logger.info("Tab order sync queued: \(syncedSlots.count) slots (hash: \(tabOrder.contentHash.prefix(8), privacy: .public))")
-        sendPendingChanges()
-    }
 
     // MARK: - Command Response Publishing
 
@@ -817,6 +787,7 @@ final class SyncService: NSObject, ObservableObject {
         lastPublishedBookmarkHashes.removeAll()
         lastPublishedHistoryHashes.removeAll()
         lastPublishedTabOrderHash = ""
+        tabOrderGate.reset()
         resetTabStatsPublishState()
         pendingRecordsToSave.removeAll()
         serverRecordsByID.removeAll()

@@ -28,6 +28,14 @@ public final class SyncConsumer: NSObject, ObservableObject {
     private let commandOutbox: SyncCommandOutbox
 
     private var accountChangeObserver: NSObjectProtocol?
+    /// Reader highlights + comment threads (SyncConsumer+ReaderSync.swift).
+    lazy var readerSync = ReaderSyncBridge(
+        ledgerURL: AppGroupContainer.fileURL(forFileNamed: Self.readerLedgerFileName),
+        comments: ReaderCommentThreads.shared.store,
+        highlights: ReaderHighlightStore.shared
+    )
+    var readerChangeObserver: NSObjectProtocol?
+    var readerSendTask: Task<Void, Never>?
     private var hasStarted = false
 
     /// When this phone last queued its own `SyncedDevice` heartbeat — the
@@ -89,6 +97,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
 
         setupSyncEngine()
         observeAccountChanges()
+        observeLocalReaderChanges()
         // Armed here as well as on the scene-phase change: SwiftUI does not
         // deliver an `onChange` for the phase the app launches into, so a cold
         // launch would otherwise never start polling.
@@ -125,9 +134,11 @@ public final class SyncConsumer: NSObject, ObservableObject {
         guard let syncEngine else { return }
         let stateZone = CKRecordZone(zoneID: SyncConstants.stateZoneID)
         let commandsZone = CKRecordZone(zoneID: SyncConstants.commandsZoneID)
+        let readerZone = CKRecordZone(zoneID: SyncConstants.readerZoneID)
         syncEngine.state.add(pendingDatabaseChanges: [
             .saveZone(stateZone),
-            .saveZone(commandsZone)
+            .saveZone(commandsZone),
+            .saveZone(readerZone)
         ])
     }
 
@@ -296,6 +307,9 @@ public final class SyncConsumer: NSObject, ObservableObject {
         // Pull-to-refresh doubles as "retry everything": re-arm anything the
         // outbox still holds in case the engine's pending changes were lost.
         restorePendingCommandOutbox()
+        // Highlights and comments CloudKit hasn't confirmed (new, edited offline, or from
+        // before this build synced them).
+        await queueReaderChanges(send: false)
         // Launch, every return to the foreground, and pull-to-refresh: the
         // moments the phone is demonstrably in use, so the Mac should know.
         publishOwnDeviceIfDue(interval: Self.userActivityHeartbeatFloor)

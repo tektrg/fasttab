@@ -1,4 +1,5 @@
 import XCTest
+import FastTabSync
 import IndieComments
 @testable import FastTabMobile
 
@@ -98,5 +99,15 @@ final class ReaderCommentThreadsTests: XCTestCase {
         let store = CommentStore(log: CommentLog(directory: directory))
         let live = try await store.threads(docId: ReaderCommentThreads.docId(urlKey: h.urlKey), text: "")
         XCTAssertTrue(live.isEmpty)
+    }
+
+    func testHighlightPayloadRoundTripsThroughSyncEncoding() throws {
+        let h = ReaderHighlight(id: "h", urlKey: "k", selectedText: "t", color: .pink, serializedRange: "{}",
+                                createdAt: Date(timeIntervalSince1970: 1_760_000_000), title: "T", urlString: "https://k",
+                                tags: ["work/ssv"], commentThreadId: "c1")
+        let payload = try ReaderSyncBridge.encoder.encode(h)
+        XCTAssertEqual(try JSONDecoder().decode(ReaderHighlight.self, from: payload), h)
+        XCTAssertEqual(try ReaderSyncBridge.encoder.encode(h), payload, "same highlight, same bytes")
+        XCTAssertEqual(ReaderCommentThreads.docId(urlKey: "k"), ReaderCommentDocID.forArticle(urlKey: "k"))
     }
 }

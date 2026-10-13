@@ -1,4 +1,4 @@
-import CryptoKit
+import FastTabSync
 import Foundation
 import IndieComments
 
@@ -16,7 +16,9 @@ public final class ReaderCommentThreads: ObservableObject {
     /// Live threads by highlight id, for the highlights `load` has seen.
     @Published public private(set) var threadsByHighlightID: [String: CommentThread] = [:]
 
-    private let store: CommentStore
+    /// The one store for this folder: reader sync writes incoming events through it too, so
+    /// every append is serialized.
+    let store: CommentStore
     /// Bumped on every write; `changedAt` records it per highlight so a slower `load` never
     /// overwrites a fresher thread.
     private var changeCount = 0
@@ -99,6 +101,11 @@ public final class ReaderCommentThreads: ObservableObject {
         await refresh(highlight, threadId: threadId)
     }
 
+    /// Comments arrived from another device: re-read every commented highlight's thread.
+    func reloadAfterSync() {
+        load(highlightStore().allHighlightsNewestFirst())
+    }
+
     /// Tombstones the threads of highlights being deleted.
     func deleteThreads(of highlights: [ReaderHighlight]) async {
         for highlight in highlights {
@@ -113,7 +120,7 @@ public final class ReaderCommentThreads: ObservableObject {
 
     /// The log name for an article: its canonical URL hashed, since URLs are not file names.
     nonisolated static func docId(urlKey: String) -> String {
-        SHA256.hash(data: Data(urlKey.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        ReaderCommentDocID.forArticle(urlKey: urlKey)
     }
 
     /// The highlight's passage as a shared anchor: offsets and context from the reader's
@@ -155,9 +162,11 @@ public final class ReaderCommentThreads: ObservableObject {
         threadsByHighlightID[highlight.id] = thread.state == .deleted ? nil : thread
     }
 
+    /// Called after every local write, which reader sync then sends.
     private func markChanged(_ highlightID: String) {
         changeCount += 1
         changedAt[highlightID] = changeCount
+        NotificationCenter.default.post(name: .readerDataDidChangeLocally, object: nil)
     }
 
     private static var defaultDirectory: URL {

@@ -92,10 +92,21 @@ extension SyncConsumer: CKSyncEngineDelegate {
                 }
 
                 LocalCache.shared.flushPendingSave()
+                await self.absorbReaderChanges(
+                    fetchedChanges.modifications.map(\.record),
+                    deletions: fetchedChanges.deletions.map(\.recordID))
 
             case .sentRecordZoneChanges(let sentChanges):
                 for saved in sentChanges.savedRecords {
                     self.confirmUpload(of: saved)
+                    if ReaderSyncBridge.handles(saved.recordType) { self.readerSync.didSave(saved) }
+                }
+                for deletedID in sentChanges.deletedRecordIDs {
+                    self.readerSync.didDelete(deletedID)
+                }
+                for (recordID, _) in sentChanges.failedRecordDeletes where recordID.zoneID == SyncConstants.readerZoneID {
+                    // Only reader highlights are ever deleted from here; the engine backs off.
+                    syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
                 }
                 if !sentChanges.savedRecords.isEmpty {
                     self.markSyncSucceeded()
@@ -104,6 +115,18 @@ extension SyncConsumer: CKSyncEngineDelegate {
                 var queuedRetry = false
                 var needsZoneRecreation = false
                 for failedSave in sentChanges.failedRecordSaves {
+                    switch self.readerSync.outcome(ofFailedSave: failedSave.record, error: failedSave.error) {
+                    case .notReader, .failed:
+                        break
+                    case .settled:
+                        self.pendingRecordsToSave.removeValue(forKey: failedSave.record.recordID)
+                        continue
+                    case .retry(let retryRecord):
+                        self.pendingRecordsToSave[retryRecord.recordID] = retryRecord
+                        syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(retryRecord.recordID)])
+                        queuedRetry = true
+                        continue
+                    }
                     if let retryRecord = Self.recordForRetry(
                         intendedRecord: failedSave.record,
                         error: failedSave.error

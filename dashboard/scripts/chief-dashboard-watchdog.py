@@ -279,7 +279,7 @@ FLAP_OUTAGE_STARTS_TO_REPORT = 3
 #: for a hand-run pile-up, not a second window.
 LEDGER_ENTRIES_KEPT = 20
 
-# P0 dashboard move: was a literal "/Users/trungluong/..." path (move-map
+# P0 dashboard move: was a literal "/Users/you/..." path (move-map
 # line 260) — not an AptusFit path (agent-skills is a separate, shared repo),
 # but still hardcoded to one user's home. `expanduser` keeps identical
 # behavior on this Mac while dropping the literal username.

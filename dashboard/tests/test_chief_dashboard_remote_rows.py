@@ -56,7 +56,7 @@ try:
     snap["herdr:air-m1"]["data"] = {
         "agents": [{
             "pane_id": "w2:p1", "tab_id": "w2:t1", "workspace_id": "w2",
-            "terminal_title": "claude-aptus", "cwd": "/home/wifey/aptus",
+            "terminal_title": "claude-aptus", "cwd": "/home/you/aptus",
             "agent_status": "idle",  # deliberately WRONG vs the screen below
             "agent_session": {"value": "sess-remote-1"},
         }],
@@ -75,7 +75,7 @@ try:
     r = remote_rows[0]
     check("paneId is namespaced <machine>:<rawId>", r["paneId"], "air-m1:w2:p1")
     check("label comes from the tab", r["label"], "air-worker-1")
-    check("cwd carried through", r["cwd"], "/home/wifey/aptus")
+    check("cwd carried through", r["cwd"], "/home/you/aptus")
     check("no hook data — never invented for a remote row",
           r["hasHookData"], False)
     check("remote row takes no images (attachments live on this Mac's disk)",

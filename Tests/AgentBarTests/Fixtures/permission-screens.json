@@ -42,7 +42,7 @@
    "⏺ Read(src/old.py)",
    "  ⎿  Read 10 lines",
    "",
-   "⏺ Bash(cd /Users/trungluong/01_Project/AptusFit && find . -name '*.py' -not -path './node_modules/*' | xargs grep -l 'permission' | head -50 && echo done-with-a-very-long-command-line-that-wraps)",
+   "⏺ Bash(cd /Users/you/01_Project/AptusFit && find . -name '*.py' -not -path './node_modules/*' | xargs grep -l 'permission' | head -50 && echo done-with-a-very-long-command-line-that-wraps)",
    "  ⎿  Running…",
    "",
    "──────────────────────────────────────────────────────────────────────────────────────────",
@@ -52,12 +52,12 @@
    "",
    "Do you want to proceed?",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": {
    "tool": "Bash",
-   "detail": "cd /Users/trungluong/01_Project/AptusFit && find . -name '*.py' -not -path './node_modules/*' | xargs grep -l 'permission' | head -50 && echo done-with-a-very-long-command-line-that-wraps",
+   "detail": "cd /Users/you/01_Project/AptusFit && find . -name '*.py' -not -path './node_modules/*' | xargs grep -l 'permission' | head -50 && echo done-with-a-very-long-command-line-that-wraps",
    "title": "Do you want to proceed?",
    "options": [
     {
@@ -66,7 +66,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,
@@ -79,7 +79,7 @@
  {
   "name": "long command wrapped over rows (visible read)",
   "lines": [
-   "⏺ Bash(cd /Users/trungluong/01_Project/AptusFit && find . -name '*.py' -not -",
+   "⏺ Bash(cd /Users/you/01_Project/AptusFit && find . -name '*.py' -not -",
    "path './node_modules/*' | xargs grep -l 'permission' | head -50 && ech",
    "o done-with-a-very-long-command-line-that-wraps)",
    "  ⎿  Running…",
@@ -91,7 +91,7 @@
    "",
    "Do you want to proceed?",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": null
@@ -109,7 +109,7 @@
    "",
    "Do you want to proceed?",
    "  1. Yes",
-   "❯ 2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "❯ 2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": {
@@ -123,7 +123,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,
@@ -183,7 +183,7 @@
    "",
    "Do you want to proceed?",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": {
@@ -197,7 +197,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,
@@ -220,7 +220,7 @@
    "",
    "Do you want to proceed?",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": {
@@ -234,7 +234,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,
@@ -257,7 +257,7 @@
    "   ",
    "Do you want to proceed?   ",
    "❯ 1. Yes   ",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong   ",
+   "  2. Yes, and don't ask again for find commands in /Users/you   ",
    "  3. No, and tell Claude what to do differently (esc)   "
   ],
   "expected": {
@@ -271,7 +271,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,
@@ -294,7 +294,7 @@
    "",
    "Do you want to proceed?",
    "  1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "❯ 3. No, and tell Claude what to do differently (esc)",
    "  ⎿  done",
    "",
@@ -308,7 +308,7 @@
    "",
    "Do you want to proceed?",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": {
@@ -322,7 +322,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,
@@ -354,7 +354,7 @@
    "",
    "Do you want to proceed?",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": {
@@ -368,7 +368,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,
@@ -567,7 +567,7 @@
    "",
    "Do you want to proceed?",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)",
    "filler",
    "filler",
@@ -845,7 +845,7 @@
    "",
    "Do you want to proceed?",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": {
@@ -859,7 +859,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,
@@ -882,7 +882,7 @@
    "",
    "Do you want to proceed?",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": {
@@ -896,7 +896,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,
@@ -919,7 +919,7 @@
    "",
    "Do you want to proceed?",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": {
@@ -933,7 +933,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,
@@ -1033,7 +1033,7 @@
    "",
    "  Do you want to proceed?  ",
    "❯ 1. Yes",
-   "  2. Yes, and don't ask again for find commands in /Users/trungluong",
+   "  2. Yes, and don't ask again for find commands in /Users/you",
    "  3. No, and tell Claude what to do differently (esc)"
   ],
   "expected": {
@@ -1047,7 +1047,7 @@
     },
     {
      "index": 2,
-     "label": "Yes, and don't ask again for find commands in /Users/trungluong"
+     "label": "Yes, and don't ask again for find commands in /Users/you"
     },
     {
      "index": 3,

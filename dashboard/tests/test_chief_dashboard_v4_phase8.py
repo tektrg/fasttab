@@ -44,7 +44,7 @@ check("ceiling countdown", r["autocompactPct"], 12)
 check("ceiling source", r["source"], "claude")
 
 print("== parser: opencode ==")
-r = ctx.parse_context("right side status\n   /Users/trungluong/01_Project/markdown-lite-mac/hubble-source    248.8K (24%)  ctrl+p commands    • OpenCode 1.18.27")
+r = ctx.parse_context("right side status\n   /Users/you/01_Project/markdown-lite-mac/hubble-source    248.8K (24%)  ctrl+p commands    • OpenCode 1.18.27")
 check("opencode pct", r["pct"], 24)
 check("opencode tokens", r["tokensK"], 248.8)
 check("opencode source", r["source"], "opencode")

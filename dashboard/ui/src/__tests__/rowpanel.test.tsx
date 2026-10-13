@@ -32,7 +32,7 @@ function boardRow(rowId: string, over: Partial<BoardRow> = {}): BoardRow {
       paneId: `w8:${rowId}`,
       paneIdSanitized: `w8-${rowId}`,
       label: rowId,
-      cwd: "/Users/trungluong/01_Project/AptusFit",
+      cwd: "/Users/you/01_Project/AptusFit",
       focused: false,
       hookState: "idle",
       hookSinceSec: 1,

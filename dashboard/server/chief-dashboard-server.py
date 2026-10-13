@@ -159,7 +159,7 @@ gone — re-check the pane" / "typed feedback did not land — re-check the
 pane" (/api/permission).
 
 Run via herdr (not tmux — see AGENTS.md's herdr override), e.g.:
-  herdr tab create --cwd /Users/trungluong/01_Project/command-bar-macos-dashboard/dashboard --label chief-dashboard-server --no-focus
+  herdr tab create --cwd ~/01_Project/command-bar-macos/dashboard --label chief-dashboard-server --no-focus
   herdr pane run <pane_id> "python3 server/chief-dashboard-server.py"
 
 Python stdlib only. No pip installs, no node_modules.

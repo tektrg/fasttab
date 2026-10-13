@@ -45,7 +45,8 @@ public final class ReaderMirror: ReaderHighlightSyncStore {
         return ReaderSyncBridge(
             ledgerURL: mirror.directory.appendingPathComponent("sync_ledger.json"),
             comments: mirror.comments,
-            highlights: mirror
+            highlights: mirror,
+            sendsHighlights: false
         )
     }
 
@@ -53,9 +54,10 @@ public final class ReaderMirror: ReaderHighlightSyncStore {
         byID.values.sorted { $0.id < $1.id }
     }
 
-    public func applyRemote(_ highlight: SyncedReaderHighlight) {
+    public func applyRemote(_ highlight: SyncedReaderHighlight) -> Bool {
         byID[highlight.id] = highlight
         save()
+        return true
     }
 
     public func removeRemote(id: String) {

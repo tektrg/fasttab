@@ -9,8 +9,10 @@ import IndieComments
 public protocol ReaderHighlightSyncStore: AnyObject {
     /// Every local highlight, payloads encoded with sorted keys.
     func syncedHighlights() -> [SyncedReaderHighlight]
-    /// Another device added or edited one: store it as given.
-    func applyRemote(_ highlight: SyncedReaderHighlight)
+    /// Another device added or edited one: store it as given. False when it can't be read
+    /// (a newer app's payload): the ledger then stays put, so this device won't push its
+    /// older copy over it.
+    func applyRemote(_ highlight: SyncedReaderHighlight) -> Bool
     /// Another device deleted one (its comments arrive as their own delete events).
     func removeRemote(id: String)
 }
@@ -39,6 +41,9 @@ public final class ReaderSyncBridge {
     public let comments: CommentStore
     private let highlights: ReaderHighlightSyncStore
     private let ledgerURL: URL
+    /// False on the Mac: it only mirrors highlights, so it never saves or deletes one (a stale
+    /// mirror or a lost ledger must not overwrite the phone). Comment events still go out.
+    private let sendsHighlights: Bool
     /// Record name → hash of the payload CloudKit last confirmed (or delivered).
     private var confirmed: [String: String]
 
@@ -46,8 +51,10 @@ public final class ReaderSyncBridge {
         ledgerURL: URL,
         comments: CommentStore,
         highlights: ReaderHighlightSyncStore,
+        sendsHighlights: Bool = true,
         zoneID: CKRecordZone.ID = SyncConstants.readerZoneID
     ) {
+        self.sendsHighlights = sendsHighlights
         self.ledgerURL = ledgerURL
         self.comments = comments
         self.highlights = highlights
@@ -64,12 +71,13 @@ public final class ReaderSyncBridge {
     /// Everything that differs from what CloudKit last confirmed.
     public func pendingChanges() async -> (saves: [CKRecord], deletes: [CKRecord.ID]) {
         var saves: [CKRecord] = []
+        for event in await localCommentEvents() where confirmed[event.recordName] == nil {
+            saves.append(event.toRecord(zoneID: zoneID))
+        }
+        guard sendsHighlights else { return (saves, []) }
         let localHighlights = highlights.syncedHighlights()
         for highlight in localHighlights where confirmed[highlight.recordName] != Self.hash(highlight.payload) {
             saves.append(highlight.toRecord(zoneID: zoneID))
-        }
-        for event in await localCommentEvents() where confirmed[event.recordName] == nil {
-            saves.append(event.toRecord(zoneID: zoneID))
         }
         let localNames = Set(localHighlights.map(\.recordName))
         let deletes = confirmed.keys
@@ -117,12 +125,20 @@ public final class ReaderSyncBridge {
             highlights.syncedHighlights().map { ($0.recordName, Self.hash($0.payload)) }, uniquingKeysWith: { $1 })
         for record in records {
             if let highlight = SyncedReaderHighlight(from: record) {
-                let remoteHash = Self.hash(highlight.payload)
-                let local = localPayloads[highlight.recordName]
-                let editedLocally = local != nil && local != confirmed[highlight.recordName]
-                if !editedLocally {
-                    if local != remoteHash { highlights.applyRemote(highlight) }
-                    confirmed[highlight.recordName] = remoteHash
+                let name = highlight.recordName
+                let local = localPayloads[name]
+                // Not sent yet here: an edit (local differs from the ledger) or a delete
+                // (ledger knows it, no local copy). Either goes out next and wins.
+                let pendingLocally = sendsHighlights
+                    && (local.map { $0 != confirmed[name] } ?? (confirmed[name] != nil))
+                guard !pendingLocally else { continue }
+                if local == Self.hash(highlight.payload) {
+                    confirmed[name] = local
+                } else if highlights.applyRemote(highlight) {
+                    // The hash of what this device now holds, re-encoded its own way, so an
+                    // encoding difference never reads as a local edit (no echo).
+                    confirmed[name] = highlights.syncedHighlights().first { $0.id == highlight.id }
+                        .map { Self.hash($0.payload) }
                 }
             } else if let synced = SyncedCommentEvent(from: record),
                       let event = try? JSONDecoder().decode(CommentEvent.self, from: synced.payload) {

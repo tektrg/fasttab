@@ -32,7 +32,8 @@ extension SyncService {
                 @unknown default: return nil
                 }
             })
-            for record in pending.saves {
+            // An armed save may be a conflict retry carrying the server's change tag: keep it.
+            for record in pending.saves where !armed.contains(record.recordID) {
                 pendingRecordsToSave[record.recordID] = record
             }
             syncEngine.state.add(pendingRecordZoneChanges:

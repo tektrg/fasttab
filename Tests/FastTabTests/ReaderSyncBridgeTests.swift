@@ -14,7 +14,7 @@ struct ReaderSyncBridgeTests {
     final class MemoryHighlights: ReaderHighlightSyncStore {
         var byID: [String: SyncedReaderHighlight] = [:]
         func syncedHighlights() -> [SyncedReaderHighlight] { byID.values.sorted { $0.id < $1.id } }
-        func applyRemote(_ highlight: SyncedReaderHighlight) { byID[highlight.id] = highlight }
+        func applyRemote(_ highlight: SyncedReaderHighlight) -> Bool { byID[highlight.id] = highlight; return true }
         func removeRemote(id: String) { byID[id] = nil }
     }
 
@@ -101,6 +101,31 @@ struct ReaderSyncBridgeTests {
         #expect(await phone.bridge.pendingChanges().saves.count == 1)
     }
 
+    @Test func aDeleteNotYetSentIsNotUndoneByAnIncomingCopy() async throws {
+        let phone = Device()
+        phone.highlights.byID["h1"] = highlight("h1")
+        let saved = await phone.send().saves
+        phone.highlights.byID["h1"] = nil
+        await phone.bridge.absorb(saved)  // its own save echoed back by a fetch
+        #expect(phone.highlights.byID["h1"] == nil)
+        #expect(await phone.bridge.pendingChanges().deletes.map(\.recordName) == ["hl|h1"])
+    }
+
+    @Test func anUnreadableIncomingCopyDoesNotMoveTheLedger() async throws {
+        final class Refusing: ReaderHighlightSyncStore {
+            var byID: [String: SyncedReaderHighlight] = [:]
+            func syncedHighlights() -> [SyncedReaderHighlight] { Array(byID.values) }
+            func applyRemote(_ highlight: SyncedReaderHighlight) -> Bool { false }
+            func removeRemote(id: String) {}
+        }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("refuse-\(UUID().uuidString)")
+        let store = Refusing()
+        let bridge = ReaderSyncBridge(ledgerURL: dir.appendingPathComponent("l.json"),
+                                      comments: CommentStore(log: CommentLog(directory: dir)), highlights: store)
+        await bridge.absorb([highlight("h1", tags: "newer").toRecord(zoneID: SyncConstants.readerZoneID)])
+        #expect(await bridge.pendingChanges().saves.isEmpty, "nothing local, nothing to push over it")
+    }
+
     @Test func conflictsRetryOnTheServerCopyAndExistingEventsSettle() async throws {
         let device = Device()
         let mine = highlight("h1", tags: "mine").toRecord(zoneID: SyncConstants.readerZoneID)
@@ -148,6 +173,11 @@ struct ReaderMirrorTests {
             author: CommentAuthor(kind: .agent, id: "claude"),
             anchor: TextAnchor(from: 0, to: 1, quote: "x"), text: "noted")
         #expect(await relaunched.pendingChanges().saves.map(\.recordType) == [SyncedCommentEvent.recordType])
+
+        // The Mac never sends highlights, even with its ledger gone.
+        try FileManager.default.removeItem(at: support.appendingPathComponent("Reader/sync_ledger.json"))
+        #expect(await ReaderMirror.makeBridge(supportDirectory: support).pendingChanges().saves
+            .allSatisfy { $0.recordType == SyncedCommentEvent.recordType })
 
         relaunched.absorbDeletions([CKRecord.ID(recordName: "hl|h1", zoneID: SyncConstants.readerZoneID)])
         let afterDelete = ReaderMirror(directory: support.appendingPathComponent("Reader"))

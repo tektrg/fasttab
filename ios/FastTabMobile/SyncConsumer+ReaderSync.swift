@@ -19,7 +19,8 @@ extension SyncConsumer {
         let armedDeletes = Set(syncEngine.state.pendingRecordZoneChanges.compactMap { change -> CKRecord.ID? in
             if case .deleteRecord(let id) = change { return id } else { return nil }
         })
-        for record in pending.saves {
+        // An armed save may be a conflict retry carrying the server's change tag: keep it.
+        for record in pending.saves where !armed.contains(record.recordID) {
             pendingRecordsToSave[record.recordID] = record
         }
         syncEngine.state.add(pendingRecordZoneChanges:

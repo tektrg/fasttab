@@ -128,8 +128,12 @@ extension ReaderHighlightStore: ReaderHighlightSyncStore {
         }
     }
 
-    public func applyRemote(_ synced: SyncedReaderHighlight) {
-        guard let highlight = try? JSONDecoder().decode(ReaderHighlight.self, from: synced.payload) else { return }
+    public func applyRemote(_ synced: SyncedReaderHighlight) -> Bool {
+        guard let highlight = try? JSONDecoder().decode(ReaderHighlight.self, from: synced.payload) else { return false }
+        // Its article key may have changed: never keep a second copy under the old one.
+        for key in store.keys where key != highlight.urlKey {
+            store[key]?.removeAll { $0.id == highlight.id }
+        }
         var list = store[highlight.urlKey] ?? []
         if let index = list.firstIndex(where: { $0.id == highlight.id }) {
             list[index] = highlight
@@ -138,6 +142,7 @@ extension ReaderHighlightStore: ReaderHighlightSyncStore {
         }
         store[highlight.urlKey] = list
         saveToDisk(announce: false)
+        return true
     }
 
     /// No comment cascade: the deleting device's own delete events arrive with the sync.

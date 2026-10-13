@@ -188,6 +188,14 @@ else
   die "native host binary not found at ${HOST_BIN_BUILT}"
 fi
 
+# Third executable: the reader comment MCP helper agent clients launch by path.
+MCP_BIN_BUILT="$(swift build -c release --show-bin-path)/FastTabMCP"
+if [[ "${DRY_RUN}" == "true" ]] || [[ -f "${MCP_BIN_BUILT}" ]]; then
+  run cp "${MCP_BIN_BUILT}" "${APP}/Contents/MacOS/fasttab-mcp"
+else
+  die "reader MCP helper not found at ${MCP_BIN_BUILT}"
+fi
+
 # Ensure Sparkle rpath is set (idempotent)
 if ! otool -l "${APP}/Contents/MacOS/FastTab" | grep -q "@executable_path/../Frameworks"; then
   run install_name_tool -add_rpath "@executable_path/../Frameworks" "${APP}/Contents/MacOS/FastTab"
@@ -225,6 +233,13 @@ run codesign --force --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${
 HOST_BIN="${APP}/Contents/MacOS/FastTabNativeHost"
 if [[ -e "${HOST_BIN}" ]]; then
   run codesign --force --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${HOST_BIN}"
+fi
+
+# The reader MCP helper: launched by agent clients outside the app, so no
+# entitlements either (same AMFI reason as the native host).
+MCP_HELPER="${APP}/Contents/MacOS/fasttab-mcp"
+if [[ -e "${MCP_HELPER}" ]]; then
+  run codesign --force --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${MCP_HELPER}"
 fi
 
 # aps-environment (CloudKit push, i.e. realtime sync) is profile-restricted:

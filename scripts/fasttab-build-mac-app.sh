@@ -59,6 +59,15 @@ else
   echo "build-app: FastTabNativeHost binary not found (skipping host install)" >&2
 fi
 
+# Third executable: the reader comment MCP server that agent clients launch by path.
+MCP_BIN="$(swift build -c release --show-bin-path)/FastTabMCP"
+if [[ -f "${MCP_BIN}" ]]; then
+  echo "==> Installing reader MCP helper into bundle"
+  cp "${MCP_BIN}" "${APP}/Contents/MacOS/fasttab-mcp"
+else
+  echo "build-app: FastTabMCP binary not found (skipping MCP helper install)" >&2
+fi
+
 # SwiftPM does not add the bundle's Frameworks dir to the rpath, so the embedded
 # Sparkle.framework can't be found at runtime. Add it (idempotent).
 if ! otool -l "${APP}/Contents/MacOS/FastTab" | grep -q "@executable_path/../Frameworks"; then
@@ -99,6 +108,15 @@ if [[ -f "${APP}/Contents/MacOS/FastTabNativeHost" ]]; then
   codesign --force --options runtime \
     --sign "${SIGN_IDENTITY}" \
     "${APP}/Contents/MacOS/FastTabNativeHost"
+fi
+
+# The MCP helper is launched by agent clients, outside the app: like the native host it
+# must carry no entitlements, or AMFI kills it on exec.
+if [[ -f "${APP}/Contents/MacOS/fasttab-mcp" ]]; then
+  echo "==> Re-signing reader MCP helper (no entitlements)"
+  codesign --force --options runtime \
+    --sign "${SIGN_IDENTITY}" \
+    "${APP}/Contents/MacOS/fasttab-mcp"
 fi
 
 # aps-environment (CloudKit push, i.e. realtime sync) is a *profile-restricted*

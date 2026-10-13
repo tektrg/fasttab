@@ -19,6 +19,26 @@ public struct ReaderHighlightInfo: Decodable, Hashable, Sendable {
 
     public var articleURL: URL? { urlString.flatMap(URL.init(string:)) ?? URL(string: urlKey) }
 
+    /// The article scrolled to the passage: a text fragment (`#:~:text=start,end`) that
+    /// Safari and Chromium browsers highlight. Long quotes use their first and last words.
+    public var urlAtHighlight: URL? {
+        guard let url = articleURL, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return articleURL
+        }
+        let words = selectedText.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !words.isEmpty else { return url }
+        func encode(_ text: String) -> String {
+            var allowed = CharacterSet.urlFragmentAllowed
+            allowed.remove(charactersIn: "&,-#")
+            return text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text
+        }
+        let fragment = words.count <= 8
+            ? encode(words.joined(separator: " "))
+            : encode(words.prefix(4).joined(separator: " ")) + "," + encode(words.suffix(4).joined(separator: " "))
+        components.fragment = nil
+        return URL(string: (components.string ?? url.absoluteString) + "#:~:text=" + fragment)
+    }
+
     /// The page title, else the site.
     public var pageTitle: String {
         if let title, !title.trimmingCharacters(in: .whitespaces).isEmpty { return title }

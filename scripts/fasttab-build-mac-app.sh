@@ -90,9 +90,18 @@ fi
 # applies the SAME entitlements to every nested executable, which is what broke
 # the Chrome extension — see the native-host note below.
 echo "==> Re-signing nested code"
-codesign --force --options runtime \
-  --sign "${SIGN_IDENTITY}" \
-  "${APP}/Contents/Frameworks/Sparkle.framework" 2>/dev/null || true
+# Sparkle's helpers first, then the framework. A failure here must stop the
+# build: an unsigned helper (e.g. Autoupdate) makes macOS refuse to launch the
+# app ("Launch failed", POSIX 163) — this used to be swallowed by `|| true`.
+SPARKLE="${APP}/Contents/Frameworks/Sparkle.framework"
+if [[ -d "${SPARKLE}" ]]; then
+  SPARKLE_CUR="${SPARKLE}/Versions/Current"
+  for nested in "${SPARKLE_CUR}"/XPCServices/*.xpc "${SPARKLE_CUR}/Autoupdate" "${SPARKLE_CUR}/Updater.app"; do
+    [[ -e "${nested}" ]] || continue
+    codesign --force --options runtime --sign "${SIGN_IDENTITY}" "${nested}"
+  done
+  codesign --force --options runtime --sign "${SIGN_IDENTITY}" "${SPARKLE}"
+fi
 
 # The native-messaging host relay MUST be signed with NO entitlements.
 # Chrome launches it directly by absolute path, so the app bundle's embedded

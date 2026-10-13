@@ -3,6 +3,7 @@ import Foundation
 import IndieComments
 import Testing
 @testable import FastTabSync
+@testable import FastTab
 
 /// Two devices, each a bridge over its own temp folder, passing records by hand the way
 /// CloudKit would.
@@ -123,5 +124,32 @@ struct ReaderSyncBridgeTests {
         let id = ReaderCommentDocID.forArticle(urlKey: "https://a.com/x?y=1")
         #expect(id.count == 32 && id.allSatisfy(\.isHexDigit))
         #expect(id == ReaderCommentDocID.forArticle(urlKey: "https://a.com/x?y=1"))
+    }
+}
+
+@MainActor
+@Suite("Reader mirror (Mac copy of the phone's highlights)")
+struct ReaderMirrorTests {
+    @Test func mirrorPersistsAcrossRelaunchAndCommentsSyncFromIt() async throws {
+        let support = FileManager.default.temporaryDirectory.appendingPathComponent("mirror-\(UUID().uuidString)")
+        let highlight = SyncedReaderHighlight(id: "h1", urlKey: "https://a.com/x", payload: Data(#"{"id":"h1"}"#.utf8))
+        let first = ReaderMirror.makeBridge(supportDirectory: support)
+        await first.absorb([highlight.toRecord(zoneID: SyncConstants.readerZoneID)])
+
+        // Relaunch: a new mirror reads the file, the ledger says it is confirmed.
+        let relaunched = ReaderMirror.makeBridge(supportDirectory: support)
+        #expect(await relaunched.pendingChanges().saves.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: support.appendingPathComponent("Reader/highlights.json").path))
+
+        // A comment written on the Mac (agent tools, step 4) goes out.
+        try await relaunched.comments.openThread(
+            docId: ReaderCommentDocID.forArticle(urlKey: highlight.urlKey),
+            author: CommentAuthor(kind: .agent, id: "claude"),
+            anchor: TextAnchor(from: 0, to: 1, quote: "x"), text: "noted")
+        #expect(await relaunched.pendingChanges().saves.map(\.recordType) == [SyncedCommentEvent.recordType])
+
+        relaunched.absorbDeletions([CKRecord.ID(recordName: "hl|h1", zoneID: SyncConstants.readerZoneID)])
+        let afterDelete = ReaderMirror(directory: support.appendingPathComponent("Reader"))
+        #expect(afterDelete.syncedHighlights().isEmpty)
     }
 }

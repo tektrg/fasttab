@@ -26,6 +26,8 @@ final class SyncService: NSObject, ObservableObject {
 
     // In-memory cache of records to be supplied to CKSyncEngine recordProvider
     var pendingRecordsToSave: [CKRecord.ID: CKRecord] = [:]
+    /// The phone's reader highlights + comment threads (SyncService+ReaderSync.swift).
+    lazy var readerSync = ReaderMirror.makeBridge(supportDirectory: fastTabSupportDirectory)
     // Server-backed records retain CloudKit system fields such as change tags.
     // Domain updates must be applied to these objects instead of recreating IDs.
     var serverRecordsByID: [CKRecord.ID: CKRecord] = [:]
@@ -156,6 +158,7 @@ final class SyncService: NSObject, ObservableObject {
         refreshAccountStatus()
         publishDevice()
         fetchLatestChanges()
+        queueReaderChanges()
         Task { @MainActor in
             // AppState owns BrowserTabService.shared and is still initializing here.
             // Yield before resolving it to avoid recursively entering AppState.shared.
@@ -191,6 +194,7 @@ final class SyncService: NSObject, ObservableObject {
                     self.publishDevice(at: now)
                 }
                 self.fetchLatestChanges()
+                self.queueReaderChanges()
                 self.refreshPendingChangeCount()
             }
         }
@@ -225,10 +229,12 @@ final class SyncService: NSObject, ObservableObject {
 
         let stateZone = CKRecordZone(zoneID: SyncConstants.stateZoneID)
         let commandsZone = CKRecordZone(zoneID: SyncConstants.commandsZoneID)
+        let readerZone = CKRecordZone(zoneID: SyncConstants.readerZoneID)
 
         syncEngine.state.add(pendingDatabaseChanges: [
             .saveZone(stateZone),
-            .saveZone(commandsZone)
+            .saveZone(commandsZone),
+            .saveZone(readerZone)
         ])
     }
 
@@ -856,12 +862,15 @@ extension SyncService: CKSyncEngineDelegate {
                     }
                 }
                 PairedPhoneStore.shared.absorb(fetchedChanges.modifications.map(\.record))
+                self.absorbReaderChanges(fetchedChanges.modifications.map(\.record),
+                                         deletions: fetchedChanges.deletions.map(\.recordID))
                 self.applyFetchedDeletions(fetchedChanges.deletions)
 
             case .sentRecordZoneChanges(let sentChanges):
                 for saved in sentChanges.savedRecords {
                     self.pendingRecordsToSave.removeValue(forKey: saved.recordID)
                     self.serverRecordsByID[saved.recordID] = saved
+                    if ReaderSyncBridge.handles(saved.recordType) { self.readerSync.didSave(saved) }
                     if saved.recordType == SyncCommand.recordType {
                         do {
                             try self.commandJournal.acknowledgeCompletedResponse(
@@ -877,11 +886,24 @@ extension SyncService: CKSyncEngineDelegate {
                     // fresh, not built on the deleted record's change tag.
                     for recordID in sentChanges.deletedRecordIDs {
                         self.serverRecordsByID.removeValue(forKey: recordID)
+                        self.readerSync.didDelete(recordID)
                     }
                     self.liveTabPublishState.acknowledgeDeletions(Set(sentChanges.deletedRecordIDs))
                 }
                 var queuedSaveRetry = false
                 for failedSave in sentChanges.failedRecordSaves {
+                    switch self.readerSync.outcome(ofFailedSave: failedSave.record, error: failedSave.error) {
+                    case .settled:
+                        self.pendingRecordsToSave.removeValue(forKey: failedSave.record.recordID)
+                        continue
+                    case .retry(let retryRecord):
+                        self.pendingRecordsToSave[retryRecord.recordID] = retryRecord
+                        syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(retryRecord.recordID)])
+                        queuedSaveRetry = true
+                        continue
+                    case .notReader, .failed:
+                        break
+                    }
                     if let retryRecord = Self.recordForRetry(
                         intendedRecord: failedSave.record,
                         error: failedSave.error

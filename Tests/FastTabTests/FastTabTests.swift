@@ -585,7 +585,7 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
 }
 
 @Test func duplicateURLNormalizationHandlesFinderPaths() {
-    let path = "/Users/trungluong/Desktop"
+    let path = "/Users/you/Desktop"
     #expect(BrowserTabService.normalizeDuplicateURL(path) == path)
 }
 

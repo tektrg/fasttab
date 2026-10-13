@@ -158,8 +158,8 @@ def test_detach_shows_child_as_unassigned_in_view_model():
     tree.attach("worker-1", "chief-1", known_ids=ids, path=p)
     tree.detach("worker-1", path=p)
     agents = [
-        _agent("chief-1", "chief", "/Users/trungluong/01_Project/AptusFit"),
-        _agent("worker-1", "worker", "/Users/trungluong/01_Project/AptusFit"),
+        _agent("chief-1", "chief", "/Users/you/01_Project/AptusFit"),
+        _agent("worker-1", "worker", "/Users/you/01_Project/AptusFit"),
     ]
     out = tree.build_agent_tree(agents, tree.read_edges(p), chief_mode_roots=[])
     # chief-1 has zero children after the detach, so it's no longer a
@@ -783,18 +783,18 @@ def test_migrate_seed_skips_unknown_chief():
 # ── project derivation ───────────────────────────────────────────────────
 
 def test_project_for_cwd():
-    check("meta repo root", tree.project_for_cwd("/Users/trungluong/01_Project/AptusFit"),
-         ("AptusFit", "/Users/trungluong/01_Project/AptusFit"))
+    check("meta repo root", tree.project_for_cwd("/Users/you/01_Project/AptusFit"),
+         ("AptusFit", "/Users/you/01_Project/AptusFit"))
     check("nested product repo maps to the meta project",
-         tree.project_for_cwd("/Users/trungluong/01_Project/AptusFit/fe/apps/mobile"),
-         ("AptusFit", "/Users/trungluong/01_Project/AptusFit"))
+         tree.project_for_cwd("/Users/you/01_Project/AptusFit/fe/apps/mobile"),
+         ("AptusFit", "/Users/you/01_Project/AptusFit"))
     check("a worktree maps back to the owning project",
          tree.project_for_cwd(
-             "/Users/trungluong/01_Project/AptusFit/.claude/worktrees/fe-my-slug"),
-         ("AptusFit", "/Users/trungluong/01_Project/AptusFit"))
+             "/Users/you/01_Project/AptusFit/.claude/worktrees/fe-my-slug"),
+         ("AptusFit", "/Users/you/01_Project/AptusFit"))
     check("Air mirror path maps the same way",
-         tree.project_for_cwd("/Users/wifey/01_Project/AptusFit/fe"),
-         ("AptusFit", "/Users/wifey/01_Project/AptusFit"))
+         tree.project_for_cwd("/Users/you/01_Project/AptusFit/fe"),
+         ("AptusFit", "/Users/you/01_Project/AptusFit"))
     check("outside the convention degrades to a bare basename",
          tree.project_for_cwd("/opt/somewhere/else"), ("else", "/opt/somewhere/else"))
     check("empty cwd", tree.project_for_cwd(None), (None, None))
@@ -813,9 +813,9 @@ def test_build_agent_tree_basic_shape():
     tree.attach("worker-1", "chief-1", known_ids=ids, path=p)
     tree.attach("worker-2", "chief-1", known_ids=ids, path=p)
     agents = [
-        _agent("chief-1", "chief pane", "/Users/trungluong/01_Project/AptusFit"),
-        _agent("worker-1", "worker one", "/Users/trungluong/01_Project/AptusFit/fe"),
-        _agent("worker-2", "worker two", "/Users/trungluong/01_Project/AptusFit/fe"),
+        _agent("chief-1", "chief pane", "/Users/you/01_Project/AptusFit"),
+        _agent("worker-1", "worker one", "/Users/you/01_Project/AptusFit/fe"),
+        _agent("worker-2", "worker two", "/Users/you/01_Project/AptusFit/fe"),
     ]
     out = tree.build_agent_tree(agents, tree.read_edges(p), chief_mode_roots=[])
     check("top-level keys", sorted(out.keys()),
@@ -840,9 +840,9 @@ def test_build_agent_tree_unassigned_and_cross_project():
     ids = {"chief-1", "worker-1", "lonely-1"}
     tree.attach("worker-1", "chief-1", known_ids=ids, path=p)
     agents = [
-        _agent("chief-1", "chief", "/Users/trungluong/01_Project/AptusFit"),
-        _agent("worker-1", "worker", "/Users/trungluong/01_Project/ssv-bi-platform"),
-        _agent("lonely-1", "lonely", "/Users/trungluong/01_Project/AptusFit"),
+        _agent("chief-1", "chief", "/Users/you/01_Project/AptusFit"),
+        _agent("worker-1", "worker", "/Users/you/01_Project/ssv-bi-platform"),
+        _agent("lonely-1", "lonely", "/Users/you/01_Project/AptusFit"),
     ]
     out = tree.build_agent_tree(agents, tree.read_edges(p), chief_mode_roots=[])
     check("lonely-1 has no parent -> unassigned",
@@ -858,7 +858,7 @@ def test_build_agent_tree_parent_gone():
     tree.attach("worker-1", "dead-chief", known_ids=ids, parent_slug="old-chief", path=p)
     # dead-chief never appears in `agents` (not live) and no chief-mode file
     # names it -> its child must surface as parentGone, not silently nested.
-    agents = [_agent("worker-1", "worker", "/Users/trungluong/01_Project/AptusFit")]
+    agents = [_agent("worker-1", "worker", "/Users/you/01_Project/AptusFit")]
     out = tree.build_agent_tree(agents, tree.read_edges(p), chief_mode_roots=[])
     check("no chiefs row for an unknown dead parent", out["chiefs"], [])
     check("worker-1 lands in parentGone", [a["id"] for a in out["parentGone"]], ["worker-1"])

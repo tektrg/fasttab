@@ -22,6 +22,7 @@ import re
 import shlex
 import subprocess
 import sys
+import threading
 import time
 
 LOCAL_MACHINE = "local"
@@ -266,10 +267,18 @@ def _run(argv, cwd, timeout):
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         _kill_process_group(proc)
+        # Reap, but never wait for pipe EOF: a grandchild that escaped the
+        # group (ssh ControlMaster) could hold the pipes open and turn the
+        # "hard deadline" into a hang. Close our ends instead.
         try:
-            proc.communicate(timeout=2)
+            proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             pass
+        for stream in (proc.stdout, proc.stderr):
+            try:
+                stream.close()
+            except Exception:
+                pass
         raise
     return proc.returncode, stdout, stderr
 
@@ -330,8 +339,116 @@ def remote_shell_text(machine, script, *, repo_root, machines=None,
                          cwd=repo_root, timeout=timeout, what="shell")
 
 
+# --------------------------------------------------------------------------
+# Per-machine circuit breaker. An unreachable machine (e.g. Tailscale lost
+# its coordination server, so the host name does not resolve — ssh's
+# ConnectTimeout does NOT cover DNS, a lookup took 30s measured 2026-10-07)
+# must cost the dashboard ONE bounded probe per BREAKER_OPEN_SEC, not one
+# stuck ssh per caller. While open, every call fails instantly with
+# SshUnreachable; after the window exactly one caller probes (half-open),
+# the rest keep failing fast until it reports. Lock guards bookkeeping only,
+# never held across the remote call.
+# --------------------------------------------------------------------------
+
+BREAKER_OPEN_SEC = 30.0
+_BREAKERS = {}  # machine -> {"until": monotonic ts, "probing": bool, "error": str}
+_BREAKER_LOCK = threading.Lock()
+# Calls in flight per machine. Bounded (2x the machine's maxParallel) so a
+# machine that has JUST gone dark (breaker not yet tripped) can never collect
+# an unbounded herd of stuck ssh children; the excess fails fast WITHOUT
+# tripping the breaker (busy is not unreachable).
+_INFLIGHT = {}
+
+
+def reset_breakers():
+    with _BREAKER_LOCK:
+        _BREAKERS.clear()
+        _INFLIGHT.clear()
+
+
+def breaker_status(machine):
+    """{"open": bool, "retryInSec": float, "error": str|None} — read-only view
+    for state responses (never starts a probe)."""
+    with _BREAKER_LOCK:
+        b = _BREAKERS.get(machine)
+        if not b:
+            return {"open": False, "retryInSec": 0.0, "error": None}
+        return {"open": True,
+                "retryInSec": round(max(0.0, b["until"] - time.monotonic()), 1),
+                "error": b["error"]}
+
+
+def _breaker_enter(machine):
+    """Raise SshUnreachable if the machine is tripped and this caller is not
+    the single probe. Returns True when the caller IS the probe."""
+    with _BREAKER_LOCK:
+        b = _BREAKERS.get(machine)
+        if not b:
+            return False
+        if time.monotonic() < b["until"] or b["probing"]:
+            wait = max(0.0, b["until"] - time.monotonic())
+            raise SshUnreachable(
+                f"machine {machine} unreachable (skipping for {wait:.0f}s): "
+                f"{b['error']}")
+        b["probing"] = True
+        return True
+
+
+def _breaker_trip(machine, error):
+    with _BREAKER_LOCK:
+        _BREAKERS[machine] = {"until": time.monotonic() + BREAKER_OPEN_SEC,
+                              "probing": False, "error": str(error)[:300]}
+
+
+def _breaker_ok(machine):
+    with _BREAKER_LOCK:
+        _BREAKERS.pop(machine, None)
+
+
+def _breaker_release_probe(machine):
+    with _BREAKER_LOCK:
+        b = _BREAKERS.get(machine)
+        if b:
+            b["probing"] = False
+
+
 def _run_over_ssh(machine, cfg, remote_program, argv, *, cwd, timeout, what):
-    """Shared ssh execution + error mapping for every remote call."""
+    """Shared ssh execution + error mapping for every remote call, behind the
+    per-machine circuit breaker."""
+    probing = _breaker_enter(machine)
+    cap = 2 * int(cfg.get("maxParallel") or 4)
+    with _BREAKER_LOCK:
+        if _INFLIGHT.get(machine, 0) >= cap:
+            busy = True
+        else:
+            busy = False
+            _INFLIGHT[machine] = _INFLIGHT.get(machine, 0) + 1
+    if busy:
+        if probing:
+            _breaker_release_probe(machine)
+        raise SshUnreachable(
+            f"machine {machine}: {cap} calls already in flight, not adding more")
+    try:
+        out = _run_over_ssh_once(machine, cfg, remote_program, argv,
+                                 cwd=cwd, timeout=timeout, what=what)
+    except SshUnreachable as e:
+        _breaker_trip(machine, e)
+        raise
+    except HerdrError:
+        _breaker_ok(machine)  # ssh itself worked; herdr said no — machine is up
+        raise
+    except BaseException:
+        if probing:
+            _breaker_release_probe(machine)
+        raise
+    finally:
+        with _BREAKER_LOCK:
+            _INFLIGHT[machine] = max(0, _INFLIGHT.get(machine, 1) - 1)
+    _breaker_ok(machine)
+    return out
+
+
+def _run_over_ssh_once(machine, cfg, remote_program, argv, *, cwd, timeout, what):
     ssh_bin = os.environ.get(_ENV_SSH_BIN, "ssh")
     control_path = control_path_for(cfg["sshAlias"])
     full_argv = build_ssh_argv(

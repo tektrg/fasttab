@@ -61,7 +61,7 @@ except ValueError as e:
 # --- parse_machines_config --------------------------------------------------
 
 good_cfg = json.dumps({
-    "air-m1": {"sshAlias": "trungs-air", "herdrPath": "/Users/wifey/.local/bin/herdr",
+    "air-m1": {"sshAlias": "trungs-air", "herdrPath": "/Users/you/.local/bin/herdr",
                "label": "Air"},
 })
 machines, err = herdr.parse_machines_config(good_cfg)
@@ -143,22 +143,22 @@ check("a real configured machine prefix still routes remote, not local "
 
 hostile = ["$(rm -rf /)", "`whoami`", "it's", "-leading-dash", "line1\nline2",
            "a;b", "quote\"inside"]
-cmd = herdr.build_remote_command("/Users/wifey/.local/bin/herdr",
+cmd = herdr.build_remote_command("/Users/you/.local/bin/herdr",
                                   ["pane", "run", "w2:p1"] + hostile)
 import shlex as _shlex  # noqa: E402
 round_tripped = _shlex.split(cmd)
 check("build_remote_command: round-trips every hostile token exactly",
-      round_tripped, ["/Users/wifey/.local/bin/herdr", "pane", "run", "w2:p1"] + hostile)
+      round_tripped, ["/Users/you/.local/bin/herdr", "pane", "run", "w2:p1"] + hostile)
 
 argv = herdr.build_ssh_argv("ssh", "trungs-air", "/tmp/x/%C",
-                             "/Users/wifey/.local/bin/herdr", ["pane", "list"])
+                             "/Users/you/.local/bin/herdr", ["pane", "list"])
 check("build_ssh_argv: BatchMode set", "BatchMode=yes" in argv, True)
 check("build_ssh_argv: ControlMaster set", "ControlMaster=auto" in argv, True)
 check("build_ssh_argv: ControlPersist set", "ControlPersist=600" in argv, True)
 check("build_ssh_argv: ControlPath included", any("ControlPath=/tmp/x/%C" == a for a in argv), True)
 check("build_ssh_argv: alias present", "trungs-air" in argv, True)
 check("build_ssh_argv: last arg is the remote command string",
-      argv[-1], herdr.build_remote_command("/Users/wifey/.local/bin/herdr", ["pane", "list"]))
+      argv[-1], herdr.build_remote_command("/Users/you/.local/bin/herdr", ["pane", "list"]))
 
 
 # --- control_path_for: short, private ---------------------------------------
@@ -266,6 +266,7 @@ with tempfile.TemporaryDirectory() as tmp:
     finally:
         del os.environ["CHIEF_SSH_BIN"]
 
+    herdr.reset_breakers()  # the 255 above tripped the per-machine breaker
     fake_ssh_hang = os.path.join(tmp, "fake-ssh-hang")
     with open(fake_ssh_hang, "w") as f:
         f.write("#!/bin/sh\nsleep 30 &\nwait $!\n")
@@ -339,6 +340,7 @@ with tempfile.TemporaryDirectory() as tmp:
     with open(fake_ssh, "w") as f:
         f.write(f'#!/bin/sh\necho "$@" >> "{ssh_log}"\necho \'{{"ok":true}}\'\n')
     os.chmod(fake_ssh, 0o755)
+    herdr.reset_breakers()  # earlier hang/255 cases tripped the in-process breaker
     remote_cfg = json.dumps({"air-m1": {"sshAlias": "trungs-air",
                                          "herdrPath": "/x/herdr", "label": "Air"}})
     rc, out, err = run_cli(

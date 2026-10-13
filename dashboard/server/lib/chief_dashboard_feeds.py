@@ -324,6 +324,11 @@ def machines_status():
             "ageSec": snap.get("ageSec"),
             "agentCount": len((snap.get("data") or {}).get("agents") or []),
         }
+        # Additive: the circuit breaker's view. `unreachable` = the machine
+        # (not herdr) is the problem; Pro rows are unaffected either way.
+        br = herdr_transport.breaker_status(name)
+        out[name]["unreachable"] = bool(br["open"])
+        out[name]["retryInSec"] = br["retryInSec"]
     return out
 
 

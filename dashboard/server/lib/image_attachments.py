@@ -51,6 +51,12 @@ def _ensure_dir(directory):
     os.chmod(directory, 0o700)
 
 
+#: Shared with audio_attachments.py / voice_transcription.py (same folder,
+#: same id format, same sweep).
+ID_RE = _ID_RE
+ensure_private_dir = _ensure_dir
+
+
 def sweep_expired(directory=None, now=None):
     """Delete attachments older than TTL_SECONDS. Returns how many."""
     directory = directory or ATTACHMENTS_DIR

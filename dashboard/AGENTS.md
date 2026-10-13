@@ -576,6 +576,37 @@ Same route, same request/response shapes, same audit rows, same clients as a Cla
 - **Authority**: the text reaches the tool as an ordinary user prompt; nothing here elevates it (contrast the Claude inbox path, where the session sees a peer). Tests inject only the inert sentinel `$(echo INJECTED)` and assert it arrives literally.
 - Tests: `test_tui_message.py` (gate, checks, OpenCode job outcomes, Codex fake-pane state machine incl. stuck/prompt-appeared/herdr failure, end-to-end through `handle_session_action` with fake I/O), `test_tui_jobs.py` (real plugin under node: message allowlist), `test_tui_status_events.py`. Live 2026-09-29 (scratch dashboard :4731, scratch OpenCode 1.18.30 + Codex 0.154 panes, "reply with the word pong"): OpenCode sent + busy needsConfirm -> queued + refused while a question picker was open + refused `/` `!`; Codex sent, busy queued, `@file` text sent.
 
+## Voice notes (`/api/attachments/audio`, `/api/transcribe`) — phone mic -> text
+Phone records, uploads, the Mac transcribes, the phone polls. Both listeners,
+same auth/CSRF as the image route. Code: `lib/audio_attachments.py` (storage),
+`lib/voice_transcription.py` (jobs, normalization, CLI transcriber); tests
+`tests/test_voice_transcription.py` (fake CLI + fake transcriber, no network).
+- `POST /api/attachments/audio` raw body; types mp4/x-m4a/webm/ogg/mpeg/wav/aac
+  (`;codecs=` stripped), 25 MB (413 before reading), magic-byte sniffed (415).
+  Stored beside images in `~/.agentbar/attachments/` (0700/0600, 7-day sweep).
+- `POST /api/transcribe {id}` -> `{ok,id,state:"pending"}` (404 unknown id; a
+  failed id restarts, pending/done are returned as-is). `GET /api/transcribe/<id>`
+  -> `state` pending|done|failed, `text` | `error`. Text is send-ready: whitespace
+  collapsed, control chars stripped, leading `/` `!` dropped, <= 8000 chars at a
+  word boundary. Empty -> failed "No speech detected".
+- Jobs: 2 workers, per-job timeout 60 s - 10 min from file size, child killed by
+  process group. Results also in `<id>.transcript.json` next to the audio; a job
+  pending at a restart reads back as failed ("interrupted") so the phone retries.
+- Transcriber = SpeechToDo CLI (`process-pending --provider gemini`) in a temp
+  workspace. Gotcha: the CLI ignores audio it didn't create ("unowned"), so each
+  job writes the CLI's own `<file>.speechtodo-owner-pending.json` marker beside
+  the copied audio (same trick the iOS app uses). Transcript read from
+  `.speechtodo/outputs/*/transcript.json` segments.
+- Config (`~/.config/agent-dashboard/config.json`, optional):
+  `"transcribe": {"geminiKeyFile": "...", "nodePath": "...", "cliPath": "..."}`.
+  Key lookup: `geminiKeyFile` -> env `GEMINI_KEY_FILE` -> the SpeechToDo desktop
+  app's `~/Library/Application Support/SpeechToDo Dev/gemini-key.runtime` ->
+  env `GOOGLE_API_KEY`. Key reaches the CLI via the child's env only; never in
+  args, logs or replies. No key -> "Transcription isn't set up on the Mac
+  (missing Gemini key)". node/CLI paths are absolute (launchd PATH is bare).
+- Every user-facing error is a fixed English sentence; CLI output is logged
+  server-side only, key-scrubbed, last 300 chars.
+
 ## Running it
 ```
 cd dashboard

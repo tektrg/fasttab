@@ -159,7 +159,7 @@ gone — re-check the pane" / "typed feedback did not land — re-check the
 pane" (/api/permission).
 
 Run via herdr (not tmux — see AGENTS.md's herdr override), e.g.:
-  herdr tab create --cwd /Users/trungluong/01_Project/command-bar-macos-dashboard/dashboard --label chief-dashboard-server --no-focus
+  herdr tab create --cwd ~/01_Project/command-bar-macos/dashboard --label chief-dashboard-server --no-focus
   herdr pane run <pane_id> "python3 server/chief-dashboard-server.py"
 
 Python stdlib only. No pip installs, no node_modules.
@@ -210,6 +210,8 @@ import persona_remote  # noqa: E402  (persona list/start on the remote listener)
 import message_gate  # noqa: E402  (non-Claude panes are never typed into)
 import tui_message  # noqa: E402  (Phase 4: message an OpenCode / Codex row)
 import image_attachments  # noqa: E402  (image uploads -> path notes in Send message)
+import audio_attachments  # noqa: E402  (voice-note uploads from the phone)
+import voice_transcription  # noqa: E402  (voice note -> text via SpeechToDo CLI)
 import jev_route  # noqa: E402  (POST /api/jev/route — pick a persona server-side)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
 import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
@@ -375,7 +377,12 @@ def _live_pane_ids_cached(machine=herdr_transport.LOCAL_MACHINE):
     if cached and now - cached["ts"] < _PANE_FEED_TTL_SEC:
         return set(cached["ids"])
     try:
-        panes = session_actions._live_panes(machine=machine)
+        # Request path (every /api/state): a remote machine gets a short
+        # budget; an unreachable one fails instantly via the breaker and the
+        # last-known set below stands in.
+        panes = session_actions._live_panes(
+            machine=machine,
+            timeout=10 if machine == herdr_transport.LOCAL_MACHINE else 2)
         ids = {herdr_transport.make_pane_key(machine, p.get("pane_id"))
                for p in panes if p.get("pane_id")}
     except Exception:
@@ -2746,6 +2753,7 @@ connect();
 
 MAX_REQUEST_BODY_BYTES = 1_000_000
 IMAGE_UPLOAD_PATH = "/api/attachments/image"
+AUDIO_UPLOAD_PATH = "/api/attachments/audio"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2867,25 +2875,37 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
         super().end_headers()
 
-    def _handle_image_upload(self):
-        """POST /api/attachments/image: raw image bytes (own 5 MB cap,
-        separate from the 1 MB JSON cap) -> {ok, id}. Both listeners (the
-        phone attaches too). An oversized body is refused unread (the
-        unread-body guard closes the connection)."""
+    def _handle_raw_upload(self, max_bytes, store, over_cap_message, noun):
+        """Raw-body upload on BOTH listeners (the phone uploads too), with its
+        own cap separate from the 1 MB JSON cap. An oversized body is refused
+        unread (the unread-body guard closes the connection)."""
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = -1
-        if length < 0 or length > image_attachments.MAX_IMAGE_BYTES:
-            self._send_json({"ok": False, "error": "image over 5 MB — downscale it first"}, status=413)
+        if length < 0 or length > max_bytes:
+            self._send_json({"ok": False, "error": over_cap_message}, status=413)
             return
         data = self.rfile.read(length) if length else b""
         self._request_body_read = True
+        if len(data) != length:  # the phone's connection dropped mid-upload
+            self._send_json({"ok": False, "error": f"the {noun} upload was cut off — try again"}, status=400)
+            return
         try:
-            payload, status = image_attachments.store_image(data, self.headers.get("Content-Type"))
+            payload, status = store(data, self.headers.get("Content-Type"))
         except OSError as e:
-            payload, status = {"ok": False, "error": f"could not store image — {e}"}, 500
+            payload, status = {"ok": False, "error": f"could not store {noun} — {e}"}, 500
         self._send_json(payload, status=status)
+
+    def _handle_image_upload(self):
+        """POST /api/attachments/image: raw image bytes (5 MB cap) -> {ok, id}."""
+        self._handle_raw_upload(image_attachments.MAX_IMAGE_BYTES, image_attachments.store_image,
+                                "image over 5 MB — downscale it first", "image")
+
+    def _handle_audio_upload(self):
+        """POST /api/attachments/audio: raw voice-note bytes (25 MB cap) -> {ok, id}."""
+        self._handle_raw_upload(audio_attachments.MAX_AUDIO_BYTES, audio_attachments.store_audio,
+                                audio_attachments.OVER_CAP_MESSAGE, "recording")
 
     def _read_json_body(self):
         return json.loads(self._read_request_body() or b"{}") or {}
@@ -3127,6 +3147,10 @@ class Handler(BaseHTTPRequestHandler):
         if job_reply is not None:
             self._send_json(*job_reply)
             return
+        voice_reply = voice_transcription.handle_get(path)
+        if voice_reply is not None:
+            self._send_json(*voice_reply)
+            return
         if hook_permission_routes.is_hook_path(path):
             self._send_json(*hook_permission_routes.handle_get(
                 path, parse_qs(parsed.query), self._is_remote_listener()))
@@ -3279,6 +3303,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == IMAGE_UPLOAD_PATH:
             self._handle_image_upload()
+            return
+        if path == AUDIO_UPLOAD_PATH:
+            self._handle_audio_upload()
+            return
+        if path == voice_transcription.TRANSCRIBE_PATH:
+            voice_reply = voice_transcription.handle_post(path, self._read_json_body)
+            self._send_json(*voice_reply)
             return
         if path.startswith("/api/session/"):
             action = path[len("/api/session/"):]

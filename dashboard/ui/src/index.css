@@ -438,3 +438,20 @@ body.rp-resizing .rp-resize { background:var(--ask); }
 .image-attach-thumb button { position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%;
   border:none; background:rgba(0,0,0,.65); color:#fff; font-size:12px; line-height:18px; padding:0; cursor:pointer; }
 .image-attach-error { font-size:12px; color:var(--mantine-color-red-6, #e03131); }
+
+/* Voice input (VoiceRecorderBar): mic button, recording timer, transcribing state. */
+.voice-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:4px; font-size:13px; }
+.voice-button { display:inline-flex; align-items:center; justify-content:center; gap:6px; font-size:13px;
+  padding:4px 12px; border-radius:8px; border:1px solid var(--hair); background:transparent; color:inherit;
+  cursor:pointer; min-height:32px; min-width:32px; }
+.voice-button:disabled { opacity:.5; cursor:default; }
+@media (pointer: coarse) { .voice-button { min-height:44px; min-width:44px; } }
+.voice-stop { background:var(--mantine-color-red-6, #e03131); border-color:transparent; color:#fff; font-weight:600; }
+.voice-dot { width:10px; height:10px; border-radius:50%; background:var(--mantine-color-red-6, #e03131);
+  animation:voice-pulse 1.2s ease-in-out infinite; }
+@keyframes voice-pulse { 50% { opacity:.35; } }
+@media (prefers-reduced-motion: reduce) { .voice-dot { animation:none; } }
+.voice-clock { font-variant-numeric:tabular-nums; font-weight:600; }
+.voice-countdown { font-variant-numeric:tabular-nums; color:var(--mantine-color-red-6, #e03131); }
+.voice-working { color:var(--ink-3); }
+.voice-error { flex-basis:100%; font-size:12px; color:var(--mantine-color-red-6, #e03131); }

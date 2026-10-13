@@ -8,10 +8,10 @@
   "machines": {
     "air-m1": {
       "sshAlias": "trungs-air",
-      "herdrPath": "/Users/wifey/.local/bin/herdr",
+      "herdrPath": "/Users/you/.local/bin/herdr",
       "label": "Air",
       "maxParallel": 4,
-      "repoRoot": "/Users/wifey/01_Project/AptusFit"
+      "repoRoot": "/Users/you/01_Project/AptusFit"
     }
   },
   "remote": {

@@ -95,7 +95,7 @@ Small, practical fixes are welcome. The most useful contributions are reproducib
 
 ## License
 
-Copyright is retained by the app author. Unless a separate written license says otherwise, this repository does not grant an open source license to copy, redistribute, resell, repackage, or publish modified versions of FastTab.
+FastTab is licensed under the [Functional Source License, Version 1.1, MIT Future License](LICENSE) (FSL-1.1-MIT). You may use, modify, and redistribute it for any purpose other than a competing product or service. Each version converts to the MIT license two years after it is released.
 
 You may read the source, build it locally for personal evaluation, and submit focused fixes. If you want to use FastTab as a product, please use the official build from [fasttab.theindie.app](https://fasttab.theindie.app).
 

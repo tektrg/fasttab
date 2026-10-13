@@ -397,11 +397,11 @@ def assess_row(agent, row_id, *, live_pane_ids, memory_bytes=None,
 # ── Executors (each looks its target up fresh, refuses loudly, never assumes:
 #    the house style of POST /api/focus and POST /api/answer) ──
 
-def _live_panes(machine=herdr_transport.LOCAL_MACHINE):
+def _live_panes(machine=herdr_transport.LOCAL_MACHINE, timeout=10):
     try:
         data = herdr_transport.herdr_cmd_json(
             machine, ["pane", "list"], repo_root=REPO_ROOT, machines=MACHINES,
-            timeout=10)
+            timeout=timeout)
     except herdr_transport.HerdrError as e:
         raise RuntimeError(f"herdr pane list failed on {machine} — {e}")
     return (data.get("result") or {}).get("panes") or []

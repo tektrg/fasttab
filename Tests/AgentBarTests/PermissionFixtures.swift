@@ -24,7 +24,7 @@ enum PermissionFixtures {
         cursorIndex: 1
     )
 
-    static let longCommand = "cd /Users/trungluong/01_Project/AptusFit && find . -name '*.py' -not -path './node_modules/*' | xargs grep -l 'permission' | head -50 && echo done-with-a-very-long-command-line-that-wraps"
+    static let longCommand = "cd /Users/you/01_Project/AptusFit && find . -name '*.py' -not -path './node_modules/*' | xargs grep -l 'permission' | head -50 && echo done-with-a-very-long-command-line-that-wraps"
 
     /// The pane's screen for `prompt`, as a fresh unwrapped read shows it.
     static func screen(for prompt: PermissionPrompt) -> [String] {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Button, Group, List, Text, TextInput } from "@mantine/core";
 import type { BoardRow } from "../types";
 import {
@@ -14,6 +14,9 @@ import { INBOX_CAPTION, WAKE_CAPTION, messagesViaInbox, wakesToMessage } from ".
 import { REMOTE_IMAGE_CAPTION, TOOL_MESSAGE_CAPTION, acceptsImages, isToolAgent } from "../messageGates";
 import { imagesFromClipboard, uploadImages, useImageAttachments } from "../imageAttachments";
 import { ImageAttachBar } from "./ImageAttachBar";
+import { VoiceRecorderBar } from "./VoiceRecorderBar";
+import { useVoiceInput } from "../voice/useVoiceInput";
+import { appendTranscript } from "../voice/transcript";
 
 interface SentRow {
   rowId: string;
@@ -69,6 +72,14 @@ export function Composer({
   // Uploaded once per send, shared by every target row and the confirm-queue step.
   const [heldIds, setHeldIds] = useState<string[]>([]);
   const attach = useImageAttachments();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // The transcript joins the end of whatever is typed; sending stays a tap.
+  const voice = useVoiceInput({
+    onText: (spoken) => {
+      setText((current) => appendTranscript(current, spoken));
+      inputRef.current?.focus();
+    },
+  });
 
   // Partitioned fresh each render from server-provided row status — the
   // refetch can end rows under us, and ended rows must never be POSTed.
@@ -206,6 +217,7 @@ export function Composer({
               ? `one line to the ${allInbox ? "session" : "pane"}${targets.length > 1 ? "s" : ""} — Enter sends`
               : "select one or more rows to enable"
           }
+          ref={inputRef}
           value={text}
           disabled={targets.length === 0}
           onChange={(e) => setText(e.currentTarget.value)}
@@ -248,6 +260,7 @@ export function Composer({
           onRemove={attach.remove}
         />
       )}
+      {(targets.length > 0 || voice.phase !== "idle") && <VoiceRecorderBar voice={voice} disabled={busy || !!pending} />}
       {targets.length > 0 && !imagesAllowed && (
         <Text size="xs" c={imagesBlocked ? "red" : "dimmed"} mt={4} className="composer-remote-image-note">
           {imagesBlocked ? `${REMOTE_IMAGE_CAPTION} Remove the images to send.` : REMOTE_IMAGE_CAPTION}

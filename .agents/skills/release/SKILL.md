@@ -106,7 +106,7 @@ Then commit + push the website repo separately.
 ## Prerequisites (already set up — no action needed)
 
 - Developer ID Application cert in Keychain: `Developer ID Application: Trung Luong (56S46Y7CKN)`
-- Apple ID notarytool auth: `luongtattrung@gmail.com`, team `56S46Y7CKN`
+- Apple ID notarytool auth: `you@example.com` (your Apple ID), team `56S46Y7CKN`
 - Sparkle EdDSA private key in Keychain (public key in `.env`)
 - `wrangler` configured in `../theindieapp_website/`
 - `../theindieapp_website/` repo cloned at that relative path

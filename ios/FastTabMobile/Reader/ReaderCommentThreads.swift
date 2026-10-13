@@ -3,14 +3,14 @@ import Foundation
 import IndieComments
 
 /// Comment threads on reader highlights, in the portfolio's shared anchored-thread model
-/// (IndieLibKit `IndieComments`, MDLY's format). One log per article; a highlight points at
-/// its thread through `ReaderHighlight.commentThreadId`, set when its first comment is written.
-/// Local only for now, like the highlights themselves.
+/// (IndieLibKit `IndieComments`, MDLY's format). One log per article; a highlight's thread is
+/// the one `ReaderHighlight.commentThreadId` names (set when this phone opens it), else one an
+/// agent opened on the same passage (`ReaderHighlightThreads`). Synced via `ReaderZone`.
 @MainActor
 public final class ReaderCommentThreads: ObservableObject {
     public static let shared = ReaderCommentThreads(directory: defaultDirectory)
 
-    /// The person using the app. Agents write as `.agent` through MCP (later step).
+    /// The person using the app. Agents write as `.agent` through the Mac's MCP tools.
     public static let me = CommentAuthor(kind: .human, id: "me", label: "You")
 
     /// Live threads by highlight id, for the highlights `load` has seen.
@@ -48,16 +48,19 @@ public final class ReaderCommentThreads: ObservableObject {
     // Threads are read with no article text: the reader places highlights itself, so the
     // anchor's resolution against the page is not needed here.
 
-    /// Reads the threads of every commented highlight in `highlights` (small local files).
+    /// Reads the threads of `highlights` (one small local file per article). Every highlight
+    /// is looked at, not only linked ones: an agent's thread carries no link.
     public func load(_ highlights: [ReaderHighlight]) {
-        let commented = highlights.filter { $0.commentThreadId != nil }
+        let commented = highlights
         let startedAt = changeCount
         Task {
             var loaded: [String: CommentThread] = [:]
             for (urlKey, group) in Dictionary(grouping: commented, by: \.urlKey) {
                 let threads = (try? await store.threads(docId: Self.docId(urlKey: urlKey), text: "")) ?? []
+                guard !threads.isEmpty else { continue }
                 for highlight in group {
-                    if let thread = threads.first(where: { $0.id == highlight.commentThreadId }) {
+                    if let thread = ReaderHighlightThreads.thread(
+                        linkedThreadId: highlight.commentThreadId, anchor: Self.anchor(for: highlight), in: threads) {
                         loaded[highlight.id] = thread
                     }
                 }
@@ -123,25 +126,9 @@ public final class ReaderCommentThreads: ObservableObject {
         ReaderCommentDocID.forArticle(urlKey: urlKey)
     }
 
-    /// The highlight's passage as a shared anchor: offsets and context from the reader's
-    /// range descriptor (UTF-16 offsets into the article body, as JavaScript counts).
+    /// The highlight's passage as a shared anchor (`ReaderHighlightThreads.anchor`).
     nonisolated static func anchor(for highlight: ReaderHighlight) -> TextAnchor {
-        struct Descriptor: Decodable {
-            let text: String?
-            let start: Int?
-            let len: Int?
-            let cb: String?
-            let ca: String?
-        }
-        let descriptor = try? JSONDecoder().decode(Descriptor.self, from: Data(highlight.serializedRange.utf8))
-        let quote = descriptor?.text ?? highlight.selectedText
-        let length = descriptor?.len ?? quote.utf16.count
-        let start = max(0, descriptor?.start ?? 0)
-        return TextAnchor(
-            from: start, to: start + max(1, length), quote: quote,
-            contextBefore: descriptor?.cb.flatMap { $0.isEmpty ? nil : $0 },
-            contextAfter: descriptor?.ca.flatMap { $0.isEmpty ? nil : $0 }
-        )
+        ReaderHighlightThreads.anchor(serializedRange: highlight.serializedRange, selectedText: highlight.selectedText)
     }
 
     // MARK: - Private

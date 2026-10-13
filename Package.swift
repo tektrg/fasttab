@@ -10,6 +10,8 @@ let indieEdgeRevealUI: Target.Dependency = .product(name: "IndieEdgeRevealUI", p
 let indieFeedbackUI: Target.Dependency = .product(name: "IndieFeedbackUI", package: "IndieLibKit")
 let indieFeedback: Target.Dependency = .product(name: "IndieFeedback", package: "IndieLibKit")
 let indieComments: Target.Dependency = .product(name: "IndieComments", package: "IndieLibKit")
+let indieTable: Target.Dependency = .product(name: "IndieTable", package: "IndieLibKit")
+let indieMCP: Target.Dependency = .product(name: "IndieMCP", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -21,6 +23,7 @@ let package = Package(
         .executable(name: "FastTab", targets: ["FastTab"]),
         .executable(name: "FastTabNativeHost", targets: ["FastTabNativeHost"]),
         .executable(name: "AgentBar", targets: ["AgentBar"]),
+        .executable(name: "FastTabMCP", targets: ["FastTabMCP"]),
         .library(name: "FastTabSync", targets: ["FastTabSync"])
     ],
     dependencies: [
@@ -39,6 +42,19 @@ let package = Package(
             // IndieComments: reader comment threads synced by ReaderSyncBridge.
             dependencies: [indieSearch, indieComments]
         ),
+        // The phone's reader highlights + comment threads as the Mac sees them: the synced
+        // mirror, the Highlights table (IndieTable views) and comment actions. Shared by the
+        // app's Settings page and the FastTabMCP helper, so both show the same views.
+        .target(
+            name: "FastTabReader",
+            dependencies: ["FastTabSync", indieComments, indieTable]
+        ),
+        // Stdio MCP server bundled in the app (Contents/MacOS/fasttab-mcp): comment tools over
+        // the reader mirror.
+        .executableTarget(
+            name: "FastTabMCP",
+            dependencies: ["FastTabReader", indieComments, indieMCP]
+        ),
         // Reusable command-bar building blocks shared with future apps.
         // Only static-library dependencies and no resources on purpose: it links
         // into the app binary, so `build-app.sh` keeps copying a single executable.
@@ -51,6 +67,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle"),
                 "FastTabSync",
+                "FastTabReader",
                 "CommandBarKit",
                 indieSearch,
                 indieMetrics,
@@ -73,7 +90,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments]
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabMCP", "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP]
         ),
         .testTarget(
             name: "AgentBarTests",

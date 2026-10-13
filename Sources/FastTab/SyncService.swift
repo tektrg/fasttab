@@ -2,6 +2,7 @@ import Foundation
 import CloudKit
 import OSLog
 import FastTabSync
+import FastTabReader
 
 @MainActor
 final class SyncService: NSObject, ObservableObject {

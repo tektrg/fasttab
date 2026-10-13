@@ -90,9 +90,9 @@ public final class ReaderHighlightStore: ObservableObject {
 
     /// A highlight's comments go with it (owner decision 2026-10-13).
     private func deleteCommentThreads(of removed: [ReaderHighlight]) {
-        let commented = removed.filter { $0.commentThreadId != nil }
-        guard !commented.isEmpty else { return }
-        Task { await ReaderCommentThreads.shared.deleteThreads(of: commented) }
+        // All of them: a thread an agent opened carries no link but is still found.
+        guard !removed.isEmpty else { return }
+        Task { await ReaderCommentThreads.shared.deleteThreads(of: removed) }
     }
 
     // MARK: - Persistence

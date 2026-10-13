@@ -4,6 +4,7 @@ import IndieComments
 import Testing
 @testable import FastTabSync
 @testable import FastTab
+import FastTabReader
 
 /// Two devices, each a bridge over its own temp folder, passing records by hand the way
 /// CloudKit would.

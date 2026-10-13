@@ -17,6 +17,10 @@ public final class ReaderCommentThreads: ObservableObject {
     @Published public private(set) var threadsByHighlightID: [String: CommentThread] = [:]
 
     private let store: CommentStore
+    /// Bumped on every write; `changedAt` records it per highlight so a slower `load` never
+    /// overwrites a fresher thread.
+    private var changeCount = 0
+    private var changedAt: [String: Int] = [:]
     private let highlightStore: () -> ReaderHighlightStore
 
     init(directory: URL, highlightStore: @escaping () -> ReaderHighlightStore = { .shared }) {
@@ -34,6 +38,7 @@ public final class ReaderCommentThreads: ObservableObject {
     /// Reads the threads of every commented highlight in `highlights` (small local files).
     public func load(_ highlights: [ReaderHighlight]) {
         let commented = highlights.filter { $0.commentThreadId != nil }
+        let startedAt = changeCount
         Task {
             var loaded: [String: CommentThread] = [:]
             for (urlKey, group) in Dictionary(grouping: commented, by: \.urlKey) {
@@ -44,8 +49,10 @@ public final class ReaderCommentThreads: ObservableObject {
                     }
                 }
             }
-            let ids = Set(commented.map(\.id))
-            threadsByHighlightID = threadsByHighlightID.filter { !ids.contains($0.key) }.merging(loaded) { $1 }
+            // A post/resolve/delete that landed while this read ran is newer: keep it.
+            let ids = Set(commented.map(\.id)).filter { (changedAt[$0] ?? 0) <= startedAt }
+            threadsByHighlightID = threadsByHighlightID.filter { !ids.contains($0.key) }
+                .merging(loaded.filter { ids.contains($0.key) }) { $1 }
         }
     }
 
@@ -82,6 +89,7 @@ public final class ReaderCommentThreads: ObservableObject {
         for highlight in highlights {
             guard let threadId = currentThreadId(of: highlight) else { continue }
             _ = try? await store.delete(docId: Self.docId(urlKey: highlight.urlKey), threadId: threadId, author: Self.me)
+            markChanged(highlight.id)
             threadsByHighlightID[highlight.id] = nil
         }
     }
@@ -126,7 +134,13 @@ public final class ReaderCommentThreads: ObservableObject {
 
     private func refresh(_ highlight: ReaderHighlight, threadId: String) async {
         let thread = try? await store.thread(id: threadId, docId: Self.docId(urlKey: highlight.urlKey), text: "")
+        markChanged(highlight.id)
         threadsByHighlightID[highlight.id] = thread?.state == .deleted ? nil : thread
+    }
+
+    private func markChanged(_ highlightID: String) {
+        changeCount += 1
+        changedAt[highlightID] = changeCount
     }
 
     private static var defaultDirectory: URL {

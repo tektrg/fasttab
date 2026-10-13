@@ -149,14 +149,14 @@ public struct ReaderView: View {
         .sheet(isPresented: $showHighlightsSheet) {
             highlightsSheet
         }
-        .sheet(isPresented: Binding(
-            get: { tappedHighlightID != nil },
-            set: { if !$0 { tappedHighlightID = nil } }
-        )) {
-            if let highlight = viewModel.highlights.first(where: { $0.id == tappedHighlightID }) {
-                HighlightThreadSheet(highlight: highlight) {
-                    viewModel.removeHighlight(id: highlight.id)
-                }
+        // Item, not a lookup in `viewModel.highlights`: deleting from the sheet removes it there
+        // first, which would blank the sheet while it slides away.
+        .sheet(item: Binding(
+            get: { viewModel.highlights.first { $0.id == tappedHighlightID }.map(TappedHighlight.init) },
+            set: { if $0 == nil { tappedHighlightID = nil } }
+        )) { tapped in
+            HighlightThreadSheet(highlight: tapped.highlight) {
+                viewModel.removeHighlight(id: tapped.highlight.id)
             }
         }
     }
@@ -608,4 +608,10 @@ private struct ReaderInAppFallbackView: UIViewRepresentable {
             }
         }
     }
+}
+
+/// A tapped highlight as a sheet item, so the sheet keeps its own copy.
+private struct TappedHighlight: Identifiable {
+    let highlight: ReaderHighlight
+    var id: String { highlight.id }
 }

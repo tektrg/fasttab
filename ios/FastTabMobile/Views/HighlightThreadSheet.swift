@@ -131,7 +131,8 @@ struct HighlightThreadSheet: View {
         let text = draft
         perform {
             try await threads.post(text, on: highlight)
-            draft = ""
+            // Keep anything typed while it was sending.
+            if draft == text { draft = "" }
         }
     }
 

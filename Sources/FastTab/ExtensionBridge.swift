@@ -50,6 +50,8 @@ struct ExtensionTabRecord: Sendable {
     let isDiscarded: Bool
     let groupTitle: String?
     let lastAccessed: Date?
+    /// The browser profile's display name, stamped from the connection (ExtensionProfileTags).
+    var profileName: String?
 
     init(
         tabID: Int,
@@ -193,6 +195,8 @@ private final class CommandWaiter: @unchecked Sendable {
 struct ConnectionState {
     var appName: String = ""
     var extensionVersion: String = ""
+    /// This profile's extension tag (`ftp-…`), sent with hello by extension 0.1.5+.
+    var profileTag: String = ""
     var isProtocolMismatch: Bool = false
     var lastContactAt: Date = .distantPast
     var lastSeq: UInt64 = 0
@@ -347,7 +351,17 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             for connection in activeConnections {
                 activationTimes.merge(connection.activationTimes) { $1 }
             }
-            let tabs = Self.dedupedTabs(from: activeConnections.map { Array($0.tabs.values) })
+            let supportDirectory = ChromiumBrowserSpec.all.first { $0.appName == appName }?.supportDirectory
+            let tabs = Self.dedupedTabs(from: activeConnections.map { connection in
+                let profileName = supportDirectory.flatMap {
+                    ExtensionProfileTags.shared.profileName(tag: connection.profileTag, supportDirectory: $0)
+                }
+                return connection.tabs.values.map { tab in
+                    var tab = tab
+                    tab.profileName = profileName
+                    return tab
+                }
+            })
             return ExtensionSnapshotView(tabs: tabs, activationTimes: activationTimes)
         }
     }
@@ -808,9 +822,10 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             var upsertedEvent: (appName: String, tab: ExtensionTabRecord)?
             var snapshotEvent: (appName: String, tabs: [ExtensionTabRecord])?
             switch message {
-            case .hello(let appName, let extensionVersion):
+            case .hello(let appName, let extensionVersion, let profileTag):
                 connection.appName = appName
                 connection.extensionVersion = extensionVersion
+                connection.profileTag = profileTag
                 connection.isProtocolMismatch = connection.isProtocolMismatch || versionMismatch
                 connectionAddedOrNamed = true
 
@@ -875,7 +890,7 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
     /// Decoded form of an inbound message; all fields Sendable so it can cross
     /// into the bridge lock. Parsing happens outside the lock.
     enum InboundMessage: Sendable {
-        case hello(appName: String, extensionVersion: String)
+        case hello(appName: String, extensionVersion: String, profileTag: String)
         case snapshot(tabs: [ExtensionTabRecord])
         case tabUpsert(ExtensionTabRecord)
         case tabRemoved(Int)
@@ -900,7 +915,8 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         case "hello":
             let appRaw = payload["app"] as? String ?? ""
             let appName = ChromiumBrowserSpec.all.first(where: { $0.source.rawValue == appRaw })?.appName ?? ""
-            return .hello(appName: appName, extensionVersion: payload["extensionVersion"] as? String ?? "")
+            return .hello(appName: appName, extensionVersion: payload["extensionVersion"] as? String ?? "",
+                          profileTag: payload["profileTag"] as? String ?? "")
 
         case "snapshot":
             var tabs: [ExtensionTabRecord] = []

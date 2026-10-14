@@ -150,6 +150,7 @@ struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileAccess>: Br
                 windowIndex: tab.windowIndex,
                 tabIndex: tab.tabIndex,
                 windowName: tab.windowName,
+                profileName: tab.profileName,
                 isCurrentFlowActiveTab: isFrontActive,
                 hasMediaIndicator: isAudibleToUser,
                 tabID: tab.tabID,

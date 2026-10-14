@@ -94,7 +94,7 @@ import Testing
 
     @Test func decodeHelloMapsBrowserApp() {
         let hello = ExtensionBridge.decodeInboundMessage(type: "hello", payload: ["app": "brave", "extensionVersion": "0.1.0"], now: Date())
-        guard case .hello(let appName, let version) = hello else {
+        guard case .hello(let appName, let version, _) = hello else {
             Issue.record("expected hello")
             return
         }

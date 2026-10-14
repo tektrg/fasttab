@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "FastTab Companion",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "minimum_chrome_version": "89",
   "description": "Lets the FastTab Mac app read and switch your Chrome tabs instantly, without macOS permission prompts. Requires the FastTab Mac app (fasttab.theindie.app) — this extension does nothing on its own.",
-  "permissions": ["tabs", "tabGroups", "nativeMessaging", "alarms", "bookmarks", "history"],
+  "permissions": ["tabs", "tabGroups", "nativeMessaging", "alarms", "bookmarks", "history", "storage"],
   "background": {
     "service_worker": "background.js"
   },

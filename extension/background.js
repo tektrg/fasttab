@@ -211,8 +211,27 @@ function connect() {
     // here, so this covers "FastTab not running yet".
     reconnectTimer = setTimeout(connect, 5000);
   });
-  sendMessage('hello', { app: getBrowserId(), extensionVersion: chrome.runtime.getManifest().version });
-  sendFullSnapshot();
+  withProfileTag((profileTag) => {
+    sendMessage('hello', { app: getBrowserId(), extensionVersion: chrome.runtime.getManifest().version, profileTag });
+    sendFullSnapshot();
+  });
+}
+
+// A random id this profile's copy of the extension keeps forever. Saved in the
+// profile's own extension storage on disk, which is how the Mac app finds which
+// browser profile (and so its name) this connection belongs to.
+function withProfileTag(done) {
+  const key = 'fasttabProfileTag';
+  try {
+    chrome.storage.local.get(key, (items) => {
+      let tag = items && items[key];
+      if (typeof tag === 'string' && tag.startsWith('ftp-')) { done(tag); return; }
+      tag = 'ftp-' + Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
+      chrome.storage.local.set({ [key]: tag }, () => done(tag));
+    });
+  } catch (e) {
+    done('');
+  }
 }
 
 function onNativeMessage(msg) {

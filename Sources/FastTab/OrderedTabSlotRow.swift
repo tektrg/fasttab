@@ -33,8 +33,9 @@ struct OrderedTabSlotRow: View {
     /// Trailing clearance reserved while the action overlay is visible, so the
     /// title truncates before the buttons instead of running underneath them.
     /// Ghost rows show an extra reopen button.
+    /// Full style reserves nothing: the overlay covers the text, so hover never re-wraps it.
     private var actionReserveWidth: CGFloat {
-        guard isActionsVisible else { return 0 }
+        guard rowStyle == .minimal, isActionsVisible else { return 0 }
         return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: isGhost ? 4 : 3)
     }
 

@@ -190,13 +190,13 @@ private struct ResultRowView: View {
     private var isActionsVisible: Bool { isHovering || isSelected }
 
     /// Trailing clearance reserved while the action overlay is visible, so the
-    /// title truncates before the buttons instead of running underneath them.
+    /// minimal one-line title truncates before the buttons.
     ///
-    /// Reserved permanently when the title/metadata can wrap (Full style): toggling it on hover narrowed the text, re-wrapped it
-    /// and changed the row's height — a layout shift under the cursor.
+    /// Full style reserves nothing: its text fills the row and the overlay (solid, faded
+    /// backdrop) covers it on hover. Reserving on hover re-wrapped the text and changed the
+    /// row height; reserving always left a blank column beside every row.
     private var actionReserveWidth: CGFloat {
-        let canWrap = rowStyle != .minimal
-        guard canWrap || isActionsVisible else { return 0 }
+        guard rowStyle == .minimal, isActionsVisible else { return 0 }
         let buttonCount = result.type == .tab ? 3 : 2
         return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: buttonCount)
     }

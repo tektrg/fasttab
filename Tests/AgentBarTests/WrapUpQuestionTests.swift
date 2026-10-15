@@ -113,3 +113,26 @@ struct WrapUpQuestionCardTests {
         #expect(source.sent.isEmpty)
     }
 }
+
+/// The real `/api/state` captured while a Claude Desktop wrap_up question was pending
+/// (`Fixtures/wrap-up-pending-state.json`, trimmed to that session). Live test 2026-10-15: the data reached
+/// the app intact and the row sat in Needs you, but with no blocker it drew no button until selected — it
+/// looked like any idle row. The row now carries a red Answer that is visible unselected.
+struct WrapUpLivePayloadTests {
+    static func row() throws -> AgentSnapshot {
+        let snapshot = try HookBridgeLivePayloadTests.snapshot("wrap-up-pending-state")
+        let rows = AgentListBuilder.presentation(snapshot: snapshot, query: "", frecency: [:], now: Date()).rows
+        #expect(rows.first == .header(.needsYou))
+        return try #require(snapshot.agents.first { $0.wrapUpQuestion != nil })
+    }
+
+    @Test func theCapturedQuestionIsWaitingOnYouWithAVisibleRedAnswer() throws {
+        let row = try Self.row()
+        #expect(row.section == .needsYou)
+        #expect(row.isWaitingOnYou)
+        #expect(row.statusText == "Probe 2: please don't answer for ~60 seconds.")
+        let first = try #require(RowButtons.available(for: row).first)
+        #expect(first.button == .message && first.answersWrapUp && first.isBlockedAction && first.label == "Answer")
+        #expect(row.wrapUpQuestion?.actions.map(\.message) == ["Waited 60s; read probe 2."])
+    }
+}

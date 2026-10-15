@@ -157,14 +157,19 @@ struct AgentRowView: View {
 
     /// Buttons show on the selected row, and stay while a press is being settled.
     /// A blocked row always shows its red button, so it cannot be missed.
+    /// Blocked, or its turn ended on a question (wrap_up): the red button shows even unselected.
+    private var showsQuestionButton: Bool {
+        agent.blockedOnYou != nil || (agent.section == .needsYou && agent.wrapUpQuestion != nil)
+    }
+
     private var showsButtons: Bool {
-        !visibleButtons.isEmpty && (isSelected || actionState != nil || agent.blockedOnYou != nil)
+        !visibleButtons.isEmpty && (isSelected || actionState != nil || showsQuestionButton)
     }
 
     /// Selected (or settling): every button, with a busy/confirming/just-finished menu item
     /// (`activeMenuItemSpec`) swapped in for the ⋯ trigger. Otherwise only the blocked row's red one.
     private var visibleButtons: [RowButtonSpec] {
-        let base = isSelected || actionState != nil ? buttons : buttons.filter { agent.blockedOnYou != nil && $0.button.isBlockedAction }
+        let base = isSelected || actionState != nil ? buttons : buttons.filter { showsQuestionButton && $0.isBlockedAction }
         guard let activeMenuItemSpec else { return base }
         return base.map { $0.button == .moreActions ? activeMenuItemSpec : $0 }
     }

@@ -42,12 +42,12 @@ struct RowActionButtonView: View {
 
     private var fill: Color {
         if isConfirming { return Color.red.opacity(0.85) }
-        if spec.button.isBlockedAction { return Color.red.opacity(isHighlighted ? 0.26 : 0.16) }
+        if spec.isBlockedAction { return Color.red.opacity(isHighlighted ? 0.26 : 0.16) }
         return Color.primary.opacity(isHighlighted ? 0.18 : 0.10)
     }
 
     private var foreground: Color {
         if isConfirming { return .white }
-        return spec.button.isBlockedAction ? Color.red : .primary
+        return spec.isBlockedAction ? Color.red : .primary
     }
 }

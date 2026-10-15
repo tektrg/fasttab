@@ -77,12 +77,19 @@ struct RowButtonSpec: Equatable, Sendable {
     let disabledReason: String?
     /// The tooltip of a usable button, when it has something to add (e.g. how a message travels).
     var hint: String? = nil
+    /// A Message button on a row whose turn ended on a question (Claude Desktop wrap_up): drawn as a red
+    /// "Answer", always visible like a blocker's button; it still opens the message card (with the question).
+    var answersWrapUp = false
 
     var isEnabled: Bool { disabledReason == nil }
 
+    /// Red, and shown on the row even when it is not selected.
+    var isBlockedAction: Bool { button.isBlockedAction || answersWrapUp }
+
     /// The label on the row: an Answer that cannot be pressed yet says why in one word.
     var label: String {
-        button == .answer && disabledReason == RowButtons.readingOptionsReason ? "Reading…" : button.title
+        if answersWrapUp { return RowButton.answer.title }
+        return button == .answer && disabledReason == RowButtons.readingOptionsReason ? "Reading…" : button.title
     }
 }
 
@@ -148,6 +155,9 @@ enum RowButtons {
     /// A status-only Claude session gets it too when its inbox can take the message (`MessageRoute`).
     private static func messageButton(for agent: AgentSnapshot) -> [RowButtonSpec] {
         guard let route = messageRoute(for: agent) else { return [] }
+        if let question = agent.wrapUpQuestion {
+            return [RowButtonSpec(button: .message, disabledReason: nil, hint: question.ask, answersWrapUp: true)]
+        }
         return [RowButtonSpec(button: .message, disabledReason: nil, hint: route.caption)]
     }
 
@@ -201,6 +211,9 @@ enum RowButtons {
         case .questionLoading?: return [RowButtonSpec(button: .answer, disabledReason: readingOptionsReason), peek, park]
         case .permissionReview?: return [RowButtonSpec(button: .review, disabledReason: nil), peek, park]
         case .questionNotAnswerable?, .permission?: return [RowButtonSpec(button: .openTerminal, disabledReason: nil), peek, park]
+        case nil where agent.wrapUpQuestion != nil && !messageButton(for: agent).isEmpty:
+            // The turn ended on a question: its red Answer (the message card) leads, like a blocker's.
+            return messageButton(for: agent) + [peek, park] + openInClaudeButton(for: agent) + moreActionsButton(for: agent)
         case nil: return [peek, park] + openInClaudeButton(for: agent) + messageButton(for: agent) + moreActionsButton(for: agent)
         }
     }

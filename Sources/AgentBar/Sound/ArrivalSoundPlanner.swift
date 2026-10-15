@@ -31,7 +31,7 @@ struct ArrivalSoundPlanner: Equatable, Sendable {
         var needsAnswer = false
         var agentDone = false
         for (id, arrivedAt) in undecided {
-            if present[id]?.blocker != nil {
+            if present[id]?.asksTheUser == true {
                 needsAnswer = true
                 undecided[id] = nil
             } else if now.timeIntervalSince(arrivedAt) >= Self.holdSeconds {

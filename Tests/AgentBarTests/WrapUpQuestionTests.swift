@@ -136,3 +136,51 @@ struct WrapUpLivePayloadTests {
         #expect(row.wrapUpQuestion?.actions.map(\.message) == ["Waited 60s; read probe 2."])
     }
 }
+
+/// A new wrap_up question pops the corner tab (and plays the answer sound) the way a blocker does — once
+/// per question, through the same `BlockedEpisodeTracker` / `ArrivalSoundPlanner` path.
+struct WrapUpQuestionAnnounceTests {
+    static func pops(_ tracker: inout BlockedEpisodeTracker, _ needsYou: [AgentSnapshot]) -> Bool {
+        tracker.observe(needsYou)
+    }
+
+    static func agent(ask: String?) throws -> AgentSnapshot {
+        var agent = StatusOnlyFixtures.desktopAgent()
+        if let ask {
+            let json = #"{"ask": "\#(ask)", "actions": [{"label": "Yes"}]}"#
+            agent.wrapUpQuestion = WrapUpQuestion(try JSONDecoder().decode(DashboardWrapUpQuestion.self, from: Data(json.utf8)))
+        }
+        return agent
+    }
+
+    @Test func aNewQuestionPopsOnceAndNotOnRePoll() throws {
+        var tracker = BlockedEpisodeTracker()
+        #expect(!Self.pops(&tracker, [try Self.agent(ask: nil)]))           // baseline
+        #expect(Self.pops(&tracker, [try Self.agent(ask: "Ship it?")]))      // new question
+        #expect(!Self.pops(&tracker, [try Self.agent(ask: "Ship it?")]))     // re-poll
+    }
+
+    @Test func answeredThenANewQuestionPopsAgain() throws {
+        var tracker = BlockedEpisodeTracker()
+        _ = tracker.observe([])
+        #expect(Self.pops(&tracker, [try Self.agent(ask: "Ship it?")]))
+        #expect(!Self.pops(&tracker, []))                                    // answered: the agent works, leaves Needs you
+        #expect(Self.pops(&tracker, [try Self.agent(ask: "Ship it?")]))      // asked again later
+        #expect(Self.pops(&tracker, [try Self.agent(ask: "And slice 2?")]))  // a different question while still there
+    }
+
+    @Test func aWrapUpWithoutAskNeverPops() throws {
+        var tracker = BlockedEpisodeTracker()
+        _ = tracker.observe([])
+        #expect(!Self.pops(&tracker, [try Self.agent(ask: nil)]))
+        #expect(CornerTabContent.summary(of: [try Self.agent(ask: nil)]).blockedCount == 0)
+    }
+
+    @Test func theCornerTabStaysAndTheAnswerSoundPlays() throws {
+        let asking = try Self.agent(ask: "Ship it?")
+        #expect(CornerTabContent.summary(of: [asking]).blockedCount == 1)
+        var planner = ArrivalSoundPlanner()
+        let cue = planner.observe(arrivals: [asking], needsYou: [asking], now: Date())
+        #expect(cue == .needsAnswer)
+    }
+}

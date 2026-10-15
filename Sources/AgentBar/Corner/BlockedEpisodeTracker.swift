@@ -1,26 +1,35 @@
 import Foundation
 
-/// Spots agents in Needs you that have just become blocked on the user (a question or a permission
-/// box, however AgentBar came to know: dashboard, blocker memory or its own pane read). Pure.
+/// Spots agents in Needs you that have just started asking the user something (a question or a permission
+/// box, however AgentBar came to know: dashboard, blocker memory or its own pane read; or a Claude Desktop
+/// end-of-turn wrap_up question). Pure.
 ///
-/// One report per agent per stay in Needs you: an agent already reported keeps quiet while it stays,
-/// even if its blocker flaps, and can be reported again after it left and came back. Like
-/// `NeedsYouArrivalDetector`, the first reading after a start or a dead feed is only a baseline:
-/// agents already blocked then are not "new".
+/// One report per question per stay in Needs you, keyed by `AgentSnapshot.pendingQuestionKey`: a blocker
+/// already reported keeps quiet while the agent stays, even if it flaps; a wrap_up question is keyed by its
+/// ask, so the same one on every re-poll reports once and a different one reports again. Everything about an
+/// agent is forgotten when it leaves Needs you. Like `NeedsYouArrivalDetector`, the first reading after a
+/// start or a dead feed is only a baseline: questions already pending then are not "new".
 struct BlockedEpisodeTracker: Equatable, Sendable {
-    private var announcedIDs: Set<String>?
+    private struct Announced: Hashable, Sendable {
+        let agentID: String
+        let questionKey: String
+    }
 
-    /// `needsYou` is nil when there is no trustworthy reading. True when an agent newly became blocked.
+    private var announced: Set<Announced>?
+
+    /// `needsYou` is nil when there is no trustworthy reading. True when an agent newly asks the user something.
     mutating func observe(_ needsYou: [AgentSnapshot]?) -> Bool {
         guard let needsYou else {
-            announcedIDs = nil
+            announced = nil
             return false
         }
-        let blockedIDs = Set(needsYou.filter { $0.blocker != nil }.map(\.id))
+        let asking = Set(needsYou.compactMap { agent in
+            agent.pendingQuestionKey.map { Announced(agentID: agent.id, questionKey: $0) }
+        })
         let stillPresent = Set(needsYou.map(\.id))
-        let previous = announcedIDs
-        announcedIDs = (previous ?? []).intersection(stillPresent).union(blockedIDs)
+        let previous = announced
+        announced = (previous ?? []).filter { stillPresent.contains($0.agentID) }.union(asking)
         guard let previous else { return false }
-        return !blockedIDs.subtracting(previous).isEmpty
+        return !asking.subtracting(previous).isEmpty
     }
 }

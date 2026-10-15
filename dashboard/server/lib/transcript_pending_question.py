@@ -9,18 +9,23 @@ what is being asked. Nothing here can answer it — that stays in Claude.
 Cheap by construction (called from the 3s claudeSessions feed): only
 `waiting` sessions, one tail window of at most TAIL_BYTES, symlinks and
 non-regular files skipped, results cached by (path, mtime, size) and the
-transcript path cached per session. Parsing is session_transcript's
+transcript path cached per session. `idle` sessions get the same read for
+Claude Desktop's end-of-turn wrap_up question (`transcript_wrap_up`), as
+WRAP_UP_FIELD — answerable, unlike the AskUserQuestion excerpt, because the
+turn is over and a plain inbox message is the answer. Parsing is session_transcript's
 `find_pending_question_form` (the port of AgentBar's own extractor).
 """
 import os
 import stat
 
 import session_transcript
+import transcript_wrap_up
 
 PROJECTS_ROOT = os.path.expanduser("~/.claude/projects")
 #: One window only: a question just asked is at the very end of the file.
 TAIL_BYTES = 256 * 1024
 FIELD_NAME = "transcriptQuestion"
+WRAP_UP_FIELD = transcript_wrap_up.FIELD_NAME
 
 
 def question_excerpt(form):
@@ -52,11 +57,18 @@ class PendingQuestionReader:
         self._projects_root = projects_root or PROJECTS_ROOT
         self._tail_bytes = tail_bytes
         self._path_by_session = {}
-        #: path -> (file_identity, excerpt | None)
+        #: (path, finder) -> (file_identity, finding | None)
         self._excerpt_by_path = {}
 
     def excerpt_for(self, session_id):
         """The pending question excerpt of this session's transcript, or None."""
+        return self._cached_finding(session_id, self._read_excerpt)
+
+    def wrap_up_for(self, session_id):
+        """The pending wrap_up question of this session's transcript, or None."""
+        return self._cached_finding(session_id, self._read_wrap_up)
+
+    def _cached_finding(self, session_id, finder):
         path = self._transcript_path(session_id)
         if not path:
             return None
@@ -66,22 +78,29 @@ class PendingQuestionReader:
         except OSError:
             self._path_by_session.pop(session_id, None)
             return None
-        cached = self._excerpt_by_path.get(path)
+        key = (path, finder.__name__)
+        cached = self._excerpt_by_path.get(key)
         if cached and cached[0] == identity:
             return cached[1]
-        excerpt = self._read_excerpt(path)
-        self._excerpt_by_path[path] = (identity, excerpt)
-        return excerpt
+        finding = finder(path)
+        self._excerpt_by_path[key] = (identity, finding)
+        return finding
 
     def annotate(self, sessions):
-        """Adds FIELD_NAME to every `waiting` session file dict (None when
-        its transcript shows no pending question); forgets closed sessions."""
-        waiting_ids = set()
+        """Adds FIELD_NAME to every `waiting` session file dict and
+        WRAP_UP_FIELD to every `idle` one (None when its transcript shows no
+        pending question); forgets other sessions."""
+        read_ids = set()
         for entry in sessions or []:
-            if isinstance(entry, dict) and entry.get("status") == "waiting":
-                waiting_ids.add(entry.get("sessionId"))
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("status") == "waiting":
+                read_ids.add(entry.get("sessionId"))
                 entry[FIELD_NAME] = self.excerpt_for(entry.get("sessionId"))
-        self._forget_all_but(waiting_ids)
+            elif entry.get("status") == "idle":
+                read_ids.add(entry.get("sessionId"))
+                entry[WRAP_UP_FIELD] = self.wrap_up_for(entry.get("sessionId"))
+        self._forget_all_but(read_ids)
         return sessions
 
     def _transcript_path(self, session_id):
@@ -99,7 +118,13 @@ class PendingQuestionReader:
         status, form = session_transcript.find_pending_question_form(tail[0], tail[1])
         return question_excerpt(form) if status == session_transcript.PENDING else None
 
+    def _read_wrap_up(self, path):
+        tail = read_regular_tail(path, self._tail_bytes)
+        return None if tail is None else transcript_wrap_up.find_pending_wrap_up(tail[0], tail[1])
+
     def _forget_all_but(self, session_ids):
         for session_id in list(self._path_by_session):
             if session_id not in session_ids:
-                self._excerpt_by_path.pop(self._path_by_session.pop(session_id), None)
+                path = self._path_by_session.pop(session_id)
+                for key in [k for k in self._excerpt_by_path if k[0] == path]:
+                    del self._excerpt_by_path[key]

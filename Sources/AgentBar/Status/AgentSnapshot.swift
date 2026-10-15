@@ -75,6 +75,9 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// is an Answer/Review card: a Claude Desktop / CLI session waiting without a held hook request has
     /// this but no blocker. Ranking only — see `isWaitingOnYou`.
     var awaitsPrompt: Bool = false
+    /// A Claude Desktop session whose turn ended on a question (its wrap_up box): the message card shows the ask
+    /// with one button per action. Nil otherwise. See `WrapUpQuestion`.
+    var wrapUpQuestion: WrapUpQuestion? = nil
 
     /// How long ago the agent itself last did something: `secondsInStatus` (hook / needs-you clock), else the
     /// screen-change clock a hook-less remote pane has. Nil = unknown (ranks oldest). Mirrors the dashboard's

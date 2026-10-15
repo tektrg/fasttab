@@ -78,8 +78,11 @@ enum LiveAgentMapper {
         // No hook request: the question as read from the transcript, shown but not answerable here.
         let transcriptQuestion = host.isHerdr || needsYouEntry == nil || hookRequest != nil
             ? nil : needsYouEntry?.transcriptQuestion ?? agent.transcriptQuestion
+        // The turn ended on a question (Claude Desktop wrap_up): answered by a plain inbox message.
+        let wrapUpQuestion = host.isHerdr || needsYouEntry == nil || hookRequest != nil
+            ? nil : WrapUpQuestion(needsYouEntry?.wrapUpQuestion) ?? WrapUpQuestion(agent.wrapUpQuestion)
         let askedHeader = hookRequest?.questions.first?.header ?? transcriptQuestion?.header
-        let askedQuestion = hookRequest?.questions.first?.question ?? transcriptQuestion?.question
+        let askedQuestion = hookRequest?.questions.first?.question ?? transcriptQuestion?.question ?? wrapUpQuestion?.ask
         let questionText = StatusTextCleaner.singleLine(
             agent.screenQuestion?.question ?? askedQuestion, maxLength: promptExcerptMaxLength
         )
@@ -111,14 +114,16 @@ enum LiveAgentMapper {
             blocker: hookRequest?.blocker ?? (host.isHerdr ? blocker(for: needsYouEntry) : nil),
             host: host,
             hookRequest: hookRequest,
-            // A status-only session's needsYou entry = it is asking something: no message until answered.
-            messagesViaInbox: !host.isHerdr && agent.messageVia == "inbox" && needsYouEntry == nil,
+            // A status-only session's needsYou entry = it is asking something: no message until answered —
+            // unless the turn already ended on that question (wrap_up), where a message IS the answer.
+            messagesViaInbox: !host.isHerdr && agent.messageVia == "inbox" && (needsYouEntry == nil || wrapUpQuestion != nil),
             messagesViaPane: host.isHerdr && agent.messageVia == "pane",
             messageTool: host.isHerdr ? Self.messageTool(forAgentKind: agent.agentKind) : nil,
             messageRefusal: agent.messageRefusal,
             acceptsImages: agent.acceptsImages ?? true,
             agentKind: host.isHerdr ? agent.agentKind : nil,
-            awaitsPrompt: hasPrompt
+            awaitsPrompt: hasPrompt,
+            wrapUpQuestion: wrapUpQuestion
         )
         return (snapshot, hasPrompt)
     }

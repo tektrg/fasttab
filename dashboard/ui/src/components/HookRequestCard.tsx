@@ -4,13 +4,16 @@ import type { HookAnswer, HookQuestion, HookRequest, NeedsYouRow, TranscriptQues
 import { answerHookRequest } from "../api";
 import { MarkdownInline } from "./Markdown";
 import { ActionButton } from "../ui/ActionButton";
+import { WrapUpCard } from "./WrapUpCard";
 import { WEB_DENY } from "../quickAnswer";
 
 /** A pane-less (Claude Desktop / CLI outside herdr) Needs You row's prompt:
  *  - `hookRequest` — the PermissionRequest hook holds it: answerable here,
  *    one POST /api/hook/permission/<id>/answer (same contract AgentBar uses,
  *    Sources/AgentBar/AGENTS.md "Hook answer bridge");
- *  - else `transcriptQuestion` — read from the transcript: display only.
+ *  - else `transcriptQuestion` — read from the transcript: display only;
+ *  - else `wrapUpQuestion` — Claude Desktop's end-of-turn question: each
+ *    button sends its message to the session inbox (WrapUpCard).
  *  Used by the desktop NeedsYou table and the phone inbox alike. */
 export function PanelessPrompt({
   row,
@@ -31,6 +34,9 @@ export function PanelessPrompt({
     return <HookRequestCard key={row.hookRequest.requestId} request={row.hookRequest} onToast={onToast} phone={phone} />;
   }
   if (row.transcriptQuestion) return <TranscriptQuestionNote q={row.transcriptQuestion} />;
+  if (row.wrapUpQuestion && row.agentSession) {
+    return <WrapUpCard key={row.wrapUpQuestion.ask} sessionId={row.agentSession} question={row.wrapUpQuestion} onToast={onToast} phone={phone} />;
+  }
   return null;
 }
 

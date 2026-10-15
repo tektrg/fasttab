@@ -173,11 +173,14 @@ struct DashboardAgent: Decodable {
     let hookRequest: DashboardHookRequest?
     /// A waiting status-only row's question read from its transcript (display only; never next to a `hookRequest`).
     let transcriptQuestion: DashboardTranscriptQuestion?
+    /// An idle status-only row's end-of-turn question (Claude Desktop wrap_up); see `WrapUpQuestion`.
+    let wrapUpQuestion: DashboardWrapUpQuestion?
 
     private enum CodingKeys: String, CodingKey {
         case paneId, label, cwd, hookState, hookSinceSec, screenActivitySec, hasHookData, residue
         case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
         case source, openUrl, tmuxTarget, messageVia, agentKind, messageRefusal, acceptsImages, hookRequest, transcriptQuestion
+        case wrapUpQuestion
     }
 
     init(from decoder: Decoder) throws {
@@ -206,6 +209,7 @@ struct DashboardAgent: Decodable {
         acceptsImages = container.lenient(.acceptsImages)
         hookRequest = container.lenient(.hookRequest)
         transcriptQuestion = container.lenient(.transcriptQuestion)
+        wrapUpQuestion = container.lenient(.wrapUpQuestion)
     }
 }
 
@@ -229,10 +233,12 @@ struct DashboardNeedsYou: Decodable {
     let hookRequest: DashboardHookRequest?
     /// A status-only entry's question read from its transcript when no hook request holds it (display only).
     let transcriptQuestion: DashboardTranscriptQuestion?
+    /// A status-only "blocked" entry whose turn ended on a question (Claude Desktop wrap_up); see `WrapUpQuestion`.
+    let wrapUpQuestion: DashboardWrapUpQuestion?
 
     private enum CodingKeys: String, CodingKey {
         case kind, paneId, detail, sinceSec, question, questionPreview, permission, agentSession, hookRequest
-        case transcriptQuestion
+        case transcriptQuestion, wrapUpQuestion
     }
 
     init(from decoder: Decoder) throws {
@@ -247,6 +253,7 @@ struct DashboardNeedsYou: Decodable {
         agentSession = container.lenient(.agentSession)
         hookRequest = container.lenient(.hookRequest)
         transcriptQuestion = container.lenient(.transcriptQuestion)
+        wrapUpQuestion = container.lenient(.wrapUpQuestion)
     }
 }
 

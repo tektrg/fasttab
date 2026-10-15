@@ -139,6 +139,14 @@ final class MessageCardModel: ObservableObject {
         }
     }
 
+    /// A wrap_up action button on the card: sends that action's message, exactly like typing it and pressing Send
+    /// (same one-send-per-press, outcome on the card, card closes once sent). Replaces any typed draft.
+    func pressWrapUpAction(_ action: WrapUpQuestion.Action) {
+        guard let card, card.phase == .editing, card.wrapUpQuestion?.actions.contains(action) == true else { return }
+        setDraft(action.message)
+        pressSend()
+    }
+
     /// Sends `text` straight to `agent`, with no card ever opened (Shift+Return routing, Tab-tag
     /// compose). Same pre-send pane guard, one-flight-per-agent tracking, and row spinner/"Message
     /// sent" label as `pressSend()` — `finishSend` already treats "no card open for this agent" as

@@ -237,6 +237,8 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine,
         hook_reason = _waiting_reason(entry) if status == "waiting" else None
         transcript_question = entry.get("transcriptQuestion") \
             if status == "waiting" and not hook_request else None
+        wrap_up_question = entry.get("wrapUpQuestion") \
+            if status == "idle" and not hook_request else None
         if hook_request:
             hook_state = "blocked"
             hook_reason = hook_permission_summary.needs_you_detail(hook_request)
@@ -285,5 +287,9 @@ def build_status_only_rows(sessions, herdr_session_ids, now, machine,
             # Read-only: the pending question from the transcript, only when
             # no hookRequest holds it ({header, question, questionCount}).
             "transcriptQuestion": transcript_question,
+            # Claude Desktop's end-of-turn question (transcript_wrap_up):
+            # {ask, recap, actions:[{label, message}]}; a button sends its
+            # `message` through the inbox. Only on an `idle` session.
+            "wrapUpQuestion": wrap_up_question,
         })
     return rows

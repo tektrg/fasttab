@@ -418,6 +418,17 @@ def build_needs_you(feeds_snap, agents):
                 row["hookRequest"] = a.get("hookRequest")
                 row["transcriptQuestion"] = a.get("transcriptQuestion")
                 rows.append(row)
+            elif a.get("wrapUpQuestion"):
+                # The turn ended on a question (Claude Desktop wrap_up box):
+                # waiting on the PO, answered by a plain inbox message.
+                row = _row("blocked", label, None, a["wrapUpQuestion"]["ask"], age,
+                           identity=a.get("agentSession"))
+                row["permission"] = None
+                row["source"] = a["source"]
+                row["agentSession"] = a.get("agentSession")
+                row["openUrl"] = a.get("openUrl")
+                row["wrapUpQuestion"] = a["wrapUpQuestion"]
+                rows.append(row)
             continue
         if a.get("hookRequest"):
             # A herdr pane whose prompt the hook holds: that wins over the

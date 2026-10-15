@@ -85,6 +85,9 @@ def message_via(agent_row):
 def pending_prompt(agent_row):
     """True while the session shows a question/permission prompt."""
     agent_row = agent_row or {}
+    if agent_row.get("wrapUpQuestion") and not agent_row.get("hookRequest") \
+            and not agent_row.get("transcriptQuestion"):
+        return False  # the turn ended on a question: a message IS the answer
     return bool(agent_row.get("hookRequest") or agent_row.get("transcriptQuestion")
                 or agent_row.get("sessionStatus") == "waiting"
                 or agent_row.get("hookState") == "blocked")

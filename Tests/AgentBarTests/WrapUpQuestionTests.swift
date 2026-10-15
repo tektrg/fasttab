@@ -57,6 +57,19 @@ struct WrapUpQuestionMapperTests {
         #expect(plain.messagesViaInbox)
     }
 
+    /// Desktop's `blocked: true` wrap_up leaves the session `waiting`: still the question, still messageable.
+    @Test func aWaitingSessionWithAWrapUpIsShownAndMessageable() throws {
+        let row = try #require(try S.snapshot(
+            agents: [I.desktopRow(messageVia: "inbox", status: "waiting", hookState: "blocked")],
+            needsYou: [Self.needsYou(question: Self.question)]
+        ).agents.first)
+        #expect(row.isWaitingOnYou)
+        #expect(row.statusText == "Start building DATA-314 with slice 1?")
+        #expect(row.wrapUpQuestion != nil)
+        #expect(row.messagesViaInbox)
+        #expect(RowButtons.usableButtons(for: row).contains(.message))
+    }
+
     @Test func aQuestionWithoutAskOrActionsIsIgnored() throws {
         let noAsk = try #require(try Self.mapped(question: #"{"ask": "  ", "actions": [{"label": "a"}]}"#))
         #expect(noAsk.wrapUpQuestion == nil)

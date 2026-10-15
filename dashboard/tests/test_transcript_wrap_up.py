@@ -130,6 +130,28 @@ check("needsYou entry: blocked, detail = ask, carries the question",
 snap["claudeSessions"] = feed([{**annotated, "wrapUpQuestion": None}])
 check("no question -> no needsYou entry", views.build_needs_you(snap, views.build_agents_view(snap)), [])
 
+print("== waiting session (wrap_up blocked: true) ==")
+with tempfile.TemporaryDirectory() as root:
+    reader = pending.PendingQuestionReader(projects_root=root)
+    write_transcript(root, "s-w", [wrap_up_line(), TOOL_RESULT])
+    waiting_entry = session("s-w", "waiting")
+    reader.annotate([waiting_entry])
+    check("waiting session gets wrapUpQuestion", waiting_entry.get("wrapUpQuestion"), QUESTION)
+waiting_annotated = {**session("s-w", "waiting"), "wrapUpQuestion": QUESTION, "transcriptQuestion": None}
+rows = claude_sessions.build_status_only_rows([waiting_annotated], set(), NOW, machine="local")
+check("waiting row: question + ask as reason", (rows[0]["wrapUpQuestion"], rows[0]["hookReason"]),
+      (QUESTION, QUESTION["ask"]))
+check("waiting row with wrap_up is messageable", session_inbox.pending_prompt(rows[0]), False)
+rows = claude_sessions.build_status_only_rows(
+    [{**waiting_annotated, "transcriptQuestion": {"header": "", "question": "Q?", "questionCount": 1}}],
+    set(), NOW, machine="local")
+check("an AskUserQuestion wins over wrap_up", (rows[0]["wrapUpQuestion"], session_inbox.pending_prompt(rows[0])),
+      (None, True))
+snap["claudeSessions"] = feed([waiting_annotated])
+check("waiting needsYou entry carries question + ask",
+      [(n["kind"], n["detail"], n.get("wrapUpQuestion")) for n in views.build_needs_you(snap, views.build_agents_view(snap))],
+      [("blocked", QUESTION["ask"], QUESTION)])
+
 print()
 if fails:
     print(f"FAIL: {len(fails)} failure(s)")

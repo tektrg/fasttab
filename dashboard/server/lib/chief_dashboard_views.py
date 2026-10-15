@@ -417,6 +417,7 @@ def build_needs_you(feeds_snap, agents):
                 row["openUrl"] = a.get("openUrl")
                 row["hookRequest"] = a.get("hookRequest")
                 row["transcriptQuestion"] = a.get("transcriptQuestion")
+                row["wrapUpQuestion"] = a.get("wrapUpQuestion")
                 rows.append(row)
             elif a.get("wrapUpQuestion"):
                 # The turn ended on a question (Claude Desktop wrap_up box):

@@ -88,16 +88,18 @@ class PendingQuestionReader:
 
     def annotate(self, sessions):
         """Adds FIELD_NAME to every `waiting` session file dict and
-        WRAP_UP_FIELD to every `idle` one (None when its transcript shows no
+        WRAP_UP_FIELD to every `idle` or `waiting` one (None when its transcript shows no
         pending question); forgets other sessions."""
         read_ids = set()
         for entry in sessions or []:
             if not isinstance(entry, dict):
                 continue
-            if entry.get("status") == "waiting":
+            status = entry.get("status")
+            if status == "waiting":
                 read_ids.add(entry.get("sessionId"))
                 entry[FIELD_NAME] = self.excerpt_for(entry.get("sessionId"))
-            elif entry.get("status") == "idle":
+            if status in ("idle", "waiting"):
+                # A wrap_up with `blocked: true` leaves the session `waiting`.
                 read_ids.add(entry.get("sessionId"))
                 entry[WRAP_UP_FIELD] = self.wrap_up_for(entry.get("sessionId"))
         self._forget_all_but(read_ids)

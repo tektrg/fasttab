@@ -79,7 +79,7 @@ fi
 for app in ${APPS}; do
   case "${app}" in
     FastTab)  run scripts/fasttab-build-mac-app.sh --no-open ;;
-    AgentBar) run scripts/build-agentbar-app.sh ;;
+    AgentBar) run scripts/build-agentbar-app.sh --no-open ;;
     *) echo "prod-push: unknown app ${app}" >&2; exit 1 ;;
   esac
 done

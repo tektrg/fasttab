@@ -7,7 +7,7 @@ set -euo pipefail
 # has nothing to preserve: no Sparkle, no entitlements, no provisioning profile.
 #
 # Usage:
-#   scripts/build-agentbar-app.sh [--open]
+#   scripts/build-agentbar-app.sh [--no-open]   # default relaunches the app; --no-open = build only
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
@@ -117,7 +117,7 @@ echo "==> Verifying signature"
 codesign --verify --strict --verbose=2 "${APP}"
 echo "==> Done. ${APP} created"
 
-if [[ "${1:-}" == "--open" ]]; then
+if [[ "${1:-}" != "--no-open" ]]; then
   echo "==> Launching app"
   open "${APP}"
 fi

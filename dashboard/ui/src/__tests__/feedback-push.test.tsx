@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { act } from "react";
+import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { FeedbackPushControl } from "../feedback/FeedbackPushControl";
 import { basePushState, initialTabFromUrl, vapidKeyBytes, type PushEnv } from "../feedback/feedbackPush";
@@ -38,7 +38,7 @@ describe("FeedbackPushControl", () => {
     root = null;
     globalThis.fetch = realFetch;
   });
-  const render = (el: JSX.Element) => {
+  const render = (el: React.ReactElement) => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -69,7 +69,7 @@ describe("FeedbackPushControl", () => {
   });
 
   test("a proxy error is shown, not swallowed", async () => {
-    globalThis.fetch = (async () => new Response(JSON.stringify({ ok: false, error: "Owner Web Push is not configured" }), { status: 502 })) as typeof fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ ok: false, error: "Owner Web Push is not configured" }), { status: 502 })) as unknown as typeof fetch;
     const toasts: [string, boolean][] = [];
     const host = render(<FeedbackPushControl onToast={(m, k) => toasts.push([m, k])} initialState="on" />);
     await act(async () => [...host.querySelectorAll("button")][0]!.click());

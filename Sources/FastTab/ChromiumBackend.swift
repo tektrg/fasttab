@@ -822,6 +822,14 @@ struct ChromiumBackend: BrowserBackend {
     }
 
     func openURL(_ result: BrowserSearchResult) {
+        // Ghost pins remember their window. Reopen there first — the profile
+        // launch below only reaches the profile's last-used window.
+        if result.isGhost, let win = result.windowIndex, ghostWindowStillMatches(result, windowIndex: win) {
+            logger.info("openURL: app=\(result.browserName, privacy: .public) ghost reopen in window \(win) url='\(result.url, privacy: .public)'")
+            runAppleScript(Self.buildOpenURLScript(appName: result.browserName, url: result.url, windowIndex: win), logger: logger, action: "openURL")
+            return
+        }
+
         // Profile-aware open via executable launch. profileName may be a
         // directory ("Profile 1") or a display name parsed from the window
         // title ("Work") — resolve display names via Local State first.
@@ -845,6 +853,25 @@ struct ChromiumBackend: BrowserBackend {
 
         logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) url='\(result.url, privacy: .public)' (fallback)")
         runAppleScript(script, logger: logger, action: "openURL")
+    }
+
+    /// True when window `windowIndex` still exists and belongs to the ghost's
+    /// profile. Indices shift as windows open/close, so a window whose
+    /// profile can't be read is rejected when the ghost's profile is known.
+    private func ghostWindowStillMatches(_ result: BrowserSearchResult, windowIndex: Int) -> Bool {
+        guard windowIndex >= 1 else { return false }
+        let script = """
+        tell application "\(result.browserName)"
+            if (count of windows) < \(windowIndex) then return "missing"
+            return "title:" & (title of window \(windowIndex))
+        end tell
+        """
+        guard let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]),
+              output.hasPrefix("title:") else { return false }
+        guard let ghostProfile = result.profileName, !ghostProfile.isEmpty else { return true }
+        guard let windowProfile = Frecency.profileFromWindowTitle(String(output.dropFirst("title:".count))) else { return false }
+        let resolve = { Self.resolveProfileDirectory(supportDirectory: self.supportDirectory, profileName: $0) ?? $0 }
+        return resolve(ghostProfile).caseInsensitiveCompare(resolve(windowProfile)) == .orderedSame
     }
 
     /// Opens `result` inside `app`'s installed chromeless window.

@@ -810,7 +810,7 @@ def _handle_reach_action(action, body, row_id, actor):
         image_attachments.with_attachment_notes((body or {}).get("text"), image_paths))
     if not ok:
         return _refused_before_typing(cleaned)
-    text = cleaned
+    text = session_inbox.tag_wrap_up_answer(cleaned, body)
 
     state = get_full_state()
     agents = state.get("computed", {}).get("agents") or []

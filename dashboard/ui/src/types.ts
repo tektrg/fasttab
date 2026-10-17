@@ -133,6 +133,14 @@ export interface SessionPlanResponse {
  *  `feed-broken` = the list cannot see and says so. */
 export type NeedsYouKind = "blocked" | "question" | "feed-broken";
 
+/** Mirrors server/lib/transcript_wrap_up.py: app actions are already dropped,
+ *  and `message` is always set (the label when the transcript had none). */
+export interface WrapUpQuestion {
+  ask: string;
+  recap: string;
+  actions: { label: string; message: string }[];
+}
+
 export interface NeedsYouRow {
   kind: NeedsYouKind;
   urgency: number;
@@ -158,6 +166,9 @@ export interface NeedsYouRow {
   agentSession?: string | null;
   hookRequest?: HookRequest | null;
   transcriptQuestion?: TranscriptQuestion | null;
+  // Claude Desktop's end-of-turn question (wrap_up box) on an idle session:
+  // answerable here by sending one action's message to the session inbox.
+  wrapUpQuestion?: WrapUpQuestion | null;
   // "local" or a configured remote machine (e.g. "air-m1"). Absent on
   // older payloads — render as local.
   machine?: string;

@@ -44,7 +44,7 @@ export function PromptSheet({
       )}
       {/* Not while sliding out: an answered prompt must not stay tappable. */}
       {current && <PanelessPrompt row={row} onToast={onToast} phone />}
-      {!row.hookRequest && !row.transcriptQuestion && (
+      {!row.hookRequest && !row.transcriptQuestion && !row.wrapUpQuestion && (
         <div className="phone-sheet-gate-note">Answer this in Claude on the Mac.</div>
       )}
     </Sheet>

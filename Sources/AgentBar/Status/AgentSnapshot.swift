@@ -75,6 +75,9 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// is an Answer/Review card: a Claude Desktop / CLI session waiting without a held hook request has
     /// this but no blocker. Ranking only — see `isWaitingOnYou`.
     var awaitsPrompt: Bool = false
+    /// A Claude Desktop session whose turn ended on a question (its wrap_up box): the message card shows the ask
+    /// with one button per action. Nil otherwise. See `WrapUpQuestion`.
+    var wrapUpQuestion: WrapUpQuestion? = nil
 
     /// How long ago the agent itself last did something: `secondsInStatus` (hook / needs-you clock), else the
     /// screen-change clock a hook-less remote pane has. Nil = unknown (ranks oldest). Mirrors the dashboard's
@@ -90,6 +93,19 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// Ranks the row in the top "waiting on you" tier (`AgentRanking`, `AgentListGrouping`): blocked on
     /// an answerable prompt, or waiting on the user without one. Parked rows never do (same as
     /// `blockedOnYou`). Buttons, corner card and sounds keep keying on `blockedOnYou` alone.
+    /// What the user is being asked right now, as an identity for "announce once" (corner tab pop-up, sound):
+    /// a blocker (question or permission box) is the agent itself; a Claude Desktop end-of-turn question
+    /// (wrap_up, no blocker) is the agent plus its ask, so a later, different question announces again.
+    /// Nil when nothing is being asked.
+    var pendingQuestionKey: String? {
+        if blocker != nil { return id }
+        guard section == .needsYou, let wrapUpQuestion else { return nil }
+        return "\(id)\nwrapUp\n\(wrapUpQuestion.ask)"
+    }
+
+    /// Blocked on the user, or its turn ended on a question: treated alike by the corner tab and the sound.
+    var asksTheUser: Bool { pendingQuestionKey != nil }
+
     var isWaitingOnYou: Bool {
         section == .needsYou && (blocker != nil || awaitsPrompt)
     }

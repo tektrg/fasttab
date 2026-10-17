@@ -6,7 +6,8 @@ import Foundation
 struct CornerTabContent: Equatable, Sendable {
     let count: Int
     let newestName: String
-    /// How many of them are blocked on the user: a question to answer or a permission box to review.
+    /// How many of them are blocked on the user: a question to answer or a permission box to review, or a
+    /// Claude Desktop end-of-turn question (`AgentSnapshot.asksTheUser`; no corner card — the pill).
     /// While any is, the tab stays until the user deals with it.
     var blockedCount = 0
     /// The sole blocked agent's id, when `blockedCount == 1` AND its blocker is one AgentBar can
@@ -49,7 +50,7 @@ struct CornerTabContent: Equatable, Sendable {
     static func forArrivals(_ arrivals: [AgentSnapshot], among needsYou: [AgentSnapshot]) -> CornerTabContent? {
         guard let newest = arrivals.min(by: { ($0.secondsInStatus ?? .infinity) < ($1.secondsInStatus ?? .infinity) })
         else { return nil }
-        let blocked = needsYou.filter { $0.blocker != nil }
+        let blocked = needsYou.filter(\.asksTheUser)
         return CornerTabContent(
             count: needsYou.count, newestName: newest.label, blockedCount: blocked.count,
             soleCardableAgentID: soleCardableAgentID(among: blocked),

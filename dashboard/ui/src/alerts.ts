@@ -81,7 +81,7 @@ export function alertFor(
   const slot = i.agentSession;
   if (!slot) return null;
   const hook = i.hookRequest;
-  const question = hook?.questions?.[0]?.question ?? i.transcriptQuestion?.question;
+  const question = hook?.questions?.[0]?.question ?? i.transcriptQuestion?.question ?? i.wrapUpQuestion?.ask;
   if (question) {
     return { slot, key: slot + " :: q :: " + question, title: "QUESTION needs you: " + i.label, body: question };
   }

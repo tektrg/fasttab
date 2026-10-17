@@ -18,6 +18,11 @@ struct MessageCardView: View {
         if let card = message.card {
             VStack(alignment: .leading, spacing: 0) {
                 header(card)
+                if let question = card.wrapUpQuestion {
+                    WrapUpQuestionSection(question: question, isEnabled: card.phase == .editing) {
+                        message.pressWrapUpAction($0)
+                    }
+                }
                 ScrollView {
                     LastMessageSection(message: card.message)
                         .padding(.bottom, 4)

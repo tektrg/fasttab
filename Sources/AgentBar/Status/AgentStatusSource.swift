@@ -69,6 +69,10 @@ protocol AgentStatusSource: Sendable {
 
     /// `sendMessage` with uploaded image ids; the dashboard appends each image's file path to the text.
     func sendMessage(rowId: String, text: String, confirmed: Bool, attachments: [String]) async -> MessageSendOutcome
+
+    /// A wrap_up button answer: like `sendMessage`, flagged so the dashboard tags the text as the user's
+    /// answer (`session_inbox.WRAP_UP_ANSWER_PREFIX`).
+    func sendWrapUpAnswer(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome
 }
 
 /// Why an image didn't upload, in words. Nothing was sent.
@@ -77,6 +81,10 @@ struct ImageUploadFailure: Error, Equatable, Sendable {
 }
 
 extension AgentStatusSource {
+    func sendWrapUpAnswer(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
+        await sendMessage(rowId: rowId, text: text, confirmed: confirmed)
+    }
+
     func uploadImage(_ image: MessageImage) async -> Result<String, ImageUploadFailure> {
         .failure(ImageUploadFailure(reason: "This status source cannot take images."))
     }

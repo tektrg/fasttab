@@ -374,7 +374,7 @@ export function NeedsYou({
                 }
                 // Pane-less (Desktop / CLI) row: the hook-held prompt to
                 // answer, or the transcript's question to read.
-                if ((!i.paneId || i.hookRequest?.tool) && (i.hookRequest || i.transcriptQuestion)) {
+                if ((!i.paneId || i.hookRequest?.tool) && (i.hookRequest || i.transcriptQuestion || i.wrapUpQuestion)) {
                   return [
                     main,
                     <tr

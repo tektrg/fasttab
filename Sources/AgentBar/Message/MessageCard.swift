@@ -46,6 +46,8 @@ struct MessageCard: Equatable, Sendable {
     private(set) var mayHaveGoneThrough = false
     /// Nil while the transcript is still being read.
     var sessionContext: SessionContext?
+    /// The question the agent's turn ended on (Claude Desktop wrap_up): shown above the text box, one button per action.
+    let wrapUpQuestion: WrapUpQuestion?
 
     init(agent: AgentSnapshot, route: MessageRoute, rowId: String) {
         self.agentID = agent.id
@@ -57,6 +59,7 @@ struct MessageCard: Equatable, Sendable {
         self.sessionId = agent.sessionId
         self.acceptsImages = agent.acceptsImages
         self.sessionContext = agent.sessionId == nil ? .empty : nil
+        self.wrapUpQuestion = agent.wrapUpQuestion
     }
 
     // MARK: - Reading

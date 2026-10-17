@@ -1,0 +1,233 @@
+{
+ "serverTimeTs": 1792050995.5999758,
+ "feeds": {
+  "hookCache": {
+   "name": "hookCache",
+   "refreshIntervalSec": 2,
+   "warming": false,
+   "lastSuccessTs": 1792050993.7590342,
+   "lastAttemptTs": 1792050993.7590342,
+   "lastDurationSec": 0.0013649463653564453,
+   "ageSec": 1.8380248546600342,
+   "broken": false,
+   "error": null,
+   "data": null
+  },
+  "herdr": {
+   "name": "herdr",
+   "refreshIntervalSec": 5,
+   "warming": false,
+   "lastSuccessTs": 1792050992.793797,
+   "lastAttemptTs": 1792050992.793797,
+   "lastDurationSec": 0.024631738662719727,
+   "ageSec": 2.8032829761505127,
+   "broken": false,
+   "error": null,
+   "data": null
+  },
+  "paneTick": {
+   "name": "paneTick",
+   "refreshIntervalSec": 90,
+   "warming": false,
+   "lastSuccessTs": 1792050990.512279,
+   "lastAttemptTs": 1792050990.512279,
+   "lastDurationSec": 0.0007078647613525391,
+   "ageSec": 5.084810972213745,
+   "broken": false,
+   "error": null,
+   "data": null
+  },
+  "board": {
+   "name": "board",
+   "refreshIntervalSec": 150,
+   "warming": false,
+   "lastSuccessTs": 1792050876.062301,
+   "lastAttemptTs": 1792050876.062301,
+   "lastDurationSec": 5.848258018493652,
+   "ageSec": 119.53480124473572,
+   "broken": false,
+   "error": null,
+   "data": null
+  },
+  "paneScreen": {
+   "name": "paneScreen",
+   "refreshIntervalSec": 15,
+   "warming": false,
+   "lastSuccessTs": 1792050995.475071,
+   "lastAttemptTs": 1792050995.475071,
+   "lastDurationSec": 0.12230181694030762,
+   "ageSec": 0.1220400333404541,
+   "broken": false,
+   "error": null,
+   "data": null
+  },
+  "claudeSessions": {
+   "name": "claudeSessions",
+   "refreshIntervalSec": 3,
+   "warming": false,
+   "lastSuccessTs": 1792050995.217879,
+   "lastAttemptTs": 1792050995.217879,
+   "lastDurationSec": 0.08967876434326172,
+   "ageSec": 0.3792729377746582,
+   "broken": false,
+   "error": null,
+   "data": null
+  },
+  "desktopSessions": {
+   "name": "desktopSessions",
+   "refreshIntervalSec": 10,
+   "warming": false,
+   "lastSuccessTs": 1792050991.801406,
+   "lastAttemptTs": 1792050991.801406,
+   "lastDurationSec": 0.038012027740478516,
+   "ageSec": 3.795760154724121,
+   "broken": false,
+   "error": null,
+   "data": null
+  },
+  "herdr:air-m1": {
+   "name": "herdr:air-m1",
+   "refreshIntervalSec": 5,
+   "warming": false,
+   "lastSuccessTs": 1792050993.5039942,
+   "lastAttemptTs": 1792050993.5039942,
+   "lastDurationSec": 0.2508699893951416,
+   "ageSec": 2.0931787490844727,
+   "broken": false,
+   "error": null,
+   "data": null
+  },
+  "paneScreen:air-m1": {
+   "name": "paneScreen:air-m1",
+   "refreshIntervalSec": 15,
+   "warming": false,
+   "lastSuccessTs": 1792050980.709306,
+   "lastAttemptTs": 1792050980.709306,
+   "lastDurationSec": 0.40769410133361816,
+   "ageSec": 14.887874841690063,
+   "broken": false,
+   "error": null,
+   "data": null,
+   "screenActivity": {}
+  },
+  "machines": {
+   "air-m1": {
+    "status": "ok",
+    "error": null,
+    "ageSec": 2.0959737300872803,
+    "agentCount": 9,
+    "unreachable": false,
+    "retryInSec": 0.0
+   }
+  },
+  "machinesConfigError": null
+ },
+ "computed": {
+  "agents": [
+   {
+    "paneId": null,
+    "tabId": null,
+    "workspaceId": null,
+    "label": "desktop session",
+    "cwd": "/Users/trungluong/01_Project/command-bar-macos",
+    "focused": false,
+    "hookState": "idle",
+    "hookSinceSec": 6.272272109985352,
+    "herdrStatus": null,
+    "disagree": false,
+    "screenUnchangedSec": null,
+    "subagentsRunning": 0,
+    "herdrTurnReported": false,
+    "hasHookData": true,
+    "backgroundWaitExpired": false,
+    "residue": false,
+    "agentSession": "cbb71693-be55-4d23-adce-55cfae1f942b",
+    "hookReason": null,
+    "screenState": null,
+    "screenSignal": null,
+    "screenQuestion": null,
+    "screenPermission": null,
+    "hookQuestion": null,
+    "machine": "local",
+    "source": "claude-desktop",
+    "sessionStatus": "idle",
+    "secondsInStatus": 6.272272109985352,
+    "pid": 82753,
+    "hostSessionId": "local_d9a1e60e-f74f-4ffb-bdf3-4ad5d0c1e843",
+    "tmuxTarget": null,
+    "openUrl": "claude://code/continue?session=local_d9a1e60e-f74f-4ffb-bdf3-4ad5d0c1e843",
+    "messageVia": "inbox",
+    "hookRequest": null,
+    "transcriptQuestion": null,
+    "wrapUpQuestion": {
+     "ask": "Probe 2: please don't answer for ~60 seconds.",
+     "recap": "The log shows Desktop marks this session idle (my \"waiting\" guess was wrong), and the dashboard does detect the question. So the loss is between the dashboard and the Mac app. A second probe is capturing the full data the app receives.",
+     "actions": [
+      {
+       "label": "OK, waited",
+       "message": "Waited 60s; read probe 2."
+      }
+     ]
+    },
+    "acceptsImages": true,
+    "rowId": "cbb71693-be55-4d23-adce-55cfae1f942b",
+    "memoryBytes": null,
+    "contextPct": null,
+    "autocompactPct": null,
+    "actions": {
+     "stop": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-desktop session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "close": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-desktop session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "relaunch": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "refused: claude-desktop session, not a herdr pane \u2014 status only, act on it in its own app"
+     },
+     "archive": {
+      "enabled": true,
+      "needsConfirm": false,
+      "reason": "board-only: hides the row, frees nothing"
+     },
+     "unarchive": {
+      "enabled": false,
+      "needsConfirm": false,
+      "reason": "not archived \u2014 nothing to restore"
+     }
+    }
+   }
+  ],
+  "needsYou": [
+   {
+    "kind": "blocked",
+    "urgency": 1,
+    "label": "desktop session",
+    "paneId": null,
+    "detail": "Probe 2: please don't answer for ~60 seconds.",
+    "sinceSec": 6.272272109985352,
+    "identity": "cbb71693-be55-4d23-adce-55cfae1f942b",
+    "permission": null,
+    "source": "claude-desktop",
+    "agentSession": "cbb71693-be55-4d23-adce-55cfae1f942b",
+    "openUrl": "claude://code/continue?session=local_d9a1e60e-f74f-4ffb-bdf3-4ad5d0c1e843",
+    "wrapUpQuestion": {
+     "ask": "Probe 2: please don't answer for ~60 seconds.",
+     "recap": "The log shows Desktop marks this session idle (my \"waiting\" guess was wrong), and the dashboard does detect the question. So the loss is between the dashboard and the Mac app. A second probe is capturing the full data the app receives.",
+     "actions": [
+      {
+       "label": "OK, waited",
+       "message": "Waited 60s; read probe 2."
+      }
+     ]
+    },
+    "machine": "local"
+   }
+  ]
+ }
+}

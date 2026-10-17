@@ -217,6 +217,7 @@ import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view,
 import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
 import feedback_admin_proxy  # noqa: E402  (Feedback tab -> theindie-api admin)
 import feedback_seen  # noqa: E402  (Feedback tab new-dot: per-thread seen marks)
+import feedback_push_proxy  # noqa: E402  (phone Web Push registration -> theindie-api)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -3133,6 +3134,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
         self._note_agentbar_seen()
         feedback_reply = (feedback_seen.handle_get(path)
+                          or feedback_push_proxy.handle_get(path)
                           or feedback_admin_proxy.handle_get(path, parse_qs(parsed.query)))
         if feedback_reply is not None:
             self._send_json(*feedback_reply)
@@ -3295,6 +3297,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._note_remote_audit_row(feedback_admin_proxy.resolve_thread_id_of(path))
         feedback_reply = (feedback_seen.handle_post(path, self._read_json_body)
+                          or feedback_push_proxy.handle_post(path, self._read_json_body)
                           or feedback_admin_proxy.handle_post(path, self._read_json_body))
         if feedback_reply is not None:
             self._send_json(*feedback_reply)

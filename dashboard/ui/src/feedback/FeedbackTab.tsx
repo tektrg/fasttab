@@ -11,6 +11,7 @@ import {
   feedbackFields,
   type FeedbackFilterInput,
 } from "./feedbackTableView";
+import { FeedbackPushControl } from "./FeedbackPushControl";
 import "./feedback.css";
 
 type Layout = "table" | "cards";
@@ -124,6 +125,7 @@ export function FeedbackTab({ layout, onToast }: { layout: Layout; onToast: Noti
   return (
     <div className={`feedback-tab feedback-tab--${layout}`}>
       {errorBanner}
+      <FeedbackPushControl onToast={onToast} />
       <FilterBar filter={filter} apps={apps} onChange={setFilter} />
       {groups.length === 0 && <div className="small">No feedback matches.</div>}
       {groups.map((group) => (

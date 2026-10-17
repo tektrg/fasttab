@@ -7,6 +7,7 @@ import { AgentsTab } from "./AgentsTab";
 import { SettingsTab } from "./SettingsTab";
 import { FeedbackTab } from "../../feedback/FeedbackTab";
 import { useFeedbackUnread } from "../../feedback/feedbackUnread";
+import { initialTabFromUrl, useOpenTabRequests } from "../../feedback/feedbackPush";
 import { PhoneSheet } from "./PhoneSheet";
 import { PromptSheet } from "./PromptSheet";
 import { PersonaMessageSheet } from "./PersonaMessageSheet";
@@ -40,7 +41,9 @@ export function PhoneShell({ state }: { state: FullState }) {
   );
 
   const { board, reload } = usePhoneBoard();
-  const [tab, setTab] = useState<PhoneTab>("inbox");
+  const [tab, setTab] = useState<PhoneTab>(() => initialTabFromUrl(window.location.search) ?? "inbox");
+  // A tapped feedback notification opens the Feedback tab (service worker message).
+  useOpenTabRequests(useCallback(() => setTab("feedback"), []));
   const feedbackUnread = useFeedbackUnread(tab === "feedback");
   const [openRowId, setOpenRowId] = useState<string | null>(null);
   const [promptId, setPromptId] = useState<string | null>(null);

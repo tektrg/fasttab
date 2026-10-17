@@ -168,6 +168,16 @@ unconditionally, regardless of whatever `Host` or other headers it carries.
 - Also acceptable: `Authorization: Bearer <token>` directly, for scripts
   that don't want to carry a cookie jar (the token itself, not a session).
 
+## Phone push for new customer feedback
+
+Sent by theindie-api (not this Mac), so it arrives with AgentBar closed and the Mac asleep.
+- Needs the https `tailscale serve` address and the **Home Screen** app (iOS has no web push in a Safari tab).
+- Feedback tab → "Turn on phone alerts" → allow. The browser subscription goes
+  `/api/feedback/push/subscribe` → `server/lib/feedback_push_proxy.py` → theindie-api
+  `/v1/admin/feedback/push/subscriptions` (admin secret stays on this Mac). "Send test push" proves it.
+- `public/sw.js` shows the push; a tap opens the Feedback tab (`?tab=feedback`).
+- Server side (keys, throttle, cleanup): theindie-api README "Owner feedback push".
+
 ## Not done here (later phases)
 
 - Phone-friendly UI, PWA manifest/service worker (phase 2).

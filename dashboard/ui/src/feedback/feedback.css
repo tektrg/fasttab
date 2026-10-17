@@ -18,3 +18,6 @@
 .desktop-tabs button[aria-current="page"] { background: rgba(127,127,127,.2); font-weight: 600; }
 /* New-feedback dot: red pill with the unseen count (see feedbackUnread.ts). */
 .tab-new-dot { display: inline-block; min-width: 16px; height: 16px; margin-left: 6px; padding: 0 4px; border-radius: 8px; background: #e5484d; color: #fff; font: 700 10px/16px var(--mono, monospace); text-align: center; vertical-align: 1px; }
+
+.feedback-push { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.feedback-push button { min-height: 36px; }

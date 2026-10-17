@@ -67,3 +67,48 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(req)),
   );
 });
+
+// Web Push: new customer feedback, sent by theindie-api (not this Mac), so it
+// arrives with the app closed and the Mac asleep. Payload (encrypted by the
+// sender, decrypted by the browser): {title, body, url, tag}. iOS revokes push
+// for a web app that receives a push without showing a notification, so every
+// push shows one, even a malformed payload.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = {};
+  }
+  const title = typeof data.title === "string" ? data.title : "New feedback";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: typeof data.body === "string" ? data.body : "",
+      tag: typeof data.tag === "string" ? data.tag : "feedback",
+      icon: "/icons/icon-192.png",
+      data: { url: safeOpenPath(data.url) },
+    }),
+  );
+});
+
+// Only same-origin paths: a push payload must never open another site.
+function safeOpenPath(url) {
+  return typeof url === "string" && url.startsWith("/") && !url.startsWith("//") ? url : "/?tab=feedback";
+}
+
+// Tap: reuse an open AgentBar window (tell it to switch tabs), else open one.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = safeOpenPath(event.notification.data && event.notification.data.url);
+  const tab = new URL(url, self.location.origin).searchParams.get("tab") || "feedback";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
+      if (open) {
+        open.postMessage({ type: "agentbar-open-tab", tab });
+        return open.focus();
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
+});

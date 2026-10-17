@@ -9,6 +9,7 @@ import { BoardSection } from "./components/BoardSection";
 import { PhoneShell } from "./components/phone/PhoneShell";
 import { FeedbackTab } from "./feedback/FeedbackTab";
 import { useFeedbackUnread } from "./feedback/feedbackUnread";
+import { initialTabFromUrl, useOpenTabRequests } from "./feedback/feedbackPush";
 import { ToastProvider } from "./ui/Toast";
 import { filterAgents, type SearchableAgent } from "./agentMatch";
 import type { NeedsYouRow } from "./types";
@@ -23,7 +24,9 @@ export default function App() {
   const phone = usePhoneLayout();
   useQuestionAlerts(state?.computed.needsYou);
   const [query, setQuery] = useState("");
-  const [desktopTab, setDesktopTab] = useState<"agents" | "feedback">("agents");
+  const [desktopTab, setDesktopTab] = useState<"agents" | "feedback">(() => initialTabFromUrl(window.location.search) ?? "agents");
+  // A tapped feedback notification opens the Feedback tab (service worker message).
+  useOpenTabRequests(useCallback(() => setDesktopTab("feedback"), []));
   const searchRef = useRef<HTMLInputElement | null>(null);
   // Phone mounts its own counter in PhoneShell (it owns the phone tab state).
   const feedbackUnread = useFeedbackUnread(!phone && desktopTab === "feedback");

@@ -239,6 +239,14 @@ struct SearchFieldView: View {
                 NotificationCenter.default.post(name: Self.didReceiveClickNotification, object: nil)
             })
             .onAppear { isFocused = true }
+            // Tab-tagging or entering the new-worker flow turns the box into a compose field by a
+            // deliberate keypress, the same "about to dictate here" intent as a click: activate too.
+            .onChange(of: model.taggedAgentLabel != nil) { _, isOn in
+                if isOn { NotificationCenter.default.post(name: Self.didReceiveClickNotification, object: nil) }
+            }
+            .onChange(of: model.newWorker != nil) { _, isOn in
+                if isOn { NotificationCenter.default.post(name: Self.didReceiveClickNotification, object: nil) }
+            }
             .onChange(of: model.focusRequest) {
                 // The answer card's text view may have taken the keyboard without SwiftUI knowing,
                 // so "focused" can already read true: flip it to make the field take it back.

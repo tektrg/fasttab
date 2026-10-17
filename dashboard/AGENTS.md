@@ -508,7 +508,7 @@ hook, stdlib) + `server/lib/hook_permissions.py` (in-memory pending store),
 1. `python3 dashboard/integrations/install.py install` (both tools; `--tool opencode|codex`; `status` / `uninstall` also exist; merges next to other vendors' hooks, backs up, uninstall removes only ours).
 2. Codex: on next start, in the Codex TUI choose **"Trust all"** on the new-hooks review prompt (once).
 3. Restart: the dashboard (`scripts/restart.sh`), every running OpenCode, every running Codex (they load plugin/hooks at start).
-4. Rebuild AgentBar: `scripts/build-agentbar-app.sh --open` (Swift side of message button / tool cards).
+4. Rebuild AgentBar: `scripts/build-agentbar-app.sh` (Swift side of message button / tool cards).
 5. Check: `install.py status --json` shows both `installed: true`. An OpenCode row saying the plugin is "out of date" = repeat step 1 + restart OpenCode.
 
 ### Support matrix (herdr panes on the local machine only)
@@ -673,6 +673,11 @@ It's GET-only against both servers and compares `computed.agents` rows by
 pane id (same set of panes, same `machine`, same coarse status bucket —
 raw `screenState` text can tick between the two curl calls and that alone
 isn't a mismatch).
+
+## Unreachable machine (Air) must only degrade Air rows (2026-10-07)
+- **Gotcha**: ssh `ConnectTimeout` does NOT cover DNS. Tailscale lost its coordination server, `trungs-air`'s host name stopped resolving, and each `ssh` sat ~30s. Every `/api/state` request (AgentBar/web poll ~2s) did its own remote `pane list` (`_live_pane_ids_cached`, no limit on callers), so request threads and stuck ssh children piled up and `/api/state` hung >30s while Pro agents were fine. The watchdog's restarts could not help (restart -> same pile-up). The "lock acquire" frames in a `sample` of poll threads are just `Event.wait` sleeps, not a deadlock.
+- **Fix** (`chief_dashboard_herdr.py`): per-machine circuit breaker around every ssh call (`BREAKER_OPEN_SEC` 30s; one probe after the window, others fail instantly; at most 2x `maxParallel` calls in flight), timeout kill never waits for pipe EOF. Request-path remote `pane list` gets a 2s budget; the last-known pane set stands in. `feeds.machines.<id>` gains `unreachable` + `retryInSec` (additive). Test: `tests/test_chief_dashboard_unreachable_machine.py`; tests that trip the breaker in-process call `herdr.reset_breakers()`.
+- **Diagnose**: `ssh trungs-air true` taking 30s then "Could not resolve hostname" = Tailscale/DNS, not the dashboard. New remote calls must go through `_run_over_ssh`, never a bare ssh.
 
 ## Rules (unauthenticated, localhost-only — by design, not an oversight)
 - The server binds `127.0.0.1` only; there is no auth on any endpoint.

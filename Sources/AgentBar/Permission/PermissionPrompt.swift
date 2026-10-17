@@ -92,6 +92,9 @@ struct PermissionPrompt: Equatable, Hashable, Sendable {
         return (String(detail[..<newline]), String(detail[detail.index(after: newline)...]))
     }
 
+    /// A hook-fed plan-approval box: its detail is the plan itself (Markdown), drawn rendered.
+    var isPlanText: Bool { tool == "ExitPlanMode" && !detail.isEmpty }
+
     /// True for the file-edit box ("Do you want to make this edit to <file>?").
     var isFileEdit: Bool { title.hasPrefix("Do you want to make this edit to") }
 }

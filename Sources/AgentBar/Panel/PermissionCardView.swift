@@ -92,6 +92,11 @@ struct PermissionCardView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 6) {
+                if prompt.isPlanText {
+                    MarkdownBlocksView(blocks: MarkdownParser.parse(prompt.detail))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
                 Text(parts.headline.isEmpty ? "(no details shown)" : parts.headline)
                     .font(.system(size: 13, weight: prompt.isFileEdit ? .semibold : .regular, design: .monospaced))
                     .fixedSize(horizontal: false, vertical: true)
@@ -102,6 +107,7 @@ struct PermissionCardView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 }
             }
             .textSelection(.enabled)

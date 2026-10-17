@@ -3,7 +3,7 @@
 Native Mac agent switcher (⌥Tab panel) over the AptusFit **chief dashboard** (`127.0.0.1:4711`). Separate app/target from FastTab; shares only `CommandBarKit`. Rules: edits stay in `Sources/AgentBar` + `Tests/AgentBarTests`; `FastTab` / `CommandBarKit` diffs must be empty unless the task says otherwise.
 
 ## Build / test / run
-- App: `scripts/build-agentbar-app.sh --open` (→ `dist/AgentBar.app`). Do this after every change.
+- App: `scripts/build-agentbar-app.sh` (→ `dist/AgentBar.app`). Do this after every change.
 - Tests: `swift test --filter AgentBarTests` (1437 on 2026-09-27, after the hook answer bridge QA 2 — gotcha 22). Full-suite runs flake under machine load; re-run the failing test alone before believing it (known: `FastTabTests.licenseServiceRecoversWhenInitialStorageLoadFinishesAfterTimeout` under parallel load — passes solo).
 - Own defaults domain `com.trungluong.AgentBar`. Unsandboxed.
 

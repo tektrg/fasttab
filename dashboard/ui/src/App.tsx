@@ -8,6 +8,7 @@ import { NeedsYou } from "./components/NeedsYou";
 import { BoardSection } from "./components/BoardSection";
 import { PhoneShell } from "./components/phone/PhoneShell";
 import { FeedbackTab } from "./feedback/FeedbackTab";
+import { useFeedbackUnread } from "./feedback/feedbackUnread";
 import { ToastProvider } from "./ui/Toast";
 import { filterAgents, type SearchableAgent } from "./agentMatch";
 import type { NeedsYouRow } from "./types";
@@ -24,6 +25,8 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [desktopTab, setDesktopTab] = useState<"agents" | "feedback">("agents");
   const searchRef = useRef<HTMLInputElement | null>(null);
+  // Phone mounts its own counter in PhoneShell (it owns the phone tab state).
+  const feedbackUnread = useFeedbackUnread(!phone && desktopTab === "feedback");
 
   // Desktop-only: "/" focuses the search field (unless already typing
   // somewhere else), Escape clears it — same shortcut convention as most
@@ -104,6 +107,9 @@ export default function App() {
         {(["agents", "feedback"] as const).map((t) => (
           <button key={t} type="button" aria-current={desktopTab === t ? "page" : undefined} onClick={() => setDesktopTab(t)}>
             {t === "agents" ? "Agents" : "Feedback"}
+            {t === "feedback" && feedbackUnread > 0 && (
+              <span className="tab-new-dot" aria-label={`${feedbackUnread} new feedback`}>{feedbackUnread}</span>
+            )}
           </button>
         ))}
       </nav>

@@ -14,6 +14,12 @@ import {
 
 type Notify = (message: string, ok: boolean) => void;
 
+/** The test button sends today's digest now (theindie-api skips it when nothing waits). */
+export function testPushToast(reply: { sent?: number; skipped?: string }): string {
+  if (reply.skipped === "nothing_waiting") return "no feedback waiting, so no digest to send";
+  return reply.sent ? `digest sent to ${reply.sent} device(s)` : "no device received it: turn alerts off and on again";
+}
+
 export function FeedbackPushControl({ onToast, initialState }: { onToast: Notify; initialState?: PushState }) {
   const [state, setState] = useState<PushState | null>(initialState ?? null);
   const [busy, setBusy] = useState(false);
@@ -59,7 +65,7 @@ export function FeedbackPushControl({ onToast, initialState }: { onToast: Notify
           <button
             type="button"
             disabled={busy}
-            onClick={() => void run(sendTestPush, (r) => (r.sent ? `test push sent to ${r.sent} device(s)` : "no device received it: turn alerts off and on again"))}
+            onClick={() => void run(sendTestPush, testPushToast)}
           >
             Send test push
           </button>

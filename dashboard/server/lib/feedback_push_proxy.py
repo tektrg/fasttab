@@ -4,7 +4,7 @@ Routes (both listeners; the remote one arrives already authenticated):
   GET  /api/feedback/push/config        {ok, configured, publicKey}  VAPID key for subscribe()
   POST /api/feedback/push/subscribe     {endpoint, keys: {p256dh, auth}, label?}
   POST /api/feedback/push/unsubscribe   {endpoint}
-  POST /api/feedback/push/test          send a test push -> {ok, sent, removed, failed}
+  POST /api/feedback/push/test          send the daily digest now -> {ok, sent, removed, failed, waiting, skipped?}
 
 Upstream: theindie-api `/v1/admin/feedback/push/...` (src/routes/feedback-owner-push.ts),
 sent by theindie-api itself, so a push arrives while this Mac sleeps. Transport and the
@@ -58,7 +58,10 @@ def unsubscribe(body):
 
 def send_test():
     payload = _call_upstream("POST", UPSTREAM + "/test", {})
-    return {"ok": True, **{k: int(payload.get(k) or 0) for k in ("sent", "removed", "failed")}}
+    reply = {"ok": True, **{k: int(payload.get(k) or 0) for k in ("sent", "removed", "failed", "waiting")}}
+    if payload.get("skipped") == "nothing_waiting":  # nothing waits -> theindie-api sends no digest
+        reply["skipped"] = "nothing_waiting"
+    return reply
 
 
 def get_config():

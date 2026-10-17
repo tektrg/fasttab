@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { FeedbackPushControl } from "../feedback/FeedbackPushControl";
+import { FeedbackPushControl, testPushToast } from "../feedback/FeedbackPushControl";
 import { basePushState, initialTabFromUrl, vapidKeyBytes, type PushEnv } from "../feedback/feedbackPush";
 
 const ok: PushEnv = { protocol: "https:", hasServiceWorker: true, hasPushManager: true, isIOS: true, standalone: true, permission: "default" };
@@ -65,7 +65,7 @@ describe("FeedbackPushControl", () => {
     await act(async () => button.click());
     await flush();
     expect(calls).toEqual([{ url: "/api/feedback/push/test", method: "POST" }]);
-    expect(toasts).toEqual([["test push sent to 2 device(s)", true]]);
+    expect(toasts).toEqual([["digest sent to 2 device(s)", true]]);
   });
 
   test("a proxy error is shown, not swallowed", async () => {
@@ -78,13 +78,20 @@ describe("FeedbackPushControl", () => {
   });
 });
 
+test("test push toast explains a skipped digest", () => {
+  expect(testPushToast({ skipped: "nothing_waiting", sent: 0 })).toBe("no feedback waiting, so no digest to send");
+  expect(testPushToast({ sent: 0 })).toBe("no device received it: turn alerts off and on again");
+});
+
 describe("service worker (public/sw.js)", () => {
   type Listener = (event: any) => void;
   function loadWorker(windows: any[] = []) {
     const listeners: Record<string, Listener> = {};
     const shown: { title: string; options: any }[] = [];
     const opened: string[] = [];
+    const badges: (number | "cleared")[] = [];
     const self = {
+      navigator: { setAppBadge: async (n: number) => void badges.push(n), clearAppBadge: async () => void badges.push("cleared") },
       location: { origin: "https://mac.example.ts.net" },
       addEventListener: (type: string, fn: Listener) => (listeners[type] = fn),
       registration: { showNotification: async (title: string, options: any) => void shown.push({ title, options }) },
@@ -98,7 +105,7 @@ describe("service worker (public/sw.js)", () => {
       listeners[type]!({ ...extra, waitUntil: (p: Promise<unknown>) => (pending = p) });
       await pending;
     };
-    return { fire, shown, opened };
+    return { fire, shown, opened, badges };
   }
   const pushEvent = (payload: unknown) => ({ data: { json: () => (typeof payload === "string" ? JSON.parse(payload) : payload) } });
 
@@ -108,6 +115,15 @@ describe("service worker (public/sw.js)", () => {
     expect(sw.shown).toHaveLength(1);
     expect(sw.shown[0]!.title).toBe("New feedback · Parklet");
     expect(sw.shown[0]!.options).toMatchObject({ body: "crash on share", tag: "feedback:t1", data: { url: "/?tab=feedback&thread=t1" } });
+  });
+
+  test("the digest push sets the Home Screen badge to its count; 0 clears it; no count leaves it", async () => {
+    const sw = loadWorker();
+    await sw.fire("push", pushEvent({ title: "Feedback", body: "3 feedback waiting · 1 new today (Strider 2, Parklet 1)", url: "/?tab=feedback", tag: "feedback:digest", count: 3 }));
+    await sw.fire("push", pushEvent({ title: "Feedback", count: 0 }));
+    await sw.fire("push", pushEvent({ title: "Feedback", count: "$(echo INJECTED)" }));
+    expect(sw.badges).toEqual([3, "cleared"]);
+    expect(sw.shown).toHaveLength(3);
   });
 
   test("a malformed push still shows a notification (iOS revokes silent pushes)", async () => {

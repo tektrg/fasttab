@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { titleWithCount, unseenWaiting, useFeedbackUnread } from "../feedback/feedbackUnread";
+import { syncAppBadge, titleWithCount, unseenWaiting, useFeedbackUnread } from "../feedback/feedbackUnread";
 import { TabBar } from "../components/phone/TabBar";
 
 const A = "0f8fad5b-d9cb-469f-a165-70867728950e", B = "1f8fad5b-d9cb-469f-a165-70867728950e";
@@ -84,5 +84,15 @@ describe("feedback new dot", () => {
     root = createRoot(host);
     await act(async () => root!.render(<TabBar tab="inbox" onTab={() => {}} inboxBadge={0} feedbackBadge={2} />));
     expect(host.querySelector('[aria-label="Feedback, 2 new"] .phone-tabbar__badge')?.textContent).toBe("2");
+  });
+
+  test("app icon badge: set to the count, cleared at 0, silent where unsupported or refused", () => {
+    const calls: unknown[] = [];
+    const nav = { setAppBadge: async (n?: number) => void calls.push(n), clearAppBadge: async () => void calls.push("cleared") } as unknown as Navigator;
+    syncAppBadge(4, nav);
+    syncAppBadge(0, nav);
+    expect(calls).toEqual([4, "cleared"]);
+    syncAppBadge(2, {} as Navigator);
+    syncAppBadge(2, { setAppBadge: () => Promise.reject(new Error("denied")) } as unknown as Navigator);
   });
 });

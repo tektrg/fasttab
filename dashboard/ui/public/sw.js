@@ -68,9 +68,10 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// Web Push: new customer feedback, sent by theindie-api (not this Mac), so it
-// arrives with the app closed and the Mac asleep. Payload (encrypted by the
-// sender, decrypted by the browser): {title, body, url, tag}. iOS revokes push
+// Web Push: the daily feedback digest (18:00), sent by theindie-api (not this
+// Mac), so it arrives with the app closed and the Mac asleep. Payload (encrypted
+// by the sender, decrypted by the browser): {title, body, url, tag, count};
+// count = threads waiting, shown on the Home Screen icon badge. iOS revokes push
 // for a web app that receives a push without showing a notification, so every
 // push shows one, even a malformed payload.
 self.addEventListener("push", (event) => {
@@ -82,14 +83,21 @@ self.addEventListener("push", (event) => {
   }
   const title = typeof data.title === "string" ? data.title : "New feedback";
   event.waitUntil(
-    self.registration.showNotification(title, {
+    Promise.all([setBadge(data.count), self.registration.showNotification(title, {
       body: typeof data.body === "string" ? data.body : "",
       tag: typeof data.tag === "string" ? data.tag : "feedback",
       icon: "/icons/icon-192.png",
       data: { url: safeOpenPath(data.url) },
-    }),
+    })]),
   );
 });
+
+function setBadge(count) {
+  const nav = self.navigator;
+  if (!nav || typeof count !== "number" || !Number.isFinite(count) || count < 0) return Promise.resolve();
+  const call = count > 0 ? nav.setAppBadge && nav.setAppBadge(Math.floor(count)) : nav.clearAppBadge && nav.clearAppBadge();
+  return Promise.resolve(call).catch(() => {});
+}
 
 // Only same-origin paths: a push payload must never open another site.
 function safeOpenPath(url) {

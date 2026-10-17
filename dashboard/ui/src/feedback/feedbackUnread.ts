@@ -19,6 +19,14 @@ export function titleWithCount(base: string, count: number): string {
   return count > 0 ? `(${count}) ${base}` : base;
 }
 
+type BadgeNavigator = Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+
+/** Home Screen icon badge (installed web app; no-op where unsupported). */
+export function syncAppBadge(count: number, nav: BadgeNavigator = navigator): void {
+  const call = count > 0 ? nav.setAppBadge?.(count) : nav.clearAppBadge?.();
+  call?.catch(() => {}); // refused (no permission, not installed): the tab badge still shows
+}
+
 async function getJson<T>(url: string, init?: RequestInit): Promise<T | null> {
   try {
     const response = await fetch(url, init);
@@ -31,7 +39,7 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T | null> {
 
 /** Count of unseen waiting threads. While `viewing` (Feedback tab on screen,
  *  window focused) every waiting thread is marked seen, so the count drops to 0. Polls every
- *  minute and on window focus; also keeps `document.title` in step. */
+ *  minute and on window focus; also keeps `document.title` and the app icon badge in step. */
 export function useFeedbackUnread(viewing: boolean): number {
   const [count, setCount] = useState(0);
   const viewingRef = useRef(viewing);
@@ -76,6 +84,7 @@ export function useFeedbackUnread(viewing: boolean): number {
   }, [refresh]);
   useEffect(() => {
     document.title = titleWithCount(baseTitle.current, count);
+    syncAppBadge(count);
   }, [count]);
   return count;
 }

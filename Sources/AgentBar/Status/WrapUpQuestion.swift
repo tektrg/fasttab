@@ -10,7 +10,22 @@ struct WrapUpQuestion: Equatable, Sendable {
         let label: String
         /// What the button sends.
         let message: String
+
+        /// A consent-like action an agent may want confirmed in Desktop (the inbox labels every message "from
+        /// another Claude session"). Hint only; sending is never blocked. See `consentKeywords`.
+        var mayNeedConfirming: Bool {
+            "\(label) \(message)".lowercased()
+                .split(whereSeparator: { !$0.isLetter })
+                .contains { WrapUpQuestion.consentKeywords.contains(String($0)) }
+        }
     }
+
+    /// Whole words that mark a consent action. "session" (not "start") covers "start/launch a session" without
+    /// flagging "Start slice 1". Mirrors the web's `dashboard/ui/src/wrapUpConsent.ts`.
+    static let consentKeywords: Set<String> = [
+        "launch", "session", "commit", "push", "merge", "deploy", "release", "approve", "delete",
+    ]
+    static let consentNote = "May need confirming in Desktop"
 
     let ask: String
     let recap: String

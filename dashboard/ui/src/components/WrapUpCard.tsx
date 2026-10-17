@@ -4,6 +4,7 @@ import type { WrapUpQuestion } from "../types";
 import { sendMessage } from "../sessionActions";
 import { MarkdownInline } from "./Markdown";
 import { ActionButton } from "../ui/ActionButton";
+import { CONSENT_NOTE, mayNeedConfirming } from "../wrapUpConsent";
 
 type SendState = { status: "idle" | "sending" } | { status: "sent"; label: string } | { status: "error"; error: string };
 
@@ -27,7 +28,7 @@ export function WrapUpCard({
   const [state, setState] = useState<SendState>({ status: "idle" });
   const send = async (label: string, message: string) => {
     setState({ status: "sending" });
-    const res = await sendMessage(sessionId, message, { confirm: true });
+    const res = await sendMessage(sessionId, message, { confirm: true, wrapUpAnswer: true });
     setState(res.ok ? { status: "sent", label } : { status: "error", error: res.error || "no reason given" });
     onToast(res.ok ? `sent "${label}"` : "not sent: " + (res.error || "?"), !!res.ok);
   };
@@ -53,6 +54,11 @@ export function WrapUpCard({
           </ActionButton>
         ))}
       </Group>
+      {question.actions.some(mayNeedConfirming) && (
+        <Text size="xs" c="dimmed" mt={4} className="wrapup-consent-note">
+          {CONSENT_NOTE}: {question.actions.filter(mayNeedConfirming).map((a) => a.label).join(", ")}
+        </Text>
+      )}
       {state.status === "sent" && <Text size="xs" c="dimmed" mt={4}>Sent “{state.label}”.</Text>}
       {state.status === "error" && <Text size="xs" c="red" mt={4}>Not sent: {state.error}</Text>}
     </Paper>

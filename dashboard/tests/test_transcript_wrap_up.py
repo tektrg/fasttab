@@ -152,6 +152,13 @@ check("waiting needsYou entry carries question + ask",
       [(n["kind"], n["detail"], n.get("wrapUpQuestion")) for n in views.build_needs_you(snap, views.build_agents_view(snap))],
       [("blocked", QUESTION["ask"], QUESTION)])
 
+print("== wrap_up answer tag ==")
+check("wrapUpAnswer true -> prefixed", session_inbox.tag_wrap_up_answer("Go", {"wrapUpAnswer": True}),
+      session_inbox.WRAP_UP_ANSWER_PREFIX + "Go")
+check("plain message -> untouched", session_inbox.tag_wrap_up_answer("Go", {"text": "Go"}), "Go")
+check("truthy non-bool -> untouched", session_inbox.tag_wrap_up_answer("Go", {"wrapUpAnswer": "yes"}), "Go")
+check("prefix text", session_inbox.WRAP_UP_ANSWER_PREFIX, "[Your answer via AgentBar button] ")
+
 print()
 if fails:
     print(f"FAIL: {len(fails)} failure(s)")

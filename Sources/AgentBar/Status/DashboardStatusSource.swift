@@ -166,9 +166,16 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
         }
     }
 
+    func sendWrapUpAnswer(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
+        await send(endpoint.messageRequest(rowId: rowId, text: text, confirmed: confirmed, isWrapUpAnswer: true))
+    }
+
     func sendMessage(rowId: String, text: String, confirmed: Bool, attachments: [String]) async -> MessageSendOutcome {
+        await send(endpoint.messageRequest(rowId: rowId, text: text, confirmed: confirmed, attachments: attachments))
+    }
+
+    private func send(_ request: URLRequest) async -> MessageSendOutcome {
         do {
-            let request = endpoint.messageRequest(rowId: rowId, text: text, confirmed: confirmed, attachments: attachments)
             let (body, _) = try await transport.response(for: request)
             let reply = try JSONDecoder().decode(DashboardSessionActionResponse.self, from: body)
             return reply.messageOutcome ?? .failed("The dashboard refused the message.")

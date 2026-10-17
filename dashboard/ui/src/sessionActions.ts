@@ -214,14 +214,16 @@ export async function sessionAction(
 export async function sendMessage(
   rowId: string,
   text: string,
-  opts: { confirm?: boolean; attachments?: string[] } = {},
+  /** `wrapUpAnswer`: a wrap_up button press — the server tags the text as the user's answer. */
+  opts: { confirm?: boolean; attachments?: string[]; wrapUpAnswer?: boolean } = {},
 ): Promise<SessionActionResult> {
   try {
     const attachments = opts.attachments?.length ? { attachments: opts.attachments } : {};
+    const wrapUp = opts.wrapUpAnswer ? { wrapUpAnswer: true } : {};
     const r = await fetch("/api/session/message", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rowId, actor: "po", text, confirm: !!opts.confirm, ...attachments }),
+      body: JSON.stringify({ rowId, actor: "po", text, confirm: !!opts.confirm, ...attachments, ...wrapUp }),
     });
     if (r.status === 401) return { ok: false, typed: false, error: LOGGED_OUT_ERROR };
     return await r.json();

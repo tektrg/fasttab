@@ -124,14 +124,16 @@ final class MessageCardModel: ObservableObject {
     }
 
     /// Return in the text field, Enter in the list, the Send button.
-    func pressSend() {
+    func pressSend() { pressSend(isWrapUpAnswer: false) }
+
+    private func pressSend(isWrapUpAnswer: Bool) {
         guard var card, let statusSource, let text = card.sendableText else { return }
         let confirmed = card.isConfirming
         guard card.beginSending() else { return }
         self.card = card
         inFlight.insert(card.agentID)
         objectWillChange.send()
-        let request = Request(agentID: card.agentID, label: card.label, route: card.route, rowId: card.rowId, text: text, confirmed: confirmed, notesOnSend: false, images: card.images)
+        let request = Request(agentID: card.agentID, label: card.label, route: card.route, rowId: card.rowId, text: text, confirmed: confirmed, notesOnSend: false, images: isWrapUpAnswer ? [] : card.images, isWrapUpAnswer: isWrapUpAnswer)
         let epoch = epoch
         Task { [weak self] in
             let outcome = await Self.deliver(request, via: statusSource)
@@ -144,7 +146,7 @@ final class MessageCardModel: ObservableObject {
     func pressWrapUpAction(_ action: WrapUpQuestion.Action) {
         guard let card, card.phase == .editing, card.wrapUpQuestion?.actions.contains(action) == true else { return }
         setDraft(action.message)
-        pressSend()
+        pressSend(isWrapUpAnswer: true)
     }
 
     /// Sends `text` straight to `agent`, with no card ever opened (Shift+Return routing, Tab-tag
@@ -188,6 +190,8 @@ final class MessageCardModel: ObservableObject {
         let notesOnSend: Bool
         /// Card sends only: uploaded right before the message, after the pane check.
         var images: [MessageImage] = []
+        /// A wrap_up button press (`pressWrapUpAction`): sent with `sendWrapUpAnswer`, never with images.
+        var isWrapUpAnswer = false
     }
 
     /// Reads the pane first: typed text would answer a question picker or a permission box. An inbox
@@ -225,6 +229,9 @@ final class MessageCardModel: ObservableObject {
     /// Uploads the request's images (none: straight to the plain send), then sends the text with their ids.
     /// A failed upload sends nothing; images already stored just expire on the dashboard.
     private static func sendWithImages(_ request: Request, via source: any AgentStatusSource) async -> MessageSendOutcome {
+        if request.isWrapUpAnswer {
+            return await source.sendWrapUpAnswer(rowId: request.rowId, text: request.text, confirmed: request.confirmed)
+        }
         guard !request.images.isEmpty else {
             return await source.sendMessage(rowId: request.rowId, text: request.text, confirmed: request.confirmed)
         }

@@ -70,6 +70,18 @@ DELIVERED_NOTE = ("delivered to the session's inbox — it arrives as a "
                   "message from another agent")
 
 
+#: Prepended to a wrap_up button answer (POST /api/session/message with
+#: `wrapUpAnswer: true`, sent by the web WrapUpCard and AgentBar's card) so
+#: the agent can tell the user pressed it — the inbox itself labels every
+#: message "from another Claude session". Free-typed messages never get it.
+WRAP_UP_ANSWER_PREFIX = "[Your answer via AgentBar button] "
+
+
+def tag_wrap_up_answer(text, body):
+    """`text` with WRAP_UP_ANSWER_PREFIX when the request is a wrap_up answer."""
+    return WRAP_UP_ANSWER_PREFIX + text if (body or {}).get("wrapUpAnswer") is True else text
+
+
 def message_via(agent_row):
     """How a message would reach this row: "pane" (typed into herdr),
     "inbox" (this module) or None (it can't be messaged)."""

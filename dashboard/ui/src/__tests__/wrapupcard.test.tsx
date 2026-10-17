@@ -82,3 +82,27 @@ describe("WrapUpCard", () => {
     expect(alertFor(row)?.body).toBe("Start building DATA-314 with slice 1?");
   });
 });
+
+describe("wrap_up answer tag + consent note", () => {
+  test("a button press asks the server to tag it as the user's answer", async () => {
+    const calls = stubFetch();
+    const host = mount(<PanelessPrompt row={row} onToast={() => {}} />);
+    await act(async () => buttons(host)[0].click());
+    expect(calls[0].body.wrapUpAnswer).toBe(true);
+  });
+
+  test("a consent-like action shows the note; plain ones do not", () => {
+    const consent = { ...row, wrapUpQuestion: { ...row.wrapUpQuestion!, actions: [
+      { label: "Commit and push", message: "Commit and push it." }, { label: "Not now", message: "Not now" }] } };
+    expect(mount(<PanelessPrompt row={consent} onToast={() => {}} />).textContent).toContain("May need confirming in Desktop: Commit and push");
+    expect(mount(<PanelessPrompt row={row} onToast={() => {}} />).textContent).not.toContain("May need confirming");
+  });
+});
+
+test("mayNeedConfirming keyword list", async () => {
+  const { mayNeedConfirming } = await import("../wrapUpConsent");
+  expect(mayNeedConfirming({ label: "Start the probe session", message: "x" })).toBe(true);
+  expect(mayNeedConfirming({ label: "Ship", message: "Merge the PR" })).toBe(true);
+  expect(mayNeedConfirming({ label: "Start slice 1", message: "Start slice 1 now." })).toBe(false);
+  expect(mayNeedConfirming({ label: "Pushover", message: "x" })).toBe(false);
+});

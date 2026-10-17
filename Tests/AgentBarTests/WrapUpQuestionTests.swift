@@ -184,3 +184,29 @@ struct WrapUpQuestionAnnounceTests {
         #expect(cue == .needsAnswer)
     }
 }
+
+/// A wrap_up button answer is flagged so the dashboard tags it as the user's (`wrapUpAnswer: true`); a typed
+/// message is not. Consent-like actions carry the "May need confirming in Desktop" note.
+struct WrapUpAnswerTagTests {
+    static func body(_ request: URLRequest) throws -> [String: Any] {
+        let data = try #require(request.httpBody)
+        return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    @Test func aWrapUpAnswerIsFlaggedAndAPlainMessageIsNot() throws {
+        let endpoint = DashboardEndpoint(baseURL: URL(string: "http://127.0.0.1:4711")!)
+        let tagged = try Self.body(endpoint.messageRequest(rowId: "s", text: "Go", confirmed: false, isWrapUpAnswer: true))
+        #expect(tagged["wrapUpAnswer"] as? Bool == true)
+        #expect(tagged["text"] as? String == "Go")
+        let plain = try Self.body(endpoint.messageRequest(rowId: "s", text: "Go", confirmed: false))
+        #expect(plain["wrapUpAnswer"] == nil)
+    }
+
+    @Test func consentKeywordsAreWholeWords() {
+        typealias A = WrapUpQuestion.Action
+        #expect(A(label: "Start the probe session", message: "x").mayNeedConfirming)
+        #expect(A(label: "Ship", message: "Merge the PR.").mayNeedConfirming)
+        #expect(!A(label: "Start slice 1", message: "Start slice 1 now.").mayNeedConfirming)
+        #expect(!A(label: "Pushover", message: "x").mayNeedConfirming)
+    }
+}

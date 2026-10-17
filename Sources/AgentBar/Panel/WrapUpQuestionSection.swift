@@ -25,6 +25,12 @@ struct WrapUpQuestionSection: View {
                 }
                 Spacer(minLength: 0)
             }
+            let consentLabels = question.actions.filter(\.mayNeedConfirming).map(\.label)
+            if !consentLabels.isEmpty {
+                Text("\(WrapUpQuestion.consentNote): \(consentLabels.joined(separator: ", "))")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 8)

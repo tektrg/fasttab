@@ -6,6 +6,7 @@ import { InboxTab } from "./InboxTab";
 import { AgentsTab } from "./AgentsTab";
 import { SettingsTab } from "./SettingsTab";
 import { FeedbackTab } from "../../feedback/FeedbackTab";
+import { useFeedbackUnread } from "../../feedback/feedbackUnread";
 import { PhoneSheet } from "./PhoneSheet";
 import { PromptSheet } from "./PromptSheet";
 import { PersonaMessageSheet } from "./PersonaMessageSheet";
@@ -40,6 +41,7 @@ export function PhoneShell({ state }: { state: FullState }) {
 
   const { board, reload } = usePhoneBoard();
   const [tab, setTab] = useState<PhoneTab>("inbox");
+  const feedbackUnread = useFeedbackUnread(tab === "feedback");
   const [openRowId, setOpenRowId] = useState<string | null>(null);
   const [promptId, setPromptId] = useState<string | null>(null);
   const [personaOpen, setPersonaOpen] = useState(false);
@@ -103,7 +105,7 @@ export function PhoneShell({ state }: { state: FullState }) {
       {tab === "feedback" && <FeedbackTab layout="cards" onToast={onToast} />}
       {tab === "settings" && <SettingsTab state={state} />}
 
-      <TabBar tab={tab} onTab={setTab} inboxBadge={inboxBadgeCount(needsYou)} />
+      <TabBar tab={tab} onTab={setTab} inboxBadge={inboxBadgeCount(needsYou)} feedbackBadge={feedbackUnread} />
 
       <PhoneSheet
         row={openRow}

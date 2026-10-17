@@ -16,3 +16,5 @@
 .desktop-tabs { display: flex; gap: 4px; margin: 8px 0; }
 .desktop-tabs button { background: none; border: 1px solid rgba(127,127,127,.3); border-radius: 6px; padding: 4px 12px; color: inherit; cursor: pointer; }
 .desktop-tabs button[aria-current="page"] { background: rgba(127,127,127,.2); font-weight: 600; }
+/* New-feedback dot: red pill with the unseen count (see feedbackUnread.ts). */
+.tab-new-dot { display: inline-block; min-width: 16px; height: 16px; margin-left: 6px; padding: 0 4px; border-radius: 8px; background: #e5484d; color: #fff; font: 700 10px/16px var(--mono, monospace); text-align: center; vertical-align: 1px; }

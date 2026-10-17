@@ -2,6 +2,7 @@
  *  -> theindie-api admin routes. The admin secret stays on the server. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FeedbackThread } from "./feedbackTableView";
+import { FEEDBACK_POLL_MS } from "./feedbackUnread";
 
 export interface FeedbackMessage {
   messageID?: string;
@@ -74,6 +75,14 @@ export function useFeedbackThreads() {
   }, []);
   useEffect(() => {
     void reload();
+    // Same cadence as the tab-bar dot, so a thread the dot clears is on screen.
+    const id = window.setInterval(() => void reload(), FEEDBACK_POLL_MS);
+    const onFocus = () => void reload();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [reload]);
   return { threads, hasMore, error, reload };
 }

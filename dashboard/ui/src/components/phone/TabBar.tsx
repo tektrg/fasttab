@@ -18,8 +18,15 @@ const LABEL: Record<PhoneTab, string> = { inbox: "Inbox", agents: "Agents", feed
 const ORDER: PhoneTab[] = ["inbox", "agents", "feedback", "settings"];
 
 /** Bottom navigation: four tabs, safe-area padded, 44pt+ targets. The Inbox
- *  badge is the number of agents waiting on you. */
-export function TabBar({ tab, onTab, inboxBadge }: { tab: PhoneTab; onTab: (t: PhoneTab) => void; inboxBadge: number }) {
+ *  badge is the number of agents waiting on you; the Feedback badge is new
+ *  customer feedback you have not looked at yet. */
+export function TabBar({ tab, onTab, inboxBadge, feedbackBadge = 0 }: { tab: PhoneTab; onTab: (t: PhoneTab) => void; inboxBadge: number; feedbackBadge?: number }) {
+  const badge: Partial<Record<PhoneTab, number>> = { inbox: inboxBadge, feedback: feedbackBadge };
+  const ariaLabel = (t: PhoneTab) => {
+    const n = badge[t] ?? 0;
+    if (n <= 0) return LABEL[t];
+    return t === "inbox" ? `Inbox, ${n} waiting on you` : `Feedback, ${n} new`;
+  };
   const keyboardOpen = useKeyboardOpen();
   return (
     <nav className="phone-tabbar" aria-label="Main" data-keyboard={keyboardOpen || undefined}>
@@ -29,14 +36,14 @@ export function TabBar({ tab, onTab, inboxBadge }: { tab: PhoneTab; onTab: (t: P
           type="button"
           className="phone-tabbar__item"
           aria-current={t === tab ? "page" : undefined}
-          aria-label={t === "inbox" && inboxBadge > 0 ? `Inbox, ${inboxBadge} waiting on you` : LABEL[t]}
+          aria-label={ariaLabel(t)}
           onClick={() => onTab(t)}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             {ICONS[t]}
           </svg>
           <span aria-hidden="true">{LABEL[t]}</span>
-          {t === "inbox" && inboxBadge > 0 && <span className="phone-tabbar__badge" aria-hidden="true">{inboxBadge}</span>}
+          {(badge[t] ?? 0) > 0 && <span className="phone-tabbar__badge" aria-hidden="true">{badge[t]}</span>}
         </button>
       ))}
     </nav>

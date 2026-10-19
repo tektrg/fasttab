@@ -117,7 +117,7 @@ struct OnboardingFlowView: View {
         case .sendToMac:
             OnboardingSendToMacStep(isStandalone: route.isSingleStep, onContinue: advance)
         case .done:
-            OnboardingDoneStep(onStart: advance)
+            OnboardingDoneStep(isReaderOnly: usesSampleOnly, onStart: advance)
         }
     }
 

@@ -13,6 +13,12 @@ final class AppModeModel: ObservableObject {
 
     init(store: AppModeStore = AppModeStore()) {
         self.store = store
+        #if DEBUG
+        // Screenshots/QA: `-FastTabAppMode standalone|mac` (launch argument) forces the mode.
+        if let forced = UserDefaults.standard.string(forKey: "FastTabAppMode").flatMap(AppMode.init(rawValue:)) {
+            store.mode = forced
+        }
+        #endif
         self.mode = store.mode
     }
 

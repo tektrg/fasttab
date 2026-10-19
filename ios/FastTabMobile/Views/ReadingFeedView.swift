@@ -486,7 +486,9 @@ public struct ReadingFeedView: View {
         DSEmptyState(
             "No emerging links yet",
             systemImage: "sparkles",
-            message: "Browse pages on your Mac or iPhone to see connected recommendations here.",
+            message: offersMacActions
+                ? "Browse pages on your Mac or iPhone to see connected recommendations here."
+                : "Read articles in FastTab to see connected recommendations here.",
             tint: DS.Tint.emerging,
             style: .inline
         ) {

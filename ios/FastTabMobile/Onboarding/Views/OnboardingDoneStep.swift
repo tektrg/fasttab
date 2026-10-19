@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// Screen 5: a one-line tour of the tab bar, then into the Read tab.
+/// Last screen: a one-line tour of the tab bar, then into the Read tab.
+/// Reader-only phones have no Tabs tab, so their tour skips it and drops Mac wording.
 struct OnboardingDoneStep: View {
+    var isReaderOnly = false
     let onStart: () -> Void
 
     var body: some View {
@@ -16,19 +18,25 @@ struct OnboardingDoneStep: View {
                     systemImage: "newspaper",
                     tint: DS.Tint.emerging,
                     title: "Read",
-                    detail: "Forgotten tabs worth a second look, and the articles you're reading."
+                    detail: isReaderOnly
+                        ? "Links you saved, and the articles you're reading."
+                        : "Forgotten tabs worth a second look, and the articles you're reading."
                 )
-                OnboardingFeatureRow(
-                    systemImage: "macwindow.on.rectangle",
-                    tint: DS.Tint.action,
-                    title: "Tabs",
-                    detail: "Every tab open on your Mac. Search, read or close them from here."
-                )
+                if !isReaderOnly {
+                    OnboardingFeatureRow(
+                        systemImage: "macwindow.on.rectangle",
+                        tint: DS.Tint.action,
+                        title: "Tabs",
+                        detail: "Every tab open on your Mac. Search, read or close them from here."
+                    )
+                }
                 OnboardingFeatureRow(
                     systemImage: "shuffle",
                     tint: DS.Tint.action,
                     title: "Shuffle",
-                    detail: "Random cards from your tabs and bookmarks, for a quick rediscovery."
+                    detail: isReaderOnly
+                        ? "Random cards from your saved links, for a quick rediscovery."
+                        : "Random cards from your tabs and bookmarks, for a quick rediscovery."
                 )
                 OnboardingFeatureRow(
                     systemImage: "ellipsis.circle",

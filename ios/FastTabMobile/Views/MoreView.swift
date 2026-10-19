@@ -52,11 +52,14 @@ public struct MoreView: View {
             .listRowInsets(EdgeInsets())
             .dsListRow()
 
-            Section {
-                TabStatsCard(summary: statsViewModel.tabs)
+            // Mac-only rows (Tab stats, Desk Queue, synced bookmarks/history, Macs) are hidden on reader-only phones.
+            if !appMode.isStandalone {
+                Section {
+                    TabStatsCard(summary: statsViewModel.tabs)
+                }
+                .listRowInsets(EdgeInsets())
+                .dsListRow()
             }
-            .listRowInsets(EdgeInsets())
-            .dsListRow()
 
             Section(footer: Text("Closes the Reading ring widget on your home screen.")) {
                 Stepper(value: $dailyWordGoal, in: ReadingGoal.range, step: ReadingGoal.step) {
@@ -93,24 +96,26 @@ public struct MoreView: View {
             }
 
             Section("Utilities & Intelligence") {
-                NavigationLink {
-                    DeskQueueView()
-                        .navigationTitle("Desk Queue")
-                } label: {
-                    MoreRowLabel(
-                        systemImage: "paperplane.fill",
-                        tint: DS.Tint.action,
-                        title: "Desk Queue",
-                        subtitle: "Links staged to open on your Mac"
-                    ) {
-                        if queueCount > 0 {
-                            // Solid badge: pending sends are waiting on the Mac.
-                            Text("\(queueCount)")
-                                .font(DS.Font.tag.monospacedDigit())
-                                .padding(.horizontal, DS.Space.sm)
-                                .padding(.vertical, 3)
-                                .foregroundColor(.white)
-                                .background(DS.Tint.action, in: Capsule())
+                if !appMode.isStandalone {
+                    NavigationLink {
+                        DeskQueueView()
+                            .navigationTitle("Desk Queue")
+                    } label: {
+                        MoreRowLabel(
+                            systemImage: "paperplane.fill",
+                            tint: DS.Tint.action,
+                            title: "Desk Queue",
+                            subtitle: "Links staged to open on your Mac"
+                        ) {
+                            if queueCount > 0 {
+                                // Solid badge: pending sends are waiting on the Mac.
+                                Text("\(queueCount)")
+                                    .font(DS.Font.tag.monospacedDigit())
+                                    .padding(.horizontal, DS.Space.sm)
+                                    .padding(.vertical, 3)
+                                    .foregroundColor(.white)
+                                    .background(DS.Tint.action, in: Capsule())
+                            }
                         }
                     }
                 }
@@ -135,33 +140,35 @@ public struct MoreView: View {
             }
             .dsListRow()
 
-            Section("Bookmarks & History") {
-                NavigationLink {
-                    BookmarkTreeView(device: nil)
-                        .navigationTitle("Bookmarks")
-                } label: {
-                    MoreRowLabel(
-                        systemImage: "bookmark.fill",
-                        tint: DS.Tint.bookmark,
-                        title: "Bookmarks",
-                        subtitle: "All synced browser bookmarks & folders"
-                    ) {
-                        if bookmarksCount > 0 {
-                            DSCountPill(bookmarksCount)
+            Section(appMode.isStandalone ? "Highlights" : "Bookmarks & History") {
+                if !appMode.isStandalone {
+                    NavigationLink {
+                        BookmarkTreeView(device: nil)
+                            .navigationTitle("Bookmarks")
+                    } label: {
+                        MoreRowLabel(
+                            systemImage: "bookmark.fill",
+                            tint: DS.Tint.bookmark,
+                            title: "Bookmarks",
+                            subtitle: "All synced browser bookmarks & folders"
+                        ) {
+                            if bookmarksCount > 0 {
+                                DSCountPill(bookmarksCount)
+                            }
                         }
                     }
-                }
 
-                NavigationLink {
-                    HistoryListView(device: nil)
-                        .navigationTitle("History")
-                } label: {
-                    MoreRowLabel(
-                        systemImage: "clock.arrow.circlepath",
-                        tint: .secondary,
-                        title: "Synced History",
-                        subtitle: "Recent browsing history from your Mac"
-                    )
+                    NavigationLink {
+                        HistoryListView(device: nil)
+                            .navigationTitle("History")
+                    } label: {
+                        MoreRowLabel(
+                            systemImage: "clock.arrow.circlepath",
+                            tint: .secondary,
+                            title: "Synced History",
+                            subtitle: "Recent browsing history from your Mac"
+                        )
+                    }
                 }
 
                 NavigationLink {
@@ -191,20 +198,22 @@ public struct MoreView: View {
             }
             .dsListRow()
 
-            Section("Devices") {
-                NavigationLink {
-                    DeviceListView()
-                        .navigationTitle("Devices")
-                } label: {
-                    MoreRowLabel(
-                        systemImage: "laptopcomputer",
-                        tint: DS.Tint.action,
-                        title: "Connected Macs",
-                        subtitle: "\(devicesCount) device\(devicesCount == 1 ? "" : "s") synced"
-                    )
+            if !appMode.isStandalone {
+                Section("Devices") {
+                    NavigationLink {
+                        DeviceListView()
+                            .navigationTitle("Devices")
+                    } label: {
+                        MoreRowLabel(
+                            systemImage: "laptopcomputer",
+                            tint: DS.Tint.action,
+                            title: "Connected Macs",
+                            subtitle: "\(devicesCount) device\(devicesCount == 1 ? "" : "s") synced"
+                        )
+                    }
                 }
+                .dsListRow()
             }
-            .dsListRow()
 
             Section("Help") {
                 Button {

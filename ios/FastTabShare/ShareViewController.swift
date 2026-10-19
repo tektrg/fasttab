@@ -3,9 +3,9 @@ import UniformTypeIdentifiers
 import CloudKit
 import FastTabSync
 
-/// Share sheet offering two choices: send the link to the Mac (existing
-/// `openOnMac` command path) or keep it on this iPhone only (local reading
-/// list, never uploaded). Both choices dismiss silently once done.
+/// Share sheet offering send the link to the Mac (existing `openOnMac` command
+/// path) and/or keep it on this iPhone (local reading list, never uploaded),
+/// depending on `AppMode`. Every choice dismisses silently once done.
 final class ShareViewController: UIViewController {
     private let container = CKContainer(identifier: SyncConstants.containerIdentifier)
 
@@ -109,18 +109,7 @@ final class ShareViewController: UIViewController {
         urlLabel.numberOfLines = 2
         urlLabel.text = urlString
 
-        let sendButton = makeActionButton(
-            title: "Send to Mac",
-            systemImage: "macbook.and.iphone",
-            tint: .systemBlue,
-            action: #selector(sendToMacTapped)
-        )
-        let saveButton = makeActionButton(
-            title: "Save to iPhone",
-            systemImage: "bookmark",
-            tint: .systemGreen,
-            action: #selector(saveToIPhoneTapped)
-        )
+        let actionButtons = ShareOptions.for(mode: AppModeStore().mode).map(makeButton(for:))
 
         let cancelButton = UIButton(type: .system)
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
@@ -129,7 +118,7 @@ final class ShareViewController: UIViewController {
         cancelButton.setTitleColor(.secondaryLabel, for: .normal)
         cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
 
-        let stack = UIStackView(arrangedSubviews: [titleLabel, urlLabel, sendButton, saveButton, cancelButton])
+        let stack = UIStackView(arrangedSubviews: [titleLabel, urlLabel] + actionButtons + [cancelButton])
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.spacing = 12
@@ -145,10 +134,17 @@ final class ShareViewController: UIViewController {
             stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
             stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+        ] + actionButtons.map { $0.heightAnchor.constraint(equalToConstant: 52) })
+    }
 
-            sendButton.heightAnchor.constraint(equalToConstant: 52),
-            saveButton.heightAnchor.constraint(equalToConstant: 52),
-        ])
+    /// Reader-only phones see just "Save to iPhone" (`ShareOptions`).
+    private func makeButton(for option: ShareOption) -> UIButton {
+        switch option {
+        case .sendToMac:
+            return makeActionButton(title: "Send to Mac", systemImage: "macbook.and.iphone", tint: .systemBlue, action: #selector(sendToMacTapped))
+        case .saveToIPhone:
+            return makeActionButton(title: "Save to iPhone", systemImage: "bookmark", tint: .systemGreen, action: #selector(saveToIPhoneTapped))
+        }
     }
 
     private func makeActionButton(title: String, systemImage: String, tint: UIColor, action: Selector) -> UIButton {

@@ -23,6 +23,8 @@ targets:
       - path: FastTabMobile
       # Widget snapshot model + deep links, compiled into both the app and FastTabWidgets.
       - path: Shared/Widgets
+      # AppMode (reader only vs Mac companion), also read by the share extension.
+      - path: Shared/AppMode
     dependencies:
       - target: FastTabShare
         embed: true
@@ -125,6 +127,7 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: FastTabShare
+      - path: Shared/AppMode
     dependencies:
       - package: FastTabPackage
         product: FastTabSync

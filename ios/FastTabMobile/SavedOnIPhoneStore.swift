@@ -17,7 +17,10 @@ public final class SavedOnIPhoneStore: ObservableObject {
     @Published public private(set) var items: [SavedOnIPhoneLink] = []
 
     private static let defaultsKey = "FastTabMobile.savedOnIPhoneV1"
-    private static let maxStoredItems = 100
+    /// Read-it-later sized: on a reader-only phone this is the whole reading list.
+    /// At ~250 bytes a link, 5000 is ~1.25 MB of JSON re-encoded into UserDefaults on
+    /// every change. Fine for now; move to a file in the app group if lists grow.
+    private static let maxStoredItems = 5000
 
     private init() {
         loadFromDisk()

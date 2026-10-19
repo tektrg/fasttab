@@ -70,9 +70,21 @@ export async function uploadImages(blobs: Blob[]): Promise<{ ok: true; ids: stri
 
 /** The image files in a paste (screenshots, copied photos). */
 export function imagesFromClipboard(data: DataTransfer | null): File[] {
+  if (!data) return [];
+  const fromFiles = Array.from(data.files ?? []);
+  // iOS Safari can leave `files` empty and expose the image only via `items`.
+  const fromItems = Array.from(data.items ?? [])
+    .filter((i) => i.kind === "file")
+    .map((i) => i.getAsFile())
+    .filter((f): f is File => f !== null);
+  const images = (fromFiles.length ? fromFiles : fromItems).filter((f) => f.type.startsWith("image/"));
+  if (!images.length) return [];
   // Text copied from Word/Excel/Office also carries an image rendering: that paste is text.
-  if (data?.getData?.("text/plain")) return [];
-  return Array.from(data?.files ?? []).filter((f) => f.type.startsWith("image/"));
+  // A photo copied from Safari/Photos also carries text (URL, filename) but its HTML is just an <img>.
+  const text = data.getData?.("text/plain") ?? "";
+  const html = data.getData?.("text/html") ?? "";
+  const isImageCopy = !text || /^\s*(<meta[^>]*>\s*)?<img\b[^>]*>\s*$/i.test(html) || /^(https?:|file:)\S+$/.test(text.trim()) || /\.(png|jpe?g|gif|webp|heic)$/i.test(text.trim());
+  return isImageCopy ? images : [];
 }
 
 let nextKey = 0;

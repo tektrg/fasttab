@@ -109,6 +109,21 @@ describe("image attachments", () => {
     expect(imagesFromClipboard(clip("")).length).toBe(1);
   });
 
+  test("a photo copied from Safari/Photos (image + URL/filename text) attaches", () => {
+    const png = new File([new Uint8Array([1])], "x.png", { type: "image/png" });
+    const clip = (d: Record<string, string>) =>
+      ({ files: [png], getData: (t: string) => d[t] ?? "" }) as unknown as DataTransfer;
+    expect(imagesFromClipboard(clip({ "text/plain": "https://a.com/p.jpg", "text/html": '<img src="https://a.com/p.jpg">' })).length).toBe(1);
+    expect(imagesFromClipboard(clip({ "text/plain": "IMG_0042.HEIC" })).length).toBe(1);
+    expect(imagesFromClipboard(clip({ "text/plain": "Q3 sales", "text/html": "<table><tr><td>Q3 sales</td></tr></table>" }))).toEqual([]);
+  });
+
+  test("iOS paste with empty files but the image in items attaches", () => {
+    const png = new File([new Uint8Array([1])], "x.png", { type: "image/png" });
+    const clip = { files: [], items: [{ kind: "file", getAsFile: () => png }], getData: () => "" } as unknown as DataTransfer;
+    expect(imagesFromClipboard(clip).length).toBe(1);
+  });
+
   test("an image alone enables Send; upload first, then the message carries the id", async () => {
     const calls = stubFetch({ ok: true, id: "a".repeat(32) });
     const { host, unmount } = mount();

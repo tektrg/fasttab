@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 /// The app's live `AppMode`, so the root tabs, Read, Shuffle and More redraw when it changes.
 /// Persists through `AppModeStore` (app group), where the share extension reads it.
@@ -28,6 +29,8 @@ final class AppModeModel: ObservableObject {
     func set(_ newMode: AppMode) {
         store.mode = newMode
         mode = newMode
+        // The Open Tabs widget reads the mode (`OpenTabsWidgetCopy`).
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     /// First launch after an update: users who already finished the guide or have a

@@ -120,7 +120,7 @@ public struct MoreView: View {
                     }
                 }
 
-                TipView(intelligenceTip)
+                TipView(IntelligenceTip(isStandalone: appMode.isStandalone))
                     .fastTabTipStyle()
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
@@ -134,7 +134,9 @@ public struct MoreView: View {
                         systemImage: "sparkles",
                         tint: DS.Tint.emerging,
                         title: "Intelligence",
-                        subtitle: "Topic clusters & bookmark suggestions"
+                        subtitle: appMode.isStandalone
+                            ? "Topic clusters from your reading"
+                            : "Topic clusters & bookmark suggestions"
                     )
                 }
             }

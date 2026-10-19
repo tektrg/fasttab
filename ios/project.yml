@@ -162,6 +162,8 @@ targets:
     sources:
       - path: FastTabWidgets
       - path: Shared/Widgets
+      # AppMode: reader-only phones get a "needs your Mac" Open Tabs widget.
+      - path: Shared/AppMode
     dependencies:
       - package: FastTabPackage
         product: FastTabSync

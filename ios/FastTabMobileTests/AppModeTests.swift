@@ -83,4 +83,19 @@ final class AppModeTests: XCTestCase {
         XCTAssertEqual(ShareOptions.for(mode: .mac), [.sendToMac, .saveToIPhone])
         XCTAssertEqual(ShareOptions.for(mode: nil), [.sendToMac, .saveToIPhone])
     }
+
+    // MARK: - Mac wording
+
+    func testIntelligenceTipDropsBookmarkFoldersForReaderOnly() {
+        XCTAssertFalse(IntelligenceTip.message(isStandalone: true).contains("bookmark"))
+        XCTAssertTrue(IntelligenceTip.message(isStandalone: false).contains("bookmark folders"))
+    }
+
+    func testOpenTabsWidgetCopyPerMode() {
+        let readerOnly = OpenTabsWidgetCopy.for(mode: .standalone)
+        XCTAssertFalse(readerOnly.showsTabs)
+        XCTAssertEqual(readerOnly.emptyMessage, "Open Tabs needs FastTab on your Mac.")
+        XCTAssertTrue(OpenTabsWidgetCopy.for(mode: .mac).showsTabs)
+        XCTAssertEqual(OpenTabsWidgetCopy.for(mode: nil), OpenTabsWidgetCopy.for(mode: .mac))
+    }
 }

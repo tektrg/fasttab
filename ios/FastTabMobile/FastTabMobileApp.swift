@@ -8,6 +8,7 @@ public struct FastTabMobileApp: App {
     @StateObject private var syncConsumer = SyncConsumer.shared
     @StateObject private var localCache = LocalCache.shared
     @StateObject private var onboardingPresenter = OnboardingPresenter.shared
+    @StateObject private var appMode = AppModeModel.shared
     @Environment(\.scenePhase) private var scenePhase
     /// The one theindie account session (Sign in with Apple); YouTube transcripts need it.
     /// Its keychain slot is the one `YouTubeTranscriptLoader` reads the token from.
@@ -18,6 +19,8 @@ public struct FastTabMobileApp: App {
     /// A widget article that arrived while the guide was up. SwiftUI shows one
     /// modal per host view, so it waits for the guide's dismissal to finish.
     @State private var deferredWidgetReaderItem: ReaderNavigationItem?
+    /// App-wide notices, e.g. "Mac found — Tabs added".
+    @State private var rootToast: String?
 
     public init() {
         FastTabTips.configure(onboardingCompleted: OnboardingCompletionStore().isCompleted)
@@ -34,14 +37,16 @@ public struct FastTabMobileApp: App {
                 }
                 .tag(AppTab.read)
 
-                NavigationStack {
-                    TabListView()
-                        .navigationTitle("Tabs")
+                if visibleTabs.contains(.tabs) {
+                    NavigationStack {
+                        TabListView()
+                            .navigationTitle("Tabs")
+                    }
+                    .tabItem {
+                        Label("Tabs", systemImage: "macwindow.on.rectangle")
+                    }
+                    .tag(AppTab.tabs)
                 }
-                .tabItem {
-                    Label("Tabs", systemImage: "macwindow.on.rectangle")
-                }
-                .tag(AppTab.tabs)
 
                 NavigationStack {
                     RandomLinksView()
@@ -60,6 +65,15 @@ public struct FastTabMobileApp: App {
                 .tag(AppTab.more)
             }
             .environment(accountSession)
+            .dsToast($rootToast)
+            .onChange(of: appMode.mode) { _, newMode in
+                selectedTab = AppTab.resolved(selectedTab, for: newMode)
+            }
+            // One way only: a reader-only phone that starts seeing a Mac becomes a companion.
+            .onChange(of: localCache.state.connectedMac?.id) { oldMacID, newMacID in
+                guard oldMacID == nil, newMacID != nil, appMode.macAppeared() else { return }
+                rootToast = "Mac found — Tabs added"
+            }
             .ratingPrompt()
             .task { await accountSession.restoreIfNeeded() }
             #if DEBUG
@@ -133,7 +147,7 @@ public struct FastTabMobileApp: App {
         case .stats:
             selectedTab = .more
         case .tabs:
-            selectedTab = .tabs
+            selectedTab = AppTab.resolved(.tabs, for: appMode.mode)
         }
     }
 }
@@ -145,9 +159,13 @@ private extension FastTabMobileApp {
         widgetReaderItem = item
     }
 
+    var visibleTabs: [AppTab] { AppTab.visible(for: appMode.mode) }
+
     func presentOnboardingOnFirstLaunch() {
         let hasCachedMac = localCache.state.connectedMac != nil
         let completionStore = OnboardingCompletionStore()
+        // Before the guide's own check below marks Mac users done: either signal means `mac`.
+        appMode.resolveOnLaunch(onboardingCompleted: completionStore.isCompleted, hasCachedMac: hasCachedMac)
         let shouldPresentGuide = completionStore.resolveLaunchPresentation(hasCachedMac: hasCachedMac)
         // An upgrading user was just marked done: let their tips show.
         FastTabTips.isOnboardingCompleted = completionStore.isCompleted
@@ -159,8 +177,18 @@ private extension FastTabMobileApp {
 }
 
 /// The root tab bar's tabs, so a widget deep link or the finished guide can switch between them.
-enum AppTab: Hashable {
+enum AppTab: Hashable, CaseIterable {
     case read, tabs, shuffle, more
+
+    /// Reader-only phones have no Mac tabs to show. Undecided users see everything.
+    static func visible(for mode: AppMode?) -> [AppTab] {
+        mode == .standalone ? allCases.filter { $0 != .tabs } : allCases
+    }
+
+    /// `tab` if this mode shows it, else Read.
+    static func resolved(_ tab: AppTab, for mode: AppMode?) -> AppTab {
+        visible(for: mode).contains(tab) ? tab : .read
+    }
 }
 
 extension URL: @retroactive Identifiable {

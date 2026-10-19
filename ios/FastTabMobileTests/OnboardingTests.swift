@@ -9,23 +9,50 @@ final class OnboardingTests: XCTestCase {
 
     // MARK: - Route
 
-    func testFullGuideWalksEveryStepThenFinishes() {
+    private func walk(_ mode: AppMode) -> [OnboardingStep] {
         var route = OnboardingRoute.fullGuide
         var visited = [route.current]
+        route.choose(mode)
+        visited.append(route.current)
         while route.advance() { visited.append(route.current) }
-        XCTAssertEqual(visited, [.welcome, .connectMac, .tryReader, .sendToMac, .done])
         XCTAssertTrue(route.isLast)
         XCTAssertFalse(route.advance(), "advancing past the last step asks the host to finish")
+        return visited
     }
 
-    func testBackStopsAtFirstStep() {
+    func testFullGuideOpensOnForkWithNothingElseYet() {
+        let route = OnboardingRoute.fullGuide
+        XCTAssertEqual(route.current, .fork)
+        XCTAssertFalse(route.isSingleStep)
+        XCTAssertNil(route.chosenMode)
+    }
+
+    func testMacPathWalksEveryCompanionStep() {
+        XCTAssertEqual(walk(.mac), [.fork, .welcome, .connectMac, .tryReader, .sendToMac, .done])
+    }
+
+    func testReaderOnlyPathSavesThenReads() {
+        XCTAssertEqual(walk(.standalone), [.fork, .saveFirstLink, .tryReader, .done])
+    }
+
+    func testBackFromFirstPathStepReturnsToFork() {
         var route = OnboardingRoute.fullGuide
+        route.choose(.standalone)
+        XCTAssertEqual(route.chosenMode, .standalone)
         route.goBack()
-        XCTAssertEqual(route.current, .welcome)
-        _ = route.advance()
-        route.goBack()
-        XCTAssertEqual(route.current, .welcome)
+        XCTAssertEqual(route.current, .fork)
         XCTAssertTrue(route.isFirst)
+        route.goBack()
+        XCTAssertEqual(route.current, .fork, "Back stops at the fork")
+    }
+
+    func testChoosingAgainSwitchesPath() {
+        var route = OnboardingRoute.fullGuide
+        route.choose(.mac)
+        _ = route.advance() // connectMac: "Continue without a Mac"
+        route.choose(.standalone)
+        XCTAssertEqual(route.current, .saveFirstLink)
+        XCTAssertEqual(route.chosenMode, .standalone)
     }
 
     func testSingleStepRouteFinishesOnFirstContinue() {

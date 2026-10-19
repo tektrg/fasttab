@@ -6,6 +6,7 @@ import IndieAccount
 public struct MoreView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var syncConsumer = SyncConsumer.shared
+    @ObservedObject private var appMode = AppModeModel.shared
     @StateObject private var statsViewModel = StatsViewModel()
     @Environment(AccountSession.self) private var accountSession
     private let intelligenceTip = IntelligenceTip()
@@ -27,6 +28,19 @@ public struct MoreView: View {
 
     private var devicesCount: Int {
         localCache.state.devices.count
+    }
+
+    /// On: Mac companion (Tabs tab, Send to Mac). Off: reader only. Turning it on opens Connect your Mac.
+    private var usesMacBinding: Binding<Bool> {
+        Binding(
+            get: { !appMode.isStandalone },
+            set: { usesMac in
+                appMode.set(usesMac ? .mac : .standalone)
+                if usesMac && localCache.state.connectedMac == nil {
+                    OnboardingPresenter.shared.present(.singleStep(.connectMac))
+                }
+            }
+        )
     }
 
     public var body: some View {
@@ -57,14 +71,25 @@ public struct MoreView: View {
             }
             .dsListRow()
 
-            Section {
-                DataFreshnessBanner(
-                    device: localCache.state.connectedMac,
-                    lastSyncedAt: localCache.state.lastSyncedAt
-                )
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
+            Section(footer: Text(appMode.isStandalone
+                ? "Reader only: save links from the share sheet and read them here."
+                : "Use with a Mac: see your Mac's tabs and send links to it.")) {
+                Toggle(isOn: usesMacBinding) {
+                    Label("Use with a Mac", systemImage: "macbook.and.iphone")
+                }
+            }
+            .dsListRow()
+
+            if !appMode.isStandalone {
+                Section {
+                    DataFreshnessBanner(
+                        device: localCache.state.connectedMac,
+                        lastSyncedAt: localCache.state.lastSyncedAt
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
             }
 
             Section("Utilities & Intelligence") {

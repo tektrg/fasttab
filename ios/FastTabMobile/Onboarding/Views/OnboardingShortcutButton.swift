@@ -16,10 +16,11 @@ struct OnboardingShortcutButton: View {
             }
         }
 
-        var step: OnboardingStep {
+        /// Reader-only phones learn "Save to iPhone", not "Send to Mac".
+        func step(for mode: AppMode?) -> OnboardingStep {
             switch self {
             case .connectMac: return .connectMac
-            case .addToShareSheet: return .sendToMac
+            case .addToShareSheet: return mode == .standalone ? .saveFirstLink : .sendToMac
             }
         }
     }
@@ -45,7 +46,7 @@ struct OnboardingShortcutButton: View {
 
     private var button: some View {
         Button(shortcut.title) {
-            OnboardingPresenter.shared.present(.singleStep(shortcut.step))
+            OnboardingPresenter.shared.present(.singleStep(shortcut.step(for: AppModeModel.shared.mode)))
         }
     }
 }

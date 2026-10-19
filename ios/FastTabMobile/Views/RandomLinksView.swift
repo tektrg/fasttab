@@ -10,6 +10,16 @@ enum RandomCardSource: Hashable {
     case bookmark(item: SyncedBookmarkItem, source: BookmarkSource)
     case openTab(tab: SyncedTab)
     case highlight(ReaderHighlight)
+    /// A link saved on this iPhone (share sheet "Save to iPhone"); the whole pool on a reader-only phone.
+    case savedLink(SavedOnIPhoneLink)
+
+    /// Highlights and saved links have no folder to move to: swiping right opens them.
+    var opensOnSwipeRight: Bool {
+        switch self {
+        case .highlight, .savedLink: return true
+        case .bookmark, .openTab: return false
+        }
+    }
 
     var badgeText: String {
         switch self {
@@ -20,6 +30,8 @@ enum RandomCardSource: Hashable {
             return "Open tab · \(tab.browserName)"
         case .highlight:
             return "Highlight"
+        case .savedLink:
+            return "Saved"
         }
     }
 
@@ -63,6 +75,7 @@ enum RandomCardMenuAction {
     case copyURL
     case copyHighlightText
     case deleteHighlight
+    case deleteSavedLink
     case hideLink
     case hideFolder
 }
@@ -72,6 +85,8 @@ public struct RandomLinksView: View {
     @ObservedObject private var skipStore = RandomFeedSkipStore.shared
     @ObservedObject private var highlightStore = ReaderHighlightStore.shared
     @ObservedObject private var hiddenStore = RandomFeedHiddenStore.shared
+    @ObservedObject private var savedStore = SavedOnIPhoneStore.shared
+    @ObservedObject private var appMode = AppModeModel.shared
     private let shuffleSwipeTip = ShuffleSwipeTip()
 
     @State private var deck: [RandomCardItem] = []
@@ -116,6 +131,8 @@ public struct RandomLinksView: View {
             hasBuiltInitialDeck = true
             reshuffle()
         }
+        // Reader only and Mac draw from different pools.
+        .onChange(of: appMode.mode) { _, _ in reshuffle() }
         .fullScreenCover(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
@@ -144,7 +161,7 @@ public struct RandomLinksView: View {
                 ) { destination in
                     performSave(item, title: tab.title, url: tab.url, deviceID: tab.deviceID, to: destination)
                 }
-            case .highlight:
+            case .highlight, .savedLink:
                 EmptyView()
             }
         }
@@ -228,7 +245,8 @@ public struct RandomLinksView: View {
     }
 
     private var hasAnySourceData: Bool {
-        !localCache.state.bookmarkBlobs.isEmpty || !localCache.state.tabs.isEmpty
+        if appMode.isStandalone { return !savedStore.items.isEmpty }
+        return !localCache.state.bookmarkBlobs.isEmpty || !localCache.state.tabs.isEmpty
             || !highlightStore.allHighlightsNewestFirst().isEmpty
     }
 
@@ -259,9 +277,13 @@ public struct RandomLinksView: View {
                 DSEmptyState(
                     "Nothing to shuffle yet",
                     systemImage: "shuffle",
-                    message: "Bookmarks and open tabs from your Mac, and your reader highlights, will show up here."
+                    message: appMode.isStandalone
+                        ? "Links you save from the share sheet will show up here."
+                        : "Bookmarks and open tabs from your Mac, and your reader highlights, will show up here."
                 ) {
-                    if localCache.state.connectedMac == nil {
+                    if appMode.isStandalone {
+                        OnboardingShortcutButton(shortcut: .addToShareSheet)
+                    } else if localCache.state.connectedMac == nil {
                         OnboardingShortcutButton(shortcut: .connectMac)
                     }
                 }
@@ -274,8 +296,7 @@ public struct RandomLinksView: View {
         shuffleSwipeTip.invalidate(reason: .actionPerformed)
         switch decision {
         case .moveTo:
-            // Highlights have no folder to move to: swiping right opens them instead.
-            if case .highlight = item.source {
+            if item.source.opensOnSwipeRight {
                 readerItem = readerNavigationItem(for: item)
             } else {
                 moveRequest = item
@@ -335,6 +356,11 @@ public struct RandomLinksView: View {
             hiddenStore.hide(folderKey: key)
             presentToast("Won't surface this folder again")
             deck.removeAll { $0.source.hiddenFolderKey.map(hiddenStore.isHidden(folderKey:)) ?? false }
+        case .deleteSavedLink:
+            guard case .savedLink(let link) = item.source else { return }
+            savedStore.remove(id: link.id)
+            presentToast("Removed link")
+            deck.removeAll { $0.id == item.id }
         case .deleteHighlight:
             guard case .highlight(let highlight) = item.source else { return }
             highlightStore.remove(highlight)
@@ -401,6 +427,20 @@ public struct RandomLinksView: View {
     }
 
     private func collectPool() -> [RandomCardItem] {
+        appMode.isStandalone ? collectSavedLinks() : collectMacAndHighlightPool()
+    }
+
+    /// Reader-only phones shuffle their own saved links, nothing else.
+    private func collectSavedLinks() -> [RandomCardItem] {
+        savedStore.items.compactMap { link in
+            guard let url = URL(string: link.url), url.scheme?.hasPrefix("http") == true else { return nil }
+            let id = "saved|\(link.id)"
+            guard !skipStore.isSkipped(id) else { return nil }
+            return RandomCardItem(id: id, title: link.title ?? url.host ?? link.url, url: url, source: .savedLink(link))
+        }
+    }
+
+    private func collectMacAndHighlightPool() -> [RandomCardItem] {
         var items: [RandomCardItem] = []
 
         for blob in localCache.state.bookmarkBlobs {
@@ -625,6 +665,12 @@ private struct RandomCardView: View {
                     Label("Delete Bookmark", systemImage: "trash")
                 }
             }
+        case .savedLink:
+            Button(role: .destructive) {
+                onMenuAction(.deleteSavedLink)
+            } label: {
+                Label("Delete Link", systemImage: "trash")
+            }
         case .openTab:
             Button {
                 onMenuAction(.moveBookmark)
@@ -713,7 +759,7 @@ private struct RandomCardView: View {
     @ViewBuilder
     private var stampOverlay: some View {
         if dragOffset.width > 40 {
-            stampLabel(isHighlight ? "OPEN" : "MOVE TO", color: DS.Tint.action)
+            stampLabel(item.source.opensOnSwipeRight ? "OPEN" : "MOVE TO", color: DS.Tint.action)
                 .opacity(min(1, (dragOffset.width - 40) / Self.stampFadeDistance))
                 .rotationEffect(.degrees(-15))
                 .padding(DS.Space.xl)

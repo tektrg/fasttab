@@ -15,8 +15,6 @@ enum OnboardingExit {
 /// A one-screen sheet (from an empty state) shows the screen alone.
 struct OnboardingFlowView: View {
     @State private var route: OnboardingRoute
-    /// Set by "Continue without a Mac": later screens then skip Mac-only demos.
-    @State private var continuedWithoutMac = false
     let onExit: (OnboardingExit) -> Void
     @ObservedObject private var localCache = LocalCache.shared
 
@@ -27,7 +25,7 @@ struct OnboardingFlowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !route.isSingleStep {
+            if !route.isSingleStep && route.current != .fork {
                 navigationBar
             }
 
@@ -41,7 +39,7 @@ struct OnboardingFlowView: View {
                 // Scrolled text stops at the Back / Skip bar instead of sliding under it.
                 .clipped()
 
-            if !route.isSingleStep {
+            if !route.isSingleStep && route.current != .fork {
                 OnboardingPageDots(count: route.steps.count, currentIndex: route.index)
                     .padding(.bottom, DS.Space.md)
             }
@@ -53,7 +51,7 @@ struct OnboardingFlowView: View {
             if !Task.isCancelled { preloadTryoutArticle() }
         }
         .onChange(of: localCache.state.tabs) { _, _ in preloadTryoutArticle() }
-        .onChange(of: continuedWithoutMac) { _, _ in preloadTryoutArticle() }
+        .onChange(of: route.chosenMode) { _, _ in preloadTryoutArticle() }
         .onDisappear { ReaderPreloader.shared.cancel() }
     }
 
@@ -61,7 +59,7 @@ struct OnboardingFlowView: View {
     /// Mac's article once tabs sync in, else the bundled sample. Later syncs can re-run this.
     private func preloadTryoutArticle() {
         guard route.steps.contains(.tryReader), route.current != .tryReader else { return }
-        if !continuedWithoutMac,
+        if !usesSampleOnly,
            let tab = ReaderTryoutPicker.pick(from: localCache.state.tabs),
            let url = URL(string: tab.url) {
             ReaderPreloader.shared.preload(url: url)
@@ -93,30 +91,44 @@ struct OnboardingFlowView: View {
         .padding(.vertical, DS.Space.xs)
     }
 
+    /// Reader-only users have no Mac tabs: the Reader demo opens the bundled sample.
+    private var usesSampleOnly: Bool {
+        route.chosenMode == .standalone
+    }
+
     @ViewBuilder
     private var currentStep: some View {
         switch route.current {
+        case .fork:
+            OnboardingForkStep(onChoose: choose)
+        case .saveFirstLink:
+            OnboardingSaveFirstLinkStep(isSingleStep: route.isSingleStep, onContinue: advance)
         case .welcome:
             OnboardingWelcomeStep(onContinue: advance)
         case .connectMac:
             OnboardingConnectMacStep(
                 isStandalone: route.isSingleStep,
-                onContinue: {
-                    continuedWithoutMac = false
-                    advance()
-                },
-                onContinueWithoutMac: {
-                    continuedWithoutMac = true
-                    advance()
-                }
+                onContinue: advance,
+                // Switches to the reader-only path (and mode); Back still reaches the fork.
+                onContinueWithoutMac: { choose(.standalone) }
             )
         case .tryReader:
-            OnboardingTryReaderStep(useSampleOnly: continuedWithoutMac, isStandalone: route.isSingleStep, onContinue: advance)
+            OnboardingTryReaderStep(useSampleOnly: usesSampleOnly, isStandalone: route.isSingleStep, onContinue: advance)
         case .sendToMac:
             OnboardingSendToMacStep(isStandalone: route.isSingleStep, onContinue: advance)
         case .done:
             OnboardingDoneStep(onStart: advance)
         }
+    }
+
+    /// Records the answer as the app's mode right away, so the share extension and
+    /// root tabs follow it even if the user skips the rest of the guide.
+    private func choose(_ mode: AppMode) {
+        AppModeModel.shared.set(mode)
+        var next = route
+        next.choose(mode)
+        withAnimation(.easeInOut(duration: 0.25)) { route = next }
+        announceScreenChange()
     }
 
     private func advance() {

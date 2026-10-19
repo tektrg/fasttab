@@ -240,6 +240,15 @@ final class OnboardingTests: XCTestCase {
         XCTAssertEqual(cache.article(for: ReaderSampleArticle.url)?.title, ReaderSampleArticle.title)
     }
 
+    /// A saved sample link opens the bundled article, even on reload, never the live home page.
+    @MainActor
+    func testReaderOpensBundledSampleNotLivePage() async throws {
+        let vm = ReaderViewModel(url: ReaderSampleArticle.url, title: "t", statsRecorder: .isolatedForTests())
+        await vm.extractIfNeeded(force: true)
+        guard case .loaded(let article) = vm.loadState else { return XCTFail("sample did not load: \(vm.loadState)") }
+        XCTAssertEqual(article.title, ReaderSampleArticle.title)
+    }
+
     // MARK: - "Try it" send
 
     private func openOnMacCommand(url: String) throws -> SyncCommand {

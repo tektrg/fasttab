@@ -191,6 +191,7 @@ public final class ReaderViewModel: ObservableObject {
     private func loadArticle() async throws -> ReaderArticle {
         switch route {
         case .article:
+            if url == ReaderSampleArticle.url, let sample = ReaderSampleArticle.article() { return sample }
             return try await ReaderExtractor.shared.extract(url: url)
         case .youtubeTranscript(let videoID):
             do {
@@ -204,6 +205,9 @@ public final class ReaderViewModel: ObservableObject {
     /// The cache entry, unless it came from the other pipeline (a Readability page cached
     /// for a YouTube link before transcripts existed).
     private func cachedArticle() -> ReaderArticle? {
+        // The guide's sample (saved to Saved, or opened again later) always shows the
+        // bundled article, never an extraction of the live home page at the same URL.
+        if url == ReaderSampleArticle.url, let sample = ReaderSampleArticle.article() { return sample }
         guard let cached = articleCache.article(for: url) else { return nil }
         let isTranscriptRoute = route != .article
         return (cached.youtubeVideoID != nil) == isTranscriptRoute ? cached : nil

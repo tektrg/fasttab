@@ -13,7 +13,7 @@ struct OnboardingForkStep: View {
             title: "Welcome to your reading journey",
             message: "Save links to read later, highlight, and revisit any time. Everything is saved privately in your iCloud."
         ) {
-            OnboardingHeroWelcome()
+            OnboardingHeroReading()
         } content: {
             VStack(spacing: DS.Space.xxs) {
                 Text("“The more that you read, the more things you will know.”")

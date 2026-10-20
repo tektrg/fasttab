@@ -5,6 +5,8 @@ import SwiftUI
 struct OnboardingStepLayout<Hero: View, Content: View, Actions: View>: View {
     let title: String
     let message: String?
+    /// Bigger title and message, for a welcome screen with room to spare.
+    let largeText: Bool
     let hero: Hero
     let content: Content
     let actions: Actions
@@ -17,12 +19,14 @@ struct OnboardingStepLayout<Hero: View, Content: View, Actions: View>: View {
     init(
         title: String,
         message: String? = nil,
+        largeText: Bool = false,
         @ViewBuilder hero: () -> Hero,
         @ViewBuilder content: () -> Content,
         @ViewBuilder actions: () -> Actions
     ) {
         self.title = title
         self.message = message
+        self.largeText = largeText
         self.hero = hero()
         self.content = content()
         self.actions = actions()
@@ -43,11 +47,11 @@ struct OnboardingStepLayout<Hero: View, Content: View, Actions: View>: View {
                     VStack(spacing: DS.Space.lg) {
                         VStack(spacing: DS.Space.sm) {
                             Text(title)
-                                .font(DS.Font.display)
+                                .font(largeText ? .largeTitle.bold() : DS.Font.display)
                                 .accessibilityAddTraits(.isHeader)
                             if let message {
                                 Text(message)
-                                    .font(DS.Font.body)
+                                    .font(largeText ? .title3 : DS.Font.body)
                                     .foregroundStyle(.secondary)
                             }
                         }

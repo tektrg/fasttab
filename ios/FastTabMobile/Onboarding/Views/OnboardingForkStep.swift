@@ -11,13 +11,18 @@ struct OnboardingForkStep: View {
     var body: some View {
         OnboardingStepLayout(
             title: "Welcome to your reading journey",
-            message: "Save links to read later, highlight, and revisit any time. Everything is saved privately in your iCloud."
+            message: "Save links to read later, highlight, and revisit any time. Everything is saved privately in your iCloud.",
+            largeText: true
         ) {
+            // Phone-only art fills the middle of the canvas, so it can draw bigger
+            // than the shared sizing; the padding keeps its room in the layout.
             OnboardingHeroReading()
+                .scaleEffect(1.3)
+                .padding(.vertical, DS.Space.xl)
         } content: {
             VStack(spacing: DS.Space.xxs) {
                 Text("“The more that you read, the more things you will know.”")
-                    .font(DS.Font.meta)
+                    .font(DS.Font.body)
                     .italic()
                     .multilineTextAlignment(.center)
                 Text("— Dr. Seuss")
@@ -29,7 +34,11 @@ struct OnboardingForkStep: View {
             .accessibilityElement(children: .combine)
         } actions: {
             OnboardingPrimaryButton(title: "Continue") { onChoose(.standalone) }
+            Text("or")
+                .font(DS.Font.meta)
+                .foregroundStyle(.tertiary)
             OnboardingSecondaryButton(title: "Have FastTab on your Mac?") { onChoose(.mac) }
+                .padding(.bottom, DS.Space.xxl)
         }
     }
 }

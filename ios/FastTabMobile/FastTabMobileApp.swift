@@ -162,6 +162,13 @@ private extension FastTabMobileApp {
     var visibleTabs: [AppTab] { AppTab.visible(for: appMode.mode) }
 
     func presentOnboardingOnFirstLaunch() {
+        #if DEBUG
+        // Screenshots/QA: `-FastTabShowGuide YES` opens the guide even on a set-up device.
+        if UserDefaults.standard.bool(forKey: "FastTabShowGuide") {
+            onboardingPresenter.present(.fullGuide)
+            return
+        }
+        #endif
         let hasCachedMac = localCache.state.connectedMac != nil
         let completionStore = OnboardingCompletionStore()
         // Before the guide's own check below marks Mac users done: either signal means `mac`.

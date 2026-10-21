@@ -16,6 +16,9 @@ public struct ReadingFeedView: View {
     @State private var readerItem: ReaderNavigationItem? = nil
     @State private var saveToBookmarkURL: URL? = nil
     @State private var saveToBookmarkTitle: String = ""
+    /// Set when the bookmark picker is "Move to Bookmarks" for a FastTab List item:
+    /// once the bookmark is queued, that item goes to Trash.
+    @State private var moveToBookmarksListItemID: String? = nil
     @State private var toast: String? = nil
     @State private var showingListTrash = false
 
@@ -167,7 +170,7 @@ public struct ReadingFeedView: View {
         .sheet(item: $saveToBookmarkURL) { url in
             BookmarkMovePicker(
                 sourceDeviceID: activeDeviceID,
-                title: "Save to Mac Bookmarks"
+                title: moveToBookmarksListItemID == nil ? "Save to Mac Bookmarks" : "Move to Mac Bookmarks"
             ) { destination in
                 SyncConsumer.shared.sendAddBookmark(
                     title: saveToBookmarkTitle.isEmpty ? (url.host() ?? url.absoluteString) : saveToBookmarkTitle,
@@ -177,7 +180,13 @@ public struct ReadingFeedView: View {
                     destinationFolderPath: destination.folderPath,
                     targetDeviceID: activeDeviceID
                 )
-                presentToast("Saved to \(destination.folderDisplayName)")
+                if let listItemID = moveToBookmarksListItemID {
+                    savedStore.remove(id: listItemID)
+                    recentProvider.refresh()
+                    presentToast("Moved to \(destination.folderDisplayName)")
+                } else {
+                    presentToast("Saved to \(destination.folderDisplayName)")
+                }
                 saveToBookmarkURL = nil
             }
         }
@@ -257,8 +266,10 @@ public struct ReadingFeedView: View {
                             openOnMac(url: item.url, title: item.title)
                         },
                         onSaveToBookmarks: macAction {
-                            promptSaveBookmark(url: item.url, title: item.title)
+                            promptSaveBookmark(url: item.url, title: item.title, movingListItemID: item.source.listItemID)
                         },
+                        saveToBookmarksTitle: item.source.listItemID == nil ? "Save to Bookmarks" : "Move to Bookmarks",
+                        onReadLater: item.source.isBookmark ? { readLater(url: item.url, title: item.title) } : nil,
                         onDelete: {
                             deleteRecentItem(item)
                         }
@@ -710,9 +721,16 @@ public struct ReadingFeedView: View {
         presentToast("Sent to Mac")
     }
 
-    private func promptSaveBookmark(url: URL, title: String) {
+    /// `movingListItemID`: "Move to Bookmarks" on a FastTab List item (trashed once saved).
+    private func promptSaveBookmark(url: URL, title: String, movingListItemID: String? = nil) {
         saveToBookmarkTitle = title
+        moveToBookmarksListItemID = movingListItemID
         saveToBookmarkURL = url
+    }
+
+    private func readLater(url: URL, title: String) {
+        let saved = savedStore.readLater(url: url.absoluteString, title: title)
+        presentToast(saved ? "Added to FastTab List" : "Can't add this link")
     }
 
     private func refreshAll() {

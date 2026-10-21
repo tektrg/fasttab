@@ -44,6 +44,18 @@ public enum RecentAddedSource: Hashable, Sendable {
         case .bookmark: return DS.Tint.bookmark
         }
     }
+
+    /// The FastTab List item behind this row (offers "Move to Bookmarks"), if any.
+    public var listItemID: String? {
+        if case .savedOnIPhone(let linkID) = self { return linkID }
+        return nil
+    }
+
+    /// Browser bookmarks offer "Read Later" (add to the FastTab List).
+    public var isBookmark: Bool {
+        if case .bookmark = self { return true }
+        return false
+    }
 }
 
 public struct BookmarkFolderChip: Identifiable, Hashable, Sendable {

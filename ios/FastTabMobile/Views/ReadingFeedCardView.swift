@@ -17,6 +17,10 @@ public struct ReadingFeedCardView: View {
     public let onSelect: () -> Void
     public let onOpenOnMac: (() -> Void)?
     public let onSaveToBookmarks: (() -> Void)?
+    /// Menu label for `onSaveToBookmarks` ("Move to Bookmarks" on FastTab List items).
+    public let saveToBookmarksTitle: String
+    /// "Read Later": adds the link to the FastTab List (bookmarks only).
+    public let onReadLater: (() -> Void)?
     public let onDelete: (() -> Void)?
     /// Emerging-only: "this isn't something I'd read" — offered as two
     /// choices (just this link, or the whole website) rather than a single
@@ -43,6 +47,8 @@ public struct ReadingFeedCardView: View {
         onSelect: @escaping () -> Void,
         onOpenOnMac: (() -> Void)? = nil,
         onSaveToBookmarks: (() -> Void)? = nil,
+        saveToBookmarksTitle: String = "Save to Bookmarks",
+        onReadLater: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
         onMarkNotARead: ((_ wholeWebsite: Bool) -> Void)? = nil
     ) {
@@ -59,6 +65,8 @@ public struct ReadingFeedCardView: View {
         self.onSelect = onSelect
         self.onOpenOnMac = onOpenOnMac
         self.onSaveToBookmarks = onSaveToBookmarks
+        self.saveToBookmarksTitle = saveToBookmarksTitle
+        self.onReadLater = onReadLater
         self.onDelete = onDelete
         self.onMarkNotARead = onMarkNotARead
     }
@@ -132,7 +140,15 @@ public struct ReadingFeedCardView: View {
                 Button {
                     onSaveToBookmarks()
                 } label: {
-                    Label("Save to Bookmarks", systemImage: "bookmark.badge.plus")
+                    Label(saveToBookmarksTitle, systemImage: "bookmark.badge.plus")
+                }
+            }
+
+            if let onReadLater {
+                Button {
+                    onReadLater()
+                } label: {
+                    Label("Read Later", systemImage: "eyeglasses")
                 }
             }
 

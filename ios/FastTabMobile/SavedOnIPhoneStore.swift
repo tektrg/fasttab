@@ -66,6 +66,14 @@ public final class SavedOnIPhoneStore: ObservableObject {
         mutate { library in links.forEach { library.save($0, now: self.now()) } }
     }
 
+    /// "Read Later" on a bookmark: false when the link isn't a web page.
+    @discardableResult
+    public func readLater(url: String, title: String?) -> Bool {
+        guard let link = FastTabListBridge.readLaterLink(url: url, title: title, now: now()) else { return false }
+        add([link])
+        return true
+    }
+
     /// Delete from the list = move to Trash.
     public func remove(id: String) { mutate { $0.moveToTrash(id: id, now: self.now()) } }
     public func restore(id: String) { mutate { $0.restore(id: id, now: self.now()) } }

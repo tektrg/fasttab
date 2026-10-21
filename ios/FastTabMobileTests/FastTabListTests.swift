@@ -199,4 +199,29 @@ final class FastTabListTests: XCTestCase {
         store.flushPendingWrite()
         XCTAssertEqual(makeStore(fileStore: fileStore) { self.start }.items.map(\.id), [id])
     }
+
+    // MARK: - Phase 3 bridges
+
+    func testReadLaterAddsBookmarkLinksOnceAndRefusesNonWeb() {
+        let store = makeStore { self.start }
+        XCTAssertTrue(store.readLater(url: "https://example.com/bm", title: "Bookmark"))
+        XCTAssertTrue(store.readLater(url: "https://EXAMPLE.com/bm", title: "Bookmark"))
+        XCTAssertFalse(store.readLater(url: "$(echo INJECTED)", title: "x"))
+        XCTAssertFalse(store.readLater(url: "file:///tmp/x", title: "x"))
+        XCTAssertEqual(store.items.map(\.title), ["Bookmark"])
+    }
+
+    func testRecentRowsOfferTheRightBridge() {
+        let listRow = RecentAddedSource.savedOnIPhone(linkID: "abc")
+        XCTAssertEqual(listRow.listItemID, "abc")
+        XCTAssertFalse(listRow.isBookmark)
+        let shared = RecentAddedSource.shareSheet(commandID: "c", status: "")
+        XCTAssertNil(shared.listItemID)
+        XCTAssertFalse(shared.isBookmark)
+    }
+
+    func testMoveToBookmarksHiddenWithoutAMac() {
+        XCTAssertFalse(FastTabListBridge.offersMoveToBookmarks(isStandalone: true))
+        XCTAssertTrue(FastTabListBridge.offersMoveToBookmarks(isStandalone: false))
+    }
 }

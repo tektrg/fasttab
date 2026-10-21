@@ -77,8 +77,8 @@ public final class SavedOnIPhoneStore: ObservableObject {
     /// Delete from the list = move to Trash.
     public func remove(id: String) { mutate { $0.moveToTrash(id: id, now: self.now()) } }
     public func restore(id: String) { mutate { $0.restore(id: id, now: self.now()) } }
-    public func deleteNow(id: String) { mutate { $0.deleteNow(id: id) } }
-    public func emptyTrash() { mutate { $0.emptyTrash() } }
+    public func deleteNow(id: String) { mutate { $0.deleteNow(id: id, now: self.now()) } }
+    public func emptyTrash() { mutate { $0.emptyTrash(now: self.now()) } }
     public func setRead(id: String, _ isRead: Bool) { mutate { $0.setRead(id: id, isRead, now: self.now()) } }
 
     /// Called by the reader; ignored for articles that aren't in the list.
@@ -157,6 +157,6 @@ extension SavedOnIPhoneStore: FastTabListSyncStore {
 
     public func removeRemoteListItem(id: String) {
         guard library.itemsByID[id] != nil else { return }
-        applySynced { $0.removeRemote(id: id) }
+        applySynced { $0.removeRemote(id: id, now: self.now()) }
     }
 }

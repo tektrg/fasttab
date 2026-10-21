@@ -8,8 +8,11 @@ import Foundation
 ///   title edit on another).
 /// - read state (`readAt`): the newer `readStateUpdatedAt`, so "mark unread" sticks.
 /// - `savedAt` / `updatedAt`: the later of the two.
+/// - purged marker: final. It beats any copy unless that copy was explicitly saved again
+///   after the purge (`savedAt` > `purgedAt`); field edits never move `savedAt`.
 public enum FastTabListMerge {
     public static func merge(_ a: SavedOnIPhoneLink, _ b: SavedOnIPhoneLink) -> SavedOnIPhoneLink {
+        if a.isPurged || b.isPurged { return mergeWithPurge(a, b) }
         var merged = newerEdit(a, b)
         merged.savedAt = max(a.savedAt, b.savedAt)
         merged.updatedAt = max(a.updatedAt, b.updatedAt)
@@ -24,6 +27,13 @@ public enum FastTabListMerge {
         merged.readAt = readSource.readAt
         merged.readStateUpdatedAt = readSource.readStateUpdatedAt
         return merged
+    }
+
+    private static func mergeWithPurge(_ a: SavedOnIPhoneLink, _ b: SavedOnIPhoneLink) -> SavedOnIPhoneLink {
+        let purgedAt = max(a.purgedAt ?? .distantPast, b.purgedAt ?? .distantPast)
+        // At most one side is live here (the other is a marker).
+        if let resaved = [a, b].first(where: { !$0.isPurged && $0.savedAt > purgedAt }) { return resaved }
+        return .purgedMarker(id: a.id, purgedAt: purgedAt)
     }
 
     /// Ties (same `updatedAt`) break on content, never on argument order.

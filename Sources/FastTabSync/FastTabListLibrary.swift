@@ -6,7 +6,7 @@ import CryptoKit
 /// directly; the phone's `SavedOnIPhoneStore` owns persistence and publishing.
 /// Shared (FastTabSync) so the Mac derives the same ids and applies the same rules.
 public struct FastTabListLibrary: Equatable, Sendable {
-    /// Trashed items older than this are deleted for good.
+    /// Trashed items older than this become purged markers (deleted for good, never revived).
     public static let trashRetention: TimeInterval = 30 * 86_400
     /// Scroll fraction that counts as "read".
     public static let readThreshold = 0.9
@@ -29,20 +29,28 @@ public struct FastTabListLibrary: Equatable, Sendable {
     }
 
     public var trashedItems: [SavedOnIPhoneLink] {
-        itemsByID.values.filter(\.isTrashed).sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+        itemsByID.values.filter { $0.isTrashed && !$0.isPurged }.sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+    }
+
+    /// A visible (live or trashed) item; purged markers count as absent.
+    public func item(id: String) -> SavedOnIPhoneLink? {
+        itemsByID[id].flatMap { $0.isPurged ? nil : $0 }
     }
 
     public func item(forURL urlString: String) -> SavedOnIPhoneLink? {
-        itemsByID[Self.itemID(for: urlString)]
+        item(id: Self.itemID(for: urlString))
     }
 
     // MARK: - Mutations
 
     /// Saving a link already in the list moves it to the top (new `savedAt`), and a
     /// trashed one comes back out of Trash. Read state and progress are kept.
+    /// Saving a purged link starts it fresh, with a `savedAt` after the purge so the
+    /// restore wins the merge on every device.
     public mutating func save(_ link: SavedOnIPhoneLink, now: Date) {
         let id = Self.itemID(for: link.url)
-        var saved = itemsByID[id] ?? SavedOnIPhoneLink(id: id, url: link.url, savedAt: link.savedAt)
+        let freshSavedAt = itemsByID[id]?.purgedAt.map { max(link.savedAt, $0.addingTimeInterval(0.001)) } ?? link.savedAt
+        var saved = item(id: id) ?? SavedOnIPhoneLink(id: id, url: link.url, savedAt: freshSavedAt)
         saved.url = link.url
         if let title = link.title, !title.isEmpty { saved.title = title }
         saved.savedAt = max(saved.savedAt, link.savedAt)
@@ -59,21 +67,22 @@ public struct FastTabListLibrary: Equatable, Sendable {
         update(id: id, now: now) { $0.deletedAt = nil }
     }
 
-    public mutating func deleteNow(id: String) {
-        itemsByID[id] = nil
+    public mutating func deleteNow(id: String, now: Date) {
+        guard item(id: id) != nil else { return }
+        itemsByID[id] = .purgedMarker(id: id, purgedAt: now)
     }
 
-    public mutating func emptyTrash() {
-        itemsByID = itemsByID.filter { !$0.value.isTrashed }
+    public mutating func emptyTrash(now: Date) {
+        trashedItems.forEach { itemsByID[$0.id] = .purgedMarker(id: $0.id, purgedAt: now) }
     }
 
-    /// Returns whether anything was purged.
+    /// Turns Trash older than `trashRetention` into purged markers. Returns whether any did.
     @discardableResult
     public mutating func purgeExpiredTrash(now: Date) -> Bool {
         let cutoff = now.addingTimeInterval(-Self.trashRetention)
-        let before = itemsByID.count
-        itemsByID = itemsByID.filter { ($0.value.deletedAt ?? .distantFuture) > cutoff }
-        return itemsByID.count != before
+        let expired = trashedItems.filter { ($0.deletedAt ?? .distantFuture) <= cutoff }
+        expired.forEach { itemsByID[$0.id] = .purgedMarker(id: $0.id, purgedAt: now) }
+        return !expired.isEmpty
     }
 
     /// Records reader progress for a list item; reaching `readThreshold` marks it read
@@ -81,7 +90,7 @@ public struct FastTabListLibrary: Equatable, Sendable {
     @discardableResult
     public mutating func recordProgress(url urlString: String, progress: Double, now: Date) -> Bool {
         let id = Self.itemID(for: urlString)
-        guard var item = itemsByID[id] else { return false }
+        guard var item = item(id: id) else { return false }
         let clamped = max(0, min(1, progress))
         let becomesRead = clamped >= Self.readThreshold && item.readAt == nil
         guard abs(item.progress - clamped) > 0.001 || becomesRead else { return false }
@@ -97,7 +106,7 @@ public struct FastTabListLibrary: Equatable, Sendable {
     }
 
     public mutating func setRead(id: String, _ isRead: Bool, now: Date) {
-        guard let item = itemsByID[id], item.isRead != isRead else { return }
+        guard let item = item(id: id), item.isRead != isRead else { return }
         update(id: id, now: now) {
             $0.readAt = isRead ? now : nil
             $0.readStateUpdatedAt = now
@@ -105,7 +114,7 @@ public struct FastTabListLibrary: Equatable, Sendable {
     }
 
     private mutating func update(id: String, now: Date, _ change: (inout SavedOnIPhoneLink) -> Void) {
-        guard var item = itemsByID[id] else { return }
+        guard var item = item(id: id) else { return }
         change(&item)
         item.updatedAt = now
         itemsByID[id] = item
@@ -122,16 +131,20 @@ public struct FastTabListLibrary: Equatable, Sendable {
         return merged
     }
 
-    /// The record was deleted in CloudKit (purged or Trash emptied on another device).
+    /// The record was deleted in CloudKit (a build from before purged markers). Kept as a
+    /// marker so a long-offline device can't bring it back; the marker syncs out.
     @discardableResult
-    public mutating func removeRemote(id: String) -> Bool {
-        itemsByID.removeValue(forKey: id) != nil
+    public mutating func removeRemote(id: String, now: Date) -> Bool {
+        guard itemsByID[id]?.isPurged != true else { return false }
+        itemsByID[id] = .purgedMarker(id: id, purgedAt: now)
+        return true
     }
 
     /// Loading/migrating: re-keys by canonical URL and keeps the most recent copy.
     private mutating func upsertKeepingNewest(_ incoming: SavedOnIPhoneLink) {
         var item = incoming
-        item.id = Self.itemID(for: incoming.url)
+        // Markers have no URL; their id is the identity.
+        if !incoming.isPurged { item.id = Self.itemID(for: incoming.url) }
         if let existing = itemsByID[item.id], existing.updatedAt >= item.updatedAt { return }
         itemsByID[item.id] = item
     }

@@ -136,6 +136,27 @@ final class FastTabListTests: XCTestCase {
         XCTAssertTrue(relaunched.trashedItems.isEmpty)
     }
 
+    func testPurgedMarkerSurvivesRelaunchHiddenAndAResaveRestores() {
+        let fileStore = makeFileStore()
+        var now = start
+        let store = makeStore(fileStore: fileStore) { now }
+        store.add([SavedOnIPhoneLink(url: "https://example.com/a", title: "A")])
+        let id = store.items[0].id
+        store.remove(id: id)
+        store.emptyTrash()
+        store.flushPendingWrite()
+
+        let relaunched = makeStore(fileStore: fileStore) { now }
+        XCTAssertTrue(relaunched.items.isEmpty && relaunched.trashedItems.isEmpty)
+        XCTAssertNil(relaunched.item(forURL: "https://example.com/a"))
+        XCTAssertEqual(relaunched.listItemsForSync().first?.isPurged, true, "the marker is kept for sync")
+
+        now = start.addingTimeInterval(day)
+        relaunched.add([SavedOnIPhoneLink(url: "https://example.com/a", title: "A again", savedAt: now)])
+        XCTAssertEqual(relaunched.items.map(\.id), [id])
+        XCTAssertEqual(relaunched.items.first?.title, "A again")
+    }
+
     // MARK: - Progress
 
     func testProgressMarksReadAtNinetyPercentAndIgnoresUnlistedURLs() {

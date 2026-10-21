@@ -38,7 +38,7 @@ final class FastTabListStore: ObservableObject {
             .appendingPathComponent("list.json")
     }
 
-    func item(id: String) -> SavedOnIPhoneLink? { library.itemsByID[id] }
+    func item(id: String) -> SavedOnIPhoneLink? { library.item(id: id) }
 
     /// "Read later": returns false for links that can't be read (non-web URLs).
     @discardableResult
@@ -117,6 +117,6 @@ extension FastTabListStore: FastTabListSyncStore {
     }
 
     func removeRemoteListItem(id: String) {
-        applySynced { $0.removeRemote(id: id) }
+        applySynced { $0.removeRemote(id: id, now: self.now()) }
     }
 }

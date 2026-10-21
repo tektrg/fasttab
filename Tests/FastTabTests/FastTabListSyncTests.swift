@@ -12,7 +12,7 @@ struct FastTabListSyncTests {
         var library = FastTabListLibrary()
         func listItemsForSync() -> [SavedOnIPhoneLink] { Array(library.itemsByID.values) }
         func applyRemoteListItem(_ item: SavedOnIPhoneLink) -> SavedOnIPhoneLink { library.applyRemote(item) }
-        func removeRemoteListItem(id: String) { library.removeRemote(id: id) }
+        func removeRemoteListItem(id: String) { library.removeRemote(id: id, now: Date(timeIntervalSince1970: 1_900_000_000)) }
     }
 
     /// The server: record name → latest record; deletions are reported to fetchers.
@@ -135,34 +135,86 @@ struct FastTabListSyncTests {
         #expect(pad.list.library.liveItems.count == 1)
     }
 
-    @Test func purgeOnOneDeviceDeletesTheRecordAndTheOtherCopy() {
+    @Test func purgeLeavesAMarkerThatHidesTheItemEverywhere() {
         let zone = FakeZone(), phone = Device(), pad = Device()
-        phone.list.library.save(link("https://a.com/x"), now: at(1))
+        phone.list.library.save(link("https://a.com/x", title: "Secret"), now: at(1))
         let id = FastTabListLibrary.itemID(for: "https://a.com/x")
         phone.list.library.moveToTrash(id: id, now: at(2))
         phone.send(to: zone); pad.fetch(from: zone)
 
         pad.list.library.purgeExpiredTrash(now: at(2 + FastTabListLibrary.trashRetention + 1))
         let sent = pad.send(to: zone)
-        #expect(sent.deletes.map(\.recordName) == [SyncedListItem.recordName(forItemID: id)])
-        #expect(zone.records.isEmpty)
+        #expect(sent.deletes.isEmpty, "the CloudKit record is kept as a marker, not deleted")
+        let marker = SyncedListItem(from: zone.records.values.first!)!.item
+        #expect(marker.isPurged && marker.title == nil && marker.url.isEmpty && marker.progress == 0)
 
         phone.fetch(from: zone)
-        #expect(phone.list.library.itemsByID.isEmpty, "a CloudKit delete removes the local item")
-        #expect(phone.bridge.pendingChanges().saves.isEmpty, "and it is not re-uploaded")
+        #expect(phone.list.library.liveItems.isEmpty && phone.list.library.trashedItems.isEmpty)
+        #expect(phone.list.library.item(id: id) == nil, "markers are hidden")
+        #expect(phone.bridge.pendingChanges().saves.isEmpty)
     }
 
-    @Test func purgedHereButNotYetDeletedIgnoresTheStaleServerCopy() {
+    @Test func longOfflineDeviceEditAfterPurgeStaysPurged() {
+        let zone = FakeZone(), phone = Device(), oldPad = Device()
+        phone.list.library.save(link("https://a.com/x"), now: at(1))
+        phone.send(to: zone); oldPad.fetch(from: zone)
+        let id = FastTabListLibrary.itemID(for: "https://a.com/x")
+
+        // Phone trashes and later purges; the pad is offline the whole time…
+        phone.list.library.moveToTrash(id: id, now: at(2))
+        phone.list.library.purgeExpiredTrash(now: at(2 + FastTabListLibrary.trashRetention + 1))
+        phone.send(to: zone)
+        // …and edits its stale copy (read it, renamed it) well after the purge.
+        let late = 3 + FastTabListLibrary.trashRetention + 100
+        oldPad.list.library.recordProgress(url: "https://a.com/x", progress: 0.95, now: at(late))
+        oldPad.list.library.setRead(id: id, false, now: at(late + 1))
+
+        oldPad.fetch(from: zone)
+        oldPad.send(to: zone)
+        phone.fetch(from: zone)
+        #expect(oldPad.list.library.item(id: id) == nil, "the marker beats the stale edit")
+        #expect(phone.list.library.item(id: id) == nil)
+        #expect(SyncedListItem(from: zone.records.values.first!)!.item.isPurged)
+        #expect(FastTabListMerge.merge(phone.list.library.itemsByID[id]!, oldPad.list.library.itemsByID[id]!)
+            == FastTabListMerge.merge(oldPad.list.library.itemsByID[id]!, phone.list.library.itemsByID[id]!))
+    }
+
+    @Test func explicitResaveAfterPurgeRestoresEverywhere() {
+        let zone = FakeZone(), phone = Device(), pad = Device()
+        phone.list.library.save(link("https://a.com/x", title: "Old"), now: at(1))
+        let id = FastTabListLibrary.itemID(for: "https://a.com/x")
+        phone.list.library.moveToTrash(id: id, now: at(2))
+        let purgeTime = 2 + FastTabListLibrary.trashRetention + 1
+        phone.list.library.purgeExpiredTrash(now: at(purgeTime))
+        phone.send(to: zone); pad.fetch(from: zone)
+
+        pad.list.library.save(link("https://a.com/x", title: "Again", at: purgeTime + 50), now: at(purgeTime + 50))
+        pad.send(to: zone); phone.fetch(from: zone)
+        #expect(phone.list.library.liveItems.map(\.title) == ["Again"])
+        #expect(phone.list.library.liveItems.first?.progress == 0, "a fresh item, not the old one")
+    }
+
+    @Test func deleteNowIsAMarkerTooAndIgnoresTheStaleServerCopy() {
         let zone = FakeZone(), phone = Device()
         phone.list.library.save(link("https://a.com/x"), now: at(1))
         let id = FastTabListLibrary.itemID(for: "https://a.com/x")
         phone.list.library.moveToTrash(id: id, now: at(2))
         phone.send(to: zone)
-        phone.list.library.deleteNow(id: id)
+        phone.list.library.deleteNow(id: id, now: at(3))
 
-        phone.fetch(from: zone) // before the delete went out
-        #expect(phone.list.library.itemsByID.isEmpty, "no resurrection from the server copy")
-        #expect(phone.bridge.pendingChanges().deletes.count == 1)
+        phone.fetch(from: zone) // before the marker went out
+        #expect(phone.list.library.item(id: id) == nil, "no resurrection from the server copy")
+        #expect(phone.bridge.pendingChanges().saves.count == 1)
+    }
+
+    @Test func legacyCloudKitDeleteBecomesAMarker() {
+        let phone = Device()
+        phone.list.library.save(link("https://a.com/x"), now: at(1))
+        let id = FastTabListLibrary.itemID(for: "https://a.com/x")
+        phone.bridge.absorbDeletions([CKRecord.ID(recordName: SyncedListItem.recordName(forItemID: id),
+                                                  zoneID: phone.bridge.zoneID)])
+        #expect(phone.list.library.item(id: id) == nil)
+        #expect(phone.list.library.itemsByID[id]?.isPurged == true)
     }
 
     // MARK: - Durability

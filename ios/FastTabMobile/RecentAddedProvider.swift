@@ -20,7 +20,7 @@ public enum RecentAddedSource: Hashable, Sendable {
         case .shareSheet(_, let status):
             return status.isEmpty ? "Queued to Mac" : status
         case .savedOnIPhone:
-            return "Saved on iPhone"
+            return "FastTab List"
         case .bookmark(_, let folder, _, _, _):
             if let folder, !folder.isEmpty {
                 return BookmarkTreeBuilder.splitPath(folder).last ?? folder

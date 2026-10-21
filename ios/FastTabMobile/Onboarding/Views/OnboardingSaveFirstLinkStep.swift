@@ -4,7 +4,7 @@ import FastTabSync
 /// Reader-only path, screen 1: put FastTab in the share sheet, then save a first link.
 ///
 /// "Try it" saves the sample article through the same store the share sheet's
-/// "Save to iPhone" fills (`SavedOnIPhoneStore`), so it shows up under Saved on Read.
+/// "Save to iPhone" fills (`SavedOnIPhoneStore`), so it shows up under FastTab List on Read.
 struct OnboardingSaveFirstLinkStep: View {
     /// One-screen sheet from an empty state: the button says Done.
     let isSingleStep: Bool
@@ -30,7 +30,7 @@ struct OnboardingSaveFirstLinkStep: View {
             VStack(spacing: DS.Space.lg) {
                 OnboardingShareSheetInstructions()
 
-                Text("Then pick FastTab and choose Save to iPhone.")
+                Text("Then pick FastTab and choose Save to FastTab List.")
                     .font(DS.Font.meta)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

@@ -17,6 +17,7 @@ public struct ReadingFeedView: View {
     @State private var saveToBookmarkURL: URL? = nil
     @State private var saveToBookmarkTitle: String = ""
     @State private var toast: String? = nil
+    @State private var showingListTrash = false
 
     public init() {}
 
@@ -160,6 +161,9 @@ public struct ReadingFeedView: View {
         .fullScreenCover(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
+        .sheet(isPresented: $showingListTrash) {
+            FastTabListTrashView()
+        }
         .sheet(item: $saveToBookmarkURL) { url in
             BookmarkMovePicker(
                 sourceDeviceID: activeDeviceID,
@@ -223,7 +227,10 @@ public struct ReadingFeedView: View {
                 "Recent Added",
                 context: selectedFolder.map { "in \(BookmarkTreeBuilder.splitPath($0).last ?? $0)" }
             ) {
-                DSCountPill(displayRecentItems.count)
+                HStack(spacing: DS.Space.xs) {
+                    if !savedStore.trashedItems.isEmpty { listTrashButton }
+                    DSCountPill(displayRecentItems.count)
+                }
             }
 
             if displayRecentItems.isEmpty {
@@ -261,19 +268,33 @@ public struct ReadingFeedView: View {
         }
     }
 
-    // MARK: - Section 1 (reader only): Saved
+    /// Opens the FastTab List's Trash (`FastTabListTrashView`).
+    private var listTrashButton: some View {
+        Button {
+            showingListTrash = true
+        } label: {
+            Image(systemName: "trash")
+        }
+        .buttonStyle(.dsTinted(DS.Tint.recent))
+        .accessibilityLabel("FastTab List Trash")
+    }
+
+    // MARK: - Section 1 (reader only): FastTab List
 
     private var savedSection: some View {
         VStack(alignment: .leading, spacing: DS.Space.xs) {
-            DSSectionHeader("Saved") {
-                DSCountPill(savedLinkItems.count)
+            DSSectionHeader("FastTab List") {
+                HStack(spacing: DS.Space.xs) {
+                    listTrashButton
+                    DSCountPill(savedLinkItems.count)
+                }
             }
 
             if savedLinkItems.isEmpty {
                 DSEmptyState(
                     "Share a link to FastTab to save it",
                     systemImage: "tray.and.arrow.down",
-                    message: "In Safari or any app, tap Share, then FastTab, then Save to iPhone.",
+                    message: "In Safari or any app, tap Share, then FastTab, then Save to FastTab List.",
                     tint: DS.Tint.recent,
                     style: .inline
                 ) {
@@ -289,14 +310,14 @@ public struct ReadingFeedView: View {
                             title: title,
                             url: url,
                             domain: url.host() ?? "",
-                            badgeText: "Saved",
+                            badgeText: link.isRead ? "Read" : "List",
                             badgeTint: DS.Tint.recent,
                             badgeIcon: "bookmark",
-                            readingProgress: readingProgress.progress(for: url),
+                            readingProgress: max(link.progress, readingProgress.progress(for: url)),
                             onSelect: { openArticle(url: url, title: title) },
                             onDelete: {
                                 withAnimation { savedStore.remove(id: link.id) }
-                                presentToast("Removed link")
+                                presentToast("Moved to Trash")
                             }
                         )
                     }
@@ -537,7 +558,7 @@ public struct ReadingFeedView: View {
             withAnimation {
                 recentProvider.removeItem(id: item.id)
             }
-            presentToast("Removed link")
+            presentToast("Moved to Trash")
         }
     }
 

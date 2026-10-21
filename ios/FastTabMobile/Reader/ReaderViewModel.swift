@@ -282,6 +282,7 @@ public final class ReaderViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             progressStore.set(progress: progress, for: url)
             LastOpenedStore.shared.updateProgress(url: url, progress: progress)
+            SavedOnIPhoneStore.shared.recordProgress(url: url, progress: progress)
             recordReadingStats(progress: progress, isFlush: false)
         }
     }
@@ -317,6 +318,7 @@ public final class ReaderViewModel: ObservableObject {
         pendingPersistTask = nil
         progressStore.set(progress: scrollProgress, for: url)
         LastOpenedStore.shared.updateProgress(url: url, progress: scrollProgress)
+        SavedOnIPhoneStore.shared.recordProgress(url: url, progress: scrollProgress)
         recordReadingStats(progress: scrollProgress, isFlush: statsFlush)
     }
 

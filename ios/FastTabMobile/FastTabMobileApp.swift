@@ -125,6 +125,7 @@ public struct FastTabMobileApp: App {
                     syncConsumer.stopForegroundRefresh()
                     localCache.flushPendingSave()
                     WidgetSnapshotPublisher.shared.flushPendingWrite()
+                    SavedOnIPhoneStore.shared.flushPendingWrite()
                 default:
                     syncConsumer.stopForegroundRefresh()
                 }

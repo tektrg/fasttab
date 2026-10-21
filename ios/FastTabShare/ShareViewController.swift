@@ -137,13 +137,13 @@ final class ShareViewController: UIViewController {
         ] + actionButtons.map { $0.heightAnchor.constraint(equalToConstant: 52) })
     }
 
-    /// Reader-only phones see just "Save to iPhone" (`ShareOptions`).
+    /// Reader-only phones see just "Save to FastTab List" (`ShareOptions`).
     private func makeButton(for option: ShareOption) -> UIButton {
         switch option {
         case .sendToMac:
             return makeActionButton(title: "Send to Mac", systemImage: "macbook.and.iphone", tint: .systemBlue, action: #selector(sendToMacTapped))
         case .saveToIPhone:
-            return makeActionButton(title: "Save to iPhone", systemImage: "bookmark", tint: .systemGreen, action: #selector(saveToIPhoneTapped))
+            return makeActionButton(title: "Save to FastTab List", systemImage: "bookmark", tint: .systemGreen, action: #selector(saveToIPhoneTapped))
         }
     }
 

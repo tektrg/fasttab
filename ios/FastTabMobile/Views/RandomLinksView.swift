@@ -31,7 +31,7 @@ enum RandomCardSource: Hashable {
         case .highlight:
             return "Highlight"
         case .savedLink:
-            return "Saved"
+            return "FastTab List"
         }
     }
 
@@ -359,7 +359,7 @@ public struct RandomLinksView: View {
         case .deleteSavedLink:
             guard case .savedLink(let link) = item.source else { return }
             savedStore.remove(id: link.id)
-            presentToast("Removed link")
+            presentToast("Moved to Trash")
             deck.removeAll { $0.id == item.id }
         case .deleteHighlight:
             guard case .highlight(let highlight) = item.source else { return }

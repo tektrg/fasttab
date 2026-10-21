@@ -33,7 +33,7 @@ struct OnboardingSendToMacStep: View {
             VStack(spacing: DS.Space.lg) {
                 OnboardingShareSheetInstructions()
 
-                Text("Then pick FastTab and choose Send to Mac or Save to iPhone.")
+                Text("Then pick FastTab and choose Send to Mac or Save to FastTab List.")
                     .font(DS.Font.meta)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

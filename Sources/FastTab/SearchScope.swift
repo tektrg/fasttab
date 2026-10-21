@@ -83,6 +83,8 @@ struct ScopeChip: Identifiable, Equatable, Hashable {
         /// appear in the dropdown — browser-vs-browser filtering is left to
         /// `@Window:` since browser tabs already mix freely.
         case source(String)
+        /// Only FastTab List items (the read-later list synced with iPhone/iPad).
+        case fastTabList
     }
 
     let id = UUID()
@@ -97,6 +99,7 @@ struct ScopeChip: Identifiable, Equatable, Hashable {
         case .history(nil): return "History"
         case .window(let ref): return "Window: \(ref.displayName)"
         case .source(let name): return name
+        case .fastTabList: return "FastTab List"
         }
     }
 
@@ -163,11 +166,14 @@ enum RootSuggestion: Equatable, Hashable {
     /// Non-browser source filter (e.g. Finder). Picking commits a
     /// `Kind.source(name)` chip that pins `browserName` to the source app.
     case source(name: String)
+    /// Commits a `Kind.fastTabList` chip.
+    case fastTabList
 
     var label: String {
         switch self {
         case .duplicate: return "Duplicate"
         case .bookmarks: return "Bookmarks"
+        case .fastTabList: return "FastTab List"
         case .history: return "History"
         case .window(let ref): return ref.displayName
         case .source(let name): return name
@@ -179,6 +185,7 @@ enum RootSuggestion: Equatable, Hashable {
         case .duplicate: return "Tabs with duplicate URLs"
         case .bookmarks: return "Search bookmarks"
         case .history: return "Search history"
+        case .fastTabList: return "Your read-later list"
         case .window: return "Tabs in this window"
         case .source(let name): return "Only \(name) results"
         }
@@ -189,6 +196,7 @@ enum RootSuggestion: Equatable, Hashable {
         case .duplicate: return "square.on.square"
         case .bookmarks: return "bookmark"
         case .history: return "clock.arrow.circlepath"
+        case .fastTabList: return BrowserResultType.fastTabList.symbolName
         case .window: return "macwindow"
         case .source(let name):
             // Finder gets its system glyph; other future sources fall back to
@@ -279,6 +287,8 @@ struct ScopeFilter: Equatable {
                 filter.duplicateOnly = true
             case .bookmarks:
                 require(type: .bookmark)
+            case .fastTabList:
+                require(type: .fastTabList)
             case .bookmarksFolder(let ref):
                 require(type: .bookmark)
                 filter.bookmarkFolder = ref

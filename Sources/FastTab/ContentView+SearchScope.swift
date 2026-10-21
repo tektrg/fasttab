@@ -85,6 +85,7 @@ extension ContentView {
             var items: [ScopeSuggestion] = [
                 .root(.duplicate),
                 .root(.bookmarks),
+                .root(.fastTabList),
                 .root(.history),
                 // Non-browser sources. Always listed (per design), even when
                 // no Finder window is open — it's a stable category, not an
@@ -223,6 +224,9 @@ extension ContentView {
             case .duplicate:
                 replaceToken(at: tokenRange, with: "")
                 appendChip(.init(kind: .duplicate))
+            case .fastTabList:
+                replaceToken(at: tokenRange, with: "")
+                appendChip(.init(kind: .fastTabList))
             case .window(let ref):
                 replaceToken(at: tokenRange, with: "")
                 appendChip(.init(kind: .window(ref)))

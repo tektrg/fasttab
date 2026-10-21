@@ -304,6 +304,9 @@ extension ContentView {
                 },
                 onPin: {
                     appState.browserService.togglePin(result)
+                },
+                onFastTabListBridge: {
+                    performFastTabListBridge(result)
                 }
             )
             .contentShape(Rectangle())

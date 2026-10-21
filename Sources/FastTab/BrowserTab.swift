@@ -7,12 +7,17 @@ enum BrowserResultType: String, Codable, Hashable, Sendable {
     case tab
     case bookmark
     case history
+    /// An item in the user's **FastTab List** (read-later list synced with iPhone/iPad).
+    /// `bookmarkID` carries the list item id; `folderPath` the row hint (domain, progress).
+    case fastTabList
 
     var sortPriority: Int {
         switch self {
         case .sent: return -1
         case .tab: return 0
-        case .bookmark: return 1
+        // Never deduped against browser rows (its `browserName` is its own), so this
+        // only orders it: listed after open tabs, beside bookmarks.
+        case .bookmark, .fastTabList: return 1
         case .history: return 2
         }
     }
@@ -20,6 +25,7 @@ enum BrowserResultType: String, Codable, Hashable, Sendable {
     var label: String {
         switch self {
         case .sent: return "From iPhone"
+        case .fastTabList: return "FastTab List"
         default: return rawValue.capitalized
         }
     }
@@ -30,6 +36,7 @@ enum BrowserResultType: String, Codable, Hashable, Sendable {
         case .tab: return "rectangle.on.rectangle"
         case .bookmark: return "bookmark"
         case .history: return "clock.arrow.circlepath"
+        case .fastTabList: return "eyeglasses"
         }
     }
 
@@ -37,7 +44,7 @@ enum BrowserResultType: String, Codable, Hashable, Sendable {
     /// sent/tabs = normal, bookmarks = dimmer, history = dimmest.
     var dimmingOpacity: Double {
         switch self {
-        case .sent, .tab: return 1.0
+        case .sent, .tab, .fastTabList: return 1.0
         case .bookmark: return 0.72
         case .history: return 0.52
         }
@@ -318,6 +325,8 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             return [browserName, type.rawValue, bookmarkID ?? url, profileName ?? ""].joined(separator: "|")
         case .history:
             return [browserName, type.rawValue, url, String(timestamp.timeIntervalSince1970)].joined(separator: "|")
+        case .fastTabList:
+            return [type.rawValue, bookmarkID ?? url].joined(separator: "|")
         }
     }
 
@@ -329,6 +338,8 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             } else {
                 return url
             }
+        case .fastTabList:
+            return folderPath ?? url
         case .sent, .tab, .history:
             return url
         }
@@ -394,7 +405,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         switch type {
         case .bookmark:
             return nil
-        case .sent, .tab, .history:
+        case .sent, .tab, .history, .fastTabList:
             return relativeRecencyAbbreviation(from: timestamp)
         }
     }
@@ -594,6 +605,7 @@ func sortBrowserSearchResults(
     var unpinnedTabs: [BrowserSearchResult] = []
     var bookmarks: [BrowserSearchResult] = []
     var history: [BrowserSearchResult] = []
+    var fastTabList: [BrowserSearchResult] = []
     sent.reserveCapacity(results.count)
     pinnedTabs.reserveCapacity(results.count)
     unpinnedTabs.reserveCapacity(results.count)
@@ -608,6 +620,7 @@ func sortBrowserSearchResults(
             }
         case .bookmark: bookmarks.append(r)
         case .history: history.append(r)
+        case .fastTabList: fastTabList.append(r)
         }
     }
 
@@ -623,6 +636,7 @@ func sortBrowserSearchResults(
     out.append(contentsOf: sortedPinnedTabs)
     out.append(contentsOf: sortedSent)
     out.append(contentsOf: sortedUnpinnedTabs)
+    out.append(contentsOf: sortByTimestampTier(fastTabList))
     out.append(contentsOf: sortedBookmarks)
     out.append(contentsOf: sortedHistory)
     return out
@@ -798,15 +812,16 @@ func sortQuickOpenTabs(_ tabs: [BrowserSearchResult]) -> [BrowserSearchResult] {
 /// Orders items for Quick Open / Recents: live tabs by raw recency, then
 /// bookmarks, then history. iPhone-sent links (`.sent`) are deliberately left
 /// out — they live in the Stack view, so an unopened backlog can never push
-/// the tab you were just using out of the short Recents list.
+/// the tab you were just using out of the short Recents list. FastTab List items
+/// stay out for the same reason (they appear when searching or in `@FastTab List`).
 func sortQuickOpenResults(_ items: [BrowserSearchResult]) -> [BrowserSearchResult] {
-    if items.count <= 1 { return items.filter { $0.type != .sent } }
+    if items.count <= 1 { return items.filter { $0.type != .sent && $0.type != .fastTabList } }
     var tabs: [BrowserSearchResult] = []
     var bookmarks: [BrowserSearchResult] = []
     var history: [BrowserSearchResult] = []
     for item in items {
         switch item.type {
-        case .sent: continue
+        case .sent, .fastTabList: continue
         case .tab: tabs.append(item)
         case .bookmark: bookmarks.append(item)
         case .history: history.append(item)

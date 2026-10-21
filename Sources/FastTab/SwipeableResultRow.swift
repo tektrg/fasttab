@@ -17,6 +17,8 @@ struct SwipeableResultRow: View {
     let onCopy: () -> Void
     let onRemove: () -> Void
     var onPin: (() -> Void)? = nil
+    /// FastTab List bridge (Read later / Move to Bookmarks); shown only when the row offers one.
+    var onFastTabListBridge: (() -> Void)? = nil
 
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
 
@@ -65,7 +67,8 @@ struct SwipeableResultRow: View {
                 onSelect: onSelect,
                 onCopy: onCopy,
                 onRemove: onRemove,
-                onPin: onPin
+                onPin: onPin,
+                onFastTabListBridge: onFastTabListBridge
             )
             .offset(x: contentOffset)
             .animation(.spring(response: 0.24, dampingFraction: 0.88), value: keyboardAction)
@@ -178,6 +181,7 @@ private struct ResultRowView: View {
     let onCopy: () -> Void
     let onRemove: () -> Void
     var onPin: (() -> Void)? = nil
+    var onFastTabListBridge: (() -> Void)? = nil
 
     @State private var isHovering = false
     @Environment(\.isCompactCommandBar) private var isCompact
@@ -197,7 +201,7 @@ private struct ResultRowView: View {
     /// row height; reserving always left a blank column beside every row.
     private var actionReserveWidth: CGFloat {
         guard rowStyle == .minimal, isActionsVisible else { return 0 }
-        let buttonCount = result.type == .tab ? 3 : 2
+        let buttonCount = 2 + (result.type == .tab ? 1 : 0) + (fastTabListBridge != nil ? 1 : 0)
         return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: buttonCount)
     }
 
@@ -271,13 +275,34 @@ private struct ResultRowView: View {
     private var removeHelpText: String {
         if isConfirmingRemoval { return "Confirm delete" }
         if result.isGhost { return "Delete ghost tab" }
+        if result.type == .fastTabList { return "Move to Trash" }
         if showsMinusIcon { return "Close tab (leaves ghost)" }
         return "Remove / close"
+    }
+
+    private var fastTabListBridge: FastTabListRowBridge? {
+        onFastTabListBridge == nil ? nil : FastTabListRowBridge.forResult(result)
+    }
+
+    private var fastTabListShortcutHint: String {
+        fastTabListBridge == .moveToBookmarks ? "⌘D" : "⌘S"
     }
 
     @ViewBuilder
     private var actionButtonCluster: some View {
         HStack(spacing: 4) {
+            if let bridge = fastTabListBridge, let onFastTabListBridge {
+                Button(action: onFastTabListBridge) {
+                    Image(systemName: bridge.symbolName)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.primary.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+                .help("\(bridge.title) (\(fastTabListShortcutHint))")
+            }
+
             if result.type == .tab, let onPin {
                 Button(action: onPin) {
                     Image(systemName: result.isPinned ? "pin.fill" : "pin")

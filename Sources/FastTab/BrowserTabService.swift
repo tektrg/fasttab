@@ -641,6 +641,10 @@ class BrowserTabService: ObservableObject {
                 let sentLinks = await MainActor.run { SentLinkInbox.shared.asSearchResults() }
                 produced = sentLinks.filter { filter.matches($0) }
 
+            case .fastTabList:
+                let listItems = await MainActor.run { self?.currentFastTabListResults() ?? [] }
+                produced = listItems.filter { filter.matches($0) }
+
             case .tab:
                 // Live tabs (always fresh — scope-aware fetches don't reuse cache).
                 let fetched = await LiveTabReader.fetchLiveTabsCarryingForwardUnreadable(
@@ -921,6 +925,9 @@ class BrowserTabService: ObservableObject {
             let sentMatches = await MainActor.run {
                 SentLinkInbox.shared.asSearchResults().filter { $0.matches(words: queryWords) }
             }
+            let fastTabListMatches = await MainActor.run {
+                self?.currentFastTabListResults().filter { $0.matches(words: queryWords) } ?? []
+            }
 
             let ghostPinnedTabs = slotSnapshot.compactMap { slot -> BrowserSearchResult? in
                 guard slot.isPinned, slot.state == .ghost else { return nil }
@@ -934,7 +941,7 @@ class BrowserTabService: ObservableObject {
             let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(words: queryWords) }
 
             // Phase 1: publish sent links + tabs + ghost pinned tabs + bookmarks immediately so UI isn't blocked by history DB I/O
-            let phase1Deduped = deduplicatingSamePages(sentMatches + tabMatches + ghostPinnedMatches + bookmarkMatches, frecencyScore: frecencyLookup)
+            let phase1Deduped = deduplicatingSamePages(sentMatches + tabMatches + ghostPinnedMatches + fastTabListMatches + bookmarkMatches, frecencyScore: frecencyLookup)
             let phase1Results = sortBrowserSearchResults(phase1Deduped, frecencyScore: frecencyLookup)
             await MainActor.run {
                 guard let self, generation == self.fetchGeneration else { return }
@@ -985,7 +992,7 @@ class BrowserTabService: ObservableObject {
                 before: nil
             )
 
-            let mergedDeduped = deduplicatingSamePages(sentMatches + tabMatches + ghostPinnedMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
+            let mergedDeduped = deduplicatingSamePages(sentMatches + tabMatches + ghostPinnedMatches + fastTabListMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
             let mergedResults = sortBrowserSearchResults(mergedDeduped, frecencyScore: frecencyLookup)
 
             await MainActor.run {
@@ -1080,6 +1087,8 @@ class BrowserTabService: ObservableObject {
                 }
             }
             openSentLink(result)
+        case .fastTabList:
+            openFastTabListItem(result)
         case .tab:
             let now = Date()
             if let key = result.tabRecencyKey {
@@ -1137,6 +1146,8 @@ class BrowserTabService: ObservableObject {
                     SyncService.shared.pushCommandResult(dismissedCmd)
                 }
             }
+        case .fastTabList:
+            if let itemID = result.bookmarkID { FastTabListStore.shared.moveToTrash(id: itemID) }
         case .tab:
             if result.isGhost {
                 MyOrderStore.shared.deleteGhostSlot(matching: result)
@@ -1228,7 +1239,7 @@ class BrowserTabService: ObservableObject {
     private func removeResultFromLocalSnapshots(matching result: BrowserSearchResult, updateTreeStore: Bool = true) {
         let resultID = result.id
         switch result.type {
-        case .sent:
+        case .sent, .fastTabList:
             results.removeAll { $0.id == resultID }
             cachedQuickOpenResults.removeAll { $0.id == resultID }
         case .tab:

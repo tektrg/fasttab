@@ -100,6 +100,14 @@ class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // FastTab List edits (here or synced from the phone) show in an open search.
+        FastTabListStore.shared.$items
+            .dropFirst()
+            .removeDuplicates()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.browserService.refetchCurrent() }
+            .store(in: &cancellables)
+
         browserService.prewarmCaches()
         MyOrderStore.shared.bindToService(
             closer: { [weak self] result in self?.browserService.remove(result) },

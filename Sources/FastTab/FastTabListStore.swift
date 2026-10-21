@@ -57,6 +57,14 @@ final class FastTabListStore: ObservableObject {
     func moveToTrash(id: String) { mutate { $0.moveToTrash(id: id, now: self.now()) } }
     func restore(id: String) { mutate { $0.restore(id: id, now: self.now()) } }
 
+    /// Writes a debounced change now (app quitting), so the last edit isn't lost.
+    func flushPendingWrite() {
+        guard let task = pendingWriteTask else { return }
+        task.cancel()
+        pendingWriteTask = nil
+        try? fileStore.write(Array(library.itemsByID.values))
+    }
+
     // MARK: - Private
 
     private func mutate(_ change: (inout FastTabListLibrary) -> Void) {
@@ -86,6 +94,7 @@ final class FastTabListStore: ObservableObject {
         pendingWriteTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard let self, !Task.isCancelled else { return }
+            self.pendingWriteTask = nil
             try? self.fileStore.write(Array(self.library.itemsByID.values))
         }
     }

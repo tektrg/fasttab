@@ -291,10 +291,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         registerForCloudKitPushes()
         FastTabFeedback.start()
 
-        // Screenshot/QA hook: open the reader on a URL at launch (inert unless set).
+        #if DEBUG
+        // Screenshot/QA hook: open the reader on a URL at launch (debug builds only).
         if let readerURL = ProcessInfo.processInfo.environment["FASTTAB_OPEN_READER_URL"] {
             MacReaderWindowRouter.shared.open(url: readerURL, title: nil)
         }
+        #endif
 
         if CommandLine.arguments.contains("--cloudkit-spike") {
             CloudKitSpike.run()
@@ -326,6 +328,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         MyOrderStore.shared.flush()
+        FastTabListStore.shared.flushPendingWrite()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

@@ -167,4 +167,14 @@ struct FastTabListCommandBarTests {
         #expect(store.items.isEmpty)
         #expect(announced == 0)
     }
+
+    @Test func quittingWritesTheLastEditBeforeTheDebounceFires() {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let defaults = UserDefaults(suiteName: "FastTabListCommandBarTests.\(UUID().uuidString)")!
+        let fileStore = FastTabListFileStore(fileURL: dir.appendingPathComponent("list.json"), defaults: defaults)
+        let store = FastTabListStore(fileStore: fileStore, now: { self.now })
+        store.readLater(url: "https://example.com/quit", title: "Q")
+        store.flushPendingWrite()
+        #expect(fileStore.load().map(\.url) == ["https://example.com/quit"])
+    }
 }

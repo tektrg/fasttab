@@ -20,11 +20,14 @@ extension SyncConsumer: CKSyncEngineDelegate {
                 switch accountChange.changeType {
                 case .signIn, .switchAccounts:
                     // A fresh or swapped account has no zones of ours yet; the
-                    // backlog cannot be sent until they exist again.
+                    // backlog cannot be sent until they exist again. Nothing in it is
+                    // confirmed either: the FastTab List stays local and uploads again.
+                    self.listSync.resetLedger()
                     self.ensureZonesExist()
                     self.restorePendingCommandOutbox()
                     self.ownDeviceServerRecord = nil
                     self.publishOwnDevice()
+                    await self.queueReaderChanges(send: false)
                     self.sendPendingChanges()
                 case .signOut:
                     break
@@ -102,18 +105,22 @@ extension SyncConsumer: CKSyncEngineDelegate {
                     self.confirmUpload(of: saved)
                     if ReaderSyncBridge.handles(saved.recordType) { self.readerSync.didSave(saved) }
                 }
+                self.listSync.didSave(sentChanges.savedRecords)
                 for deletedID in sentChanges.deletedRecordIDs {
                     self.readerSync.didDelete(deletedID)
                 }
+                self.listSync.didDelete(sentChanges.deletedRecordIDs)
                 for (recordID, error) in sentChanges.failedRecordDeletes where recordID.zoneID == SyncConstants.readerZoneID {
-                    // Only reader highlights are deleted from here. Already gone counts as done;
-                    // a passing failure retries (the engine backs off); anything else gives up.
+                    // Only reader highlights and purged list items are deleted from here. Already
+                    // gone counts as done; a passing failure retries (the engine backs off);
+                    // anything else gives up.
                     if (error as CKError).code == .unknownItem {
                         self.readerSync.didDelete(recordID)
+                        self.listSync.didDelete([recordID])
                     } else if SyncHealthMapping.isWorthRetrying(error) {
                         syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
                     } else {
-                        self.markSyncFailed(error, whileDoing: "deleting a highlight")
+                        self.markSyncFailed(error, whileDoing: "deleting a reader record")
                     }
                 }
                 if !sentChanges.savedRecords.isEmpty {
@@ -123,7 +130,14 @@ extension SyncConsumer: CKSyncEngineDelegate {
                 var queuedRetry = false
                 var needsZoneRecreation = false
                 for failedSave in sentChanges.failedRecordSaves {
-                    switch self.readerSync.outcome(ofFailedSave: failedSave.record, error: failedSave.error) {
+                    let readerOutcome = self.readerSync.outcome(ofFailedSave: failedSave.record, error: failedSave.error)
+                    let outcome: ReaderSyncBridge.FailedSaveOutcome
+                    if case .notReader = readerOutcome {
+                        outcome = self.listSync.outcome(ofFailedSave: failedSave.record, error: failedSave.error)
+                    } else {
+                        outcome = readerOutcome
+                    }
+                    switch outcome {
                     case .notReader, .failed:
                         break
                     case .settled:

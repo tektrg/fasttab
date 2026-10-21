@@ -36,6 +36,13 @@ public final class SyncConsumer: NSObject, ObservableObject {
     )
     var readerChangeObserver: NSObjectProtocol?
     var readerSendTask: Task<Void, Never>?
+    /// The FastTab List, in `ReaderZone` beside highlights (SyncConsumer+ReaderSync.swift).
+    lazy var listSync = FastTabListSyncBridge(
+        ledgerURL: AppGroupContainer.fileURL(forFileNamed: Self.fastTabListLedgerFileName),
+        store: SavedOnIPhoneStore.shared
+    )
+    var listChangeObserver: NSObjectProtocol?
+    var listSendTask: Task<Void, Never>?
     private var hasStarted = false
 
     /// When this phone last queued its own `SyncedDevice` heartbeat — the

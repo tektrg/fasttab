@@ -12,6 +12,10 @@ import FastTabSync
 /// The share extension cannot reach this store, so new saves land as one JSON file
 /// each in the app-group `pending_saves` directory and are drained on launch and
 /// foreground (which also purges Trash older than 30 days).
+///
+/// Synced across devices by `FastTabListSyncBridge` (owned by `SyncConsumer`): local
+/// changes post `fastTabListDidChangeLocally`; remote ones arrive through
+/// `FastTabListSyncStore` and post nothing (no echo).
 @MainActor
 public final class SavedOnIPhoneStore: ObservableObject {
     public static let shared = SavedOnIPhoneStore()
@@ -49,9 +53,10 @@ public final class SavedOnIPhoneStore: ObservableObject {
     /// pending files are deleted as they are read.
     public func drainPendingSaves() {
         let drained = pendingSavesContainerURL.map { SavedOnIPhoneFiles.drain(containerURL: $0) } ?? []
-        let purged = library.purgeExpiredTrash(now: now())
-        guard !drained.isEmpty || purged else { return }
-        mutate { library in drained.forEach { library.save($0, now: self.now()) } }
+        mutate { library in
+            library.purgeExpiredTrash(now: self.now())
+            drained.forEach { library.save($0, now: self.now()) }
+        }
     }
 
     /// Saves links added inside the app (clipboard, onboarding) the same way as
@@ -75,6 +80,7 @@ public final class SavedOnIPhoneStore: ObservableObject {
         library = updated
         publish()
         scheduleWrite()
+        NotificationCenter.default.post(name: .fastTabListDidChangeLocally, object: nil)
     }
 
     /// Writes any debounced change now (app going to background).
@@ -86,6 +92,16 @@ public final class SavedOnIPhoneStore: ObservableObject {
     }
 
     private func mutate(_ change: (inout FastTabListLibrary) -> Void) {
+        let before = library
+        change(&library)
+        guard library != before else { return }
+        publish()
+        scheduleWrite()
+        NotificationCenter.default.post(name: .fastTabListDidChangeLocally, object: nil)
+    }
+
+    /// Remote changes: published and written, but not announced as local edits.
+    private func applySynced(_ change: (inout FastTabListLibrary) -> Void) {
         change(&library)
         publish()
         scheduleWrite()
@@ -111,5 +127,28 @@ public final class SavedOnIPhoneStore: ObservableObject {
 
     private func writeNow() {
         try? fileStore.write(Array(library.itemsByID.values))
+    }
+}
+
+extension Notification.Name {
+    /// The user changed the FastTab List on this device (SyncConsumer sends it, debounced).
+    static let fastTabListDidChangeLocally = Notification.Name("FastTabMobile.fastTabListDidChangeLocally")
+}
+
+extension SavedOnIPhoneStore: FastTabListSyncStore {
+    public func listItemsForSync() -> [SavedOnIPhoneLink] {
+        Array(library.itemsByID.values)
+    }
+
+    public func applyRemoteListItem(_ item: SavedOnIPhoneLink) -> SavedOnIPhoneLink {
+        if let current = library.itemsByID[item.id], FastTabListMerge.merge(current, item) == current { return current }
+        var merged = item
+        applySynced { merged = $0.applyRemote(item) }
+        return merged
+    }
+
+    public func removeRemoteListItem(id: String) {
+        guard library.itemsByID[id] != nil else { return }
+        applySynced { $0.removeRemote(id: id) }
     }
 }

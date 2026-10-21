@@ -2,8 +2,8 @@ import Foundation
 
 /// One entry in the **FastTab List** — the user's read-later list (product name;
 /// the Swift type keeps its older "Saved on iPhone" name). Distinct from browser
-/// Bookmarks, which are browser-owned. Phase 1 is local to the phone; the fields
-/// below are shaped for phase 2 sync (ReaderZone):
+/// Bookmarks, which are browser-owned. Synced across devices through `ReaderZone`
+/// (`FastTabListSyncBridge`; per-field merge in `FastTabListMerge`):
 /// - `id` is derived from the canonical URL by the store, so the same link saved on
 ///   two devices becomes the same item.
 /// - `deletedAt` is a tombstone: set = in Trash (purged after 30 days), nil = live.
@@ -24,6 +24,8 @@ public struct SavedOnIPhoneLink: Identifiable, Codable, Hashable, Sendable {
     /// Scroll fraction 0...1 of the reader.
     public var progress: Double
     public var progressUpdatedAt: Date?
+    /// When `readAt` last changed (set or cleared). Nil on items from before sync.
+    public var readStateUpdatedAt: Date?
 
     public var isTrashed: Bool { deletedAt != nil }
     public var isRead: Bool { readAt != nil }
@@ -37,7 +39,8 @@ public struct SavedOnIPhoneLink: Identifiable, Codable, Hashable, Sendable {
         deletedAt: Date? = nil,
         readAt: Date? = nil,
         progress: Double = 0,
-        progressUpdatedAt: Date? = nil
+        progressUpdatedAt: Date? = nil,
+        readStateUpdatedAt: Date? = nil
     ) {
         self.id = id
         self.url = url
@@ -48,10 +51,11 @@ public struct SavedOnIPhoneLink: Identifiable, Codable, Hashable, Sendable {
         self.readAt = readAt
         self.progress = progress
         self.progressUpdatedAt = progressUpdatedAt
+        self.readStateUpdatedAt = readStateUpdatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, url, title, savedAt, updatedAt, deletedAt, readAt, progress, progressUpdatedAt
+        case id, url, title, savedAt, updatedAt, deletedAt, readAt, progress, progressUpdatedAt, readStateUpdatedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -65,6 +69,7 @@ public struct SavedOnIPhoneLink: Identifiable, Codable, Hashable, Sendable {
         readAt = try c.decodeIfPresent(Date.self, forKey: .readAt)
         progress = try c.decodeIfPresent(Double.self, forKey: .progress) ?? 0
         progressUpdatedAt = try c.decodeIfPresent(Date.self, forKey: .progressUpdatedAt)
+        readStateUpdatedAt = try c.decodeIfPresent(Date.self, forKey: .readStateUpdatedAt)
     }
 }
 

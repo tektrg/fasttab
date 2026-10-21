@@ -168,4 +168,35 @@ final class FastTabListTests: XCTestCase {
         store.setRead(id: id, false)
         XCTAssertFalse(store.items[0].isRead)
     }
+
+    // MARK: - Sync store (FastTabListSyncStore)
+
+    func testLocalEditsAnnounceThemselvesAndRemoteOnesDoNot() {
+        let store = makeStore { self.start }
+        var announcements = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .fastTabListDidChangeLocally, object: nil, queue: nil) { _ in announcements += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        store.add([SavedOnIPhoneLink(url: "https://example.com/a")])
+        XCTAssertEqual(announcements, 1)
+
+        var remote = store.items[0]
+        remote.title = "From iPad"
+        remote.updatedAt = start.addingTimeInterval(60)
+        _ = store.applyRemoteListItem(remote)
+        XCTAssertEqual(store.items.first?.title, "From iPad")
+        store.removeRemoteListItem(id: remote.id)
+        XCTAssertTrue(store.items.isEmpty)
+        XCTAssertEqual(announcements, 1, "remote changes never echo back as local edits")
+    }
+
+    func testRemoteItemPersistsAcrossRelaunch() {
+        let fileStore = makeFileStore()
+        let store = makeStore(fileStore: fileStore) { self.start }
+        let id = FastTabListLibrary.itemID(for: "https://example.com/r")
+        _ = store.applyRemoteListItem(SavedOnIPhoneLink(id: id, url: "https://example.com/r", savedAt: start))
+        store.flushPendingWrite()
+        XCTAssertEqual(makeStore(fileStore: fileStore) { self.start }.items.map(\.id), [id])
+    }
 }

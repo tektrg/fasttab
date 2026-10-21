@@ -98,12 +98,19 @@ extension BrowserTabService {
         Self.fastTabListResults(from: FastTabListStore.shared.items)
     }
 
-    /// Enter on a list item. Phase 4 swaps this for the Mac reader window; until then the
-    /// page opens in the browser the user is working in.
-    func openFastTabListItem(_ result: BrowserSearchResult) {
+    /// Enter on a list item: the FastTab reader window, or the browser with Option held.
+    func openFastTabListItem(_ result: BrowserSearchResult, route: FastTabListOpenRoute = .reader) {
+        switch route {
+        case .reader: MacReaderWindowRouter.shared.open(url: result.url, title: result.title)
+        case .browser: openFastTabListItemInBrowser(url: result.url, title: result.title)
+        }
+    }
+
+    /// Opens a list item's page in the browser the user is working in.
+    func openFastTabListItemInBrowser(url: String, title: String) {
         guard let backend = resolvedWebSearchBackend() else { return }
-        let openable = BrowserSearchResult(title: result.title, url: result.url, browserName: backend.appName,
-                                           type: .bookmark, timestamp: result.timestamp)
+        let openable = BrowserSearchResult(title: title, url: url, browserName: backend.appName,
+                                           type: .bookmark, timestamp: Date())
         Task.detached(priority: .userInitiated) { backend.openURL(openable) }
     }
 

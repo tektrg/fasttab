@@ -48,6 +48,12 @@ final class FastTabListStore: ObservableObject {
         return true
     }
 
+    /// Reader scroll position for a list item (≥ 90 % also marks it read). Synced like any
+    /// local edit; a URL that isn't in the list is ignored.
+    func recordReaderProgress(url: String, progress: Double) {
+        mutate { $0.recordProgress(url: url, progress: progress, now: self.now()) }
+    }
+
     func moveToTrash(id: String) { mutate { $0.moveToTrash(id: id, now: self.now()) } }
     func restore(id: String) { mutate { $0.restore(id: id, now: self.now()) } }
 

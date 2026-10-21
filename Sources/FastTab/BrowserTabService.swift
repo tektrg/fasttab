@@ -1088,7 +1088,7 @@ class BrowserTabService: ObservableObject {
             }
             openSentLink(result)
         case .fastTabList:
-            openFastTabListItem(result)
+            openFastTabListItem(result, route: FastTabListOpenRoute.forModifiers(NSEvent.modifierFlags))
         case .tab:
             let now = Date()
             if let key = result.tabRecencyKey {

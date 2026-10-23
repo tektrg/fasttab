@@ -14,6 +14,11 @@ import { FormCard } from "./FormCard";
  *  picker is CURRENTLY open (`row.derived.screenQuestion`) — passed straight
  *  through to `FormCard`, which needs it (not the transcript copy here) to
  *  post an answer the server's fresh re-read will accept. */
+/** A message longer than this collapses on the phone (no nested scroll). */
+export const LONG_MESSAGE_CHARS = 600;
+export const LONG_MESSAGE_LINES = 10;
+const isLong = (t: string) => t.length > LONG_MESSAGE_CHARS || t.split("\n").length > LONG_MESSAGE_LINES;
+
 export function LatestMessage({
   rowId,
   paneId,
@@ -35,6 +40,7 @@ export function LatestMessage({
   quietWhenUnavailable?: boolean;
 }) {
   const [latest, setLatest] = useState<SessionLatestResponse | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let dead = false;
@@ -44,6 +50,7 @@ export function LatestMessage({
     return () => {
       dead = true;
     };
+    setExpanded(false);
   }, [rowId]);
 
   if (latest === null) return null;
@@ -66,7 +73,18 @@ export function LatestMessage({
           <Text size="xs" c="dimmed" mb={4}>
             latest message
           </Text>
-          <Markdown text={latest.latestMessage} />
+          {phone && isLong(latest.latestMessage) ? (
+            <>
+              <div className={expanded ? undefined : "latest-message__clamp"}>
+                <Markdown text={latest.latestMessage} />
+              </div>
+              <button type="button" className="latest-message__toggle" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>
+                {expanded ? "Show less" : "Show more"}
+              </button>
+            </>
+          ) : (
+            <Markdown text={latest.latestMessage} />
+          )}
         </Block>
       )}
       {!messageOnly && latest.pendingQuestion && paneId && (

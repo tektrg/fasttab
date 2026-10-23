@@ -14,7 +14,12 @@ import "./Sheet.css";
  *  footer except the message field. Vaul still owns the lift (see `footer`).
  *  `interactive-widget=resizes-content` is deliberately NOT in the viewport
  *  meta: it only affects Android Chrome and would shrink the layout viewport
- *  so Vaul's `innerHeight - visualViewport.height` diff reads 0 there. */
+ *  so Vaul's `innerHeight - visualViewport.height` diff reads 0 there.
+ *
+ *  PEEK: at the 60% snap Vaul slides the full-height sheet down by the
+ *  hidden 40% of the screen, which would put the footer off screen. The
+ *  sheet pads its bottom by `--ui-peek-hidden` so the footer sits at the
+ *  visible edge; the padding drops at full height and while typing. */
 /** Peek = ~60% of the screen; full = fully open. */
 export const SHEET_SNAPS = [0.6, 1] as const;
 type Snap = number | string | null;
@@ -69,7 +74,7 @@ export function Sheet({ open, onOpenChange, title, header, children, footer }: S
         <Drawer.Overlay className="ui-sheet__scrim" />
         <Drawer.Content className="ui-sheet" data-full={isFull || undefined}
           data-keyboard={keyboard || undefined}
-          style={keyboard && vvh ? ({ "--ui-vvh": `${vvh}px` } as CSSProperties) : undefined}
+          style={{ "--ui-peek-hidden": `${(1 - SHEET_SNAPS[0]) * 100}dvh`, ...(keyboard && vvh ? { "--ui-vvh": `${vvh}px` } : {}) } as CSSProperties}
           onFocusCapture={onFocusCapture}
           aria-describedby={undefined}
         >

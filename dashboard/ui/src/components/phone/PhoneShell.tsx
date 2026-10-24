@@ -45,7 +45,8 @@ export function PhoneShell({ state }: { state: FullState }) {
   // A tapped feedback notification opens the Feedback tab (service worker message).
   useOpenTabRequests(useCallback(() => setTab("feedback"), []));
   const feedbackUnread = useFeedbackUnread(tab === "feedback");
-  const [openRowId, setOpenRowId] = useState<string | null>(null);
+  // `?agent=<rowId>`: a native push tap opens that agent (apns_fan_out.agent_path).
+  const [openRowId, setOpenRowId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("agent"));
   const [promptId, setPromptId] = useState<string | null>(null);
   const [personaOpen, setPersonaOpen] = useState(false);
 

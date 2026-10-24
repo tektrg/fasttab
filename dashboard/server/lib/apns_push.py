@@ -18,13 +18,21 @@ Zero third-party deps, like the rest of the server: the ES256 JWT is signed by
 through `/usr/bin/curl --http2` (macOS curl ships nghttp2). Both are system
 binaries; Python has no stdlib HTTP/2.
 
-Contract for the iOS side (UNNotificationCategory ids + action ids):
+Contract for the iOS side (UNNotificationCategory ids + action ids). Every
+alert push carries, besides `aps`:
 
-  AGENT_PERMISSION   a permission prompt is waiting.
+  path      same-origin PWA path that opens the agent: "/?agent=<rowId,
+            percent-encoded>" (PhoneShell.tsx opens that agent's sheet), or
+            "/" when the agent is unknown. The wrapper loads it in its web view.
+  agentKey  the board rowId of the agent (Claude session id, or
+            "pane:<sanitized pane id>" for a pane without one); null if unknown.
+  agent     display name (persona/folder name or pane label).
+  summary   the alert body text (<= 240 chars, one line).
+
+  AGENT_PERMISSION   a permission prompt is waiting (apns_permission_push).
      actions: ALLOW, DENY, REPLY (UNTextInputNotificationAction; text = deny
               message / guidance).
-     userInfo: requestId, agent (persona/folder name), summary (<=60 chars),
-               toolName.
+     userInfo: requestId, agent, summary, toolName, agentKey, path.
      answer -> POST /api/hook/permission/<requestId>/answer (remote listener,
                Bearer token), body {"behavior": "allow"} or
                {"behavior": "deny", "message": "<REPLY text>"} — the same
@@ -33,9 +41,14 @@ Contract for the iOS side (UNNotificationCategory ids + action ids):
      silent push {"withdrawn": requestId} (content-available, same collapse
      id) tells the app to remove that delivered notification.
 
-  AGENT_MESSAGE      an agent finished / wants input (Phase 2, not sent yet).
+  AGENT_MESSAGE      an agent asked a question or finished a turn
+                     (apns_agent_push).
      actions: REPLY (text input), CONTINUE, STOP.
-     userInfo: agent, summary, sessionId.
+     userInfo: event ("question" | "finished"), agent, agentKey, sessionId
+               (Claude session id, null for "pane:" keys), summary (question
+               text / last message), turn (12-hex id of that text), path.
+     aps.alert: title = agent, subtitle = "Asked a question" | "Finished".
+     apns-collapse-id = "<event>-<hash(agentKey)>-<turn>" (<= 64 chars).
 
 Device tokens: apns_devices.py (register/unregister routes + 0600 registry).
 """
@@ -159,3 +172,20 @@ def client_from_config(path=None):
     """An ApnsClient, or None when the feature is not configured."""
     config = load_config(path)
     return ApnsClient(config) if config else None
+
+
+_cached = {"config": None, "client": None}
+_cached_lock = threading.Lock()
+
+
+def cached_client_from_config(path=None):
+    """client_from_config, but one ApnsClient per unchanged config, so its
+    provider token is reused (Apple throttles token refreshes < 20 min)."""
+    config = load_config(path)
+    with _cached_lock:
+        if config is None:
+            _cached.update(config=None, client=None)
+        elif config != _cached["config"]:
+            _cached.update(config=config, client=ApnsClient(config))
+        return _cached["client"]
+

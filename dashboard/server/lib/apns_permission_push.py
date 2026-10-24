@@ -12,11 +12,9 @@ Never blocks the hook path: every send runs on a daemon thread, each
 request bounded by apns_push.SEND_TIMEOUT_SEC. Not configured -> no-op.
 """
 import os
-import sys
 import threading
 
-import apns_devices
-import apns_push
+import apns_fan_out
 import hook_permission_summary as summary
 
 CATEGORY_PERMISSION = "AGENT_PERMISSION"
@@ -27,8 +25,7 @@ SEEN_MAX = 500
 
 
 def _one_line(text, limit=SUMMARY_MAX_CHARS):
-    text = " ".join(str(text or "").split())
-    return text if len(text) <= limit else text[:limit - 1] + "…"
+    return apns_fan_out.one_line(text, limit)
 
 
 def agent_name(payload):
@@ -52,18 +49,18 @@ def short_summary(payload):
 def permission_alert(request_id, payload):
     agent = agent_name(payload)
     text = short_summary(payload)
+    # The hook's session_id is the board rowId of that agent (resolve_agent_row_id).
+    agent_key = payload.get("session_id") if isinstance(payload.get("session_id"), str) else None
     return {"aps": {"alert": {"title": agent, "body": text}, "sound": "default",
                     "interruption-level": "time-sensitive", "category": CATEGORY_PERMISSION, "thread-id": agent},
             "requestId": request_id, "agent": agent, "summary": text,
-            "toolName": payload.get("tool_name")}
+            "toolName": payload.get("tool_name"),
+            "agentKey": agent_key, "path": apns_fan_out.agent_path(agent_key)}
 
 
 class PermissionPusher:
-    def __init__(self, client_factory=apns_push.client_from_config, registry=None,
-                 run_async=None):
-        self._client_factory = client_factory
-        self._registry = registry or apns_devices.REGISTRY
-        self._run_async = run_async or _start_daemon
+    def __init__(self, client_factory=None, registry=None, run_async=None):
+        self._fan_out = apns_fan_out.ApnsFanOut(client_factory, registry, run_async)
         self._lock = threading.Lock()
         self._seen = {}
 
@@ -79,40 +76,19 @@ class PermissionPusher:
     def can_reach_device(self):
         """APNs configured AND at least one registered device: a phone can
         answer, so the hook bridge may hold prompts for it."""
-        return bool(self._registry.tokens()) and self._client_factory() is not None
+        return self._fan_out.can_reach_device()
 
     def notify_registered(self, request_id, payload):
         if not request_id or not isinstance(payload, dict) or not self._first_time(request_id):
             return
-        self._run_async(lambda: self._fan_out(lambda: permission_alert(request_id, payload), request_id, False))
+        self._fan_out.send(lambda: permission_alert(request_id, payload), request_id)
 
     def notify_answered(self, request_id):
         with self._lock:
             if request_id not in self._seen:
                 return
-        self._run_async(lambda: self._fan_out(
-            lambda: {"aps": {"content-available": 1}, "withdrawn": request_id}, request_id, True))
-
-    def _fan_out(self, build_payload, request_id, background):
-        client = self._client_factory()
-        tokens = self._registry.tokens() if client else []
-        if not tokens:
-            return
-        payload = build_payload()
-        for token in tokens:
-            try:
-                status, reason = client.send(token, payload, collapse_id=request_id, background=background)
-            except Exception as e:  # noqa: BLE001 — a push failure must never surface
-                print(f"[apns] send failed: {e}", file=sys.stderr)
-                continue
-            if status == 410 or reason in apns_push.DEAD_TOKEN_REASONS:
-                self._registry.remove(token)
-            elif status != 200:
-                print(f"[apns] {status} {reason}", file=sys.stderr)
-
-
-def _start_daemon(work):
-    threading.Thread(target=work, name="apns-push", daemon=True).start()
+        self._fan_out.send(lambda: {"aps": {"content-available": 1}, "withdrawn": request_id},
+                           request_id, background=True)
 
 
 PUSHER = PermissionPusher()

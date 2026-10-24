@@ -219,6 +219,7 @@ import feedback_admin_proxy  # noqa: E402  (Feedback tab -> theindie-api admin)
 import feedback_seen  # noqa: E402  (Feedback tab new-dot: per-thread seen marks)
 import feedback_push_proxy  # noqa: E402  (phone Web Push registration -> theindie-api)
 import apns_devices  # noqa: E402  (iOS app APNs device-token registry)
+import apns_agent_push  # noqa: E402  (agent question/finished -> iOS push)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -3556,6 +3557,7 @@ def main():
     image_attachments.sweep_expired()
     start_pollers()
     SAMPLER.start()
+    apns_agent_push.start_observer(get_full_state, STOP)
 
     server = QuietThreadingHTTPServer((HOST, PORT), Handler)
     server.remote_listener = False

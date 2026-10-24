@@ -729,3 +729,14 @@ isn't a mismatch).
 - Multi-project `projectRoots` (see the P0 scope note above) — `chief_pass`'s
   per-projectRoot script resolution is the one exception that already loops
   every entry; every other call site still only reads `projectRoots[0]`.
+
+## APNs push to the iOS app / Apple Watch (Phase 1)
+`server/lib/apns_push.py` (config, ES256 JWT via `openssl`, HTTP/2 via
+`/usr/bin/curl --http2` — still no third-party deps; its docstring is the
+iOS category/action contract), `apns_devices.py` (`POST`/`DELETE
+/api/apns/devices`, both listeners, 0600 `apns-devices.json`),
+`apns_permission_push.py` (one `AGENT_PERMISSION` push per hook requestId,
+silent withdraw on answer, background thread). OFF unless
+`~/.config/agent-dashboard/apns.json` exists. Watch answers reuse
+`/api/hook/permission/<id>/answer`. Tests: `tests/test_apns_push.py`,
+`tests/test_apns_devices_remote.py`.

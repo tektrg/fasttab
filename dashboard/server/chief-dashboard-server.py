@@ -218,6 +218,7 @@ import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
 import feedback_admin_proxy  # noqa: E402  (Feedback tab -> theindie-api admin)
 import feedback_seen  # noqa: E402  (Feedback tab new-dot: per-thread seen marks)
 import feedback_push_proxy  # noqa: E402  (phone Web Push registration -> theindie-api)
+import apns_devices  # noqa: E402  (iOS app APNs device-token registry)
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -3302,6 +3303,10 @@ class Handler(BaseHTTPRequestHandler):
         if feedback_reply is not None:
             self._send_json(*feedback_reply)
             return
+        apns_reply = apns_devices.handle("POST", path, self._read_json_body)
+        if apns_reply is not None:
+            self._send_json(*apns_reply)
+            return
         if hook_permission_routes.is_hook_path(path):
             self._note_remote_audit_row(hook_permission_routes.request_id_of(path))
             self._send_json(*hook_permission_routes.handle_post(
@@ -3430,6 +3435,10 @@ class Handler(BaseHTTPRequestHandler):
         if self._reject_foreign_write():
             return
         path = urlparse(self.path).path
+        apns_reply = apns_devices.handle("DELETE", path, self._read_json_body)
+        if apns_reply is not None:
+            self._send_json(*apns_reply)
+            return
         if path == "/api/links":
             try:
                 body = self._read_json_body()

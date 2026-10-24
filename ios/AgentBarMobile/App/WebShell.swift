@@ -41,6 +41,10 @@ struct RootView: View {
                     .accessibilityLabel("Settings")
                     .padding(.trailing, 8).padding(.top, 2).opacity(0.6)
                 }
+                // Safari-like keyboard: the web view keeps its full height and WebKit shrinks
+                // visualViewport, which the PWA's sheet/composer logic is built on. Letting
+                // SwiftUI resize the stack instead left the composer under the keyboard.
+                .ignoresSafeArea(.keyboard)
                 .sheet(isPresented: $showSettings, onDismiss: { shell.open() }) {
                     SettingsView(model: settings)
                 }

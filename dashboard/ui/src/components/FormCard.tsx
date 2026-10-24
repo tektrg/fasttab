@@ -3,6 +3,7 @@ import { Button, Checkbox, Group, Radio, Stack, Text, TextInput } from "@mantine
 import type { PendingQuestionForm, PickerQuestion } from "../types";
 import { answerQuestion } from "../api";
 import { Block } from "./Block";
+import { ActionButton } from "../ui/ActionButton";
 import { MarkdownInline } from "./Markdown";
 
 interface Draft {
@@ -259,11 +260,19 @@ export function FormCard({
           </div>
         ))}
       </Stack>
-      <Group mt="sm">
-        <Button color="green" disabled={!canSubmit} loading={sending} onClick={() => void submit()}>
-          Submit
-        </Button>
-      </Group>
+      {phone ? (
+        // The primary action ends the card, full width (not pinned in the sheet
+        // footer: the card owns its draft state, which the footer cannot reach).
+        <ActionButton variant="primary" className="ui-btn--block phone-form-submit" disabled={!canSubmit || sending} onClick={() => void submit()}>
+          {sending ? "Sending…" : "Submit"}
+        </ActionButton>
+      ) : (
+        <Group mt="sm">
+          <Button color="green" disabled={!canSubmit} loading={sending} onClick={() => void submit()}>
+            Submit
+          </Button>
+        </Group>
+      )}
       {result && (
         <Text size="xs" c={result.ok ? "dimmed" : "red"} mt="xs">
           {result.ok ? "Sent." : `Not sent: ${result.msg}`}

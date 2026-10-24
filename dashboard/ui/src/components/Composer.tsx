@@ -13,8 +13,10 @@ import {
 import { INBOX_CAPTION, WAKE_CAPTION, messagesViaInbox, wakesToMessage } from "../openInClaude";
 import { REMOTE_IMAGE_CAPTION, TOOL_MESSAGE_CAPTION, acceptsImages, isToolAgent } from "../messageGates";
 import { imagesFromClipboard, uploadImages, useImageAttachments } from "../imageAttachments";
-import { ImageAttachBar } from "./ImageAttachBar";
-import { VoiceRecorderBar } from "./VoiceRecorderBar";
+import { AttachImageButton, ImageAttachBar } from "./ImageAttachBar";
+import { MicIcon, VoiceRecorderBar } from "./VoiceRecorderBar";
+import { ActionButton } from "../ui/ActionButton";
+import { IconButton } from "../ui/IconButton";
 import { useVoiceInput } from "../voice/useVoiceInput";
 import { appendTranscript } from "../voice/transcript";
 
@@ -45,6 +47,12 @@ interface PendingRow {
  *  (a persistent red panel, not just the 2.5s toast): the message did not
  *  arrive and the PO must look.
  *
+ *  `phone` (the row sheet's footer): ONE row — [field with the mic
+ *  inside] [attach] [Send]. No visible label (the field keeps an accessible one), the
+ *  "queues if the agent is busy" hint rides in the sent toast, and the
+ *  "images only go to agents on this Mac" note shows only once an image was
+ *  attached or pasted.
+ *
  *  Poll-safety: the draft lives here, keyed by the parent when a reset is
  *  wanted — a 5s board refetch re-renders without remounting, so half-typed
  *  text survives. */
@@ -53,11 +61,13 @@ export function Composer({
   initialText,
   onToast,
   onDone,
+  phone,
 }: {
   rows: BoardRow[];
   initialText?: string;
   onToast: (msg: string, ok: boolean) => void;
   onDone?: () => void;
+  phone?: boolean;
 }) {
   const [text, setText] = useState(initialText ?? "");
   // The in-flight text, held apart from the box. Enter empties the box at
@@ -72,6 +82,8 @@ export function Composer({
   // Uploaded once per send, shared by every target row and the confirm-queue step.
   const [heldIds, setHeldIds] = useState<string[]>([]);
   const attach = useImageAttachments();
+  // Phone: an image was pasted at an agent that cannot take one.
+  const [attachTried, setAttachTried] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // The transcript joins the end of whatever is typed; sending stays a tap.
   const voice = useVoiceInput({
@@ -101,7 +113,7 @@ export function Composer({
       onToast(
         isQueued(res)
           ? `queued to ${label} — lands when the turn ends. Do not re-send.`
-          : `sent to ${label}`,
+          : phone ? `sent to ${label} — queues if the agent is busy` : `sent to ${label}`,
         true,
       );
     } else if (res.needsConfirm) {
@@ -203,65 +215,105 @@ export function Composer({
   const notSubmitted = (report ?? []).filter((r) => isNotSubmitted(r.res));
   const queued = (report ?? []).filter((r) => isQueued(r.res));
 
+  const sendOrConfirm = () => {
+    if (pending) void confirmQueue();
+    else void send();
+  };
+  const field = (
+    <TextInput
+      {...(phone
+        ? {
+            "aria-label": targets.length > 0 ? `Message ${targets.length === 1 ? rowLabel(targets[0].row) : `${targets.length} selected rows`}` : "Message",
+            placeholder: targets.length > 0 ? "Message agent…" : "select one or more rows to enable",
+            enterKeyHint: "send" as const,
+            rightSectionPointerEvents: "auto" as const,
+            rightSectionWidth: 44,
+            rightSection:
+              voice.phase === "idle" || voice.phase === "starting" ? (
+                <IconButton
+                  className="composer-mic"
+                  aria-label="record voice message"
+                  disabled={busy || !!pending || voice.phase === "starting" || targets.length === 0}
+                  onClick={voice.start}
+                >
+                  <MicIcon />
+                </IconButton>
+              ) : null,
+          }
+        : {
+            label:
+              targets.length > 0
+                ? `Message ${targets.length === 1 ? rowLabel(targets[0].row) : `${targets.length} selected rows`} — not destructive: queues on busy ${allInbox ? "sessions" : "panes"}`
+                : "Message — select rows first",
+            placeholder:
+              targets.length > 0
+                ? `one line to the ${allInbox ? "session" : "pane"}${targets.length > 1 ? "s" : ""} — Enter sends`
+                : "select one or more rows to enable",
+          })}
+      ref={inputRef}
+      value={text}
+      disabled={targets.length === 0}
+      onChange={(e) => setText(e.currentTarget.value)}
+      onPaste={(e) => {
+        const files = imagesFromClipboard(e.clipboardData);
+        if (!imagesAllowed) {
+          if (files.length) setAttachTried(true);
+          return;
+        }
+        if (files.length) {
+          e.preventDefault();
+          void attach.add(files);
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          sendOrConfirm();
+        }
+      }}
+      style={{ flex: 1, minWidth: 0 }}
+    />
+  );
+
   return (
-    <div className="composer" onClick={(e) => e.stopPropagation()}>
-      <Group gap="sm" align="flex-end" wrap="nowrap">
-        <TextInput
-          label={
-            targets.length > 0
-              ? `Message ${targets.length === 1 ? rowLabel(targets[0].row) : `${targets.length} selected rows`} — not destructive: queues on busy ${allInbox ? "sessions" : "panes"}`
-              : "Message — select rows first"
-          }
-          placeholder={
-            targets.length > 0
-              ? `one line to the ${allInbox ? "session" : "pane"}${targets.length > 1 ? "s" : ""} — Enter sends`
-              : "select one or more rows to enable"
-          }
-          ref={inputRef}
-          value={text}
-          disabled={targets.length === 0}
-          onChange={(e) => setText(e.currentTarget.value)}
-          onPaste={(e) => {
-            if (!imagesAllowed) return;
-            const files = imagesFromClipboard(e.clipboardData);
-            if (files.length) {
-              e.preventDefault();
-              void attach.add(files);
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              if (pending) void confirmQueue();
-              else void send();
-            }
-          }}
-          style={{ flex: 1, minWidth: 0 }}
-        />
-        <Button
-          color="blue"
-          disabled={!canSend && !pending}
-          loading={busy}
-          onClick={() => {
-            if (pending) void confirmQueue();
-            else void send();
-          }}
-        >
-          {pending ? `Confirm queue (${pending.length})` : "Send"}
-        </Button>
-      </Group>
+    <div className={phone ? "composer composer--phone" : "composer"} onClick={(e) => e.stopPropagation()}>
+      {phone ? (
+        <div className="composer-row">
+          <div className="composer-field">{field}</div>
+          {targets.length > 0 && imagesAllowed && (
+            <AttachImageButton count={attach.images.length} disabled={busy || !!pending} onAdd={(files) => void attach.add(files)} />
+          )}
+          <ActionButton
+            variant="primary"
+            className="composer-send"
+            disabled={!canSend && !pending}
+            aria-busy={busy || undefined}
+            onClick={sendOrConfirm}
+          >
+            {busy ? "Sending…" : pending ? `Confirm queue (${pending.length})` : "Send"}
+          </ActionButton>
+        </div>
+      ) : (
+        <Group gap="sm" align="flex-end" wrap="nowrap">
+          {field}
+          <Button color="blue" disabled={!canSend && !pending} loading={busy} onClick={sendOrConfirm}>
+            {pending ? `Confirm queue (${pending.length})` : "Send"}
+          </Button>
+        </Group>
+      )}
       {targets.length > 0 && (imagesAllowed || attach.images.length > 0) && (
         <ImageAttachBar
           images={attach.images}
           error={attach.error}
           disabled={busy || !!pending}
           canAdd={imagesAllowed}
+          compact={phone}
           onAdd={(files) => void attach.add(files)}
           onRemove={attach.remove}
         />
       )}
-      {(targets.length > 0 || voice.phase !== "idle") && <VoiceRecorderBar voice={voice} disabled={busy || !!pending} />}
-      {targets.length > 0 && !imagesAllowed && (
+      {(targets.length > 0 || voice.phase !== "idle") && <VoiceRecorderBar voice={voice} disabled={busy || !!pending} compact={phone} />}
+      {targets.length > 0 && !imagesAllowed && (!phone || imagesBlocked || attachTried) && (
         <Text size="xs" c={imagesBlocked ? "red" : "dimmed"} mt={4} className="composer-remote-image-note">
           {imagesBlocked ? `${REMOTE_IMAGE_CAPTION} Remove the images to send.` : REMOTE_IMAGE_CAPTION}
         </Text>

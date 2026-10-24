@@ -6,12 +6,15 @@ import type { VoiceInput } from "../voice/useVoiceInput";
  *  uploading, transcribing, failed (Retry, Record again). Presentational —
  *  all behaviour is in useVoiceInput. The transcript itself lands in the
  *  message box; sending stays the user's own tap. */
-export function VoiceRecorderBar({ voice, disabled }: { voice: VoiceInput; disabled?: boolean }) {
+export function VoiceRecorderBar({ voice, disabled, compact }: { voice: VoiceInput; disabled?: boolean; compact?: boolean }) {
   const { phase, elapsedMs, error } = voice;
   const left = MAX_RECORDING_MS - elapsedMs;
+  // Compact (phone composer): the mic lives in the message field, so the bar
+  // only shows once there is something to stop, cancel, retry or read.
+  if (compact && (phase === "idle" || phase === "starting") && !error) return null;
   return (
     <div className="voice-bar" aria-live="polite">
-      {(phase === "idle" || phase === "starting") && (
+      {!compact && (phase === "idle" || phase === "starting") && (
         <button
           type="button"
           className="voice-button"
@@ -64,7 +67,7 @@ export function VoiceRecorderBar({ voice, disabled }: { voice: VoiceInput; disab
   );
 }
 
-function MicIcon() {
+export function MicIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

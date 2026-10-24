@@ -1,0 +1,10 @@
+.ui-icon-btn {
+  flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  border: 0; border-radius: var(--r-md); background: none; color: var(--ink-2);
+  font: 600 20px/1 var(--sans); text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.ui-icon-btn svg { width: 22px; height: 22px; }
+.ui-icon-btn:active { background: var(--sunken); }
+.ui-icon-btn[aria-expanded="true"] { background: var(--sunken); color: var(--ink); }
+.ui-icon-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.ui-icon-btn:disabled { opacity: .45; cursor: not-allowed; }

@@ -1,12 +1,11 @@
 import { useRef } from "react";
 import type { NeedsYouRow } from "../../types";
-import { fmtAge } from "../../api";
 import { PanelessPrompt } from "../HookRequestCard";
 import { LatestMessage } from "../LatestMessage";
 import { Sheet } from "../../ui/Sheet";
 import { StatusBadge } from "../../ui/StatusBadge";
 import { needsYouUiStatus } from "./phoneModel";
-import { SheetHeader } from "./PhoneSheet";
+import { SheetHeader, headerMeta } from "./PhoneSheet";
 
 /** Sheet for a Needs-you entry that has no board row (a Claude Desktop / CLI
  *  session outside herdr): the agent's last message, then its hook prompt,
@@ -30,7 +29,7 @@ export function PromptSheet({
   // session's board row id IS its session id (resolve_agent_row_id); an
   // OpenCode / Codex prompt has no Claude transcript to read.
   const transcriptRowId = row.hookRequest?.tool ? null : row.agentSession;
-  const meta = [machine !== "local" ? machine : null, fmtAge(row.sinceSec)].filter(Boolean).join(" · ");
+  const meta = headerMeta(machine, row.sinceSec);
   return (
     <Sheet
       open={!!current}

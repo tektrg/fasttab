@@ -80,8 +80,13 @@ function mount(r: BoardRow, onToast = (_m: string, _ok: boolean) => {}) {
   return () => act(() => root.unmount());
 }
 
+/** A "•••" menu entry (the verbs live in the header menu). */
 function button(label: string) {
-  return [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === label);
+  return [...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.trim() === label) as HTMLElement | undefined;
+}
+function openMenu() {
+  const trigger = document.querySelector<HTMLElement>('button[aria-label="More actions"]');
+  if (trigger && trigger.getAttribute("aria-expanded") !== "true") act(() => trigger.click());
 }
 
 const messages = (calls: { url: string; body: unknown }[]) =>
@@ -107,7 +112,8 @@ describe("PhoneSheet Compact / Clear", () => {
   test("Compact sends /compact at once", async () => {
     const calls = stubFetch([{ ok: true, state: "message sent" }]);
     const unmount = mount(row());
-    act(() => button("Compact")!.click());
+    openMenu();
+    act(() => button("/compact")!.click());
     await settle();
     expect(messages(calls)).toEqual([{ rowId: "alpha", actor: "po", text: "/compact", confirm: false }]);
     unmount();
@@ -116,7 +122,8 @@ describe("PhoneSheet Compact / Clear", () => {
   test("Clear needs a second press before anything is sent", async () => {
     const calls = stubFetch([{ ok: true, state: "message sent" }]);
     const unmount = mount(row());
-    act(() => button("Clear")!.click());
+    openMenu();
+    act(() => button("/clear")!.click());
     await settle();
     expect(messages(calls)).toEqual([]);
     expect(button("Confirm clear")).toBeTruthy();
@@ -129,7 +136,8 @@ describe("PhoneSheet Compact / Clear", () => {
   test("a busy pane: the server's needsConfirm arms a queue press", async () => {
     const calls = stubFetch([{ ok: false, needsConfirm: true, reason: "mid-turn" }, { ok: true, state: "queued" }]);
     const unmount = mount(row());
-    act(() => button("Compact")!.click());
+    openMenu();
+    act(() => button("/compact")!.click());
     await settle();
     expect(button("Queue compact")).toBeTruthy();
     act(() => button("Queue compact")!.click());
@@ -141,9 +149,10 @@ describe("PhoneSheet Compact / Clear", () => {
   test("a same-tick double tap on Compact sends once (QA2)", async () => {
     const calls = stubFetch([{ ok: true, state: "message sent" }, { ok: true, state: "message sent" }]);
     const unmount = mount(row());
+    openMenu();
     act(() => {
-      button("Compact")!.click();
-      button("Compact")!.click();
+      button("/compact")!.click();
+      button("/compact")!.click();
     });
     await settle();
     expect(messages(calls).length).toBe(1);
@@ -153,13 +162,15 @@ describe("PhoneSheet Compact / Clear", () => {
   test("Clear cancel: an armed Clear times out and sends nothing (QA2)", async () => {
     const calls = stubFetch([{ ok: true, state: "message sent" }]);
     const unmount = mount(row());
-    act(() => button("Clear")!.click());
+    openMenu();
+    act(() => button("/clear")!.click());
     expect(button("Confirm clear")).toBeTruthy();
     await act(async () => {
       await new Promise((r) => setTimeout(r, 5100));
     });
     expect(button("Confirm clear")).toBeUndefined();
-    act(() => button("Clear")!.click());
+    openMenu(); // the menu closes itself once the confirm window lapses
+    act(() => button("/clear")!.click());
     await settle();
     expect(messages(calls)).toEqual([]); // that press only re-armed
     unmount();
@@ -168,8 +179,9 @@ describe("PhoneSheet Compact / Clear", () => {
   test("no buttons on a waiting row", () => {
     stubFetch([]);
     const unmount = mount(row({ screenState: "NEEDS_HUMAN" }));
-    expect(button("Compact")).toBeUndefined();
-    expect(button("Clear")).toBeUndefined();
+    openMenu();
+    expect(button("/compact")).toBeUndefined();
+    expect(button("/clear")).toBeUndefined();
     unmount();
   });
 });
@@ -180,15 +192,17 @@ describe("PhoneSheet non-Claude gate", () => {
     const unmount = mount(
       row({ agentKind: "opencode", hasHookData: false, messageRefusal: "refused: opencode prompts are invisible" }),
     );
+    openMenu();
     expect(document.body.textContent).toContain("Messages are off for opencode");
     expect(document.querySelector(".composer")).toBeNull();
-    expect(button("Compact")).toBeUndefined();
+    expect(button("/compact")).toBeUndefined();
     unmount();
   });
 
   test("a Claude pane keeps its Composer", () => {
     stubFetch([]);
     const unmount = mount(row());
+    openMenu();
     expect(document.querySelector(".composer")).not.toBeNull();
     expect(document.body.textContent).not.toContain("Messages are off");
     unmount();

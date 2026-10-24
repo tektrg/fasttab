@@ -126,7 +126,7 @@ describe("PhoneSheet on a Claude Desktop row", () => {
     const input = document.querySelector<HTMLInputElement>(".composer input");
     expect(input).not.toBe(null);
     expect(document.body.textContent).toContain(INBOX_CAPTION);
-    expect(input!.placeholder).toBe("one line to the session — Enter sends");
+    expect(input!.placeholder).toBe("Message agent…");
     act(() => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
       setter.call(input, "hello desk");
@@ -158,7 +158,7 @@ describe("PhoneSheet on a Claude Desktop row", () => {
     expect(document.querySelector(".composer")).not.toBe(null);
     expect(document.body.textContent).not.toContain(INBOX_CAPTION);
     expect(document.querySelector<HTMLInputElement>(".composer input")!.placeholder).toBe(
-      "one line to the pane — Enter sends",
+      "Message agent…",
     );
     unmount();
   });

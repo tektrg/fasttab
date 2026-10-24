@@ -72,8 +72,8 @@ describe("keyboard up", () => {
     });
     expect(sheet.hasAttribute("data-keyboard")).toBe(false);
 
-    const hidden = rules(css("components/phone/phone.css")).find((r) => /\[data-keyboard\] \.phone-sheet-quick/.test(r.sel));
+    const hidden = rules(css("components/phone/phone.css")).find((r) => /\[data-keyboard\] \.phone-sheet-gate-note/.test(r.sel));
     expect(hidden?.body).toMatch(/display:\s*none/);
-    for (const c of [".phone-sheet-actions", ".voice-bar"]) expect(hidden!.sel).toContain(c);
+    for (const c of [".composer-remote-image-note", ".mantine-TextInput-label"]) expect(hidden!.sel).toContain(c);
   });
 });

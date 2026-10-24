@@ -41,6 +41,10 @@
 }
 
 /* ── Sections / lists ── */
+/* The global `section` card (index.css: margin, border, radius, shadow) is a
+   desktop look: on the phone every section is an edge-to-edge list, split by
+   hairlines. */
+.phone-app section { margin: 0; border: 0; border-radius: 0; box-shadow: none; background: none; overflow: visible; }
 .phone-list { padding-bottom: var(--s6); }
 .phone-section-head {
   display: flex; align-items: center; gap: var(--s2); width: 100%; min-height: 44px;
@@ -105,23 +109,36 @@ button.phone-section-head { cursor: pointer; }
   flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
   background: var(--sunken); color: var(--ink-2); font: 600 13px var(--mono);
 }
-.phone-sheet-headtext { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.phone-sheet-headtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.phone-sheet-sub { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
 .phone-sheet-title { font: 600 17px/1.3 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .phone-sheet-meta { font: 400 13px var(--sans); color: var(--ink-3); }
 .phone-sheet-section { margin-bottom: var(--s3); }
 .phone-sheet-gate-note { font-size: 13px; color: var(--ink-3); }
-.phone-tabs { display: flex; gap: var(--s1); padding: var(--s1); border-radius: var(--r-md); background: var(--sunken); }
+.phone-tabs { display: flex; gap: var(--s5); border-bottom: 1px solid var(--hair); flex: none; }
 .phone-tab {
-  flex: 1; min-height: 44px; border: 0; border-radius: var(--r-sm); background: none;
-  color: var(--ink-3); font: 600 14px var(--sans); cursor: pointer;
+  position: relative; height: 36px; padding: 0 2px; border: 0; background: none;
+  color: var(--ink-3); font: 600 14px var(--sans); cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.phone-tab[aria-selected="true"] { background: var(--paper); color: var(--ink); box-shadow: var(--shadow-float); }
+.phone-tab::before { content: ""; position: absolute; inset: -4px -8px; } /* 44px hit area around the 36px tab */
+.phone-tab::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: transparent; }
+.phone-tab[aria-selected="true"] { color: var(--ink); }
+.phone-tab[aria-selected="true"]::after { background: var(--ink); }
+.phone-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .phone-sheet-footer { display: flex; flex-direction: column; gap: var(--s2); }
-.phone-sheet-actions, .phone-sheet-quick { display: flex; gap: var(--s2); }
+.phone-sheet-actions { display: flex; gap: var(--s2); }
 /* `a`: Open in Claude is a Mantine Button rendered as a link — same size
    and 44px touch target as its button neighbours. */
 .phone-sheet-actions > button, .phone-sheet-actions > a { flex: 1; min-height: 44px; }
-.phone-sheet-quick > button { flex: 1; }
+
+/* Composer on the phone (Composer `phone`): [field + mic] [attach] [Send], one row. */
+.composer--phone .composer-row { display: flex; align-items: center; gap: var(--s2); }
+.composer--phone .composer-field { flex: 1; min-width: 0; }
+.composer--phone .mantine-TextInput-input { height: 44px; min-height: 44px; }
+.composer--phone .composer-send { flex: none; min-width: 72px; }
+.composer--phone .voice-bar, .composer--phone .image-attach-bar { margin-top: var(--s2); }
+.composer--phone .composer-mic { width: 44px; height: 44px; }
+.composer--phone .composer-mic svg { width: 20px; height: 20px; }
 /* iOS Safari auto-zooms on focus of any input under 16px; Mantine's
    TextInput (Composer, persona message) is 14px. */
 .ui-sheet__footer input { font-size: 16px; }
@@ -134,7 +151,8 @@ button.phone-section-head { cursor: pointer; }
 .persona-sheet-actions { flex-wrap: wrap; }
 /* Start-on machine chips ([Pro] [Air]) — only when a send would start. */
 .persona-sheet-machines { display: flex; gap: var(--s2); margin-top: 12px; }
-.persona-sheet-machines > button { min-height: 36px; min-width: 64px; }
+.persona-sheet-machines > button { min-height: 44px; min-width: 64px; }
+.persona-sheet-actions > button { min-height: 44px; }
 .persona-sheet-retry { margin-top: 8px; min-height: 44px; }
 .persona-sheet-fresh { flex: 1 0 100%; align-self: center; }
 
@@ -168,7 +186,10 @@ button.phone-section-head { cursor: pointer; }
    one line whenever a long question card sits below it. */
 .phone-block.latest-message { flex-shrink: 0; }
 .latest-message__clamp { max-height: 12em; overflow: hidden; }
-.latest-message__toggle { margin-top: var(--s1); padding: var(--s2) 0; min-height: 44px; background: none; border: 0; color: var(--accent, var(--ink-2)); font: 600 14px var(--sans); }
+.latest-message__toggle {
+  display: flex; align-items: center; width: 100%; margin-top: var(--s1); padding: 0; min-height: 44px;
+  background: none; border: 0; border-top: 1px solid var(--hair); color: var(--accent, var(--ink-2)); font: 600 14px var(--sans);
+}
 .phone-block.latest-message pre, .phone-block.latest-message code { font-family: var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ── Inbox: inline Yes/No quick answer under a question row ── */
@@ -184,14 +205,22 @@ button.phone-section-head { cursor: pointer; }
 .ui-sheet .rp-screen-box { height: auto; max-height: none; overflow: visible; }
 .ui-sheet .rp-msglog, .ui-sheet .rp-sections { overflow: visible; min-height: 0; }
 
-/* Keyboard up: footer = message field + Send only. */
-.ui-sheet[data-keyboard] .phone-sheet-actions,
-.ui-sheet[data-keyboard] .phone-sheet-quick,
+/* Keyboard up: footer = message field + Send only (the recorder row stays: a
+   recording in progress must stay stoppable). */
 .ui-sheet[data-keyboard] .phone-sheet-gate-note,
-.ui-sheet[data-keyboard] .composer .voice-bar,
 .ui-sheet[data-keyboard] .composer .mantine-TextInput-label,
 .ui-sheet[data-keyboard] .composer-remote-image-note,
 .ui-sheet[data-keyboard] .composer-inbox-note,
 .ui-sheet[data-keyboard] .composer-tool-note,
 .ui-sheet[data-keyboard] .composer-wake-note { display: none; }
 .ui-sheet[data-keyboard] .ui-sheet__footer { padding-bottom: var(--s3); }
+
+/* Edge-to-edge sheet content: the body's own gutter (--ui-sheet-gutter) is the
+   only side inset; blocks, the last line and the terminal add none. */
+.ui-sheet .phone-sheet-section .rp-lastline { margin-top: 0; padding: var(--s1) 0; border-left: 0; border-radius: 0; background: none; }
+.ui-sheet .rp-screen { padding: 0; border-top: 0; }
+.ui-sheet .rp-screen-box { margin-inline: calc(-1 * var(--ui-sheet-gutter)); border-inline: 0; border-radius: 0; padding-inline: var(--ui-sheet-gutter); }
+/* Touch targets inside question / plan / review cards: 44px rows and buttons. */
+.phone-block .mantine-Button-root { min-height: 44px; }
+.phone-block .mantine-Radio-root, .phone-block .mantine-Checkbox-root { min-height: 44px; display: flex; align-items: center; }
+.phone-form-submit { margin-top: var(--s3); }

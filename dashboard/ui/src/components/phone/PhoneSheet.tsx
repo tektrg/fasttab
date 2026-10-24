@@ -9,7 +9,7 @@ import { Composer } from "../Composer";
 import { OpenInClaudeButton } from "../OpenInClaudeButton";
 import { messagesViaInbox, wakesToMessage } from "../../openInClaude";
 import { blindAgentCaption, messageRefusal, takesQuickCommands } from "../../messageGates";
-import { ActionButton } from "../../ui/ActionButton";
+import { ActionMenu, type MenuItem } from "../../ui/ActionMenu";
 import { Sheet } from "../../ui/Sheet";
 import { StatusBadge } from "../../ui/StatusBadge";
 import { defaultSheetTab, initialsOf, sheetStatus, sheetTabs, type SheetTab } from "./phoneModel";
@@ -17,23 +17,33 @@ import { usePhoneSheetActions } from "./usePhoneSheetActions";
 
 const TAB_LABEL: Record<SheetTab, string> = { activity: "Activity", terminal: "Terminal", plan: "Plan" };
 
-/** Shared sheet header: avatar, name, status badge, one meta line. */
-export function SheetHeader({ name, badge, meta }: { name: string; badge: ReactNode; meta: string }) {
+/** Age text for a header ("5m"); empty when the age is unknown, so the
+ *  header never shows a lone "—". */
+export function headerMeta(machine: string, ageSec: number | null | undefined): string {
+  return [machine !== "local" ? machine : null, ageSec == null ? null : fmtAge(ageSec)].filter(Boolean).join(" · ");
+}
+
+/** Shared sheet header: avatar, name over (status chip + optional meta), then
+ *  `actions` (Open in Claude, the "•••" menu) when the sheet has any. */
+export function SheetHeader({ name, badge, meta, actions }: { name: string; badge: ReactNode; meta?: string; actions?: ReactNode }) {
   return (
     <>
       <span className="phone-sheet-avatar" aria-hidden="true">{initialsOf(name)}</span>
       <span className="phone-sheet-headtext">
         <span className="phone-sheet-title">{name}</span>
-        <span className="phone-sheet-meta">{meta}</span>
+        <span className="phone-sheet-sub">
+          {badge}
+          {meta ? <span className="phone-sheet-meta">{meta}</span> : null}
+        </span>
       </span>
-      {badge}
+      {actions}
     </>
   );
 }
 
 /** A session's detail in a bottom sheet (peek -> full): read what happened
- *  (Activity / Terminal / Plan tabs) and act (Park, Done, or reply — the
- *  Composer is pinned in the footer).
+ *  (Activity / Terminal / Plan tabs) and act (reply in the pinned Composer;
+ *  Done / Park / compact / clear live in the header's "•••" menu).
  *
  *  `RowDetailExtras` supplies the Review / plan / latest-message + form
  *  cards; the verbs and their confirm rules live in `usePhoneSheetActions`. */
@@ -59,7 +69,18 @@ export function PhoneSheet({
   const row = current ?? last.current;
   const a = usePhoneSheetActions({ row, onToast, onUndo, onRefetch, onClose });
   const [tab, setTab] = useState<SheetTab>("activity");
+  const [menuOpen, setMenuOpen] = useState(false);
+  // True between a menu press and its outcome: the menu closes once the verb
+  // settles, but stays open while it waits for a confirm press.
+  const pressed = useRef(false);
   const rowId = row?.rowId;
+  useEffect(() => setMenuOpen(false), [rowId]);
+  useEffect(() => {
+    if (pressed.current && a.busy === null && a.armed === null) {
+      pressed.current = false;
+      setMenuOpen(false);
+    }
+  }, [a.busy, a.armed]);
   const pendingTab = row ? defaultSheetTab(row) : "activity";
   // A different row (or a plan that just appeared) opens on its own tab.
   useEffect(() => setTab(pendingTab), [rowId, pendingTab]);
@@ -79,51 +100,55 @@ export function PhoneSheet({
   const tabs = sheetTabs(row);
   const active = tabs.includes(tab) ? tab : "activity";
   const machine = row.derived.machine || "local";
-  const meta = [machine !== "local" ? machine : null, fmtAge(row.derived.hookSinceSec ?? null)]
-    .filter(Boolean)
-    .join(" · ");
+  const meta = headerMeta(machine, row.derived.hookSinceSec);
+
+  // Done and /clear always ask for a second press (Done cannot be undone, /clear
+  // wipes context); Park and /compact follow the server's own confirm rules.
+  const press = (run: () => void) => () => {
+    pressed.current = true;
+    run();
+  };
+  const idle = a.busy === null;
+  const menuItems: MenuItem[] = [];
+  if (a.endStage) {
+    menuItems.push({
+      key: "done",
+      label: a.armed === "done" ? "Confirm done" : "Done",
+      tone: "danger",
+      disabled: !a.endStage.state.enabled || !idle,
+      onSelect: press(() => (a.armed === "done" ? void a.runDone() : a.arm("done"))),
+    });
+  }
+  if (a.canPark || a.canUnpark) {
+    const verb = a.canUnpark ? "Unpark" : "Park";
+    menuItems.push({
+      key: "park",
+      label: a.armed === "park" ? `Confirm ${verb.toLowerCase()}` : verb,
+      disabled: !idle,
+      onSelect: press(() => void a.runPark()),
+    });
+  }
+  if (quick) {
+    for (const cmd of ["compact", "clear"] as const) {
+      menuItems.push({
+        key: cmd,
+        label: a.armed === cmd ? a.quickLabel(cmd) : `/${cmd}`,
+        tone: cmd === "clear" ? "danger" : undefined,
+        disabled: !idle,
+        onSelect: press(() => void a.runQuick(cmd)),
+      });
+    }
+  }
+  const headerActions = !ended && (
+    <>
+      <OpenInClaudeButton row={row.derived} icon />
+      {menuItems.length > 0 && <ActionMenu label="More actions" open={menuOpen} onOpenChange={setMenuOpen} items={menuItems} />}
+    </>
+  );
 
   const footer = (
     <div className="phone-sheet-footer">
-      {!ended && (
-        <div className="phone-sheet-actions">
-          {a.endStage && (
-            <ActionButton
-              variant={a.armed === "done" ? "danger" : "secondary"}
-              disabled={!a.endStage.state.enabled || a.busy !== null}
-              onClick={() => void a.runDone()}
-            >
-              {a.armed === "done" ? "Confirm" : "Done"}
-            </ActionButton>
-          )}
-          <OpenInClaudeButton row={row.derived} size="sm" />
-          {(a.canPark || a.canUnpark) && (
-            <ActionButton
-              variant={a.armed === "park" ? "danger" : "secondary"}
-              disabled={a.busy !== null}
-              onClick={() => void a.runPark()}
-            >
-              {a.armed === "park" ? "Confirm" : a.canUnpark ? "Unpark" : "Park"}
-            </ActionButton>
-          )}
-        </div>
-      )}
-      {!ended && quick && (
-        <div className="phone-sheet-quick">
-          {(["compact", "clear"] as const).map((cmd) => (
-            <ActionButton
-              key={cmd}
-              size="sm"
-              variant={a.armed === cmd ? "danger" : "secondary"}
-              disabled={a.busy !== null}
-              onClick={() => void a.runQuick(cmd)}
-            >
-              {a.quickLabel(cmd)}
-            </ActionButton>
-          ))}
-        </div>
-      )}
-      {(!ended || wakeable) && canMessage && !blind && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} />}
+      {(!ended || wakeable) && canMessage && !blind && <Composer rows={[row]} onToast={onToast} onDone={onRefetch} phone />}
       {!ended && blind && <div className="phone-sheet-gate-note">{blindAgentCaption(row.derived.agentKind)}</div>}
       {ended && !wakeable && <div className="phone-sheet-gate-note">{row.endedNote || "ended — no further action here"}</div>}
     </div>
@@ -134,7 +159,7 @@ export function PhoneSheet({
       open={!!current}
       onOpenChange={(o) => !o && onClose()}
       title={name}
-      header={<SheetHeader name={name} badge={<StatusBadge status={sheetStatus(row, wakeable)} />} meta={meta} />}
+      header={<SheetHeader name={name} badge={<StatusBadge status={sheetStatus(row, wakeable)} />} meta={meta} actions={headerActions} />}
       footer={footer}
     >
       {tabs.length > 1 && (

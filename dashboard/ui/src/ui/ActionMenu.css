@@ -1,0 +1,15 @@
+.ui-menu { position: relative; flex: none; }
+.ui-menu__list {
+  position: absolute; z-index: 5; top: 100%; right: 0; min-width: 200px; padding: var(--s1) 0;
+  background: var(--paper); border: 1px solid var(--hair); border-radius: var(--r-md); box-shadow: var(--shadow-sheet);
+}
+.ui-menu__item {
+  display: flex; align-items: center; width: 100%; min-height: 44px; padding: 0 var(--s4);
+  border: 0; background: none; color: var(--ink); font: 500 16px var(--sans); text-align: left;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.ui-menu__item + .ui-menu__item { border-top: 1px solid var(--hair); }
+.ui-menu__item[data-tone="danger"] { color: var(--need); }
+.ui-menu__item:active:not(:disabled) { background: var(--sunken); }
+.ui-menu__item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.ui-menu__item:disabled { opacity: .45; cursor: not-allowed; }

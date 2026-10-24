@@ -58,6 +58,13 @@ def question_row(session="s1", text="Which DB?", **extra):
     return row
 
 
+def work(pusher, clock, **extra):
+    """A real turn: working across NEW_TURN_WORKING_SEC, not a one-pass blip."""
+    pusher.observe(state([agent(working=True, **extra)]))
+    clock.now += agent_push.NEW_TURN_WORKING_SEC + 1
+    pusher.observe(state([agent(working=True, **extra)]))
+
+
 def make(reachable=True, last_message="All done: tests pass"):
     fan, clock = FakeFanOut(reachable), Clock()
     pusher = agent_push.AgentEventPusher(fan_out=fan, clock=clock, last_message=lambda sid: last_message)
@@ -98,7 +105,10 @@ pusher.observe(state([agent()], [question_row()]))
 check("flap: still one push", len(fan.sent), 1)
 pusher.observe(state([agent()], [question_row(text="Another?")]))
 check("reworded question, same wait: still one push", len(fan.sent), 1)
-pusher.observe(state([agent(working=True)]))
+pusher.observe(state([agent(working=True)]))  # hook spinner blip while held
+pusher.observe(state([agent()], [question_row()]))
+check("working blip mid-question: still one push", len(fan.sent), 1)
+work(pusher, clock)
 pusher.observe(state([agent()], [question_row()]))
 pushed = [p["event"] for p, _ in fan.sent]
 check("same question in a new turn pushes again", pushed.count("question"), 2)
@@ -128,7 +138,7 @@ pusher.observe(state([agent(working=True)]))
 pusher.observe(state([agent()]))
 check("within cooldown: no push", len(fan.sent), 1)
 clock.now += 61
-pusher.observe(state([agent(working=True)]))
+work(pusher, clock)
 pusher.observe(state([agent()]))
 check("after cooldown: pushes", len(fan.sent), 2)
 pusher.observe(state([agent()]))

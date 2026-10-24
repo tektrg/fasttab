@@ -39,6 +39,10 @@ EVENT_QUESTION = "question"
 EVENT_FINISHED = "finished"
 BODY_MAX_CHARS = 240
 FINISHED_COOLDOWN_SEC = 60
+#: Working this long without asking = a new turn, so the same text may push
+#: again. A blip is not a turn: an agent held on a hook question reads as
+#: "working" (hook spinner) between passes, and used to re-push the question.
+NEW_TURN_WORKING_SEC = 15
 OBSERVE_INTERVAL_SEC = 5
 #: Remembered (agent, event, turn) keys; oldest dropped past this size.
 SEEN_MAX = 1000
@@ -95,6 +99,7 @@ class AgentEventPusher:
         self._lock = threading.Lock()
         self._seen = {}
         self._working = {}
+        self._working_since = {}
         self._last_finished_at = {}
         self._primed = False
 
@@ -144,8 +149,12 @@ class AgentEventPusher:
         for agent in agents:
             key = chief_dashboard_store.resolve_agent_row_id(agent)
             working_now[key] = is_working(agent)
-            if working_now[key]:
-                self._forget_turns(key)  # a new turn: the same text may be news again
+            if working_now[key] and key not in asking:
+                since = self._working_since.setdefault(key, now)
+                if now - since >= NEW_TURN_WORKING_SEC:
+                    self._forget_turns(key)  # a new turn: the same text may be news again
+            else:
+                self._working_since.pop(key, None)
             if (not self._working.get(key) or working_now[key] or key in held or key in asking
                     or (apns_permission_push.PERMISSION_PUSH_ENABLED and agent.get("hookRequest"))):
                 continue

@@ -8,12 +8,17 @@
 
 /* Begin PBXBuildFile section */
 		0022739C5FD132C06BC4CE8A /* AgentBarCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5ABA7DBFFA98BC672682F19B /* AgentBarCore.framework */; };
+		012987D51DC21351D299FD6C /* WebContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A150F698C77934474A2021A /* WebContainer.swift */; };
 		12D930BD47FF1B6339D4B3A2 /* AgentBarCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5ABA7DBFFA98BC672682F19B /* AgentBarCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		14619D01F66B6C0317F10F08 /* WebShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1C96A00B16423B1749E87F /* WebShell.swift */; };
+		1E0F9B0FBB1B56B1D26518AF /* RemoteSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FB05C3E7FEB3F88ABD500F2 /* RemoteSession.swift */; };
 		48317E39A029989468A67C92 /* PermissionAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D022B43747E03B803567A427 /* PermissionAnswer.swift */; };
 		6183E1A3A875E4F54E5D54EB /* AgentBarCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5ABA7DBFFA98BC672682F19B /* AgentBarCore.framework */; };
 		7BB5833B8E81035D080E9659 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE78461E6981175CB528B40D /* KeychainStore.swift */; };
 		8ADF01D19AEB6353CB0C7277 /* AgentBarCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D09149FD40C726E67D398A11 /* AgentBarCoreTests.swift */; };
 		A08BA4C6276DF2902A939A17 /* AgentBarClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B159A3575AA4132C28F3057C /* AgentBarClient.swift */; };
+		B12BCCCEE35991ABDDEE770F /* WebRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CF4BE4BA80AEA789D3E93B /* WebRoutes.swift */; };
+		B1AB2737527A719D57304A0B /* WebRoutesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C257BB163BAD41C2495F6A83 /* WebRoutesTests.swift */; };
 		B36737EEF15259EF12ABB7E7 /* AgentBarPush.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C0C4E543CC74E6E63C0355 /* AgentBarPush.swift */; };
 		B833A673B477C6AD28527506 /* AgentBarCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5ABA7DBFFA98BC672682F19B /* AgentBarCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CD8ADC2377FA1D746AE637C9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43D17A59208A0BB5605D04E9 /* AppDelegate.swift */; };
@@ -64,18 +69,23 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		06CF4BE4BA80AEA789D3E93B /* WebRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRoutes.swift; sourceTree = "<group>"; };
 		12A7008F699DB6C4A0A6B1E6 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		1A150F698C77934474A2021A /* WebContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebContainer.swift; sourceTree = "<group>"; };
 		2432BA3C4236CE8CC34931F3 /* AgentBarMobile.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AgentBarMobile.entitlements; sourceTree = "<group>"; };
 		43D17A59208A0BB5605D04E9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		5ABA7DBFFA98BC672682F19B /* AgentBarCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = AgentBarCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		6FB05C3E7FEB3F88ABD500F2 /* RemoteSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSession.swift; sourceTree = "<group>"; };
 		836B6A55A386715489653687 /* AgentBarMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBarMobileApp.swift; sourceTree = "<group>"; };
 		A7AEF7AE90C77CF849D7FF7A /* AgentBarMobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AgentBarMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B159A3575AA4132C28F3057C /* AgentBarClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBarClient.swift; sourceTree = "<group>"; };
 		B2C0C4E543CC74E6E63C0355 /* AgentBarPush.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBarPush.swift; sourceTree = "<group>"; };
+		C257BB163BAD41C2495F6A83 /* WebRoutesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRoutesTests.swift; sourceTree = "<group>"; };
 		D022B43747E03B803567A427 /* PermissionAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionAnswer.swift; sourceTree = "<group>"; };
 		D09149FD40C726E67D398A11 /* AgentBarCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBarCoreTests.swift; sourceTree = "<group>"; };
 		D3AF03F4625472B95BCF3887 /* AgentBarCoreTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AgentBarCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE78461E6981175CB528B40D /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		EC1C96A00B16423B1749E87F /* WebShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebShell.swift; sourceTree = "<group>"; };
 		FA7CD3E24ED186054F219B9D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -104,6 +114,7 @@
 			children = (
 				B2C0C4E543CC74E6E63C0355 /* AgentBarPush.swift */,
 				D022B43747E03B803567A427 /* PermissionAnswer.swift */,
+				06CF4BE4BA80AEA789D3E93B /* WebRoutes.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -127,7 +138,10 @@
 				43D17A59208A0BB5605D04E9 /* AppDelegate.swift */,
 				FA7CD3E24ED186054F219B9D /* Info.plist */,
 				DE78461E6981175CB528B40D /* KeychainStore.swift */,
+				6FB05C3E7FEB3F88ABD500F2 /* RemoteSession.swift */,
 				12A7008F699DB6C4A0A6B1E6 /* SettingsView.swift */,
+				1A150F698C77934474A2021A /* WebContainer.swift */,
+				EC1C96A00B16423B1749E87F /* WebShell.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -146,6 +160,7 @@
 			isa = PBXGroup;
 			children = (
 				D09149FD40C726E67D398A11 /* AgentBarCoreTests.swift */,
+				C257BB163BAD41C2495F6A83 /* WebRoutesTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -256,6 +271,7 @@
 			files = (
 				B36737EEF15259EF12ABB7E7 /* AgentBarPush.swift in Sources */,
 				48317E39A029989468A67C92 /* PermissionAnswer.swift in Sources */,
+				B12BCCCEE35991ABDDEE770F /* WebRoutes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -264,6 +280,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8ADF01D19AEB6353CB0C7277 /* AgentBarCoreTests.swift in Sources */,
+				B1AB2737527A719D57304A0B /* WebRoutesTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -275,7 +292,10 @@
 				FFF92786AC4B37F71E86E079 /* AgentBarMobileApp.swift in Sources */,
 				CD8ADC2377FA1D746AE637C9 /* AppDelegate.swift in Sources */,
 				7BB5833B8E81035D080E9659 /* KeychainStore.swift in Sources */,
+				1E0F9B0FBB1B56B1D26518AF /* RemoteSession.swift in Sources */,
 				FC67275D90D4912E2E033900 /* SettingsView.swift in Sources */,
+				012987D51DC21351D299FD6C /* WebContainer.swift in Sources */,
+				14619D01F66B6C0317F10F08 /* WebShell.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

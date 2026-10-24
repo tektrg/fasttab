@@ -7,6 +7,8 @@ final class SettingsModel: ObservableObject {
     @Published var baseURL = AppSettings.baseURL ?? ""
     @Published var tokenInput = ""
     @Published var hasToken = KeychainStore.readToken() != nil
+    /// Server URL + token saved: the main screen becomes the web app.
+    @Published var isConfigured = AgentBarClient.currentAPI() != nil
     @Published var status = AppSettings.registeredDeviceToken == nil ? "Not registered." : "Registered with Mac."
 
     func saveSettings() -> AgentBarAPI? {
@@ -15,8 +17,10 @@ final class SettingsModel: ObservableObject {
         if !token.isEmpty { KeychainStore.saveToken(token); tokenInput = ""; hasToken = true }
         guard let api = AgentBarClient.currentAPI() else {
             status = "Enter a valid server URL and token."
+            isConfigured = false
             return nil
         }
+        isConfigured = true
         return api
     }
 
@@ -56,6 +60,7 @@ final class SettingsModel: ObservableObject {
             KeychainStore.deleteToken()
             AppSettings.registeredDeviceToken = nil
             self.hasToken = false
+            self.isConfigured = false
             UIApplication.shared.unregisterForRemoteNotifications()
         }
         guard let api = AgentBarClient.currentAPI(), let hex = AppSettings.registeredDeviceToken else {
@@ -84,6 +89,9 @@ struct SettingsView: View {
                 Section {
                     Button("Enable Notifications") { model.enableNotifications() }
                     Text(model.status).font(.footnote).foregroundStyle(.secondary)
+                }
+                Section {
+                    Button("Save") { _ = model.saveSettings() }
                 }
                 Section {
                     Button("Sign out", role: .destructive) { model.signOut() }.disabled(!model.hasToken)

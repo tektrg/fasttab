@@ -41,6 +41,10 @@ targets:
       properties:
         # Silent {"withdrawn": requestId} pushes wake the app to remove a stale prompt.
         UIBackgroundModes: [remote-notification]
+        # The web app records voice notes (getUserMedia) and attaches photos (input type=file).
+        NSMicrophoneUsageDescription: AgentBar records voice messages you send to your agents.
+        NSCameraUsageDescription: AgentBar can take a photo to attach to a message for your agents.
+        NSPhotoLibraryUsageDescription: AgentBar can attach photos to messages for your agents.
         # Tailscale MagicDNS hosts are https via `tailscale serve`; plain http is not allowed.
     entitlements:
       path: App/AgentBarMobile.entitlements

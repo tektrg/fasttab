@@ -4,6 +4,7 @@ import UserNotifications
 
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     let model = SettingsModel()
+    let shell = WebShellModel()
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
@@ -48,6 +49,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let content = response.notification.request.content
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            // Plain tap: open the pushed page (same-origin `path` only) in the web view.
+            let path = content.userInfo["path"] as? String
+            MainActor.assumeIsolated { shell.open(path: path) }
+            return completionHandler()
+        }
         switch content.categoryIdentifier {
         case AgentBarPush.Category.permission:
             answerPermission(response, completion: completionHandler)
@@ -63,7 +70,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let replyText = (response as? UNTextInputNotificationResponse)?.userText
         guard let prompt = AgentBarPush.permissionPrompt(from: response.notification.request.content.userInfo),
               let answer = PermissionAnswer(actionIdentifier: response.actionIdentifier, replyText: replyText)
-        else { return completion() }  // plain tap: just opens the app
+        else { return completion() }
         guard let api = AgentBarClient.currentAPI() else {
             postFailure(agent: prompt.agent, reason: "AgentBar isn't set up on this phone.")
             return completion()

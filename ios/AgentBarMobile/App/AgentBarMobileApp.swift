@@ -5,6 +5,6 @@ struct AgentBarMobileApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup { SettingsView(model: appDelegate.model) }
+        WindowGroup { RootView(settings: appDelegate.model, shell: appDelegate.shell) }
     }
 }

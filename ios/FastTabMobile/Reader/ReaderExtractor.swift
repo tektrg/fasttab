@@ -666,6 +666,41 @@ private final class ExtractionDelegate: NSObject, WKNavigationDelegate {
         resolve(with: .failure(ReaderExtractor.ExtractionError.navigationFailed(error)))
     }
 
+    /// Readability deletes text-less blocks, so a diagram that is only an inline `<svg>` vanishes
+    /// (claude.dev articles). Swap each large SVG for an `<img>` data URI first — an image survives
+    /// Readability. Page CSS won't apply inside an `<img>`, so computed paint/text styles are baked in.
+    private static let svgToImageScript = """
+    (function() {
+      var props = ['fill','stroke','stroke-width','stroke-dasharray','stroke-linecap','stroke-linejoin',
+                   'opacity','fill-opacity','stroke-opacity','font-family','font-size','font-weight',
+                   'font-style','letter-spacing','text-anchor','dominant-baseline'];
+      Array.prototype.slice.call(document.querySelectorAll('svg')).forEach(function(svg) {
+        try {
+          if (svg.closest('svg') !== svg || svg.closest('button, a, nav, header, footer')) return;
+          var r = svg.getBoundingClientRect();
+          var vb = svg.viewBox && svg.viewBox.baseVal;
+          var w = r.width || (vb && vb.width) || 0, h = r.height || (vb && vb.height) || 0;
+          if (w < 120 || h < 60) return;
+          var copy = svg.cloneNode(true);
+          var src = [svg].concat(Array.prototype.slice.call(svg.querySelectorAll('*')));
+          var dst = [copy].concat(Array.prototype.slice.call(copy.querySelectorAll('*')));
+          src.forEach(function(el, i) {
+            var cs = getComputedStyle(el), css = '';
+            props.forEach(function(p) { css += p + ':' + cs.getPropertyValue(p) + ';'; });
+            dst[i].setAttribute('style', css);
+          });
+          copy.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+          if (!copy.getAttribute('viewBox')) copy.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+          copy.setAttribute('width', w); copy.setAttribute('height', h);
+          var img = document.createElement('img');
+          img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(copy));
+          img.alt = svg.getAttribute('aria-label') || (svg.parentElement && svg.parentElement.getAttribute('aria-label')) || '';
+          svg.parentNode.replaceChild(img, svg);
+        } catch (e) {}
+      });
+    })();
+    """
+
     private func buildExtractionScript() -> String {
         let twitterScript = ReaderExtractor.buildTwitterExtractionScript()
         return """
@@ -675,6 +710,7 @@ private final class ExtractionDelegate: NSObject, WKNavigationDelegate {
             var isTwitter = host === 'x.com' || host.endsWith('.x.com') || host === 'twitter.com' || host.endsWith('.twitter.com');
             if (isTwitter) { return (\(twitterScript)); }
             \(readabilityJS)
+            \(Self.svgToImageScript)
             var docClone = document.cloneNode(true);
             var reader = new Readability(docClone);
             var article = reader.parse();

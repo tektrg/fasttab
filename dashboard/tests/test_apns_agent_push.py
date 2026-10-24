@@ -7,6 +7,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "server", "lib"))
 import apns_agent_push as agent_push  # noqa: E402
 import apns_fan_out  # noqa: E402
+import apns_permission_push as _pp  # noqa: E402
+_pp.PERMISSION_PUSH_ENABLED = True  # held-agent skip is tested with the push on
 
 FAILED = []
 

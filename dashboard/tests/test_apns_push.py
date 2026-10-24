@@ -20,6 +20,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "server", "lib"))
 import apns_devices  # noqa: E402
 import apns_permission_push as permission_push  # noqa: E402
 import apns_push  # noqa: E402
+
+# Off in production (user choice); the send path is still tested with it on.
+check_off = permission_push.PERMISSION_PUSH_ENABLED
+permission_push.PERMISSION_PUSH_ENABLED = True
 import hook_permission_routes as routes  # noqa: E402
 
 fails = []
@@ -172,6 +176,16 @@ routes.handle_post("/api/hook/permission", lambda: PAYLOAD, False, store=FakeSto
 routes.handle_post("/api/hook/permission/hp9-r/answer", lambda: {"behavior": "allow"}, True,
                    store=FakeStore(), pusher=recorder)
 check("register + answer reach the pusher", recorder.events, [("registered", "hp9-r"), ("answered", "hp9-r")])
+
+print("permission push off by default")
+check("PERMISSION_PUSH_ENABLED default", check_off, False)
+permission_push.PERMISSION_PUSH_ENABLED = False
+off_sent = []
+off = permission_push.PermissionPusher(
+    client_factory=lambda: None, registry=None, run_async=lambda fn: fn())
+off._fan_out.send = lambda *a, **k: off_sent.append(a)
+off.notify_registered("hp-off", {"tool_name": "Bash", "tool_input": {"command": "ls"}})
+check("disabled -> nothing sent", off_sent, [])
 
 if fails:
     print("\n".join(["FAILURES:"] + fails))

@@ -14,7 +14,8 @@ Rules:
     or working <-> idle with no new message, never re-pushes;
   * "finished" also has a per-agent cooldown (FINISHED_COOLDOWN_SEC);
   * an agent with a hook-held permission prompt (`hookRequest`) is skipped —
-    apns_permission_push already alerted for it;
+    apns_permission_push already alerted for it — only while
+    PERMISSION_PUSH_ENABLED; when that is off it gets the question push;
   * the first observation after start only primes memory (no burst of pushes
     for state that existed before a server restart);
   * no APNs config or no device -> nothing is computed or sent.
@@ -28,6 +29,7 @@ import threading
 import time
 
 import apns_fan_out
+import apns_permission_push
 import chief_dashboard_store
 import session_transcript
 import transcript_pending_question
@@ -125,7 +127,8 @@ class AgentEventPusher:
                 continue
             agent = by_session.get(row.get("identity")) or by_pane.get(row.get("paneId")) or {}
             key = chief_dashboard_store.resolve_agent_row_id(agent) if agent else None
-            if row.get("hookRequest") or agent.get("hookRequest"):
+            if apns_permission_push.PERMISSION_PUSH_ENABLED and (
+                    row.get("hookRequest") or agent.get("hookRequest")):
                 held.add(key)
                 continue
             text = question_text(row)
@@ -138,7 +141,7 @@ class AgentEventPusher:
             if working_now[key]:
                 self._forget_turns(key)  # a new turn: the same text may be news again
             if (not self._working.get(key) or working_now[key] or key in held
-                    or agent.get("hookRequest")):
+                    or (apns_permission_push.PERMISSION_PUSH_ENABLED and agent.get("hookRequest"))):
                 continue
             if now - self._last_finished_at.get(key, float("-inf")) < FINISHED_COOLDOWN_SEC:
                 continue

@@ -18,6 +18,10 @@ import apns_fan_out
 import hook_permission_summary as summary
 
 CATEGORY_PERMISSION = "AGENT_PERMISSION"
+#: Off by user choice (2026-10-24): permission prompts alert through the
+#: generic "Asked a question" push (apns_agent_push) instead. Withdraw pushes
+#: and the hold-for-phone rule are unaffected.
+PERMISSION_PUSH_ENABLED = False
 #: The Watch's long look scrolls, so show the whole command, not a teaser.
 SUMMARY_MAX_CHARS = 240
 #: Remembered request ids (dedupe); old ones are dropped past this size.
@@ -79,7 +83,8 @@ class PermissionPusher:
         return self._fan_out.can_reach_device()
 
     def notify_registered(self, request_id, payload):
-        if not request_id or not isinstance(payload, dict) or not self._first_time(request_id):
+        if (not PERMISSION_PUSH_ENABLED or not request_id or not isinstance(payload, dict)
+                or not self._first_time(request_id)):
             return
         self._fan_out.send(lambda: permission_alert(request_id, payload), request_id)
 

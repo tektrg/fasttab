@@ -1,9 +1,17 @@
 """Agent events -> APNs AGENT_MESSAGE pushes to the iOS app (see apns_push.py
 for the payload contract).
 
-  event "question"  a needs-you row appears (kind question / blocked: a picker,
-                    an on-screen permission box, a wrap_up ask). Body = the
-                    question text.
+  event "question"  a needs-you row appears whose `waitReason` (set in
+                    chief_dashboard_views) is a real decision:
+                      reason "question"  picker / hook-held AskUserQuestion /
+                                         Desktop wrap_up ask; body = question
+                      reason "approval"  permission prompt (hook-held, on-screen
+                                         box, "needs your permission" notice);
+                                         body = tool/command when known
+                      reason "login"     pane logged out (NEEDS_LOGIN)
+                    No push for a row without a reason (generic "waiting for
+                    your input" idle nudges, unknown blocks): that agent's turn
+                    is simply over, so it gets the normal "finished" push.
   event "finished"  an agent goes working -> idle (turn over). Body = the
                     transcript's last assistant message (local Claude
                     sessions), else the screen's last line.
@@ -47,6 +55,7 @@ OBSERVE_INTERVAL_SEC = 5
 #: Remembered (agent, event, turn) keys; oldest dropped past this size.
 SEEN_MAX = 1000
 QUESTION_KINDS = ("question", "blocked")
+SUBTITLES = {"question": "Asked a question", "approval": "Needs approval", "login": "Needs login"}
 
 
 def _digest(text):
@@ -61,6 +70,19 @@ def question_text(row):
         if isinstance(value, dict) and isinstance(value.get(field), str) and value[field].strip():
             return value[field]
     return row.get("detail") or "Waiting for your answer"
+
+
+def push_body(row, reason):
+    """Alert body: the question, or the tool/command for an approval."""
+    if reason != "approval":
+        return question_text(row) if reason == "question" else row.get("detail") or "Needs login"
+    hook = (row.get("hookRequest") or {}).get("permission")
+    if isinstance(hook, dict) and hook.get("title"):
+        return f"{hook['title']}: {hook['detail']}" if hook.get("detail") else hook["title"]
+    screen = row.get("permission")
+    if isinstance(screen, dict) and (screen.get("tool") or screen.get("detail")):
+        return ": ".join(str(v) for v in (screen.get("tool"), screen.get("detail")) if v)
+    return row.get("detail") or "Permission needed"
 
 
 def is_working(agent):
@@ -82,13 +104,13 @@ def local_last_message(session_id):
     return session_transcript.latest_message_from_tail(read_window)["latestMessage"]
 
 
-def message_alert(event, agent_key, label, body, turn):
-    return {"aps": {"alert": {"title": label, "subtitle": "Asked a question" if event == EVENT_QUESTION
-                              else "Finished", "body": body},
+def message_alert(event, agent_key, label, body, turn, reason=None):
+    subtitle = SUBTITLES.get(reason, "Asked a question") if event == EVENT_QUESTION else "Finished"
+    return {"aps": {"alert": {"title": label, "subtitle": subtitle, "body": body},
                     "sound": "default", "category": CATEGORY_MESSAGE, "thread-id": label},
             "event": event, "agent": label, "agentKey": agent_key, "sessionId": agent_key
             if agent_key and not str(agent_key).startswith("pane:") else None,
-            "summary": body, "turn": turn, "path": apns_fan_out.agent_path(agent_key)}
+            "summary": body, "turn": turn, "reason": reason, "path": apns_fan_out.agent_path(agent_key)}
 
 
 class AgentEventPusher:
@@ -120,7 +142,8 @@ class AgentEventPusher:
         if not primed:
             return
         for payload, collapse_id in pushes:
-            print(f"apns: {payload.get('event')} push for {payload.get('agent')!r}", file=sys.stderr)
+            print(f"apns: {payload.get('event')} push for {payload.get('agent')!r}"
+                  + (f" reason={payload['reason']}" if payload.get("reason") else ""), file=sys.stderr)
             self._fan_out.send(lambda p=payload: p, collapse_id)
 
     def _diff(self, agents, needs_you):
@@ -130,8 +153,9 @@ class AgentEventPusher:
         held = set()
         asking = set()  # agents waiting on the user this pass: no "finished" for them
         for row in needs_you:
-            if not isinstance(row, dict) or row.get("kind") not in QUESTION_KINDS:
-                continue
+            reason = row.get("waitReason") if isinstance(row, dict) else None
+            if row_kind(row) not in QUESTION_KINDS or reason not in SUBTITLES:
+                continue  # idle nudge / unknown block: the turn just ended -> "finished"
             agent = by_session.get(row.get("identity")) or by_pane.get(row.get("paneId")) or {}
             key = chief_dashboard_store.resolve_agent_row_id(agent) if agent else None
             if apns_permission_push.PERMISSION_PUSH_ENABLED and (
@@ -143,7 +167,7 @@ class AgentEventPusher:
             # preview, the screen picker and the row detail word the same
             # question differently, and each used to hash to a new push.
             pushes += self._once(EVENT_QUESTION, key, row.get("label") or "Agent",
-                                 question_text(row), episode=True)
+                                 push_body(row, reason), episode=True, reason=reason)
         now = self._clock()
         working_now = {}
         for agent in agents:
@@ -173,7 +197,7 @@ class AgentEventPusher:
         for seen_key in [k for k in self._seen if k[0] == key]:
             del self._seen[seen_key]
 
-    def _once(self, event, key, label, text, episode=False):
+    def _once(self, event, key, label, text, episode=False, reason=None):
         """`episode`: dedupe on (agent, event) alone until the agent works again."""
         body = apns_fan_out.one_line(text, BODY_MAX_CHARS)
         turn = _digest(text)
@@ -184,7 +208,11 @@ class AgentEventPusher:
         while len(self._seen) > SEEN_MAX:
             self._seen.pop(next(iter(self._seen)))
         collapse_id = f"{event}-{_digest(key or label)}" + ("" if episode else f"-{turn}")
-        return [(message_alert(event, key, label, body, turn), collapse_id)]
+        return [(message_alert(event, key, label, body, turn, reason), collapse_id)]
+
+
+def row_kind(row):
+    return row.get("kind") if isinstance(row, dict) else None
 
 
 def screen_last_line(agent):

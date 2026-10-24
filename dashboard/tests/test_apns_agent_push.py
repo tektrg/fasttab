@@ -53,7 +53,8 @@ def state(agents, needs_you=()):
 
 def question_row(session="s1", text="Which DB?", **extra):
     row = {"kind": "question", "label": f"agent-{session}", "paneId": f"p-{session}",
-           "identity": None, "detail": "x", "questionPreview": {"question": text}}
+           "identity": None, "detail": "x", "questionPreview": {"question": text},
+           "waitReason": "question"}
     row.update(extra)
     return row
 
@@ -171,6 +172,48 @@ pusher.observe(state([agent()]))
 pusher.observe(state([agent(working=True)]))
 pusher.observe(state([agent()], [question_row()]))
 check("only the question", [p["event"] for p, _ in fan.sent], ["question"])
+
+print("reasons: subtitle + userInfo reason + body")
+def one_push(row, permission_push=True):
+    _pp.PERMISSION_PUSH_ENABLED = permission_push
+    try:
+        pusher, fan, _ = make()
+        pusher.observe(state([agent()]))
+        pusher.observe(state([agent()], [row]))
+        return fan.sent
+    finally:
+        _pp.PERMISSION_PUSH_ENABLED = True
+sent = one_push(question_row())
+check("question subtitle", sent[0][0]["aps"]["alert"]["subtitle"], "Asked a question")
+check("question reason", (sent[0][0]["event"], sent[0][0]["reason"]), ("question", "question"))
+sent = one_push(question_row(kind="blocked", questionPreview=None, waitReason="question",
+                             wrapUpQuestion={"ask": "Ship it?"}))
+check("wrap-up ask body", sent[0][0]["summary"], "Ship it?")
+hook = {"kind": "permission", "permission": {"title": "Bash", "detail": "npm test"}}
+sent = one_push(question_row(kind="blocked", questionPreview=None, hookRequest=hook,
+                             waitReason="approval"), permission_push=False)
+check("hook approval subtitle", sent[0][0]["aps"]["alert"]["subtitle"], "Needs approval")
+check("hook approval body = command", sent[0][0]["summary"], "Bash: npm test")
+check("approval event stays question", (sent[0][0]["event"], sent[0][0]["reason"]), ("question", "approval"))
+sent = one_push(question_row(kind="blocked", questionPreview=None, waitReason="approval",
+                             permission={"tool": "Bash", "detail": "rm build.log"}))
+check("screen box body = tool + command", sent[0][0]["summary"], "Bash: rm build.log")
+sent = one_push(question_row(kind="blocked", questionPreview=None, waitReason="approval", permission=None,
+                             detail="Claude needs your permission to use Bash"))
+check("notice approval body", sent[0][0]["summary"], "Claude needs your permission to use Bash")
+sent = one_push(question_row(kind="blocked", questionPreview=None, waitReason="login",
+                             detail="not logged in — run /login in this pane"))
+check("login subtitle", (sent[0][0]["aps"]["alert"]["subtitle"], sent[0][0]["reason"]), ("Needs login", "login"))
+sent = one_push(question_row(kind="blocked", questionPreview=None, waitReason=None,
+                             detail="Claude is waiting for your input"))
+check("idle nudge: no push", sent, [])
+
+print("idle nudge after a turn: finished push, not a question")
+pusher, fan, _ = make()
+pusher.observe(state([agent(working=True)]))
+pusher.observe(state([agent()], [question_row(kind="blocked", questionPreview=None, waitReason=None,
+                                              detail="Claude is waiting for your input")]))
+check("only finished", [(p["event"], p["reason"]) for p, _ in fan.sent], [("finished", None)])
 
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILED")
 sys.exit(1 if FAILED else 0)

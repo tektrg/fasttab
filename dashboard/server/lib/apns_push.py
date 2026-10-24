@@ -44,10 +44,12 @@ alert push carries, besides `aps`:
   AGENT_MESSAGE      an agent asked a question or finished a turn
                      (apns_agent_push).
      actions: REPLY (text input), CONTINUE, STOP.
-     userInfo: event ("question" | "finished"), agent, agentKey, sessionId
-               (Claude session id, null for "pane:" keys), summary (question
+     userInfo: event ("question" | "finished"), reason (question pushes only:
+               "question" | "approval" | "login"; null for "finished"), agent,
+               agentKey, sessionId (Claude session id, null for "pane:" keys), summary (question
                text / last message), turn (12-hex id of that text), path.
-     aps.alert: title = agent, subtitle = "Asked a question" | "Finished".
+     aps.alert: title = agent, subtitle = "Asked a question" | "Needs approval"
+               | "Needs login" | "Finished".
      apns-collapse-id = "<event>-<hash(agentKey)>-<turn>" (<= 64 chars).
 
 Device tokens: apns_devices.py (register/unregister routes + 0600 registry).

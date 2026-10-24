@@ -28,8 +28,8 @@ const TITLE: Record<PhoneTab, string> = { inbox: "Inbox", agents: "Agents", feed
 const promptKey = (n: NeedsYouRow) => n.agentSession ?? n.label;
 
 /** The phone app: four tabs (Inbox / Agents / Feedback / Settings) over the same
- *  dashboard state and session board the desktop reads. A row opens a bottom
- *  sheet (peek -> full); the header "+" opens the persona message sheet.
+ *  dashboard state and session board the desktop reads. A row pushes a full-screen
+ *  detail screen (ui/Screen); the header "+" opens the persona message screen.
  *  Mounted by App.tsx instead of the desktop chrome below ~640px, inside a
  *  `ToastProvider` (toasts sit above the tab bar via --ui-tabbar-height). */
 export function PhoneShell({ state }: { state: FullState }) {

@@ -78,7 +78,7 @@ describe("header", () => {
   test("no stray '—' or '•' when there is no age; status chip stays", () => {
     stubFetch();
     const m = mount(sheet(row()));
-    const head = document.querySelector(".ui-sheet__head")!;
+    const head = document.querySelector(".ui-screen__head")!;
     const sub = head.querySelector(".phone-sheet-sub")!.textContent!;
     expect(sub).toBe("Working");
     expect(head.querySelector(".ui-status")).not.toBeNull();
@@ -125,7 +125,7 @@ describe("footer composer (phone)", () => {
   test("one row: accessible label instead of the long visible one, mic inside the field, primary Send", () => {
     stubFetch();
     const m = mount(sheet(row()));
-    const footer = document.querySelector(".ui-sheet__footer")!;
+    const footer = document.querySelector(".ui-screen__footer")!;
     expect(footer.textContent).not.toContain("not destructive");
     const input = footer.querySelector<HTMLInputElement>(".composer-field input")!;
     expect(input.placeholder).toBe("Message agent…");
@@ -184,12 +184,12 @@ describe("tabs + CSS", () => {
     expect(phone).toMatch(/\.phone-tab\[aria-selected="true"\]::after\s*\{\s*background:\s*var\(--ink\)/);
   });
 
-  test("phone sections are edge-to-edge (the global card is reset), one gutter at the sheet level", () => {
+  test("phone sections are edge-to-edge (the global card is reset), one gutter at the screen level", () => {
     const phone = css("components/phone/phone.css");
     expect(phone).toMatch(/\.phone-app section\s*\{[^}]*margin:\s*0;[^}]*border:\s*0;[^}]*border-radius:\s*0/);
-    const sheetCss = css("ui/Sheet.css");
-    expect(sheetCss).toContain("--ui-sheet-gutter: 12px");
-    expect(sheetCss).toMatch(/\.ui-sheet__body\s*\{[^}]*padding:\s*var\(--s3\) var\(--ui-sheet-gutter\)/);
+    const screenCss = css("ui/Screen.css");
+    expect(screenCss).toContain("--ui-screen-gutter: 12px");
+    expect(screenCss).toMatch(/\.ui-screen__body\s*\{[^}]*padding:\s*var\(--s3\) var\(--ui-screen-gutter\)/);
   });
 
   test("sm buttons are 44px on the phone; disabled primary Send is dimmed, not grey", () => {

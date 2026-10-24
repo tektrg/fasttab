@@ -10,7 +10,7 @@ import { OpenInClaudeButton } from "../OpenInClaudeButton";
 import { messagesViaInbox, wakesToMessage } from "../../openInClaude";
 import { blindAgentCaption, messageRefusal, takesQuickCommands } from "../../messageGates";
 import { ActionMenu, type MenuItem } from "../../ui/ActionMenu";
-import { Sheet } from "../../ui/Sheet";
+import { Screen } from "../../ui/Screen";
 import { StatusBadge } from "../../ui/StatusBadge";
 import { defaultSheetTab, initialsOf, sheetStatus, sheetTabs, type SheetTab } from "./phoneModel";
 import { usePhoneSheetActions } from "./usePhoneSheetActions";
@@ -41,7 +41,7 @@ export function SheetHeader({ name, badge, meta, actions }: { name: string; badg
   );
 }
 
-/** A session's detail in a bottom sheet (peek -> full): read what happened
+/** A session's detail on a full-screen pushed screen: read what happened
  *  (Activity / Terminal / Plan tabs) and act (reply in the pinned Composer;
  *  Done / Park / compact / clear live in the header's "•••" menu).
  *
@@ -155,9 +155,9 @@ export function PhoneSheet({
   );
 
   return (
-    <Sheet
+    <Screen
       open={!!current}
-      onOpenChange={(o) => !o && onClose()}
+      onClose={onClose}
       title={name}
       header={<SheetHeader name={name} badge={<StatusBadge status={sheetStatus(row, wakeable)} />} meta={meta} actions={headerActions} />}
       footer={footer}
@@ -200,6 +200,6 @@ export function PhoneSheet({
       )}
       {active === "terminal" && <PaneScreen paneId={ended ? null : paneId} />}
       {active === "plan" && <RowDetailExtras row={row} onToast={onToast} phone />}
-    </Sheet>
+    </Screen>
   );
 }

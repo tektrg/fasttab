@@ -141,7 +141,7 @@ button.phone-section-head { cursor: pointer; }
 .composer--phone .composer-mic svg { width: 20px; height: 20px; }
 /* iOS Safari auto-zooms on focus of any input under 16px; Mantine's
    TextInput (Composer, persona message) is 14px. */
-.ui-sheet__footer input { font-size: 16px; }
+.ui-screen__footer input { font-size: 16px; }
 .persona-sheet-list { display: flex; flex-direction: column; gap: 12px; }
 .persona-sheet-empty { margin: 12px 0; }
 .persona-sheet-error { margin-top: 12px; color: var(--need); }
@@ -181,7 +181,7 @@ button.phone-section-head { cursor: pointer; }
 .phone-block:first-child { border-top: none; padding-top: 0; }
 
 /* The agent's last message can be long: it collapses behind "Show more" (no
-   nested scroll — only .ui-sheet__body scrolls); code stays mono and wrapped. The sheet
+   nested scroll — only .ui-screen__body scrolls); code stays mono and wrapped. The sheet
    body is a flex column: without flex-shrink 0 a scroll box is squashed to
    one line whenever a long question card sits below it. */
 .phone-block.latest-message { flex-shrink: 0; }
@@ -201,25 +201,24 @@ button.phone-section-head { cursor: pointer; }
 .phone-quick-answer__error { flex-basis: 100%; color: var(--need); font-size: 13px; }
 .phone-section-body > div + div { border-top: 1px solid var(--hair); }
 
-/* One scroll area per sheet: neutralise desktop inner scrollers inside it. */
-.ui-sheet .rp-screen-box { height: auto; max-height: none; overflow: visible; }
-.ui-sheet .rp-msglog, .ui-sheet .rp-sections { overflow: visible; min-height: 0; }
+/* One scroll area per screen: neutralise desktop inner scrollers inside it. */
+.ui-screen .rp-screen-box { height: auto; max-height: none; overflow: visible; }
+.ui-screen .rp-msglog, .ui-screen .rp-sections { overflow: visible; min-height: 0; }
 
 /* Keyboard up: footer = message field + Send only (the recorder row stays: a
    recording in progress must stay stoppable). */
-.ui-sheet[data-keyboard] .phone-sheet-gate-note,
-.ui-sheet[data-keyboard] .composer .mantine-TextInput-label,
-.ui-sheet[data-keyboard] .composer-remote-image-note,
-.ui-sheet[data-keyboard] .composer-inbox-note,
-.ui-sheet[data-keyboard] .composer-tool-note,
-.ui-sheet[data-keyboard] .composer-wake-note { display: none; }
-.ui-sheet[data-keyboard] .ui-sheet__footer { padding-bottom: var(--s3); }
+.ui-screen[data-keyboard] .phone-sheet-gate-note,
+.ui-screen[data-keyboard] .composer .mantine-TextInput-label,
+.ui-screen[data-keyboard] .composer-remote-image-note,
+.ui-screen[data-keyboard] .composer-inbox-note,
+.ui-screen[data-keyboard] .composer-tool-note,
+.ui-screen[data-keyboard] .composer-wake-note { display: none; }
 
-/* Edge-to-edge sheet content: the body's own gutter (--ui-sheet-gutter) is the
+/* Edge-to-edge screen content: the body's own gutter (--ui-screen-gutter) is the
    only side inset; blocks, the last line and the terminal add none. */
-.ui-sheet .phone-sheet-section .rp-lastline { margin-top: 0; padding: var(--s1) 0; border-left: 0; border-radius: 0; background: none; }
-.ui-sheet .rp-screen { padding: 0; border-top: 0; }
-.ui-sheet .rp-screen-box { margin-inline: calc(-1 * var(--ui-sheet-gutter)); border-inline: 0; border-radius: 0; padding-inline: var(--ui-sheet-gutter); }
+.ui-screen .phone-sheet-section .rp-lastline { margin-top: 0; padding: var(--s1) 0; border-left: 0; border-radius: 0; background: none; }
+.ui-screen .rp-screen { padding: 0; border-top: 0; }
+.ui-screen .rp-screen-box { margin-inline: calc(-1 * var(--ui-screen-gutter)); border-inline: 0; border-radius: 0; padding-inline: var(--ui-screen-gutter); }
 /* Touch targets inside question / plan / review cards: 44px rows and buttons. */
 .phone-block .mantine-Button-root { min-height: 44px; }
 .phone-block .mantine-Radio-root, .phone-block .mantine-Checkbox-root { min-height: 44px; display: flex; align-items: center; }

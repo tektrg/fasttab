@@ -20,7 +20,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const css = readFileSync(join(import.meta.dir, "../index.css"), "utf8");
-const sheetCss = readFileSync(join(import.meta.dir, "../ui/Sheet.css"), "utf8");
+const screenCss = readFileSync(join(import.meta.dir, "../ui/Screen.css"), "utf8");
 const phoneCss = readFileSync(join(import.meta.dir, "../components/phone/phone.css"), "utf8");
 const html = readFileSync(join(import.meta.dir, "../../index.html"), "utf8");
 
@@ -30,21 +30,21 @@ describe("phone PWA — iOS-specific CSS", () => {
     expect(phoneCss).toMatch(rule);
   });
 
-  test("the phone sheet's composer input is at least 16px (no iOS auto-zoom)", () => {
-    const rule = /\.ui-sheet__footer\s+input\s*\{[^}]*font-size:\s*16px[^}]*\}/;
+  test("the phone screen's composer input is at least 16px (no iOS auto-zoom)", () => {
+    const rule = /\.ui-screen__footer\s+input\s*\{[^}]*font-size:\s*16px[^}]*\}/;
     expect(phoneCss).toMatch(rule);
   });
 
-  // The sheet (src/ui/Sheet.css) is portalled to the document root — it does
+  // The phone screen (src/ui/Screen.css) is portalled to the document root — it does
   // NOT inherit .phone-app's insets, so it pads every edge itself; the tab
   // bar (fixed to the bottom) owns the home-indicator inset.
-  test("the sheet footer respects the bottom safe-area inset", () => {
-    expect(sheetCss).toMatch(/\.ui-sheet__footer\s*\{[^}]*env\(safe-area-inset-bottom/);
+  test("the screen footer respects the bottom safe-area inset", () => {
+    expect(screenCss).toMatch(/\.ui-screen__footer\s*\{[^}]*env\(safe-area-inset-bottom/);
   });
 
-  test("the sheet respects left/right safe-area insets", () => {
-    expect(sheetCss).toMatch(/\.ui-sheet\s*\{[^}]*env\(safe-area-inset-left/);
-    expect(sheetCss).toMatch(/\.ui-sheet\s*\{[^}]*env\(safe-area-inset-right/);
+  test("the screen respects left/right safe-area insets", () => {
+    expect(screenCss).toMatch(/\.ui-screen\s*\{[^}]*env\(safe-area-inset-left/);
+    expect(screenCss).toMatch(/\.ui-screen\s*\{[^}]*env\(safe-area-inset-right/);
   });
 
   test("the tab bar respects the bottom safe-area inset and sets the toast offset", () => {

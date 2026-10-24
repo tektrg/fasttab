@@ -2,7 +2,7 @@ import { useRef } from "react";
 import type { NeedsYouRow } from "../../types";
 import { PanelessPrompt } from "../HookRequestCard";
 import { LatestMessage } from "../LatestMessage";
-import { Sheet } from "../../ui/Sheet";
+import { Screen } from "../../ui/Screen";
 import { StatusBadge } from "../../ui/StatusBadge";
 import { needsYouUiStatus } from "./phoneModel";
 import { SheetHeader, headerMeta } from "./PhoneSheet";
@@ -31,9 +31,9 @@ export function PromptSheet({
   const transcriptRowId = row.hookRequest?.tool ? null : row.agentSession;
   const meta = headerMeta(machine, row.sinceSec);
   return (
-    <Sheet
+    <Screen
       open={!!current}
-      onOpenChange={(o) => !o && onClose()}
+      onClose={onClose}
       title={row.label}
       header={<SheetHeader name={row.label} badge={<StatusBadge status={needsYouUiStatus(row.kind)} />} meta={meta} />}
     >
@@ -46,6 +46,6 @@ export function PromptSheet({
       {!row.hookRequest && !row.transcriptQuestion && !row.wrapUpQuestion && (
         <div className="phone-sheet-gate-note">Answer this in Claude on the Mac.</div>
       )}
-    </Sheet>
+    </Screen>
   );
 }

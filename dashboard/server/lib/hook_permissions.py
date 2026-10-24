@@ -32,6 +32,9 @@ Held ONLY while an answer surface is connected (agentbar_presence.py:
 AgentBar, or the web UI incl. the phone's web remote): with none seen in the
 last 10s a prompt is ignored, and once all have been gone 15s every pending
 one is released (`agentbar gone`) so its hook exits (and re-sends later).
+A registered iPhone with APNs configured also counts (always connected), so
+prompts are held + pushed with AgentBar closed (up to MAX_AGE_SEC, or until
+Claude exits / the hook dies / the prompt is answered in the terminal).
 """
 import hashlib
 import itertools
@@ -42,6 +45,7 @@ import threading
 import time
 
 import agentbar_presence
+import apns_permission_push
 import hook_permission_summary as summary
 import session_prompt_state as prompt_state
 
@@ -372,4 +376,5 @@ def _not_pending_message(request, product="Claude"):
 
 
 #: The one store the server uses.
-STORE = HookPermissionStore()
+STORE = HookPermissionStore(presence=agentbar_presence.PresenceOrDevice(
+    agentbar_presence.PRESENCE, apns_permission_push.PUSHER.can_reach_device))

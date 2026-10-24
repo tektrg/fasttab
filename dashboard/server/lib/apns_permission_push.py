@@ -75,6 +75,11 @@ class PermissionPusher:
                 self._seen.pop(next(iter(self._seen)))
             return True
 
+    def can_reach_device(self):
+        """APNs configured AND at least one registered device: a phone can
+        answer, so the hook bridge may hold prompts for it."""
+        return bool(self._registry.tokens()) and self._client_factory() is not None
+
     def notify_registered(self, request_id, payload):
         if not request_id or not isinstance(payload, dict) or not self._first_time(request_id):
             return

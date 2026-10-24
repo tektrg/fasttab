@@ -740,3 +740,4 @@ silent withdraw on answer, background thread). OFF unless
 `~/.config/agent-dashboard/apns.json` exists. Watch answers reuse
 `/api/hook/permission/<id>/answer`. Tests: `tests/test_apns_push.py`,
 `tests/test_apns_devices_remote.py`.
+A registered device + config counts as an answer surface (`PresenceOrDevice`): prompts are held and pushed even with AgentBar closed.

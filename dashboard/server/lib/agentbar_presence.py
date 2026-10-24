@@ -82,5 +82,21 @@ class AgentBarPresence:
         return since is None or since > GONE_AFTER_SEC
 
 
+class PresenceOrDevice:
+    """AgentBar/web presence, OR a standing answer surface (`device_ready()`:
+    a registered iPhone that APNs can reach). While the device is ready the
+    surface is connected and never gone; otherwise `presence` decides."""
+
+    def __init__(self, presence, device_ready):
+        self._presence = presence
+        self._device_ready = device_ready
+
+    def is_connected(self):
+        return self._presence.is_connected() or self._device_ready()
+
+    def is_gone(self):
+        return self._presence.is_gone() and not self._device_ready()
+
+
 #: The one tracker the server uses.
 PRESENCE = AgentBarPresence()

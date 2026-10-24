@@ -20,7 +20,8 @@ import apns_push
 import hook_permission_summary as summary
 
 CATEGORY_PERMISSION = "AGENT_PERMISSION"
-SUMMARY_MAX_CHARS = 60
+#: The Watch's long look scrolls, so show the whole command, not a teaser.
+SUMMARY_MAX_CHARS = 240
 #: Remembered request ids (dedupe); old ones are dropped past this size.
 SEEN_MAX = 500
 
@@ -37,14 +38,14 @@ def agent_name(payload):
 
 
 def short_summary(payload):
-    """'Run a shell command: npm test' -> ~60 chars."""
+    """'Run a shell command: npm test' -> one line, <= SUMMARY_MAX_CHARS."""
     view = summary.build_hook_request_view(
         "push", payload["tool_name"], payload.get("tool_input") or {}, [], 0.0, 0.0)
     if view["kind"] == summary.KIND_QUESTION:
         questions = view.get("questions") or []
         return _one_line(questions[0]["question"] if questions else "Question")
     permission = view["permission"]
-    detail = permission["detail"].splitlines()[0] if permission["detail"] else ""
+    detail = permission["detail"] or ""
     return _one_line(f"{permission['title']}: {detail}" if detail else permission["title"])
 
 
@@ -52,7 +53,7 @@ def permission_alert(request_id, payload):
     agent = agent_name(payload)
     text = short_summary(payload)
     return {"aps": {"alert": {"title": agent, "body": text}, "sound": "default",
-                    "category": CATEGORY_PERMISSION, "thread-id": agent},
+                    "interruption-level": "time-sensitive", "category": CATEGORY_PERMISSION, "thread-id": agent},
             "requestId": request_id, "agent": agent, "summary": text,
             "toolName": payload.get("tool_name")}
 

@@ -115,7 +115,7 @@ check("collapse id = requestId", headers["apns-collapse-id"], "hp1-x")
 check("topic = bundle id", headers["apns-topic"], "app.test")
 check("category", body["aps"]["category"], "AGENT_PERMISSION")
 check("agent = folder name", body["agent"], "AptusFit")
-check("summary <= 60 chars", len(body["summary"]) <= 60, True)
+check("summary <= SUMMARY_MAX_CHARS", len(body["summary"]) <= permission_push.SUMMARY_MAX_CHARS, True)
 check("summary text", body["summary"].startswith("Run a shell command: npm test"), True)
 pusher.notify_answered("hp1-x")
 check("answered -> silent withdraw push", (transport.calls[-1][1]["apns-push-type"], transport.calls[-1][2]["withdrawn"]),

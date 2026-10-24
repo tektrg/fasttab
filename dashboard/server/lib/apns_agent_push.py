@@ -115,6 +115,7 @@ class AgentEventPusher:
         if not primed:
             return
         for payload, collapse_id in pushes:
+            print(f"apns: {payload.get('event')} push for {payload.get('agent')!r}", file=sys.stderr)
             self._fan_out.send(lambda p=payload: p, collapse_id)
 
     def _diff(self, agents, needs_you):
@@ -122,6 +123,7 @@ class AgentEventPusher:
         by_pane = {a["paneId"]: a for a in agents if a.get("paneId")}
         pushes = []
         held = set()
+        asking = set()  # agents waiting on the user this pass: no "finished" for them
         for row in needs_you:
             if not isinstance(row, dict) or row.get("kind") not in QUESTION_KINDS:
                 continue
@@ -131,8 +133,12 @@ class AgentEventPusher:
                     row.get("hookRequest") or agent.get("hookRequest")):
                 held.add(key)
                 continue
-            text = question_text(row)
-            pushes += self._once(EVENT_QUESTION, key, row.get("label") or "Agent", text)
+            asking.add(key)
+            # One question push per waiting episode, whatever the text: the hook
+            # preview, the screen picker and the row detail word the same
+            # question differently, and each used to hash to a new push.
+            pushes += self._once(EVENT_QUESTION, key, row.get("label") or "Agent",
+                                 question_text(row), episode=True)
         now = self._clock()
         working_now = {}
         for agent in agents:
@@ -140,7 +146,7 @@ class AgentEventPusher:
             working_now[key] = is_working(agent)
             if working_now[key]:
                 self._forget_turns(key)  # a new turn: the same text may be news again
-            if (not self._working.get(key) or working_now[key] or key in held
+            if (not self._working.get(key) or working_now[key] or key in held or key in asking
                     or (apns_permission_push.PERMISSION_PUSH_ENABLED and agent.get("hookRequest"))):
                 continue
             if now - self._last_finished_at.get(key, float("-inf")) < FINISHED_COOLDOWN_SEC:
@@ -158,16 +164,17 @@ class AgentEventPusher:
         for seen_key in [k for k in self._seen if k[0] == key]:
             del self._seen[seen_key]
 
-    def _once(self, event, key, label, text):
+    def _once(self, event, key, label, text, episode=False):
+        """`episode`: dedupe on (agent, event) alone until the agent works again."""
         body = apns_fan_out.one_line(text, BODY_MAX_CHARS)
         turn = _digest(text)
-        seen_key = (key or label, event, turn)
+        seen_key = (key or label, event, "" if episode else turn)
         if seen_key in self._seen:
             return []
         self._seen[seen_key] = True
         while len(self._seen) > SEEN_MAX:
             self._seen.pop(next(iter(self._seen)))
-        collapse_id = f"{event}-{_digest(key or label)}-{turn}"
+        collapse_id = f"{event}-{_digest(key or label)}" + ("" if episode else f"-{turn}")
         return [(message_alert(event, key, label, body, turn), collapse_id)]
 
 

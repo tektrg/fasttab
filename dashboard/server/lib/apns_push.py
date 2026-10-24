@@ -7,7 +7,7 @@ file itself with AGENTBAR_APNS_CONFIG). Keep it and the .p8 key mode 0600,
 outside git:
 
     {"keyPath": "~/.config/agent-dashboard/AuthKey_ABC123.p8",
-     "keyId": "ABC123", "teamId": "SELAV8N2B9",
+     "keyId": "ABC123", "teamId": "56S46Y7CKN",
      "bundleId": "<iOS app bundle id>", "sandbox": true}
 
 `sandbox: true` -> api.sandbox.push.apple.com (Xcode/debug builds);

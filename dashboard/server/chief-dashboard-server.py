@@ -747,8 +747,14 @@ def _handle_inbox_message(agent, body, row_id, actor, text):
     delivered through the session's own peer inbox (session_inbox.py), with
     the pane path's rules (one line, no slash command, refused while a
     prompt is pending, confirm when busy) and the same audit rows."""
-    result = session_inbox.deliver_row_message(
-        agent, text, bool((body or {}).get("confirm")))
+    confirm = bool((body or {}).get("confirm"))
+    if agent.get("source") == "claude-desktop":
+        # Desktop can hold an idle session asleep behind an open inbox:
+        # confirm the message landed, else wake + resend (desktop_wake.py).
+        result = desktop_wake.deliver_live_desktop(
+            agent, text, confirm, session_inbox.deliver_row_message)
+    else:
+        result = session_inbox.deliver_row_message(agent, text, confirm)
     return _audit_delivery_result(result, row_id, actor, text)
 
 

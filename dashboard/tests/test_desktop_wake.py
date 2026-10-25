@@ -146,6 +146,73 @@ check("audited as a sent message",
 result = _srv.handle_session_action("message", {"rowId": "nobody", "actor": "po", "text": "hi"})
 check("unknown ended row still refused as not live", "is not live" in result.get("error", ""), True)
 
+print("== deliver_live_desktop: confirm in the transcript, wake on silence ==")
+import json as _json  # noqa: E402
+_proj = tempfile.TemporaryDirectory()
+LIVE_ID = "sess-live-1"
+_tdir = os.path.join(_proj.name, "-x")
+os.makedirs(_tdir)
+_tpath = os.path.join(_tdir, LIVE_ID + ".jsonl")
+open(_tpath, "w").write(_json.dumps({"type": "user", "message": {"content": "old"}}) + "\n")
+LIVE = {"agentSession": LIVE_ID, "source": "claude-desktop", "pid": 100,
+        "hostSessionId": DESKTOP_ID, "openUrl": URL}
+
+
+def land(text, kind="user"):
+    line = ({"type": "user", "message": {"role": "user", "content": text}} if kind == "user"
+            else {"type": "queue-operation", "operation": "enqueue", "content": text})
+    with open(_tpath, "a") as f:
+        f.write(_json.dumps(line) + "\n")
+
+
+def live_run(on_deliver=None, pids=(), on_resend=None, opened=True, agent=LIVE):
+    calls = {"open": 0, "send": 0}
+    pid_iter = iter(pids)
+
+    def deliver(a, text, confirm):
+        if on_deliver:
+            on_deliver(text)
+        return {"ok": True, "state": "message sent", "reason": "d"}
+
+    def open_url(u):
+        calls["open"] += 1
+        return opened
+
+    def resolve(sid):
+        pid = next(pid_iter, None)
+        return ({"pid": pid}, None) if pid is not None else (None, session_inbox.NOT_RUNNING)
+
+    def send(sid, text):
+        calls["send"] += 1
+        if on_resend:
+            on_resend(text)
+        return {"delivered": True, "maybeDelivered": True, "error": None}
+
+    t = [0.0]
+    out = desktop_wake.deliver_live_desktop(
+        agent, SENTINEL_TEXT, False, deliver, open_url=open_url, send=send, resolve=resolve,
+        projects_dir=_proj.name, sleep=lambda s: t.__setitem__(0, t[0] + s),
+        clock=lambda: t[0], land_wait_sec=2, wake_wait_sec=5, poll_sec=0.5)
+    return out, calls
+
+
+out, calls = live_run(on_deliver=land)
+check("landed at once: ok, no wake", (out["ok"], calls), (True, {"open": 0, "send": 0}))
+out, calls = live_run(on_deliver=lambda t: land(t, "queue"))
+check("queued line counts as landed", (out["ok"], calls["open"]), (True, 0))
+out, calls = live_run(pids=(100, 100, 200), on_resend=land)
+check("silent -> wake, new pid -> resend once, lands", (out, calls),
+      ({"ok": True, "state": "message sent", "reason": desktop_wake.WOKE_NOTE}, {"open": 1, "send": 1}))
+out, calls = live_run(pids=(100,) * 50)
+check("silent, same pid, never lands -> NOT_LANDED, no resend", (out, calls["send"]),
+      ({"ok": False, "error": desktop_wake.NOT_LANDED}, 0))
+out, calls = live_run(pids=(200,))
+check("resent but still not landed -> NOT_LANDED", (out["error"], calls["send"]), (desktop_wake.NOT_LANDED, 1))
+out, calls = live_run(opened=False)
+check("open fails -> NOT_LANDED", out, {"ok": False, "error": desktop_wake.NOT_LANDED})
+out, calls = live_run(agent=dict(LIVE, openUrl="https://evil"))
+check("no Claude deep link: plain result, no wake", (out["ok"], calls["open"]), (True, 0))
+
 print()
 if fails:
     print(f"FAIL: {len(fails)} failure(s)")

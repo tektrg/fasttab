@@ -328,6 +328,15 @@ exists) is exempt; the final reply is still checked.
   (`UNSUPPORTED`) rather than guessed. Tests: `tests/test_session_inbox.py`
   (temp sessions dir + fake Unix socket; never a real session),
   `tests/test_remote_inbox_message.py` (real HTTP, both listeners).
+  **Accepted ≠ landed on Claude Desktop** (2026-10-25): Desktop can hold an
+  idle session asleep while its process keeps the inbox open — the send is
+  "accepted" and silently lost (two phone sends lost that day). So a
+  `claude-desktop` inbox row goes through `desktop_wake.deliver_live_desktop`:
+  confirm the text shows in the transcript (a `user` or `queue-operation`
+  line after the pre-send byte offset, 5s); else open the deep link, resend
+  once only if Desktop started a new pid, confirm again; else `NOT_LANDED`
+  ("open it in Claude on the Mac and resend"). Budget stays under AgentBar's
+  30s session-action timeout. Tests: `tests/test_desktop_wake.py`.
 - **Non-Claude message gate** (`server/lib/message_gate.py`, 2026-09-28):
   every herdr row carries `agentKind` (herdr's `agent`: `claude`,
   `opencode`, `codex`, …) and `messageRefusal` (text | null). `POST

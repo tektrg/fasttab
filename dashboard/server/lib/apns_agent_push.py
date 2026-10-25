@@ -12,7 +12,7 @@ for the payload contract).
                     No push for a row without a reason (generic "waiting for
                     your input" idle nudges, unknown blocks): that agent's turn
                     is simply over, so it gets the normal "finished" push.
-  event "finished"  an agent goes working -> idle (turn over). Body = the
+  event "finished"  (disabled: FINISHED_PUSH_ENABLED) an agent goes working -> idle (turn over). Body = the
                     transcript's last assistant message (local Claude
                     sessions), else the screen's last line.
 
@@ -47,6 +47,9 @@ EVENT_QUESTION = "question"
 EVENT_FINISHED = "finished"
 BODY_MAX_CHARS = 240
 FINISHED_COOLDOWN_SEC = 60
+#: Off: a finished turn with no question is not worth a phone alert (user
+#: feedback 2026-10-25). Only questions, approvals and logins push.
+FINISHED_PUSH_ENABLED = False
 #: Working this long without asking = a new turn, so the same text may push
 #: again. A blip is not a turn: an agent held on a hook question reads as
 #: "working" (hook spinner) between passes, and used to re-push the question.
@@ -179,7 +182,7 @@ class AgentEventPusher:
                     self._forget_turns(key)  # a new turn: the same text may be news again
             else:
                 self._working_since.pop(key, None)
-            if (not self._working.get(key) or working_now[key] or key in held or key in asking
+            if (not FINISHED_PUSH_ENABLED or not self._working.get(key) or working_now[key] or key in held or key in asking
                     or (apns_permission_push.PERMISSION_PUSH_ENABLED and agent.get("hookRequest"))):
                 continue
             if now - self._last_finished_at.get(key, float("-inf")) < FINISHED_COOLDOWN_SEC:

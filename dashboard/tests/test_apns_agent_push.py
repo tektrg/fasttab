@@ -9,6 +9,7 @@ import apns_agent_push as agent_push  # noqa: E402
 import apns_fan_out  # noqa: E402
 import apns_permission_push as _pp  # noqa: E402
 _pp.PERMISSION_PUSH_ENABLED = True  # held-agent skip is tested with the push on
+agent_push.FINISHED_PUSH_ENABLED = True  # finished logic is tested with the push on (off in production)
 
 FAILED = []
 
@@ -214,6 +215,14 @@ pusher.observe(state([agent(working=True)]))
 pusher.observe(state([agent()], [question_row(kind="blocked", questionPreview=None, waitReason=None,
                                               detail="Claude is waiting for your input")]))
 check("only finished", [(p["event"], p["reason"]) for p, _ in fan.sent], [("finished", None)])
+
+print("finished pushes are off by default")
+import importlib  # noqa: E402
+check("default off", importlib.reload(agent_push).FINISHED_PUSH_ENABLED, False)
+pusher, fan, _ = make()
+pusher.observe(state([agent(working=True)]))
+pusher.observe(state([agent()]))
+check("no finished push", fan.sent, [])
 
 print("ALL PASS" if not FAILED else f"{len(FAILED)} FAILED")
 sys.exit(1 if FAILED else 0)

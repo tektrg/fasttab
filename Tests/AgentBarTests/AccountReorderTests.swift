@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AgentBar
 
-/// Settings › Accounts reordering: a drop onto a row and the ↑/↓ buttons each send the whole new order.
+/// Settings › Accounts reordering: the ↑/↓ buttons send the whole new order.
 @MainActor
 struct AccountReorderTests {
     private func model() -> (AccountsSettingsModel, ScriptedDashboardTransport) {
@@ -21,14 +21,6 @@ struct AccountReorderTests {
                   let json = try? JSONSerialization.jsonObject(with: body) as? [String: [String]] else { return nil }
             return json["ids"]
         }
-    }
-
-    @Test func droppingARowOntoAnotherTakesItsPlace() async {
-        let (model, transport) = model()
-        await model.reload()
-        await model.move("c", onto: "a")
-        await model.move("a", onto: "c")
-        #expect(sentOrders(transport) == [["c", "a", "b"], ["b", "c", "a"]])
     }
 
     @Test func arrowsMoveOneStepAndStopAtTheEnds() async {

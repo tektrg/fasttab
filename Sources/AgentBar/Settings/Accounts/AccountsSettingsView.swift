@@ -3,7 +3,7 @@ import SwiftUI
 /// Settings › Accounts: the Claude accounts of `accounts.json` (owned by the dashboard), in their
 /// rotation order. Add a subscription or API account, or remove one (AccountAddViews.swift).
 /// Login rows get "Log in", which opens a herdr tab `claude-login-<id>`
-/// running `claude /login`; the user finishes the browser sign-in there. Drag rows to reorder: the top available account starts new `claude`
+/// running `claude /login`; the user finishes the browser sign-in there. Use ↑/↓ to reorder: the top available account starts new `claude`
 /// sessions (dashboard/scripts/claude-launch.py).
 @MainActor
 final class AccountsSettingsModel: ObservableObject {
@@ -75,14 +75,6 @@ final class AccountsSettingsModel: ObservableObject {
         return outcome == .succeeded
     }
 
-    /// Drop `draggedID` onto `targetID`: it takes the target's place (rows below shift down).
-    func move(_ draggedID: String, onto targetID: String) async {
-        guard let rows = accounts?.accounts,
-              let from = rows.firstIndex(where: { $0.id == draggedID }),
-              let to = rows.firstIndex(where: { $0.id == targetID }), from != to else { return }
-        await move(from: IndexSet(integer: from), to: to > from ? to + 1 : to)
-    }
-
     /// ↑/↓ buttons: one step up (-1) or down (+1).
     func step(_ id: String, by delta: Int) async {
         guard let rows = accounts?.accounts, let from = rows.firstIndex(where: { $0.id == id }) else { return }
@@ -133,19 +125,13 @@ struct AccountsSettingsView: View {
                     if accounts.accounts.isEmpty {
                         Text("No accounts in accounts.json.").foregroundStyle(.secondary)
                     }
-                    // macOS grouped Forms ignore `.onMove`: rows are draggable by their ≡ handle and
-                    // accept a drop instead (the dropped row takes the target's place).
+                    // Reorder = ↑/↓ buttons (`.onMove` and `.draggable` did not work in this grouped Form, live 2026-10-27).
                     ForEach(Array(accounts.accounts.enumerated()), id: \.element.id) { index, account in
                         AccountRow(account: account, pendingApprovalID: accounts.pendingApproval?.id, model: model,
                                    isFirst: index == 0, isLast: index == accounts.accounts.count - 1)
-                            .dropDestination(for: String.self) { ids, _ in
-                                guard let dragged = ids.first else { return false }
-                                Task { await model.move(dragged, onto: account.id) }
-                                return true
-                            }
                     }
                 } footer: {
-                    Text("Drag a row by ≡ onto another (or use ↑ ↓) to reorder, top first. Log in opens a terminal tab named claude-login-<id>; finish the sign-in there, then Refresh.")
+                    Text("Use ↑ ↓ to reorder, top first. Log in opens a terminal tab named claude-login-<id>; finish the sign-in there, then Refresh.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else {
@@ -171,11 +157,6 @@ private struct AccountRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Image(systemName: "line.3.horizontal")
-                .foregroundStyle(.secondary)
-                .contentShape(Rectangle())
-                .draggable(account.id) { Text(account.displayLabel).padding(4) }
-                .help("Drag onto another row to move it there")
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.displayLabel).fontWeight(.semibold)
                 Text([account.kind, account.tier].compactMap { $0 }.joined(separator: " · "))

@@ -25,6 +25,8 @@ struct AccountAddSection: View {
     var body: some View {
         Section {
             HStack {
+                Button("Add to pool") { Task { await model.addToPool() } }
+                    .help("Sign another Claude account into the shared pool; all sessions keep your ~/.claude setup")
                 Button("Add Claude subscription") { subscriptionName = ""; askingSubscriptionName = true }
                 Button("Add API account") { showingAPIForm = true }
             }

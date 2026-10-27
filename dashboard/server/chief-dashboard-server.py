@@ -3406,6 +3406,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/accounts/login":
             self._handle_local_json_post(path, account_login.start_login)
             return
+        if path == "/api/accounts/pool-login":
+            self._handle_local_json_post(path, account_login.start_pool_login)
+            return
         if path in ACCOUNT_EDIT_ROUTES:  # localhost only: no remote handler
             self._handle_local_json_post(path, ACCOUNT_EDIT_ROUTES[path])
             return

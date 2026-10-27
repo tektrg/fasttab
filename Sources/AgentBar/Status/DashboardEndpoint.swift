@@ -234,6 +234,13 @@ struct DashboardEndpoint: Sendable {
         return request
     }
 
+    /// `POST /api/accounts/pool-login`: herdr tab `cliproxy-login` runs the shared-pool (CLIProxyAPI) sign-in.
+    func poolLoginRequest() -> URLRequest {
+        var request = postJSON(path: "/api/accounts/pool-login", body: [:])
+        request.timeoutInterval = Self.sessionActionTimeoutSeconds
+        return request
+    }
+
     /// `POST /api/accounts/add-subscription {label}`: new login account + its login tab.
     func addSubscriptionAccountRequest(label: String) -> URLRequest {
         var request = postJSON(path: "/api/accounts/add-subscription", body: ["label": label])

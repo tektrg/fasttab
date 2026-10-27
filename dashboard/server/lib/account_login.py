@@ -5,6 +5,10 @@
 `claude-login-<id>` and runs `claude /login` there with that row's
 CLAUDE_CONFIG_DIR. The PO finishes the browser OAuth in that tab.
 
+`POST /api/accounts/pool-login {}` does the same for the shared pool: tab
+`cliproxy-login` runs CLIProxyAPI's `-claude-login`; the new account lands in
+`~/.cli-proxy-api/` and the `cliproxy` proxy row starts using it.
+
 `logged_in(config_dir)` feeds `loggedIn` on `GET /api/accounts`. How Claude
 Code stores credentials on macOS (checked 2026-10-27, attribute lookups only):
 * Keychain generic password, service `Claude Code-credentials` for the
@@ -31,6 +35,9 @@ SHELL_READY_TIMEOUT_MS = 16000
 #: absolute binary path bypasses the PO's `claude` alias (forces a proxy).
 LOGIN_TEMPLATE = ("env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_MODEL "
                   "CLAUDE_CONFIG_DIR={config_dir} {claude} /login")
+POOL_TAB_LABEL = "cliproxy-login"
+POOL_LOGIN_COMMAND = ("/usr/local/opt/cliproxyapi/bin/cliproxyapi "
+                      "-config /usr/local/etc/cliproxyapi.conf -claude-login")
 
 
 def claude_binary():
@@ -105,6 +112,27 @@ class HerdrLoginOps:
         self._call(["pane", "run", pane_id, command], parse=False)
 
 
+def _run_in_tab(ops, label, command):
+    """Open/reuse herdr tab `label` and run `command` (skipped if it is busy)."""
+    try:
+        found = ops.find_tab(label)
+        tab_id, pane_id = found or ops.create_tab(label)
+        if found and ops.busy(pane_id):
+            return {"ok": True, "tab": tab_id, "pane": pane_id, "reused": True,
+                    "note": "login already running in that tab"}
+        if not found:
+            ops.wait_ready(pane_id)
+        ops.run(pane_id, command)
+    except (RuntimeError, OSError) as e:  # HerdrError is a RuntimeError
+        return {"ok": False, "error": f"herdr: {e}"}
+    return {"ok": True, "tab": tab_id, "pane": pane_id, "reused": bool(found)}
+
+
+def start_pool_login(_body=None, ops=None):
+    """POST /api/accounts/pool-login -> {ok, tab, pane, reused} | {ok:false, error}."""
+    return _run_in_tab(ops or HerdrLoginOps(), POOL_TAB_LABEL, POOL_LOGIN_COMMAND)
+
+
 def start_login(body, ops=None, accounts_file=None):
     """POST /api/accounts/login {id} -> {ok, tab, pane, reused} | {ok:false, error}."""
     account_id = (body or {}).get("id")
@@ -120,17 +148,5 @@ def start_login(body, ops=None, accounts_file=None):
     config_dir = account_rotation.config_dir_of(account)
     if account.get("kind") != "login" or not config_dir:
         return {"ok": False, "error": f"'{account_id}' is not a login account with a configDir"}
-    ops = ops or HerdrLoginOps()
-    label = LOGIN_TAB_PREFIX + account_id
-    try:
-        found = ops.find_tab(label)
-        tab_id, pane_id = found or ops.create_tab(label)
-        if found and ops.busy(pane_id):
-            return {"ok": True, "tab": tab_id, "pane": pane_id, "reused": True,
-                    "note": "login already running in that tab"}
-        if not found:
-            ops.wait_ready(pane_id)
-        ops.run(pane_id, login_command(config_dir))
-    except (RuntimeError, OSError) as e:  # HerdrError is a RuntimeError
-        return {"ok": False, "error": f"herdr: {e}"}
-    return {"ok": True, "tab": tab_id, "pane": pane_id, "reused": bool(found)}
+    return _run_in_tab(ops or HerdrLoginOps(), LOGIN_TAB_PREFIX + account_id,
+                       login_command(config_dir))

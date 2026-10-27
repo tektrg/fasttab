@@ -127,6 +127,12 @@ check("unknown id refused", login.start_login({"id": "nope"}, ops=FakeOps())["er
       "unknown account 'nope'")
 check("missing id refused", login.start_login({}, ops=FakeOps())["error"], "missing id")
 
+print("\n== start_pool_login ==")
+ops = FakeOps()
+check("pool login ok", login.start_pool_login({}, ops=ops)["ok"], True)
+check("pool tab + command", (ops.calls[1][1], ops.calls[-1][2]),
+      ("cliproxy-login", login.POOL_LOGIN_COMMAND))
+
 
 class FailingOps(FakeOps):
     def create_tab(self, label):

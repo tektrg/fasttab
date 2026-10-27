@@ -67,6 +67,14 @@ final class AccountsSettingsModel: ObservableObject {
         await reload()
     }
 
+    /// Shared pool (CLIProxyAPI): sign another Claude account into the one `cliproxy` row.
+    func addToPool() async {
+        let outcome = await AccountActionOutcome.perform(endpoint().poolLoginRequest(), transport: transport)
+        editNotice = outcome == .succeeded
+            ? .info("Finish the sign-in in tab cliproxy-login (pick the new account in the browser).")
+            : outcome.notice
+    }
+
     /// True when added (the sheet closes); the key is dropped from memory with the form.
     func addAPI(_ form: NewAPIAccount) async -> Bool {
         let outcome = await AccountActionOutcome.perform(endpoint().addAPIAccountRequest(form), transport: transport)

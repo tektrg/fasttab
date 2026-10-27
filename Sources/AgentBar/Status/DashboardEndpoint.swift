@@ -208,6 +208,33 @@ struct DashboardEndpoint: Sendable {
         return request
     }
 
+    /// `GET /api/accounts` (account rotation). Short: it rides the status refresh and must never stall it.
+    var accountsRequest: URLRequest {
+        var request = request(path: "/api/accounts")
+        request.timeoutInterval = Self.personasTimeoutSeconds
+        return request
+    }
+
+    /// `POST /api/accounts/approve-fallback {id}`: the user's yes to the paid fallback tier.
+    func approveFallbackRequest(id: String) -> URLRequest {
+        postJSON(path: "/api/accounts/approve-fallback", body: ["id": id])
+    }
+
+    /// `POST /api/accounts/resume {paneId}`: stop the walled Claude and resume it on the next login account.
+    func accountResumeRequest(paneId: String) -> URLRequest {
+        var request = postJSON(path: "/api/accounts/resume", body: ["paneId": paneId])
+        request.timeoutInterval = Self.sessionActionTimeoutSeconds
+        return request
+    }
+
+    private func postJSON(path: String, body: [String: String]) -> URLRequest {
+        var request = request(path: path)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
     /// `GET /api/personas`.
     var personasRequest: URLRequest {
         var request = request(path: "/api/personas")

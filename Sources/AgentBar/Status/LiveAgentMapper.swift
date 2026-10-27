@@ -123,7 +123,9 @@ enum LiveAgentMapper {
             acceptsImages: agent.acceptsImages ?? true,
             agentKind: host.isHerdr ? agent.agentKind : nil,
             awaitsPrompt: hasPrompt,
-            wrapUpQuestion: wrapUpQuestion
+            wrapUpQuestion: wrapUpQuestion,
+            limitWall: agent.limitWall ?? false,
+            account: agent.account
         )
         return (snapshot, hasPrompt)
     }

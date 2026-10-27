@@ -37,6 +37,8 @@ enum RowActionPlan: Equatable {
     /// confirm dialog and ambiguous-chief picker, unchanged, still apply where they did before).
     case reportToNearestChief
     case stopReporting
+    /// `AgentStatusSource.resumeOnNextAccount`: one request, its failure in the footer.
+    case resumeOnNextAccount
 }
 
 /// The Done / Close pane press flow: press -> (confirm) -> done. Pure; the
@@ -63,6 +65,7 @@ enum RowActionMachine {
         case .clear: return .sendQuickCommand("/clear")
         case .reportTo: return .reportToNearestChief
         case .stopReporting: return .stopReporting
+        case .resumeOnNextAccount: return .resumeOnNextAccount
         // The ⋯ trigger itself is never "pressed" (`RowMoreMenuView` opens natively on click; a
         // keyboard Enter on the highlighted trigger cannot pop a SwiftUI `Menu` programmatically —
         // see its doc comment). Its items reach `plan` as their own `RowButton`s instead.

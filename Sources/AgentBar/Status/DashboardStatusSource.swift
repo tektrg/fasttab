@@ -34,6 +34,13 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
     private var runTask: Task<Void, Never>?
     private var failingSince: Date?
     private var lastPublished: StatusSnapshot?
+    /// The last `/api/accounts` reading, merged into every snapshot (`withAccounts`). Nil = none yet,
+    /// or a dashboard without account rotation.
+    private var accounts: DashboardAccounts?
+    private var accountsFetchedAt: Date?
+    private var accountsFetchInFlight = false
+    /// `/api/accounts` rides the status refresh at most this often (a pending approval shows within ~10s).
+    static let accountsRefreshSeconds: TimeInterval = 10
 
     init(
         endpoint: DashboardEndpoint = .configured(),
@@ -253,6 +260,52 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
         }
     }
 
+    func approveFallback(id: String) async -> AccountActionOutcome {
+        let outcome = await accountAction(endpoint.approveFallbackRequest(id: id))
+        if outcome == .succeeded { accountsFetchedAt = nil }   // re-read promptly so the prompt goes
+        return outcome
+    }
+
+    func resumeOnNextAccount(paneId: String) async -> AccountActionOutcome {
+        await accountAction(endpoint.accountResumeRequest(paneId: paneId))
+    }
+
+    private func accountAction(_ request: URLRequest) async -> AccountActionOutcome {
+        do {
+            let (body, statusCode) = try await transport.response(for: request)
+            if statusCode == 404 { return .failed("This dashboard has no account rotation yet.") }
+            let reply = try JSONDecoder().decode(DashboardAccountActionResponse.self, from: body)
+            if reply.ok == true { return .succeeded }
+            return .failed(reply.error ?? "The dashboard refused (HTTP \(statusCode)).")
+        } catch is DecodingError {
+            return .failed("The dashboard sent an unreadable reply.")
+        } catch let error as URLError where error.code == .timedOut {
+            return .failed("The dashboard took too long to answer. Check the agent: it may have gone through.")
+        } catch {
+            return .failed("Can't reach the status dashboard.")
+        }
+    }
+
+    /// Re-reads `/api/accounts` in the background when due; never blocks the status stream.
+    private func refreshAccountsIfDue() {
+        guard !accountsFetchInFlight else { return }
+        if let accountsFetchedAt, now().timeIntervalSince(accountsFetchedAt) < Self.accountsRefreshSeconds { return }
+        accountsFetchInFlight = true
+        accountsFetchedAt = now()
+        Task { await self.fetchAccounts() }
+    }
+
+    /// Any failure (older dashboard, router down, timeout) reads as "nothing to show".
+    private func fetchAccounts() async {
+        defer { accountsFetchInFlight = false }
+        guard let (body, statusCode) = try? await transport.response(for: endpoint.accountsRequest),
+              (200..<300).contains(statusCode) else {
+            accounts = nil
+            return
+        }
+        accounts = try? JSONDecoder().decode(DashboardAccounts.self, from: body)
+    }
+
     // MARK: - Update loop
 
     private func runUntilCancelled() async {
@@ -323,7 +376,8 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
     private func publishSnapshot(fromJSON json: Data) -> Bool {
         guard let snapshot = try? StatusSnapshotBuilder.snapshot(fromJSON: json, fetchedAt: now()) else { return false }
         failingSince = nil
-        publish(snapshot)
+        refreshAccountsIfDue()
+        publish(snapshot.withAccounts(accounts))
         return true
     }
 

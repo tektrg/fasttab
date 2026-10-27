@@ -73,6 +73,12 @@ protocol AgentStatusSource: Sendable {
     /// A wrap_up button answer: like `sendMessage`, flagged so the dashboard tags the text as the user's
     /// answer (`session_inbox.WRAP_UP_ANSWER_PREFIX`).
     func sendWrapUpAnswer(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome
+
+    /// The user's yes to the paid fallback account `id` (`PendingFallbackApproval`). Never call twice for one press.
+    func approveFallback(id: String) async -> AccountActionOutcome
+
+    /// Stops the walled Claude in `paneId` and resumes its session on the next login account.
+    func resumeOnNextAccount(paneId: String) async -> AccountActionOutcome
 }
 
 /// Why an image didn't upload, in words. Nothing was sent.
@@ -110,5 +116,13 @@ extension AgentStatusSource {
 
     func answerHookRequest(requestId: String, answer: HookAnswer) async -> HookAnswerOutcome {
         .failed("This status source cannot answer Claude sessions outside herdr.")
+    }
+
+    func approveFallback(id: String) async -> AccountActionOutcome {
+        .failed("This status source cannot switch Claude accounts.")
+    }
+
+    func resumeOnNextAccount(paneId: String) async -> AccountActionOutcome {
+        .failed("This status source cannot switch Claude accounts.")
     }
 }

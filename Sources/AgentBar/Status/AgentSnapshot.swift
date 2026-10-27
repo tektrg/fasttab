@@ -78,6 +78,13 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// A Claude Desktop session whose turn ended on a question (its wrap_up box): the message card shows the ask
     /// with one button per action. Nil otherwise. See `WrapUpQuestion`.
     var wrapUpQuestion: WrapUpQuestion? = nil
+    /// The pane shows a Claude account wall (dashboard `limitWall`): the row gets a "limit" tag and,
+    /// on a herdr pane, "Resume on next account" in its ⋯ menu.
+    var limitWall: Bool = false
+    /// The session's Claude account id (dashboard `account`: an `accounts.json` id or "default"); nil = unknown.
+    var account: String? = nil
+    /// `account` as the user named it (`/api/accounts` label), filled in by `DashboardStatusSource`; nil = no tag.
+    var accountLabel: String? = nil
 
     /// How long ago the agent itself last did something: `secondsInStatus` (hook / needs-you clock), else the
     /// screen-change clock a hook-less remote pane has. Nil = unknown (ranks oldest). Mirrors the dashboard's

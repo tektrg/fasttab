@@ -6,13 +6,16 @@ import SwiftUI
 /// this rule ("Air agents keep the Air tag").
 struct MachineBadgeView: View {
     let text: String
+    /// Also used for the account tags (`AgentRowView.accountTags`); red for "limit".
+    var tint: Color = .secondary
 
     var body: some View {
         Text(text)
             .font(.system(size: 9, weight: .bold))
+            .lineLimit(1)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
-            .background(Capsule().fill(Color.secondary.opacity(0.15)))
-            .foregroundStyle(.secondary)
+            .background(Capsule().fill(tint.opacity(0.15)))
+            .foregroundStyle(tint)
     }
 }

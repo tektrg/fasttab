@@ -22,6 +22,7 @@ struct AgentPanelView: View {
                 }
             }
             .overlay(alignment: .bottom) { failureNotice }
+            .overlay(alignment: .top) { fallbackApproval }
             Divider()
             SearchFieldView(model: model, onClose: onClose)
             PanelFooterView(
@@ -108,6 +109,13 @@ struct AgentPanelView: View {
     private var failureNotice: some View {
         if let notice = model.footerNotice, notice.isDismissible {
             FooterNoticeView(notice: notice) { model.dismissFooterNotice() }
+        }
+    }
+
+    @ViewBuilder
+    private var fallbackApproval: some View {
+        if let pending = model.snapshot?.pendingFallback {
+            FallbackApprovalBanner(pending: pending, isSending: model.isApprovingFallback) { model.approvePendingFallback() }
         }
     }
 

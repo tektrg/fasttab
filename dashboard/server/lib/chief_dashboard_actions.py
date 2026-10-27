@@ -563,6 +563,26 @@ def transcript_exists(agent_session, projects_dir=None):
     return False
 
 
+def type_command_in_pane(pane_id, cmd, machine=herdr_transport.LOCAL_MACHINE):
+    """`herdr pane run` the command, then Enter (`pane run` types but does
+    NOT submit). Typed into the pane's live interactive shell, so aliases
+    resolve — never bash -c. Callers must already have proven the pane's
+    foreground holds no agent (typing into a live agent would hijack it)."""
+    try:
+        herdr_transport.herdr_cmd_text(
+            machine, ["pane", "run", pane_id, cmd], repo_root=REPO_ROOT,
+            machines=MACHINES, timeout=15)
+    except herdr_transport.HerdrError as e:
+        raise RuntimeError(f"herdr pane run failed: {e}")
+    try:
+        herdr_transport.herdr_cmd_text(
+            machine, ["pane", "send-keys", pane_id, "enter"],
+            repo_root=REPO_ROOT, machines=MACHINES, timeout=15)
+    except herdr_transport.HerdrError:
+        raise RuntimeError(
+            "command was typed but enter may not have sent — re-check the pane")
+
+
 def do_relaunch(pane_id, agent_session, machine=herdr_transport.LOCAL_MACHINE):
     """`herdr pane run <paneId> 'claude-aptus --resume <session>'` then
     enter. `pane run` types but does NOT submit — the enter is mandatory.
@@ -590,20 +610,8 @@ def do_relaunch(pane_id, agent_session, machine=herdr_transport.LOCAL_MACHINE):
     # machine is guaranteed "local" here (_refuse_if_remote above), but this
     # still routes through the wrapper rather than a bare subprocess call —
     # R2's "one door" holds with no carve-out for "always local anyway".
-    cmd = f"claude-aptus --resume {agent_session}"
-    try:
-        herdr_transport.herdr_cmd_text(
-            machine, ["pane", "run", pane_id, cmd], repo_root=REPO_ROOT,
-            machines=MACHINES, timeout=15)
-    except herdr_transport.HerdrError as e:
-        raise RuntimeError(f"herdr pane run failed: {e}")
-    try:
-        herdr_transport.herdr_cmd_text(
-            machine, ["pane", "send-keys", pane_id, "enter"],
-            repo_root=REPO_ROOT, machines=MACHINES, timeout=15)
-    except herdr_transport.HerdrError:
-        raise RuntimeError(
-            "resume was typed but enter may not have sent — re-check the pane")
+    type_command_in_pane(pane_id, f"claude-aptus --resume {agent_session}",
+                         machine=machine)
     return {"resumed": agent_session}
 
 

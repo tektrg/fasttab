@@ -764,3 +764,24 @@ routed; `login`/`desktop` rows wait for AgentBar (slices 3–4).
 Run: `scripts/claude-router-run.sh`; LaunchAgent template
 `scripts/com.agentbar.claude-router.plist`. Tests: `python3 tests/test_claude_router.py`
 (fake upstreams only, never real APIs).
+
+## Account rotation, dashboard side (slice 3)
+`server/lib/account_rotation.py`. A Claude pane whose screen shows an account
+wall (usage/session/weekly limit, no credit, or claude-router's "every Claude
+account is at its limit") gets `limitWall: true` on its agent row (still
+`screenState: CRASHED`; patterns: `pane_screen_signals.LIMIT_WALL_PATTERNS`).
+After each local screen sweep, the dashboard stops that Claude, COPIES the
+transcript (`<configDir>/projects/<slug>/<sid>.jsonl` + `<sid>/`) into the next
+`kind: login` account's config dir, and types
+`env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_MODEL CLAUDE_CONFIG_DIR=<dir> claude --resume <sid> --dangerously-skip-permissions`
+(`env` bypasses the PO's `claude` alias, which forces the Aptus proxy). Never
+past a `needsApproval` row. Current account = config dir holding the newest
+transcript (`default` = `~/.claude`); rows carry `account`. Guards: once per
+wall episode per pane, 10 min pane cooldown, 5 h "limited until" memory
+(`<state>/account-rotation/limited-until.json`), log `.../log.jsonl`.
+`accounts.json` `"autoResume": false` turns the auto path off.
+Routes: `GET /api/accounts` (rows without token fields + router `/status`;
+router down = `routerReachable: false`), `POST /api/accounts/resume {paneId}`
+(localhost), `POST /api/accounts/approve-fallback {id}` (both listeners; proxies
+router `/approve`). Tests: `python3 tests/test_account_rotation.py` (port 4733,
+fake router, recorded pane ops).

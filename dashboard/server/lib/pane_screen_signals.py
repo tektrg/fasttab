@@ -38,6 +38,22 @@ NEEDS_LOGIN = "NEEDS_LOGIN"
 CRASHED = "CRASHED"
 UNKNOWN = "UNKNOWN"
 
+#: ACCOUNT WALLS — the account (not the request) is out of quota, so retrying
+#: on the same account is pointless; the cure is another account
+#: (account_rotation.py). Still CRASHED for every other consumer; the
+#: classifier reports them separately as `limitWall` (classify_pane.limit_wall).
+#: Anchored to the line start (after an optional result marker) so prose that
+#: merely MENTIONS a limit — "you've hit your limit of retries" — is not a
+#: banner. The last one is claude-router's own 429 text when only the
+#: approval-gated fallback tier is left (server/claude_router.py).
+LIMIT_WALL_PATTERNS = [
+    r"^\s*(?:[⎿⏺]\s*)?You'?ve hit your (?:usage |session |weekly )?limit\b",
+    r'^\s*(?:[⎿⏺]\s*)?Credit balance is too low',
+    r'^\s*(?:[⎿⏺]\s*)?(?:Claude )?usage limit reached',
+    r'^\s*(?:[⎿⏺]\s*)?(?:Session|Weekly|Opus|Sonnet)(?: weekly)? limit reached\b',
+    r'claude-router: every Claude account is at its limit',
+]
+
 # ── Parked on background work ────────────────────────────────────────────────
 #: How many of the last non-blank lines count as "the composer" when looking for
 #: the input box. The composer is rule / `❯` / rule / status line / mode footer

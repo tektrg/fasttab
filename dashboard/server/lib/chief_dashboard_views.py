@@ -7,6 +7,7 @@ JSON instead of scraping HTML (plan.md's "one data layer, two consumers").
 """
 import time
 
+import account_rotation  # limitWall / account per row
 import agent_tree  # noqa: E402  (scripts/lib/agent_tree.py — the hierarchy store)
 import chief_dashboard_herdr as herdr_transport
 import claude_sessions  # P4: non-herdr Claude sessions as status-only rows
@@ -99,6 +100,11 @@ def build_agents_view(feeds_snap):
             # The open plain yes/no permission box, if any (parsed block, or
             # None) — mutually exclusive with screenQuestion above.
             "screenPermission": screen.get("permission"),
+            # Account rotation (account_rotation.py): the pane shows a usage
+            # limit wall; which accounts.json row its session runs on.
+            "limitWall": bool(screen.get("limitWall")),
+            "account": account_rotation.account_id_for_session(
+                (a.get("agent_session") or {}).get("value")),
             # The hook's display-only preview of a just-opened picker (raw
             # tool input, never screen-parsed). Attached here; build_needs_you
             # decides whether it outranks the stale screen. Live rows only —
@@ -165,6 +171,8 @@ def build_agents_view(feeds_snap):
                 "screenSignal": screen.get("signal"),
                 "screenQuestion": screen.get("question"),
                 "screenPermission": screen.get("permission"),
+                "limitWall": bool(screen.get("limitWall")),
+                "account": None,  # the Air's config dirs are not read
                 "hookQuestion": None,
                 "machine": machine,
                 "source": claude_sessions.HERDR_SOURCE,

@@ -805,7 +805,9 @@ pool" = `POST /api/accounts/pool-login` → herdr tab `cliproxy-login` runs
 `cliproxyapi -claude-login`; switch the browser to the new account first or it
 re-saves the old one. `login` rows below stay as backup. Aptus lives INSIDE the pool
 (config `api-keys.claude`, `priority: -1` = after the OAuth subscriptions), so the
-pool's web panel (`/management.html`, key in Keychain `cliproxy-management`) shows it.
+pool's web panel (`/management.html`, key in Keychain `cliproxy-management`) shows it. Pin one session: `claude --account trung|7lab|aptus` (pool `prefix`:
+OAuth file field / `api-keys` entry; model sent as `<prefix>/<model>`); a pinned
+session does not move on at its account's limit.
 
 **Add / remove accounts** (`server/lib/account_edit.py`, AgentBar Settings › Accounts), all localhost:
 `POST /api/accounts/add-subscription {label}` → slug id, `~/.claude-instances/<id>` created, login row

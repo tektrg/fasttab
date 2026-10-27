@@ -50,6 +50,18 @@ cool = {"accounts": [{"id": "aptus", "cooldownUntil": NOW + 30}]}
 check("cooling proxy skipped", pick([APTUS, SUB_A], status=cool), ("login", "a"))
 check("router down = healthy", pick([APTUS, SUB_A], status=None), ("router", "aptus"))
 check("stops at needsApproval", pick([dict(SUB_A, enabled=False), DEEP, SUB_B]), ("router", "ds"))
+
+print("\n== --account pin ==")
+check("take --account X", L.take_option(["-p", "--account", "7lab", "hi"], "--account"),
+      ("7lab", ["-p", "hi"]))
+check("take --account=X", L.take_option(["--account=trung"], "--account"), ("trung", []))
+check("absent", L.take_option(["-p"], "--account"), (None, ["-p"]))
+env = L.pinned_env("7lab", None, {"ANTHROPIC_MODEL": "x", "CLAUDE_CONFIG_DIR": "/c"}, "4720")
+check("pinned model + router", (env["ANTHROPIC_MODEL"], env["ANTHROPIC_BASE_URL"], "CLAUDE_CONFIG_DIR" in env),
+      ("7lab/claude-opus-5-5", "http://127.0.0.1:4720", False))
+check("pinned small model", env["ANTHROPIC_SMALL_FAST_MODEL"], "7lab/claude-haiku-5-5")
+check("--model kept", L.pinned_env("trung", "claude-sonnet-5-5", {}, "1")["ANTHROPIC_MODEL"],
+      "trung/claude-sonnet-5-5")
 check("limited login then DeepSeek -> router", pick([SUB_A, DEEP], limited={"a": NOW + 1}), ("router", "ds"))
 check("nothing usable -> default", pick([dict(SUB_A, enabled=False)]), ("default", None))
 check("empty -> default", pick([]), ("default", None))

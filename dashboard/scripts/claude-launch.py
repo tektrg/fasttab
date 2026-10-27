@@ -13,7 +13,12 @@ router's approval prompt applies (DeepSeek never starts unasked).
 * proxy/apikey pick or approval stop -> exec claude with ANTHROPIC_BASE_URL =
   the router, ANTHROPIC_AUTH_TOKEN=router.
 * nothing usable -> plain claude on the default ~/.claude.
-All argv after the script name pass through. Stdlib only; one localhost GET.
+* `--account <name>` -> pin this session to one account of the CLIProxyAPI
+  pool (its `prefix`: trung, 7lab, aptus). Goes through the router with
+  model `<name>/<model>` (`--model` if given, else PINNED_DEFAULT_MODEL); the
+  pool only uses that account, so a pinned session stops at its limit
+  instead of moving on.
+All other argv pass through. Stdlib only; one localhost GET.
 Usage: `claude-launch.py [claude args...]` (alias `claude` to it if wanted;
 CLAUDE_BIN overrides the real binary).
 """
@@ -30,7 +35,35 @@ import account_rotation  # noqa: E402  (accounts path, limited-until store)
 
 PROXY_KINDS = ("proxy", "apikey")
 ROUTER_TIMEOUT_SEC = 0.3
-ANTHROPIC_VARS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL")
+ANTHROPIC_VARS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL",
+                  "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL")
+PINNED_DEFAULT_MODEL = "claude-opus-5-5"
+PINNED_SMALL_MODEL = "claude-haiku-5-5"
+
+
+def take_option(argv, name):
+    """(value, argv without it) for `name X` / `name=X`; (None, argv) if absent."""
+    rest, value, i = [], None, 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == name and i + 1 < len(argv):
+            value, i = argv[i + 1], i + 2
+            continue
+        if arg.startswith(name + "="):
+            value = arg.split("=", 1)[1]
+        else:
+            rest.append(arg)
+        i += 1
+    return value, rest
+
+
+def pinned_env(account, model, env, router_port):
+    """Env for `--account`: router + `<account>/<model>` (pool prefix)."""
+    env = launch_env("router", None, env, router_port)
+    env["ANTHROPIC_MODEL"] = f"{account}/{model or PINNED_DEFAULT_MODEL}"
+    env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = env["ANTHROPIC_SMALL_FAST_MODEL"] = \
+        f"{account}/{PINNED_SMALL_MODEL}"
+    return env
 
 
 def choose(accounts, now, status, logged_in, limited_until=None):
@@ -105,11 +138,18 @@ def limited_until_store():
 
 
 def main(argv):
+    account, argv = take_option(argv, "--account")
+    port = os.environ.get("CLAUDE_ROUTER_PORT", "4720")
+    if account:
+        model, argv = take_option(argv, "--model")
+        env = pinned_env(account, model, dict(os.environ), port)
+        binary = claude_binary(env)
+        print(f"claude → pool account '{account}' (pinned, {env['ANTHROPIC_MODEL']})", file=sys.stderr)
+        os.execvpe(binary, [binary] + argv, env)
     try:
         accounts, _auto = account_rotation.load_accounts_file()
     except (OSError, ValueError):
         accounts = []
-    port = os.environ.get("CLAUDE_ROUTER_PORT", "4720")
     needs_router = any(a.get("kind") in PROXY_KINDS for a in accounts)
     status = router_status(port) if needs_router else None
     pick, row = choose(accounts, time.time(), status, account_login.logged_in,

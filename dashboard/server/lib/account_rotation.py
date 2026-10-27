@@ -354,6 +354,9 @@ def accounts_view(rotator):
         row["cooldownUntil"] = live.get("cooldownUntil")
         row["cooldownSecondsLeft"] = live.get("cooldownSecondsLeft", 0)
         row["limitedUntil"] = limits.get(account["id"])
+        if account.get("kind") == "login" and config_dir_of(account):
+            import account_login  # imports this module; lazy to avoid a cycle
+            row["loggedIn"] = account_login.logged_in(config_dir_of(account))
         rows.append(row)
     return {
         "ok": error is None, "error": error, "accounts": rows, "autoResume": auto,

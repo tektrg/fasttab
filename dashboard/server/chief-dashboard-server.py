@@ -221,6 +221,7 @@ import feedback_push_proxy  # noqa: E402  (phone Web Push registration -> theind
 import apns_devices  # noqa: E402  (iOS app APNs device-token registry)
 import apns_agent_push  # noqa: E402  (agent question/finished -> iOS push)
 import account_rotation  # noqa: E402  (limit wall -> resume on next login account)
+import account_login  # noqa: E402  (POST /api/accounts/login: `claude /login` in a herdr tab)
 import chief_dashboard_feeds  # noqa: E402  (SCREEN_LISTENERS hook)
 from chief_dashboard_views import build_agents_view  # noqa: E402
 
@@ -3393,6 +3394,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/accounts/resume":
             self._handle_local_json_post(path, resume_pane_on_next_account)
+            return
+        if path == "/api/accounts/login":
+            self._handle_local_json_post(path, account_login.start_login)
             return
         if path == "/api/accounts/approve-fallback":
             # Both listeners: approving DeepSeek from the phone is the point.

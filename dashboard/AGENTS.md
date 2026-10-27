@@ -785,3 +785,12 @@ router down = `routerReachable: false`), `POST /api/accounts/resume {paneId}`
 (localhost), `POST /api/accounts/approve-fallback {id}` (both listeners; proxies
 router `/approve`). Tests: `python3 tests/test_account_rotation.py` (port 4733,
 fake router, recorded pane ops).
+
+**Log in an account** (`server/lib/account_login.py`, AgentBar Settings › Accounts):
+`POST /api/accounts/login {id}` (localhost) opens/reuses herdr tab
+`claude-login-<id>` and runs `env -u ANTHROPIC_* CLAUDE_CONFIG_DIR=<dir> <claude
+binary> /login`; a reused tab with Claude still running is not typed into.
+`GET /api/accounts` login rows carry `loggedIn` (true/false/null): Keychain item
+`Claude Code-credentials-<sha256(dir)[:8]>` or `<dir>/.credentials.json` exists.
+Presence only (an expired token reads true). Tests: `tests/test_account_login.py`
+(port 4734, fake herdr ops).

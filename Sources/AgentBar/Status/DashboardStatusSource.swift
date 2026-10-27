@@ -271,19 +271,7 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
     }
 
     private func accountAction(_ request: URLRequest) async -> AccountActionOutcome {
-        do {
-            let (body, statusCode) = try await transport.response(for: request)
-            if statusCode == 404 { return .failed("This dashboard has no account rotation yet.") }
-            let reply = try JSONDecoder().decode(DashboardAccountActionResponse.self, from: body)
-            if reply.ok == true { return .succeeded }
-            return .failed(reply.error ?? "The dashboard refused (HTTP \(statusCode)).")
-        } catch is DecodingError {
-            return .failed("The dashboard sent an unreadable reply.")
-        } catch let error as URLError where error.code == .timedOut {
-            return .failed("The dashboard took too long to answer. Check the agent: it may have gone through.")
-        } catch {
-            return .failed("Can't reach the status dashboard.")
-        }
+        await AccountActionOutcome.perform(request, transport: transport)
     }
 
     /// Re-reads `/api/accounts` in the background when due; never blocks the status stream.

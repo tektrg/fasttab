@@ -227,6 +227,13 @@ struct DashboardEndpoint: Sendable {
         return request
     }
 
+    /// `POST /api/accounts/login {id}`: open a herdr tab running `claude /login` for that login account.
+    func accountLoginRequest(id: String) -> URLRequest {
+        var request = postJSON(path: "/api/accounts/login", body: ["id": id])
+        request.timeoutInterval = Self.sessionActionTimeoutSeconds
+        return request
+    }
+
     private func postJSON(path: String, body: [String: String]) -> URLRequest {
         var request = request(path: path)
         request.httpMethod = "POST"

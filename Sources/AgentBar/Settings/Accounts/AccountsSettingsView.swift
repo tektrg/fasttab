@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Settings › Accounts: the Claude accounts of `accounts.json` (owned by the dashboard), in their
-/// rotation order, read-only. Login rows get "Log in", which opens a herdr tab `claude-login-<id>`
+/// rotation order. Add a subscription or API account, or remove one (AccountAddViews.swift).
+/// Login rows get "Log in", which opens a herdr tab `claude-login-<id>`
 /// running `claude /login`; the user finishes the browser sign-in there. Reordering is slice 2.
 @MainActor
 final class AccountsSettingsModel: ObservableObject {
@@ -45,6 +46,40 @@ final class AccountsSettingsModel: ObservableObject {
         loginResults[id] = await AccountActionOutcome.perform(endpoint().accountLoginRequest(id: id),
                                                               transport: transport)
     }
+
+    /// Last add/remove outcome, shown above the list ("finish sign-in in tab …" or an error).
+    @Published private(set) var editNotice: AccountEditNotice?
+
+    func addSubscription(label: String) async {
+        do {
+            let (body, statusCode) = try await transport.response(
+                for: endpoint().addSubscriptionAccountRequest(label: label))
+            let reply = try JSONDecoder().decode(AddSubscriptionResponse.self, from: body)
+            if reply.ok == true, let id = reply.account?.id {
+                editNotice = .info("Added \(label). Finish sign-in in tab claude-login-\(id), then Refresh.")
+            } else {
+                editNotice = .error(reply.error ?? "The dashboard refused (HTTP \(statusCode)).")
+            }
+        } catch {
+            editNotice = .error("Can't reach the status dashboard.")
+        }
+        await reload()
+    }
+
+    /// True when added (the sheet closes); the key is dropped from memory with the form.
+    func addAPI(_ form: NewAPIAccount) async -> Bool {
+        let outcome = await AccountActionOutcome.perform(endpoint().addAPIAccountRequest(form), transport: transport)
+        editNotice = outcome == .succeeded ? .info("Added \(form.label). Its key is in the Keychain.") : outcome.notice
+        await reload()
+        return outcome == .succeeded
+    }
+
+    func remove(_ account: DashboardAccounts.Account) async {
+        let outcome = await AccountActionOutcome.perform(endpoint().removeAccountRequest(id: account.id),
+                                                         transport: transport)
+        editNotice = outcome == .succeeded ? .info("Removed \(account.displayLabel).") : outcome.notice
+        await reload()
+    }
 }
 
 struct AccountsSettingsView: View {
@@ -64,6 +99,7 @@ struct AccountsSettingsView: View {
                     Button("Try again") { Task { await model.reload() } }
                 }
             } else if let accounts = model.accounts {
+                AccountAddSection(model: model)
                 Section {
                     if accounts.accounts.isEmpty {
                         Text("No accounts in accounts.json.").foregroundStyle(.secondary)
@@ -92,6 +128,7 @@ private struct AccountRow: View {
     let account: DashboardAccounts.Account
     let pendingApprovalID: String?
     @ObservedObject var model: AccountsSettingsModel
+    @State private var confirmRemove = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -105,6 +142,14 @@ private struct AccountRow: View {
                 outcome
             }
             Spacer()
+            Button(role: .destructive) { confirmRemove = true } label: { Image(systemName: "trash") }
+                .buttonStyle(.borderless)
+                .help("Remove this account")
+                .confirmationDialog("Remove \(account.displayLabel)?", isPresented: $confirmRemove) {
+                    Button("Remove", role: .destructive) { Task { await model.remove(account) } }
+                } message: {
+                    Text("Rotation stops using it. A saved API key is deleted; a sign-in folder stays on disk.")
+                }
             if account.canLogIn {
                 Button(account.loggedIn == true ? "Re-log in" : "Log in") {
                     Task { await model.logIn(account.id) }

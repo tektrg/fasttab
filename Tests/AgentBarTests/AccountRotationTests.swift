@@ -131,3 +131,43 @@ struct AccountRotationTests {
         #expect(model.loggingIn.isEmpty)
     }
 }
+
+struct AccountEditRequestTests {
+    private let endpoint = DashboardEndpoint(baseURL: URL(string: "http://127.0.0.1:4711")!)
+    private let secret = "sk-SENTINEL-0042"
+
+    private func body(_ request: URLRequest) throws -> [String: String] {
+        try #require(JSONSerialization.jsonObject(with: request.httpBody!) as? [String: String])
+    }
+
+    @Test func addAPICarriesTheTokenAndTier() throws {
+        let form = NewAPIAccount(label: " DeepSeek ", baseURL: "https://api.deepseek.com", token: secret,
+                                 model: "", isFallback: true)
+        let request = endpoint.addAPIAccountRequest(form)
+        #expect(request.url?.path == "/api/accounts/add-api")
+        #expect(request.httpMethod == "POST")
+        #expect(try body(request) == ["label": "DeepSeek", "baseUrl": "https://api.deepseek.com",
+                                      "token": secret, "tier": "fallback"])
+        let claude = NewAPIAccount(label: "A", baseURL: "https://x", token: "t", model: "m", isFallback: false)
+        #expect(try body(endpoint.addAPIAccountRequest(claude))["tier"] == "claude")
+        #expect(try body(endpoint.addAPIAccountRequest(claude))["model"] == "m")
+    }
+
+    @Test func onlyAddAPICarriesAToken() throws {
+        let other = [endpoint.addSubscriptionAccountRequest(label: "Personal"), endpoint.removeAccountRequest(id: "x")]
+        #expect(try body(other[0]) == ["label": "Personal"])
+        #expect(try body(other[1]) == ["id": "x"])
+        for request in other {
+            #expect(try body(request)["token"] == nil)
+            #expect(request.url?.query == nil)
+        }
+        let api = endpoint.addAPIAccountRequest(NewAPIAccount(label: "A", baseURL: "https://x", token: secret))
+        #expect(!(api.url?.absoluteString.contains(secret) ?? true))
+        #expect(api.allHTTPHeaderFields?.values.contains { $0.contains(secret) } == false)
+    }
+
+    @Test func formNeedsNameURLAndKey() {
+        #expect(!NewAPIAccount(label: "A", baseURL: "https://x", token: " ").isComplete)
+        #expect(NewAPIAccount(label: "A", baseURL: "https://x", token: "k").isComplete)
+    }
+}

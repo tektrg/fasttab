@@ -47,7 +47,7 @@ RESUME_TEMPLATE = ("env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROP
                    "CLAUDE_CONFIG_DIR={config_dir} claude --resume {session} "
                    "--dangerously-skip-permissions")
 PUBLIC_FIELDS = ("id", "label", "kind", "tier", "needsApproval", "configDir",
-                 "baseUrl", "model", "enabled")
+                 "baseUrl", "model", "authHeader", "enabled")
 
 
 def accounts_path():

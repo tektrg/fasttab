@@ -222,6 +222,13 @@ import apns_devices  # noqa: E402  (iOS app APNs device-token registry)
 import apns_agent_push  # noqa: E402  (agent question/finished -> iOS push)
 import account_rotation  # noqa: E402  (limit wall -> resume on next login account)
 import account_login  # noqa: E402  (POST /api/accounts/login: `claude /login` in a herdr tab)
+import account_edit  # noqa: E402  (POST /api/accounts/add-subscription|add-api|remove)
+
+ACCOUNT_EDIT_ROUTES = {
+    "/api/accounts/add-subscription": lambda body: account_edit.add_subscription(body),
+    "/api/accounts/add-api": lambda body: account_edit.add_api(body),
+    "/api/accounts/remove": lambda body: account_edit.remove(body),
+}
 import chief_dashboard_feeds  # noqa: E402  (SCREEN_LISTENERS hook)
 from chief_dashboard_views import build_agents_view  # noqa: E402
 
@@ -3397,6 +3404,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/accounts/login":
             self._handle_local_json_post(path, account_login.start_login)
+            return
+        if path in ACCOUNT_EDIT_ROUTES:  # localhost only: no remote handler
+            self._handle_local_json_post(path, ACCOUNT_EDIT_ROUTES[path])
             return
         if path == "/api/accounts/approve-fallback":
             # Both listeners: approving DeepSeek from the phone is the point.

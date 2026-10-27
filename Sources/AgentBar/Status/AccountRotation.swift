@@ -143,3 +143,35 @@ extension StatusSnapshot {
         return copy
     }
 }
+
+/// Settings › Accounts "Add API account" form, as sent to `POST /api/accounts/add-api`.
+struct NewAPIAccount: Equatable, Sendable {
+    var label = ""
+    var baseURL = ""
+    var token = ""
+    var model = ""
+    /// "Fallback — ask before using": tier `fallback`, the router waits for the user's approval.
+    var isFallback = false
+
+    var isComplete: Bool {
+        ![label, baseURL, token].contains { $0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    var body: [String: String] {
+        var body = ["label": label.trimmingCharacters(in: .whitespaces),
+                    "baseUrl": baseURL.trimmingCharacters(in: .whitespaces),
+                    "token": token.trimmingCharacters(in: .whitespaces),
+                    "tier": isFallback ? "fallback" : "claude"]
+        let model = model.trimmingCharacters(in: .whitespaces)
+        if !model.isEmpty { body["model"] = model }
+        return body
+    }
+}
+
+/// `POST /api/accounts/add-subscription` reply: `{ok, account: {id}, tab, error?}`.
+struct AddSubscriptionResponse: Decodable {
+    struct Row: Decodable { let id: String }
+    let ok: Bool?
+    let account: Row?
+    let error: String?
+}

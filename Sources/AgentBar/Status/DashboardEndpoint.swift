@@ -234,6 +234,24 @@ struct DashboardEndpoint: Sendable {
         return request
     }
 
+    /// `POST /api/accounts/add-subscription {label}`: new login account + its login tab.
+    func addSubscriptionAccountRequest(label: String) -> URLRequest {
+        var request = postJSON(path: "/api/accounts/add-subscription", body: ["label": label])
+        request.timeoutInterval = Self.sessionActionTimeoutSeconds
+        return request
+    }
+
+    /// `POST /api/accounts/add-api`: the only request that carries an API key; the dashboard moves it
+    /// into the Keychain and never sends it back.
+    func addAPIAccountRequest(_ form: NewAPIAccount) -> URLRequest {
+        postJSON(path: "/api/accounts/add-api", body: form.body)
+    }
+
+    /// `POST /api/accounts/remove {id}`: drop the row (and its Keychain key); sign-in folders stay.
+    func removeAccountRequest(id: String) -> URLRequest {
+        postJSON(path: "/api/accounts/remove", body: ["id": id])
+    }
+
     private func postJSON(path: String, body: [String: String]) -> URLRequest {
         var request = request(path: path)
         request.httpMethod = "POST"

@@ -794,3 +794,12 @@ binary> /login`; a reused tab with Claude still running is not typed into.
 `Claude Code-credentials-<sha256(dir)[:8]>` or `<dir>/.credentials.json` exists.
 Presence only (an expired token reads true). Tests: `tests/test_account_login.py`
 (port 4734, fake herdr ops).
+
+**Add / remove accounts** (`server/lib/account_edit.py`, AgentBar Settings › Accounts), all localhost:
+`POST /api/accounts/add-subscription {label}` → slug id, `~/.claude-instances/<id>` created, login row
+appended, then the `/api/accounts/login` flow. `POST /api/accounts/add-api {label, baseUrl, token,
+model?, tier: claude|fallback, authHeader?}` → token into Keychain service `claude-router-<id>`
+(`security add-generic-password -U`, argv, no shell), row keeps only `tokenKeychain`; fallback =
+`needsApproval`. `POST /api/accounts/remove {id}` → row + its own Keychain item deleted; configDir
+folders are left on disk. accounts.json writes are atomic and keep other keys/rows/order.
+Tests: `tests/test_account_edit.py` (port 4735/4736, fake Keychain + herdr).

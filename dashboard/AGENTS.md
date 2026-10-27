@@ -795,6 +795,16 @@ binary> /login`; a reused tab with Claude still running is not typed into.
 Presence only (an expired token reads true). Tests: `tests/test_account_login.py`
 (port 4734, fake herdr ops).
 
+**Shared pool (preferred, live 2026-10-27).** Subscriptions are pooled in local
+CLIProxyAPI (`brew services` `cliproxyapi`, 127.0.0.1:8317, config
+`/usr/local/etc/cliproxyapi.conf`, fill-first + session affinity, OAuth files
+`~/.cli-proxy-api/`). accounts.json top row `cliproxy` (kind `proxy`, key in
+Keychain `claude-router-cliproxy`) → every session keeps the one `~/.claude`
+(hooks, skills, dashboard rows). Add an account: Settings › Accounts › "Add to
+pool" = `POST /api/accounts/pool-login` → herdr tab `cliproxy-login` runs
+`cliproxyapi -claude-login`; switch the browser to the new account first or it
+re-saves the old one. `login` rows below stay as backup.
+
 **Add / remove accounts** (`server/lib/account_edit.py`, AgentBar Settings › Accounts), all localhost:
 `POST /api/accounts/add-subscription {label}` → slug id, `~/.claude-instances/<id>` created, login row
 appended, then the `/api/accounts/login` flow. `POST /api/accounts/add-api {label, baseUrl, token,

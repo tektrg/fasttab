@@ -750,3 +750,17 @@ silent withdraw on answer, background thread). OFF unless
 `/api/hook/permission/<id>/answer`. Tests: `tests/test_apns_push.py`,
 `tests/test_apns_devices_remote.py`.
 A registered device + config counts as an answer surface (`PresenceOrDevice`): prompts are held and pushed even with AgentBar closed.
+
+## claude-router (account auto-rotation, slice 1)
+Brief: `.claude/briefs/claude-account-rotation.md`. Separate always-on process
+(`server/claude_router.py`, stdlib), **port 4720** — the brief said 4712, but
+that is this dashboard's live remote listener. Claude Code points
+`ANTHROPIC_BASE_URL` at it; it forwards to `accounts.json` (config dir; see
+`accounts.example.json`) in priority order and fails over on 429/529/usage-limit
+before the first byte. Fallback tier (`needsApproval`) answers 429 + writes
+`fallback-pending.json` until `POST /approve {"id"}`. `GET /status`; log =
+`<state dir>/claude-router/switch-log.jsonl`. Only `proxy`/`apikey` kinds are
+routed; `login`/`desktop` rows wait for AgentBar (slices 3–4).
+Run: `scripts/claude-router-run.sh`; LaunchAgent template
+`scripts/com.agentbar.claude-router.plist`. Tests: `python3 tests/test_claude_router.py`
+(fake upstreams only, never real APIs).

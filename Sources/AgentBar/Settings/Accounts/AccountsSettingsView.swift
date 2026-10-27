@@ -75,7 +75,23 @@ final class AccountsSettingsModel: ObservableObject {
         return outcome == .succeeded
     }
 
-    /// Drag-and-drop in the list: send the whole new order, then reload what the file now says.
+    /// Drop `draggedID` onto `targetID`: it takes the target's place (rows below shift down).
+    func move(_ draggedID: String, onto targetID: String) async {
+        guard let rows = accounts?.accounts,
+              let from = rows.firstIndex(where: { $0.id == draggedID }),
+              let to = rows.firstIndex(where: { $0.id == targetID }), from != to else { return }
+        await move(from: IndexSet(integer: from), to: to > from ? to + 1 : to)
+    }
+
+    /// ↑/↓ buttons: one step up (-1) or down (+1).
+    func step(_ id: String, by delta: Int) async {
+        guard let rows = accounts?.accounts, let from = rows.firstIndex(where: { $0.id == id }) else { return }
+        let to = from + delta
+        guard rows.indices.contains(to) else { return }
+        await move(from: IndexSet(integer: from), to: delta > 0 ? to + 1 : to)
+    }
+
+    /// Send the whole new order, then reload what the file now says.
     func move(from source: IndexSet, to destination: Int) async {
         guard var rows = accounts?.accounts else { return }
         rows.move(fromOffsets: source, toOffset: destination)
@@ -117,14 +133,19 @@ struct AccountsSettingsView: View {
                     if accounts.accounts.isEmpty {
                         Text("No accounts in accounts.json.").foregroundStyle(.secondary)
                     }
-                    ForEach(accounts.accounts, id: \.id) { account in
-                        AccountRow(account: account, pendingApprovalID: accounts.pendingApproval?.id, model: model)
-                    }
-                    .onMove { source, destination in
-                        Task { await model.move(from: source, to: destination) }
+                    // macOS grouped Forms ignore `.onMove`: rows are draggable by their ≡ handle and
+                    // accept a drop instead (the dropped row takes the target's place).
+                    ForEach(Array(accounts.accounts.enumerated()), id: \.element.id) { index, account in
+                        AccountRow(account: account, pendingApprovalID: accounts.pendingApproval?.id, model: model,
+                                   isFirst: index == 0, isLast: index == accounts.accounts.count - 1)
+                            .dropDestination(for: String.self) { ids, _ in
+                                guard let dragged = ids.first else { return false }
+                                Task { await model.move(dragged, onto: account.id) }
+                                return true
+                            }
                     }
                 } footer: {
-                    Text("Drag to reorder, top first. Log in opens a terminal tab named claude-login-<id>; finish the sign-in there, then Refresh.")
+                    Text("Drag a row by ≡ onto another (or use ↑ ↓) to reorder, top first. Log in opens a terminal tab named claude-login-<id>; finish the sign-in there, then Refresh.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else {
@@ -144,10 +165,17 @@ private struct AccountRow: View {
     let account: DashboardAccounts.Account
     let pendingApprovalID: String?
     @ObservedObject var model: AccountsSettingsModel
+    let isFirst: Bool
+    let isLast: Bool
     @State private var confirmRemove = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+                .draggable(account.id) { Text(account.displayLabel).padding(4) }
+                .help("Drag onto another row to move it there")
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.displayLabel).fontWeight(.semibold)
                 Text([account.kind, account.tier].compactMap { $0 }.joined(separator: " · "))
@@ -158,6 +186,10 @@ private struct AccountRow: View {
                 outcome
             }
             Spacer()
+            Button { Task { await model.step(account.id, by: -1) } } label: { Image(systemName: "chevron.up") }
+                .buttonStyle(.borderless).disabled(isFirst).help("Move up")
+            Button { Task { await model.step(account.id, by: 1) } } label: { Image(systemName: "chevron.down") }
+                .buttonStyle(.borderless).disabled(isLast).help("Move down")
             Button(role: .destructive) { confirmRemove = true } label: { Image(systemName: "trash") }
                 .buttonStyle(.borderless)
                 .help("Remove this account")

@@ -42,7 +42,9 @@ DEFAULT_PORT = 4720
 PROXYABLE_KINDS = ("proxy", "apikey")  # login/desktop accounts need AgentBar (slice 3/4)
 LIMIT_STATUSES = (429, 529)
 LIMIT_PATTERNS = ("usage limit", "rate limit", "rate_limit", "quota", "limit reached",
-                  "overloaded", "insufficient credits", "credit balance")
+                  "overloaded", "insufficient credits", "credit balance",
+                  # CLIProxyAPI pool: every pooled subscription is limited
+                  "are cooling down", "no auth available", "no auth candidates")
 DEFAULT_COOLDOWN = {429: 300, 529: 60, "network": 30, "limit": 300}
 MAX_COOLDOWN = 6 * 3600
 HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",

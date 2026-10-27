@@ -3,7 +3,8 @@ import SwiftUI
 /// Settings › Accounts: the Claude accounts of `accounts.json` (owned by the dashboard), in their
 /// rotation order. Add a subscription or API account, or remove one (AccountAddViews.swift).
 /// Login rows get "Log in", which opens a herdr tab `claude-login-<id>`
-/// running `claude /login`; the user finishes the browser sign-in there. Reordering is slice 2.
+/// running `claude /login`; the user finishes the browser sign-in there. Drag rows to reorder: the top available account starts new `claude`
+/// sessions (dashboard/scripts/claude-launch.py).
 @MainActor
 final class AccountsSettingsModel: ObservableObject {
     @Published private(set) var accounts: DashboardAccounts?
@@ -74,6 +75,16 @@ final class AccountsSettingsModel: ObservableObject {
         return outcome == .succeeded
     }
 
+    /// Drag-and-drop in the list: send the whole new order, then reload what the file now says.
+    func move(from source: IndexSet, to destination: Int) async {
+        guard var rows = accounts?.accounts else { return }
+        rows.move(fromOffsets: source, toOffset: destination)
+        let outcome = await AccountActionOutcome.perform(endpoint().reorderAccountsRequest(ids: rows.map(\.id)),
+                                                         transport: transport)
+        if outcome != .succeeded { editNotice = outcome.notice }
+        await reload()
+    }
+
     func remove(_ account: DashboardAccounts.Account) async {
         let outcome = await AccountActionOutcome.perform(endpoint().removeAccountRequest(id: account.id),
                                                          transport: transport)
@@ -101,14 +112,19 @@ struct AccountsSettingsView: View {
             } else if let accounts = model.accounts {
                 AccountAddSection(model: model)
                 Section {
+                    Text("Top account that's available starts new sessions; DeepSeek rows always ask first.")
+                        .font(.caption).foregroundStyle(.secondary)
                     if accounts.accounts.isEmpty {
                         Text("No accounts in accounts.json.").foregroundStyle(.secondary)
                     }
                     ForEach(accounts.accounts, id: \.id) { account in
                         AccountRow(account: account, pendingApprovalID: accounts.pendingApproval?.id, model: model)
                     }
+                    .onMove { source, destination in
+                        Task { await model.move(from: source, to: destination) }
+                    }
                 } footer: {
-                    Text("Rotation order, top first. Log in opens a terminal tab named claude-login-<id>; finish the sign-in there, then Refresh.")
+                    Text("Drag to reorder, top first. Log in opens a terminal tab named claude-login-<id>; finish the sign-in there, then Refresh.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else {

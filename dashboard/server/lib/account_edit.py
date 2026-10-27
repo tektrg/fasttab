@@ -8,6 +8,9 @@
   -> token goes to the macOS Keychain (service `claude-router-<id>`, account
   $USER, the lookup claude_router.resolve_token does); the row keeps only the
   service name. The token is never logged, returned or written to a file.
+* `POST /api/accounts/reorder {ids}` -> rows in that order (must be exactly the
+  current ids). Any order is allowed; rotation and the launcher stop at the
+  first `needsApproval` row, so rows below it only run after an approval.
 * `POST /api/accounts/remove {id}` -> drops the row and the Keychain item this
   module created; a configDir folder is left on disk.
 
@@ -212,3 +215,22 @@ def remove(body, keychain=None, accounts_file=None):
     if row.get("configDir"):
         reply["note"] = f"sign-in folder left on disk: {row['configDir']}"
     return reply
+
+
+def reorder(body, accounts_file=None):
+    ids = (body or {}).get("ids")
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+        return {"ok": False, "error": "ids must be a list of account ids"}
+    path = accounts_file or account_rotation.accounts_path()
+    try:
+        with _write_lock:
+            doc = _read_doc(path)
+            rows = [r for r in doc["accounts"] if isinstance(r, dict)]
+            by_id = {r.get("id"): r for r in rows}
+            if len(ids) != len(set(ids)) or set(ids) != set(by_id) or len(by_id) != len(rows):
+                return {"ok": False, "error": "ids must list every current account exactly once"}
+            doc["accounts"] = [by_id[i] for i in ids]
+            _write_doc(path, doc)
+    except (OSError, ValueError) as e:
+        return {"ok": False, "error": f"accounts.json: {e}"}
+    return {"ok": True, "ids": ids}

@@ -252,7 +252,12 @@ struct DashboardEndpoint: Sendable {
         postJSON(path: "/api/accounts/remove", body: ["id": id])
     }
 
-    private func postJSON(path: String, body: [String: String]) -> URLRequest {
+    /// `POST /api/accounts/reorder {ids}`: the full new top-to-bottom order (Settings › Accounts drag).
+    func reorderAccountsRequest(ids: [String]) -> URLRequest {
+        postJSON(path: "/api/accounts/reorder", body: ["ids": ids])
+    }
+
+    private func postJSON(path: String, body: [String: Any]) -> URLRequest {
         var request = request(path: path)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

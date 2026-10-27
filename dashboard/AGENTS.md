@@ -803,3 +803,14 @@ model?, tier: claude|fallback, authHeader?}` → token into Keychain service `cl
 `needsApproval`. `POST /api/accounts/remove {id}` → row + its own Keychain item deleted; configDir
 folders are left on disk. accounts.json writes are atomic and keep other keys/rows/order.
 Tests: `tests/test_account_edit.py` (port 4735/4736, fake Keychain + herdr).
+
+**Reorder + new-session launcher** (AgentBar Settings › Accounts, drag rows):
+`POST /api/accounts/reorder {ids}` (localhost, `account_edit.reorder`) — ids must be every current id
+exactly once; atomic write, other keys kept. Any order is allowed, but rotation AND the launcher stop at
+the first `needsApproval` row. `scripts/claude-launch.py [claude args]` (stdlib, ~0.13 s) starts a NEW
+session on the top available row: skips `enabled:false`, login rows limited (`limited-until.json`) or
+logged out (`account_login.logged_in` False), proxy/apikey rows the router reports cooling (router down
+= healthy). Login → `CLAUDE_CONFIG_DIR=<dir>`, `ANTHROPIC_*` removed; proxy/apikey or a needsApproval
+stop → via router (`ANTHROPIC_BASE_URL=127.0.0.1:$CLAUDE_ROUTER_PORT`, token `router`); nothing usable →
+default `~/.claude`. Prints `claude → <label>` to stderr, then execs (`CLAUDE_BIN` overrides).
+Tests: `tests/test_account_reorder.py` (port 4737/4738), `tests/test_claude_launch.py` (pure `choose`).

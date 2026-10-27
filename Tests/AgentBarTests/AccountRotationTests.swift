@@ -166,6 +166,14 @@ struct AccountEditRequestTests {
         #expect(api.allHTTPHeaderFields?.values.contains { $0.contains(secret) } == false)
     }
 
+    @Test func reorderSendsTheFullOrderAsAnArray() throws {
+        let request = endpoint.reorderAccountsRequest(ids: ["b", "a", "c"])
+        #expect(request.url?.path == "/api/accounts/reorder")
+        #expect(request.httpMethod == "POST")
+        let json = try #require(JSONSerialization.jsonObject(with: request.httpBody!) as? [String: [String]])
+        #expect(json == ["ids": ["b", "a", "c"]])
+    }
+
     @Test func formNeedsNameURLAndKey() {
         #expect(!NewAPIAccount(label: "A", baseURL: "https://x", token: " ").isComplete)
         #expect(NewAPIAccount(label: "A", baseURL: "https://x", token: "k").isComplete)

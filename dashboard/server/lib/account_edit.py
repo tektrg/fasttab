@@ -96,12 +96,17 @@ def _label(body):
 
 
 def _append(row_for_id, label, path):
-    """Under the lock: pick a unique id, build the row, append, write."""
+    """Under the lock: pick a unique id, build the row, write. A Claude-tier row
+    goes before the first fallback row: rotation never passes a needsApproval
+    row, so a subscription appended after DeepSeek would never be used."""
     with _write_lock:
         doc = _read_doc(path)
-        taken = {r.get("id") for r in doc["accounts"] if isinstance(r, dict)}
+        rows = doc["accounts"]
+        taken = {r.get("id") for r in rows if isinstance(r, dict)}
         row = row_for_id(slug_id(label, taken))
-        doc["accounts"].append(row)
+        first_fallback = next((i for i, r in enumerate(rows) if isinstance(r, dict)
+                               and r.get("needsApproval")), len(rows))
+        rows.insert(len(rows) if row.get("needsApproval") else first_fallback, row)
         _write_doc(path, doc)
     return row
 

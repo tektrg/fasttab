@@ -809,6 +809,16 @@ pool's web panel (`/management.html`, key in Keychain `cliproxy-management`) sho
 OAuth file field / `api-keys` entry; model sent as `<prefix>/<model>`); a pinned
 session does not move on at its account's limit.
 
+**Air uses the Pro's pool (2026-10-28).** Router also listens on the Pro's Tailscale IP
+(LaunchAgent env `CLAUDE_ROUTER_REMOTE_BIND=100.89.154.19`; key = Keychain
+`claude-router-remote`, required on that listener; `/approve*` is localhost-only;
+never bind 0.0.0.0). Air: `~/.config/agent-dashboard/ccproxy-remote.json` {url, secret}
+(chmod 600) + alias `ccproxy` → a COPY of `dashboard/scripts/claude-launch.py` +
+`server/lib` in `~/.local/share/ccproxy/` (Air's `main` diverges from the Pro's, so no
+checkout). Refresh the copy: on the Air `git fetch pro main`, then
+`git archive pro/main dashboard/scripts/claude-launch.py dashboard/server/lib | tar -x -C ~/.local/share/ccproxy`.
+Works only while the Pro is awake. Air's plain `claude` alias is unchanged (Aptus direct).
+
 **Add / remove accounts** (`server/lib/account_edit.py`, AgentBar Settings › Accounts), all localhost:
 `POST /api/accounts/add-subscription {label}` → slug id, `~/.claude-instances/<id>` created, login row
 appended, then the `/api/accounts/login` flow. `POST /api/accounts/add-api {label, baseUrl, token,

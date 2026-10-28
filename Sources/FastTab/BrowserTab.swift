@@ -98,6 +98,10 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
     /// tabs/bookmarks — recomputing this by re-parsing `url` with
     /// `URLComponents` both times was pure waste.
     let duplicateDedupeKey: String
+    /// Identity for `Identifiable`/`ForEach`, built once at construction —
+    /// it used to be recomputed (array + joins) on every access, hundreds of
+    /// times per keystroke. Not encoded; recomputed on decode.
+    let id: String
 
     private enum CodingKeys: String, CodingKey {
         case title, url, browserName, type, timestamp, windowIndex, tabIndex
@@ -162,6 +166,18 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             foldForMatching(strippingLeadingCountBadge(resolvedTitle)),
             historyPageIdentity(forURL: url)
         ].joined(separator: "|")
+        self.id = Self.makeID(
+            type: type,
+            browserName: browserName,
+            url: url,
+            timestamp: timestamp,
+            bookmarkID: bookmarkID,
+            profileName: profileName,
+            windowIndex: windowIndex,
+            tabIndex: tabIndex,
+            tabID: tabID,
+            isGhost: isGhost
+        )
     }
 
     /// Custom decode that recomputes the derived match keys. Routes through the
@@ -309,7 +325,18 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         )
     }
 
-    var id: String {
+    private static func makeID(
+        type: BrowserResultType,
+        browserName: String,
+        url: String,
+        timestamp: Date,
+        bookmarkID: String?,
+        profileName: String?,
+        windowIndex: Int?,
+        tabIndex: Int?,
+        tabID: Int?,
+        isGhost: Bool
+    ) -> String {
         switch type {
         case .sent:
             return [browserName, type.rawValue, bookmarkID ?? url, String(timestamp.timeIntervalSince1970)].joined(separator: "|")

@@ -18,6 +18,10 @@ router's approval prompt applies (DeepSeek never starts unasked).
   model `<name>/<model>` (`--model` if given, else PINNED_DEFAULT_MODEL); the
   pool only uses that account, so a pinned session stops at its limit
   instead of moving on.
+* Remote mode (another Mac, e.g. the Air): if `~/.config/agent-dashboard/
+  ccproxy-remote.json` {"url","secret"} exists (chmod 600), every session goes
+  through that router (the Pro's, over Tailscale); the Pro's order, limits and
+  approval apply, and `--account` still pins. No local accounts.json needed.
 All other argv pass through. Stdlib only; one localhost GET.
 Usage: `claude-launch.py [claude args...]` (alias `ccproxy` to it;
 CLAUDE_BIN overrides the real binary).
@@ -55,6 +59,29 @@ def take_option(argv, name):
             rest.append(arg)
         i += 1
     return value, rest
+
+
+def remote_config(path=None):
+    """{"url","secret"} from ccproxy-remote.json, or None (= local mode)."""
+    path = path or os.path.expanduser("~/.config/agent-dashboard/ccproxy-remote.json")
+    try:
+        with open(path) as f:
+            cfg = json.load(f)
+        return cfg if cfg.get("url") and cfg.get("secret") else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def remote_env(cfg, env, account=None, model=None):
+    env = {k: v for k, v in env.items() if k not in ANTHROPIC_VARS}
+    env.pop("CLAUDE_CONFIG_DIR", None)
+    env["ANTHROPIC_BASE_URL"] = cfg["url"].rstrip("/")
+    env["ANTHROPIC_AUTH_TOKEN"] = cfg["secret"]
+    if account:
+        env["ANTHROPIC_MODEL"] = f"{account}/{model or PINNED_DEFAULT_MODEL}"
+        env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = env["ANTHROPIC_SMALL_FAST_MODEL"] = \
+            f"{account}/{PINNED_SMALL_MODEL}"
+    return env
 
 
 def pinned_env(account, model, env, router_port):
@@ -140,6 +167,14 @@ def limited_until_store():
 def main(argv):
     account, argv = take_option(argv, "--account")
     port = os.environ.get("CLAUDE_ROUTER_PORT", "4720")
+    remote = remote_config()
+    if remote:
+        model, argv = take_option(argv, "--model") if account else (None, argv)
+        env = remote_env(remote, dict(os.environ), account, model)
+        binary = claude_binary(env)
+        print(f"claude → remote pool {remote['url']}" + (f" (pinned '{account}')" if account else ""),
+              file=sys.stderr)
+        os.execvpe(binary, [binary] + argv, env)
     if account:
         model, argv = take_option(argv, "--model")
         env = pinned_env(account, model, dict(os.environ), port)

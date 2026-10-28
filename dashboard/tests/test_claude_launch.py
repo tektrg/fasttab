@@ -62,6 +62,18 @@ check("pinned model + router", (env["ANTHROPIC_MODEL"], env["ANTHROPIC_BASE_URL"
 check("pinned small model", env["ANTHROPIC_SMALL_FAST_MODEL"], "7lab/claude-haiku-5-5")
 check("--model kept", L.pinned_env("trung", "claude-sonnet-5-5", {}, "1")["ANTHROPIC_MODEL"],
       "trung/claude-sonnet-5-5")
+
+print("\n== remote mode ==")
+cfgf = os.path.join(_tmp, "remote.json")
+check("no file = local mode", L.remote_config(cfgf), None)
+with open(cfgf, "w") as f:
+    f.write('{"url": "http://100.1.2.3:4720/", "secret": "S3CRET"}')
+cfg = L.remote_config(cfgf)
+renv = L.remote_env(cfg, {"ANTHROPIC_MODEL": "x", "CLAUDE_CONFIG_DIR": "/c", "PATH": "/p"})
+check("remote url + key, local vars dropped",
+      (renv["ANTHROPIC_BASE_URL"], renv["ANTHROPIC_AUTH_TOKEN"], "ANTHROPIC_MODEL" in renv,
+       "CLAUDE_CONFIG_DIR" in renv, renv["PATH"]), ("http://100.1.2.3:4720", "S3CRET", False, False, "/p"))
+check("remote pin", L.remote_env(cfg, {}, "7lab")["ANTHROPIC_MODEL"], "7lab/claude-opus-5-5")
 check("limited login then DeepSeek -> router", pick([SUB_A, DEEP], limited={"a": NOW + 1}), ("router", "ds"))
 check("nothing usable -> default", pick([dict(SUB_A, enabled=False)]), ("default", None))
 check("empty -> default", pick([]), ("default", None))

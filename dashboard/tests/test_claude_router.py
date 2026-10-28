@@ -162,6 +162,26 @@ y = FakeUpstream(200, {}, (b"ok",))
 s = start_router([acct("notoken", "http://127.0.0.1:9", "NO_SUCH_ENV"), acct("Y", y.url, "FAKE_TOKEN_B")])
 check("missing token skips account", call(s)[0] == 200)
 
+# 6b. Remote listener: key required, approval endpoints localhost-only.
+y = FakeUpstream(200, {}, (b"ok",))
+d = tempfile.mkdtemp(dir=_tmp)
+apath = os.path.join(d, "accounts.json")
+with open(apath, "w") as f:
+    json.dump({"accounts": [acct("Y", y.url, "FAKE_TOKEN_B")]}, f)
+rs = claude_router.make_server(0, accounts_file=apath, state_directory=os.path.join(d, "st"),
+                               remote_secret="s3cret")
+threading.Thread(target=rs.serve_forever, daemon=True).start()
+check("remote: no key -> 401", call(rs)[0] == 401)
+check("remote: wrong key -> 401", call(rs, headers={"authorization": "Bearer nope"})[0] == 401)
+check("remote: key works", call(rs, headers={"authorization": "Bearer s3cret"})[0] == 200)
+check("remote: key never forwarded upstream",
+      "s3cret" not in json.dumps(y.requests[-1]["headers"]))
+check("remote: x-api-key works", call(rs, headers={"x-api-key": "s3cret"})[0] == 200)
+check("remote: status needs key", call(rs, "GET", "/status")[0] == 401
+      and call(rs, "GET", "/status", headers={"x-api-key": "s3cret"})[0] == 200)
+check("remote: approve refused even with key",
+      call(rs, path="/approve", body={"id": "x"}, headers={"x-api-key": "s3cret"})[0] == 403)
+
 # 7. cooldown_seconds parsing.
 now = time.time()
 check("reset header epoch", 290 <= claude_router.cooldown_seconds(

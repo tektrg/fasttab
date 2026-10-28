@@ -25,6 +25,7 @@ Secrets : `tokenKeychain` (macOS Keychain service name) or `tokenEnv` — never 
 Port    : CLAUDE_ROUTER_PORT, default 4720 (4711/4712 belong to the dashboard).
 """
 import email.utils
+import hmac
 import http.client
 import json
 import os
@@ -45,6 +46,7 @@ LIMIT_PATTERNS = ("usage limit", "rate limit", "rate_limit", "quota", "limit rea
                   "overloaded", "insufficient credits", "credit balance",
                   # CLIProxyAPI pool: every pooled subscription is limited
                   "are cooling down", "no auth available", "no auth candidates")
+REMOTE_SECRET_KEYCHAIN = "claude-router-remote"
 DEFAULT_COOLDOWN = {429: 300, 529: 60, "network": 30, "limit": 300}
 MAX_COOLDOWN = 6 * 3600
 HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
@@ -226,13 +228,34 @@ class RouterHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quiet; the switch log is the record
         pass
 
+    # --- remote listener (Tailscale, shared secret) ---------------------
+    def _remote_denied(self):
+        """On the remote listener: wrong/missing secret -> 401, and approval
+        endpoints are localhost-only (DeepSeek approval stays the user's)."""
+        secret = getattr(self.server, "remote_secret", None)
+        if secret is None:
+            return False
+        given = (self.headers.get("x-api-key")
+                 or (self.headers.get("authorization") or "").removeprefix("Bearer ").strip())
+        if not hmac.compare_digest(given.encode(), secret.encode()):
+            self._json(401, {"error": "claude-router: bad or missing key"})
+            return True
+        if self.path.split("?")[0].startswith("/approve"):
+            self._json(403, {"error": "claude-router: approve from this Mac only"})
+            return True
+        return False
+
     # --- local endpoints -------------------------------------------------
     def do_GET(self):
+        if self._remote_denied():
+            return
         if self.path.split("?")[0] == "/status":
             return self._json(200, self.server.state.status(self._accounts_or_empty()))
         return self._proxy()
 
     def do_POST(self):
+        if self._remote_denied():
+            return
         if self.path == "/approve":
             body = self._read_body()
             account_id = (json.loads(body or b"{}") or {}).get("id")
@@ -377,11 +400,14 @@ class RouterHandler(BaseHTTPRequestHandler):
         return "served"
 
 
-def make_server(port=None, host="127.0.0.1", accounts_file=None, state_directory=None):
+def make_server(port=None, host="127.0.0.1", accounts_file=None, state_directory=None,
+                remote_secret=None, state=None):
+    """remote_secret set = a non-localhost listener: every request needs that key."""
     server = ThreadingHTTPServer((host, port if port is not None else DEFAULT_PORT), RouterHandler)
     server.daemon_threads = True
     server.accounts_file = accounts_file or accounts_path()
-    server.state = RouterState(state_directory or state_dir())
+    server.state = state or RouterState(state_directory or state_dir())
+    server.remote_secret = remote_secret
     return server
 
 
@@ -390,6 +416,17 @@ def main():
     server = make_server(port)
     server.state.log("start", port=port, accounts=server.accounts_file)
     print(f"claude-router on 127.0.0.1:{port} accounts={server.accounts_file}", flush=True)
+    remote_host = os.environ.get("CLAUDE_ROUTER_REMOTE_BIND")  # a Tailscale IP, never 0.0.0.0
+    if remote_host:
+        secret = resolve_token({"tokenKeychain": REMOTE_SECRET_KEYCHAIN})
+        if not secret or remote_host in ("0.0.0.0", ""):
+            print("claude-router: remote listener NOT started (no key or open bind)", flush=True)
+        else:
+            remote = make_server(port, remote_host, server.accounts_file, remote_secret=secret,
+                                 state=server.state)
+            threading.Thread(target=remote.serve_forever, daemon=True).start()
+            server.state.log("remote-start", host=remote_host, port=port)
+            print(f"claude-router remote on {remote_host}:{port} (key required)", flush=True)
     server.serve_forever()
 
 

@@ -19,7 +19,7 @@ router's approval prompt applies (DeepSeek never starts unasked).
   pool only uses that account, so a pinned session stops at its limit
   instead of moving on.
 All other argv pass through. Stdlib only; one localhost GET.
-Usage: `claude-launch.py [claude args...]` (alias `claude` to it if wanted;
+Usage: `claude-launch.py [claude args...]` (alias `ccproxy` to it;
 CLAUDE_BIN overrides the real binary).
 """
 import json

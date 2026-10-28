@@ -570,12 +570,20 @@ class BrowserTabService: ObservableObject {
         }
     }
 
-    func fetchResults(matching query: String = "", filter: ScopeFilter = ScopeFilter()) {
+    /// `historyDelay` only applies to the unscoped typed-query path: phase 1
+    /// (in-memory tabs/bookmarks) publishes immediately, and the history
+    /// database search waits this long first so a typing burst — each
+    /// keystroke cancels the previous fetch — never opens SQLite readers.
+    func fetchResults(
+        matching query: String = "",
+        filter: ScopeFilter = ScopeFilter(),
+        historyDelay: Duration = .zero
+    ) {
         // Remember the last filter so internal triggers (tab close, cache
         // refresh) preserve any active scope.
         lastIssuedFilter = filter
         guard !filter.isPassthrough else {
-            fetchResultsUnscoped(matching: query)
+            fetchResultsUnscoped(matching: query, historyDelay: historyDelay)
             return
         }
         fetchScopedResults(matching: query, filter: filter)
@@ -782,7 +790,7 @@ class BrowserTabService: ObservableObject {
         }
     }
 
-    private func fetchResultsUnscoped(matching query: String = "") {
+    private func fetchResultsUnscoped(matching query: String = "", historyDelay: Duration = .zero) {
         fetchGeneration += 1
         let generation = fetchGeneration
 
@@ -950,13 +958,14 @@ class BrowserTabService: ObservableObject {
                     MyOrderStore.shared.reconcile(liveTabs: rawLiveTabs, unreadableBrowsers: unreadableBrowsers)
                 }
                 let filteredLiveTabs = MyOrderStore.shared.overlayPinStatus(on: rawLiveTabs)
-                let filteredPhase1 = sortBrowserSearchResults(
-                    MyOrderStore.shared.overlayPinStatus(on: self.filteringRecentlyClosed(phase1Results)),
-                    frecencyScore: frecencyLookup
-                )
-                self.lastActiveTimes = updatedTimes
-                self.lastAudibleSeenAt = updatedAudibleSeenAt
-                self.persistActiveTimes()
+                // Already sorted off-main; the filter and idempotent pin
+                // overlay below keep that order, so no second sort here.
+                let filteredPhase1 = MyOrderStore.shared.overlayPinStatus(on: self.filteringRecentlyClosed(phase1Results))
+                if !usedCachedLiveTabs {
+                    self.lastActiveTimes = updatedTimes
+                    self.lastAudibleSeenAt = updatedAudibleSeenAt
+                    self.persistActiveTimes()
+                }
                 if !usedCachedLiveTabs {
                     self.cachedLiveTabs = filteredLiveTabs
                     self.lastLiveTabsRefreshAt = Date()
@@ -984,6 +993,11 @@ class BrowserTabService: ObservableObject {
 
             // Phase 2: run history search per backend concurrently, widening
             // from recent to older history when the history result set is sparse.
+            // Debounced here (not in front of phase 1) — see `fetchResults`.
+            if historyDelay > .zero {
+                try? await Task.sleep(for: historyDelay)
+                guard !Task.isCancelled else { return }
+            }
             let historyMatches = await HistorySearchExpansion.search(
                 query: normalizedQuery,
                 backends: backends,

@@ -418,7 +418,7 @@ def main():
     print(f"claude-router on 127.0.0.1:{port} accounts={server.accounts_file}", flush=True)
     remote_host = os.environ.get("CLAUDE_ROUTER_REMOTE_BIND")  # a Tailscale IP, never 0.0.0.0
     if remote_host:
-        secret = resolve_token({"tokenKeychain": REMOTE_SECRET_KEYCHAIN})
+        secret = resolve_token({"id": "remote", "tokenKeychain": REMOTE_SECRET_KEYCHAIN})
         if not secret or remote_host in ("0.0.0.0", ""):
             print("claude-router: remote listener NOT started (no key or open bind)", flush=True)
         else:

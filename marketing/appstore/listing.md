@@ -74,7 +74,7 @@ Privacy policy: https://fasttab.theindie.app/privacy
 | Sign in with Apple only for YouTube transcripts | `project.yml` comment, `YouTubeTranscriptLoader` reads account token | ✅ |
 | Dropped: "end-to-end encrypted" | only CloudKit `encryptedValues` fields | — |
 
-Demo data: fictional sites/authors/articles/tabs (`ios/FastTabMobile/AppStoreDemo.swift`), no real user data, no employer/internal names. Thumbnails stay grey placeholders: the card image loader only accepts http(s) images, so seeding them would mean a code change in `LinkCardImageLoader` (not cheap).
+Demo data: fictional sites/authors/articles/tabs (`ios/FastTabMobile/AppStoreDemo.swift`), no real user data, no employer/internal names. Card thumbnails are generated illustrations bundled in Debug only (`ios/FastTabMobile/AppStoreDemo/demo-thumb-*.png`, excluded from Release).
 
 ## Privacy
 **Current page** (fasttab.theindie.app/privacy, May 2026) covers the **Mac app only** and says "No account data … does not require an account … or third-party login" — **wrong for the iPhone app once Sign in with Apple ships. Must be updated before submission.**

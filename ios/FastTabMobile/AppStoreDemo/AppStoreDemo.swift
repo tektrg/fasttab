@@ -3,6 +3,7 @@ import Foundation
 import FastTabSync
 import IndieMotion
 import TipKit
+import UIKit
 
 /// Made-up reading library for App Store screenshots. Debug builds only.
 ///
@@ -159,6 +160,24 @@ enum AppStoreDemo {
             highlights: []
         )
     ]
+
+    /// Card thumbnail for a demo article: `demo-thumb-<index>.png`, bundled in Debug builds only
+    /// (`EXCLUDED_SOURCE_FILE_NAMES` in project.yml keeps them out of Release).
+    static func thumbnail(for url: URL) -> UIImage? {
+        guard let index = articles.firstIndex(where: { $0.url == url.absoluteString }) else { return nil }
+        return UIImage(named: "demo-thumb-\(index)")
+    }
+
+    /// The Read tab's Emerging lane: older demo bookmarks, as the real ranking would surface them.
+    static func emergingItems() -> [EmergingItem] {
+        [(5, "Reading", "Saved 6 weeks ago · matches ideas"), (4, "Travel", "Saved 2 months ago · matches travel"),
+         (6, "Science", "Saved 3 months ago")].compactMap { index, folder, reason in
+            let article = articles[index]
+            guard let url = URL(string: article.url) else { return nil }
+            return EmergingItem(id: "appstore-demo-emerging-\(index)", title: article.title, url: url,
+                                domain: url.host() ?? "", badgeText: folder, reason: reason, lane: .forgotten)
+        }
+    }
 
     /// Clean shots: no TipKit tips, no "Search every Mac" card. Call before `Tips.configure`.
     static func hideTips() {

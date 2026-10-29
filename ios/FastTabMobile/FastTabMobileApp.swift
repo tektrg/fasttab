@@ -23,6 +23,9 @@ public struct FastTabMobileApp: App {
     @State private var rootToast: String?
 
     public init() {
+        #if DEBUG
+        if AppStoreDemo.isEnabled { AppStoreDemo.hideTips() }
+        #endif
         FastTabTips.configure(onboardingCompleted: OnboardingCompletionStore().isCompleted)
     }
 
@@ -60,6 +63,9 @@ public struct FastTabMobileApp: App {
                     #if DEBUG
                     if AppStoreDemo.isEnabled && AppStoreDemo.screen == .highlights {
                         HighlightsListView()
+                    } else if AppStoreDemo.isEnabled && AppStoreDemo.screen == .bookmarks {
+                        BookmarkTreeView(device: nil)
+                            .navigationTitle("Bookmarks")
                     } else {
                         MoreView()
                     }
@@ -180,12 +186,14 @@ private extension FastTabMobileApp {
     /// App Store screenshots (`AppStoreDemo`): demo library, no sync, no guide.
     private func startAppStoreDemo() {
         AppStoreDemo.seed()
+        if !appMode.isStandalone { AppStoreDemo.seedMac() }
         RecentAddedProvider.shared.refresh()
         EmergingContentProvider.shared.refresh()
         switch AppStoreDemo.screen {
         case .read: selectedTab = .read
         case .shuffle: selectedTab = .shuffle
-        case .more, .highlights: selectedTab = .more
+        case .more, .highlights, .bookmarks: selectedTab = .more
+        case .tabs: selectedTab = .tabs
         case .reader:
             selectedTab = .read
             let article = AppStoreDemo.featured

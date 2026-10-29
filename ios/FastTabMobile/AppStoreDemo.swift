@@ -1,6 +1,8 @@
 #if DEBUG
 import Foundation
 import FastTabSync
+import IndieMotion
+import TipKit
 
 /// Made-up reading library for App Store screenshots. Debug builds only.
 ///
@@ -11,12 +13,15 @@ import FastTabSync
 /// screen (`AppStoreDemo.Screen`). Driven by `marketing/appstore/tools/capture.sh`, which
 /// backs up the simulator's app data first and restores it afterwards.
 ///
+/// With `-FastTabAppMode mac` it also fills the sync cache with a demo Mac, its open browser
+/// tabs and bookmarks (`seedMac`), as if FastTab for Mac had synced them.
+///
 /// Writes into the app's normal stores, so only run it on a simulator.
 enum AppStoreDemo {
     static var isEnabled: Bool { UserDefaults.standard.bool(forKey: "FastTabAppStoreDemo") }
 
     enum Screen: String {
-        case read, reader, highlights, more, shuffle
+        case read, reader, highlights, more, shuffle, tabs, bookmarks
     }
 
     static var screen: Screen {
@@ -155,6 +160,13 @@ enum AppStoreDemo {
         )
     ]
 
+    /// Clean shots: no TipKit tips, no "Search every Mac" card. Call before `Tips.configure`.
+    static func hideTips() {
+        Tips.hideAllTipsForTesting()
+        let seen = MotionSeenState().dismissing(SearchEveryMacTipRow.tipID)
+        UserDefaults.standard.set(seen.rawValue, forKey: "motionSeenState")
+    }
+
     /// Fills the stores. Called once at launch, before the first screen appears.
     @MainActor
     static func seed() {
@@ -199,6 +211,52 @@ enum AppStoreDemo {
             ReaderReadingProgress.shared.set(progress: article.progress, for: url)
             LastOpenedStore.shared.recordOpened(url: url, title: article.title)
             LastOpenedStore.shared.updateProgress(url: url, progress: article.progress)
+        }
+    }
+
+    /// A demo Mac with open Safari/Chrome tabs and bookmarks in the sync cache.
+    @MainActor
+    static func seedMac() {
+        let now = Date()
+        let mac = SyncedDevice(id: "appstore-demo-mac", name: "MacBook Pro", modelName: "MacBook Pro",
+                               lastSeenAt: now, appVersion: "1.6.0", kind: .mac)
+        LocalCache.shared.updateDevice(mac)
+        let tabs: [(String, String, String)] = [
+            ("Safari", "The art of the unhurried read", articles[0].url),
+            ("Safari", "A field guide to good typography", articles[2].url),
+            ("Safari", "Walking Lisbon in a day", articles[4].url),
+            ("Chrome", "Notes that compound: keeping ideas you can find again", articles[5].url),
+            ("Chrome", "Q4 planning board", "https://boards.example.com/q4-planning"),
+            ("Chrome", "Ten one-pot dinners for busy weeknights", articles[3].url),
+            ("Chrome", "Why we should look up more often", articles[6].url),
+            ("Safari", "How to take a real break", articles[1].url)
+        ]
+        for (index, tab) in tabs.enumerated() {
+            LocalCache.shared.updateTab(SyncedTab(
+                id: "appstore-demo-tab-\(index)", deviceID: mac.id, browserName: tab.0, title: tab.1, url: tab.2,
+                timestamp: now.addingTimeInterval(-Double(index) * 600),
+                windowIndex: 0, tabIndex: index, tabID: index + 1
+            ))
+        }
+        let bookmarks: [(String, String, String)] = [
+            ("", "The art of the unhurried read", articles[0].url),
+            ("", "Notes that compound: keeping ideas you can find again", articles[5].url),
+            ("", "A field guide to good typography", articles[2].url),
+            ("Travel", "Walking Lisbon in a day", articles[4].url),
+            ("Cooking", "Ten one-pot dinners for busy weeknights", articles[3].url),
+            ("Health", "How to take a real break", articles[1].url),
+            ("Science", "Why we should look up more often", articles[6].url)
+        ]
+        for browser in ["Safari", "Chrome"] {
+            let items = bookmarks.enumerated().map { index, bookmark in
+                SyncedBookmarkItem(id: "appstore-demo-\(browser)-\(index)", title: bookmark.1, url: bookmark.2,
+                                   folderPath: bookmark.0.isEmpty ? "Bookmarks Bar" : "Bookmarks Bar/\(bookmark.0)",
+                                   dateAdded: now.addingTimeInterval(-Double(index + 1) * 86_400))
+            }
+            LocalCache.shared.updateBookmarkBlob(SyncedBookmarkBlob(
+                deviceID: mac.id, browserName: browser, profileName: "Default",
+                bookmarks: browser == "Safari" ? items.filter { $0.folderPath == "Bookmarks Bar" } : items.filter { $0.folderPath != "Bookmarks Bar" }
+            ))
         }
     }
 

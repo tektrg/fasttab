@@ -11,8 +11,8 @@ Lead message (owner, 2026-10-30): **read later + sync with your Mac's browser ta
 
 **Subtitle** (27/30): `Read later, synced with Mac`
 
-**Promotional text** (57/170, owner's sentence):
-> Read it later, sync with your browser tabs and bookmarks.
+**Promotional text** (63/170, owner-approved):
+> Read it later, sync with your Mac's browser tabs and bookmarks.
 
 **Keywords** (98/100 bytes, `printf %s "$k" | wc -c`; name/subtitle words not repeated):
 `later,article,highlight,reading,list,sync,tabs,bookmarks,browser,safari,chrome,offline,save,icloud`

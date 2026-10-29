@@ -68,6 +68,8 @@ targets:
         product: IndieTextCleanup
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile
+      # iPhone only: no iPad layout yet, and iPad would need its own 13" App Store screenshots.
+      TARGETED_DEVICE_FAMILY: "1"
       DEVELOPMENT_TEAM: 56S46Y7CKN
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_ENTITLEMENTS: FastTabMobile/FastTabMobile.entitlements
@@ -134,6 +136,7 @@ targets:
         product: FastTabSync
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile.Share
+      TARGETED_DEVICE_FAMILY: "1"
       DEVELOPMENT_TEAM: 56S46Y7CKN
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_ENTITLEMENTS: FastTabShare/FastTabShare.entitlements
@@ -172,6 +175,7 @@ targets:
       - sdk: SwiftUI.framework
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile.Widgets
+      TARGETED_DEVICE_FAMILY: "1"
       DEVELOPMENT_TEAM: 56S46Y7CKN
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_ENTITLEMENTS: FastTabWidgets/FastTabWidgets.entitlements

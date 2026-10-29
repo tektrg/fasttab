@@ -157,8 +157,9 @@ public final class ReaderViewModel: ObservableObject {
         highlights = highlightStore.highlights(for: url)
         ReaderCommentThreads.shared.load(highlights)
 
-        // Instant load from cache if previously processed
-        if case .idle = loadState, let cached = cachedArticle() {
+        // Instant load if the article is already in memory; the disk tier is read
+        // off the main thread in `extractIfNeeded`.
+        if case .idle = loadState, let cached = accepted(articleCache.memoryArticle(for: url)) {
             loadState = .loaded(cached)
         }
     }
@@ -168,7 +169,8 @@ public final class ReaderViewModel: ObservableObject {
     public func extractIfNeeded(force: Bool = false) async {
         if !force {
             if case .loaded = loadState { return }
-            if let cached = cachedArticle() {
+            if let cached = accepted(await articleCache.loadArticle(for: url)) {
+                if case .loaded = loadState { return }
                 loadState = .loaded(cached)
                 return
             }
@@ -203,8 +205,8 @@ public final class ReaderViewModel: ObservableObject {
 
     /// The cache entry, unless it came from the other pipeline (a Readability page cached
     /// for a YouTube link before transcripts existed).
-    private func cachedArticle() -> ReaderArticle? {
-        guard let cached = articleCache.article(for: url) else { return nil }
+    private func accepted(_ cached: ReaderArticle?) -> ReaderArticle? {
+        guard let cached else { return nil }
         let isTranscriptRoute = route != .article
         return (cached.youtubeVideoID != nil) == isTranscriptRoute ? cached : nil
     }

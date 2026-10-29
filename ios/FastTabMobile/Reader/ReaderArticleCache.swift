@@ -91,6 +91,36 @@ public final class ReaderArticleCache: ObservableObject {
         return article
     }
 
+    /// The in-memory entry only — never touches disk, safe to call while a screen is appearing.
+    public func memoryArticle(for url: URL) -> ReaderArticle? {
+        let key = canonical(url)
+        guard let cached = memoryCache[key] else { return nil }
+        recordAccess(key: key)
+        return cached
+    }
+
+    /// Same as `article(for:)`, but reads and decodes the disk entry off the main thread.
+    /// Cached pages can be megabytes (inlined images), so a synchronous decode stalls the UI.
+    public func loadArticle(for url: URL) async -> ReaderArticle? {
+        if let cached = memoryArticle(for: url) { return cached }
+        let key = canonical(url)
+        let fileURL = diskFileURL(for: key)
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        let decoded = await Task.detached(priority: .userInitiated) {
+            (try? Data(contentsOf: fileURL)).flatMap { try? JSONDecoder().decode(ReaderArticle.self, from: $0) }
+        }.value
+        guard let article = decoded else {
+            // Corrupted or unreadable disk cache entry — remove it and clean index
+            try? fileManager.removeItem(at: fileURL)
+            accessIndex.removeValue(forKey: key)
+            saveIndex()
+            return nil
+        }
+        memoryCache[key] = article
+        recordAccess(key: key)
+        return article
+    }
+
     /// Checks whether an article is already cached for the given URL without decoding full disk content if possible.
     public func hasCachedArticle(for url: URL) -> Bool {
         let key = canonical(url)

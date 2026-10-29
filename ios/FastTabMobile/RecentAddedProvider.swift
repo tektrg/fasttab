@@ -140,7 +140,11 @@ public final class RecentAddedProvider: ObservableObject {
         }
     }
 
+    private var bookmarksTask: Task<Void, Never>?
+
     /// Rebuilds the combined list of recent bookmarks and desk queue / share sheet additions.
+    /// Share-sheet items are gathered here; the synced bookmarks (can be thousands) are walked
+    /// off the main thread, so a refresh on foreground doesn't freeze the open screen.
     public func refresh() {
         drainPendingShares()
         SavedOnIPhoneStore.shared.drainPendingSaves()
@@ -158,7 +162,7 @@ public final class RecentAddedProvider: ObservableObject {
                 continue
             }
 
-            let normalized = normalize(url)
+            let normalized = Self.normalize(url)
             if !seenNormalizedURLs.contains(normalized) {
                 seenNormalizedURLs.insert(normalized)
                 let delivery = LocalCache.shared.delivery(forCommandID: command.id)
@@ -185,7 +189,7 @@ public final class RecentAddedProvider: ObservableObject {
                 continue
             }
 
-            let normalized = normalize(url)
+            let normalized = Self.normalize(url)
             if !seenNormalizedURLs.contains(normalized) {
                 seenNormalizedURLs.insert(normalized)
                 gathered.append(RecentAddedItem(
@@ -200,9 +204,28 @@ public final class RecentAddedProvider: ObservableObject {
             }
         }
 
-        // 3. Ingest Synced Bookmarks
+        // 3. Ingest Synced Bookmarks (off the main thread)
+        bookmarksTask?.cancel()
+        let blobs = state.bookmarkBlobs
+        bookmarksTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let (bookmarks, folders) = Self.gatherBookmarks(blobs, skipping: seenNormalizedURLs)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, !Task.isCancelled else { return }
+                self.availableFolders = folders
+                // Sort newest first
+                self.items = (gathered + bookmarks).sorted { $0.date > $1.date }
+            }
+        }
+    }
+
+    private nonisolated static func gatherBookmarks(
+        _ blobs: [SyncedBookmarkBlob], skipping alreadySeen: Set<String>
+    ) -> ([RecentAddedItem], [BookmarkFolderChip]) {
+        var gathered: [RecentAddedItem] = []
+        var seenNormalizedURLs = alreadySeen
         var folderMap: [String: String] = [:] // fullPath -> displayName
-        for blob in state.bookmarkBlobs {
+        for blob in blobs {
             for bm in blob.bookmarks {
                 guard let url = URL(string: bm.url), url.scheme?.hasPrefix("http") == true else { continue }
                 if let folder = bm.folderPath, !folder.isEmpty {
@@ -210,7 +233,7 @@ public final class RecentAddedProvider: ObservableObject {
                     folderMap[folder] = leafName
                 }
 
-                let normalized = normalize(url)
+                let normalized = Self.normalize(url)
                 if !seenNormalizedURLs.contains(normalized) {
                     seenNormalizedURLs.insert(normalized)
                     gathered.append(RecentAddedItem(
@@ -233,11 +256,9 @@ public final class RecentAddedProvider: ObservableObject {
         }
 
         // Sort folder chips by display name
-        self.availableFolders = folderMap.map { BookmarkFolderChip(fullPath: $0.key, displayName: $0.value) }
+        let folders = folderMap.map { BookmarkFolderChip(fullPath: $0.key, displayName: $0.value) }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-
-        // Sort newest first
-        self.items = gathered.sorted { $0.date > $1.date }
+        return (gathered, folders)
     }
 
     public func removeItem(id: String) {
@@ -254,7 +275,7 @@ public final class RecentAddedProvider: ObservableObject {
         }
     }
 
-    private func normalize(_ url: URL) -> String {
+    private nonisolated static func normalize(_ url: URL) -> String {
         let host = (url.host() ?? "").lowercased()
         let path = url.path().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let query = (url.query() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

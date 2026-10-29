@@ -98,8 +98,7 @@ public struct FastTabMobileApp: App {
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
                 case .active:
-                    RecentAddedProvider.shared.drainPendingShares()
-                    RecentAddedProvider.shared.refresh()
+                    RecentAddedProvider.shared.refresh() // drains pending shares first
                     EmergingContentProvider.shared.refresh()
                     LastOpenedStore.shared.loadFromDisk()
                     WidgetSnapshotPublisher.shared.reloadReading()

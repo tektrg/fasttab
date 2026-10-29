@@ -57,7 +57,15 @@ public struct FastTabMobileApp: App {
                 .tag(AppTab.shuffle)
 
                 NavigationStack {
+                    #if DEBUG
+                    if AppStoreDemo.isEnabled && AppStoreDemo.screen == .highlights {
+                        HighlightsListView()
+                    } else {
+                        MoreView()
+                    }
+                    #else
                     MoreView()
+                    #endif
                 }
                 .tabItem {
                     Label("More", systemImage: "ellipsis.circle")
@@ -101,6 +109,12 @@ public struct FastTabMobileApp: App {
                 .presentationDragIndicator(.visible)
             }
             .onAppear {
+                #if DEBUG
+                if AppStoreDemo.isEnabled {
+                    startAppStoreDemo()
+                    return
+                }
+                #endif
                 presentOnboardingOnFirstLaunch()
                 syncConsumer.start()
                 WidgetSnapshotPublisher.shared.start()
@@ -161,6 +175,26 @@ private extension FastTabMobileApp {
     }
 
     var visibleTabs: [AppTab] { AppTab.visible(for: appMode.mode) }
+
+    #if DEBUG
+    /// App Store screenshots (`AppStoreDemo`): demo library, no sync, no guide.
+    private func startAppStoreDemo() {
+        AppStoreDemo.seed()
+        RecentAddedProvider.shared.refresh()
+        EmergingContentProvider.shared.refresh()
+        switch AppStoreDemo.screen {
+        case .read: selectedTab = .read
+        case .shuffle: selectedTab = .shuffle
+        case .more, .highlights: selectedTab = .more
+        case .reader:
+            selectedTab = .read
+            let article = AppStoreDemo.featured
+            if let url = URL(string: article.url) {
+                widgetReaderItem = ReaderNavigationItem(url: url, title: article.title, focusHighlightID: nil)
+            }
+        }
+    }
+    #endif
 
     func presentOnboardingOnFirstLaunch() {
         #if DEBUG

@@ -13,7 +13,7 @@ struct NaturalVoicePaywallView: View {
     @Environment(AccountSession.self) private var accountSession
     @Environment(\.dismiss) private var dismiss
     @State private var selected = NaturalVoiceAccess.yearlyID
-    @State private var trialEligible = true
+    @State private var pricing = NaturalVoicePricing.loading
     @State private var isWorking = false
     @State private var message: String?
     /// Paid at Apple, waiting for the server to confirm it.
@@ -41,8 +41,7 @@ struct NaturalVoicePaywallView: View {
             }
         }
         .task {
-            if access.manager.offers.isEmpty { await access.manager.loadOffers() }
-            trialEligible = await Self.isTrialEligible()
+            pricing = await Self.loadPricing()
         }
     }
 
@@ -70,13 +69,13 @@ struct NaturalVoicePaywallView: View {
 
     private var plans: some View {
         VStack(spacing: DS.Space.sm) {
-            planRow(NaturalVoiceAccess.yearlyID, title: "Yearly", period: "year", badge: "Save 33%")
+            planRow(NaturalVoiceAccess.yearlyID, title: "Yearly", period: "year", badge: pricing.savingsBadge)
             planRow(NaturalVoiceAccess.monthlyID, title: "Monthly", period: "month", badge: nil)
         }
     }
 
     private func planRow(_ id: String, title: String, period: String, badge: String?) -> some View {
-        let price = access.manager.offer(for: id)?.displayPrice ?? Self.fallbackPrice(id)
+        let priceLine = pricing.priceText(id).map { "\($0) / \(period)" } ?? "Loading price…"
         let isSelected = selected == id
         return Button { selected = id } label: {
             HStack {
@@ -90,7 +89,7 @@ struct NaturalVoicePaywallView: View {
                                 .background(.tint.opacity(0.15), in: Capsule())
                         }
                     }
-                    Text("\(price) / \(period)").font(.subheadline).foregroundStyle(.secondary)
+                    Text(priceLine).font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
             }
@@ -102,16 +101,15 @@ struct NaturalVoicePaywallView: View {
         .buttonStyle(.plain)
     }
 
-    private var selectedPrice: String {
-        access.manager.offer(for: selected)?.displayPrice ?? Self.fallbackPrice(selected)
-    }
-
     private var selectedPeriod: String { selected == NaturalVoiceAccess.yearlyID ? "year" : "month" }
 
+    @ViewBuilder
     private var terms: some View {
-        Text(Self.termsText(price: selectedPrice, period: selectedPeriod, trial: trialEligible))
-            .font(.footnote)
-            .foregroundStyle(.secondary)
+        if let price = pricing.priceText(selected) {
+            Text(Self.termsText(price: price, period: selectedPeriod, trial: pricing.offersTrial))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
     }
 
     /// Apple guideline 3.1.2: price per period, trial, auto-renewal and how to cancel, before buying.
@@ -134,13 +132,13 @@ struct NaturalVoicePaywallView: View {
             Button {
                 Task { await buy() }
             } label: {
-                Text(trialEligible ? "Start Free Trial" : "Subscribe")
+                Text(NaturalVoicePricing.buttonTitle(offersTrial: pricing.offersTrial))
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, DS.Space.sm)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isWorking)
+            .disabled(isWorking || !pricing.canBuy(selected))
         } else {
             VStack(alignment: .leading, spacing: DS.Space.sm) {
                 Text("Sign in first so your subscription works on all your devices.")
@@ -237,12 +235,15 @@ struct NaturalVoicePaywallView: View {
         #endif
     }
 
-    /// Shown only until Apple's localized prices load.
-    static func fallbackPrice(_ id: String) -> String { id == NaturalVoiceAccess.yearlyID ? "$39.99" : "$4.99" }
-
-    private static func isTrialEligible() async -> Bool {
-        guard let product = try? await StoreKit.Product.products(for: [NaturalVoiceAccess.monthlyID]).first,
-              let subscription = product.subscription else { return true }
-        return await subscription.isEligibleForIntroOffer
+    private static func loadPricing() async -> NaturalVoicePricing {
+        #if DEBUG
+        // App Store screenshots run without a StoreKit session: show the US catalog.
+        if AppStoreDemo.isEnabled {
+            return NaturalVoicePricing(monthly: .init(displayPrice: "$4.99", price: Decimal(string: "4.99")!),
+                                       yearly: .init(displayPrice: "$39.99", price: Decimal(string: "39.99")!),
+                                       trial: .eligible)
+        }
+        #endif
+        return await NaturalVoicePricing.load()
     }
 }

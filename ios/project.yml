@@ -213,6 +213,9 @@ targets:
       # Xcode turn IndieAccount into an embedded framework (same as Parklet's project.yml).
       - path: ../../IndieLibKit/Sources/IndieAccountTestSupport
       - path: ../../IndieLibKit/Sources/IndieShareSyncTestSupport
+      # Local App Store catalog for StoreKitTest purchases (NaturalVoiceStoreKitTests).
+      - path: Config/FastTab.storekit
+        buildPhase: resources
     dependencies:
       - target: FastTabMobile
     settings:

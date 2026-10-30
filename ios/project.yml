@@ -80,7 +80,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: FastTabMobile/FastTabMobile.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: 1.0.0
-        CURRENT_PROJECT_VERSION: 4
+        CURRENT_PROJECT_VERSION: 5
         GENERATE_INFOPLIST_FILE: YES
         # Home-screen + App Store name. Widgets keep "FastTab" (below).
         INFOPLIST_KEY_CFBundleDisplayName: FastTab Reader
@@ -149,7 +149,7 @@ targets:
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_ENTITLEMENTS: FastTabShare/FastTabShare.entitlements
       MARKETING_VERSION: 1.0.0
-      CURRENT_PROJECT_VERSION: 4
+      CURRENT_PROJECT_VERSION: 5
       INFOPLIST_FILE: FastTabShare/Info.plist
       SWIFT_VERSION: "5.9"
       ENABLE_USER_SCRIPT_SANDBOXING: NO
@@ -186,7 +186,7 @@ targets:
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_ENTITLEMENTS: FastTabWidgets/FastTabWidgets.entitlements
       MARKETING_VERSION: 1.0.0
-      CURRENT_PROJECT_VERSION: 4
+      CURRENT_PROJECT_VERSION: 5
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: FastTab
       SWIFT_VERSION: "5.9"

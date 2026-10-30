@@ -1,6 +1,6 @@
 # FastTab Reader — App Store listing (iOS, first submission)
 
-**ASC** (2026-10-30): app `6828689539` · version 1.0.0 `ef3b6053-b4be-417a-a78e-b85fa0908423` (release MANUAL) · TestFlight build **4** attached (Natural Voice subscription: group 22528006, subs 6828734343 monthly / 6828734519 yearly) · App Privacy draft = `app-privacy.json` (applied, not published). Check: `ASC_PROFILE=CraftAgentApstoreConnect asc validate --app 6828689539 --version 1.0.0 --platform IOS`.
+**ASC** (2026-10-30): app `6828689539` · version 1.0.0 `ef3b6053-b4be-417a-a78e-b85fa0908423` (release MANUAL) · TestFlight build **5** attached (Natural Voice subscription: group 22528006, subs 6828734343 monthly / 6828734519 yearly) · App Privacy draft = `app-privacy.json` (applied, not published). Check: `ASC_PROFILE=CraftAgentApstoreConnect asc validate --app 6828689539 --version 1.0.0 --platform IOS`.
 
 App: `app.theindie.FastTabMobile` · team `56S46Y7CKN` (The Indie App) · version 1.0.0 (build 1) · **iPhone only**.
 Media: `en/fasttab-reader-*.png` (1320x2868, 9 shots) · `creative/en/` (iOS 27 header + search) · no preview video.

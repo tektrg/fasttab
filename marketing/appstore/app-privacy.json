@@ -36,6 +36,15 @@
       "dataProtections": [
         "DATA_LINKED_TO_YOU"
       ]
+    },
+    {
+      "category": "PURCHASE_HISTORY",
+      "purposes": [
+        "APP_FUNCTIONALITY"
+      ],
+      "dataProtections": [
+        "DATA_LINKED_TO_YOU"
+      ]
     }
   ]
 }

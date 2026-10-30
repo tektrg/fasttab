@@ -44,7 +44,10 @@ READ YOUTUBE AS AN ARTICLE
 Open a YouTube link and read the video's captions as a clean, timestamped transcript. Tap any timestamp to play the video from that moment. Transcripts need a free Sign in with Apple account and a video that has captions.
 
 LISTEN TO YOUR ARTICLES
-Read Aloud reads any article or transcript to you with your iPhone's built-in voices, highlighting the sentence it's on. It keeps playing with the screen locked or in another app, with play and pause on the Lock Screen. Choose a speed from 0.75x to 2x and pick a voice; download Enhanced or Premium voices in iOS Settings for the most natural sound.
+Read Aloud reads any article or transcript to you with your iPhone's built-in voices, highlighting the sentence it's on. It keeps playing with the screen locked or in another app, with play and pause on the Lock Screen. Choose a speed from 0.75x to 2x and pick a voice; download Enhanced or Premium voices in iOS Settings for the most natural sound. Built-in voices are free, with no account.
+
+NATURAL VOICE (OPTIONAL SUBSCRIPTION)
+Want a more human-sounding voice? Natural Voice streams lifelike cloud voices for Read Aloud. $4.99 per month or $39.99 per year, each with a 7-day free trial, with a fair-use monthly listening allowance. Needs a free Sign in with Apple account. Payment is charged to your Apple Account; the subscription renews automatically unless cancelled at least 24 hours before the period ends. Manage or cancel in Settings › Apple Account › Subscriptions.
 
 KEEP WHAT MATTERS
 Long-press to highlight a passage in one of four colours, tag it, and add a comment. Every highlight is collected in one searchable place, linked back to its article.
@@ -58,6 +61,7 @@ Tabs, bookmarks, your list and highlights sync through your own iCloud account. 
 NO MAC? NO PROBLEM
 FastTab Reader works on its own as a read-later app. Add FastTab for Mac any time and your tabs and bookmarks appear.
 
+Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 Privacy policy: https://fasttab.theindie.app/privacy
 ```
 
@@ -92,6 +96,8 @@ Privacy policy: https://fasttab.theindie.app/privacy
 | Tap timestamp → video plays there | `reader_template.html` transcript player, `data-start-ms` | ✅ |
 | 4 colours, tags, comments, searchable highlights | `HighlightColor`, `ReaderHighlight.tags`, `ReaderCommentThreads`, `HighlightsListView` | ✅ |
 | Reading + tab stats | `ReadingStatsCard`, `TabStatsCard` | ✅ (shot 6 = demo data) |
+| Natural Voice subscription $4.99/mo or $39.99/yr, 7-day trial, fair-use cap | `Config/FastTab.storekit`, ASC subs 6828734343 / 6828734519 (intro FREE_TRIAL ONE_WEEK ×175); server `TTS_SUBSCRIBER_CHARS_PER_MONTH` 80,000 (theindie-api, not deployed) | ✅ once server deployed |
+| Built-in voices free, no account | `NaturalVoiceGate` (only the cloud engine is gated) | ✅ |
 | Sync via user's own iCloud | CloudKit private DB `iCloud.app.theindie.FastTab` | ✅ needs Production schema |
 | Sign in with Apple only for YouTube transcripts | `project.yml` comment, `YouTubeTranscriptLoader` reads account token | ✅ |
 | Dropped: "end-to-end encrypted" | only CloudKit `encryptedValues` fields | — |

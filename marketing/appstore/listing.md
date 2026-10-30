@@ -1,5 +1,7 @@
 # FastTab Reader — App Store listing (iOS, first submission)
 
+**ASC** (2026-10-30): app `6828689539` · version 1.0.0 `ef3b6053-b4be-417a-a78e-b85fa0908423` (release MANUAL) · TestFlight build **2** attached · App Privacy draft = `app-privacy.json` (applied, not published). Check: `ASC_PROFILE=CraftAgentApstoreConnect asc validate --app 6828689539 --version 1.0.0 --platform IOS`.
+
 App: `app.theindie.FastTabMobile` · team `56S46Y7CKN` (The Indie App) · version 1.0.0 (build 1) · **iPhone only**.
 Media: `en/fasttab-reader-*.png` (1320x2868, 6 shots) · `creative/en/` (iOS 27 header + search) · no preview video.
 Regenerate: `tools/capture.sh` → appstore-media `render.sh tools` + `creative.sh tools` (see `~/.claude/skills/appstore-media`).
@@ -14,8 +16,9 @@ Lead message (owner, 2026-10-30): **read later + sync with your Mac's browser ta
 **Promotional text** (63/170, owner-approved):
 > Read it later, sync with your Mac's browser tabs and bookmarks.
 
-**Keywords** (98/100 bytes, `printf %s "$k" | wc -c`; name/subtitle words not repeated):
-`later,article,highlight,reading,list,sync,tabs,bookmarks,browser,safari,chrome,offline,save,icloud`
+**Keywords** (97/100 bytes, `printf %s "$k" | wc -c`; name/subtitle words not repeated):
+`article,highlight,reading,list,sync,tabs,bookmarks,browser,safari,chrome,offline,save,icloud,news`
+(`later` dropped: already in the subtitle, `asc validate` warns on overlap.)
 (`safari`/`chrome` = supported browsers, not competitors; drop them if review objects.)
 
 **Description** (≤4000):

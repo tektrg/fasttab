@@ -16,6 +16,8 @@ struct NaturalVoicePaywallView: View {
     @State private var trialEligible = true
     @State private var isWorking = false
     @State private var message: String?
+    /// Paid at Apple, waiting for the server to confirm it.
+    @State private var isConfirming = false
     private let access = NaturalVoiceAccess.shared
 
     static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
@@ -120,7 +122,15 @@ struct NaturalVoicePaywallView: View {
 
     @ViewBuilder
     private var action: some View {
-        if accountSession.hasStoredSession || Self.demoSignedIn {
+        if isConfirming {
+            HStack(spacing: DS.Space.sm) {
+                ProgressView()
+                Text("Confirming your purchase…").font(.headline)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, DS.Space.sm)
+            .accessibilityElement(children: .combine)
+        } else if accountSession.hasStoredSession || Self.demoSignedIn {
             Button {
                 Task { await buy() }
             } label: {
@@ -162,11 +172,14 @@ struct NaturalVoicePaywallView: View {
         isWorking = true
         defer { isWorking = false }
         message = nil
-        switch await access.purchase(selected) {
-        case .purchased:
+        let result = await access.purchase(selected)
+        switch NaturalVoiceGate.afterPurchase(result, confirmed: access.isConfirmedByServer) {
+        case .unlocked:
             onUnlocked()
             dismiss()
-        case .pending:
+        case .confirming:
+            await confirm()
+        case .waitingForApproval:
             message = "Waiting for approval. Natural voice turns on once it's approved."
         case .cancelled:
             break
@@ -175,13 +188,29 @@ struct NaturalVoicePaywallView: View {
         }
     }
 
+    /// Apple charged; keep retrying the server instead of closing as if it already worked.
+    private func confirm() async {
+        isConfirming = true
+        defer { isConfirming = false }
+        if await access.confirmPurchase() {
+            onUnlocked()
+            dismiss()
+        } else {
+            message = Self.stillConfirmingMessage
+        }
+    }
+
+    static let stillConfirmingMessage = "Payment received. We're still confirming it with our server; natural voice turns on automatically, no need to buy again."
+
     private func restore() async {
         isWorking = true
         defer { isWorking = false }
         message = nil
         switch await access.restore() {
         case .restored:
-            if access.isEntitled { onUnlocked(); dismiss() } else { message = "No active Natural Voice subscription found." }
+            if access.isConfirmedByServer { onUnlocked(); dismiss() }
+            else if access.isAwaitingConfirmation { await confirm() }
+            else { message = "No active Natural Voice subscription found." }
         case .nothingToRestore:
             message = "No Natural Voice subscription to restore."
         case .failed(let error):

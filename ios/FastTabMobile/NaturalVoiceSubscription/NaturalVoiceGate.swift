@@ -15,6 +15,33 @@ enum NaturalVoiceGate {
         }
     }
 
+    /// The server has a live record. Only then does `POST /v1/tts` answer; StoreKit's word alone does not.
+    static func isConfirmedByServer(state: SubscriptionState, now: Date) -> Bool {
+        switch state {
+        case .active(let until, _): return until > now
+        case .grace(let until): return until > now
+        default: return false
+        }
+    }
+
+    /// Paid at Apple, server not confirmed yet: say "Confirming your purchase", never "needs a subscription".
+    static func awaitingConfirmation(state: SubscriptionState, ownsOnDevice: Bool, now: Date) -> Bool {
+        ownsOnDevice && !isConfirmedByServer(state: state, now: now)
+    }
+
+    enum PurchaseStep: Equatable { case unlocked, confirming, waitingForApproval, cancelled, failed(SubscriptionError) }
+
+    /// What the paywall does after the App Store sheet closes.
+    static func afterPurchase(_ result: SubscriptionPurchaseResult, confirmed: Bool) -> PurchaseStep {
+        switch result {
+        case .purchased: return confirmed ? .unlocked : .confirming
+        case .failed(.unavailableRetryLater): return .confirming
+        case .failed(let error): return .failed(error)
+        case .pending: return .waitingForApproval
+        case .cancelled: return .cancelled
+        }
+    }
+
     /// Read Aloud uses the cloud voice only when the person turned it on and is entitled.
     static func usesNaturalVoice(toggleOn: Bool, entitled: Bool) -> Bool { toggleOn && entitled }
 

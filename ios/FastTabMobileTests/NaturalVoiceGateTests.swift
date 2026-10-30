@@ -52,4 +52,37 @@ final class NaturalVoiceGateTests: XCTestCase {
         XCTAssertTrue(text.contains("Cancel anytime"))
         XCTAssertFalse(NaturalVoicePaywallView.termsText(price: "$39.99", period: "year", trial: false).contains("Free for 7 days"))
     }
+
+    // MARK: - Paid at Apple, not yet confirmed by the server
+
+    func testOnlyALiveServerRecordCountsAsConfirmed() {
+        XCTAssertTrue(NaturalVoiceGate.isConfirmedByServer(state: .active(until: now + 60, autoRenew: true), now: now))
+        XCTAssertTrue(NaturalVoiceGate.isConfirmedByServer(state: .grace(until: now + 60), now: now))
+        for state: SubscriptionState in [.pendingServer, .notPurchased, .purchasing, .active(until: now - 60, autoRenew: false)] {
+            XCTAssertFalse(NaturalVoiceGate.isConfirmedByServer(state: state, now: now), "\(state)")
+        }
+    }
+
+    func testAwaitingConfirmationMeansStoreKitOwnsItButTheServerHasNotConfirmed() {
+        XCTAssertTrue(NaturalVoiceGate.awaitingConfirmation(state: .pendingServer, ownsOnDevice: true, now: now))
+        XCTAssertTrue(NaturalVoiceGate.awaitingConfirmation(state: .notPurchased, ownsOnDevice: true, now: now))
+        XCTAssertFalse(NaturalVoiceGate.awaitingConfirmation(state: .pendingServer, ownsOnDevice: false, now: now))
+        XCTAssertFalse(NaturalVoiceGate.awaitingConfirmation(state: .active(until: now + 60, autoRenew: true), ownsOnDevice: true, now: now))
+    }
+
+    func testAPurchaseTheServerHasNotConfirmedShowsConfirmingNotSuccess() {
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.purchased, confirmed: true), .unlocked)
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.purchased, confirmed: false), .confirming)
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.failed(.unavailableRetryLater), confirmed: false), .confirming)
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.pending, confirmed: false), .waitingForApproval)
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.cancelled, confirmed: false), .cancelled)
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.failed(.notSignedIn), confirmed: false), .failed(.notSignedIn))
+    }
+
+    @MainActor func testAPayingPersonIsNeverToldTheyNeedASubscription() {
+        let confirming = NaturalVoiceSpeechEngine.notice(for: .subscriptionRequired, awaitingConfirmation: true)
+        XCTAssertFalse(confirming.contains("needs a subscription"))
+        XCTAssertTrue(confirming.hasPrefix("Confirming your purchase"))
+        XCTAssertTrue(NaturalVoiceSpeechEngine.notice(for: .subscriptionRequired, awaitingConfirmation: false).contains("needs a subscription"))
+    }
 }

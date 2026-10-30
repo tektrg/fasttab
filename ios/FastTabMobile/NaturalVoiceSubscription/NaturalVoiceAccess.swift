@@ -30,6 +30,34 @@ final class NaturalVoiceAccess {
         return NaturalVoiceGate.isEntitled(state: manager.state, ownsOnDevice: ownsOnDevice, now: Date())
     }
 
+    /// Paid at Apple; the server hasn't confirmed it yet (see `NaturalVoiceGate.awaitingConfirmation`).
+    var isAwaitingConfirmation: Bool {
+        NaturalVoiceGate.awaitingConfirmation(state: manager.state, ownsOnDevice: ownsOnDevice, now: Date())
+    }
+
+    var isConfirmedByServer: Bool { NaturalVoiceGate.isConfirmedByServer(state: manager.state, now: Date()) }
+
+    @ObservationIgnored private var confirming: Task<Bool, Never>?
+
+    /// Re-sends an unconfirmed purchase to the server a few times. True once the server confirms.
+    /// Concurrent callers share one attempt; it also keeps retrying on every foreground.
+    func confirmPurchase(attempts: Int = 5, delay: Duration = .seconds(3)) async -> Bool {
+        if let confirming { return await confirming.value }
+        let task = Task { @MainActor [self] in
+            for attempt in 0..<attempts {
+                if isConfirmedByServer { return true }
+                await manager.resumePending()
+                await refreshOwnership()
+                if isConfirmedByServer { return true }
+                if attempt < attempts - 1 { try? await Task.sleep(for: delay) }
+            }
+            return isConfirmedByServer
+        }
+        confirming = task
+        defer { confirming = nil }
+        return await task.value
+    }
+
     private init() {
         let tokens = SessionTokenStore(keychain: KeychainStore(service: IndieAccountConfiguration.fastTab.keychainService))
         let api = TheIndieAPIClient(baseURL: TheIndieServerConfiguration.baseURL(configuration: .fastTab), sessionTokens: tokens)

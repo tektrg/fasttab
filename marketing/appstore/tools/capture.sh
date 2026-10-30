@@ -31,12 +31,12 @@ mac-sim run --label "command-bar-macos: FastTab Reader appstore screenshots" -- 
   xcrun simctl install "$SIM_UDID" "$APP"
   xcrun simctl status_bar "$SIM_UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
   xcrun simctl ui "$SIM_UDID" appearance light
-  for S in 1-tabs:tabs 2-bookmarks:bookmarks 3-reader:reader 4-highlights:highlights 5-read:read 6-stats:more; do
+  for S in 1-tabs:tabs 2-youtube:transcript 3-listen:listen 4-shuffle:swipe 5-reader:reader 6-bookmarks:bookmarks 7-highlights:highlights 8-read:read 9-stats:more; do
     NAME=${S%%:*}; SCREEN=${S#*:}
     xcrun simctl terminate "$SIM_UDID" $BID 2>/dev/null || true
     xcrun simctl launch "$SIM_UDID" $BID -FastTabAppStoreDemo YES -FastTabDemoScreen $SCREEN \
       -FastTabAppMode mac -FastTabStatsDemo YES -onboarding.v1.completed YES -AppleLanguages "(en)" -AppleLocale en_US >/dev/null
-    sleep 7
+    if [ $SCREEN = listen ]; then sleep 12; else sleep 7; fi
     xcrun simctl io "$SIM_UDID" screenshot "$OUT/$NAME.png" >/dev/null 2>&1
     echo "captured $NAME"
   done

@@ -3,7 +3,7 @@
 **ASC** (2026-10-30): app `6828689539` · version 1.0.0 `ef3b6053-b4be-417a-a78e-b85fa0908423` (release MANUAL) · TestFlight build **2** attached · App Privacy draft = `app-privacy.json` (applied, not published). Check: `ASC_PROFILE=CraftAgentApstoreConnect asc validate --app 6828689539 --version 1.0.0 --platform IOS`.
 
 App: `app.theindie.FastTabMobile` · team `56S46Y7CKN` (The Indie App) · version 1.0.0 (build 1) · **iPhone only**.
-Media: `en/fasttab-reader-*.png` (1320x2868, 6 shots) · `creative/en/` (iOS 27 header + search) · no preview video.
+Media: `en/fasttab-reader-*.png` (1320x2868, 9 shots) · `creative/en/` (iOS 27 header + search) · no preview video.
 Regenerate: `tools/capture.sh` → appstore-media `render.sh tools` + `creative.sh tools` (see `~/.claude/skills/appstore-media`).
 Lead message (owner, 2026-10-30): **read later + sync with your Mac's browser tabs and bookmarks.**
 
@@ -16,9 +16,9 @@ Lead message (owner, 2026-10-30): **read later + sync with your Mac's browser ta
 **Promotional text** (63/170, owner-approved):
 > Read it later, sync with your Mac's browser tabs and bookmarks.
 
-**Keywords** (97/100 bytes, `printf %s "$k" | wc -c`; name/subtitle words not repeated):
-`article,highlight,reading,list,sync,tabs,bookmarks,browser,safari,chrome,offline,save,icloud,news`
-(`later` dropped: already in the subtitle, `asc validate` warns on overlap.)
+**Keywords** (99/100 bytes, `printf %s "$k" | wc -c`; name/subtitle words not repeated):
+`article,highlight,reading,youtube,transcript,listen,audio,tabs,bookmarks,browser,safari,chrome,save`
+(`later` dropped: already in the subtitle, `asc validate` warns on overlap. 2026-10-30: `list,sync,offline,icloud,news` swapped for `youtube,transcript,listen,audio`; `sync` is covered by the subtitle's "synced". `tts` skipped: users don't type it.)
 (`safari`/`chrome` = supported browsers, not competitors; drop them if review objects.)
 
 **Description** (≤4000):
@@ -31,11 +31,20 @@ With FastTab for Mac, the tabs open in Safari, Chrome, Brave and Edge show up on
 YOUR BROWSER BOOKMARKS, SYNCED
 Your Mac's bookmarks arrive with their folders, ready to browse and search. Bookmarks you haven't opened in a while come back on the Read tab.
 
+SWIPE THROUGH WHAT YOU SAVED
+Shuffle deals your bookmarks, open tabs, highlights and saved links as cards. Swipe left to skip one until tomorrow, swipe right to open it or file it in a bookmark folder.
+
 SAVE IT NOW, READ IT LATER
 Share any link to FastTab from Safari or any app. It lands in your FastTab List, on every device you use FastTab on.
 
 READ WITHOUT THE CLUTTER
-Open an article and FastTab strips away ads, pop-ups and sidebars, leaving one clean column of text. Pick your font, size and spacing. Close it halfway and it picks up where you stopped. Read Aloud plays any article out loud.
+Open an article and FastTab strips away ads, pop-ups and sidebars, leaving one clean column of text. Pick your font, size and spacing. Close it halfway and it picks up where you stopped.
+
+READ YOUTUBE AS AN ARTICLE
+Open a YouTube link and read the video's captions as a clean, timestamped transcript. Tap any timestamp to play the video from that moment. Transcripts need a free Sign in with Apple account and a video that has captions.
+
+LISTEN TO YOUR ARTICLES
+Read Aloud reads any article or transcript to you with your iPhone's built-in voices, highlighting the sentence it's on. It keeps playing with the screen locked or in another app, with play and pause on the Lock Screen. Choose a speed from 0.75x to 2x and pick a voice; download Enhanced or Premium voices in iOS Settings for the most natural sound.
 
 KEEP WHAT MATTERS
 Long-press to highlight a passage in one of four colours, tag it, and add a comment. Every highlight is collected in one searchable place, linked back to its article.
@@ -54,7 +63,7 @@ Privacy policy: https://fasttab.theindie.app/privacy
 
 **Support URL**: https://theindie.app/support (200) · **Marketing URL**: https://fasttab.theindie.app/ (200) · **Privacy URL**: https://fasttab.theindie.app/privacy (200, but **Mac-only text, see Privacy below**).
 
-**Screenshot captions** (`tools/captions.json`): 1 YOUR MAC'S TABS ON YOUR IPHONE · 2 YOUR BROWSER BOOKMARKS, SYNCED · 3 READ THEM WITHOUT THE CLUTTER · 4 EVERY HIGHLIGHT IN ONE PLACE · 5 SAVE IT NOW. READ IT LATER. · 6 SEE HOW YOU READ AND BROWSE.
+**Screenshot captions** (`tools/captions.json`): 1 YOUR MAC'S TABS ON YOUR IPHONE · 2 READ YOUTUBE AS AN ARTICLE · 3 LISTEN TO YOUR ARTICLES · 4 SWIPE THROUGH WHAT YOU SAVED · 5 READ THEM WITHOUT THE CLUTTER · 6 YOUR BROWSER BOOKMARKS, SYNCED · 7 EVERY HIGHLIGHT IN ONE PLACE · 8 SAVE IT NOW. READ IT LATER. · 9 SEE HOW YOU READ AND BROWSE.
 
 ## Verified claims
 | Claim | Evidence (code) | Status |
@@ -63,6 +72,7 @@ Privacy policy: https://fasttab.theindie.app/privacy
 | Browsers: Safari, Chrome, Brave, Edge | Mac browser enum (`case safari/chrome/brave/edge`) | ✅ |
 | **Bookmarks synced, with folders** | Mac `SyncService.updateBookmarks` → `SyncedBookmarkBlob` per browser/profile with `folderPath`; iPhone `BookmarkTreeView` | ✅ needs FastTab for Mac |
 | Close a Mac tab from iPhone | P2 remote close (`closeTabWithResult`), `PendingTabCloseStrip` | ✅ |
+| Shuffle: cards from bookmarks, tabs, highlights, saved links; left = skip until tomorrow, right = open (highlight/saved link) or Move to/Save to folder | `RandomLinksView` (`RandomCardSource`, `RandomFeedSkipStore`, stamps OPEN / MOVE TO / SKIP) | ✅ (reader-only phone: saved links only) |
 | Old bookmarks resurface on Read | `RecentAddedProvider` / `EmergingContentProvider` | ✅ |
 | FastTab List syncs across devices | `FastTabListSyncBridge`, CloudKit ReaderZone | ✅ |
 | Highlights sync | `ReaderHighlightStore` ↔ ReaderZone (`syncedHighlights`) | ✅ |
@@ -70,7 +80,16 @@ Privacy policy: https://fasttab.theindie.app/privacy
 | "Sync with your browser" without a Mac | — | ❌ **not true**: iPhone never reads a browser directly; sync is Mac browsers → FastTab for Mac → iCloud. Copy says "with FastTab for Mac" / "synced with Mac". |
 | Save from share sheet into FastTab List | `FastTabShare/ShareViewController.swift` | ✅ |
 | Clean reader, font/size/spacing, resume | `ReaderExtractor`, `ReaderReadingSettings` (8 fonts, size, line height), `ReaderReadingProgress` | ✅ |
-| Read Aloud | `Reader/ReadAloud/` | ✅ |
+| Read Aloud (any article or transcript), sentence highlight | `ReadAloudController`, `ReadAloudPageSync` | ✅ |
+| Voices = iPhone's built-in voices; Enhanced/Premium if downloaded | `AppleSpeechEngine` (`AVSpeechSynthesizer`), `ReadAloudVoiceSelector` quality ranking; settings text "Download Enhanced or Premium voices…" | ✅ |
+| "Natural (cloud) voice" | `GoogleSpeechEngine` via theindie-api `/v1/tts` — **gated `AppDistribution.isDebugOrTestFlight`** | ❌ **not in App Store build**: copy must not promise it |
+| Plays in background / screen locked | `UIBackgroundModes: audio`, `AVAudioSession .playback/.spokenAudio` | ✅ |
+| Lock Screen play/pause | `MPNowPlayingInfoCenter` + `MPRemoteCommandCenter` play/pause/toggle (no skip/scrub) | ✅ play/pause only |
+| Speed 0.75x–2x, voice picker | `ReaderReadingSettings.speechRateOptions [0.75,1,1.25,1.5,2]`, `ReadAloudViews` Speed/Voice pickers | ✅ |
+| **YouTube → readable transcript** | `YouTubeTranscriptLoader` (theindie-api `/v1/youtube/transcript`, on-device fallback on bot check/502), `TranscriptArticleBuilder` | ✅ |
+| Transcript needs sign-in | no token → `TranscriptError.notSignedIn` → "needs account" screen | ✅ **free Sign in with Apple required** |
+| Only videos with captions | `TranscriptError.noCaptions` | ✅ (copy says "has captions"; "any video" dropped) |
+| Tap timestamp → video plays there | `reader_template.html` transcript player, `data-start-ms` | ✅ |
 | 4 colours, tags, comments, searchable highlights | `HighlightColor`, `ReaderHighlight.tags`, `ReaderCommentThreads`, `HighlightsListView` | ✅ |
 | Reading + tab stats | `ReadingStatsCard`, `TabStatsCard` | ✅ (shot 6 = demo data) |
 | Sync via user's own iCloud | CloudKit private DB `iCloud.app.theindie.FastTab` | ✅ needs Production schema |

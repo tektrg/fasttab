@@ -63,6 +63,10 @@ targets:
         product: IndieTranscripts
       - package: IndieLibKit
         product: IndiePowerUps
+      # Natural Voice subscription (FastTabMobile/NaturalVoiceSubscription/): Parklet's StoreKit engine
+      # with FastTab's plan (`PlusPlan.fastTabNaturalVoice`).
+      - package: IndieLibKit
+        product: IndieStore
       # On-device transcript clean-up (FastTabMobile/Reader/YouTube/TranscriptCleanup*.swift).
       - package: IndieLibKit
         product: IndieTextCleanup
@@ -216,3 +220,17 @@ targets:
       GENERATE_INFOPLIST_FILE: YES
       SWIFT_VERSION: "5.9"
 
+schemes:
+  FastTabMobile:
+    build:
+      targets:
+        FastTabMobile: all
+        FastTabShare: all
+        FastTabWidgets: all
+        FastTabMobileTests: [test]
+    # Local test purchases in the simulator (Natural Voice monthly/yearly, 7-day trial).
+    run:
+      storeKitConfiguration: Config/FastTab.storekit
+    test:
+      targets:
+        - FastTabMobileTests

@@ -99,6 +99,8 @@ struct ReadAloudBackToReadingButton: View {
 struct ReadAloudSettingsSection: View {
     @ObservedObject var store: ReaderReadingSettingsStore
     let voices: [ReadAloudVoiceOption]
+    @State private var showsPaywall = false
+    private var access: NaturalVoiceAccess { .shared }
 
     var body: some View {
         Section {
@@ -121,11 +123,21 @@ struct ReadAloudSettingsSection: View {
                     }
                 }
             }
-            if AppDistribution.isDebugOrTestFlight {
-                Toggle("Natural voice (beta)", isOn: Binding(
-                    get: { store.settings.naturalVoiceEnabled ?? false },
-                    set: { store.setNaturalVoiceEnabled($0) }
-                ))
+            Toggle(isOn: Binding(
+                get: { store.settings.wantsNaturalVoice && access.isEntitled },
+                set: { wantsOn in
+                    switch NaturalVoiceGate.toggleAction(wantsOn: wantsOn, entitled: access.isEntitled) {
+                    case .turnOn: store.setNaturalVoiceEnabled(true)
+                    case .turnOff: store.setNaturalVoiceEnabled(false)
+                    case .showPaywall: showsPaywall = true
+                    }
+                }
+            )) {
+                Text("Natural voice")
+                Text(access.isEntitled ? "Subscribed" : "Subscription · free 7-day trial")
+            }
+            .sheet(isPresented: $showsPaywall) {
+                NaturalVoicePaywallView { store.setNaturalVoiceEnabled(true) }
             }
         } header: {
             Text("Read Aloud")
@@ -136,8 +148,7 @@ struct ReadAloudSettingsSection: View {
 
     private var footer: String {
         let voices = "Automatic picks the best voice installed for the article's language. Download Enhanced or Premium voices in Settings › Accessibility › Spoken Content › Voices."
-        guard AppDistribution.isDebugOrTestFlight else { return voices }
-        return voices + " Natural voice streams a more human voice from the internet and falls back to the device voice when it isn't available."
+        return voices + " Natural voice streams a more human voice from the internet (subscription) and falls back to the device voice when it isn't available."
     }
 
     /// The saved voice when it is in this language's list; otherwise "Automatic".

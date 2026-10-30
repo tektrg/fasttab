@@ -16,6 +16,9 @@ public struct FastTabMobileApp: App {
     @State private var selectedTab = AppTab.read
     /// An article a widget tap asked to open (`WidgetDeepLink.read`).
     @State private var widgetReaderItem: ReaderNavigationItem?
+    #if DEBUG
+    @State private var showsDemoPaywall = false
+    #endif
     /// A widget article that arrived while the guide was up. SwiftUI shows one
     /// modal per host view, so it waits for the guide's dismissal to finish.
     @State private var deferredWidgetReaderItem: ReaderNavigationItem?
@@ -90,8 +93,16 @@ public struct FastTabMobileApp: App {
             }
             .ratingPrompt()
             .task { await accountSession.restoreIfNeeded() }
+            // Natural Voice subscription: the one StoreKit listener, started at launch.
+            .task { NaturalVoiceAccess.shared.start() }
+            .onChange(of: accountSession.state) { _, state in
+                if case .signedIn = state { Task { await NaturalVoiceAccess.shared.accountDidSignIn() } }
+            }
             #if DEBUG
             .task { await TranscriptCleanupSpeedTest.runIfRequested() }
+            #endif
+            #if DEBUG
+            .sheet(isPresented: $showsDemoPaywall) { NaturalVoicePaywallView() }
             #endif
             .fullScreenCover(item: $widgetReaderItem) { item in
                 ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
@@ -191,6 +202,9 @@ private extension FastTabMobileApp {
         switch AppStoreDemo.screen {
         case .read: selectedTab = .read
         case .shuffle, .swipe: selectedTab = .shuffle
+        case .paywall:
+            selectedTab = .read
+            showsDemoPaywall = true
         case .more, .highlights, .bookmarks: selectedTab = .more
         case .tabs: selectedTab = .tabs
         case .reader, .listen:

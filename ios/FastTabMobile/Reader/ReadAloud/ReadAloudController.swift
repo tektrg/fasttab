@@ -48,14 +48,18 @@ final class ReadAloudController: ObservableObject {
     private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
     private var observers: [NSObjectProtocol] = []
     private var settingsSubscription: AnyCancellable?
+    /// The Natural Voice subscription (tests pass a constant).
+    private let isNaturalVoiceEntitled: @MainActor () -> Bool
 
     /// `integratesWithSystem: false` keeps tests away from the audio session and lock screen.
     init(
         engine: SpeechEngine? = nil,
         naturalEngine makeNaturalEngine: ((_ deviceEngine: SpeechEngine) -> SpeechEngine)? = nil,
         settingsStore: ReaderReadingSettingsStore = .shared,
-        integratesWithSystem: Bool = true
+        integratesWithSystem: Bool = true,
+        isNaturalVoiceEntitled: @escaping @MainActor () -> Bool = { NaturalVoiceAccess.shared.isEntitled }
     ) {
+        self.isNaturalVoiceEntitled = isNaturalVoiceEntitled
         let deviceEngine = engine ?? AppleSpeechEngine()
         self.deviceEngine = deviceEngine
         self.engine = deviceEngine
@@ -219,7 +223,8 @@ final class ReadAloudController: ObservableObject {
     /// (Re)starts the engine at `chunk` under a fresh generation.
     private func runEngine(from chunk: Int, settings: ReaderReadingSettings) {
         engine.stop()
-        engine = settings.usesNaturalVoice ? naturalEngine : deviceEngine
+        let entitled = isNaturalVoiceEntitled()
+        engine = NaturalVoiceGate.usesNaturalVoice(toggleOn: settings.wantsNaturalVoice, entitled: entitled) ? naturalEngine : deviceEngine
         generation += 1
         currentChunk = chunk
         voiceIdentifier = ReadAloudVoiceSelector.select(

@@ -23,7 +23,7 @@ enum AppStoreDemo {
     static var isEnabled: Bool { UserDefaults.standard.bool(forKey: "FastTabAppStoreDemo") }
 
     enum Screen: String {
-        case read, reader, highlights, more, shuffle, tabs, bookmarks, transcript, listen, swipe
+        case read, reader, highlights, more, shuffle, tabs, bookmarks, transcript, listen, swipe, paywall
     }
 
     static var screen: Screen {

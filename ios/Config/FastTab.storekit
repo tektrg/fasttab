@@ -1,0 +1,74 @@
+{
+  "identifier": "FASTTABSK",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_storeKitError": 0
+  },
+  "subscriptionGroups": [
+    {
+      "id": "FTNATURALVOICE",
+      "localizations": [],
+      "name": "Natural Voice",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "39.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "300001",
+          "introductoryOffer": {
+            "internalID": "3000011",
+            "numberOfPeriods": 1,
+            "paymentMode": "free",
+            "subscriptionPeriod": "P1W"
+          },
+          "localizations": [
+            {
+              "description": "Cloud Read Aloud voice, free for 7 days",
+              "displayName": "Natural Voice (Yearly)",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "fasttab.naturalVoice.yearly",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "Natural Voice (Yearly)",
+          "subscriptionGroupID": "FTNATURALVOICE",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "4.99",
+          "familyShareable": false,
+          "groupNumber": 2,
+          "internalID": "300000",
+          "introductoryOffer": {
+            "internalID": "3000001",
+            "numberOfPeriods": 1,
+            "paymentMode": "free",
+            "subscriptionPeriod": "P1W"
+          },
+          "localizations": [
+            {
+              "description": "Cloud Read Aloud voice, free for 7 days",
+              "displayName": "Natural Voice (Monthly)",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "fasttab.naturalVoice.monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Natural Voice (Monthly)",
+          "subscriptionGroupID": "FTNATURALVOICE",
+          "type": "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 3,
+    "minor": 0
+  }
+}

@@ -71,6 +71,8 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
             return "Natural voice used up — resumes \(resetsAt.formatted(date: .abbreviated, time: .omitted))"
         case .quotaExhausted(nil):
             return "Natural voice used up — using device voice"
+        case .subscriptionRequired:
+            return "Natural voice needs a subscription — using device voice"
         case .unavailable, .sentenceRejected:
             #if DEBUG
             if let reason = NaturalVoiceDiagnostics.lastFailure {

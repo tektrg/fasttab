@@ -1,0 +1,219 @@
+import IndieAccount
+import IndieStore
+import StoreKit
+import SwiftUI
+
+/// Shown when someone turns on "Natural voice" without a subscription. Apple's required terms
+/// (price, period, trial, auto-renewal, how to cancel) and the Terms of Use + Privacy links sit
+/// above the buy button. Built-in voices stay free: closing this changes nothing.
+struct NaturalVoicePaywallView: View {
+    /// Called after a purchase or restore that unlocked the voice.
+    var onUnlocked: () -> Void = {}
+
+    @Environment(AccountSession.self) private var accountSession
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected = NaturalVoiceAccess.yearlyID
+    @State private var trialEligible = true
+    @State private var isWorking = false
+    @State private var message: String?
+    private let access = NaturalVoiceAccess.shared
+
+    static let termsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+    static let privacyURL = URL(string: "https://fasttab.theindie.app/privacy")!
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Space.lg) {
+                    header
+                    benefits
+                    plans
+                    terms
+                    action
+                    footerLinks
+                }
+                .padding(DS.Space.gutter)
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Not Now") { dismiss() } }
+            }
+        }
+        .task {
+            if access.manager.offers.isEmpty { await access.manager.loadOffers() }
+            trialEligible = await Self.isTrialEligible()
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            Image(systemName: "waveform.circle.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text("Natural Voice")
+                .font(.largeTitle.bold())
+            Text("Listen to articles and transcripts in a human-sounding voice.")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var benefits: some View {
+        VStack(alignment: .leading, spacing: DS.Space.sm) {
+            Label("Lifelike voices streamed from the cloud", systemImage: "sparkles")
+            Label("Keeps playing with the screen locked", systemImage: "lock.fill")
+            Label("Built-in iPhone voices stay free", systemImage: "checkmark.circle")
+        }
+        .font(.body)
+    }
+
+    private var plans: some View {
+        VStack(spacing: DS.Space.sm) {
+            planRow(NaturalVoiceAccess.yearlyID, title: "Yearly", period: "year", badge: "Save 33%")
+            planRow(NaturalVoiceAccess.monthlyID, title: "Monthly", period: "month", badge: nil)
+        }
+    }
+
+    private func planRow(_ id: String, title: String, period: String, badge: String?) -> some View {
+        let price = access.manager.offer(for: id)?.displayPrice ?? Self.fallbackPrice(id)
+        let isSelected = selected == id
+        return Button { selected = id } label: {
+            HStack {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: DS.Space.sm) {
+                        Text(title).font(.headline)
+                        if let badge {
+                            Text(badge).font(.caption.bold()).padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(.tint.opacity(0.15), in: Capsule())
+                        }
+                    }
+                    Text("\(price) / \(period)").font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(DS.Space.md)
+            .background(RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                .stroke(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary), lineWidth: isSelected ? 2 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var selectedPrice: String {
+        access.manager.offer(for: selected)?.displayPrice ?? Self.fallbackPrice(selected)
+    }
+
+    private var selectedPeriod: String { selected == NaturalVoiceAccess.yearlyID ? "year" : "month" }
+
+    private var terms: some View {
+        Text(Self.termsText(price: selectedPrice, period: selectedPeriod, trial: trialEligible))
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+    }
+
+    /// Apple guideline 3.1.2: price per period, trial, auto-renewal and how to cancel, before buying.
+    static func termsText(price: String, period: String, trial: Bool) -> String {
+        let start = trial ? "Free for 7 days, then \(price) per \(period)." : "\(price) per \(period)."
+        return start + " Renews automatically until cancelled. Cancel anytime in Settings › Apple Account › Subscriptions at least 24 hours before the period ends. Natural voice includes a fair-use monthly allowance; Read Aloud switches to the built-in voice if it runs out. Purchases are linked to your Sign in with Apple account."
+    }
+
+    @ViewBuilder
+    private var action: some View {
+        if accountSession.hasStoredSession || Self.demoSignedIn {
+            Button {
+                Task { await buy() }
+            } label: {
+                Text(trialEligible ? "Start Free Trial" : "Subscribe")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DS.Space.sm)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isWorking)
+        } else {
+            VStack(alignment: .leading, spacing: DS.Space.sm) {
+                Text("Sign in first so your subscription works on all your devices.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                AppleSignInButton {
+                    Task { await access.accountDidSignIn() }
+                }
+            }
+        }
+        if let message {
+            Text(message).font(.footnote).foregroundStyle(.red)
+        }
+    }
+
+    private var footerLinks: some View {
+        HStack {
+            Button("Restore Purchases") { Task { await restore() } }
+                .disabled(isWorking)
+            Spacer()
+            Link("Terms of Use", destination: Self.termsURL)
+            Text("·").foregroundStyle(.secondary)
+            Link("Privacy", destination: Self.privacyURL)
+        }
+        .font(.footnote)
+    }
+
+    private func buy() async {
+        isWorking = true
+        defer { isWorking = false }
+        message = nil
+        switch await access.purchase(selected) {
+        case .purchased:
+            onUnlocked()
+            dismiss()
+        case .pending:
+            message = "Waiting for approval. Natural voice turns on once it's approved."
+        case .cancelled:
+            break
+        case .failed(let error):
+            message = Self.message(for: error)
+        }
+    }
+
+    private func restore() async {
+        isWorking = true
+        defer { isWorking = false }
+        message = nil
+        switch await access.restore() {
+        case .restored:
+            if access.isEntitled { onUnlocked(); dismiss() } else { message = "No active Natural Voice subscription found." }
+        case .nothingToRestore:
+            message = "No Natural Voice subscription to restore."
+        case .failed(let error):
+            message = Self.message(for: error)
+        }
+    }
+
+    static func message(for error: SubscriptionError) -> String {
+        switch error {
+        case .notSignedIn: return "Sign in with Apple first."
+        case .boundElsewhere: return "This subscription belongs to another account. Sign in with that account."
+        case .accountMismatch: return "This purchase was made with another account."
+        case .productUnavailable: return "Subscriptions aren't available right now. Try again later."
+        case .unavailableRetryLater: return "Payment went through, but we couldn't confirm it yet. It will finish automatically."
+        case .rejectedByServer, .storeFailed: return "Something went wrong. Try again, or restore purchases."
+        }
+    }
+
+    private static var demoSignedIn: Bool {
+        #if DEBUG
+        return AppStoreDemo.isEnabled
+        #else
+        return false
+        #endif
+    }
+
+    /// Shown only until Apple's localized prices load.
+    static func fallbackPrice(_ id: String) -> String { id == NaturalVoiceAccess.yearlyID ? "$39.99" : "$4.99" }
+
+    private static func isTrialEligible() async -> Bool {
+        guard let product = try? await StoreKit.Product.products(for: [NaturalVoiceAccess.monthlyID]).first,
+              let subscription = product.subscription else { return true }
+        return await subscription.isEligibleForIntroOffer
+    }
+}

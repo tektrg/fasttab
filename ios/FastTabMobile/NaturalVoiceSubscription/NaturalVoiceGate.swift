@@ -52,4 +52,14 @@ enum NaturalVoiceGate {
         guard wantsOn else { return .turnOff }
         return entitled ? .turnOn : .showPaywall
     }
+
+    struct SettingsRow: Equatable { let subtitle: String; let offersRestore: Bool }
+
+    /// The Read Aloud "Natural voice" row. Owned at Apple but unconfirmed by the server (e.g.
+    /// bought under another account, or the account was deleted) offers Restore, the only way to
+    /// re-link it; otherwise the person is stuck on "Subscribed" with the cloud voice refused.
+    static func settingsRow(entitled: Bool, awaitingConfirmation: Bool) -> SettingsRow {
+        if awaitingConfirmation { return SettingsRow(subtitle: "Confirming your purchase…", offersRestore: true) }
+        return SettingsRow(subtitle: entitled ? "Subscribed" : "Subscription · free 7-day trial", offersRestore: false)
+    }
 }

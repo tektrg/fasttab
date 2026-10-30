@@ -85,4 +85,14 @@ final class NaturalVoiceGateTests: XCTestCase {
         XCTAssertTrue(confirming.hasPrefix("Confirming your purchase"))
         XCTAssertTrue(NaturalVoiceSpeechEngine.notice(for: .subscriptionRequired, awaitingConfirmation: false).contains("needs a subscription"))
     }
+
+    /// Owned at Apple but never confirmed (another account's purchase, or the account was deleted):
+    /// the settings row must not just say "Subscribed" with no way forward; it offers Restore.
+    func testAnUnconfirmedOwnerSeesConfirmingAndCanRestore() {
+        XCTAssertEqual(NaturalVoiceGate.settingsRow(entitled: true, awaitingConfirmation: true),
+                       .init(subtitle: "Confirming your purchase…", offersRestore: true))
+        XCTAssertEqual(NaturalVoiceGate.settingsRow(entitled: true, awaitingConfirmation: false),
+                       .init(subtitle: "Subscribed", offersRestore: false))
+        XCTAssertEqual(NaturalVoiceGate.settingsRow(entitled: false, awaitingConfirmation: false).offersRestore, false)
+    }
 }

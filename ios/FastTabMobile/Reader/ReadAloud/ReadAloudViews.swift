@@ -134,16 +134,23 @@ struct ReadAloudSettingsSection: View {
                 }
             )) {
                 Text("Natural voice")
-                Text(access.isEntitled ? "Subscribed" : "Subscription · free 7-day trial")
+                Text(naturalVoiceRow.subtitle)
             }
             .sheet(isPresented: $showsPaywall) {
                 NaturalVoicePaywallView { store.setNaturalVoiceEnabled(true) }
+            }
+            if naturalVoiceRow.offersRestore {
+                Button("Restore Purchases") { showsPaywall = true }
             }
         } header: {
             Text("Read Aloud")
         } footer: {
             Text(footer)
         }
+    }
+
+    private var naturalVoiceRow: NaturalVoiceGate.SettingsRow {
+        NaturalVoiceGate.settingsRow(entitled: access.isEntitled, awaitingConfirmation: access.isAwaitingConfirmation)
     }
 
     private var footer: String {

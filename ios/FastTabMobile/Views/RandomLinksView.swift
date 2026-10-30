@@ -592,6 +592,12 @@ private struct RandomCardView: View {
                 menuContent
             }
         }
+        #if DEBUG
+        .onAppear {
+            // App Store screenshots: the `swipe` screen freezes the top card mid-swipe.
+            if isTop, AppStoreDemo.isEnabled, AppStoreDemo.screen == .swipe { dragOffset = AppStoreDemo.swipeOffset }
+        }
+        #endif
         .task(id: item.id) {
             guard !isHighlight else { return }
             preview = await LinkPreviewLoader.shared.preview(for: item.url)

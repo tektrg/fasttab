@@ -1,6 +1,7 @@
 #if DEBUG
 import Foundation
 import FastTabSync
+import IndieTranscripts
 import IndieMotion
 import TipKit
 import UIKit
@@ -22,7 +23,7 @@ enum AppStoreDemo {
     static var isEnabled: Bool { UserDefaults.standard.bool(forKey: "FastTabAppStoreDemo") }
 
     enum Screen: String {
-        case read, reader, highlights, more, shuffle, tabs, bookmarks
+        case read, reader, highlights, more, shuffle, tabs, bookmarks, transcript, listen, swipe
     }
 
     static var screen: Screen {
@@ -161,6 +162,47 @@ enum AppStoreDemo {
         )
     ]
 
+    // MARK: YouTube transcript (fictional talk; the video id is not a real video)
+
+    static let transcriptURL = URL(string: "https://www.youtube.com/watch?v=FtDemo00001")!
+    static let transcriptTitle = "How I Read 50 Books a Year Without Trying"
+
+    /// Fixed drag for the `swipe` screen: far enough right to show the MOVE TO stamp.
+    static let swipeOffset = CGSize(width: 130, height: 14)
+
+    /// The `listen` screen plays a different article than the `reader` screen.
+    static var listenArticle: DemoArticle { articles[1] }
+
+    static func transcriptArticle() -> ReaderArticle {
+        let sentences = [
+            "So the question I get most is how I find the time to read.",
+            "And the honest answer is that I stopped trying to find time.",
+            "Instead, I made reading the easiest thing to reach for.",
+            "Every article I want to read goes into one list, the moment I see it.",
+            "Not a dozen tabs, not a note to self, one list.",
+            "Then, when I have ten minutes in a queue or on the train, I open that list.",
+            "The second habit is marking the lines that matter.",
+            "I highlight maybe one or two sentences per piece.",
+            "Once a week I scroll through those highlights, and that is where the ideas stick.",
+            "The third habit sounds strange, but I listen to a lot of my reading.",
+            "Long essays become something I can finish on a walk.",
+            "And videos like this one, I usually read as a transcript instead of watching.",
+            "It is faster, and I can skim to the part I came for.",
+            "None of this needs willpower.",
+            "It just needs the next good thing to read to be one tap away.",
+        ]
+        var lines: [TranscriptLine] = []
+        var ms = 0
+        for sentence in sentences {
+            lines.append(TranscriptLine(startMs: ms, durationMs: 4_500, text: sentence))
+            ms += 4_500
+        }
+        let transcript = Transcript(videoId: "FtDemo00001", title: transcriptTitle, lang: "en",
+                                    kind: .manual, availableLangs: ["en"], lines: lines)
+        return TranscriptArticleBuilder.article(from: transcript, url: transcriptURL, videoID: "FtDemo00001",
+                                                title: transcriptTitle, channel: "The Quiet Shelf")
+    }
+
     /// Card thumbnail for a demo article: `demo-thumb-<index>.png`, bundled in Debug builds only
     /// (`EXCLUDED_SOURCE_FILE_NAMES` in project.yml keeps them out of Release).
     static func thumbnail(for url: URL) -> UIImage? {
@@ -200,6 +242,7 @@ enum AppStoreDemo {
         }
         SavedOnIPhoneStore.shared.add(list)
 
+        ReaderArticleCache.shared.save(transcriptArticle())
         for article in articles {
             guard let url = URL(string: article.url) else { continue }
             ReaderArticleCache.shared.save(ReaderArticle(

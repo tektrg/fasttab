@@ -190,15 +190,19 @@ private extension FastTabMobileApp {
         EmergingContentProvider.shared.refresh()
         switch AppStoreDemo.screen {
         case .read: selectedTab = .read
-        case .shuffle: selectedTab = .shuffle
+        case .shuffle, .swipe: selectedTab = .shuffle
         case .more, .highlights, .bookmarks: selectedTab = .more
         case .tabs: selectedTab = .tabs
-        case .reader:
+        case .reader, .listen:
             selectedTab = .read
-            let article = AppStoreDemo.featured
+            let article = AppStoreDemo.screen == .listen ? AppStoreDemo.listenArticle : AppStoreDemo.featured
             if let url = URL(string: article.url) {
                 widgetReaderItem = ReaderNavigationItem(url: url, title: article.title, focusHighlightID: nil)
             }
+        case .transcript:
+            selectedTab = .read
+            widgetReaderItem = ReaderNavigationItem(url: AppStoreDemo.transcriptURL,
+                                                    title: AppStoreDemo.transcriptTitle, focusHighlightID: nil)
         }
     }
     #endif

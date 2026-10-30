@@ -14,6 +14,14 @@ struct ReadAloudButton: View {
                 .readerBarTapTarget()
         }
         .accessibilityLabel(isPlaying ? "Pause reading aloud" : "Read aloud")
+        #if DEBUG
+        .task {
+            // App Store screenshots: the `listen` screen opens with Read Aloud already playing.
+            guard AppStoreDemo.isEnabled, AppStoreDemo.screen == .listen else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            if controller.state == .idle { controller.togglePlayback(article: article) }
+        }
+        #endif
     }
 
     private var isPlaying: Bool { controller.state == .playing }

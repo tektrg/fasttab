@@ -539,12 +539,21 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     /// If the reader body is empty (process died without the terminate
     /// callback firing), rebuild the template. Otherwise do nothing so we
     /// never disturb the user's scroll position.
-    private func recoverIfBlank() {
+    /// Right after foregrounding, the page's process may still be resuming and the check
+    /// errors out; that is not a blank page, so ask again once before rebuilding (a rebuild
+    /// re-renders the whole article, which reads as a freeze).
+    private func recoverIfBlank(retriesLeft: Int = 1) {
         guard let webView else { return }
         webView.evaluateJavaScript(
             "document.getElementById('reader-body') ? document.getElementById('reader-body').innerHTML.length : -1"
-        ) { [weak self] result, _ in
+        ) { [weak self] result, error in
             guard let self else { return }
+            if error != nil, retriesLeft > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.recoverIfBlank(retriesLeft: retriesLeft - 1)
+                }
+                return
+            }
             if let length = result as? Int, length > 0 { return }
             if let length = result as? NSNumber, length.intValue > 0 { return }
             self.reloadHandler?()

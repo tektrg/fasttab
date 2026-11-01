@@ -15,7 +15,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
 
     var syncEngine: CKSyncEngine?
     private let container: CKContainer
-    private let database: CKDatabase
+    let database: CKDatabase
     private let stateFileURL: URL
 
     /// Record bodies handed to `CKSyncEngine`'s record provider at send time.
@@ -44,6 +44,9 @@ public final class SyncConsumer: NSObject, ObservableObject {
     var listChangeObserver: NSObjectProtocol?
     var listSendTask: Task<Void, Never>?
     private var hasStarted = false
+    /// Manual iCloud sweep bookkeeping (SyncConsumer+ZoneSweep.swift).
+    var lastZoneSweepAt: Date?
+    var zoneSweepInFlight = false
 
     /// When this phone last queued its own `SyncedDevice` heartbeat — the
     /// record the Mac reads to say "iPhone connected". See
@@ -282,6 +285,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         publishOwnDeviceIfDue()
         await performSend(visibility: .silent)
         await performFetch(visibility: .silent)
+        await sweepZonesIfDue()
     }
 
     // MARK: - Push-Driven Sync
@@ -310,6 +314,13 @@ public final class SyncConsumer: NSObject, ObservableObject {
     /// Awaitable refresh, so a SwiftUI `.refreshable` spinner reflects the real
     /// round trip instead of finishing instantly.
     public func refreshNow() async {
+        // Run detached from the caller: SwiftUI cancels a `.refreshable` task when the screen
+        // redraws (the "Syncing…" indicator below redraws it), which cancelled the fetch
+        // and showed "Swift.CancellationError". An unstructured task is not cancelled with it.
+        await Task { await self.performRefreshNow() }.value
+    }
+
+    private func performRefreshNow() async {
         await refreshAccountStatus()
         // Pull-to-refresh doubles as "retry everything": re-arm anything the
         // outbox still holds in case the engine's pending changes were lost.
@@ -322,6 +333,9 @@ public final class SyncConsumer: NSObject, ObservableObject {
         publishOwnDeviceIfDue(interval: Self.userActivityHeartbeatFloor)
         await performSend(visibility: .userInitiated)
         await performFetch(visibility: .userInitiated)
+        // The engine's fetch alone can miss a zone no push marked dirty.
+        lastZoneSweepAt = nil
+        await sweepZonesIfDue()
     }
 
     public func sendPendingChanges() {
@@ -354,7 +368,10 @@ public final class SyncConsumer: NSObject, ObservableObject {
             return true
         } catch {
             endTransfer(visibility)
-            markSyncFailed(error, whileDoing: "fetching changes")
+            // A cancelled fetch did not fail; the next tick retries.
+            if !ZoneSweepSchedule.isCancellation(error) {
+                markSyncFailed(error, whileDoing: "fetching changes")
+            }
             return false
         }
     }

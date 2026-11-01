@@ -23,6 +23,7 @@ extension SyncConsumer: CKSyncEngineDelegate {
                     // backlog cannot be sent until they exist again. Nothing in it is
                     // confirmed either: the FastTab List stays local and uploads again.
                     self.listSync.resetLedger()
+                    self.resetZoneSweepTokens()
                     self.ensureZonesExist()
                     self.restorePendingCommandOutbox()
                     self.ownDeviceServerRecord = nil
@@ -37,66 +38,8 @@ extension SyncConsumer: CKSyncEngineDelegate {
                 self.fetchLatestChanges()
 
             case .fetchedRecordZoneChanges(let fetchedChanges):
-                for modification in fetchedChanges.modifications {
-                    let record = modification.record
-                    switch record.recordType {
-                    case SyncedDevice.recordType:
-                        // Our own heartbeat comes back too; keep its change tag,
-                        // and let the cache drop it (it holds Macs only).
-                        self.retainOwnDeviceRecordIfMine(record)
-                        if let device = SyncedDevice(from: record) {
-                            LocalCache.shared.updateDevice(device)
-                        }
-                    case SyncedTab.recordType:
-                        if let tab = SyncedTab(from: record) {
-                            LocalCache.shared.updateTab(tab)
-                        }
-                    case SyncedTabOrder.recordType:
-                        if let tabOrder = SyncedTabOrder(from: record) {
-                            LocalCache.shared.updateTabOrder(tabOrder)
-                        }
-                    case SyncedBookmarkBlob.recordType:
-                        if let blob = SyncedBookmarkBlob(from: record) {
-                            LocalCache.shared.updateBookmarkBlob(blob)
-                        }
-                    case SyncedHistorySlice.recordType:
-                        if let slice = SyncedHistorySlice(from: record) {
-                            LocalCache.shared.updateHistorySlice(slice)
-                        }
-                    case SyncedTabStats.recordType:
-                        if let stats = SyncedTabStats(from: record) {
-                            LocalCache.shared.updateTabStats(stats)
-                        }
-                    case SyncCommand.recordType:
-                        if let command = SyncCommand(from: record) {
-                            LocalCache.shared.updateCommandStatus(
-                                id: command.id,
-                                status: command.status,
-                                reason: command.statusReason,
-                                completedAt: command.completedAt
-                            )
-                        }
-                    default:
-                        break
-                    }
-                }
-
-                for deletion in fetchedChanges.deletions {
-                    let recordName = deletion.recordID.recordName
-                    let zoneID = deletion.recordID.zoneID
-                    if zoneID == SyncConstants.stateZoneID {
-                        LocalCache.shared.removeTab(id: recordName)
-                        LocalCache.shared.removeTabOrder(id: recordName)
-                        LocalCache.shared.removeDevice(id: recordName)
-                        LocalCache.shared.removeBookmarkBlob(id: recordName)
-                        LocalCache.shared.removeHistorySlice(id: recordName)
-                        LocalCache.shared.removeTabStats(recordName: recordName)
-                    }
-                }
-
-                LocalCache.shared.flushPendingSave()
-                await self.absorbReaderChanges(
-                    fetchedChanges.modifications.map(\.record),
+                await self.applyFetchedChanges(
+                    modifications: fetchedChanges.modifications.map(\.record),
                     deletions: fetchedChanges.deletions.map(\.recordID))
 
             case .sentRecordZoneChanges(let sentChanges):
@@ -250,5 +193,75 @@ extension SyncConsumer: CKSyncEngineDelegate {
                 records[recordID]
             }
         )
+    }
+}
+
+// MARK: - Applying fetched records
+
+extension SyncConsumer {
+    /// Applies records read from CloudKit to the local cache. One path for the engine's
+    /// fetch events and for the manual zone sweep (SyncConsumer+ZoneSweep.swift), so both
+    /// produce the same result.
+    func applyFetchedChanges(modifications: [CKRecord], deletions: [CKRecord.ID]) async {
+        for record in modifications {
+            switch record.recordType {
+            case SyncedDevice.recordType:
+                // Our own heartbeat comes back too; keep its change tag,
+                // and let the cache drop it (it holds Macs only).
+                retainOwnDeviceRecordIfMine(record)
+                if let device = SyncedDevice(from: record) {
+                    LocalCache.shared.updateDevice(device)
+                }
+            case SyncedTab.recordType:
+                if let tab = SyncedTab(from: record) {
+                    LocalCache.shared.updateTab(tab)
+                }
+            case SyncedTabOrder.recordType:
+                if let tabOrder = SyncedTabOrder(from: record) {
+                    LocalCache.shared.updateTabOrder(tabOrder)
+                }
+            case SyncedBookmarkBlob.recordType:
+                if let blob = SyncedBookmarkBlob(from: record) {
+                    LocalCache.shared.updateBookmarkBlob(blob)
+                }
+            case SyncedHistorySlice.recordType:
+                if let slice = SyncedHistorySlice(from: record) {
+                    LocalCache.shared.updateHistorySlice(slice)
+                }
+            case SyncedTabStats.recordType:
+                if let stats = SyncedTabStats(from: record) {
+                    LocalCache.shared.updateTabStats(stats)
+                }
+            case SyncCommand.recordType:
+                if let command = SyncCommand(from: record) {
+                    LocalCache.shared.updateCommandStatus(
+                        id: command.id,
+                        status: command.status,
+                        reason: command.statusReason,
+                        completedAt: command.completedAt
+                    )
+                }
+            default:
+                break
+            }
+        }
+
+        for deletionID in deletions {
+            let recordName = deletionID.recordName
+            let zoneID = deletionID.zoneID
+            if zoneID == SyncConstants.stateZoneID {
+                LocalCache.shared.removeTab(id: recordName)
+                LocalCache.shared.removeTabOrder(id: recordName)
+                LocalCache.shared.removeDevice(id: recordName)
+                LocalCache.shared.removeBookmarkBlob(id: recordName)
+                LocalCache.shared.removeHistorySlice(id: recordName)
+                LocalCache.shared.removeTabStats(recordName: recordName)
+            }
+        }
+
+        LocalCache.shared.flushPendingSave()
+        await absorbReaderChanges(
+            modifications,
+            deletions: deletions)
     }
 }

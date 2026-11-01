@@ -43,8 +43,7 @@ struct MessageImage: Equatable, Sendable, Identifiable {
         if !imageURLs.isEmpty { return imageURLs.compactMap(NSImage.init(contentsOf:)) }
         // A copied file with no image type must not fall through to its icon (NSImage reads file icons).
         if pasteboard.types?.contains(.fileURL) == true { return [] }
-        // Text copied from Word/Pages/Office also carries a PDF/TIFF rendering: that paste is text.
-        if pasteboard.types?.contains(.string) == true { return [] }
+        if !isImageCopy(pasteboard) { return [] }
         return (pasteboard.readObjects(forClasses: [NSImage.self]) as? [NSImage]) ?? []
     }
 
@@ -52,8 +51,24 @@ struct MessageImage: Equatable, Sendable, Identifiable {
     static func pasteboardHasImage(_ pasteboard: NSPasteboard) -> Bool {
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         if !urls.isEmpty { return urls.contains { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true } }
-        if pasteboard.types?.contains(.fileURL) == true || pasteboard.types?.contains(.string) == true { return false }
+        if pasteboard.types?.contains(.fileURL) == true || !isImageCopy(pasteboard) { return false }
         return pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
+    }
+
+    /// A photo copied from Safari/Photos/Slack carries text too (its URL or filename), but any HTML is just an
+    /// `<img>`; text copied from Word/Pages/Office also carries a PDF/TIFF rendering, and that paste is text.
+    /// Same rule as the web composer (`imagesFromClipboard`).
+    private static func isImageCopy(_ pasteboard: NSPasteboard) -> Bool {
+        isImageCopy(text: pasteboard.string(forType: .string), html: pasteboard.string(forType: .html))
+    }
+
+    static func isImageCopy(text: String?, html: String?) -> Bool {
+        let text = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { return true }
+        let isOnlyAnImg = html?.range(of: #"^\s*(<meta[^>]*>\s*)?<img\b[^>]*>\s*$"#, options: [.regularExpression, .caseInsensitive]) != nil
+        let isLinkOrFile = text.range(of: #"^(https?:|file:)\S+$"#, options: .regularExpression) != nil
+        let isImageName = text.range(of: #"\.(png|jpe?g|gif|webp|heic)$"#, options: [.regularExpression, .caseInsensitive]) != nil
+        return isOnlyAnImg || isLinkOrFile || isImageName
     }
 
     private static func scaled(_ image: CGImage, longEdge: CGFloat) -> CGImage? {

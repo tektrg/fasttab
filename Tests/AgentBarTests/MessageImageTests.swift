@@ -164,4 +164,12 @@ struct MessageImageTests {
             Issue.record("a 404 must fail")
         }
     }
+
+    @Test func aPhotoCopiedWithItsUrlOrFilenameIsAnImageButCopiedTextIsNot() {
+        #expect(MessageImage.isImageCopy(text: nil, html: nil))
+        #expect(MessageImage.isImageCopy(text: "https://a.com/p.jpg", html: "<meta charset='utf-8'><img src=\"https://a.com/p.jpg\">"))
+        #expect(MessageImage.isImageCopy(text: "IMG_0042.HEIC", html: nil))
+        #expect(!MessageImage.isImageCopy(text: "Q3 sales", html: "<table><tr><td>Q3 sales</td></tr></table>"))
+        #expect(!MessageImage.isImageCopy(text: "Q3 sales", html: nil))
+    }
 }

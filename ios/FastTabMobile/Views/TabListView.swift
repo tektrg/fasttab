@@ -32,6 +32,11 @@ public struct TabListView: View {
     /// `BookmarkMovePicker` the bookmarks tree uses; on confirm the tab's URL
     /// is saved into the picked folder on the tab's own Mac.
     @State private var tabSaveRequest: TabSaveRequest?
+    /// The tab that was just saved (folder bookmark or FastTab list) and now
+    /// awaits the always-asked "Also close this tab?" answer.
+    @State private var closeOfferTab: SyncedTab?
+    /// Set by the folder picker while it is still closing; promoted to `closeOfferTab` on dismiss.
+    @State private var tabAwaitingCloseOffer: SyncedTab?
     /// Organize mode: rows show an inline recommended folder + Bookmark button.
     @State private var isOrganizeMode = false
     @ObservedObject private var folderRecommender = TabFolderRecommender.shared
@@ -285,10 +290,27 @@ public struct TabListView: View {
         .fullScreenCover(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
-        .sheet(item: $tabSaveRequest) { request in
+        .sheet(item: $tabSaveRequest, onDismiss: {
+            // Offer only once the picker has finished closing; a dialog raised
+            // while a sheet is dismissing is silently dropped by SwiftUI.
+            closeOfferTab = tabAwaitingCloseOffer
+            tabAwaitingCloseOffer = nil
+        }) { request in
             BookmarkMovePicker(sourceDeviceID: request.tab.deviceID, title: "Save to…") { destination in
                 saveTabAsBookmark(request.tab, to: destination)
+                tabAwaitingCloseOffer = request.tab
             }
+        }
+        .confirmationDialog(
+            "Also close this tab?",
+            isPresented: Binding(get: { closeOfferTab != nil }, set: { if !$0 { closeOfferTab = nil } }),
+            titleVisibility: .visible,
+            presenting: closeOfferTab
+        ) { tab in
+            Button("Close Tab on Mac", role: .destructive) { requestClose(of: tab) }
+            Button("Keep Open", role: .cancel) {}
+        } message: { tab in
+            Text(Self.displayTitle(for: tab))
         }
         .dsToast($toast, bottomInset: DS.Space.floatingBarClearance)
     }
@@ -602,8 +624,8 @@ public struct TabListView: View {
                 }
 
                 if isOrganizeMode, let recommendation = folderRecommender.recommendation(for: tab) {
-                    TabFolderRecommendationChip(recommendation: recommendation) { closeTab in
-                        bookmarkRecommended(tab, into: recommendation, closeTab: closeTab)
+                    TabFolderRecommendationChip(recommendation: recommendation) {
+                        bookmarkRecommended(tab, into: recommendation)
                     }
                 }
             }
@@ -632,6 +654,13 @@ public struct TabListView: View {
                 Label("Save to Folder", systemImage: "folder")
             }
             .tint(DS.Tint.action)
+
+            Button {
+                addToFastTabList(tab)
+            } label: {
+                Label("Add to List", systemImage: "text.badge.plus")
+            }
+            .tint(.orange)
 
             Button {
                 UIPasteboard.general.string = tab.url
@@ -675,6 +704,12 @@ public struct TabListView: View {
                     tabSaveRequest = TabSaveRequest(tab: tab)
                 } label: {
                     Label("Save to Folder", systemImage: "folder")
+                }
+
+                Button {
+                    addToFastTabList(tab)
+                } label: {
+                    Label("Add to FastTab List", systemImage: "text.badge.plus")
                 }
 
                 Divider()
@@ -742,10 +777,18 @@ public struct TabListView: View {
         showToastHUD(message: saveAcknowledgement(for: tab))
     }
 
-    private func bookmarkRecommended(_ tab: SyncedTab, into recommendation: TabFolderRecommendation, closeTab: Bool) {
+    private func bookmarkRecommended(_ tab: SyncedTab, into recommendation: TabFolderRecommendation) {
         saveTabAsBookmark(tab, to: recommendation.destination)
         folderRecommender.markBookmarked(tab)
-        if closeTab { requestClose(of: tab) }
+        closeOfferTab = tab
+    }
+
+    /// Same destination as the share sheet's "Save to iPhone": the local-only
+    /// FastTab reading list. Never synced, so it works with sync off.
+    private func addToFastTabList(_ tab: SyncedTab) {
+        SavedOnIPhoneStore.shared.add([SavedOnIPhoneLink(url: tab.url, title: Self.displayTitle(for: tab))])
+        showToastHUD(message: "Added to FastTab list")
+        closeOfferTab = tab
     }
 
     private func saveAcknowledgement(for tab: SyncedTab) -> String {

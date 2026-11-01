@@ -9,8 +9,6 @@ public struct MoreView: View {
     @StateObject private var statsViewModel = StatsViewModel()
     @Environment(AccountSession.self) private var accountSession
     private let intelligenceTip = IntelligenceTip()
-    @AppStorage(TabBookmarkClosePreference.defaultsKey)
-    private var tabBookmarkClosePreferenceRaw = TabBookmarkClosePreference.ask.rawValue
     @AppStorage(TranscriptCleanupPreference.defaultsKey) private var transcriptCleanupEnabled = false
     @AppStorage(ReadingGoal.defaultsKey) private var dailyWordGoal = ReadingGoal.defaultDailyWords
 
@@ -216,15 +214,6 @@ public struct MoreView: View {
                 #endif
             }
             .dsListRow()
-
-            if tabBookmarkClosePreferenceRaw != TabBookmarkClosePreference.ask.rawValue {
-                Section(footer: Text("After an Organize-mode Bookmark tap, FastTab currently \(tabBookmarkClosePreferenceRaw == TabBookmarkClosePreference.bookmarkAndClose.rawValue ? "closes" : "keeps") the tab without asking.")) {
-                    Button("Ask Again When Bookmarking Tabs") {
-                        tabBookmarkClosePreferenceRaw = TabBookmarkClosePreference.ask.rawValue
-                    }
-                }
-                .dsListRow()
-            }
 
             Section {
                 Button {

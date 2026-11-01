@@ -5,7 +5,7 @@ struct SectionHeaderView: View {
 
     var body: some View {
         Text(section.title.uppercased())
-            .font(.system(size: 11, weight: .semibold))
+            .font(.avenir(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 22)
             .padding(.bottom, 4)

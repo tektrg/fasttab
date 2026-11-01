@@ -13,11 +13,11 @@ struct NewWorkerTargetRow: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 4) {
                 Text("New worker in \(pick.persona.name)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.avenir(size: 12, weight: .semibold))
                     .lineLimit(1)
                 Button(action: onBack) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.avenir(size: 9, weight: .bold))
                         .foregroundStyle(.secondary)
                         .contentShape(Rectangle())
                 }

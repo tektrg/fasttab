@@ -58,11 +58,11 @@ struct AgentRowView: View {
     private var titleLine: some View {
         HStack(spacing: 8) {
             Text(agent.label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.avenir(size: 14, weight: .semibold))
                 .lineLimit(1)
             if let project = agent.projectName {
                 Text(project)
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -100,7 +100,7 @@ struct AgentRowView: View {
         HStack(spacing: 6) {
             ProgressView().controlSize(.small)
             Text(label)
-                .font(.system(size: 11, weight: .medium))
+                .font(.avenir(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .fixedSize()
@@ -110,10 +110,10 @@ struct AgentRowView: View {
     private func sentIndicator(_ label: String) -> some View {
         HStack(spacing: 5) {
             Image(systemName: "checkmark")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.avenir(size: 10, weight: .semibold))
                 .foregroundStyle(Color.green)
             Text(label)
-                .font(.system(size: 11, weight: .medium))
+                .font(.avenir(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .fixedSize()
@@ -128,14 +128,14 @@ struct AgentRowView: View {
         case .chief(let needsYouHint, let machineBadge):
             if needsYouHint > 0 {
                 Text("\(needsYouHint) needs you")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.avenir(size: 10, weight: .semibold))
                     .foregroundStyle(Color.red)
             }
             if let machineBadge { MachineBadgeView(text: machineBadge) }
         case .child(let crossProject, let machineBadge):
             if crossProject {
                 Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 10))
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.orange)
                     .help("This worker's project differs from its chief's")
             }
@@ -212,7 +212,7 @@ struct AgentRowView: View {
     private var detailLine: some View {
         HStack(spacing: 8) {
             Text(detailText)
-                .font(.system(size: 12))
+                .font(.avenir(size: 12))
                 .foregroundStyle(isConfirming ? Color.red : .secondary)
                 .lineLimit(1)
             Spacer(minLength: 8)

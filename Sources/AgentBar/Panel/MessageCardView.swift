@@ -39,11 +39,11 @@ struct MessageCardView: View {
     private func header(_ card: MessageCard) -> some View {
         HStack(spacing: 8) {
             Text(card.label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.avenir(size: 14, weight: .semibold))
                 .lineLimit(1)
             if let project = card.projectName {
                 Text(project)
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -67,7 +67,7 @@ struct MessageCardView: View {
                 )
                 if card.draft.isEmpty {
                     Text(card.placeholder)
-                        .font(.system(size: 13))
+                        .font(.avenir(size: 13))
                         .foregroundStyle(.tertiary)
                         .padding(.top, 2)
                         .allowsHitTesting(false)
@@ -108,7 +108,7 @@ struct MessageCardView: View {
                     .monospacedDigit()
             }
         }
-        .font(.system(size: 11, weight: .medium))
+        .font(.avenir(size: 11, weight: .medium))
         .frame(minHeight: 14)
     }
 
@@ -131,18 +131,18 @@ struct MessageCardView: View {
         if card.phase == .sending {
             ProgressView().controlSize(.small)
             Text("Checking the terminal, then sending…")
-                .font(.system(size: 11, weight: .medium))
+                .font(.avenir(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
         } else if let error = card.errorText {
             Text(error)
-                .font(.system(size: 11, weight: .medium))
+                .font(.avenir(size: 11, weight: .medium))
                 .foregroundStyle(.red)
                 .lineLimit(4)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         } else if card.isConfirming {
             Text(MessageCard.midTurnConfirmText)
-                .font(.system(size: 11, weight: .medium))
+                .font(.avenir(size: 11, weight: .medium))
                 .foregroundStyle(WarningTextColor.color)
                 .fixedSize(horizontal: false, vertical: true)
         }

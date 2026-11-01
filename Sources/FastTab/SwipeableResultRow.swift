@@ -201,8 +201,11 @@ private struct ResultRowView: View {
     /// row height; reserving always left a blank column beside every row.
     private var actionReserveWidth: CGFloat {
         guard rowStyle == .minimal, isActionsVisible else { return 0 }
-        let buttonCount = 2 + (result.type == .tab ? 1 : 0) + (fastTabListBridge != nil ? 1 : 0)
-        return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: buttonCount)
+        return RowActionOverlay<EmptyView>.reservedWidth(
+            buttonCount: 2,
+            leadingFadeWidth: 0,
+            trailingPadding: 0
+        )
     }
 
     var body: some View {
@@ -243,6 +246,7 @@ private struct ResultRowView: View {
                 isSelected: isSelected,
                 isHovering: isHovering,
                 isVisible: isHovering || isSelected,
+                leadingFadeWidth: 4,
                 trailingPadding: 10
             ) {
                 actionButtonCluster
@@ -291,39 +295,34 @@ private struct ResultRowView: View {
     @ViewBuilder
     private var actionButtonCluster: some View {
         HStack(spacing: 4) {
-            if let bridge = fastTabListBridge, let onFastTabListBridge {
-                Button(action: onFastTabListBridge) {
-                    Image(systemName: bridge.symbolName)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(Color.primary.opacity(0.06)))
+            Menu {
+                if let bridge = fastTabListBridge, let onFastTabListBridge {
+                    Button(action: onFastTabListBridge) {
+                        Label("\(bridge.title) (\(fastTabListShortcutHint))", systemImage: bridge.symbolName)
+                    }
                 }
-                .buttonStyle(.plain)
-                .help("\(bridge.title) (\(fastTabListShortcutHint))")
-            }
 
-            if result.type == .tab, let onPin {
-                Button(action: onPin) {
-                    Image(systemName: result.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(result.isPinned ? Color.accentColor : .secondary)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(result.isPinned ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06)))
+                if result.type == .tab, let onPin {
+                    Button(action: onPin) {
+                        Label(result.isPinned ? "Unpin tab" : "Pin tab", systemImage: result.isPinned ? "pin.slash" : "pin")
+                    }
                 }
-                .buttonStyle(.plain)
-                .help(result.isPinned ? "Unpin tab" : "Pin tab")
-            }
 
-            Button(action: onCopy) {
-                Image(systemName: "link")
+                Button(action: onCopy) {
+                    Label("Copy link", systemImage: "link")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 22, height: 22)
                     .background(Circle().fill(Color.primary.opacity(0.06)))
+                    .contentShape(Circle())
             }
-            .buttonStyle(.plain)
-            .help("Copy link")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More options")
 
             Button(action: onRemove) {
                 if isConfirmingRemoval || !showsMinusIcon {
@@ -369,7 +368,7 @@ private struct ResultRowView: View {
                         HoverMarqueeText(result.title)
                     }
                 }
-                .font(.system(size: 13, weight: .semibold, design: .default))
+                .font(.system(size: 13, weight: .regular, design: .default))
                 .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
                 .fixedSize(horizontal: false, vertical: true)
             }
@@ -479,7 +478,7 @@ private struct ResultRowView: View {
                     .foregroundStyle(.secondary)
             }
             HoverMarqueeText(result.title)
-                .font(.system(size: 13, weight: .semibold, design: .default))
+                .font(.system(size: 13, weight: .regular, design: .default))
                 .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
         }
         .clipped()

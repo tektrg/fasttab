@@ -22,7 +22,7 @@ struct FooterNoticeView: View {
             .frame(height: min(textHeight, Self.maxTextHeight))
             Button(action: onDismiss) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
+                    .font(.avenir(size: 14))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
@@ -41,7 +41,7 @@ struct FooterNoticeView: View {
 
     private var text: some View {
         Text(notice.text)
-            .font(.system(size: 12, weight: .medium))
+            .font(.avenir(size: 12, weight: .medium))
             .foregroundStyle(notice.textColor)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)

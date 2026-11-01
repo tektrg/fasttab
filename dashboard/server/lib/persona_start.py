@@ -101,9 +101,13 @@ from chief_dashboard_actions import (  # noqa: E402
 from chief_dashboard_feeds import REPO_ROOT, MACHINES  # noqa: E402
 from chief_dashboard_views import get_full_state  # noqa: E402
 
-#: Override for tests — never for real use (the whole point is running the
-#: user's actual `claude` on PATH).
-CLAUDE_BIN = os.environ.get("PERSONA_START_CLAUDE_BIN", "claude")
+#: What a start runs: `ccproxy`'s launcher (claude-launch.py, executable) so a new
+#: session joins the account pool. Called by path because the start line is
+#: single-quoted — a shell alias (`ccproxy`) would not expand. Env override is
+#: for tests only.
+CLAUDE_BIN = os.environ.get("PERSONA_START_CLAUDE_BIN") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts", "claude-launch.py")
+CLAUDE_BIN = os.path.normpath(CLAUDE_BIN)
 
 #: `~/.claude/projects` override (tests, or a second local instance) — read
 #: at call time, same convention as `CLAUDE_SESSIONS_DIR`.

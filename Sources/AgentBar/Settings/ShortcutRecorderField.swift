@@ -38,7 +38,7 @@ struct ShortcutRecorderField: View {
 
             if isRecording {
                 Text("Esc to cancel")
-                    .font(.caption2)
+                    .font(.avenir(size: 9))
                     .foregroundStyle(.secondary)
             }
         }

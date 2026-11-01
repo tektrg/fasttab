@@ -11,11 +11,11 @@ struct WrapUpQuestionSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(question.ask)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.avenir(size: 13, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
             if !question.recap.isEmpty {
                 Text(question.recap)
-                    .font(.system(size: 11))
+                    .font(.avenir(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
             }
@@ -28,7 +28,7 @@ struct WrapUpQuestionSection: View {
             let consentLabels = question.actions.filter(\.mayNeedConfirming).map(\.label)
             if !consentLabels.isEmpty {
                 Text("\(WrapUpQuestion.consentNote): \(consentLabels.joined(separator: ", "))")
-                    .font(.system(size: 11))
+                    .font(.avenir(size: 11))
                     .foregroundStyle(.secondary)
             }
         }

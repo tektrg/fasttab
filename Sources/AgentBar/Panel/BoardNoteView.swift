@@ -4,7 +4,7 @@ import SwiftUI
 struct BoardNoteView: View {
     var body: some View {
         Text("Ended list / unpushed markers unavailable")
-            .font(.system(size: 11))
+            .font(.avenir(size: 11))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .frame(height: AgentPanelMetrics.noteHeight)

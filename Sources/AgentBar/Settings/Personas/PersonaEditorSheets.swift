@@ -19,7 +19,7 @@ struct PersonaEditorSheet: View {
                             PersonaNotice(text: "Jev won't offer this persona until it has a description.")
                         } else if case .adopt = editor.mode {
                             Text("Drafted from the folder's AGENTS.md / CLAUDE.md — check it says what this persona owns.")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.avenir(size: 10)).foregroundStyle(.secondary)
                         }
                     } header: {
                         Text("Description (what Jev reads)")
@@ -40,7 +40,7 @@ struct PersonaEditorSheet: View {
                         Text("Extra instructions")
                     } footer: {
                         Text("Given to this persona's session after the global instructions, when AgentBar starts or resumes it.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.avenir(size: 10)).foregroundStyle(.secondary)
                     }
                     Section("With nothing running") {
                         Picker("When picked", selection: draft(\.idle)) {
@@ -60,7 +60,7 @@ struct PersonaEditorSheet: View {
                             .pickerStyle(.segmented)
                         } footer: {
                             Text("Where AgentBar starts or resumes this persona. The confirm row can still pick another machine for one start.")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.avenir(size: 10)).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -104,9 +104,9 @@ struct GlobalInstructionsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Global instructions").font(.headline)
+            Text("Global instructions").font(.avenir(size: 13, weight: .bold))
             Text("`<name>` and `<description>` are filled in per persona. The list of persona names is appended so a misrouted reply can name a real one.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.avenir(size: 10)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             PersonaTextEditor(text: $text, minHeight: 260)
             if let error = model.actionError { PersonaNotice(text: error) }
@@ -137,7 +137,7 @@ struct PersonaTextEditor: View {
 
     var body: some View {
         TextEditor(text: $text)
-            .font(.system(size: 12))
+            .font(.avenir(size: 12))
             .frame(minHeight: minHeight)
             .scrollContentBackground(.hidden)
             .padding(4)

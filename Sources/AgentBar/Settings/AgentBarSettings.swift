@@ -10,12 +10,24 @@ import Combine
 final class AgentBarSettings: ObservableObject {
     static let showsMenuBarIconKey = "showsMenuBarIcon"
     static let showsCornerTabKey = "showsCornerTab"
+    nonisolated static let usesAvenirFontKey = "usesAvenirFont"
+    nonisolated static let fontScaleKey = "fontScale"
+    nonisolated static let fontScaleRange = 0.8...1.4
+
+    /// Text-size multiplier (1.0 = designed size), clamped to `fontScaleRange`.
+    nonisolated static func currentFontScale(_ defaults: UserDefaults = .standard) -> CGFloat {
+        let raw = defaults.object(forKey: fontScaleKey) as? Double ?? 1.0
+        return CGFloat(min(max(raw, fontScaleRange.lowerBound), fontScaleRange.upperBound))
+    }
 
     @Published private(set) var list: AgentListSettings
     @Published private(set) var showsMenuBarIcon: Bool
     /// The corner tab: peeks in when an agent starts needing the user, and when the pointer rests
     /// in the bottom-right corner (both off when this is off). A click on it opens the panel.
     @Published private(set) var showsCornerTab: Bool
+    /// Text face: Avenir Next (default) or the system font. Read by `Font.avenir`.
+    @Published private(set) var usesAvenirFont: Bool
+    @Published private(set) var fontScale: Double
     /// Whether an agent arriving in Needs you plays a sound, and which one per kind.
     @Published private(set) var sounds: SoundSettings
     /// Jev message-routing preferences (model id, what happens after a pick). The API key
@@ -31,6 +43,8 @@ final class AgentBarSettings: ObservableObject {
         list = AgentListSettings.load(from: defaults)
         showsMenuBarIcon = defaults.object(forKey: Self.showsMenuBarIconKey) as? Bool ?? true
         showsCornerTab = defaults.object(forKey: Self.showsCornerTabKey) as? Bool ?? true
+        usesAvenirFont = defaults.object(forKey: Self.usesAvenirFontKey) as? Bool ?? true
+        fontScale = Double(Self.currentFontScale(defaults))
         sounds = SoundSettings.load(from: defaults)
         routing = RoutingSettings.load(from: defaults)
         hotkey = AgentHotkeyConfig.configured(defaults: defaults)
@@ -55,6 +69,19 @@ final class AgentBarSettings: ObservableObject {
         guard shows != showsCornerTab else { return }
         showsCornerTab = shows
         defaults.set(shows, forKey: Self.showsCornerTabKey)
+    }
+
+    func setUsesAvenirFont(_ uses: Bool) {
+        guard uses != usesAvenirFont else { return }
+        usesAvenirFont = uses
+        defaults.set(uses, forKey: Self.usesAvenirFontKey)
+    }
+
+    func setFontScale(_ scale: Double) {
+        let clamped = (min(max(scale, Self.fontScaleRange.lowerBound), Self.fontScaleRange.upperBound) * 100).rounded() / 100
+        guard clamped != fontScale else { return }
+        fontScale = clamped
+        defaults.set(clamped, forKey: Self.fontScaleKey)
     }
 
     func updateSounds(_ change: (inout SoundSettings) -> Void) {

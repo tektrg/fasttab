@@ -40,20 +40,20 @@ struct PlanCardView: View {
     private var questionAndRows: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(plan.prompt.title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.avenir(size: 14, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 18)
                 .padding(.top, 8)
             if let note = plan.changedNote {
                 Text(note)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.avenir(size: 11, weight: .medium))
                     .foregroundStyle(WarningTextColor.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 18)
             }
             if let warning = card.sentWarning {
                 Text(warning)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.avenir(size: 11, weight: .medium))
                     .foregroundStyle(WarningTextColor.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -65,13 +65,13 @@ struct PlanCardView: View {
                     ProgressView().controlSize(.small)
                     Text("Checking the terminal's prompt before you answer…")
                 }
-                .font(.system(size: 12))
+                .font(.avenir(size: 12))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 6)
             case .unavailable(let reason):
                 Text(reason)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.avenir(size: 12, weight: .medium))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 18)
@@ -90,11 +90,11 @@ struct PlanCardView: View {
     private func row(_ option: PermissionPrompt.Option) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("\(option.index)")
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(.avenirMono(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             Text(option.label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.avenir(size: 14, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
@@ -116,7 +116,7 @@ struct PlanCardView: View {
                 )
                 if plan.feedbackText.isEmpty {
                     Text("What should Claude change?   ↩ sends")
-                        .font(.system(size: 13))
+                        .font(.avenir(size: 13))
                         .foregroundStyle(.tertiary)
                         .padding(.top, 2)
                         .allowsHitTesting(false)
@@ -128,7 +128,7 @@ struct PlanCardView: View {
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.07)))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.15)))
             Text(plan.isFeedbackTooLong ? PlanCardState.feedbackTooLongNote : PlanCardState.feedbackNote)
-                .font(.system(size: 11, weight: .medium))
+                .font(.avenir(size: 11, weight: .medium))
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(plan.isFeedbackTooLong ? WarningTextColor.color : .secondary)
         }
@@ -142,7 +142,7 @@ struct PlanCardView: View {
         VStack(alignment: .leading, spacing: 4) {
             if let confirmText = plan.confirmText {
                 Text(confirmText)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.avenir(size: 11, weight: .semibold))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }

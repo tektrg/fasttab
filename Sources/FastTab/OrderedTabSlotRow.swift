@@ -36,7 +36,11 @@ struct OrderedTabSlotRow: View {
     /// Full style reserves nothing: the overlay covers the text, so hover never re-wraps it.
     private var actionReserveWidth: CGFloat {
         guard rowStyle == .minimal, isActionsVisible else { return 0 }
-        return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: isGhost ? 4 : 3)
+        return RowActionOverlay<EmptyView>.reservedWidth(
+            buttonCount: 2,
+            leadingFadeWidth: 0,
+            trailingPadding: 0
+        )
     }
 
     var body: some View {
@@ -77,7 +81,7 @@ struct OrderedTabSlotRow: View {
                         }
 
                         HoverMarqueeText(slot.title.isEmpty ? slot.url : slot.title)
-                            .font(.system(size: 13, weight: .semibold, design: .default))
+                            .font(.system(size: 13, weight: .regular, design: .default))
                             .foregroundStyle(titleColor)
 
                         if isFrozen {
@@ -128,6 +132,7 @@ struct OrderedTabSlotRow: View {
                 isSelected: isSelected,
                 isHovering: isHovering,
                 isVisible: isHovering || isSelected,
+                leadingFadeWidth: 4,
                 trailingPadding: 10
             ) {
                 actionButtonCluster
@@ -194,47 +199,37 @@ struct OrderedTabSlotRow: View {
     @ViewBuilder
     private var actionButtonCluster: some View {
         HStack(spacing: 4) {
-            // Copy link button
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(slot.url, forType: .string)
+            Menu {
+                if isGhost {
+                    Button(action: onReopen) {
+                        Label("Reopen tab", systemImage: "arrow.counterclockwise")
+                    }
+                }
+
+                Button(action: onTogglePin) {
+                    Label(slot.isPinned ? "Unpin tab" : "Pin tab", systemImage: slot.isPinned ? "pin.slash" : "pin")
+                }
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(slot.url, forType: .string)
+                } label: {
+                    Label("Copy URL", systemImage: "link")
+                }
             } label: {
-                Image(systemName: "link")
+                Image(systemName: "ellipsis")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 22, height: 22)
                     .background(Circle().fill(Color.primary.opacity(0.06)))
+                    .contentShape(Circle())
             }
-            .buttonStyle(.plain)
-            .help("Copy URL")
-
-            // Pin / unpin button
-            Button {
-                onTogglePin()
-            } label: {
-                Image(systemName: slot.isPinned ? "pin.fill" : "pin")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(slot.isPinned ? Color.accentColor : .secondary)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(slot.isPinned ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06)))
-            }
-            .buttonStyle(.plain)
-            .help(slot.isPinned ? "Unpin tab" : "Pin tab")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More options")
 
             if isGhost {
-                // Reopen button
-                Button {
-                    onReopen()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(Color.accentColor.opacity(0.12)))
-                }
-                .buttonStyle(.plain)
-                .help("Reopen tab")
-
                 // Permanent delete button
                 Button {
                     onClose()

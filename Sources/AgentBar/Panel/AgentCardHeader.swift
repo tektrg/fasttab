@@ -13,11 +13,11 @@ struct AgentCardHeader: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.avenir(size: 14, weight: .semibold))
                 .lineLimit(1)
             if let projectName {
                 Text(projectName)
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }

@@ -116,6 +116,7 @@ struct SettingsView: View {
             }
         }
         .listStyle(.sidebar)
+        .toolbar(removing: .sidebarToggle)
     }
 
     private var currentTab: SettingsTab {

@@ -21,20 +21,20 @@ struct MarkdownBlocksView: View {
         switch block {
         case .heading(let level, let text):
             Text(Self.styled(text))
-                .font(.system(size: Self.headingSize(level), weight: .semibold))
+                .font(.avenir(size: Self.headingSize(level), weight: .semibold))
                 .padding(.top, 3)
                 .proseLayout()
         case .paragraph(let text):
             Text(Self.styled(text))
-                .font(.system(size: Self.bodySize))
+                .font(.avenir(size: Self.bodySize))
                 .proseLayout()
         case .listItem(let depth, let marker, let text):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(Self.markerText(marker))
-                    .font(.system(size: Self.bodySize, design: .monospaced))
+                    .font(.avenirMono(size: Self.bodySize))
                     .foregroundStyle(.secondary)
                 Text(Self.styled(text))
-                    .font(.system(size: Self.bodySize))
+                    .font(.avenir(size: Self.bodySize))
                     .proseLayout()
             }
             .padding(.leading, CGFloat(min(depth, 5)) * 16)
@@ -58,11 +58,11 @@ struct MarkdownBlocksView: View {
         VStack(alignment: .leading, spacing: 3) {
             if let language {
                 Text(language)
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.avenir(size: 9, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
             Text(verbatim: code)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.avenirMono(size: 11))
                 .proseLayout()
         }
         .padding(8)
@@ -89,7 +89,7 @@ struct MarkdownBlocksView: View {
 
     private func tableCell(_ text: String) -> some View {
         Text(Self.styled(text))
-            .font(.system(size: Self.bodySize))
+            .font(.avenir(size: Self.bodySize))
             .fixedSize(horizontal: false, vertical: true)
     }
 

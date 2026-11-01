@@ -72,9 +72,9 @@ struct PersonasSettingsView: View {
                             Text(persona.name).fontWeight(.semibold)
                             PersonaStatusTag(persona: persona)
                         }
-                        Text(persona.address).font(.caption).foregroundStyle(.secondary)
+                        Text(persona.address).font(.avenir(size: 10)).foregroundStyle(.secondary)
                         if !persona.description.isEmpty {
-                            Text(persona.description).font(.caption).lineLimit(2)
+                            Text(persona.description).font(.avenir(size: 10)).lineLimit(2)
                         }
                     }
                     Spacer()
@@ -93,7 +93,7 @@ struct PersonasSettingsView: View {
             Text("Personas")
         } footer: {
             Text("Jev only offers a persona that has a description and isn't hidden. Its role still comes from the folder's own AGENTS.md / CLAUDE.md.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.avenir(size: 10)).foregroundStyle(.secondary)
         }
     }
 
@@ -109,7 +109,7 @@ struct PersonasSettingsView: View {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(suggestion.address)
-                        Text(Self.activitySummary(suggestion)).font(.caption).foregroundStyle(.secondary)
+                        Text(Self.activitySummary(suggestion)).font(.avenir(size: 10)).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Button("Adopt") { model.startAdopting(suggestion) }
@@ -120,7 +120,7 @@ struct PersonasSettingsView: View {
                 DisclosureGroup("Hidden folders (\(registry.hiddenSuggestions.count))") {
                     ForEach(registry.hiddenSuggestions, id: \.self) { address in
                         HStack {
-                            Text(address).font(.caption)
+                            Text(address).font(.avenir(size: 10))
                             Spacer()
                             Button("Unhide") { Task { await model.unhideSuggestion(address: address) } }
                         }
@@ -139,7 +139,7 @@ struct PersonasSettingsView: View {
                 Button("Edit…") { isEditingGlobal = true }
             }
             Text("Added to every persona's session when AgentBar starts or resumes it, before the persona's own extra instructions.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.avenir(size: 10)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -164,7 +164,7 @@ private struct PersonaStatusTag: View {
             else if persona.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 ("Needs a description", WarningTextColor.color)
             } else { ("Not offered", .secondary) }
-        Text(text).font(.caption2).foregroundStyle(color)
+        Text(text).font(.avenir(size: 9)).foregroundStyle(color)
     }
 }
 
@@ -174,7 +174,7 @@ struct PersonaNotice: View {
 
     var body: some View {
         Label(text, systemImage: "exclamationmark.triangle.fill")
-            .font(.caption)
+            .font(.avenir(size: 10))
             .foregroundStyle(WarningTextColor.color)
             .fixedSize(horizontal: false, vertical: true)
     }

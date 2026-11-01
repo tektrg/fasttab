@@ -18,14 +18,14 @@ struct ChiefPlaceholderRowView: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(node.label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.avenir(size: 14, weight: .semibold))
                 .lineLimit(1)
             Text("chief")
-                .font(.system(size: 11))
+                .font(.avenir(size: 11))
                 .foregroundStyle(.tertiary)
             if needsYouHint > 0 {
                 Text("\(needsYouHint) needs you")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.avenir(size: 10, weight: .semibold))
                     .foregroundStyle(Color.red.opacity(0.7))
             }
             if let machineBadge = node.machineBadge { MachineBadgeView(text: machineBadge) }

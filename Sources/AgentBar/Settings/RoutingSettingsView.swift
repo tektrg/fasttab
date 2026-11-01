@@ -35,7 +35,7 @@ struct RoutingSettingsView: View {
                     }
                 if let apiKeyProblem {
                     Text(apiKeyProblem)
-                        .font(.caption)
+                        .font(.avenir(size: 10))
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -54,21 +54,21 @@ struct RoutingSettingsView: View {
                 }
 
                 Text("Jev picks which agent a routed message should go to. The key is stored in the Keychain, not in plain settings, and is never shown back once saved.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Jev guidance") {
                 TextEditor(text: $systemPromptText)
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .frame(minHeight: 56, maxHeight: 120)
                     .focused($systemPromptFieldFocused)
                     .onChange(of: systemPromptFieldFocused) { _, focused in
                         if !focused { applySystemPrompt() }
                     }
                 Text("Extra guidance for Jev on how to route messages — for example, which agent should get UI bugs. Jev only ever picks one of the live agents shown in the list. This is advisory context only: it can steer which candidate Jev picks, but it can never change the routing task itself.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -84,7 +84,7 @@ struct RoutingSettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 Text("Send immediately types straight into the agent Jev picks, with no chance to check first. A wrong pick types into the wrong agent's terminal, and that can't be undone.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -118,11 +118,11 @@ struct RoutingSettingsView: View {
             ProgressView().controlSize(.small)
         case .succeeded:
             Label("Routing works", systemImage: "checkmark.circle.fill")
-                .font(.caption)
+                .font(.avenir(size: 10))
                 .foregroundStyle(.green)
         case .failed(let reason):
             Label(reason, systemImage: "exclamationmark.triangle.fill")
-                .font(.caption)
+                .font(.avenir(size: 10))
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
         }

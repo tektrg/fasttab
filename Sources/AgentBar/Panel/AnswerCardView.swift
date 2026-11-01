@@ -29,11 +29,11 @@ struct AnswerCardView: View {
     private func header(_ card: AnswerCard) -> some View {
         HStack(spacing: 8) {
             Text(card.label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.avenir(size: 14, weight: .semibold))
                 .lineLimit(1)
             if let project = card.projectName {
                 Text(project)
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -53,7 +53,7 @@ struct AnswerCardView: View {
                 ProgressView().controlSize(.small)
                 Text("Reading the agent's last message…")
             }
-            .font(.system(size: 12))
+            .font(.avenir(size: 12))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 18)
             .padding(.bottom, 8)
@@ -69,7 +69,7 @@ struct AnswerCardView: View {
         if let planFile = card.planFile {
             Button(action: { answer.openPlan() }) {
                 Label("Likely plan: \(planFile.lastPathComponent)", systemImage: "doc.text")
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .lineLimit(1)
             }
             .buttonStyle(.link)
@@ -108,11 +108,11 @@ struct AnswerCardView: View {
     private func questionHeading(_ question: AnswerableQuestion) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(question.title.uppercased())
-                .font(.system(size: 10, weight: .semibold))
+                .font(.avenir(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(question.displayQuestion)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.avenir(size: 15, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         }
@@ -155,7 +155,7 @@ struct AnswerCardView: View {
             switch form.sendState {
             case .editing:
                 Text("\(form.answeredCount) of \(form.form.questions.count) answered")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.avenir(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 Button("Submit", action: { answer.pressSend() })
@@ -163,12 +163,12 @@ struct AnswerCardView: View {
             case .sending(let question):
                 ProgressView().controlSize(.small)
                 Text("Sending \(question + 1) of \(form.form.questions.count)…")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.avenir(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             case .stopped:
                 Text(form.report ?? "")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.avenir(size: 11, weight: .medium))
                     .foregroundStyle(.red)
                     .lineLimit(6)
                     .fixedSize(horizontal: false, vertical: true)
@@ -187,7 +187,7 @@ struct AnswerCardView: View {
         HStack(spacing: 10) {
             if let errorText = card.state.errorText {
                 Text(errorText)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.avenir(size: 11, weight: .medium))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }

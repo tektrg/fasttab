@@ -73,9 +73,12 @@ fi
 
 echo "==> Assembling ${APP}"
 rm -rf "${APP}"
-mkdir -p "${APP}/Contents/MacOS"
+mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
 BIN_HASH="$(shasum -a 256 "${BIN}" | awk '{print $1}')"
 cp "${BIN}" "${APP}/Contents/MacOS/AgentBar"
+if [[ -f "dist/AgentBar.icns" ]]; then
+  cp "dist/AgentBar.icns" "${APP}/Contents/Resources/AppIcon.icns"
+fi
 
 # Belt-and-suspenders for the race above: confirm the bytes that landed in
 # dist/ are exactly the ones just compiled, before we sign/launch them.
@@ -94,6 +97,7 @@ cat > "${APP}/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>AgentBar</string>
   <key>CFBundleDisplayName</key><string>AgentBar</string>
   <key>CFBundleExecutable</key><string>AgentBar</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>

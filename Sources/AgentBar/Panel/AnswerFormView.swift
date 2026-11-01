@@ -35,13 +35,13 @@ struct AnswerFormView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Text("\(index + 1) of \(form.form.questions.count)\(question.header.isEmpty ? "" : " · " + question.header.uppercased())")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.avenir(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 outcomeChip(form.outcomes[index])
             }
             Text(QuestionDisplayText.clean(question.question))
-                .font(.system(size: 15, weight: .semibold))
+                .font(.avenir(size: 15, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         }
@@ -65,7 +65,7 @@ struct AnswerFormView: View {
 
     private func chip(_ text: String, _ color: Color) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold))
+            .font(.avenir(size: 10, weight: .semibold))
             .foregroundStyle(color)
     }
 

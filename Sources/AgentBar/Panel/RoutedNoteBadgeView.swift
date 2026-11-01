@@ -11,17 +11,17 @@ struct RoutedNoteBadgeView: View {
         if let newest = notes.first {
             HStack(spacing: 4) {
                 Text("📌 \(newest.text)")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.avenir(size: 10, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if notes.count > 1 {
                     Text("+\(notes.count - 1)")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.avenir(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
                 Button { onClear(newest.id) } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.avenir(size: 8, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)

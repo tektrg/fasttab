@@ -65,7 +65,7 @@ struct RowMoreMenuView: View, Equatable {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 11))   // matches CopyIdentityButton's icon exactly (regular weight)
+                .font(.avenir(size: 11))   // matches CopyIdentityButton's icon exactly (regular weight)
                 .foregroundStyle(.secondary)
                 .frame(width: 20, height: 18)
                 .contentShape(Rectangle())

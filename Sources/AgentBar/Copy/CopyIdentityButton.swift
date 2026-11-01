@@ -11,13 +11,13 @@ struct CopyIdentityButton: View {
         HStack(spacing: 4) {
             if showsLabel {
                 Text("Copied")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.avenir(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .opacity(isCopied ? 1 : 0)
             }
             Button(action: onCopy) {
                 Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 11))
+                    .font(.avenir(size: 11))
                     .foregroundStyle(isCopied ? Color.green : .secondary)
                     .frame(width: 20, height: 18)
                     .contentShape(Rectangle())

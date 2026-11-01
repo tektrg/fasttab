@@ -26,7 +26,7 @@ struct StatusSourceSettingsView: View {
                     }
                 if let addressProblem {
                     Text(addressProblem)
-                        .font(.caption)
+                        .font(.avenir(size: 10))
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -38,7 +38,7 @@ struct StatusSourceSettingsView: View {
                 }
                 testResultView
                 Text("AgentBar reads which agents are running, and what each is doing, from the chief dashboard. A change takes effect immediately.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -57,7 +57,7 @@ struct StatusSourceSettingsView: View {
         case .finished(let result):
             let isConnected = { if case .connected = result { true } else { false } }()
             Label(result.message, systemImage: isConnected ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.caption)
+                .font(.avenir(size: 10))
                 .foregroundStyle(isConnected ? Color.green : Color.orange)
                 .fixedSize(horizontal: false, vertical: true)
         }

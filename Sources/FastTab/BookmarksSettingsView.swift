@@ -18,16 +18,7 @@ struct BookmarksSettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Filter bookmarks", text: $filterText)
-                    .textFieldStyle(.plain)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .padding(12)
+            header
 
             if let errorMessage {
                 HStack(spacing: 8) {
@@ -117,6 +108,30 @@ struct BookmarksSettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var header: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Filter bookmarks", text: $filterText)
+                .textFieldStyle(.plain)
+            if !filterText.isEmpty {
+                Button {
+                    filterText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
     }
 
     private func deleteBookmarkConfirmed(_ item: BookmarkItem) {

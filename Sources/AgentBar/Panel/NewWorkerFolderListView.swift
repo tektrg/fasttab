@@ -57,10 +57,10 @@ struct NewWorkerFolderListView: View {
     private func message(_ title: String, detail: String?) -> some View {
         VStack(spacing: 6) {
             Text(title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.avenir(size: 15, weight: .semibold))
             if let detail {
                 Text(detail)
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .foregroundStyle(.secondary)
             }
         }
@@ -78,10 +78,10 @@ private struct NewWorkerFolderRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(folder.name)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.avenir(size: 13, weight: .semibold))
                 .lineLimit(1)
             Text(subtitle)
-                .font(.system(size: 11))
+                .font(.avenir(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }

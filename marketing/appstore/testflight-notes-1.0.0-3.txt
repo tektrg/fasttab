@@ -1,0 +1,11 @@
+What's new
+- Natural Voice: an optional subscription for a lifelike cloud voice in Read Aloud ($4.99/month or $39.99/year, 7-day free trial). Built-in iPhone voices stay free.
+- Read YouTube videos as clean, timestamped transcripts (needs Sign in with Apple).
+- Shuffle: swipe through your saved links, tabs and highlights.
+
+What to test
+- Open an article, then ••• > Reading Settings > Read Aloud > turn on "Natural voice". The subscription screen should appear. Sign in, start the free trial (TestFlight purchases are free), and check that Read Aloud now uses the new voice.
+- Try "Restore Purchases" on a second device signed in to the same account.
+- Without subscribing, make sure Read Aloud still works with the built-in voice, with the screen locked too.
+- Open a YouTube link in the reader and tap a timestamp.
+- Tell us anything that feels slow, confusing or broken.

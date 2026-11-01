@@ -67,6 +67,7 @@ struct AgentRowView: View {
                     .lineLimit(1)
             }
             if let hostBadge = agent.host.badgeText { MachineBadgeView(text: hostBadge) }
+            accountTags
             nestingDecorations
             Spacer(minLength: 8)
             if let sendingLabel {
@@ -83,6 +84,16 @@ struct AgentRowView: View {
                 CopyIdentityButton(isCopied: isCopied, onCopy: onCopy)
             }
         }
+    }
+
+    /// "limit" when the pane shows a Claude account wall; the account's name when it is not the default one.
+    @ViewBuilder
+    private var accountTags: some View {
+        if agent.limitWall {
+            MachineBadgeView(text: "limit", tint: .red)
+                .help("This Claude account hit its limit. ⋯ › Resume on next account")
+        }
+        if let accountLabel = agent.accountLabel { MachineBadgeView(text: accountLabel) }
     }
 
     private func sendingIndicator(_ label: String) -> some View {

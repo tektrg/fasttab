@@ -373,13 +373,10 @@ struct ContentView: View {
         clearKeyboardSwipe()
         resetPointerSwipe(animated: false)
         isSearchFocused = true
-        if searchText.count <= 1 {
-            withAnimation(.easeInOut(duration: 0.18)) {
-                scrollResultsToTop(proxy)
-            }
-        } else {
-            scrollResultsToTop(proxy)
-        }
+        // Not animated: on the first character this coincides with the
+        // quick-open → search branch swap, and an animation here made
+        // SwiftUI interpolate that whole layout change while typing.
+        scrollResultsToTop(proxy)
         scheduleSearchFetch()
     }
 

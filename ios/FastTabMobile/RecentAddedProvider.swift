@@ -20,7 +20,7 @@ public enum RecentAddedSource: Hashable, Sendable {
         case .shareSheet(_, let status):
             return status.isEmpty ? "Queued to Mac" : status
         case .savedOnIPhone:
-            return "Saved on iPhone"
+            return "FastTab List"
         case .bookmark(_, let folder, _, _, _):
             if let folder, !folder.isEmpty {
                 return BookmarkTreeBuilder.splitPath(folder).last ?? folder
@@ -43,6 +43,18 @@ public enum RecentAddedSource: Hashable, Sendable {
         case .savedOnIPhone: return .green
         case .bookmark: return DS.Tint.bookmark
         }
+    }
+
+    /// The FastTab List item behind this row (offers "Move to Bookmarks"), if any.
+    public var listItemID: String? {
+        if case .savedOnIPhone(let linkID) = self { return linkID }
+        return nil
+    }
+
+    /// Browser bookmarks offer "Read Later" (add to the FastTab List).
+    public var isBookmark: Bool {
+        if case .bookmark = self { return true }
+        return false
     }
 }
 

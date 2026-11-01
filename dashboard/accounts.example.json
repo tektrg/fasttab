@@ -1,0 +1,15 @@
+{
+  "_comment": "claude-router accounts, in priority order. Copy to ~/.config/agent-dashboard/accounts.json. Tokens are Keychain service names (security add-generic-password -a $USER -s <name> -w), never the secret itself. kind login/desktop rows are listed for AgentBar (later slices); the router only uses proxy/apikey.",
+  "accounts": [
+    {"id": "aptus", "label": "Aptus proxy", "kind": "proxy", "tier": "claude",
+     "baseUrl": "https://aip.aptusfit.ai", "tokenKeychain": "aptus-claude-token"},
+    {"id": "ssvsub", "label": "2nd subscription", "kind": "login", "tier": "claude",
+     "configDir": "~/.claude-instances/ssv-code"},
+    {"id": "umodelverse", "label": "DeepSeek (umodelverse)", "kind": "apikey", "tier": "fallback",
+     "needsApproval": true, "baseUrl": "https://api-sg.umodelverse.ai",
+     "tokenKeychain": "umodelverse-token", "model": "deepseek-v4.1-flash"},
+    {"id": "openrouter", "label": "DeepSeek (OpenRouter)", "kind": "apikey", "tier": "fallback",
+     "needsApproval": true, "baseUrl": "https://openrouter.ai/api",
+     "tokenKeychain": "openrouter-token", "model": "deepseek/deepseek-v4.1-flash"}
+  ]
+}

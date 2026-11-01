@@ -82,10 +82,21 @@ struct SwipeToCloseTabTip: FastTabTip {
 
 /// More tab, first visit (`MoreView` → Intelligence row). `IntelligenceService`
 /// clusters with NaturalLanguage and the on-device Foundation model only.
+/// Reader-only phones have no Mac bookmarks, so their copy drops the folder suggestions.
 struct IntelligenceTip: FastTabTip {
-    var title: Text { Text("Sort your browsing into topics") }
-    var message: Text? {
-        Text("Intelligence groups recent pages and suggests bookmark folders, worked out on this iPhone.")
+    var isStandalone = false
+
+    var title: Text { Text(Self.title(isStandalone: isStandalone)) }
+    var message: Text? { Text(Self.message(isStandalone: isStandalone)) }
+
+    static func title(isStandalone: Bool) -> String {
+        isStandalone ? "Sort your reading into topics" : "Sort your browsing into topics"
+    }
+
+    static func message(isStandalone: Bool) -> String {
+        isStandalone
+            ? "Intelligence groups your saved links and reading by topic, worked out on this iPhone."
+            : "Intelligence groups recent pages and suggests bookmark folders, worked out on this iPhone."
     }
     var image: Image? { Image(systemName: "sparkles") }
 }

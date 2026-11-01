@@ -100,6 +100,14 @@ class AppState: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // FastTab List edits (here or synced from the phone) show in an open search.
+        FastTabListStore.shared.$items
+            .dropFirst()
+            .removeDuplicates()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.browserService.refetchCurrent() }
+            .store(in: &cancellables)
+
         browserService.prewarmCaches()
         MyOrderStore.shared.bindToService(
             closer: { [weak self] result in self?.browserService.remove(result) },
@@ -283,6 +291,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         registerForCloudKitPushes()
         FastTabFeedback.start()
 
+        #if DEBUG
+        // Screenshot/QA hook: open the reader on a URL at launch (debug builds only).
+        if let readerURL = ProcessInfo.processInfo.environment["FASTTAB_OPEN_READER_URL"] {
+            MacReaderWindowRouter.shared.open(url: readerURL, title: nil)
+        }
+        #endif
+
         if CommandLine.arguments.contains("--cloudkit-spike") {
             CloudKitSpike.run()
         }
@@ -313,6 +328,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         MyOrderStore.shared.flush()
+        FastTabListStore.shared.flushPendingWrite()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

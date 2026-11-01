@@ -322,6 +322,12 @@ extension ContentView {
                     }
                 }
 
+                // ⌘S / ⌘D: FastTab List bridges (Read later / Move to Bookmarks)
+                if appState.isVisible, userModifiers == [.command],
+                   handleFastTabListShortcut(keyCode: event.keyCode) {
+                    return nil
+                }
+
                 // ⌥↑/⌥↓: reorder pinned rows in the Stack (sent-link rows sit below and never move)
                 if appState.isVisible, userModifiers == [.option], viewStore.activeView == .stack, searchText.isEmpty {
                     let pinnedCount = stackPinnedSlots.count

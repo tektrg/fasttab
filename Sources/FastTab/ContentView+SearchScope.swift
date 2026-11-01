@@ -24,6 +24,13 @@ extension ContentView {
         searchDebounceTask?.cancel()
         let query = effectiveQueryString()
         let filter = ScopeFilter.from(chips: scopeChips)
+        // Unscoped typed query: the in-memory phase is cheap, so run it now and
+        // let the service debounce just the history database phase. Waiting
+        // the full debounce first left the list unfiltered while typing.
+        if filter.isPassthrough, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            appState.browserService.fetchResults(matching: query, filter: filter, historyDelay: .milliseconds(180))
+            return
+        }
         searchDebounceTask = Task {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
@@ -85,6 +92,7 @@ extension ContentView {
             var items: [ScopeSuggestion] = [
                 .root(.duplicate),
                 .root(.bookmarks),
+                .root(.fastTabList),
                 .root(.history),
                 // Non-browser sources. Always listed (per design), even when
                 // no Finder window is open — it's a stable category, not an
@@ -223,6 +231,9 @@ extension ContentView {
             case .duplicate:
                 replaceToken(at: tokenRange, with: "")
                 appendChip(.init(kind: .duplicate))
+            case .fastTabList:
+                replaceToken(at: tokenRange, with: "")
+                appendChip(.init(kind: .fastTabList))
             case .window(let ref):
                 replaceToken(at: tokenRange, with: "")
                 appendChip(.init(kind: .window(ref)))

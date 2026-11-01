@@ -333,6 +333,23 @@ rows = views.build_needs_you(snap(), [both])
 check("hook + visible picker = ONE row, the hook one",
       [(r["kind"], "hookRequest" in r) for r in rows], [("blocked", True)])
 
+check("held AskUserQuestion is waitReason question", rows[0].get("waitReason"), "question")
+
+print()
+print("waitReason: what the phone push fires on (question / approval / login / none)")
+def reason_of(a):
+    rows = views.build_needs_you(snap(), [a])
+    return rows[0].get("waitReason") if rows else "no row"
+check("screen permission box -> approval", reason_of(
+    agent("w8:r1", hook_state="blocked", screen_state="NEEDS_HUMAN", signal="Do you want to proceed?")), "approval")
+check("screen picker -> question", reason_of(
+    agent("w8:r2", screen_state="NEEDS_HUMAN", question={"title": "T", "question": "q", "multi": False,
+                                                         "options": [{"index": 1, "label": "a"}]})), "question")
+check("logged out -> login", reason_of(agent("w8:r3", screen_state="NEEDS_LOGIN")), "login")
+perm = agent("w8:r4", screen_state="ACTIVE", session="s-r4")
+perm["hookRequest"] = {"requestId": "hp2", "kind": "permission", "toolName": "Bash"}
+check("held permission -> approval", reason_of(perm), "approval")
+
 if fails:
     print(f"FAILED ({len(fails)}):")
     for f in fails:

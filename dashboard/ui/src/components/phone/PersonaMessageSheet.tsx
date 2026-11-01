@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Radio, Switch, TextInput } from "@mantine/core";
 import type { BoardRow } from "../../types";
-import { Sheet } from "../../ui/Sheet";
+import { Screen } from "../../ui/Screen";
 import { listPersonas, routeWithJev, startPersona, type PersonaSummary } from "../../api";
 import { isQueued, sendMessage } from "../../sessionActions";
 import { imagesFromClipboard, uploadImages, useImageAttachments } from "../../imageAttachments";
@@ -328,9 +328,9 @@ export function PersonaMessageSheet({
   );
 
   return (
-    <Sheet
+    <Screen
       open={opened}
-      onOpenChange={(o) => !o && onClose()}
+      onClose={onClose}
       title="Message a persona"
       footer={footer}
     >
@@ -412,6 +412,6 @@ export function PersonaMessageSheet({
             Start on {retryOn.label} instead
           </Button>
         )}
-    </Sheet>
+    </Screen>
   );
 }

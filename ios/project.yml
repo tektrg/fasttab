@@ -23,6 +23,8 @@ targets:
       - path: FastTabMobile
       # Widget snapshot model + deep links, compiled into both the app and FastTabWidgets.
       - path: Shared/Widgets
+      # AppMode (reader only vs Mac companion), also read by the share extension.
+      - path: Shared/AppMode
     dependencies:
       - target: FastTabShare
         embed: true
@@ -61,24 +63,38 @@ targets:
         product: IndieTranscripts
       - package: IndieLibKit
         product: IndiePowerUps
+      # Natural Voice subscription (FastTabMobile/NaturalVoiceSubscription/): Parklet's StoreKit engine
+      # with FastTab's plan (`PlusPlan.fastTabNaturalVoice`).
+      - package: IndieLibKit
+        product: IndieStore
       # On-device transcript clean-up (FastTabMobile/Reader/YouTube/TranscriptCleanup*.swift).
       - package: IndieLibKit
         product: IndieTextCleanup
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile
-      DEVELOPMENT_TEAM: 56S46Y7CKN
-      CODE_SIGN_STYLE: Automatic
-      CODE_SIGN_ENTITLEMENTS: FastTabMobile/FastTabMobile.entitlements
-      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-      MARKETING_VERSION: 1.0.0
-      CURRENT_PROJECT_VERSION: 1
-      GENERATE_INFOPLIST_FILE: YES
-      INFOPLIST_KEY_CFBundleDisplayName: FastTab
-      INFOPLIST_KEY_UILaunchScreen_Generation: YES
-      INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
-      SWIFT_VERSION: "5.9"
-      ENABLE_USER_SCRIPT_SANDBOXING: NO
-      OTHER_CODE_SIGN_FLAGS: "--deep -i app.theindie.FastTabMobile"
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile
+        # iPhone only: no iPad layout yet, and iPad would need its own 13" App Store screenshots.
+        TARGETED_DEVICE_FAMILY: "1"
+        DEVELOPMENT_TEAM: 56S46Y7CKN
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: FastTabMobile/FastTabMobile.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 6
+        GENERATE_INFOPLIST_FILE: YES
+        # Home-screen + App Store name. Widgets keep "FastTab" (below).
+        INFOPLIST_KEY_CFBundleDisplayName: FastTab Reader
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        # Export compliance: HTTPS and Apple's CloudKit encryption only (exempt).
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        SWIFT_VERSION: "5.9"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        OTHER_CODE_SIGN_FLAGS: "--deep -i app.theindie.FastTabMobile"
+      configs:
+        Release:
+          # App Store demo library (AppStoreDemo/, Debug only): keep its thumbnails out of Release.
+          EXCLUDED_SOURCE_FILE_NAMES: "demo-thumb-*"
     # A real plist, not an `INFOPLIST_KEY_...` setting: there is no such setting
     # for UIBackgroundModes, and Xcode drops unrecognised INFOPLIST_KEY_* keys
     # without a word. `GENERATE_INFOPLIST_FILE` stays on above — Xcode merges
@@ -101,11 +117,8 @@ targets:
       properties:
         com.apple.developer.icloud-container-identifiers:
           - iCloud.app.theindie.FastTab
-        com.apple.developer.icloud-container-development-container-identifiers:
-          - iCloud.app.theindie.FastTab
         com.apple.developer.icloud-services:
           - CloudKit
-          - KeyValueStorage
         com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)$(CFBundleIdentifier)
         com.apple.developer.icloud-container-environment: Development
         # Must match `icloud-container-environment` above: a Development
@@ -125,16 +138,18 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: FastTabShare
+      - path: Shared/AppMode
     dependencies:
       - package: FastTabPackage
         product: FastTabSync
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile.Share
+      TARGETED_DEVICE_FAMILY: "1"
       DEVELOPMENT_TEAM: 56S46Y7CKN
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_ENTITLEMENTS: FastTabShare/FastTabShare.entitlements
       MARKETING_VERSION: 1.0.0
-      CURRENT_PROJECT_VERSION: 1
+      CURRENT_PROJECT_VERSION: 6
       INFOPLIST_FILE: FastTabShare/Info.plist
       SWIFT_VERSION: "5.9"
       ENABLE_USER_SCRIPT_SANDBOXING: NO
@@ -142,8 +157,6 @@ targets:
       path: FastTabShare/FastTabShare.entitlements
       properties:
         com.apple.developer.icloud-container-identifiers:
-          - iCloud.app.theindie.FastTab
-        com.apple.developer.icloud-container-development-container-identifiers:
           - iCloud.app.theindie.FastTab
         com.apple.developer.icloud-services:
           - CloudKit
@@ -159,6 +172,8 @@ targets:
     sources:
       - path: FastTabWidgets
       - path: Shared/Widgets
+      # AppMode: reader-only phones get a "needs your Mac" Open Tabs widget.
+      - path: Shared/AppMode
     dependencies:
       - package: FastTabPackage
         product: FastTabSync
@@ -166,11 +181,12 @@ targets:
       - sdk: SwiftUI.framework
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile.Widgets
+      TARGETED_DEVICE_FAMILY: "1"
       DEVELOPMENT_TEAM: 56S46Y7CKN
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_ENTITLEMENTS: FastTabWidgets/FastTabWidgets.entitlements
       MARKETING_VERSION: 1.0.0
-      CURRENT_PROJECT_VERSION: 1
+      CURRENT_PROJECT_VERSION: 6
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: FastTab
       SWIFT_VERSION: "5.9"
@@ -197,6 +213,9 @@ targets:
       # Xcode turn IndieAccount into an embedded framework (same as Parklet's project.yml).
       - path: ../../IndieLibKit/Sources/IndieAccountTestSupport
       - path: ../../IndieLibKit/Sources/IndieShareSyncTestSupport
+      # Local App Store catalog for StoreKitTest purchases (NaturalVoiceStoreKitTests).
+      - path: Config/FastTab.storekit
+        buildPhase: resources
     dependencies:
       - target: FastTabMobile
     settings:
@@ -204,3 +223,17 @@ targets:
       GENERATE_INFOPLIST_FILE: YES
       SWIFT_VERSION: "5.9"
 
+schemes:
+  FastTabMobile:
+    build:
+      targets:
+        FastTabMobile: all
+        FastTabShare: all
+        FastTabWidgets: all
+        FastTabMobileTests: [test]
+    # Local test purchases in the simulator (Natural Voice monthly/yearly, 7-day trial).
+    run:
+      storeKitConfiguration: Config/FastTab.storekit
+    test:
+      targets:
+        - FastTabMobileTests

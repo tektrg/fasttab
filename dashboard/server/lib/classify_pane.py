@@ -124,13 +124,8 @@ CRASH_PATTERNS = [
     r"Can'?t reach the API server",
     r'Request rejected \(\d{3}\)',
     r'credentials for model .* are cooling down',
-    # Account-level walls (2026-09-20). Anchored to the line start (after an
-    # optional result marker) so prose that merely MENTIONS a limit — "you've
-    # hit your limit of retries" — is not a banner.
-    r"^\s*(?:[⎿⏺]\s*)?You'?ve hit your (?:usage |session |weekly )?limit\b",
-    r'^\s*(?:[⎿⏺]\s*)?Credit balance is too low',
-    r'^\s*(?:[⎿⏺]\s*)?(?:Claude )?usage limit reached',
-    r'^\s*(?:[⎿⏺]\s*)?(?:Session|Weekly|Opus|Sonnet)(?: weekly)? limit reached\b',
+    # Account-level walls (2026-09-20) — also reported apart as `limitWall`.
+    *signals.LIMIT_WALL_PATTERNS,
 ]
 
 # Claude Code rotates its spinner verb, the amount of text before the ellipsis,
@@ -511,6 +506,19 @@ def classify(text):
         return ("WAITING_ON_BACKGROUND" if parked else "WAITING"), signal
 
     return ("WAITING_ON_BACKGROUND" if parked else "UNKNOWN"), signal
+
+
+def limit_wall(text):
+    """True when the pane's CRASHED verdict is an ACCOUNT wall (usage limit,
+    no credit, router out of Claude accounts) rather than a transient error.
+    Same tail and MOST-RECENT-EVIDENCE rule as classify(): the wall must be
+    the crash that won, so a later API Error or a resumed spinner clears it."""
+    state, _signal = classify(text)
+    if state != "CRASHED":
+        return False
+    lines = [l.rstrip() for l in text.splitlines()][-40:]
+    i = _last_match_index(lines, CRASH_PATTERNS)
+    return i is not None and _last_match_index(lines[i:i + 1], signals.LIMIT_WALL_PATTERNS) == 0
 
 
 def main():

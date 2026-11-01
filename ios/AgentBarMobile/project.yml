@@ -1,0 +1,72 @@
+# AgentBar iOS companion (Apple Watch support, phase 2). Its own XcodeGen spec,
+# separate from ../project.yml, so FastTabMobile's project and packages stay untouched.
+# Generate: cd ios/AgentBarMobile && xcodegen generate
+name: AgentBarMobile
+options:
+  bundleIdPrefix: app.theindie
+  deploymentTarget:
+    iOS: 17.0
+  createIntermediateGroups: true
+
+targets:
+  # Pure logic (push parsing, answer requests, token hex): no UIKit, unit-tested.
+  AgentBarCore:
+    type: framework
+    platform: iOS
+    sources: [Core]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: app.theindie.agentbar.core
+      GENERATE_INFOPLIST_FILE: YES
+      SWIFT_VERSION: "5.9"
+      DEVELOPMENT_TEAM: 56S46Y7CKN
+
+  AgentBarMobile:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - target: AgentBarCore
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: app.theindie.agentbar
+      DEVELOPMENT_TEAM: 56S46Y7CKN
+      CODE_SIGN_STYLE: Automatic
+      MARKETING_VERSION: 1.0.0
+      CURRENT_PROJECT_VERSION: 1
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_CFBundleDisplayName: AgentBar
+      INFOPLIST_KEY_UILaunchScreen_Generation: YES
+      SWIFT_VERSION: "5.9"
+    info:
+      path: App/Info.plist
+      properties:
+        # Silent {"withdrawn": requestId} pushes wake the app to remove a stale prompt.
+        UIBackgroundModes: [remote-notification]
+        # The web app records voice notes (getUserMedia) and attaches photos (input type=file).
+        NSMicrophoneUsageDescription: AgentBar records voice messages you send to your agents.
+        NSCameraUsageDescription: AgentBar can take a photo to attach to a message for your agents.
+        NSPhotoLibraryUsageDescription: AgentBar can attach photos to messages for your agents.
+        # Tailscale MagicDNS hosts are https via `tailscale serve`; plain http is not allowed.
+    entitlements:
+      path: App/AgentBarMobile.entitlements
+      properties:
+        # Must match apns.json "sandbox": true (debug builds use sandbox APNs).
+        aps-environment: development
+        com.apple.developer.usernotifications.time-sensitive: true
+
+  AgentBarCoreTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: AgentBarCore
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: app.theindie.agentbar.tests
+      GENERATE_INFOPLIST_FILE: YES
+      SWIFT_VERSION: "5.9"
+
+schemes:
+  AgentBarMobile:
+    build:
+      targets: {AgentBarMobile: all, AgentBarCoreTests: [test]}
+    test:
+      targets: [AgentBarCoreTests]

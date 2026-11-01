@@ -221,6 +221,13 @@ struct BookmarkNodeRow: View {
                     Label("Open on Mac", systemImage: "laptopcomputer")
                 }
 
+                Button {
+                    let saved = SavedOnIPhoneStore.shared.readLater(url: urlStr, title: node.title)
+                    onToast(saved ? "Added to FastTab List" : "Can't add this link")
+                } label: {
+                    Label("Read Later", systemImage: "eyeglasses")
+                }
+
                 if isBookmarkWritable {
                     Divider()
 

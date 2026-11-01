@@ -140,7 +140,8 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
 
     public var effectiveSpeechRate: Double { speechRate ?? Self.defaultSpeechRate }
     /// Natural voice is on and offered in this build (DEBUG / TestFlight only for now).
-    var usesNaturalVoice: Bool { (naturalVoiceEnabled ?? false) && AppDistribution.isDebugOrTestFlight }
+    /// The person's switch only; Read Aloud also needs the subscription (`NaturalVoiceGate`).
+    var wantsNaturalVoice: Bool { naturalVoiceEnabled ?? false }
 
     public var fontSize: Int
     public var fontFamily: ReaderFontFamily

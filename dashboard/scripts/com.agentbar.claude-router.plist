@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- claude-router LaunchAgent. Install: replace __DASHBOARD__ with this dashboard/ folder's
+     absolute path, copy to ~/Library/LaunchAgents/, then
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.agentbar.claude-router.plist -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.agentbar.claude-router</string>
+  <key>ProgramArguments</key>
+  <array><string>__DASHBOARD__/scripts/claude-router-run.sh</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>/tmp/claude-router.log</string>
+  <key>StandardErrorPath</key><string>/tmp/claude-router.log</string>
+</dict>
+</plist>

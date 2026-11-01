@@ -30,6 +30,13 @@ final class SyncService: NSObject, ObservableObject {
     /// The phone's reader highlights + comment threads (SyncService+ReaderSync.swift).
     lazy var readerSync = ReaderMirror.makeBridge(supportDirectory: fastTabSupportDirectory)
     var readerZoneCatchUpInFlight = false
+    /// The FastTab List, in `ReaderZone` beside highlights (SyncService+ReaderSync.swift).
+    lazy var listSync = FastTabListSyncBridge(
+        ledgerURL: fastTabSupportDirectory.appendingPathComponent("fasttab_list_sync_ledger.json"),
+        store: FastTabListStore.shared
+    )
+    var listChangeObserver: NSObjectProtocol?
+    var listSendTask: Task<Void, Never>?
     // Server-backed records retain CloudKit system fields such as change tags.
     // Domain updates must be applied to these objects instead of recreating IDs.
     var serverRecordsByID: [CKRecord.ID: CKRecord] = [:]
@@ -166,6 +173,7 @@ final class SyncService: NSObject, ObservableObject {
         fetchLatestChanges()
         queueReaderChanges()
         catchUpReaderZone()
+        observeLocalFastTabListChanges()
         Task { @MainActor in
             // AppState owns BrowserTabService.shared and is still initializing here.
             // Yield before resolving it to avoid recursively entering AppState.shared.
@@ -812,14 +820,11 @@ extension SyncService: CKSyncEngineDelegate {
                 self.logger.info("CKSyncEngine account change: \(String(describing: change.changeType), privacy: .public)")
                 self.refreshAccountStatus()
                 switch change.changeType {
-                case .signIn:
+                case .signIn, .switchAccounts:
                     self.resetPublishState()
                     self.publishDevice()
                     self.ensureZonesExist()
-                case .switchAccounts:
-                    self.resetPublishState()
-                    self.publishDevice()
-                    self.ensureZonesExist()
+                    self.resendFastTabListToNewAccount()
                 case .signOut:
                     self.resetPublishState()
                 @unknown default:
@@ -856,6 +861,8 @@ extension SyncService: CKSyncEngineDelegate {
                         }
                     }
                 }
+                self.listSync.didSave(sentChanges.savedRecords)
+                self.listSync.didDelete(sentChanges.deletedRecordIDs)
                 if !sentChanges.deletedRecordIDs.isEmpty {
                     // A reused record name (positional tabs) must be re-created
                     // fresh, not built on the deleted record's change tag.
@@ -867,7 +874,7 @@ extension SyncService: CKSyncEngineDelegate {
                 }
                 var queuedSaveRetry = false
                 for failedSave in sentChanges.failedRecordSaves {
-                    switch self.readerSync.outcome(ofFailedSave: failedSave.record, error: failedSave.error) {
+                    switch self.readerZoneOutcome(ofFailedSave: failedSave.record, error: failedSave.error) {
                     case .settled:
                         self.pendingRecordsToSave.removeValue(forKey: failedSave.record.recordID)
                         continue
@@ -898,6 +905,7 @@ extension SyncService: CKSyncEngineDelegate {
                 }
                 var queuedDeleteRetry = false
                 for (recordID, error) in sentChanges.failedRecordDeletes {
+                    if self.settleAlreadyDeletedReaderRecord(recordID, error: error) { continue }
                     syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
                     queuedDeleteRetry = true
                     self.logger.error("Failed to delete record \(recordID.recordName, privacy: .public); queued retry: \(error.localizedDescription, privacy: .public)")

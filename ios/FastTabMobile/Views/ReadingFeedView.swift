@@ -9,12 +9,18 @@ public struct ReadingFeedView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var readingProgress = ReaderReadingProgress.shared
     @ObservedObject private var highlightStore = ReaderHighlightStore.shared
+    @ObservedObject private var savedStore = SavedOnIPhoneStore.shared
+    @ObservedObject private var appMode = AppModeModel.shared
 
     @State private var selectedFolder: String? = nil
     @State private var readerItem: ReaderNavigationItem? = nil
     @State private var saveToBookmarkURL: URL? = nil
     @State private var saveToBookmarkTitle: String = ""
+    /// Set when the bookmark picker is "Move to Bookmarks" for a FastTab List item:
+    /// once the bookmark is queued, that item goes to Trash.
+    @State private var moveToBookmarksListItemID: String? = nil
     @State private var toast: String? = nil
+    @State private var showingListTrash = false
 
     public init() {}
 
@@ -23,6 +29,14 @@ public struct ReadingFeedView: View {
     }
 
     private let emergingLanesTip = EmergingLanesTip()
+
+    /// Reader-only phones: no Send to Mac, no Mac bookmarks, no closing Mac tabs.
+    private var offersMacActions: Bool { !appMode.isStandalone }
+
+    /// Saved first for reader-only phones: their own reading list is the feed.
+    private var savedLinkItems: [SavedOnIPhoneLink] {
+        savedStore.items.filter { URL(string: $0.url) != nil }
+    }
 
     private var activeDeviceID: String {
         localCache.state.connectedMac?.id ?? ""
@@ -75,15 +89,19 @@ public struct ReadingFeedView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: DS.Space.section) {
                 // Top Bookmark Folder Filter Chips (YouTube Music style)
-                if !recentProvider.availableFolders.isEmpty {
+                if offersMacActions && !recentProvider.availableFolders.isEmpty {
                     ReadingFolderChipsView(
                         folders: recentProvider.availableFolders,
                         selectedFolder: $selectedFolder
                     )
                 }
 
-                // Section 1: Recent Added (Horizontal Carousel)
-                recentAddedSection
+                // Section 1: Saved (reader only) or Recent Added (Horizontal Carousel)
+                if appMode.isStandalone {
+                    savedSection
+                } else {
+                    recentAddedSection
+                }
 
                 // Section 2: Emerging (Related to Mac & iOS Reading)
                 emergingSection
@@ -100,7 +118,10 @@ public struct ReadingFeedView: View {
             .padding(.bottom, unfinishedReads.isEmpty ? 24 : DS.Space.floatingBarClearance)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            SyncWarningBanner()
+            // "No Mac connected" is the normal state of a reader-only phone, not a warning.
+            if offersMacActions {
+                SyncWarningBanner()
+            }
         }
         .dsCanvas()
         .navigationBarTitleDisplayMode(.inline)
@@ -143,10 +164,13 @@ public struct ReadingFeedView: View {
         .fullScreenCover(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
+        .sheet(isPresented: $showingListTrash) {
+            FastTabListTrashView()
+        }
         .sheet(item: $saveToBookmarkURL) { url in
             BookmarkMovePicker(
                 sourceDeviceID: activeDeviceID,
-                title: "Save to Mac Bookmarks"
+                title: moveToBookmarksListItemID == nil ? "Save to Mac Bookmarks" : "Move to Mac Bookmarks"
             ) { destination in
                 SyncConsumer.shared.sendAddBookmark(
                     title: saveToBookmarkTitle.isEmpty ? (url.host() ?? url.absoluteString) : saveToBookmarkTitle,
@@ -156,7 +180,13 @@ public struct ReadingFeedView: View {
                     destinationFolderPath: destination.folderPath,
                     targetDeviceID: activeDeviceID
                 )
-                presentToast("Saved to \(destination.folderDisplayName)")
+                if let listItemID = moveToBookmarksListItemID {
+                    savedStore.remove(id: listItemID)
+                    recentProvider.refresh()
+                    presentToast("Moved to \(destination.folderDisplayName)")
+                } else {
+                    presentToast("Saved to \(destination.folderDisplayName)")
+                }
                 saveToBookmarkURL = nil
             }
         }
@@ -206,7 +236,10 @@ public struct ReadingFeedView: View {
                 "Recent Added",
                 context: selectedFolder.map { "in \(BookmarkTreeBuilder.splitPath($0).last ?? $0)" }
             ) {
-                DSCountPill(displayRecentItems.count)
+                HStack(spacing: DS.Space.xs) {
+                    if !savedStore.trashedItems.isEmpty { listTrashButton }
+                    DSCountPill(displayRecentItems.count)
+                }
             }
 
             if displayRecentItems.isEmpty {
@@ -229,16 +262,76 @@ public struct ReadingFeedView: View {
                         onSelect: {
                             openArticle(url: item.url, title: item.title)
                         },
-                        onOpenOnMac: {
+                        onOpenOnMac: macAction {
                             openOnMac(url: item.url, title: item.title)
                         },
-                        onSaveToBookmarks: {
-                            promptSaveBookmark(url: item.url, title: item.title)
+                        onSaveToBookmarks: macAction {
+                            promptSaveBookmark(url: item.url, title: item.title, movingListItemID: item.source.listItemID)
                         },
+                        saveToBookmarksTitle: item.source.listItemID == nil ? "Save to Bookmarks" : "Move to Bookmarks",
+                        onReadLater: item.source.isBookmark ? { readLater(url: item.url, title: item.title) } : nil,
                         onDelete: {
                             deleteRecentItem(item)
                         }
                     )
+                }
+            }
+        }
+    }
+
+    /// Opens the FastTab List's Trash (`FastTabListTrashView`).
+    private var listTrashButton: some View {
+        Button {
+            showingListTrash = true
+        } label: {
+            Image(systemName: "trash")
+        }
+        .buttonStyle(.dsTinted(DS.Tint.recent))
+        .accessibilityLabel("FastTab List Trash")
+    }
+
+    // MARK: - Section 1 (reader only): FastTab List
+
+    private var savedSection: some View {
+        VStack(alignment: .leading, spacing: DS.Space.xs) {
+            DSSectionHeader("FastTab List") {
+                HStack(spacing: DS.Space.xs) {
+                    listTrashButton
+                    DSCountPill(savedLinkItems.count)
+                }
+            }
+
+            if savedLinkItems.isEmpty {
+                DSEmptyState(
+                    "Share a link to FastTab to save it",
+                    systemImage: "tray.and.arrow.down",
+                    message: "In Safari or any app, tap Share, then FastTab, then Save to FastTab List.",
+                    tint: DS.Tint.recent,
+                    style: .inline
+                ) {
+                    OnboardingShortcutButton(shortcut: .addToShareSheet, prominence: .inline)
+                }
+                .padding(.horizontal, DS.Space.gutter)
+                .padding(.top, DS.Space.xs)
+            } else {
+                carousel(savedLinkItems) { link in
+                    if let url = URL(string: link.url) {
+                        let title = link.title ?? url.host() ?? link.url
+                        ReadingFeedCardView(
+                            title: title,
+                            url: url,
+                            domain: url.host() ?? "",
+                            badgeText: link.isRead ? "Read" : "List",
+                            badgeTint: DS.Tint.recent,
+                            badgeIcon: "bookmark",
+                            readingProgress: max(link.progress, readingProgress.progress(for: url)),
+                            onSelect: { openArticle(url: url, title: title) },
+                            onDelete: {
+                                withAnimation { savedStore.remove(id: link.id) }
+                                presentToast("Moved to Trash")
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -289,10 +382,10 @@ public struct ReadingFeedView: View {
                             emergingLanesTip.invalidate(reason: .actionPerformed)
                             openArticle(url: item.url, title: item.title)
                         },
-                        onOpenOnMac: {
+                        onOpenOnMac: macAction {
                             openOnMac(url: item.url, title: item.title)
                         },
-                        onSaveToBookmarks: {
+                        onSaveToBookmarks: macAction {
                             promptSaveBookmark(url: item.url, title: item.title)
                         },
                         onDelete: {
@@ -350,10 +443,10 @@ public struct ReadingFeedView: View {
                             onSelect: {
                                 openArticle(url: url, title: item.title)
                             },
-                            onOpenOnMac: {
+                            onOpenOnMac: macAction {
                                 openOnMac(url: url, title: item.title)
                             },
-                            onSaveToBookmarks: {
+                            onSaveToBookmarks: macAction {
                                 promptSaveBookmark(url: url, title: item.title)
                             },
                             onDelete: {
@@ -425,11 +518,13 @@ public struct ReadingFeedView: View {
         DSEmptyState(
             "No emerging links yet",
             systemImage: "sparkles",
-            message: "Browse pages on your Mac or iPhone to see connected recommendations here.",
+            message: offersMacActions
+                ? "Browse pages on your Mac or iPhone to see connected recommendations here."
+                : "Read articles in FastTab to see connected recommendations here.",
             tint: DS.Tint.emerging,
             style: .inline
         ) {
-            if localCache.state.connectedMac == nil {
+            if offersMacActions && localCache.state.connectedMac == nil {
                 OnboardingShortcutButton(shortcut: .connectMac, prominence: .inline)
             }
         }
@@ -474,7 +569,7 @@ public struct ReadingFeedView: View {
             withAnimation {
                 recentProvider.removeItem(id: item.id)
             }
-            presentToast("Removed link")
+            presentToast("Moved to Trash")
         }
     }
 
@@ -483,11 +578,11 @@ public struct ReadingFeedView: View {
         case .bookmark:
             return ("Delete Bookmark", "trash")
         case .tab:
-            return ("Close Tab", "xmark.circle")
+            return offersMacActions ? ("Close Tab", "xmark.circle") : ("Remove Link", "trash")
         case .generic:
-            if LocalCache.shared.findBookmark(url: item.url) != nil {
+            if offersMacActions, LocalCache.shared.findBookmark(url: item.url) != nil {
                 return ("Delete Bookmark", "trash")
-            } else if LocalCache.shared.findTab(url: item.url) != nil {
+            } else if offersMacActions, LocalCache.shared.findTab(url: item.url) != nil {
                 return ("Close Tab", "xmark.circle")
             } else {
                 return ("Delete Link", "trash")
@@ -509,6 +604,11 @@ public struct ReadingFeedView: View {
                 emergingProvider.removeItem(id: item.id)
             }
             presentToast("Queued delete — confirm on your Mac")
+        case .tab where !offersMacActions:
+            withAnimation {
+                emergingProvider.removeItem(id: item.id)
+            }
+            presentToast("Removed link")
         case .tab(let tab):
             SyncConsumer.shared.sendCloseTab(tab)
             LocalCache.shared.removeTab(id: tab.id)
@@ -518,7 +618,7 @@ public struct ReadingFeedView: View {
             let devName = localCache.state.devices.first { $0.id == tab.deviceID }?.name ?? "your Mac"
             presentToast("Close queued for \(devName)")
         case .generic:
-            if let match = LocalCache.shared.findBookmark(url: item.url) {
+            if offersMacActions, let match = LocalCache.shared.findBookmark(url: item.url) {
                 SyncConsumer.shared.sendDeleteBookmark(
                     bookmark: match.bookmark,
                     browserName: match.browserName,
@@ -530,7 +630,7 @@ public struct ReadingFeedView: View {
                     emergingProvider.removeItem(id: item.id)
                 }
                 presentToast("Queued delete — confirm on your Mac")
-            } else if let tab = LocalCache.shared.findTab(url: item.url) {
+            } else if offersMacActions, let tab = LocalCache.shared.findTab(url: item.url) {
                 SyncConsumer.shared.sendCloseTab(tab)
                 LocalCache.shared.removeTab(id: tab.id)
                 withAnimation {
@@ -560,9 +660,9 @@ public struct ReadingFeedView: View {
     }
 
     private func lastOpenedDeleteInfo(for url: URL) -> (title: String, icon: String) {
-        if LocalCache.shared.findBookmark(url: url) != nil {
+        if offersMacActions, LocalCache.shared.findBookmark(url: url) != nil {
             return ("Delete Bookmark", "trash")
-        } else if LocalCache.shared.findTab(url: url) != nil {
+        } else if offersMacActions, LocalCache.shared.findTab(url: url) != nil {
             return ("Close Tab", "xmark.circle")
         } else {
             return ("Delete Link", "trash")
@@ -570,7 +670,7 @@ public struct ReadingFeedView: View {
     }
 
     private func deleteLastOpenedItem(_ item: LastOpenedItem, url: URL) {
-        if let match = LocalCache.shared.findBookmark(url: url) {
+        if offersMacActions, let match = LocalCache.shared.findBookmark(url: url) {
             SyncConsumer.shared.sendDeleteBookmark(
                 bookmark: match.bookmark,
                 browserName: match.browserName,
@@ -582,7 +682,7 @@ public struct ReadingFeedView: View {
                 lastOpenedStore.remove(id: item.id)
             }
             presentToast("Queued delete — confirm on your Mac")
-        } else if let tab = LocalCache.shared.findTab(url: url) {
+        } else if offersMacActions, let tab = LocalCache.shared.findTab(url: url) {
             SyncConsumer.shared.sendCloseTab(tab)
             LocalCache.shared.removeTab(id: tab.id)
             withAnimation {
@@ -611,14 +711,26 @@ public struct ReadingFeedView: View {
         openArticle(url: url, title: title, focusHighlightID: highlight.id)
     }
 
+    /// The action, or `nil` (menu item hidden) on a reader-only phone.
+    private func macAction(_ action: @escaping () -> Void) -> (() -> Void)? {
+        offersMacActions ? action : nil
+    }
+
     private func openOnMac(url: URL, title: String) {
         SyncConsumer.shared.sendOpenOnMac(url: url.absoluteString, title: title)
         presentToast("Sent to Mac")
     }
 
-    private func promptSaveBookmark(url: URL, title: String) {
+    /// `movingListItemID`: "Move to Bookmarks" on a FastTab List item (trashed once saved).
+    private func promptSaveBookmark(url: URL, title: String, movingListItemID: String? = nil) {
         saveToBookmarkTitle = title
+        moveToBookmarksListItemID = movingListItemID
         saveToBookmarkURL = url
+    }
+
+    private func readLater(url: URL, title: String) {
+        let saved = savedStore.readLater(url: url.absoluteString, title: title)
+        presentToast(saved ? "Added to FastTab List" : "Can't add this link")
     }
 
     private func refreshAll() {

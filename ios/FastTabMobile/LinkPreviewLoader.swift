@@ -36,6 +36,11 @@ public final class LinkPreviewLoader {
     }
 
     public func preview(for url: URL) async -> LinkPreview {
+        #if DEBUG
+        if AppStoreDemo.isEnabled, let image = AppStoreDemo.thumbnail(for: url) {
+            return LinkPreview(image: image)
+        }
+        #endif
         let key = url.absoluteString
         if let cached = cache[key] {
             // Promote to most-recently-used

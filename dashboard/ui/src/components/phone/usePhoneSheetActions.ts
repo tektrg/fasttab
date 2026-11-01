@@ -164,5 +164,5 @@ export function usePhoneSheetActions({
     return quickQueue === cmd ? `Queue ${name.toLowerCase()}` : `Confirm ${name.toLowerCase()}`;
   };
 
-  return { busy, armed, endStage, canPark, canUnpark, runDone, runPark, runQuick, quickLabel };
+  return { busy, armed, arm, endStage, canPark, canUnpark, runDone, runPark, runQuick, quickLabel };
 }

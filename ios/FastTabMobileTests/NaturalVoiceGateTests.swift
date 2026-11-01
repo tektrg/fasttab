@@ -1,0 +1,98 @@
+import IndieStore
+import XCTest
+@testable import FastTabMobile
+
+/// The paid cloud voice is gated; built-in voices never are.
+final class NaturalVoiceGateTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    func testNotPurchasedIsLockedUnlessStoreKitHoldsIt() {
+        XCTAssertFalse(NaturalVoiceGate.isEntitled(state: .notPurchased, ownsOnDevice: false, now: now))
+        XCTAssertTrue(NaturalVoiceGate.isEntitled(state: .notPurchased, ownsOnDevice: true, now: now))
+    }
+
+    func testActiveAndGraceUnlockUntilTheirEnd() {
+        XCTAssertTrue(NaturalVoiceGate.isEntitled(state: .active(until: now + 60, autoRenew: true), ownsOnDevice: false, now: now))
+        XCTAssertFalse(NaturalVoiceGate.isEntitled(state: .active(until: now - 60, autoRenew: false), ownsOnDevice: false, now: now))
+        XCTAssertTrue(NaturalVoiceGate.isEntitled(state: .grace(until: now + 60), ownsOnDevice: false, now: now))
+        XCTAssertFalse(NaturalVoiceGate.isEntitled(state: .grace(until: now - 60), ownsOnDevice: false, now: now))
+    }
+
+    func testExpiredErrorAndPendingStatesLock() {
+        for state: SubscriptionState in [.expired(on: now), .error(.notSignedIn), .pendingApproval, .purchasing] {
+            XCTAssertFalse(NaturalVoiceGate.isEntitled(state: state, ownsOnDevice: false, now: now), "\(state)")
+        }
+        // Paid but the server hasn't confirmed yet: StoreKit's word unlocks the UI (server still checks).
+        XCTAssertTrue(NaturalVoiceGate.isEntitled(state: .pendingServer, ownsOnDevice: true, now: now))
+    }
+
+    func testCloudVoiceNeedsBothTheSwitchAndTheSubscription() {
+        XCTAssertTrue(NaturalVoiceGate.usesNaturalVoice(toggleOn: true, entitled: true))
+        XCTAssertFalse(NaturalVoiceGate.usesNaturalVoice(toggleOn: true, entitled: false))
+        XCTAssertFalse(NaturalVoiceGate.usesNaturalVoice(toggleOn: false, entitled: true))
+    }
+
+    func testToggleOpensThePaywallOnlyWhenTurningOnWithoutSubscription() {
+        XCTAssertEqual(NaturalVoiceGate.toggleAction(wantsOn: true, entitled: false), .showPaywall)
+        XCTAssertEqual(NaturalVoiceGate.toggleAction(wantsOn: true, entitled: true), .turnOn)
+        XCTAssertEqual(NaturalVoiceGate.toggleAction(wantsOn: false, entitled: false), .turnOff)
+    }
+
+    func testServerSubscriptionRequiredMapsToItsOwnError() {
+        let body = Data(#"{"code":"tts_subscription_required"}"#.utf8)
+        XCTAssertEqual(NaturalVoiceClient.error(status: 402, body: body), .subscriptionRequired)
+        let quota = Data(#"{"code":"tts_user_quota"}"#.utf8)
+        XCTAssertEqual(NaturalVoiceClient.error(status: 402, body: quota), .quotaExhausted(resetsAt: nil))
+    }
+
+    func testPaywallTermsStatePriceTrialRenewalAndCancel() {
+        let text = NaturalVoicePaywallView.termsText(price: "$4.99", period: "month", trial: true)
+        XCTAssertTrue(text.hasPrefix("Free for 7 days, then $4.99 per month."))
+        XCTAssertTrue(text.contains("Renews automatically until cancelled"))
+        XCTAssertTrue(text.contains("Cancel anytime"))
+        XCTAssertFalse(NaturalVoicePaywallView.termsText(price: "$39.99", period: "year", trial: false).contains("Free for 7 days"))
+    }
+
+    // MARK: - Paid at Apple, not yet confirmed by the server
+
+    func testOnlyALiveServerRecordCountsAsConfirmed() {
+        XCTAssertTrue(NaturalVoiceGate.isConfirmedByServer(state: .active(until: now + 60, autoRenew: true), now: now))
+        XCTAssertTrue(NaturalVoiceGate.isConfirmedByServer(state: .grace(until: now + 60), now: now))
+        for state: SubscriptionState in [.pendingServer, .notPurchased, .purchasing, .active(until: now - 60, autoRenew: false)] {
+            XCTAssertFalse(NaturalVoiceGate.isConfirmedByServer(state: state, now: now), "\(state)")
+        }
+    }
+
+    func testAwaitingConfirmationMeansStoreKitOwnsItButTheServerHasNotConfirmed() {
+        XCTAssertTrue(NaturalVoiceGate.awaitingConfirmation(state: .pendingServer, ownsOnDevice: true, now: now))
+        XCTAssertTrue(NaturalVoiceGate.awaitingConfirmation(state: .notPurchased, ownsOnDevice: true, now: now))
+        XCTAssertFalse(NaturalVoiceGate.awaitingConfirmation(state: .pendingServer, ownsOnDevice: false, now: now))
+        XCTAssertFalse(NaturalVoiceGate.awaitingConfirmation(state: .active(until: now + 60, autoRenew: true), ownsOnDevice: true, now: now))
+    }
+
+    func testAPurchaseTheServerHasNotConfirmedShowsConfirmingNotSuccess() {
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.purchased, confirmed: true), .unlocked)
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.purchased, confirmed: false), .confirming)
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.failed(.unavailableRetryLater), confirmed: false), .confirming)
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.pending, confirmed: false), .waitingForApproval)
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.cancelled, confirmed: false), .cancelled)
+        XCTAssertEqual(NaturalVoiceGate.afterPurchase(.failed(.notSignedIn), confirmed: false), .failed(.notSignedIn))
+    }
+
+    @MainActor func testAPayingPersonIsNeverToldTheyNeedASubscription() {
+        let confirming = NaturalVoiceSpeechEngine.notice(for: .subscriptionRequired, awaitingConfirmation: true)
+        XCTAssertFalse(confirming.contains("needs a subscription"))
+        XCTAssertTrue(confirming.hasPrefix("Confirming your purchase"))
+        XCTAssertTrue(NaturalVoiceSpeechEngine.notice(for: .subscriptionRequired, awaitingConfirmation: false).contains("needs a subscription"))
+    }
+
+    /// Owned at Apple but never confirmed (another account's purchase, or the account was deleted):
+    /// the settings row must not just say "Subscribed" with no way forward; it offers Restore.
+    func testAnUnconfirmedOwnerSeesConfirmingAndCanRestore() {
+        XCTAssertEqual(NaturalVoiceGate.settingsRow(entitled: true, awaitingConfirmation: true),
+                       .init(subtitle: "Confirming your purchase…", offersRestore: true))
+        XCTAssertEqual(NaturalVoiceGate.settingsRow(entitled: true, awaitingConfirmation: false),
+                       .init(subtitle: "Subscribed", offersRestore: false))
+        XCTAssertEqual(NaturalVoiceGate.settingsRow(entitled: false, awaitingConfirmation: false).offersRestore, false)
+    }
+}

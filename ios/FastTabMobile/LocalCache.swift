@@ -255,6 +255,29 @@ public final class LocalCache: ObservableObject {
         }
     }
 
+    public func findAllBookmarks(url: URL) -> [(bookmark: SyncedBookmarkItem, browserName: String, profileName: String?, deviceID: String)] {
+        let targetNorm = Self.normalizeURL(url)
+        let targetCanonical = url.readerCanonicalKey
+        var results: [(bookmark: SyncedBookmarkItem, browserName: String, profileName: String?, deviceID: String)] = []
+        for blob in state.bookmarkBlobs {
+            for bm in blob.bookmarks {
+                if let u = URL(string: bm.url), Self.normalizeURL(u) == targetNorm || u.readerCanonicalKey == targetCanonical {
+                    results.append((bm, blob.browserName, blob.profileName, blob.deviceID))
+                }
+            }
+        }
+        return results
+    }
+
+    public func findAllTabs(url: URL) -> [SyncedTab] {
+        let targetNorm = Self.normalizeURL(url)
+        let targetCanonical = url.readerCanonicalKey
+        return state.tabs.filter { tab in
+            guard let u = URL(string: tab.url) else { return false }
+            return Self.normalizeURL(u) == targetNorm || u.readerCanonicalKey == targetCanonical
+        }
+    }
+
     private static func normalizeURL(_ url: URL) -> String {
         let host = (url.host() ?? "").lowercased()
         let path = url.path().trimmingCharacters(in: CharacterSet(charactersIn: "/"))

@@ -71,6 +71,12 @@ else
   echo "build-app: FastTabMCP binary not found (skipping MCP helper install)" >&2
 fi
 
+# Reader window resources, shared with the iPhone app (single copy under ios/).
+echo "==> Installing reader resources"
+for res in Readability.js reader_template.html; do
+  cp "ios/FastTabMobile/Resources/${res}" "${APP}/Contents/Resources/${res}"
+done
+
 # SwiftPM does not add the bundle's Frameworks dir to the rpath, so the embedded
 # Sparkle.framework can't be found at runtime. Add it (idempotent).
 if ! otool -l "${APP}/Contents/MacOS/FastTab" | grep -q "@executable_path/../Frameworks"; then

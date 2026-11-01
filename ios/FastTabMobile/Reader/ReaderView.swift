@@ -1,6 +1,7 @@
 import SwiftUI
 import SafariServices
 import WebKit
+import FastTabSync
 
 /// Simple `Identifiable` carrier for presenting `ReaderView` via `fullScreenCover` or `sheet`.
 public struct ReaderNavigationItem: Identifiable, Hashable {
@@ -48,6 +49,17 @@ public struct ReaderView: View {
     // Header auto-hide on scroll
     @State private var isHeaderHidden: Bool = false
 
+    // End of article options
+    @State private var showBookmarkPicker: Bool = false
+    @State private var toast: String? = nil
+    @State private var isDismissing: Bool = false
+
+    private func handleBack() {
+        guard !isDismissing else { return }
+        isDismissing = true
+        dismiss()
+    }
+
     public init(url: URL, title: String, focusHighlightID: String? = nil) {
         _viewModel = StateObject(wrappedValue: ReaderViewModel(url: url, title: title, focusHighlightID: focusHighlightID))
     }
@@ -90,14 +102,14 @@ public struct ReaderView: View {
                     } else {
                         ToolbarItem(placement: .topBarLeading) {
                             Button {
-                                dismiss()
+                                handleBack()
                             } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .symbolRenderingMode(.hierarchical)
-                                    .font(.title3)
+                                Image(systemName: "chevron.left")
+                                    .font(.body.weight(.semibold))
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Back")
                         }
                     }
                 }
@@ -146,6 +158,12 @@ public struct ReaderView: View {
                 viewModel.flushPendingProgress()
             }
         }
+        .onScreenEdgeSwipeBack {
+            handleBack()
+        }
+        .sheet(isPresented: $showReadingSettings) {
+            ReaderSettingsSheet(readAloudVoices: readAloudVoicesForCurrentArticle)
+        }
         .sheet(isPresented: $showHighlightsSheet) {
             highlightsSheet
         }
@@ -160,6 +178,15 @@ public struct ReaderView: View {
                 viewModel.removeHighlight(id: tapped.highlight.id)
             }
         }
+        .sheet(isPresented: $showBookmarkPicker) {
+            BookmarkMovePicker(
+                sourceDeviceID: activeDeviceID,
+                title: "Save to Bookmark Folder"
+            ) { destination in
+                saveToBookmarkFolder(destination)
+            }
+        }
+        .dsToast($toast, bottomInset: DS.Space.floatingBarClearance)
     }
 
     // MARK: - Loading Skeleton
@@ -206,8 +233,17 @@ public struct ReaderView: View {
             onHighlightTapped: { id in
                 tappedHighlightID = id
             },
+            onSwipeBack: {
+                handleBack()
+            },
             onHeaderHiddenChanged: { hidden in
                 isHeaderHidden = hidden
+            },
+            onDeleteLink: {
+                deleteCurrentLink()
+            },
+            onSaveToBookmarkFolder: {
+                showBookmarkPicker = true
             },
             readAloud: ReadAloudPageState(
                 position: readAloud.spokenPosition,
@@ -245,14 +281,14 @@ public struct ReaderView: View {
     private var fallbackToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Button {
-                dismiss()
+                handleBack()
             } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.title3)
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Back")
         }
 
         ToolbarItem(placement: .principal) {
@@ -291,40 +327,17 @@ public struct ReaderView: View {
     private var bottomControlBar: some View {
         HStack(spacing: DS.Space.sm) {
             Button {
-                dismiss()
+                handleBack()
             } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.semibold))
                     .readerBarTapTarget()
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Close reader")
+            .accessibilityLabel("Back")
 
             Divider()
                 .frame(height: 24)
-
-            // Reading settings (size, font, background)
-            Button {
-                showReadingSettings = true
-            } label: {
-                Image(systemName: "textformat.size")
-                    .font(.body)
-                    .overlay(alignment: .topTrailing) {
-                        if !viewModel.readerSettings.isDefault {
-                            Circle()
-                                .fill(Color.yellow)
-                                .frame(width: 8, height: 8)
-                                .offset(x: 4, y: -4)
-                        }
-                    }
-                    .readerBarTapTarget()
-            }
-            .sheet(isPresented: $showReadingSettings) {
-                ReaderSettingsSheet(readAloudVoices: readAloudVoicesForCurrentArticle)
-            }
-            .accessibilityLabel("Reading settings")
 
             if case .loaded(let article) = viewModel.loadState {
                 ReadAloudButton(controller: readAloud, article: article)
@@ -387,8 +400,14 @@ public struct ReaderView: View {
                     .readerBarTapTarget()
             }
 
-            // Share / open in Safari / reload
+            // More actions: reading settings / share / open in Safari / reload / bookmark / delete
             Menu {
+                Button {
+                    showReadingSettings = true
+                } label: {
+                    Label("Reading Settings", systemImage: "textformat.size")
+                }
+                Divider()
                 Button {
                     isLongExtraction = false
                     Task { await viewModel.reloadArticle() }
@@ -402,6 +421,17 @@ public struct ReaderView: View {
                     UIApplication.shared.open(viewModel.url)
                 } label: {
                     Label("Open in Safari", systemImage: "safari")
+                }
+                Divider()
+                Button {
+                    showBookmarkPicker = true
+                } label: {
+                    Label("Save to Bookmark Folder…", systemImage: "folder.badge.plus")
+                }
+                Button(role: .destructive) {
+                    deleteCurrentLink()
+                } label: {
+                    Label("Delete Link", systemImage: "trash")
                 }
                 if let cleanup = viewModel.transcriptCleanup, cleanup.isAvailable {
                     Divider()
@@ -485,9 +515,96 @@ public struct ReaderView: View {
 
     // MARK: - Highlight Action
 
-    private func applyHighlight(color: HighlightColor) {        withAnimation { showHighlightBar = false }
+    private func applyHighlight(color: HighlightColor) {
+        withAnimation { showHighlightBar = false }
         guard !selectedRange.isEmpty else { return }
         viewModel.commitHighlight(selectedText: selectedText, serializedRange: selectedRange, color: color)
+    }
+
+    // MARK: - End of Article Actions
+
+    private var activeDeviceID: String {
+        if let tab = LocalCache.shared.findTab(url: viewModel.url) {
+            return tab.deviceID
+        }
+        if let bm = LocalCache.shared.findBookmark(url: viewModel.url) {
+            return bm.deviceID
+        }
+        if let macID = LocalCache.shared.state.connectedMac?.id, !macID.isEmpty {
+            return macID
+        }
+        if let blobDevID = LocalCache.shared.state.bookmarkBlobs.first(where: { !$0.deviceID.isEmpty })?.deviceID {
+            return blobDevID
+        }
+        return LocalCache.shared.state.devices.first?.id ?? ""
+    }
+
+    private func saveToBookmarkFolder(_ destination: BookmarkMoveDestination) {
+        let targetDeviceID = activeDeviceID
+        SyncConsumer.shared.sendAddBookmark(
+            title: viewModel.title.isEmpty ? (viewModel.url.host() ?? viewModel.url.absoluteString) : viewModel.title,
+            url: viewModel.url.absoluteString,
+            destinationBrowserName: destination.browserName,
+            destinationProfileName: destination.profileName,
+            destinationFolderPath: destination.folderPath,
+            targetDeviceID: targetDeviceID
+        )
+        toast = "Saved to \(destination.folderDisplayName)"
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    private func deleteCurrentLink() {
+        let url = viewModel.url
+        let normURL = normalizeURL(url)
+        let canonical = url.readerCanonicalKey
+
+        // 1. If it's in bookmark, delete it from bookmark.
+        let matchingBookmarks = LocalCache.shared.findAllBookmarks(url: url)
+        for match in matchingBookmarks {
+            SyncConsumer.shared.sendDeleteBookmark(
+                bookmark: match.bookmark,
+                browserName: match.browserName,
+                profileName: match.profileName,
+                targetDeviceID: match.deviceID
+            )
+            LocalCache.shared.removeBookmark(id: match.bookmark.id)
+        }
+
+        // 2. If it's in open tab, close it.
+        let matchingTabs = LocalCache.shared.findAllTabs(url: url)
+        for tab in matchingTabs {
+            SyncConsumer.shared.sendCloseTab(tab)
+            LocalCache.shared.removeTab(id: tab.id)
+        }
+
+        // 3. If it's in the iOS list, delete it too.
+        if let savedItem = SavedOnIPhoneStore.shared.item(forURL: url.absoluteString) {
+            SavedOnIPhoneStore.shared.remove(id: savedItem.id)
+        } else {
+            for item in SavedOnIPhoneStore.shared.items {
+                if let u = URL(string: item.url), u.readerCanonicalKey == canonical || normalizeURL(u) == normURL {
+                    SavedOnIPhoneStore.shared.remove(id: item.id)
+                    break
+                }
+            }
+        }
+
+        // Also clean up LastOpenedStore
+        LastOpenedStore.shared.remove(url: url)
+
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        dismiss()
+    }
+
+    private func normalizeURL(_ u: URL) -> String {
+        let host = (u.host() ?? "").lowercased()
+        let path = u.path().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let query = (u.query() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            return "\(host)/\(path)".lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        } else {
+            return "\(host)/\(path)?\(query)".lowercased()
+        }
     }
 }
 
@@ -513,6 +630,96 @@ extension View {
         } else {
             self.background(Capsule().fill(.regularMaterial))
         }
+    }
+}
+
+// MARK: - Left Edge Swipe To Go Back
+
+extension View {
+    func onScreenEdgeSwipeBack(action: @escaping () -> Void) -> some View {
+        self.modifier(ScreenEdgeSwipeBackModifier(onSwipe: action))
+    }
+}
+
+private struct ScreenEdgeSwipeBackModifier: ViewModifier {
+    let onSwipe: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .background(ScreenEdgeSwipeBackRepresentable(onSwipe: onSwipe))
+    }
+}
+
+private struct ScreenEdgeSwipeBackRepresentable: UIViewControllerRepresentable {
+    let onSwipe: () -> Void
+
+    func makeUIViewController(context: Context) -> ScreenEdgeSwipeBackViewController {
+        ScreenEdgeSwipeBackViewController(onSwipe: onSwipe)
+    }
+
+    func updateUIViewController(_ uiViewController: ScreenEdgeSwipeBackViewController, context: Context) {
+        uiViewController.onSwipe = onSwipe
+    }
+}
+
+private final class ScreenEdgeSwipeBackViewController: UIViewController, UIGestureRecognizerDelegate {
+    var onSwipe: () -> Void
+    private weak var gesture: UIScreenEdgePanGestureRecognizer?
+
+    init(onSwipe: @escaping () -> Void) {
+        self.onSwipe = onSwipe
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+    }
+
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        setupGesture()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        setupGesture()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if let g = gesture, let targetView = g.view {
+            targetView.removeGestureRecognizer(g)
+            gesture = nil
+        }
+    }
+
+    private func setupGesture() {
+        guard gesture == nil else { return }
+        let targetVC = parent ?? self
+        guard let targetView = targetVC.view else { return }
+
+        let edgeGesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleEdgePan(_:)))
+        edgeGesture.edges = .left
+        edgeGesture.delegate = self
+        targetView.addGestureRecognizer(edgeGesture)
+        self.gesture = edgeGesture
+    }
+
+    @objc private func handleEdgePan(_ recognizer: UIScreenEdgePanGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        let translation = recognizer.translation(in: recognizer.view)
+        let velocity = recognizer.velocity(in: recognizer.view)
+        if translation.x > 40 || velocity.x > 250 {
+            onSwipe()
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return true
     }
 }
 
@@ -622,3 +829,5 @@ private struct TappedHighlight: Identifiable {
     let highlight: ReaderHighlight
     var id: String { highlight.id }
 }
+
+

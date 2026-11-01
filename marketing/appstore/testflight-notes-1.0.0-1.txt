@@ -1,0 +1,13 @@
+What's new
+- First TestFlight build of FastTab Reader for iPhone.
+- Save any link from the share sheet and read it later in a clean, distraction-free reader.
+- With FastTab for Mac: your Mac's open browser tabs and bookmarks appear on your iPhone.
+- Highlights in four colours, with tags and comments, all in one searchable list.
+- Read Aloud, reading stats, Shuffle, and Home Screen widgets.
+
+What to test
+- Share a few articles from Safari to FastTab, then open them from the Read tab.
+- Read an article, highlight a passage, close it halfway, and reopen: it should resume where you stopped.
+- If you have FastTab for Mac: check that your open tabs and bookmarks show up on the Tabs tab and in More > Bookmarks.
+- Add the widgets to your Home Screen and tap them.
+- Tell us anything that feels slow, confusing or broken.

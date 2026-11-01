@@ -14,6 +14,8 @@ private enum JSMessage: String, CaseIterable {
     case videoSize        // { large: Bool } — transcript player switched Corner ↔ Large
     case transcriptVisible // { first: Int, last: Int } — transcript paragraphs on screen
     case readAloudTap     // { text: String, offset: Int } — article tapped (-1: not on text)
+    case deleteLink       // tapped delete button at end of article
+    case saveToBookmarkFolder // tapped save to folder button at end of article
 }
 
 // MARK: - ReaderWebView
@@ -34,8 +36,16 @@ public struct ReaderWebView: UIViewRepresentable {
     public var onTextDeselected: (() -> Void)?
     /// Called when user taps an existing highlight
     public var onHighlightTapped: ((String) -> Void)?
+    /// Called when the user swipes from the left edge to go back.
+    public var onSwipeBack: (() -> Void)?
     /// Called as the user scrolls: `true` to hide the navigation header, `false` to show it.
     public var onHeaderHiddenChanged: ((Bool) -> Void)?
+    /// Called when the user scrolls to (or away from) the end of the article.
+    public var onReachedEndChanged: ((Bool) -> Void)?
+    /// Called when user taps delete link at end of article.
+    public var onDeleteLink: (() -> Void)?
+    /// Called when user taps save to folder at end of article.
+    public var onSaveToBookmarkFolder: (() -> Void)?
     /// Read Aloud progress to highlight; nil when Read Aloud has never started.
     var readAloud: ReadAloudPageState?
     /// The user started dragging the page (Read Aloud pauses auto-scroll).
@@ -52,7 +62,11 @@ public struct ReaderWebView: UIViewRepresentable {
         onTextSelected: ((String, String) -> Void)? = nil,
         onTextDeselected: (() -> Void)? = nil,
         onHighlightTapped: ((String) -> Void)? = nil,
+        onSwipeBack: (() -> Void)? = nil,
         onHeaderHiddenChanged: ((Bool) -> Void)? = nil,
+        onReachedEndChanged: ((Bool) -> Void)? = nil,
+        onDeleteLink: (() -> Void)? = nil,
+        onSaveToBookmarkFolder: (() -> Void)? = nil,
         readAloud: ReadAloudPageState? = nil,
         onUserBeganScrolling: (() -> Void)? = nil,
         onReadAloudTap: ((String, Int) -> Void)? = nil,
@@ -64,7 +78,11 @@ public struct ReaderWebView: UIViewRepresentable {
         self.onTextSelected = onTextSelected
         self.onTextDeselected = onTextDeselected
         self.onHighlightTapped = onHighlightTapped
+        self.onSwipeBack = onSwipeBack
         self.onHeaderHiddenChanged = onHeaderHiddenChanged
+        self.onReachedEndChanged = onReachedEndChanged
+        self.onDeleteLink = onDeleteLink
+        self.onSaveToBookmarkFolder = onSaveToBookmarkFolder
         self.readAloud = readAloud
         self.onUserBeganScrolling = onUserBeganScrolling
         self.onReadAloudTap = onReadAloudTap
@@ -76,7 +94,11 @@ public struct ReaderWebView: UIViewRepresentable {
     public func makeCoordinator() -> Coordinator {
         Coordinator(viewModel: viewModel, onTextSelected: onTextSelected,
                     onTextDeselected: onTextDeselected, onHighlightTapped: onHighlightTapped,
-                    onHeaderHiddenChanged: onHeaderHiddenChanged)
+                    onSwipeBack: onSwipeBack,
+                    onHeaderHiddenChanged: onHeaderHiddenChanged,
+                    onReachedEndChanged: onReachedEndChanged,
+                    onDeleteLink: onDeleteLink,
+                    onSaveToBookmarkFolder: onSaveToBookmarkFolder)
     }
 
     public func makeUIView(context: Context) -> WKWebView {
@@ -100,12 +122,21 @@ public struct ReaderWebView: UIViewRepresentable {
         wv.backgroundColor = bgColor
         wv.scrollView.backgroundColor = bgColor
 
+        let edgeSwipe = UIScreenEdgePanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleEdgeSwipe(_:)))
+        edgeSwipe.edges = .left
+        edgeSwipe.delegate = context.coordinator
+        wv.addGestureRecognizer(edgeSwipe)
+        context.coordinator.edgeSwipeGesture = edgeSwipe
+
         context.coordinator.webView = wv
         loadTemplate(into: wv, coordinator: context.coordinator)
         return wv
     }
 
     public static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        if let edgeSwipe = coordinator.edgeSwipeGesture {
+            uiView.removeGestureRecognizer(edgeSwipe)
+        }
         JSMessage.allCases.forEach {
             uiView.configuration.userContentController.removeScriptMessageHandler(forName: $0.rawValue)
         }
@@ -138,8 +169,13 @@ public struct ReaderWebView: UIViewRepresentable {
                 "window.ftSetVideoVisible && ftSetVideoVisible(\(viewModel.isVideoVisible));", completionHandler: nil)
         }
 
+        context.coordinator.onSwipeBack = onSwipeBack
         context.coordinator.onUserBeganScrolling = onUserBeganScrolling
         context.coordinator.onReadAloudTap = onReadAloudTap
+        context.coordinator.onReachedEndChanged = onReachedEndChanged
+        context.coordinator.onHeaderHiddenChanged = onHeaderHiddenChanged
+        context.coordinator.onDeleteLink = onDeleteLink
+        context.coordinator.onSaveToBookmarkFolder = onSaveToBookmarkFolder
         if let readAloud {
             context.coordinator.readAloudSync.webView = webView
             onReadAloudPageReady?(context.coordinator.readAloudSync)
@@ -226,6 +262,8 @@ public struct ReaderWebView: UIViewRepresentable {
         let transcriptTexts: [TranscriptCleanupSession.ParagraphText]
         let videoVisible: Bool
         let videoLarge: Bool
+        let deleteLabel: String
+        let locationBadges: [String]
     }
 
     /// JS that applies the full settings-derived CSS-var set. Shared by the live
@@ -284,6 +322,19 @@ public struct ReaderWebView: UIViewRepresentable {
         // after if the SwiftUI environment disagrees.
         let systemIsDark = UITraitCollection.current.userInterfaceStyle == .dark
         let theme = ReaderResolvedTheme.resolve(backgroundHex: settings.effectiveBackgroundHex(systemIsDark: systemIsDark))
+
+        let matchingBookmarks = LocalCache.shared.findAllBookmarks(url: viewModel.url)
+        let matchingTabs = LocalCache.shared.findAllTabs(url: viewModel.url)
+        let hasSavedItem = SavedOnIPhoneStore.shared.item(forURL: viewModel.url.absoluteString) != nil ||
+            SavedOnIPhoneStore.shared.items.contains {
+                guard let u = URL(string: $0.url) else { return false }
+                return u.readerCanonicalKey == viewModel.url.readerCanonicalKey
+            }
+
+        let endActions = ReaderEndActions(inBookmarks: !matchingBookmarks.isEmpty, inOpenTabs: !matchingTabs.isEmpty, inList: hasSavedItem)
+        let badges = endActions.badges
+        let deleteLabel = endActions.deleteLabel
+
         let bootstrapData = ArticleBootstrapData(
             title: article.title,
             byline: article.byline,
@@ -307,7 +358,9 @@ public struct ReaderWebView: UIViewRepresentable {
             youtubeVideoID: article.youtubeVideoID,
             transcriptTexts: viewModel.transcriptCleanup?.shownTexts.filter { $0.v == "clean" } ?? [],
             videoVisible: viewModel.isVideoVisible,
-            videoLarge: viewModel.isVideoLarge
+            videoLarge: viewModel.isVideoLarge,
+            deleteLabel: deleteLabel,
+            locationBadges: badges
         )
 
         var jsonString = "{}"
@@ -340,9 +393,29 @@ public struct ReaderWebView: UIViewRepresentable {
     }
 }
 
+/// What the reader's "End of Article" footer says: where this link lives and what Delete removes.
+struct ReaderEndActions: Equatable {
+    let inBookmarks: Bool
+    let inOpenTabs: Bool
+    let inList: Bool
+
+    var badges: [String] {
+        [inBookmarks ? "Bookmarks" : nil, inOpenTabs ? "Open Tab" : nil, inList ? "FastTab List" : nil].compactMap { $0 }
+    }
+
+    var deleteLabel: String {
+        switch (inBookmarks, inOpenTabs, inList) {
+        case (true, false, false): return "Delete Bookmark"
+        case (false, true, false): return "Close Tab"
+        case (false, false, true): return "Delete from List"
+        default: return "Delete Link"
+        }
+    }
+}
+
 // MARK: - Coordinator
 
-public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, UIScrollViewDelegate {
+public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     weak var webView: WKWebView?
     var lastAppliedSettingsSignature: String?
     /// Player visibility last pushed to (or reported by) the page.
@@ -356,6 +429,8 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     @MainActor lazy var readAloudSync = ReadAloudPageSync()
     var onUserBeganScrolling: (() -> Void)?
     var onReadAloudTap: ((String, Int) -> Void)?
+    var onSwipeBack: (() -> Void)?
+    weak var edgeSwipeGesture: UIScreenEdgePanGestureRecognizer?
     /// What the page was loaded with (bootstrap). Pushes sent before the page is ready are
     /// lost, so `ready` re-sends whatever differs from this.
     private var loadedTranscript: [Int: TranscriptCleanupSession.ParagraphText] = [:]
@@ -386,7 +461,11 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     private let onTextSelected: ((String, String) -> Void)?
     private let onTextDeselected: (() -> Void)?
     private let onHighlightTapped: ((String) -> Void)?
-    private let onHeaderHiddenChanged: ((Bool) -> Void)?
+    var onHeaderHiddenChanged: ((Bool) -> Void)?
+    var onReachedEndChanged: ((Bool) -> Void)?
+    var onDeleteLink: (() -> Void)?
+    var onSaveToBookmarkFolder: (() -> Void)?
+    private(set) var isAtEnd: Bool = false
 
     // Scroll-direction tracking for header auto-hide
     private var lastContentOffsetY: CGFloat = 0
@@ -402,13 +481,21 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
          onTextSelected: ((String, String) -> Void)?,
          onTextDeselected: (() -> Void)?,
          onHighlightTapped: ((String) -> Void)?,
-         onHeaderHiddenChanged: ((Bool) -> Void)? = nil) {
+         onSwipeBack: (() -> Void)? = nil,
+         onHeaderHiddenChanged: ((Bool) -> Void)? = nil,
+         onReachedEndChanged: ((Bool) -> Void)? = nil,
+         onDeleteLink: (() -> Void)? = nil,
+         onSaveToBookmarkFolder: (() -> Void)? = nil) {
         self.viewModel = viewModel
         self.lastAppliedSettingsSignature = nil
         self.onTextSelected = onTextSelected
         self.onTextDeselected = onTextDeselected
         self.onHighlightTapped = onHighlightTapped
+        self.onSwipeBack = onSwipeBack
         self.onHeaderHiddenChanged = onHeaderHiddenChanged
+        self.onReachedEndChanged = onReachedEndChanged
+        self.onDeleteLink = onDeleteLink
+        self.onSaveToBookmarkFolder = onSaveToBookmarkFolder
         super.init()
         // Safety net: a blank page can survive without the terminate callback
         // (suspended renderer, discarded tiles). Re-check content on foreground.
@@ -427,6 +514,20 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
             self.activeObserver = nil
         }
         reloadHandler = nil
+        onSwipeBack = nil
+    }
+
+    @objc func handleEdgeSwipe(_ recognizer: UIScreenEdgePanGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        let translation = recognizer.translation(in: recognizer.view)
+        let velocity = recognizer.velocity(in: recognizer.view)
+        if translation.x > 40 || velocity.x > 250 {
+            onSwipeBack?()
+        }
+    }
+
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return true
     }
 
     deinit {
@@ -468,7 +569,19 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
         let delta = offsetY - lastContentOffsetY
         lastContentOffsetY = offsetY
 
+        let maxOffset = scrollView.contentSize.height - scrollView.bounds.height
+        if maxOffset > 20 {
+            let atEnd = offsetY >= (maxOffset - 80)
+            if atEnd != isAtEnd {
+                isAtEnd = atEnd
+                onReachedEndChanged?(atEnd)
+            }
+        }
+
         if offsetY <= topRevealThreshold {
+            setHeaderHidden(false)
+        } else if isAtEnd {
+            // At the end of the article, reveal reader controls
             setHeaderHidden(false)
         } else if delta > 0 {
             setHeaderHidden(true)
@@ -501,9 +614,22 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                 if let p = body["progress"] as? Double {
                     let immediate = body["immediate"] as? Bool ?? false
                     self.viewModel.updateScrollProgress(p, immediate: immediate)
+                    let atEnd = p >= 0.90
+                    if atEnd != self.isAtEnd {
+                        self.isAtEnd = atEnd
+                        self.onReachedEndChanged?(atEnd)
+                        if atEnd {
+                            self.setHeaderHidden(false)
+                        }
+                    }
                 }
             case .contentFitsViewport:
-                self.viewModel.contentFitsViewportChanged(body["fits"] as? Bool ?? false)
+                let fits = body["fits"] as? Bool ?? false
+                self.viewModel.contentFitsViewportChanged(fits)
+                if fits && !self.isAtEnd {
+                    self.isAtEnd = true
+                    self.onReachedEndChanged?(true)
+                }
             case .textSelected:
                 let text = body["text"] as? String ?? ""
                 let range = body["range"] as? String ?? ""
@@ -530,6 +656,10 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                 if let first = body["first"] as? Int, let last = body["last"] as? Int {
                     self.viewModel.transcriptParagraphsVisible(first: first, last: last)
                 }
+            case .deleteLink:
+                self.onDeleteLink?()
+            case .saveToBookmarkFolder:
+                self.onSaveToBookmarkFolder?()
             case .ready:
                 // A push made while the page was still loading was a no-op there; send what
                 // changed since the page's bootstrap now that it can take it.

@@ -125,7 +125,8 @@ describe("Park with Undo", () => {
         onUndo={(message, undo) => undos.push({ message, undo })} />,
     );
     await settle();
-    click([...document.querySelectorAll("button")].find((b) => b.textContent === "Park"));
+    click(document.querySelector('button[aria-label="More actions"]'));
+    click([...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent === "Park"));
     await settle();
     expect(posts.find((p) => p.url === "/api/session/archive")?.body.confirm).toBe(false);
     expect(undos.map((u) => u.message)).toEqual(["Parked"]);

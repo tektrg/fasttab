@@ -6,6 +6,7 @@ import IndieAccount
 public struct MoreView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var syncConsumer = SyncConsumer.shared
+    @ObservedObject private var appMode = AppModeModel.shared
     @StateObject private var statsViewModel = StatsViewModel()
     @Environment(AccountSession.self) private var accountSession
     private let intelligenceTip = IntelligenceTip()
@@ -28,6 +29,19 @@ public struct MoreView: View {
         localCache.state.devices.count
     }
 
+    /// On: Mac companion (Tabs tab, Send to Mac). Off: reader only. Turning it on opens Connect your Mac.
+    private var usesMacBinding: Binding<Bool> {
+        Binding(
+            get: { !appMode.isStandalone },
+            set: { usesMac in
+                appMode.set(usesMac ? .mac : .standalone)
+                if usesMac && localCache.state.connectedMac == nil {
+                    OnboardingPresenter.shared.present(.singleStep(.connectMac))
+                }
+            }
+        )
+    }
+
     public var body: some View {
         List {
             // Level-1 stats: visible the moment the tab opens, no tap-through.
@@ -37,11 +51,14 @@ public struct MoreView: View {
             .listRowInsets(EdgeInsets())
             .dsListRow()
 
-            Section {
-                TabStatsCard(summary: statsViewModel.tabs)
+            // Mac-only rows (Tab stats, Desk Queue, synced bookmarks/history, Macs) are hidden on reader-only phones.
+            if !appMode.isStandalone {
+                Section {
+                    TabStatsCard(summary: statsViewModel.tabs)
+                }
+                .listRowInsets(EdgeInsets())
+                .dsListRow()
             }
-            .listRowInsets(EdgeInsets())
-            .dsListRow()
 
             Section(footer: Text("Closes the Reading ring widget on your home screen.")) {
                 Stepper(value: $dailyWordGoal, in: ReadingGoal.range, step: ReadingGoal.step) {
@@ -56,68 +73,83 @@ public struct MoreView: View {
             }
             .dsListRow()
 
-            Section {
-                DataFreshnessBanner(
-                    device: localCache.state.connectedMac,
-                    lastSyncedAt: localCache.state.lastSyncedAt
-                )
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-            }
-
-            Section("Utilities") {
-                NavigationLink {
-                    DeskQueueView()
-                        .navigationTitle("Desk Queue")
-                } label: {
-                    MoreRowLabel(
-                        systemImage: "paperplane.fill",
-                        tint: DS.Tint.action,
-                        title: "Desk Queue",
-                        subtitle: "Links staged to open on your Mac"
-                    ) {
-                        if queueCount > 0 {
-                            // Solid badge: pending sends are waiting on the Mac.
-                            Text("\(queueCount)")
-                                .font(DS.Font.tag.monospacedDigit())
-                                .padding(.horizontal, DS.Space.sm)
-                                .padding(.vertical, 3)
-                                .foregroundColor(.white)
-                                .background(DS.Tint.action, in: Capsule())
-                        }
-                    }
+            Section(footer: Text(appMode.isStandalone
+                ? "Reader only: save links from the share sheet and read them here."
+                : "Use with a Mac: see your Mac's tabs and send links to it.")) {
+                Toggle(isOn: usesMacBinding) {
+                    Label("Use with a Mac", systemImage: "macbook.and.iphone")
                 }
             }
             .dsListRow()
 
-            Section("Bookmarks & History") {
-                NavigationLink {
-                    BookmarkTreeView(device: nil)
-                        .navigationTitle("Bookmarks")
-                } label: {
-                    MoreRowLabel(
-                        systemImage: "bookmark.fill",
-                        tint: DS.Tint.bookmark,
-                        title: "Bookmarks",
-                        subtitle: "All synced browser bookmarks & folders"
-                    ) {
-                        if bookmarksCount > 0 {
-                            DSCountPill(bookmarksCount)
+            if !appMode.isStandalone {
+                Section {
+                    DataFreshnessBanner(
+                        device: localCache.state.connectedMac,
+                        lastSyncedAt: localCache.state.lastSyncedAt
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous))
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+            }
+
+            if !appMode.isStandalone {
+                Section("Utilities") {
+                    NavigationLink {
+                        DeskQueueView()
+                            .navigationTitle("Desk Queue")
+                    } label: {
+                        MoreRowLabel(
+                            systemImage: "paperplane.fill",
+                            tint: DS.Tint.action,
+                            title: "Desk Queue",
+                            subtitle: "Links staged to open on your Mac"
+                        ) {
+                            if queueCount > 0 {
+                                // Solid badge: pending sends are waiting on the Mac.
+                                Text("\(queueCount)")
+                                    .font(DS.Font.tag.monospacedDigit())
+                                    .padding(.horizontal, DS.Space.sm)
+                                    .padding(.vertical, 3)
+                                    .foregroundColor(.white)
+                                    .background(DS.Tint.action, in: Capsule())
+                            }
                         }
                     }
                 }
+                .dsListRow()
+            }
 
-                NavigationLink {
-                    HistoryListView(device: nil)
-                        .navigationTitle("History")
-                } label: {
-                    MoreRowLabel(
-                        systemImage: "clock.arrow.circlepath",
-                        tint: .secondary,
-                        title: "Synced History",
-                        subtitle: "Recent browsing history from your Mac"
-                    )
+            Section(appMode.isStandalone ? "Highlights" : "Bookmarks & History") {
+                if !appMode.isStandalone {
+                    NavigationLink {
+                        BookmarkTreeView(device: nil)
+                            .navigationTitle("Bookmarks")
+                    } label: {
+                        MoreRowLabel(
+                            systemImage: "bookmark.fill",
+                            tint: DS.Tint.bookmark,
+                            title: "Bookmarks",
+                            subtitle: "All synced browser bookmarks & folders"
+                        ) {
+                            if bookmarksCount > 0 {
+                                DSCountPill(bookmarksCount)
+                            }
+                        }
+                    }
+
+                    NavigationLink {
+                        HistoryListView(device: nil)
+                            .navigationTitle("History")
+                    } label: {
+                        MoreRowLabel(
+                            systemImage: "clock.arrow.circlepath",
+                            tint: .secondary,
+                            title: "Synced History",
+                            subtitle: "Recent browsing history from your Mac"
+                        )
+                    }
                 }
 
                 NavigationLink {
@@ -147,26 +179,28 @@ public struct MoreView: View {
             }
             .dsListRow()
 
-            Section("Devices") {
-                NavigationLink {
-                    DeviceListView()
-                        .navigationTitle("Devices")
-                } label: {
-                    MoreRowLabel(
-                        systemImage: "laptopcomputer",
-                        tint: DS.Tint.action,
-                        title: "Connected Macs",
-                        subtitle: "\(devicesCount) device\(devicesCount == 1 ? "" : "s") synced"
-                    )
+            if !appMode.isStandalone {
+                Section("Devices") {
+                    NavigationLink {
+                        DeviceListView()
+                            .navigationTitle("Devices")
+                    } label: {
+                        MoreRowLabel(
+                            systemImage: "laptopcomputer",
+                            tint: DS.Tint.action,
+                            title: "Connected Macs",
+                            subtitle: "\(devicesCount) device\(devicesCount == 1 ? "" : "s") synced"
+                        )
+                    }
                 }
+                .dsListRow()
             }
-            .dsListRow()
 
             Section(
                 header: Text("Experimental"),
                 footer: Text("Early features that may change or go away. Clean-up rewrites YouTube transcripts into readable text on this iPhone (needs Apple Intelligence). Also in the reader's ⋯ menu.")
             ) {
-                TipView(intelligenceTip)
+                TipView(IntelligenceTip(isStandalone: appMode.isStandalone))
                     .fastTabTipStyle()
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
@@ -180,7 +214,9 @@ public struct MoreView: View {
                         systemImage: "sparkles",
                         tint: DS.Tint.emerging,
                         title: "Intelligence",
-                        subtitle: "Topic clusters & bookmark suggestions"
+                        subtitle: appMode.isStandalone
+                            ? "Topic clusters from your reading"
+                            : "Topic clusters & bookmark suggestions"
                     )
                 }
 

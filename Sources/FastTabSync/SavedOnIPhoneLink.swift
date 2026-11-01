@@ -1,25 +1,93 @@
 import Foundation
 
-/// A link the user chose to keep on this iPhone only (share sheet →
-/// "Save to iPhone"). Local-only by design: it never becomes a `SyncCommand`
-/// and is never uploaded to CloudKit. Lives in the shared App Group so the
-/// share extension can write it and the main app can drain it.
+/// One entry in the **FastTab List** — the user's read-later list (product name;
+/// the Swift type keeps its older "Saved on iPhone" name). Distinct from browser
+/// Bookmarks, which are browser-owned. Synced across devices through `ReaderZone`
+/// (`FastTabListSyncBridge`; per-field merge in `FastTabListMerge`):
+/// - `id` is derived from the canonical URL by the store, so the same link saved on
+///   two devices becomes the same item.
+/// - `deletedAt` is a tombstone: set = in Trash (purged after 30 days), nil = live.
+/// - `purgedAt` marks a **purged marker**: what is left after Trash is emptied or expires.
+///   Only `id` + `purgedAt` mean anything (title, URL, progress are stripped). It is
+///   final: an older edit from a long-offline device never revives it; only an explicit
+///   re-save (a `savedAt` newer than `purgedAt`) does. Never shown in any UI.
+/// - `readAt` / `progress` carry read state; each change bumps `updatedAt`
+///   (`progressUpdatedAt` for progress) so a later merge can pick the newest.
+///
+/// The share extension writes these to `pending_saves` with a throwaway UUID id;
+/// the app re-keys them on ingest. Decoding tolerates missing phase-1 fields so old
+/// saves and old pending files still load.
 public struct SavedOnIPhoneLink: Identifiable, Codable, Hashable, Sendable {
-    public let id: String
-    public let url: String
-    public let title: String?
-    public let savedAt: Date
+    public var id: String
+    public var url: String
+    public var title: String?
+    public var savedAt: Date
+    public var updatedAt: Date
+    public var deletedAt: Date?
+    public var readAt: Date?
+    /// Scroll fraction 0...1 of the reader.
+    public var progress: Double
+    public var progressUpdatedAt: Date?
+    /// When `readAt` last changed (set or cleared). Nil on items from before sync.
+    public var readStateUpdatedAt: Date?
+    /// Set = purged marker (see type doc).
+    public var purgedAt: Date?
+
+    public var isPurged: Bool { purgedAt != nil }
+    public var isTrashed: Bool { deletedAt != nil }
+    public var isRead: Bool { readAt != nil }
 
     public init(
         id: String = UUID().uuidString,
         url: String,
         title: String? = nil,
-        savedAt: Date = Date()
+        savedAt: Date = Date(),
+        updatedAt: Date? = nil,
+        deletedAt: Date? = nil,
+        readAt: Date? = nil,
+        progress: Double = 0,
+        progressUpdatedAt: Date? = nil,
+        readStateUpdatedAt: Date? = nil,
+        purgedAt: Date? = nil
     ) {
         self.id = id
         self.url = url
         self.title = title
         self.savedAt = savedAt
+        self.updatedAt = updatedAt ?? savedAt
+        self.deletedAt = deletedAt
+        self.readAt = readAt
+        self.progress = progress
+        self.progressUpdatedAt = progressUpdatedAt
+        self.readStateUpdatedAt = readStateUpdatedAt
+        self.purgedAt = purgedAt
+    }
+
+    /// The permanent "purged" marker for `id`. Canonical for a given `purgedAt`, so every
+    /// device builds identical bytes. `deletedAt` is set too, so builds that predate
+    /// markers treat it as Trash and keep it hidden.
+    public static func purgedMarker(id: String, purgedAt: Date) -> SavedOnIPhoneLink {
+        SavedOnIPhoneLink(id: id, url: "", savedAt: purgedAt, updatedAt: purgedAt,
+                          deletedAt: purgedAt, purgedAt: purgedAt)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, url, title, savedAt, updatedAt, deletedAt, readAt, progress, progressUpdatedAt, readStateUpdatedAt, purgedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        url = try c.decode(String.self, forKey: .url)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        savedAt = try c.decode(Date.self, forKey: .savedAt)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? savedAt
+        deletedAt = try c.decodeIfPresent(Date.self, forKey: .deletedAt)
+        readAt = try c.decodeIfPresent(Date.self, forKey: .readAt)
+        progress = try c.decodeIfPresent(Double.self, forKey: .progress) ?? 0
+        progressUpdatedAt = try c.decodeIfPresent(Date.self, forKey: .progressUpdatedAt)
+        readStateUpdatedAt = try c.decodeIfPresent(Date.self, forKey: .readStateUpdatedAt)
+        purgedAt = try c.decodeIfPresent(Date.self, forKey: .purgedAt)
     }
 }
 

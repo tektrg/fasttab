@@ -175,8 +175,13 @@ struct DashboardAgent: Decodable {
     let transcriptQuestion: DashboardTranscriptQuestion?
     /// An idle status-only row's end-of-turn question (Claude Desktop wrap_up); see `WrapUpQuestion`.
     let wrapUpQuestion: DashboardWrapUpQuestion?
+    /// The pane's screen shows a Claude account wall (usage/session limit, no credit); see `account_rotation.py`.
+    let limitWall: Bool?
+    /// Which Claude account the session runs on: an `accounts.json` id, "default" (~/.claude), or null (unknown).
+    let account: String?
 
     private enum CodingKeys: String, CodingKey {
+        case limitWall, account
         case paneId, label, cwd, hookState, hookSinceSec, screenActivitySec, hasHookData, residue
         case agentSession, hookReason, screenState, screenSignal, screenQuestion, rowId, actions
         case source, openUrl, tmuxTarget, messageVia, agentKind, messageRefusal, acceptsImages, hookRequest, transcriptQuestion
@@ -210,6 +215,8 @@ struct DashboardAgent: Decodable {
         hookRequest = container.lenient(.hookRequest)
         transcriptQuestion = container.lenient(.transcriptQuestion)
         wrapUpQuestion = container.lenient(.wrapUpQuestion)
+        limitWall = container.lenient(.limitWall)
+        account = container.lenient(.account)
     }
 }
 

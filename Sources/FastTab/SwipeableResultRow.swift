@@ -17,6 +17,8 @@ struct SwipeableResultRow: View {
     let onCopy: () -> Void
     let onRemove: () -> Void
     var onPin: (() -> Void)? = nil
+    /// FastTab List bridge (Read later / Move to Bookmarks); shown only when the row offers one.
+    var onFastTabListBridge: (() -> Void)? = nil
 
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
 
@@ -64,7 +66,8 @@ struct SwipeableResultRow: View {
                 onSelect: onSelect,
                 onCopy: onCopy,
                 onRemove: onRemove,
-                onPin: onPin
+                onPin: onPin,
+                onFastTabListBridge: onFastTabListBridge
             )
             .offset(x: contentOffset)
             .animation(.spring(response: 0.24, dampingFraction: 0.88), value: keyboardAction)
@@ -176,6 +179,7 @@ private struct ResultRowView: View {
     let onCopy: () -> Void
     let onRemove: () -> Void
     var onPin: (() -> Void)? = nil
+    var onFastTabListBridge: (() -> Void)? = nil
 
     @State private var isHovering = false
     @Environment(\.isCompactCommandBar) private var isCompact
@@ -276,13 +280,25 @@ private struct ResultRowView: View {
         case .sent: return "Dismiss Link"
         case .bookmark: return "Delete Bookmark"
         case .history: return "Delete History Entry"
+        case .fastTabList: return "Move to Trash"
         }
+    }
+
+    private var fastTabListBridge: FastTabListRowBridge? {
+        onFastTabListBridge == nil ? nil : FastTabListRowBridge.forResult(result)
+    }
+
+    private var fastTabListShortcutHint: String {
+        fastTabListBridge == .moveToBookmarks ? "⌘D" : "⌘S"
     }
 
     @ViewBuilder
     private var actionButtonCluster: some View {
         RowActionsMenu {
             Button(openActionTitle, action: onSelect)
+            if let bridge = fastTabListBridge, let onFastTabListBridge {
+                Button("\(bridge.title) (\(fastTabListShortcutHint))", action: onFastTabListBridge)
+            }
             if result.type == .tab, let onPin {
                 Button(result.isPinned ? "Unpin Tab" : "Pin Tab", action: onPin)
             }

@@ -9,6 +9,11 @@
 .ui-btn[data-size="sm"] { --btn-h: 36px; --btn-px: var(--s3); font-size: 14px; }
 /* 44pt hit area around the 36pt visual button. */
 .ui-btn[data-size="sm"]::after { content: ""; position: absolute; inset: -4px 0; }
+/* Phone: no 36px visual inside a 44px hit area — the button itself is 44. */
+@media (max-width: 640px) {
+  .ui-btn[data-size="sm"] { --btn-h: 44px; }
+  .ui-btn[data-size="sm"]::after { display: none; }
+}
 .ui-btn[data-variant="primary"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .ui-btn[data-variant="ask"] { background: var(--ask); color: var(--paper); border-color: var(--ask); }
 .ui-btn[data-variant="danger"] { color: var(--need); }

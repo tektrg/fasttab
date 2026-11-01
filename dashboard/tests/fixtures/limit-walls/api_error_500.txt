@@ -1,0 +1,6 @@
+⏺ Building.
+  ⎿  API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}
+
+✻ Baked for 1m 2s · done 4:01 PM
+────────────────────────────────────────
+❯ 

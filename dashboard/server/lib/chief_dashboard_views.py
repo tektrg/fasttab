@@ -7,6 +7,7 @@ JSON instead of scraping HTML (plan.md's "one data layer, two consumers").
 """
 import time
 
+import account_rotation  # limitWall / account per row
 import agent_tree  # noqa: E402  (scripts/lib/agent_tree.py — the hierarchy store)
 import chief_dashboard_herdr as herdr_transport
 import claude_sessions  # P4: non-herdr Claude sessions as status-only rows
@@ -99,6 +100,11 @@ def build_agents_view(feeds_snap):
             # The open plain yes/no permission box, if any (parsed block, or
             # None) — mutually exclusive with screenQuestion above.
             "screenPermission": screen.get("permission"),
+            # Account rotation (account_rotation.py): the pane shows a usage
+            # limit wall; which accounts.json row its session runs on.
+            "limitWall": bool(screen.get("limitWall")),
+            "account": account_rotation.account_id_for_session(
+                (a.get("agent_session") or {}).get("value")),
             # The hook's display-only preview of a just-opened picker (raw
             # tool input, never screen-parsed). Attached here; build_needs_you
             # decides whether it outranks the stale screen. Live rows only —
@@ -165,6 +171,8 @@ def build_agents_view(feeds_snap):
                 "screenSignal": screen.get("signal"),
                 "screenQuestion": screen.get("question"),
                 "screenPermission": screen.get("permission"),
+                "limitWall": bool(screen.get("limitWall")),
+                "account": None,  # the Air's config dirs are not read
                 "hookQuestion": None,
                 "machine": machine,
                 "source": claude_sessions.HERDR_SOURCE,
@@ -308,6 +316,25 @@ def _hook_preview_outranks(hook_question, screen_read_age, now):
     return (now - hook_question["ts"]) < screen_read_age
 
 
+WAIT_QUESTION, WAIT_APPROVAL, WAIT_LOGIN = "question", "approval", "login"
+#: Claude's Notification copy for a permission prompt ("Claude needs your
+#: permission to use Bash"); its other copy ("waiting for your input") is an
+#: idle nudge, not a decision.
+_PERMISSION_NOTICE = "needs your permission"
+
+
+def _wait_reason(hook_request=None, question=False, permission=None, hook_reason=None):
+    """Why a needs-you row waits — `waitReason` on the row, None = no known
+    decision (idle nudge, unknown block). Phone pushes fire only on a reason."""
+    if hook_request:
+        return WAIT_QUESTION if hook_request.get("kind") == "question" else WAIT_APPROVAL
+    if question:
+        return WAIT_QUESTION
+    if permission or _PERMISSION_NOTICE in str(hook_reason or "").lower():
+        return WAIT_APPROVAL
+    return None
+
+
 def _row(kind, label, pane_id, detail, since_sec, identity=None):
     return {
         "kind": kind,
@@ -418,6 +445,10 @@ def build_needs_you(feeds_snap, agents):
                 row["hookRequest"] = a.get("hookRequest")
                 row["transcriptQuestion"] = a.get("transcriptQuestion")
                 row["wrapUpQuestion"] = a.get("wrapUpQuestion")
+                row["waitReason"] = _wait_reason(
+                    a.get("hookRequest"),
+                    question=bool(a.get("wrapUpQuestion") or a.get("transcriptQuestion")),
+                    hook_reason=a.get("hookReason"))
                 rows.append(row)
             elif a.get("wrapUpQuestion"):
                 # The turn ended on a question (Claude Desktop wrap_up box):
@@ -429,6 +460,7 @@ def build_needs_you(feeds_snap, agents):
                 row["agentSession"] = a.get("agentSession")
                 row["openUrl"] = a.get("openUrl")
                 row["wrapUpQuestion"] = a["wrapUpQuestion"]
+                row["waitReason"] = WAIT_QUESTION
                 rows.append(row)
             continue
         if a.get("hookRequest"):
@@ -439,6 +471,7 @@ def build_needs_you(feeds_snap, agents):
                        a.get("hookReason") or claude_sessions.DEFAULT_WAITING_REASON, age)
             row["permission"] = None
             row["hookRequest"] = a["hookRequest"]
+            row["waitReason"] = _wait_reason(a["hookRequest"])
             rows.append(row)
             continue
         screen = a.get("screenState")
@@ -471,6 +504,8 @@ def build_needs_you(feeds_snap, agents):
                 # parse_permission_block's module comment. `question`-kind
                 # rows never carry this; the two stay mutually exclusive.
                 row["permission"] = a.get("screenPermission")
+            # A screen prompt with no picker is a permission box: approval.
+            row["waitReason"] = WAIT_QUESTION if question else WAIT_APPROVAL
             rows.append(row)
         elif screen == "NEEDS_LOGIN":
             # The session is logged out: nothing sent to it is ever answered
@@ -480,6 +515,7 @@ def build_needs_you(feeds_snap, agents):
             row = _row("blocked", label, pane_id,
                        "not logged in — run /login in this pane", age)
             row["permission"] = None
+            row["waitReason"] = WAIT_LOGIN
             rows.append(row)
         elif _hook_preview_outranks(a.get("hookQuestion"), screen_read_age, now):
             # Phase 5: the hook saw a picker open AFTER the last sweep read
@@ -502,6 +538,7 @@ def build_needs_you(feeds_snap, agents):
                 "title": hq["title"], "question": hq["question"],
                 "multi": hq["multi"], "options": hq["options"],
             }
+            row["waitReason"] = WAIT_QUESTION
             rows.append(row)
         elif (a["hookState"] == "blocked" and screen_feed_usable
               and not (screen in SCREEN_NOT_BLOCKED and screen_outranks_hook)):
@@ -517,6 +554,8 @@ def build_needs_you(feeds_snap, agents):
             # client checking row.permission should never have to special-
             # case a missing key vs. an explicit null.
             row["permission"] = a.get("screenPermission")
+            row["waitReason"] = _wait_reason(permission=row["permission"],
+                                             hook_reason=a.get("hookReason"))
             rows.append(row)
 
     # Which machine each agent row lives on (the phone showed every Needs

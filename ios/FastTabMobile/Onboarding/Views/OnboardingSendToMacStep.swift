@@ -31,14 +31,9 @@ struct OnboardingSendToMacStep: View {
             OnboardingHeroSend(state: SendHeroState(hasMac: hasMac, tryProgress: tryProgress))
         } content: {
             VStack(spacing: DS.Space.lg) {
-                VStack(spacing: DS.Space.md) {
-                    OnboardingNumberedInstruction(number: 1, text: "In Safari or any app, tap Share", systemImage: "square.and.arrow.up")
-                    OnboardingNumberedInstruction(number: 2, text: "Scroll the row of apps to the end and tap More", systemImage: "ellipsis")
-                    OnboardingNumberedInstruction(number: 3, text: "Tap Edit, then add FastTab", systemImage: "plus.circle.fill")
-                }
-                .dsCard()
+                OnboardingShareSheetInstructions()
 
-                Text("Then pick FastTab and choose Send to Mac or Save to iPhone.")
+                Text("Then pick FastTab and choose Send to Mac or Save to FastTab List.")
                     .font(DS.Font.meta)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -92,5 +87,17 @@ struct OnboardingSendToMacStep: View {
         trySentAt = Date()
         SyncConsumer.shared.sendOpenOnMac(url: Self.sampleLinkURL.absoluteString, title: Self.sampleLinkTitle)
         toast = "Sent to Mac"
+    }
+}
+
+/// "Add FastTab to your share sheet" steps, shared by the Send to Mac and Save a first link screens.
+struct OnboardingShareSheetInstructions: View {
+    var body: some View {
+        VStack(spacing: DS.Space.md) {
+            OnboardingNumberedInstruction(number: 1, text: "In Safari or any app, tap Share", systemImage: "square.and.arrow.up")
+            OnboardingNumberedInstruction(number: 2, text: "Scroll the row of apps to the end and tap More", systemImage: "ellipsis")
+            OnboardingNumberedInstruction(number: 3, text: "Tap Edit, then add FastTab", systemImage: "plus.circle.fill")
+        }
+        .dsCard()
     }
 }

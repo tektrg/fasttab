@@ -576,6 +576,9 @@ def read_one_pane_screen(pane_id, machine=herdr_transport.LOCAL_MACHINE,
                                                           machine=machine)
         return (key, {
             "state": state, "signal": signal,
+            # CRASHED because the ACCOUNT is out of quota (account_rotation.py
+            # resumes the session on the next login account).
+            "limitWall": classify_pane.limit_wall(classified_text),
             "ts": time.time(),
             # Live-work evidence for the hook-vs-herdr disagree rule: a
             # fingerprint of what is drawn (poll_pane_screen turns it into
@@ -690,9 +693,24 @@ def poll_pane_screen():
                     time.time() - t0)
             else:
                 feed.set_success(screens, time.time() - t0)
+                _notify_screen_listeners(agents, screens)
         except Exception as e:
             feed.set_error(e, time.time() - t0)
         STOP.wait(max(feed.refresh_interval_sec - (time.time() - t0), 10))
+
+
+#: Called after each successful LOCAL screen sweep with (herdr agents, screens
+#: keyed by sanitized pane id). The server registers account_rotation's
+#: auto-resume here; kept as a hook so this feed module imports no actions.
+SCREEN_LISTENERS = []
+
+
+def _notify_screen_listeners(agents, screens):
+    for listener in SCREEN_LISTENERS:
+        try:
+            listener(agents, screens)
+        except Exception as e:  # a listener bug must never break the feed
+            print(f"[paneScreen] listener failed: {e}", flush=True)
 
 
 def poll_pane_screen_remote(machine):

@@ -16,6 +16,8 @@ enum NaturalVoiceError: Error, Equatable {
     /// 503 `tts_ceiling` / `tts_disabled`, 502 (Google failed), repeated 429, other errors,
     /// or no network: the rest of the article goes to the device voice.
     case unavailable
+    /// 402 `tts_subscription_required`: no live Natural Voice subscription on this account.
+    case subscriptionRequired
     /// 400 `tts_rejected`: Google refused this one sentence; only it uses the device voice.
     case sentenceRejected
 }
@@ -64,6 +66,7 @@ struct NaturalVoiceClient: Sendable {
         struct ErrorBody: Decodable { let code: String?; let resetsAt: String? }
         let decoded = try? JSONDecoder().decode(ErrorBody.self, from: body)
         switch (status, decoded?.code) {
+        case (402, "tts_subscription_required"): return .subscriptionRequired
         case (402, _): return .quotaExhausted(resetsAt: decoded?.resetsAt.flatMap(parseDate))
         case (400, "tts_rejected"): return .sentenceRejected
         default: return .unavailable

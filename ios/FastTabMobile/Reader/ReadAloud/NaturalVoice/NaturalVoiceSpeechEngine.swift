@@ -12,15 +12,19 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
     private let natural: GoogleSpeechEngine
     private let device: SpeechEngine
     private let now: () -> Date
+    /// Paid at Apple but the server hasn't confirmed it: a 402 then means "still confirming".
+    private let awaitingConfirmation: @MainActor () -> Bool
     private var quotaResetsAt: Date?
     private var generation = 0
     /// Resumes a rejected sentence's wait when the device voice finished or was stopped.
     private var rejectedSentenceDone: CheckedContinuation<Void, Never>?
 
-    init(natural: GoogleSpeechEngine, device: SpeechEngine, now: @escaping () -> Date = Date.init) {
+    init(natural: GoogleSpeechEngine, device: SpeechEngine, now: @escaping () -> Date = Date.init,
+         awaitingConfirmation: @escaping @MainActor () -> Bool = { NaturalVoiceAccess.shared.isAwaitingConfirmation }) {
         self.natural = natural
         self.device = device
         self.now = now
+        self.awaitingConfirmation = awaitingConfirmation
     }
 
     var availableVoices: [ReadAloudVoiceOption] { device.availableVoices }
@@ -65,12 +69,16 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
         finishRejectedSentence()
     }
 
-    static func notice(for error: NaturalVoiceError) -> String {
+    static func notice(for error: NaturalVoiceError, awaitingConfirmation: Bool = false) -> String {
         switch error {
         case .quotaExhausted(let resetsAt?):
             return "Natural voice used up — resumes \(resetsAt.formatted(date: .abbreviated, time: .omitted))"
         case .quotaExhausted(nil):
             return "Natural voice used up — using device voice"
+        case .subscriptionRequired where awaitingConfirmation:
+            return "Confirming your purchase… using device voice for now"
+        case .subscriptionRequired:
+            return "Natural voice needs a subscription — using device voice"
         case .unavailable, .sentenceRejected:
             #if DEBUG
             if let reason = NaturalVoiceDiagnostics.lastFailure {
@@ -96,7 +104,9 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
         if case .quotaExhausted(let resetsAt) = error {
             quotaResetsAt = resetsAt ?? now().addingTimeInterval(24 * 60 * 60)
         }
-        run.onEvent(run.generation, .notice(Self.notice(for: error)))
+        let confirming = error == .subscriptionRequired && awaitingConfirmation()
+        if confirming { Task { _ = await NaturalVoiceAccess.shared.confirmPurchase() } }
+        run.onEvent(run.generation, .notice(Self.notice(for: error, awaitingConfirmation: confirming)))
         speakOnDevice(run, fromChunk: sentence.chunk, offset: sentence.range.location)
     }
 

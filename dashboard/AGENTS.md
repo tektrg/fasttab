@@ -328,6 +328,15 @@ exists) is exempt; the final reply is still checked.
   (`UNSUPPORTED`) rather than guessed. Tests: `tests/test_session_inbox.py`
   (temp sessions dir + fake Unix socket; never a real session),
   `tests/test_remote_inbox_message.py` (real HTTP, both listeners).
+  **Accepted ≠ landed on Claude Desktop** (2026-10-25): Desktop can hold an
+  idle session asleep while its process keeps the inbox open — the send is
+  "accepted" and silently lost (two phone sends lost that day). So a
+  `claude-desktop` inbox row goes through `desktop_wake.deliver_live_desktop`:
+  confirm the text shows in the transcript (a `user` or `queue-operation`
+  line after the pre-send byte offset, 5s); else open the deep link, resend
+  once only if Desktop started a new pid, confirm again; else `NOT_LANDED`
+  ("open it in Claude on the Mac and resend"). Budget stays under AgentBar's
+  30s session-action timeout. Tests: `tests/test_desktop_wake.py`.
 - **Non-Claude message gate** (`server/lib/message_gate.py`, 2026-09-28):
   every herdr row carries `agentKind` (herdr's `agent`: `claude`,
   `opencode`, `codex`, …) and `messageRefusal` (text | null). `POST
@@ -729,3 +738,103 @@ isn't a mismatch).
 - Multi-project `projectRoots` (see the P0 scope note above) — `chief_pass`'s
   per-projectRoot script resolution is the one exception that already loops
   every entry; every other call site still only reads `projectRoots[0]`.
+
+## APNs push to the iOS app / Apple Watch (Phase 1)
+`server/lib/apns_push.py` (config, ES256 JWT via `openssl`, HTTP/2 via
+`/usr/bin/curl --http2` — still no third-party deps; its docstring is the
+iOS category/action contract), `apns_devices.py` (`POST`/`DELETE
+/api/apns/devices`, both listeners, 0600 `apns-devices.json`),
+`apns_permission_push.py` (one `AGENT_PERMISSION` push per hook requestId,
+silent withdraw on answer, background thread). OFF unless
+`~/.config/agent-dashboard/apns.json` exists. Watch answers reuse
+`/api/hook/permission/<id>/answer`. Tests: `tests/test_apns_push.py`,
+`tests/test_apns_devices_remote.py`.
+A registered device + config counts as an answer surface (`PresenceOrDevice`): prompts are held and pushed even with AgentBar closed.
+
+## claude-router (account auto-rotation, slice 1)
+Brief: `.claude/briefs/claude-account-rotation.md`. Separate always-on process
+(`server/claude_router.py`, stdlib), **port 4720** — the brief said 4712, but
+that is this dashboard's live remote listener. Claude Code points
+`ANTHROPIC_BASE_URL` at it; it forwards to `accounts.json` (config dir; see
+`accounts.example.json`) in priority order and fails over on 429/529/usage-limit
+before the first byte. Fallback tier (`needsApproval`) answers 429 + writes
+`fallback-pending.json` until `POST /approve {"id"}`. `GET /status`; log =
+`<state dir>/claude-router/switch-log.jsonl`. Only `proxy`/`apikey` kinds are
+routed; `login`/`desktop` rows wait for AgentBar (slices 3–4).
+Run: `scripts/claude-router-run.sh`; LaunchAgent template
+`scripts/com.agentbar.claude-router.plist`. Tests: `python3 tests/test_claude_router.py`
+(fake upstreams only, never real APIs).
+
+## Account rotation, dashboard side (slice 3)
+`server/lib/account_rotation.py`. A Claude pane whose screen shows an account
+wall (usage/session/weekly limit, no credit, or claude-router's "every Claude
+account is at its limit") gets `limitWall: true` on its agent row (still
+`screenState: CRASHED`; patterns: `pane_screen_signals.LIMIT_WALL_PATTERNS`).
+After each local screen sweep, the dashboard stops that Claude, COPIES the
+transcript (`<configDir>/projects/<slug>/<sid>.jsonl` + `<sid>/`) into the next
+`kind: login` account's config dir, and types
+`env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_MODEL CLAUDE_CONFIG_DIR=<dir> claude --resume <sid> --dangerously-skip-permissions`
+(`env` bypasses the PO's `claude` alias, which forces the Aptus proxy). Never
+past a `needsApproval` row. Current account = config dir holding the newest
+transcript (`default` = `~/.claude`); rows carry `account`. Guards: once per
+wall episode per pane, 10 min pane cooldown, 5 h "limited until" memory
+(`<state>/account-rotation/limited-until.json`), log `.../log.jsonl`.
+`accounts.json` `"autoResume": false` turns the auto path off.
+Routes: `GET /api/accounts` (rows without token fields + router `/status`;
+router down = `routerReachable: false`), `POST /api/accounts/resume {paneId}`
+(localhost), `POST /api/accounts/approve-fallback {id}` (both listeners; proxies
+router `/approve`). Tests: `python3 tests/test_account_rotation.py` (port 4733,
+fake router, recorded pane ops).
+
+**Log in an account** (`server/lib/account_login.py`, AgentBar Settings › Accounts):
+`POST /api/accounts/login {id}` (localhost) opens/reuses herdr tab
+`claude-login-<id>` and runs `env -u ANTHROPIC_* CLAUDE_CONFIG_DIR=<dir> <claude
+binary> /login`; a reused tab with Claude still running is not typed into.
+`GET /api/accounts` login rows carry `loggedIn` (true/false/null): Keychain item
+`Claude Code-credentials-<sha256(dir)[:8]>` or `<dir>/.credentials.json` exists.
+Presence only (an expired token reads true). Tests: `tests/test_account_login.py`
+(port 4734, fake herdr ops).
+
+**Shared pool (preferred, live 2026-10-27).** Subscriptions are pooled in local
+CLIProxyAPI (`brew services` `cliproxyapi`, 127.0.0.1:8317, config
+`/usr/local/etc/cliproxyapi.conf`, fill-first + session affinity, OAuth files
+`~/.cli-proxy-api/`). accounts.json top row `cliproxy` (kind `proxy`, key in
+Keychain `claude-router-cliproxy`) → every session keeps the one `~/.claude`
+(hooks, skills, dashboard rows). Add an account: Settings › Accounts › "Add to
+pool" = `POST /api/accounts/pool-login` → herdr tab `cliproxy-login` runs
+`cliproxyapi -claude-login`; switch the browser to the new account first or it
+re-saves the old one. `login` rows below stay as backup. Aptus lives INSIDE the pool
+(config `api-keys.claude`, `priority: -1` = after the OAuth subscriptions), so the
+pool's web panel (`/management.html`, key in Keychain `cliproxy-management`) shows it. Pin one session: `ccproxy --account trung|7lab|aptus` (pool `prefix`:
+OAuth file field / `api-keys` entry; model sent as `<prefix>/<model>`); a pinned
+session does not move on at its account's limit.
+
+**Air uses the Pro's pool (2026-10-28).** Router also listens on the Pro's Tailscale IP
+(LaunchAgent env `CLAUDE_ROUTER_REMOTE_BIND=100.89.154.19`; key = Keychain
+`claude-router-remote`, required on that listener; `/approve*` is localhost-only;
+never bind 0.0.0.0). Air: `~/.config/agent-dashboard/ccproxy-remote.json` {url, secret}
+(chmod 600) + alias `ccproxy` → a COPY of `dashboard/scripts/claude-launch.py` +
+`server/lib` in `~/.local/share/ccproxy/` (Air's `main` diverges from the Pro's, so no
+checkout). Refresh the copy: on the Air `git fetch pro main`, then
+`git archive pro/main dashboard/scripts/claude-launch.py dashboard/server/lib | tar -x -C ~/.local/share/ccproxy`.
+Works only while the Pro is awake. Air's plain `claude` alias is unchanged (Aptus direct).
+
+**Add / remove accounts** (`server/lib/account_edit.py`, AgentBar Settings › Accounts), all localhost:
+`POST /api/accounts/add-subscription {label}` → slug id, `~/.claude-instances/<id>` created, login row
+appended, then the `/api/accounts/login` flow. `POST /api/accounts/add-api {label, baseUrl, token,
+model?, tier: claude|fallback, authHeader?}` → token into Keychain service `claude-router-<id>`
+(`security add-generic-password -U`, argv, no shell), row keeps only `tokenKeychain`; fallback =
+`needsApproval`. `POST /api/accounts/remove {id}` → row + its own Keychain item deleted; configDir
+folders are left on disk. accounts.json writes are atomic and keep other keys/rows/order.
+Tests: `tests/test_account_edit.py` (port 4735/4736, fake Keychain + herdr).
+
+**Reorder + new-session launcher** (AgentBar Settings › Accounts, drag rows):
+`POST /api/accounts/reorder {ids}` (localhost, `account_edit.reorder`) — ids must be every current id
+exactly once; atomic write, other keys kept. Any order is allowed, but rotation AND the launcher stop at
+the first `needsApproval` row. `scripts/claude-launch.py [claude args]` (stdlib, ~0.13 s) starts a NEW
+session on the top available row: skips `enabled:false`, login rows limited (`limited-until.json`) or
+logged out (`account_login.logged_in` False), proxy/apikey rows the router reports cooling (router down
+= healthy). Login → `CLAUDE_CONFIG_DIR=<dir>`, `ANTHROPIC_*` removed; proxy/apikey or a needsApproval
+stop → via router (`ANTHROPIC_BASE_URL=127.0.0.1:$CLAUDE_ROUTER_PORT`, token `router`); nothing usable →
+default `~/.claude`. Prints `claude → <label>` to stderr, then execs (`CLAUDE_BIN` overrides).
+Tests: `tests/test_account_reorder.py` (port 4737/4738), `tests/test_claude_launch.py` (pure `choose`).

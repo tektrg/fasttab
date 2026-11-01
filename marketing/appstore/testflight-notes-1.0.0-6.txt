@@ -1,0 +1,19 @@
+What's new
+- Natural Voice: an optional subscription for a lifelike cloud voice in Read Aloud ($4.99/month or $39.99/year, 7-day free trial). Built-in iPhone voices stay free.
+- Read YouTube videos as clean, timestamped transcripts (needs Sign in with Apple).
+- Shuffle: swipe through your saved links, tabs and highlights.
+- If your payment goes through but our server hasn't confirmed it yet, the subscription screen now says "Confirming your purchase…" and keeps trying, instead of telling you that you need a subscription.
+- The subscription screen shows prices in your own currency from the App Store, waits for them before you can subscribe, and offers the free trial only if your account can still use it.
+- Deleting your account now reminds you that an App Store subscription keeps billing until you cancel it in Settings.
+- Reader: a back arrow (and a swipe from the left edge) replaces the close button. Reading Settings moved into the ••• menu.
+- End of article: see where the link is saved (Bookmarks, Open Tab, FastTab List), then delete it or save it to a bookmark folder.
+
+What to test
+- Open an article, then ••• > Reading Settings > Read Aloud > turn on "Natural voice". The subscription screen should appear. Sign in, start the free trial (TestFlight purchases are free), and check that Read Aloud now uses the new voice.
+- Open the subscription screen on a slow connection: the Subscribe button should wait until prices appear.
+- Try "Restore Purchases" on a second device signed in to the same account.
+- Without subscribing, make sure Read Aloud still works with the built-in voice, with the screen locked too.
+- Open a YouTube link in the reader and tap a timestamp.
+- Open articles from the Read list, a widget and Shuffle; the back arrow and a left-edge swipe should always return you where you were.
+- Scroll to the end of an article and try Delete and Save to Folder.
+- Tell us anything that feels slow, confusing or broken.

@@ -196,6 +196,11 @@ else
   die "reader MCP helper not found at ${MCP_BIN_BUILT}"
 fi
 
+# Reader window resources, shared with the iPhone app (single copy under ios/).
+for res in Readability.js reader_template.html; do
+  run cp "ios/FastTabMobile/Resources/${res}" "${APP}/Contents/Resources/${res}"
+done
+
 # Ensure Sparkle rpath is set (idempotent)
 if ! otool -l "${APP}/Contents/MacOS/FastTab" | grep -q "@executable_path/../Frameworks"; then
   run install_name_tool -add_rpath "@executable_path/../Frameworks" "${APP}/Contents/MacOS/FastTab"

@@ -99,3 +99,23 @@ describe("PhoneSheet last message", () => {
     unmount();
   });
 });
+
+describe("long last message", () => {
+  test("collapses behind Show more on the phone", async () => {
+    stubLatest("line of text\n".repeat(30));
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const { LatestMessage } = await import("../components/LatestMessage");
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<MantineProvider theme={theme}><LatestMessage rowId="alpha" paneId={null} onToast={() => {}} phone messageOnly /></MantineProvider>);
+    });
+    expect(host.querySelector(".latest-message__clamp")).not.toBeNull();
+    const btn = host.querySelector<HTMLButtonElement>(".latest-message__toggle")!;
+    expect(btn.textContent).toBe("Show more");
+    act(() => btn.click());
+    expect(host.querySelector(".latest-message__clamp")).toBeNull();
+    expect(btn.textContent).toBe("Show less");
+    act(() => root.unmount());
+  });
+});

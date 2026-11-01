@@ -10,7 +10,8 @@ extension Notification.Name {
 
 // Reader highlights and comment threads from the phone (`ReaderZone`), mirrored to disk by
 // `ReaderMirror` through the shared `ReaderSyncBridge`. Comments written on this Mac (agent
-// tools) go back the same way.
+// tools) go back the same way. The FastTab List (read-later items) shares the zone through
+// `FastTabListSyncBridge`; this Mac both receives and edits it (`FastTabListStore`).
 
 extension SyncService {
     /// The mirror as Settings > Highlights reads and writes it; same comment store as sync.
@@ -24,7 +25,10 @@ extension SyncService {
     func queueReaderChanges() {
         guard let syncEngine else { return }
         Task { @MainActor in
-            let pending = await readerSync.pendingChanges()
+            let readerPending = await readerSync.pendingChanges()
+            let listPending = listSync.pendingChanges()
+            let pending = (saves: readerPending.saves + listPending.saves,
+                           deletes: readerPending.deletes + listPending.deletes)
             guard !pending.saves.isEmpty || !pending.deletes.isEmpty else { return }
             let armed = Set(syncEngine.state.pendingRecordZoneChanges.compactMap { change -> CKRecord.ID? in
                 switch change {
@@ -46,6 +50,8 @@ extension SyncService {
     func absorbReaderChanges(_ records: [CKRecord], deletions: [CKRecord.ID]) {
         let readerRecords = records.filter { ReaderSyncBridge.handles($0.recordType) }
         let readerDeletions = deletions.filter { $0.zoneID == SyncConstants.readerZoneID }
+        listSync.absorb(records.filter { FastTabListSyncBridge.handles($0.recordType) })
+        listSync.absorbDeletions(readerDeletions)
         guard !readerRecords.isEmpty || !readerDeletions.isEmpty else { return }
         Task { @MainActor in
             await readerSync.absorb(readerRecords)
@@ -74,6 +80,8 @@ extension SyncService {
                     let records = changes.modificationResultsByID.values.compactMap { try? $0.get().record }
                     await readerSync.absorb(records)
                     readerSync.absorbDeletions(changes.deletions.map(\.recordID))
+                    listSync.absorb(records.filter { FastTabListSyncBridge.handles($0.recordType) })
+                    listSync.absorbDeletions(changes.deletions.map(\.recordID))
                     token = changes.changeToken
                     if let data = try? NSKeyedArchiver.archivedData(withRootObject: changes.changeToken, requiringSecureCoding: true) {
                         try? data.write(to: tokenURL, options: .atomic)
@@ -91,5 +99,51 @@ extension SyncService {
                 logger.error("Reader zone catch-up failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    // MARK: - FastTab List
+
+    /// List changes come in bursts (several trashes in a row): send at most this often.
+    static let fastTabListSendDebounce: Duration = .seconds(2)
+
+    func observeLocalFastTabListChanges() {
+        guard listChangeObserver == nil else { return }
+        listChangeObserver = NotificationCenter.default.addObserver(
+            forName: .fastTabListDidChangeLocally, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.listSendTask?.cancel()
+                self.listSendTask = Task { @MainActor in
+                    try? await Task.sleep(for: Self.fastTabListSendDebounce)
+                    guard !Task.isCancelled else { return }
+                    self.queueReaderChanges()
+                }
+            }
+        }
+    }
+
+    /// A fresh or swapped iCloud account has none of this Mac's list confirmed: upload it all.
+    func resendFastTabListToNewAccount() {
+        listSync.resetLedger()
+        queueReaderChanges()
+    }
+
+    /// Reader highlights first, then list items (each bridge ignores the other's records).
+    func readerZoneOutcome(ofFailedSave record: CKRecord, error: Error) -> ReaderSyncBridge.FailedSaveOutcome {
+        let readerOutcome = readerSync.outcome(ofFailedSave: record, error: error)
+        if case .notReader = readerOutcome {
+            return listSync.outcome(ofFailedSave: record, error: error)
+        }
+        return readerOutcome
+    }
+
+    /// A reader-zone delete of a record that is already gone is done, not a retry.
+    func settleAlreadyDeletedReaderRecord(_ recordID: CKRecord.ID, error: Error) -> Bool {
+        guard recordID.zoneID == SyncConstants.readerZoneID,
+              (error as? CKError)?.code == .unknownItem else { return false }
+        readerSync.didDelete(recordID)
+        listSync.didDelete([recordID])
+        return true
     }
 }

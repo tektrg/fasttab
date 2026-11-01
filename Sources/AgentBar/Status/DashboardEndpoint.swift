@@ -208,6 +208,70 @@ struct DashboardEndpoint: Sendable {
         return request
     }
 
+    /// `GET /api/accounts` (account rotation). Short: it rides the status refresh and must never stall it.
+    var accountsRequest: URLRequest {
+        var request = request(path: "/api/accounts")
+        request.timeoutInterval = Self.personasTimeoutSeconds
+        return request
+    }
+
+    /// `POST /api/accounts/approve-fallback {id}`: the user's yes to the paid fallback tier.
+    func approveFallbackRequest(id: String) -> URLRequest {
+        postJSON(path: "/api/accounts/approve-fallback", body: ["id": id])
+    }
+
+    /// `POST /api/accounts/resume {paneId}`: stop the walled Claude and resume it on the next login account.
+    func accountResumeRequest(paneId: String) -> URLRequest {
+        var request = postJSON(path: "/api/accounts/resume", body: ["paneId": paneId])
+        request.timeoutInterval = Self.sessionActionTimeoutSeconds
+        return request
+    }
+
+    /// `POST /api/accounts/login {id}`: open a herdr tab running `claude /login` for that login account.
+    func accountLoginRequest(id: String) -> URLRequest {
+        var request = postJSON(path: "/api/accounts/login", body: ["id": id])
+        request.timeoutInterval = Self.sessionActionTimeoutSeconds
+        return request
+    }
+
+    /// `POST /api/accounts/pool-login`: herdr tab `cliproxy-login` runs the shared-pool (CLIProxyAPI) sign-in.
+    func poolLoginRequest() -> URLRequest {
+        var request = postJSON(path: "/api/accounts/pool-login", body: [:])
+        request.timeoutInterval = Self.sessionActionTimeoutSeconds
+        return request
+    }
+
+    /// `POST /api/accounts/add-subscription {label}`: new login account + its login tab.
+    func addSubscriptionAccountRequest(label: String) -> URLRequest {
+        var request = postJSON(path: "/api/accounts/add-subscription", body: ["label": label])
+        request.timeoutInterval = Self.sessionActionTimeoutSeconds
+        return request
+    }
+
+    /// `POST /api/accounts/add-api`: the only request that carries an API key; the dashboard moves it
+    /// into the Keychain and never sends it back.
+    func addAPIAccountRequest(_ form: NewAPIAccount) -> URLRequest {
+        postJSON(path: "/api/accounts/add-api", body: form.body)
+    }
+
+    /// `POST /api/accounts/remove {id}`: drop the row (and its Keychain key); sign-in folders stay.
+    func removeAccountRequest(id: String) -> URLRequest {
+        postJSON(path: "/api/accounts/remove", body: ["id": id])
+    }
+
+    /// `POST /api/accounts/reorder {ids}`: the full new top-to-bottom order (Settings › Accounts drag).
+    func reorderAccountsRequest(ids: [String]) -> URLRequest {
+        postJSON(path: "/api/accounts/reorder", body: ["ids": ids])
+    }
+
+    private func postJSON(path: String, body: [String: Any]) -> URLRequest {
+        var request = request(path: path)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
     /// `GET /api/personas`.
     var personasRequest: URLRequest {
         var request = request(path: "/api/personas")

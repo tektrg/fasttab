@@ -2,76 +2,161 @@ import Foundation
 import SwiftUI
 import FastTabSync
 
-/// Local-only reading list for links the user kept on this iPhone via the
-/// share sheet ("Save to iPhone"). Never uploaded, never synced — the
-/// counterpart to the Mac-bound `openOnMac` command path.
+/// The **FastTab List** (read-later list; type keeps its older "Saved on iPhone"
+/// name). Rules live in `FastTabListLibrary`, disk format in `FastTabListFileStore`;
+/// this class publishes them to SwiftUI and debounces writes.
 ///
-/// The share extension cannot touch `UserDefaults.standard`, so new saves
-/// land as one JSON file each in the shared `pending_saves` directory and
-/// are drained into this store on launch and foreground, mirroring the
-/// `pending_shares` → `LocalCache` handoff.
+/// `items` is live items only, so the Read feed, Shuffle, widgets and search never
+/// see Trash; `trashedItems` feeds `FastTabListTrashView`.
+///
+/// The share extension cannot reach this store, so new saves land as one JSON file
+/// each in the app-group `pending_saves` directory and are drained on launch and
+/// foreground (which also purges Trash older than 30 days).
+///
+/// Synced across devices by `FastTabListSyncBridge` (owned by `SyncConsumer`): local
+/// changes post `fastTabListDidChangeLocally`; remote ones arrive through
+/// `FastTabListSyncStore` and post nothing (no echo).
 @MainActor
 public final class SavedOnIPhoneStore: ObservableObject {
     public static let shared = SavedOnIPhoneStore()
 
     @Published public private(set) var items: [SavedOnIPhoneLink] = []
+    @Published public private(set) var trashedItems: [SavedOnIPhoneLink] = []
 
-    private static let defaultsKey = "FastTabMobile.savedOnIPhoneV1"
-    private static let maxStoredItems = 100
+    private var library: FastTabListLibrary
+    private let fileStore: FastTabListFileStore
+    private let pendingSavesContainerURL: URL?
+    private let now: () -> Date
+    private let writeDebounce: Duration
+    private var pendingWriteTask: Task<Void, Never>?
 
-    private init() {
-        loadFromDisk()
+    init(
+        fileStore: FastTabListFileStore = FastTabListFileStore(),
+        pendingSavesContainerURL: URL? = AppGroupContainer.directoryURL,
+        now: @escaping () -> Date = Date.init,
+        writeDebounce: Duration = .milliseconds(500)
+    ) {
+        self.fileStore = fileStore
+        self.pendingSavesContainerURL = pendingSavesContainerURL
+        self.now = now
+        self.writeDebounce = writeDebounce
+        self.library = FastTabListLibrary(items: fileStore.load())
+        publish()
         drainPendingSaves()
     }
 
-    public func loadFromDisk() {
-        guard let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
-              let decoded = try? JSONDecoder().decode([SavedOnIPhoneLink].self, from: data) else {
-            self.items = []
-            return
-        }
-        self.items = decoded.sorted { $0.savedAt > $1.savedAt }
+    public func item(forURL url: String) -> SavedOnIPhoneLink? {
+        library.item(forURL: url)
     }
 
-    /// Ingests any `pending_saves` files left by the share extension.
-    /// Idempotent: files are deleted as they are read.
+    /// Ingests share-extension saves and purges expired Trash. Idempotent:
+    /// pending files are deleted as they are read.
     public func drainPendingSaves() {
-        let drained = SavedOnIPhoneFiles.drain(containerURL: AppGroupContainer.directoryURL)
-        guard !drained.isEmpty else { return }
-        merge(drained)
+        let drained = pendingSavesContainerURL.map { SavedOnIPhoneFiles.drain(containerURL: $0) } ?? []
+        mutate { library in
+            library.purgeExpiredTrash(now: self.now())
+            drained.forEach { library.save($0, now: self.now()) }
+        }
     }
 
-    /// Saves links added inside the app (e.g. "Add from clipboard") through
-    /// the same merge as share-extension saves: same URL replaces the old entry.
+    /// Saves links added inside the app (clipboard, onboarding) the same way as
+    /// share saves: same URL is one item, and a trashed one is restored.
     public func add(_ links: [SavedOnIPhoneLink]) {
         guard !links.isEmpty else { return }
-        merge(links)
+        mutate { library in links.forEach { library.save($0, now: self.now()) } }
     }
 
-    private func merge(_ newLinks: [SavedOnIPhoneLink]) {
-        var merged = items
-        for link in newLinks {
-            merged.removeAll { $0.url.lowercased() == link.url.lowercased() }
-            merged.append(link)
+    /// "Read Later" on a bookmark: false when the link isn't a web page.
+    @discardableResult
+    public func readLater(url: String, title: String?) -> Bool {
+        guard let link = FastTabListBridge.readLaterLink(url: url, title: title, now: now()) else { return false }
+        add([link])
+        return true
+    }
+
+    /// Delete from the list = move to Trash.
+    public func remove(id: String) { mutate { $0.moveToTrash(id: id, now: self.now()) } }
+    public func restore(id: String) { mutate { $0.restore(id: id, now: self.now()) } }
+    public func deleteNow(id: String) { mutate { $0.deleteNow(id: id, now: self.now()) } }
+    public func emptyTrash() { mutate { $0.emptyTrash(now: self.now()) } }
+    public func setRead(id: String, _ isRead: Bool) { mutate { $0.setRead(id: id, isRead, now: self.now()) } }
+
+    /// Called by the reader; ignored for articles that aren't in the list.
+    public func recordProgress(url: URL, progress: Double) {
+        var updated = library
+        guard updated.recordProgress(url: url.absoluteString, progress: progress, now: now()) else { return }
+        library = updated
+        publish()
+        scheduleWrite()
+        NotificationCenter.default.post(name: .fastTabListDidChangeLocally, object: nil)
+    }
+
+    /// Writes any debounced change now (app going to background).
+    public func flushPendingWrite() {
+        guard pendingWriteTask != nil else { return }
+        pendingWriteTask?.cancel()
+        pendingWriteTask = nil
+        writeNow()
+    }
+
+    private func mutate(_ change: (inout FastTabListLibrary) -> Void) {
+        let before = library
+        change(&library)
+        guard library != before else { return }
+        publish()
+        scheduleWrite()
+        NotificationCenter.default.post(name: .fastTabListDidChangeLocally, object: nil)
+    }
+
+    /// Remote changes: published and written, but not announced as local edits.
+    private func applySynced(_ change: (inout FastTabListLibrary) -> Void) {
+        change(&library)
+        publish()
+        scheduleWrite()
+    }
+
+    private func publish() {
+        let live = library.liveItems
+        let trashed = library.trashedItems
+        if live != items { items = live }
+        if trashed != trashedItems { trashedItems = trashed }
+    }
+
+    private func scheduleWrite() {
+        pendingWriteTask?.cancel()
+        let delay = writeDebounce
+        pendingWriteTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.pendingWriteTask = nil
+            self.writeNow()
         }
-        merged.sort { $0.savedAt > $1.savedAt }
-        items = Array(merged.prefix(Self.maxStoredItems))
-        saveToDisk()
     }
 
-    public func remove(id: String) {
-        items.removeAll { $0.id == id }
-        saveToDisk()
+    private func writeNow() {
+        try? fileStore.write(Array(library.itemsByID.values))
+    }
+}
+
+extension Notification.Name {
+    /// The user changed the FastTab List on this device (SyncConsumer sends it, debounced).
+    static let fastTabListDidChangeLocally = Notification.Name("FastTabMobile.fastTabListDidChangeLocally")
+}
+
+extension SavedOnIPhoneStore: FastTabListSyncStore {
+    public func listItemsForSync() -> [SavedOnIPhoneLink] {
+        Array(library.itemsByID.values)
     }
 
-    public func clear() {
-        items.removeAll()
-        saveToDisk()
+    public func applyRemoteListItem(_ item: SavedOnIPhoneLink) -> SavedOnIPhoneLink {
+        if let current = library.itemsByID[item.id], FastTabListMerge.merge(current, item) == current { return current }
+        var merged = item
+        applySynced { merged = $0.applyRemote(item) }
+        return merged
     }
 
-    private func saveToDisk() {
-        if let encoded = try? JSONEncoder().encode(items) {
-            UserDefaults.standard.set(encoded, forKey: Self.defaultsKey)
-        }
+    public func removeRemoteListItem(id: String) {
+        guard library.itemsByID[id] != nil else { return }
+        applySynced { $0.removeRemote(id: id, now: self.now()) }
     }
 }

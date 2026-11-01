@@ -101,7 +101,43 @@ check("and answers work", store.answer(rid2, {"behavior": "deny"})[1], 200)
 
 print("== store default = the server's one PRESENCE ==")
 check("default presence", hook_permissions.HookPermissionStore()._presence is agentbar_presence.PRESENCE, True)
-check("server STORE uses it", hook_permissions.STORE._presence is agentbar_presence.PRESENCE, True)
+check("server STORE = PRESENCE or a registered iPhone",
+      isinstance(hook_permissions.STORE._presence, agentbar_presence.PresenceOrDevice), True)
+
+print("== registered iPhone counts as an answer surface ==")
+import apns_permission_push  # noqa: E402
+clock = FakeClock()
+presence = agentbar_presence.AgentBarPresence(clock=clock)
+device = {"ready": True}
+either = agentbar_presence.PresenceOrDevice(presence, lambda: device["ready"])
+store = hook_permissions.HookPermissionStore(clock=clock, ticks=clock, pid_alive=lambda pid: True, presence=either)
+rid = store.register(payload("p1"), cli_entry("p1")).get("requestId")
+check("AgentBar closed + iPhone registered -> held", bool(rid), True)
+store.wait(rid, 0)
+clock.now += agentbar_presence.GONE_AFTER_SEC + 5
+check("AgentBar never seen -> still pending while the iPhone is registered",
+      store.wait(rid, 0)[0]["state"], "pending")
+device["ready"] = False
+check("iPhone gone, no AgentBar -> released", store.wait(rid, 0)[0]["reason"], hook_permissions.REASON_AGENTBAR_GONE)
+check("no device -> new prompt ignored as before", store.register(payload("p2"), cli_entry("p2"))["state"], "ignored")
+
+
+class FakeRegistry:
+    def __init__(self, tokens):
+        self._tokens = tokens
+
+    def tokens(self):
+        return list(self._tokens)
+
+
+def pusher(configured, tokens):
+    return apns_permission_push.PermissionPusher(
+        client_factory=lambda: object() if configured else None, registry=FakeRegistry(tokens))
+
+
+check("configured + device -> can reach", pusher(True, ["ab" * 16]).can_reach_device(), True)
+check("configured, no device -> no", pusher(True, []).can_reach_device(), False)
+check("device, APNs not configured -> no", pusher(False, ["ab" * 16]).can_reach_device(), False)
 
 print("== server: who marks AgentBar seen ==")
 _spec = importlib.util.spec_from_file_location(

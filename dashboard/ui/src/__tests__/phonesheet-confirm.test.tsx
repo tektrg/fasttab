@@ -89,9 +89,12 @@ function click(el: Element | null | undefined) {
   });
 }
 
+/** A "•••" menu entry — Done / Park live in the header menu. */
 function buttonWithText(text: string): HTMLButtonElement | null {
+  const trigger = document.querySelector<HTMLElement>('button[aria-label="More actions"]');
+  if (trigger && trigger.getAttribute("aria-expanded") !== "true") act(() => trigger.click());
   return (
-    ([...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === text) as
+    ([...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.trim() === text) as
       | HTMLButtonElement
       | undefined) ?? null
   );
@@ -111,9 +114,9 @@ describe("PhoneSheet Done — needs-confirm parity with desktop", () => {
     await settle();
     // First tap only arms — no /api/session/stop call yet, and never with confirm:true.
     expect(calls.some((c) => c.url === "/api/session/stop")).toBe(false);
-    expect(buttonWithText("Confirm")).not.toBe(null);
+    expect(buttonWithText("Confirm done")).not.toBe(null);
 
-    click(buttonWithText("Confirm"));
+    click(buttonWithText("Confirm done"));
     await settle();
     const post = calls.find((c) => c.url === "/api/session/stop");
     expect(post).toBeDefined();
@@ -121,7 +124,7 @@ describe("PhoneSheet Done — needs-confirm parity with desktop", () => {
     m.unmount();
   });
 
-  test("an idle target's Done sends on the first press (no confirm needed)", async () => {
+  test("an idle target's Done still asks once, then sends without the server confirm flag", async () => {
     const calls = stubFetch();
     const r = row({
       stop: { enabled: true, needsConfirm: false, reason: "" },
@@ -130,7 +133,11 @@ describe("PhoneSheet Done — needs-confirm parity with desktop", () => {
       <PhoneSheet row={r} properties={[]} onClose={() => {}} onToast={() => {}} onRefetch={() => {}} />,
     );
     await settle();
+    // Done always asks once in the menu, even when the server needs no confirm.
     click(buttonWithText("Done"));
+    await settle();
+    expect(calls.some((c) => c.url === "/api/session/stop")).toBe(false);
+    click(buttonWithText("Confirm done"));
     await settle();
     const post = calls.find((c) => c.url === "/api/session/stop");
     expect(post).toBeDefined();
@@ -152,9 +159,9 @@ describe("PhoneSheet Park — needs-confirm parity with desktop", () => {
     click(buttonWithText("Park"));
     await settle();
     expect(calls.some((c) => c.url === "/api/session/archive")).toBe(false);
-    expect(buttonWithText("Confirm")).not.toBe(null);
+    expect(buttonWithText("Confirm park")).not.toBe(null);
 
-    click(buttonWithText("Confirm"));
+    click(buttonWithText("Confirm park"));
     await settle();
     const post = calls.find((c) => c.url === "/api/session/archive");
     expect(post).toBeDefined();

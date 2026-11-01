@@ -27,6 +27,8 @@ struct StatusSnapshot: Equatable, Sendable {
     /// older dashboard, or a broken/absent field) — `AgentTreeModel` reads it that way, never as
     /// an empty tree (a genuinely empty tree still decodes to a non-nil `AgentTree`).
     let agentTree: AgentTree?
+    /// The paid fallback account waiting for the user's yes (`/api/accounts` `pendingApproval`); see `withAccounts`.
+    var pendingFallback: PendingFallbackApproval? = nil
 
     /// Memberwise init with `agentTree` defaulted to nil, so existing call sites (mostly test
     /// fixtures built before this field existed) don't all need updating for a field they don't care about.
@@ -43,7 +45,9 @@ struct StatusSnapshot: Equatable, Sendable {
     }
 
     func replacingAgents(_ newAgents: [AgentSnapshot]) -> StatusSnapshot {
-        StatusSnapshot(agents: newAgents, health: health, fetchedAt: fetchedAt, boardIsCurrent: boardIsCurrent, agentTree: agentTree)
+        var copy = StatusSnapshot(agents: newAgents, health: health, fetchedAt: fetchedAt, boardIsCurrent: boardIsCurrent, agentTree: agentTree)
+        copy.pendingFallback = pendingFallback
+        return copy
     }
 
     func agents(in section: AgentSection) -> [AgentSnapshot] {

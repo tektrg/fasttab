@@ -31,6 +31,9 @@ enum RowButton: Equatable, Sendable {
     case reportTo
     /// Detaches this row to Unassigned — the ⋯ menu's equivalent of ⌘[ / ⌘⌫.
     case stopReporting
+    /// A herdr pane stuck on a Claude account wall: stop it and resume the session on the next
+    /// login account (`POST /api/accounts/resume`). ⋯ menu only.
+    case resumeOnNextAccount
     /// The ⋯ trigger that opens the overflow menu (Done / Close pane / Compact / Clear / Report to… / Stop reporting).
     case moreActions
 
@@ -50,6 +53,7 @@ enum RowButton: Equatable, Sendable {
         case .clear: "Clear"
         case .reportTo: "Report to…"
         case .stopReporting: "Stop reporting"
+        case .resumeOnNextAccount: "Resume on next account"
         case .moreActions: "More actions"
         }
     }
@@ -65,7 +69,7 @@ enum RowButton: Equatable, Sendable {
         case .done: .stop
         case .closePane: .close
         case .answer, .review, .openTerminal, .park, .unpark, .peek, .message, .openInClaude, .compact, .clear, .reportTo,
-             .stopReporting, .moreActions: nil
+             .stopReporting, .resumeOnNextAccount, .moreActions: nil
         }
     }
 }
@@ -102,6 +106,12 @@ enum RowButtons {
     /// The row's capsule strip, left to right, ending in the ⋯ trigger when it has anything to
     /// show. Done and Close pane are never in this list — see `menuItems(for:)`.
     static func available(for agent: AgentSnapshot) -> [RowButtonSpec] {
+        let buttons = sectionButtons(for: agent)
+        guard !accountItems(for: agent).isEmpty, !buttons.contains(where: { $0.button == .moreActions }) else { return buttons }
+        return buttons + [RowButtonSpec(button: .moreActions, disabledReason: nil)]
+    }
+
+    private static func sectionButtons(for agent: AgentSnapshot) -> [RowButtonSpec] {
         switch agent.section {
         case .needsYou:
             needsYouButtons(for: agent)
@@ -124,6 +134,16 @@ enum RowButtons {
     /// message-eligible. Independent of `available(for:)` so a menu-item press (`AgentPanelModel.press`)
     /// can be authorized even though the item itself never appears in the capsule strip.
     static func menuItems(for agent: AgentSnapshot) -> [RowButtonSpec] {
+        sectionMenuItems(for: agent) + accountItems(for: agent)
+    }
+
+    /// "Resume on next account": a herdr pane showing a Claude account wall, whatever its section.
+    private static func accountItems(for agent: AgentSnapshot) -> [RowButtonSpec] {
+        guard agent.limitWall, agent.host.isHerdr, agent.paneId != nil else { return [] }
+        return [RowButtonSpec(button: .resumeOnNextAccount, disabledReason: nil)]
+    }
+
+    private static func sectionMenuItems(for agent: AgentSnapshot) -> [RowButtonSpec] {
         switch agent.section {
         case .needsYou where agent.blockedOnYou == nil:
             [spec(.done, for: agent)] + quickCommandItems(for: agent)

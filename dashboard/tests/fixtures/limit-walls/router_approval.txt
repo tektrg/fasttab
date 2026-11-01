@@ -1,0 +1,7 @@
+⏺ Running the tests.
+  ⎿  API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"claude-router: every Claude account is at its limit. Switching to 'DeepSeek (umodelverse)' needs your approval (AgentBar, or: curl ...). Next Claude account frees in ~42 min."}}
+
+✻ Baked for 1m 2s · done 4:01 PM
+────────────────────────────────────────
+❯ 
+────────────────────────────────────────

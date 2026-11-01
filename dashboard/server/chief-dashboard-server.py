@@ -218,6 +218,20 @@ import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
 import feedback_admin_proxy  # noqa: E402  (Feedback tab -> theindie-api admin)
 import feedback_seen  # noqa: E402  (Feedback tab new-dot: per-thread seen marks)
 import feedback_push_proxy  # noqa: E402  (phone Web Push registration -> theindie-api)
+import apns_devices  # noqa: E402  (iOS app APNs device-token registry)
+import apns_agent_push  # noqa: E402  (agent question/finished -> iOS push)
+import account_rotation  # noqa: E402  (limit wall -> resume on next login account)
+import account_login  # noqa: E402  (POST /api/accounts/login: `claude /login` in a herdr tab)
+import account_edit  # noqa: E402  (POST /api/accounts/add-subscription|add-api|remove|reorder)
+
+ACCOUNT_EDIT_ROUTES = {
+    "/api/accounts/add-subscription": lambda body: account_edit.add_subscription(body),
+    "/api/accounts/add-api": lambda body: account_edit.add_api(body),
+    "/api/accounts/remove": lambda body: account_edit.remove(body),
+    "/api/accounts/reorder": lambda body: account_edit.reorder(body),
+}
+import chief_dashboard_feeds  # noqa: E402  (SCREEN_LISTENERS hook)
+from chief_dashboard_views import build_agents_view  # noqa: E402
 
 # chief_pass (GET /api/deliver/pass): restored 2026-09-25 per PO decision —
 # KEEP, made generic (see chief_dashboard_pass.py's module docstring for the
@@ -745,8 +759,14 @@ def _handle_inbox_message(agent, body, row_id, actor, text):
     delivered through the session's own peer inbox (session_inbox.py), with
     the pane path's rules (one line, no slash command, refused while a
     prompt is pending, confirm when busy) and the same audit rows."""
-    result = session_inbox.deliver_row_message(
-        agent, text, bool((body or {}).get("confirm")))
+    confirm = bool((body or {}).get("confirm"))
+    if agent.get("source") == "claude-desktop":
+        # Desktop can hold an idle session asleep behind an open inbox:
+        # confirm the message landed, else wake + resend (desktop_wake.py).
+        result = desktop_wake.deliver_live_desktop(
+            agent, text, confirm, session_inbox.deliver_row_message)
+    else:
+        result = session_inbox.deliver_row_message(agent, text, confirm)
     return _audit_delivery_result(result, row_id, actor, text)
 
 
@@ -3221,6 +3241,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/deliver/pass":
             # Restored 2026-09-25, generic — see chief_dashboard_pass.py.
             self._send_json(chief_dashboard_pass.get_chief_pass(get_full_state))
+        elif path == "/api/accounts":
+            self._send_json(account_rotation.accounts_view(ROTATOR))
         elif path == "/api/personas":
             # Jev persona routing P1 — see server/lib/personas.py. The
             # remote listener gets every offered persona WITHOUT folder
@@ -3302,6 +3324,10 @@ class Handler(BaseHTTPRequestHandler):
         if feedback_reply is not None:
             self._send_json(*feedback_reply)
             return
+        apns_reply = apns_devices.handle("POST", path, self._read_json_body)
+        if apns_reply is not None:
+            self._send_json(*apns_reply)
+            return
         if hook_permission_routes.is_hook_path(path):
             self._note_remote_audit_row(hook_permission_routes.request_id_of(path))
             self._send_json(*hook_permission_routes.handle_post(
@@ -3374,6 +3400,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/personas":
             self._handle_local_json_post(path, persona_registry_edit.apply_registry_action)
             return
+        if path == "/api/accounts/resume":
+            self._handle_local_json_post(path, resume_pane_on_next_account)
+            return
+        if path == "/api/accounts/login":
+            self._handle_local_json_post(path, account_login.start_login)
+            return
+        if path == "/api/accounts/pool-login":
+            self._handle_local_json_post(path, account_login.start_pool_login)
+            return
+        if path in ACCOUNT_EDIT_ROUTES:  # localhost only: no remote handler
+            self._handle_local_json_post(path, ACCOUNT_EDIT_ROUTES[path])
+            return
+        if path == "/api/accounts/approve-fallback":
+            # Both listeners: approving DeepSeek from the phone is the point.
+            self._handle_local_json_post(path, account_rotation.approve_fallback,
+                                         account_rotation.approve_fallback)
+            return
         if path == jev_route.ROUTE_PATH:
             # Both listeners: the phone has no OpenRouter key of its own.
             self._handle_local_json_post(path, jev_route.route_message,
@@ -3430,6 +3473,10 @@ class Handler(BaseHTTPRequestHandler):
         if self._reject_foreign_write():
             return
         path = urlparse(self.path).path
+        apns_reply = apns_devices.handle("DELETE", path, self._read_json_body)
+        if apns_reply is not None:
+            self._send_json(*apns_reply)
+            return
         if path == "/api/links":
             try:
                 body = self._read_json_body()
@@ -3543,10 +3590,34 @@ def _start_remote_listener():
     return server
 
 
+#: Account rotation guard memory (account_rotation.py), one per server.
+ROTATOR = account_rotation.Rotator()
+
+
+def _live_agent_rows():
+    return build_agents_view({name: f.snapshot()
+                              for name, f in chief_dashboard_feeds.FEEDS.items()})
+
+
+def resume_pane_on_next_account(body):
+    """POST /api/accounts/resume {paneId}: the manual path (no wall needed)."""
+    pane_id = (body or {}).get("paneId")
+    row = next((r for r in _live_agent_rows() if pane_id and r.get("paneId") == pane_id), None)
+    if row is None:
+        return {"ok": False, "error": f"no live agent row for pane {pane_id!r}"}
+    try:
+        return {"ok": True, **ROTATOR.resume(row, trigger="manual")}
+    except RuntimeError as e:
+        return {"ok": False, "error": str(e)}
+
+
 def main():
     image_attachments.sweep_expired()
+    chief_dashboard_feeds.SCREEN_LISTENERS.append(
+        lambda _agents, _screens: ROTATOR.on_screens(_live_agent_rows()))
     start_pollers()
     SAMPLER.start()
+    apns_agent_push.start_observer(get_full_state, STOP)
 
     server = QuietThreadingHTTPServer((HOST, PORT), Handler)
     server.remote_listener = False

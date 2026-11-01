@@ -31,6 +31,8 @@ final class AgentPanelModel: ObservableObject {
     @Published private(set) var highlightedButton: RowButton?
     /// Where each row's Done / Close pane press has got to (see `RowActionState`).
     @Published private(set) var rowActionStates: [String: RowActionState] = [:]
+    /// The user's yes to the paid fallback account is on its way (`approvePendingFallback`).
+    @Published private(set) var isApprovingFallback = false
     /// Bumped on every show so the search field re-grabs keyboard focus.
     @Published private(set) var focusRequest = 0
     /// Hands the keyboard back to the search box (e.g. after a click on a panel button).
@@ -1210,6 +1212,39 @@ final class AgentPanelModel: ObservableObject {
             treeModel.selectedNodeID = agentID
             treeModel.outdentSelected()
             return nil
+        case .resumeOnNextAccount:
+            return resumeOnNextAccount(agent)
+        }
+    }
+
+    // MARK: - Account rotation
+
+    private func resumeOnNextAccount(_ agent: AgentSnapshot) -> Task<Void, Never>? {
+        guard let statusSource, let paneId = agent.paneId else {
+            showFailureNotice(.actionFailed("Couldn't resume \(agent.label): \(PanePeek.noSourceMessage)"))
+            return nil
+        }
+        return Task { [weak self] in
+            let outcome = await statusSource.resumeOnNextAccount(paneId: paneId)
+            switch outcome {
+            case .succeeded: self?.showFailureNotice(.created("Resuming \(agent.label) on the next account…"))
+            case .failed(let reason): self?.showFailureNotice(.actionFailed("Couldn't resume \(agent.label): \(reason)"))
+            }
+        }
+    }
+
+    /// The prompt's one key (⌘Y) or click: lets the router use the paid fallback account. One press, one request.
+    @discardableResult
+    func approvePendingFallback() -> Task<Void, Never>? {
+        guard !isApprovingFallback, let statusSource, let pending = snapshot?.pendingFallback else { return nil }
+        isApprovingFallback = true
+        return Task { [weak self] in
+            let outcome = await statusSource.approveFallback(id: pending.id)
+            self?.isApprovingFallback = false
+            switch outcome {
+            case .succeeded: self?.showFailureNotice(.created("Continuing on \(pending.displayLabel)."))
+            case .failed(let reason): self?.showFailureNotice(.actionFailed("Couldn't approve \(pending.displayLabel): \(reason)"))
+            }
         }
     }
 

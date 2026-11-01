@@ -1,14 +1,13 @@
 /**
- * P2 QA2: soft-keyboard behaviour. Vaul's `repositionInputs` lifts the sheet
- * by the keyboard height, so the footer must NOT also translate itself; the
- * fixed tab bar hides while a text field has the keyboard up.
+ * Soft-keyboard behaviour of the tab bar: the fixed tab bar hides while a
+ * text field has the keyboard up. The phone screen's own keyboard box is in
+ * screen-layout.test.tsx.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Sheet } from "../ui/Sheet";
 import { TabBar } from "../components/phone/TabBar";
 
 class FakeVV extends EventTarget {
@@ -26,7 +25,6 @@ function installVV(): FakeVV {
 const realInner = window.innerHeight;
 const unmounts: Array<() => void> = [];
 afterEach(() => {
-  // Unmount first: an open Vaul sheet leaves body scroll-lock styles that leak into later files.
   while (unmounts.length) unmounts.pop()!();
   Object.defineProperty(window, "innerHeight", { value: realInner, configurable: true });
   document.body.removeAttribute("style");
@@ -46,18 +44,6 @@ function mount(node: React.ReactNode) {
 }
 
 describe("soft keyboard", () => {
-  test("Sheet footer is not translated when the visual viewport shrinks (Vaul owns the lift)", () => {
-    const vv = installVV();
-    mount(<Sheet open onOpenChange={() => {}} title="t" footer={<input aria-label="msg" />}>body</Sheet>);
-    act(() => {
-      vv.height = 450;
-      vv.dispatchEvent(new Event("resize"));
-    });
-    const footer = document.querySelector<HTMLElement>(".ui-sheet__footer");
-    expect(footer).not.toBeNull();
-    expect(footer!.style.transform).toBe("");
-  });
-
   test("tab bar hides while a text field is focused under a shrunken viewport", () => {
     const vv = installVV();
     const { host } = mount(
@@ -86,6 +72,6 @@ describe("soft keyboard", () => {
     const phoneCss = readFileSync(join(import.meta.dir, "../components/phone/phone.css"), "utf8");
     const toastCss = readFileSync(join(import.meta.dir, "../ui/Toast.css"), "utf8");
     expect(phoneCss).toMatch(/\.phone-tabbar\[data-keyboard\]\s*\{\s*display:\s*none/);
-    expect(toastCss).toMatch(/body:has\(\.ui-sheet\[data-state="open"\]\)\s+\.ui-toast-region\s*\{[^}]*top:/);
+    expect(toastCss).toMatch(/body:has\(\.ui-screen\[data-state="open"\]\)\s+\.ui-toast-region\s*\{[^}]*top:/);
   });
 });

@@ -15,6 +15,7 @@ On the remote (tailscale) listener only `answer` exists — the phone's web
 remote answers there (authenticated, CSRF-checked and audited like every
 remote write); register and wait stay local (404): the hook runs on this Mac.
 """
+import apns_permission_push
 import claude_sessions
 import codex_hold_store
 import hook_permissions
@@ -86,10 +87,12 @@ def handle_get(path, query, is_remote, store=None):
     return store.wait(request_id, _parse_timeout(query), _live_sessions)
 
 
-def handle_post(path, read_body, is_remote, store=None, session_entry=None):
+def handle_post(path, read_body, is_remote, store=None, session_entry=None, pusher=None):
     """`read_body` is called lazily so a 404 never reads the request body.
-    `session_entry(payload)` finds the hook session's file (tests fake it)."""
+    `session_entry(payload)` finds the hook session's file (tests fake it).
+    `pusher`: APNs notifier for the iOS app / Watch (apns_permission_push)."""
     session_entry = session_entry or _session_entry
+    pusher = pusher or apns_permission_push.PUSHER
     request_id, action = _request_route(path)
     if is_remote and action != "answer":
         return NOT_FOUND
@@ -97,13 +100,19 @@ def handle_post(path, read_body, is_remote, store=None, session_entry=None):
         if path == PREFIX:
             payload = read_body()
             if isinstance(payload, dict) and payload.get("agentTool") == "codex":
-                return (store or codex_hold_store.STORE).register(payload), 200
-            return (store or hook_permissions.STORE).register(payload, session_entry(payload)), 200
+                reply = (store or codex_hold_store.STORE).register(payload)
+            else:
+                reply = (store or hook_permissions.STORE).register(payload, session_entry(payload))
+            pusher.notify_registered(reply.get("requestId"), payload)
+            return reply, 200
         if action == "answer":
             body = read_body()
             if request_id.startswith((tui_answers.OPENCODE_PREFIX, tui_answers.KEYSTROKE_PREFIX)):
                 return tui_answers.answer(request_id, body)
-            return (store or _store_for(request_id)).answer(request_id, body)
+            reply, status = (store or _store_for(request_id)).answer(request_id, body)
+            if status == 200:
+                pusher.notify_answered(request_id)
+            return reply, status
     except ValueError as e:  # malformed JSON body
         return {"ok": False, "error": f"bad JSON body: {e}"}, 400
     return NOT_FOUND

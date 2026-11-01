@@ -111,6 +111,13 @@ public final class EmergingContentProvider: ObservableObject {
     }
 
     public func refresh() {
+        #if DEBUG
+        if AppStoreDemo.isEnabled {
+            items = AppStoreDemo.emergingItems()
+            isProcessing = false
+            return
+        }
+        #endif
         activeTask?.cancel()
         isProcessing = true
 

@@ -358,7 +358,8 @@ final class NaturalVoiceEngineTests: XCTestCase {
         store.setNaturalVoiceEnabled(true)
         server.holdText = "One."
         let controller = ReadAloudController(engine: device, naturalEngine: { _ in self.engine },
-                                             settingsStore: store, integratesWithSystem: false)
+                                             settingsStore: store, integratesWithSystem: false,
+                                             isNaturalVoiceEntitled: { true })
         let article = ReaderArticle(title: "Title", content: "<p>One. Two.</p><p>Three.</p>", url: URL(string: "https://e.com")!)
         controller.start(article: article, fromChunk: 1) // gen A waits on "One."
         server.holdText = nil
@@ -370,6 +371,20 @@ final class NaturalVoiceEngineTests: XCTestCase {
         XCTAssertEqual(controller.state, .idle)
         XCTAssertNil(controller.spokenPosition)
         XCTAssertTrue(device.runs.isEmpty)
+    }
+
+    func testWithoutSubscriptionTheSwitchStillReadsWithTheDeviceVoice() async throws {
+        let suite = "NaturalVoiceEngineTests.\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let store = ReaderReadingSettingsStore(local: UserDefaults(suiteName: suite)!, cloud: nil, isCloudSyncEnabled: false)
+        store.setNaturalVoiceEnabled(true)
+        let controller = ReadAloudController(engine: device, naturalEngine: { _ in self.engine },
+                                             settingsStore: store, integratesWithSystem: false,
+                                             isNaturalVoiceEntitled: { false })
+        let article = ReaderArticle(title: "Title", content: "<p>One.</p>", url: URL(string: "https://e.com")!)
+        controller.start(article: article)
+        XCTAssertFalse(device.runs.isEmpty, "built-in voice plays")
+        XCTAssertTrue(server.requestedTexts.isEmpty, "no cloud request without a subscription")
     }
 
     func testLanguageCodeIsRegionalForTheServer() {

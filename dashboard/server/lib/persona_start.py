@@ -156,8 +156,11 @@ latest_conversation() {
 }
 """
 
-#: $1 instructions, $2 file name, $3 folder (`~`-relative or absolute).
-#: Prints `OK\n<instructions path>\n<folder>\n<latest>` or `NO_FOLDER <folder>`.
+#: $1 instructions, $2 file name, $3 folder, $4 launcher script (both
+#: `~`-relative or absolute). The launcher is resolved HERE because the Pro's
+#: home (`/Users/<pro-user>`) does not exist on the Air (other user name).
+#: Prints `OK\n<instructions path>\n<folder>\n<launcher>\n<latest>`,
+#: `NO_FOLDER <folder>` or `NO_LAUNCHER <path>`.
 REMOTE_PREPARE_SCRIPT = _REMOTE_SHELL_LIB + r"""set -e
 umask 077
 d="$HOME/Library/Application Support/agent-dashboard/persona-prompts"
@@ -166,7 +169,9 @@ f="$d/$2"
 printf '%s' "$1" > "$f.tmp-$$"; mv "$f.tmp-$$" "$f"
 resolve_dir "$3"
 [ -d "$dir" ] || { printf 'NO_FOLDER %s\n' "$dir"; exit 0; }
-printf 'OK\n%s\n%s\n' "$f" "$dir"
+case "$4" in "~/"*) bin="$HOME/${4#"~/"}";; *) bin="$4";; esac
+[ -x "$bin" ] || { printf 'NO_LAUNCHER %s\n' "$bin"; exit 0; }
+printf 'OK\n%s\n%s\n%s\n' "$f" "$dir" "$bin"
 latest_conversation
 """
 
@@ -432,21 +437,26 @@ class HerdrTabOps:
             self.machine, argv,
             repo_root=REPO_ROOT, machines=MACHINES, timeout=timeout)
 
-    def prepare_remote(self, folder, filename, instructions):
+    def prepare_remote(self, folder, filename, instructions, launcher):
         """One ssh call on a remote target: write the instructions file
         there, resolve the folder (`~` = that Mac's home) and check it
         exists, and report its newest conversation there. Returns
-        (instructions_path, folder, (uuid, mtime) or (None, None)) or raises ValueError
-        when the folder is missing; HerdrError/SshUnreachable pass through."""
+        (instructions_path, folder, (uuid, mtime) or (None, None), launcher_path)
+        — launcher_path is `launcher` resolved under that Mac's home — or raises
+        ValueError when the folder or launcher is missing; HerdrError/SshUnreachable
+        pass through."""
         out = herdr_transport.remote_shell_text(
             self.machine, REMOTE_PREPARE_SCRIPT, repo_root=REPO_ROOT, machines=MACHINES,
-            timeout=REMOTE_PREPARE_TIMEOUT_SEC, args=(instructions, filename, folder))
+            timeout=REMOTE_PREPARE_TIMEOUT_SEC, args=(instructions, filename, folder, launcher))
         lines = out.splitlines()
         if lines and lines[0].startswith("NO_FOLDER"):
             raise ValueError(f"folder {lines[0][len('NO_FOLDER '):]} doesn't exist there")
-        if len(lines) < 3 or lines[0] != "OK":
+        if lines and lines[0].startswith("NO_LAUNCHER"):
+            raise ValueError(f"launcher {lines[0][len('NO_LAUNCHER '):]} is missing there "
+                             "(pull the latest command-bar-macos on that Mac)")
+        if len(lines) < 4 or lines[0] != "OK":
             raise herdr_transport.HerdrError(f"unexpected prepare output: {out[:200]!r}")
-        return lines[1], lines[2], parse_remote_latest(lines[3] if len(lines) > 3 else "")
+        return lines[1], lines[2], parse_remote_latest(lines[4] if len(lines) > 4 else ""), lines[3]
 
     def tab_create(self, folder, label, env):
         """(tab_id, pane_id) of a new unfocused tab whose shell runs in
@@ -666,18 +676,21 @@ def _launch(deps, persona, text, fresh, instructions, target):
         folder = persona["resolvedFolder"]
         instructions_path = write_instructions_file(
             deps.instructions_dir or default_instructions_dir(), persona["name"], instructions)
+        claude_bin = None  # this Mac's own CLAUDE_BIN
     else:
         try:
-            instructions_path, folder, latest = herdr.prepare_remote(
+            instructions_path, folder, latest, claude_bin = herdr.prepare_remote(
                 _home_relative(persona["resolvedFolder"]),
-                _instructions_filename(persona["name"]), instructions)
+                _instructions_filename(persona["name"]), instructions,
+                _home_relative(CLAUDE_BIN))
         except herdr_transport.SshUnreachable as e:
             return _unreachable(target, e)
         except ValueError as e:
             return _refuse(f"{persona['name']!r} can't start on {_machine_label(target)}: {e}")
     resume_id = decide_resume(persona, latest, fresh=fresh, live_session_ids=live_ids,
                               now=deps.wall_clock_fn())
-    command = build_start_command(instructions_path, resume_session_id=resume_id)
+    command = build_start_command(instructions_path, resume_session_id=resume_id,
+                                  claude_bin=claude_bin)
 
     try:
         tab_id, pane_id = herdr.tab_create(folder, persona_tab_label(persona["name"], text),

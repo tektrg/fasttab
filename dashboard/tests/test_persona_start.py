@@ -68,12 +68,12 @@ class FakeHerdr:
         self.machine = machine
         return self
 
-    def prepare_remote(self, folder, filename, instructions):
-        self.calls.append(("prepare_remote", folder, filename, instructions))
+    def prepare_remote(self, folder, filename, instructions, launcher):
+        self.calls.append(("prepare_remote", folder, filename, instructions, launcher))
         if self.prepare is not None:
             raise self.prepare
         return (f"/Users/remote/prompts/{filename}", folder.replace("~", "/Users/remote", 1),
-                self.remote_latest)
+                self.remote_latest, launcher.replace("~", "/Users/remote", 1))
 
     def tab_create(self, folder, label, env):
         self.calls.append(("tab_create", folder, label, dict(env)))
@@ -334,6 +334,10 @@ try:
     check("tab opens in the Air's resolved folder", herdr.calls[1][1].startswith("/Users/remote/"), True)
     check("command points at the Air's instructions file",
           "/Users/remote/prompts/" in herdr.command(), True)
+    check("launcher is asked for home-relative, and the command uses the Air's resolved path",
+          (prep[4], herdr.command().split(" ")[0]),
+          (ps._home_relative(ps.CLAUDE_BIN),
+           "'" + prep[4].replace("~", "/Users/remote", 1) + "'"))
     check("pane id is namespaced to the Air", result.get("paneId"), "air-m1:w1:p42")
     check("no history on the Air -> fresh", result.get("mode"), "started")
     air_recent = (UUID_RECENT, FakeClock()() - 3600)

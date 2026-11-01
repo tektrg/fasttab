@@ -30,13 +30,12 @@ struct OrderedTabSlotRow: View {
 
     private var isActionsVisible: Bool { isHovering || isSelected }
 
-    /// Trailing clearance reserved while the action overlay is visible, so the
-    /// title truncates before the buttons instead of running underneath them.
-    /// Ghost rows show an extra reopen button.
+    /// Trailing clearance reserved while the action menu is visible, so the
+    /// title truncates before the trigger instead of running underneath it.
     /// Full style reserves nothing: the overlay covers the text, so hover never re-wraps it.
     private var actionReserveWidth: CGFloat {
         guard rowStyle == .minimal, isActionsVisible else { return 0 }
-        return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: isGhost ? 4 : 3)
+        return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: 1)
     }
 
     var body: some View {
@@ -191,76 +190,35 @@ struct OrderedTabSlotRow: View {
         return host
     }
 
+    private var openActionTitle: String {
+        let name = slot.browserName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isGhost { return name.isEmpty ? "Reopen Tab" : "Reopen in \(name)" }
+        if isFrozen { return "Open Link" }
+        return name.isEmpty ? "Switch to Tab" : "Open in \(name)"
+    }
+
+    private var closeActionTitle: String {
+        if isGhost { return "Remove Permanently" }
+        return slot.isPinned ? "Close Tab (Keeps Ghost)" : "Close Tab"
+    }
+
     @ViewBuilder
     private var actionButtonCluster: some View {
-        HStack(spacing: 4) {
-            // Copy link button
-            Button {
+        RowActionsMenu {
+            Button(openActionTitle) {
+                if isGhost {
+                    onReopen()
+                } else {
+                    onSelect()
+                }
+            }
+            Button(slot.isPinned ? "Unpin Tab" : "Pin Tab", action: onTogglePin)
+            Button("Copy URL") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(slot.url, forType: .string)
-            } label: {
-                Image(systemName: "link")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(Color.primary.opacity(0.06)))
             }
-            .buttonStyle(.plain)
-            .help("Copy URL")
-
-            // Pin / unpin button
-            Button {
-                onTogglePin()
-            } label: {
-                Image(systemName: slot.isPinned ? "pin.fill" : "pin")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(slot.isPinned ? Color.accentColor : .secondary)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(slot.isPinned ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06)))
-            }
-            .buttonStyle(.plain)
-            .help(slot.isPinned ? "Unpin tab" : "Pin tab")
-
-            if isGhost {
-                // Reopen button
-                Button {
-                    onReopen()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(Color.accentColor.opacity(0.12)))
-                }
-                .buttonStyle(.plain)
-                .help("Reopen tab")
-
-                // Permanent delete button
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.red)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(Color.red.opacity(0.12)))
-                }
-                .buttonStyle(.plain)
-                .help("Remove permanently")
-            } else {
-                // Close button
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: slot.isPinned ? "minus" : "xmark")
-                        .font(.system(size: slot.isPinned ? 11 : 10, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(Color.primary.opacity(0.06)))
-                }
-                .buttonStyle(.plain)
-                .help(slot.isPinned ? "Close tab (leaves ghost)" : "Close tab")
-            }
+            Divider()
+            Button(closeActionTitle, role: .destructive, action: onClose)
         }
     }
 }

@@ -61,7 +61,6 @@ struct SwipeableResultRow: View {
                 faviconImage: faviconImage,
                 showWindowName: showWindowName,
                 showProfileName: showProfileName,
-                isConfirmingRemoval: isConfirmingRemoval,
                 onSelect: onSelect,
                 onCopy: onCopy,
                 onRemove: onRemove,
@@ -173,7 +172,6 @@ private struct ResultRowView: View {
     let faviconImage: NSImage?
     let showWindowName: Bool
     let showProfileName: Bool
-    let isConfirmingRemoval: Bool
     let onSelect: () -> Void
     let onCopy: () -> Void
     let onRemove: () -> Void
@@ -197,8 +195,7 @@ private struct ResultRowView: View {
     /// row height; reserving always left a blank column beside every row.
     private var actionReserveWidth: CGFloat {
         guard rowStyle == .minimal, isActionsVisible else { return 0 }
-        let buttonCount = result.type == .tab ? 3 : 2
-        return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: buttonCount)
+        return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: 1)
     }
 
     var body: some View {
@@ -261,62 +258,37 @@ private struct ResultRowView: View {
         }
     }
 
-    /// Only pinned live tabs close into a ghost — everything else
-    /// (unpinned tabs, sent links, bookmarks, history, and ghosts
-    /// themselves) just closes/removes, so it gets an "x".
-    private var showsMinusIcon: Bool {
-        result.isPinned && !result.isGhost
+    private var openActionTitle: String {
+        let name = result.browserName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if result.isGhost { return name.isEmpty ? "Reopen Tab" : "Reopen in \(name)" }
+        if result.type == .tab { return name.isEmpty ? "Switch to Tab" : "Open in \(name)" }
+        return name.isEmpty ? "Open Link" : "Open in \(name)"
     }
 
-    private var removeHelpText: String {
-        if isConfirmingRemoval { return "Confirm delete" }
-        if result.isGhost { return "Delete ghost tab" }
-        if showsMinusIcon { return "Close tab (leaves ghost)" }
-        return "Remove / close"
+    /// Only pinned live tabs close into a ghost — everything else
+    /// (unpinned tabs, sent links, bookmarks, history, and ghosts
+    /// themselves) just closes/removes.
+    private var closeActionTitle: String {
+        switch result.type {
+        case .tab:
+            if result.isGhost { return "Delete Ghost Tab" }
+            return result.isPinned ? "Close Tab (Keeps Ghost)" : "Close Tab"
+        case .sent: return "Dismiss Link"
+        case .bookmark: return "Delete Bookmark"
+        case .history: return "Delete History Entry"
+        }
     }
 
     @ViewBuilder
     private var actionButtonCluster: some View {
-        HStack(spacing: 4) {
+        RowActionsMenu {
+            Button(openActionTitle, action: onSelect)
             if result.type == .tab, let onPin {
-                Button(action: onPin) {
-                    Image(systemName: result.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(result.isPinned ? Color.accentColor : .secondary)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(result.isPinned ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.06)))
-                }
-                .buttonStyle(.plain)
-                .help(result.isPinned ? "Unpin tab" : "Pin tab")
+                Button(result.isPinned ? "Unpin Tab" : "Pin Tab", action: onPin)
             }
-
-            Button(action: onCopy) {
-                Image(systemName: "link")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(Color.primary.opacity(0.06)))
-            }
-            .buttonStyle(.plain)
-            .help("Copy link")
-
-            Button(action: onRemove) {
-                if isConfirmingRemoval || !showsMinusIcon {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(isConfirmingRemoval ? .red : .secondary)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(isConfirmingRemoval ? Color.red.opacity(0.12) : Color.primary.opacity(0.06)))
-                } else {
-                    Image(systemName: "minus")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(Color.primary.opacity(0.06)))
-                }
-            }
-            .buttonStyle(.plain)
-            .help(removeHelpText)
+            Button("Copy Link", action: onCopy)
+            Divider()
+            Button(closeActionTitle, role: .destructive, action: onRemove)
         }
     }
 

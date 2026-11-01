@@ -1,6 +1,16 @@
 import Foundation
 import IndieTextCleanup
 
+/// The one persisted opt-in for transcript clean-up (default OFF, experimental). Both places that
+/// show it (reader "More actions" menu, More tab "Experimental" section) bind this key.
+enum TranscriptCleanupPreference {
+    static let defaultsKey = "FastTabMobile.experimental.transcriptCleanupV1"
+
+    static func isEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: defaultsKey)
+    }
+}
+
 /// FastTab's wording for the on-device transcript clean-up (engine: IndieTextCleanup).
 /// LIGHT only: the reader must still be able to trust every sentence as what was said.
 enum TranscriptCleanup {

@@ -403,6 +403,12 @@ public struct ReaderView: View {
                 } label: {
                     Label("Open in Safari", systemImage: "safari")
                 }
+                if let cleanup = viewModel.transcriptCleanup, cleanup.isAvailable {
+                    Divider()
+                    Toggle(isOn: Binding(get: { cleanup.isEnabled }, set: { cleanup.setEnabled($0) })) {
+                        Label("Clean Up Transcript (Experimental)", systemImage: "wand.and.sparkles")
+                    }
+                }
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .readerBarTapTarget()

@@ -7,7 +7,8 @@ import UIKit
 /// open and the app is in front: the page shows the original at once, and each paragraph swaps to
 /// its clean text as it lands, on-screen ones first. Progress is saved per video, so a later open
 /// shows the clean version at once and only finishes what is missing. Devices without Apple
-/// Intelligence get no clean-up and no toggle.
+/// Intelligence get no clean-up and no toggle. Opt-in and experimental (`TranscriptCleanupPreference`,
+/// default OFF): while it is off nothing runs and the page shows the originals.
 @MainActor
 final class TranscriptCleanupSession: ObservableObject {
     /// One paragraph as the page shows it: `v` is "clean" or "original" (reader_template.html).
@@ -19,6 +20,8 @@ final class TranscriptCleanupSession: ObservableObject {
 
     @Published private(set) var isCleaning = false
     @Published private(set) var showsClean: Bool
+    /// The experimental opt-in (`TranscriptCleanupPreference`); changes only via `setEnabled`.
+    @Published private(set) var isEnabled: Bool
     /// Bumps whenever `shownTexts` changes, so the reader pushes to the page only then.
     private(set) var revision = 0
 
@@ -73,13 +76,17 @@ final class TranscriptCleanupSession: ObservableObject {
         self.canClean = canClean
         self.store = store
         self.defaults = defaults
+        self.isEnabled = TranscriptCleanupPreference.isEnabled(defaults)
         self.showsClean = defaults.object(forKey: Self.showsCleanKey) as? Bool ?? true
         self.cleaned = store.record(videoID: videoID, originals: originals)?.texts
             ?? Array(repeating: nil, count: originals.count)
     }
 
-    /// Whether to offer the Clean / Original toggle: the model is here, or a saved clean-up is.
-    var isOffered: Bool { canClean || cleaned.contains { $0 != nil } }
+    /// The device can clean (the model is here), or a saved clean-up exists: the opt-in is worth showing.
+    var isAvailable: Bool { canClean || cleaned.contains { $0 != nil } }
+
+    /// Whether to show the Clean / Original bar button: opted in and available.
+    var isOffered: Bool { isEnabled && isAvailable }
 
     var isComplete: Bool { !cleaned.contains(nil) }
 
@@ -87,7 +94,7 @@ final class TranscriptCleanupSession: ObservableObject {
     var shownTexts: [ParagraphText] {
         originals.indices.map { index in
             // A paragraph the model left as it was stays "original", so its highlights keep showing.
-            if showsClean, let clean = cleaned[index], clean != originals[index] {
+            if isEnabled, showsClean, let clean = cleaned[index], clean != originals[index] {
                 return ParagraphText(i: index, text: clean, v: "clean")
             }
             return ParagraphText(i: index, text: originals[index], v: "original")
@@ -98,6 +105,12 @@ final class TranscriptCleanupSession: ObservableObject {
     func open() {
         log("open, \(cleaned.filter { $0 != nil }.count)/\(originals.count) saved")
         isOpen = true
+        // The opt-in may have been flipped in the More tab since this session was made.
+        let stored = TranscriptCleanupPreference.isEnabled(defaults)
+        if stored != isEnabled {
+            isEnabled = stored
+            revision += 1
+        }
         if activeObserver == nil {
             activeObserver = NotificationCenter.default.addObserver(
                 forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -122,6 +135,24 @@ final class TranscriptCleanupSession: ObservableObject {
         activeObserver = nil
     }
 
+    /// The opt-in changed (reader menu): persist it, start or stop cleaning, repaint the page.
+    func setEnabled(_ on: Bool) {
+        guard on != isEnabled else { return }
+        defaults.set(on, forKey: TranscriptCleanupPreference.defaultsKey)
+        isEnabled = on
+        revision += 1
+        if on {
+            resumeIfNeeded()
+        } else {
+            retryTask?.cancel()
+            retryTask = nil
+            runTask?.cancel()
+            runTask = nil
+            run = nil
+            isCleaning = false
+        }
+    }
+
     func setShowsClean(_ on: Bool) {
         showsClean = on
         revision += 1
@@ -135,7 +166,7 @@ final class TranscriptCleanupSession: ObservableObject {
     }
 
     private func resumeIfNeeded() {
-        guard isOpen, canClean, runTask == nil, !isComplete,
+        guard isEnabled, isOpen, canClean, runTask == nil, !isComplete,
               isAppActive() else { return }
         let pending = cleaned.indices.filter { cleaned[$0] == nil }
         log("run: \(pending.count) paragraphs")
@@ -191,7 +222,7 @@ final class TranscriptCleanupSession: ObservableObject {
     /// The model said it was unavailable while the reader is still open and in front (a
     /// background trip retries on its own via didBecomeActive): try again after a growing wait.
     private func scheduleRetryIfNeeded() {
-        guard isOpen, canClean, !isComplete, retryTask == nil else { return }
+        guard isEnabled, isOpen, canClean, !isComplete, retryTask == nil else { return }
         let delay = retryDelay
         log("retry in \(delay)")
         retryDelay = min(retryDelay * 2, Self.maxRetryDelay)

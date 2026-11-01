@@ -78,6 +78,7 @@ final class TranscriptCleanupSessionTests: XCTestCase {
     override func setUp() async throws {
         directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defaults = UserDefaults(suiteName: UUID().uuidString)
+        defaults.set(true, forKey: TranscriptCleanupPreference.defaultsKey) // opted in; off is tested below
     }
 
     override func tearDown() async throws {
@@ -130,6 +131,50 @@ final class TranscriptCleanupSessionTests: XCTestCase {
         cleanup.open()
         XCTAssertFalse(cleanup.isOffered)
         XCTAssertFalse(cleanup.isCleaning)
+        XCTAssertEqual(cleanup.shownTexts.map(\.v), ["original", "original"])
+    }
+
+    func testOffByDefaultMeansNoWorkNoToggleAndOriginals() async throws {
+        let fresh = UserDefaults(suiteName: UUID().uuidString)!
+        let model = FakeModel()
+        let cleanup = TranscriptCleanupSession(videoID: "vid", originals: ["one two"], cleaner: model, canClean: true,
+                                               store: TranscriptCleanupStore(directory: directory), defaults: fresh,
+                                               isAppActive: { true })
+        cleanup.open()
+        XCTAssertFalse(cleanup.isEnabled)
+        XCTAssertTrue(cleanup.isAvailable)
+        XCTAssertFalse(cleanup.isOffered)
+        XCTAssertFalse(cleanup.isCleaning)
+        XCTAssertEqual(cleanup.shownTexts.map(\.v), ["original"])
+        let calls = await model.calls
+        XCTAssertEqual(calls, 0)
+    }
+
+    func testOptingInMidReadStartsAndOptingOutStopsAndShowsOriginals() async throws {
+        let off = UserDefaults(suiteName: UUID().uuidString)!
+        let cleanup = TranscriptCleanupSession(videoID: "vid", originals: ["one two"], cleaner: FakeModel(), canClean: true,
+                                               store: TranscriptCleanupStore(directory: directory), defaults: off,
+                                               isAppActive: { true })
+        cleanup.open()
+        let before = cleanup.revision
+        cleanup.setEnabled(true)
+        XCTAssertTrue(TranscriptCleanupPreference.isEnabled(off))
+        XCTAssertGreaterThan(cleanup.revision, before)
+        try await waitUntilIdle(cleanup)
+        XCTAssertEqual(cleanup.shownTexts.map(\.v), ["clean"])
+        cleanup.setEnabled(false)
+        XCTAssertFalse(TranscriptCleanupPreference.isEnabled(off))
+        XCTAssertEqual(cleanup.shownTexts.map(\.v), ["original"])
+        XCTAssertFalse(cleanup.isOffered)
+    }
+
+    func testPreferenceFlippedElsewhereIsPickedUpOnReopen() async throws {
+        let cleanup = session(FakeModel())
+        cleanup.open()
+        try await waitUntilIdle(cleanup)
+        defaults.set(false, forKey: TranscriptCleanupPreference.defaultsKey) // More-tab toggle
+        cleanup.open()
+        XCTAssertFalse(cleanup.isEnabled)
         XCTAssertEqual(cleanup.shownTexts.map(\.v), ["original", "original"])
     }
 

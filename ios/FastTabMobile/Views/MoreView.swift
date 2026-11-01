@@ -11,6 +11,7 @@ public struct MoreView: View {
     private let intelligenceTip = IntelligenceTip()
     @AppStorage(TabBookmarkClosePreference.defaultsKey)
     private var tabBookmarkClosePreferenceRaw = TabBookmarkClosePreference.ask.rawValue
+    @AppStorage(TranscriptCleanupPreference.defaultsKey) private var transcriptCleanupEnabled = false
     @AppStorage(ReadingGoal.defaultsKey) private var dailyWordGoal = ReadingGoal.defaultDailyWords
 
     public init() {}
@@ -67,7 +68,7 @@ public struct MoreView: View {
                 .listRowBackground(Color.clear)
             }
 
-            Section("Utilities & Intelligence") {
+            Section("Utilities") {
                 NavigationLink {
                     DeskQueueView()
                         .navigationTitle("Desk Queue")
@@ -88,24 +89,6 @@ public struct MoreView: View {
                                 .background(DS.Tint.action, in: Capsule())
                         }
                     }
-                }
-
-                TipView(intelligenceTip)
-                    .fastTabTipStyle()
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-
-                NavigationLink {
-                    IntelligenceView()
-                        .navigationTitle("Intelligence")
-                        .onAppear { intelligenceTip.invalidate(reason: .actionPerformed) }
-                } label: {
-                    MoreRowLabel(
-                        systemImage: "sparkles",
-                        tint: DS.Tint.emerging,
-                        title: "Intelligence",
-                        subtitle: "Topic clusters & bookmark suggestions"
-                    )
                 }
             }
             .dsListRow()
@@ -176,6 +159,39 @@ public struct MoreView: View {
                         tint: DS.Tint.action,
                         title: "Connected Macs",
                         subtitle: "\(devicesCount) device\(devicesCount == 1 ? "" : "s") synced"
+                    )
+                }
+            }
+            .dsListRow()
+
+            Section(
+                header: Text("Experimental"),
+                footer: Text("Early features that may change or go away. Clean-up rewrites YouTube transcripts into readable text on this iPhone (needs Apple Intelligence). Also in the reader's ⋯ menu.")
+            ) {
+                TipView(intelligenceTip)
+                    .fastTabTipStyle()
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+
+                NavigationLink {
+                    IntelligenceView()
+                        .navigationTitle("Intelligence")
+                        .onAppear { intelligenceTip.invalidate(reason: .actionPerformed) }
+                } label: {
+                    MoreRowLabel(
+                        systemImage: "sparkles",
+                        tint: DS.Tint.emerging,
+                        title: "Intelligence",
+                        subtitle: "Topic clusters & bookmark suggestions"
+                    )
+                }
+
+                Toggle(isOn: $transcriptCleanupEnabled) {
+                    MoreRowLabel(
+                        systemImage: "wand.and.sparkles",
+                        tint: DS.Tint.emerging,
+                        title: "Clean up YouTube transcripts",
+                        subtitle: "On-device rewrite into readable text"
                     )
                 }
             }

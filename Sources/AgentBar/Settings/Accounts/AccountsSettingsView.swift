@@ -129,7 +129,7 @@ struct AccountsSettingsView: View {
                 AccountAddSection(model: model)
                 Section {
                     Text("Top account that's available starts new sessions; DeepSeek rows always ask first.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.avenir(size: 10)).foregroundStyle(.secondary)
                     if accounts.accounts.isEmpty {
                         Text("No accounts in accounts.json.").foregroundStyle(.secondary)
                     }
@@ -140,7 +140,7 @@ struct AccountsSettingsView: View {
                     }
                 } footer: {
                     Text("Use ↑ ↓ to reorder, top first. Log in opens a terminal tab named claude-login-<id>; finish the sign-in there, then Refresh.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.avenir(size: 10)).foregroundStyle(.secondary)
                 }
             } else {
                 Section { ProgressView().controlSize(.small) }
@@ -168,9 +168,9 @@ private struct AccountRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.displayLabel).fontWeight(.semibold)
                 Text([account.kind, account.tier].compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.avenir(size: 10)).foregroundStyle(.secondary)
                 if let status = account.statusText(pendingApprovalID: pendingApprovalID, now: Date()) {
-                    Text(status).font(.caption)
+                    Text(status).font(.avenir(size: 10))
                 }
                 outcome
             }
@@ -200,7 +200,7 @@ private struct AccountRow: View {
         switch model.loginResults[account.id] {
         case .succeeded?:
             Text("Opened tab claude-login-\(account.id) — finish the sign-in there.")
-                .font(.caption).foregroundStyle(.green)
+                .font(.avenir(size: 10)).foregroundStyle(.green)
         case .failed(let message)?:
             PersonaNotice(text: message)
         case nil:

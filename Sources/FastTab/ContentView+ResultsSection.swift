@@ -421,7 +421,7 @@ private struct AudibleTabRow: View {
                         .foregroundStyle(Color.accentColor)
 
                     Text(result.title)
-                        .font(.system(size: 13, weight: .semibold, design: .default))
+                        .font(.system(size: 13, weight: .regular, design: .default))
                         .foregroundStyle(result.isDiscarded ? .tertiary : .primary)
                         .lineLimit(1)
                         .truncationMode(.tail)

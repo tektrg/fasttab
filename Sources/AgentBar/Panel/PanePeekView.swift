@@ -20,11 +20,11 @@ struct PanePeekView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text(peek.label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.avenir(size: 14, weight: .semibold))
                 .lineLimit(1)
             if let project = peek.projectName {
                 Text(project)
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -56,7 +56,7 @@ struct PanePeekView: View {
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(lines.suffix(visibleCount).enumerated()), id: \.offset) { _, line in
                 Text(line.isEmpty ? " " : line)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.avenirMono(size: 11))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(height: AgentPanelMetrics.peekTextLineHeight, alignment: .leading)
@@ -71,7 +71,7 @@ struct PanePeekView: View {
 
     private func centered<Message: View>(@ViewBuilder _ message: () -> Message) -> some View {
         message()
-            .font(.system(size: 13))
+            .font(.avenir(size: 13))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 28)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -84,7 +84,7 @@ struct PanePeekView: View {
             }
             Spacer(minLength: 0)
         }
-        .font(.system(size: 11))
+        .font(.avenir(size: 11))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 18)
         .frame(height: AgentPanelMetrics.peekReadLineHeight)

@@ -45,11 +45,11 @@ struct CornerCardView: View {
         HStack(spacing: 8) {
             Circle().fill(Color.red).frame(width: 9, height: 9)
             Text("Waiting for your answer")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.avenir(size: 13, weight: .semibold))
             Spacer(minLength: 0)
             Button(action: onExpand) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.avenir(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
@@ -101,7 +101,7 @@ struct CornerDismissButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .medium))
+                .font(.avenir(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 18, height: 18)
                 .contentShape(Rectangle())

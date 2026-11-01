@@ -12,7 +12,7 @@ struct LastMessageSection: View {
                 ProgressView().controlSize(.small)
                 Text("Reading the agent's last message…")
             }
-            .font(.system(size: 12))
+            .font(.avenir(size: 12))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 18)
             .padding(.bottom, 8)

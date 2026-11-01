@@ -11,16 +11,16 @@ struct StatusMessageView: View {
     var body: some View {
         VStack(spacing: 6) {
             Text(content.title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.avenir(size: 15, weight: .semibold))
                 .foregroundStyle(content.isAlarm ? Color.orange : Color.primary)
             if let detail = content.detail {
                 Text(detail)
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .foregroundStyle(.secondary)
             }
             if let hint = content.hint {
                 Text(hint)
-                    .font(.system(size: 11))
+                    .font(.avenir(size: 11))
                     .foregroundStyle(.tertiary)
             }
             if state == .noAgents || state == .newWorkerCommand, let onNewWorker {

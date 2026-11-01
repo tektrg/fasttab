@@ -5,6 +5,10 @@ import "@mantine/core/styles.css";
 import App from "./App";
 import { cssVariablesResolver, theme } from "./theme";
 import "./index.css";
+import { applyFontPref, applyFontScale } from "./fontPref";
+
+applyFontPref();
+applyFontScale();
 
 // `/#ui-kit` renders the P1 primitives in every state. Lazy chunk: never
 // fetched unless the hash is present, and no production screen links to it.

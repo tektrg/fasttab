@@ -26,7 +26,7 @@ struct ShortcutsSettingsView: View {
                 }
                 if let problem {
                     Text(problem)
-                        .font(.caption)
+                        .font(.avenir(size: 10))
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -40,7 +40,7 @@ struct ShortcutsSettingsView: View {
 
             Section("Switching") {
                 Text("Hold the modifier keys and tap the key again to move down the list; let go to switch to the selected agent.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 backwardCyclingRow
@@ -60,11 +60,11 @@ struct ShortcutsSettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Text("Adding ⇧ to the shortcut moves up the list instead.")
-                .font(.caption)
+                .font(.avenir(size: 10))
                 .foregroundStyle(.secondary)
         } else {
             Text("Backward cycling is unavailable: this shortcut already uses ⇧. Choose one without ⇧ to get it.")
-                .font(.caption)
+                .font(.avenir(size: 10))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

@@ -18,7 +18,7 @@ struct ListSettingsView: View {
                     }
                 }
                 Text("Ended agents are sessions that recently finished. The dashboard itself remembers them for 72 hours.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -26,12 +26,12 @@ struct ListSettingsView: View {
             Section("Panes") {
                 Toggle("Show non-Claude panes", isOn: binding(\.showsNonClaudePanes))
                 Text("Plain shells and other tools such as OpenCode. Their status is a best guess, so they appear dimmed.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Toggle("Show Claude Desktop and CLI sessions", isOn: binding(\.showsClaudeOutsideHerdr))
                 Text("Claude sessions outside herdr (the Claude app, or the CLI in tmux). Status only: no Answer, Message or Done. Enter opens a Claude Desktop session in the app, and a tmux session in the terminal already showing it, else a herdr tab (\"tmux:<session>\"), else a new Ghostty/iTerm/Terminal window.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -50,7 +50,7 @@ struct ListSettingsView: View {
                 }
                 .disabled(!settings.list.showsClaudeOutsideHerdr)
                 Text("Desktop sessions Claude has put to sleep (no running process), by last activity. Listed greyed at the bottom; Enter opens one in Claude Desktop. Needs \"Show Claude Desktop and CLI sessions\" on.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

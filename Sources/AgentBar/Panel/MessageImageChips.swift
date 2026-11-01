@@ -18,7 +18,7 @@ struct MessageImageChips: View {
                     if removable {
                         Button { onRemove(image.id) } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 12))
+                                .font(.avenir(size: 12))
                                 .symbolRenderingMode(.palette)
                                 .foregroundStyle(.white, .black.opacity(0.6))
                         }
@@ -29,7 +29,7 @@ struct MessageImageChips: View {
                 }
             }
             Text(images.count == 1 ? "1 image" : "\(images.count) images")
-                .font(.system(size: 11))
+                .font(.avenir(size: 11))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }

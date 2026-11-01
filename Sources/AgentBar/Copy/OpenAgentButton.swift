@@ -7,7 +7,7 @@ struct OpenAgentButton: View {
     var body: some View {
         Button(action: onOpen) {
             Image(systemName: "arrow.up.forward.app")
-                .font(.system(size: 11))
+                .font(.avenir(size: 11))
                 .foregroundStyle(.secondary)
                 .frame(width: 20, height: 18)
                 .contentShape(Rectangle())

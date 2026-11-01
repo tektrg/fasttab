@@ -231,6 +231,10 @@ def poll_hook_cache():
         t0 = time.time()
         try:
             entries = {}
+            # Hooks create this dir on their first write, and macOS clears
+            # $TMPDIR (reboot / idle days). A missing dir just means no hook
+            # has fired yet, so recreate it instead of reporting a dead feed.
+            os.makedirs(HOOK_CACHE_DIR, exist_ok=True)
             if os.path.isdir(HOOK_CACHE_DIR):
                 for fname in os.listdir(HOOK_CACHE_DIR):
                     # "<pane>.why" is the hook's reason sidecar for a `blocked`

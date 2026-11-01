@@ -73,7 +73,7 @@ struct SearchFieldView: View {
                 if showsNewWorkerButton {
                     Button(action: model.enterNewWorkerMode) {
                         Image(systemName: "plus")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.avenir(size: 14, weight: .medium))
                             .foregroundStyle(.secondary)
                             .frame(width: 22, height: 22)
                             .contentShape(Rectangle())
@@ -130,11 +130,11 @@ struct SearchFieldView: View {
                 ProgressView().controlSize(.small)
                 Text("Asking Jev…")
             }
-            .font(.system(size: 12))
+            .font(.avenir(size: 12))
             .foregroundStyle(.secondary)
         case .confirming(_, let label, _):
             Text("→ \(label)")
-                .font(.system(size: 12))
+                .font(.avenir(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         case .confirmingPersona(let pick):
@@ -144,14 +144,14 @@ struct SearchFieldView: View {
                     .layoutPriority(1)
                 PersonaMachineChips(chips: pick.machineChips, selectedID: pick.machineID)
             }
-            .font(.system(size: 12))
+            .font(.avenir(size: 12))
             .foregroundStyle(.secondary)
         case .startingPersona(let name):
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text("Starting \(name)…")
             }
-            .font(.system(size: 12))
+            .font(.avenir(size: 12))
             .foregroundStyle(.secondary)
         }
     }
@@ -188,7 +188,7 @@ struct SearchFieldView: View {
     private var field: some View {
         TextField(fieldPlaceholder, text: $model.query, axis: .vertical)
             .textFieldStyle(.plain)
-            .font(.system(size: 18))
+            .font(.avenir(size: 18))
             .lineLimit(1...AgentPanelMetrics.searchFieldMaxLines)
             .focused($isFocused)
             .onKeyPress(.return, phases: .down) { press in
@@ -266,11 +266,11 @@ private struct TagChipView: View {
     var body: some View {
         HStack(spacing: 4) {
             Text(label)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.avenir(size: 12, weight: .semibold))
                 .lineLimit(1)
             Button(action: onRemove) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.avenir(size: 9, weight: .bold))
                     .foregroundStyle(.secondary)
                     .contentShape(Rectangle())
             }

@@ -11,11 +11,11 @@ struct PlanTextView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text("PLAN")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.avenir(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                 if let path {
                     Text(path)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.avenirMono(size: 10))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.head)
@@ -40,7 +40,7 @@ struct PlanTextView: View {
                 ProgressView().controlSize(.small)
                 Text("Reading the plan…")
             }
-            .font(.system(size: 12))
+            .font(.avenir(size: 12))
             .foregroundStyle(.secondary)
         case .noPath:
             note("The terminal does not name the plan file, so it cannot be shown here. Read it in the terminal; you can still answer below.")
@@ -60,7 +60,7 @@ struct PlanTextView: View {
 
     private func note(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium))
+            .font(.avenir(size: 11, weight: .medium))
             .foregroundStyle(WarningTextColor.color)
             .fixedSize(horizontal: false, vertical: true)
     }

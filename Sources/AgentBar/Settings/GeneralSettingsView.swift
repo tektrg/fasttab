@@ -16,7 +16,7 @@ struct GeneralSettingsView: View {
                 ))
                 if let errorMessage = launchAtLogin.errorMessage {
                     Text(errorMessage)
-                        .font(.caption)
+                        .font(.avenir(size: 10))
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -28,9 +28,35 @@ struct GeneralSettingsView: View {
                 Text(settings.showsMenuBarIcon
                      ? "The icon's menu opens AgentBar and these settings, or quits the app."
                      : "Without the icon, open AgentBar with its shortcut, and reach these settings with the gear at the bottom of the panel.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Appearance") {
+                Picker("Font", selection: Binding(
+                    get: { settings.usesAvenirFont },
+                    set: { settings.setUsesAvenirFont($0) }
+                )) {
+                    Text("Avenir Next").tag(true)
+                    Text("System").tag(false)
+                }
+                HStack {
+                    Text("Text size")
+                    Spacer()
+                    Button { settings.setFontScale(settings.fontScale - 0.05) } label: { Image(systemName: "minus") }
+                        .disabled(settings.fontScale <= AgentBarSettings.fontScaleRange.lowerBound)
+                    Text("\(Int((settings.fontScale * 100).rounded()))%")
+                        .monospacedDigit()
+                        .frame(width: 44)
+                    Button { settings.setFontScale(settings.fontScale + 0.05) } label: { Image(systemName: "plus") }
+                        .disabled(settings.fontScale >= AgentBarSettings.fontScaleRange.upperBound)
+                    Button("Reset") { settings.setFontScale(1.0) }
+                        .disabled(settings.fontScale == 1.0)
+                }
+                Text("Font and size apply to windows and panels as they next open.")
+                    .font(.avenir(size: 10))
+                    .foregroundStyle(.secondary)
             }
 
             Section("Alerts") {
@@ -39,7 +65,7 @@ struct GeneralSettingsView: View {
                     set: { settings.setShowsCornerTab($0) }
                 ))
                 Text("A small tab slides in at the bottom-right for a few seconds when an agent needs you, and whenever you rest the pointer in the bottom-right corner of the screen. While an agent is waiting for your answer or approval it stays until you deal with it. Click it to open AgentBar.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -50,7 +76,7 @@ struct GeneralSettingsView: View {
                 soundPicker("Needs you", cue: .needsAnswer)
                 soundPicker("Agent done", cue: .agentDone)
                 Text("Needs you plays when an agent is waiting for your answer or permission. Agent done plays when an agent has simply finished. Picking a sound previews it.")
-                    .font(.caption)
+                    .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

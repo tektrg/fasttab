@@ -26,7 +26,7 @@ struct AnswerOptionRowView: View {
         HStack(alignment: .top, spacing: 10) {
             if choiceMarker == nil {   // the form is answered by clicking: no number keys to advertise
                 Text("\(option.index)")
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .font(.avenir(size: 11, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.secondary)
                     .frame(width: 18, height: 18)
                     .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.10)))
@@ -41,23 +41,23 @@ struct AnswerOptionRowView: View {
                     textField
                 } else {
                     Text(option.label)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.avenir(size: 13, weight: .medium))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !option.description.isEmpty && !isTypingHere {
                     Text(option.description)
-                        .font(.system(size: 11))
+                        .font(.avenir(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if isTypingHere, let typedTextNote {
                     Text(typedTextNote)
-                        .font(.system(size: 10))
+                        .font(.avenir(size: 10))
                         .foregroundStyle(.secondary)
                 }
                 if isTypingHere && isMultiSelect {
                     Text("Sends only this text; ticked options are not sent with it.")
-                        .font(.system(size: 10))
+                        .font(.avenir(size: 10))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -87,7 +87,7 @@ struct AnswerOptionRowView: View {
             .overlay(alignment: .topLeading) {
                 if otherText.isEmpty {
                     Text("Type your answer (⇧↩ for a new line)")
-                        .font(.system(size: 13))
+                        .font(.avenir(size: 13))
                         .foregroundStyle(.tertiary)
                         .padding(.top, 2)
                         .allowsHitTesting(false)

@@ -34,11 +34,11 @@ struct PermissionCardView: View {
     private func header(_ card: PermissionCard) -> some View {
         HStack(spacing: 8) {
             Text(card.label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.avenir(size: 14, weight: .semibold))
                 .lineLimit(1)
             if let project = card.projectName {
                 Text(project)
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -58,7 +58,7 @@ struct PermissionCardView: View {
                 ProgressView().controlSize(.small)
                 Text("Reading the agent's last message…")
             }
-            .font(.system(size: 12))
+            .font(.avenir(size: 12))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 18)
             .padding(.bottom, 8)
@@ -89,7 +89,7 @@ struct PermissionCardView: View {
         let parts = prompt.detailParts
         return VStack(alignment: .leading, spacing: 6) {
             Text(prompt.isFileEdit ? "EDIT TO A FILE (\(prompt.tool.uppercased())) NEEDS YOUR OK" : "\(prompt.tool.uppercased()) NEEDS YOUR OK")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.avenir(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 6) {
                 if prompt.isPlanText {
@@ -98,12 +98,12 @@ struct PermissionCardView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                 Text(parts.headline.isEmpty ? "(no details shown)" : parts.headline)
-                    .font(.system(size: 13, weight: prompt.isFileEdit ? .semibold : .regular, design: .monospaced))
+                    .font(.avenirMono(size: 13, weight: prompt.isFileEdit ? .semibold : .regular))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let diff = parts.body {
                     Text(diff)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.avenirMono(size: 12))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -115,7 +115,7 @@ struct PermissionCardView: View {
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.07)))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.red.opacity(0.35)))
             Text(prompt.title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.avenir(size: 15, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 18)
@@ -125,7 +125,7 @@ struct PermissionCardView: View {
 
     private func noteLine(_ note: String) -> some View {
         Text(note)
-            .font(.system(size: 11, weight: .medium))
+            .font(.avenir(size: 11, weight: .medium))
             .foregroundStyle(WarningTextColor.color)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 18)
@@ -140,13 +140,13 @@ struct PermissionCardView: View {
                 ProgressView().controlSize(.small)
                 Text("Checking the terminal's prompt before you decide…")
             }
-            .font(.system(size: 12))
+            .font(.avenir(size: 12))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 18)
             .padding(.top, 4)
         case .unavailable(let reason):
             Text(reason)
-                .font(.system(size: 12, weight: .medium))
+                .font(.avenir(size: 12, weight: .medium))
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 18)
@@ -166,15 +166,15 @@ struct PermissionCardView: View {
         let option = state.prompt.option(for: choice)
         return HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(option.map { "\($0.index)" } ?? "")
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(.avenirMono(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
                 Text(choice.title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.avenir(size: 14, weight: .semibold))
                 if let label = option?.label {
                     Text(label)
-                        .font(.system(size: 11))
+                        .font(.avenir(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -221,11 +221,11 @@ struct PermissionCardView: View {
     private func confirmAlwaysLine(_ state: PermissionCardState) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(Self.confirmAlwaysText(state))
-                .font(.system(size: 11, weight: .semibold))
+                .font(.avenir(size: 11, weight: .semibold))
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
             Text(state.prompt.detail)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.avenirMono(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
                 .truncationMode(.middle)

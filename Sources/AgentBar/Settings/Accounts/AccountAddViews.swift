@@ -31,7 +31,7 @@ struct AccountAddSection: View {
                 Button("Add API account") { showingAPIForm = true }
             }
             switch model.editNotice {
-            case .info(let text)?: Text(text).font(.caption).foregroundStyle(.green)
+            case .info(let text)?: Text(text).font(.avenir(size: 10)).foregroundStyle(.green)
             case .error(let text)?: PersonaNotice(text: text)
             case nil: EmptyView()
             }
@@ -61,7 +61,7 @@ private struct APIAccountForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add API account").font(.headline)
+            Text("Add API account").font(.avenir(size: 13, weight: .bold))
             Form {
                 TextField("Name", text: $form.label)
                 TextField("Base URL", text: $form.baseURL, prompt: Text("https://api.example.com/anthropic"))
@@ -70,7 +70,7 @@ private struct APIAccountForm: View {
                 Toggle("Fallback — ask before using", isOn: $form.isFallback)
             }
             Text("The key is saved in the macOS Keychain, never in a file.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.avenir(size: 10)).foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel, action: close).keyboardShortcut(.cancelAction)

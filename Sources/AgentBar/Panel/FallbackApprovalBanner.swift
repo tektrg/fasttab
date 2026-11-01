@@ -13,7 +13,7 @@ struct FallbackApprovalBanner: View {
             Image(systemName: "exclamationmark.octagon.fill")
                 .foregroundStyle(Color.red)
             Text("All Claude accounts are at their limit. Continue on \(pending.displayLabel)?")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.avenir(size: 12, weight: .semibold))
                 .foregroundStyle(Color.red)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)

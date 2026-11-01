@@ -12,7 +12,7 @@ struct RowActionButtonView: View {
     var body: some View {
         Button(action: onPress) {
             Text(state == nil ? spec.label : RowActionText.title(of: spec.button, state: state))
-                .font(.system(size: 11, weight: .medium))
+                .font(.avenir(size: 11, weight: .medium))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
                 .foregroundStyle(foreground)

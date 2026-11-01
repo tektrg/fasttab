@@ -11,7 +11,7 @@ struct MachineBadgeView: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 9, weight: .bold))
+            .font(.avenir(size: 9, weight: .bold))
             .lineLimit(1)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)

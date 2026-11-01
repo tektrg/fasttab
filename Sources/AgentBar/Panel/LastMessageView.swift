@@ -22,7 +22,7 @@ struct LastMessageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("LAST MESSAGE")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.avenir(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
             MarkdownBlocksView(blocks: blocks)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -35,7 +35,7 @@ struct LastMessageView: View {
             if naturalHeight > Self.collapsedHeight {
                 Button(isExpanded ? "Show less" : "Show more") { isExpanded.toggle() }
                     .buttonStyle(.link)
-                    .font(.system(size: 11))
+                    .font(.avenir(size: 11))
             }
         }
         .padding(10)

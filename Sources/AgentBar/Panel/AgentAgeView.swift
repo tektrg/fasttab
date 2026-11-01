@@ -8,7 +8,7 @@ struct AgentAgeView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 15)) { context in
             Text(ageText(now: context.date))
-                .font(.system(size: 11).monospacedDigit())
+                .font(.avenir(size: 11).monospacedDigit())
                 .foregroundStyle(.tertiary)
         }
     }

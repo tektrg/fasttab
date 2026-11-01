@@ -480,6 +480,7 @@ struct FastTabApp: App {
                 .environmentObject(appState)
                 .environmentObject(licenseService)
         }
+        .windowToolbarStyle(.unifiedCompact)
 
         // The glyph is intentionally constant. Sync health is reported in the
         // menu's status line and in Settings, never as a badge on the icon:

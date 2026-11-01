@@ -35,7 +35,11 @@ struct OrderedTabSlotRow: View {
     /// Full style reserves nothing: the overlay covers the text, so hover never re-wraps it.
     private var actionReserveWidth: CGFloat {
         guard rowStyle == .minimal, isActionsVisible else { return 0 }
-        return RowActionOverlay<EmptyView>.reservedWidth(buttonCount: 1)
+        return RowActionOverlay<EmptyView>.reservedWidth(
+            buttonCount: 1,
+            leadingFadeWidth: 0,
+            trailingPadding: 0
+        )
     }
 
     var body: some View {
@@ -76,7 +80,7 @@ struct OrderedTabSlotRow: View {
                         }
 
                         HoverMarqueeText(slot.title.isEmpty ? slot.url : slot.title)
-                            .font(.system(size: 13, weight: .semibold, design: .default))
+                            .font(.system(size: 13, weight: .regular, design: .default))
                             .foregroundStyle(titleColor)
 
                         if isFrozen {
@@ -127,6 +131,7 @@ struct OrderedTabSlotRow: View {
                 isSelected: isSelected,
                 isHovering: isHovering,
                 isVisible: isHovering || isSelected,
+                leadingFadeWidth: 4,
                 trailingPadding: 10
             ) {
                 actionButtonCluster

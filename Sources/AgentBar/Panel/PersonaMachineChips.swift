@@ -13,7 +13,7 @@ struct PersonaMachineChips: View {
                 ForEach(chips, id: \.id) { chip in
                     let isSelected = chip.id == selectedID
                     Text(chip.label)
-                        .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                        .font(.avenir(size: 11, weight: isSelected ? .semibold : .regular))
                         .foregroundStyle(isSelected ? Color.white : Color.secondary)
                         .padding(.horizontal, 7)
                         .frame(height: 16)

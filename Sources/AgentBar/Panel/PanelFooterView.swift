@@ -14,7 +14,7 @@ struct PanelFooterView: View {
             Spacer(minLength: 0)
             Button(action: onOpenSettings) {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 12))
+                    .font(.avenir(size: 12))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
@@ -32,14 +32,14 @@ struct PanelFooterView: View {
     private var message: some View {
         if let stripNotice {
             Text(stripNotice.text)
-                .font(.system(size: 11, weight: .medium))
+                .font(.avenir(size: 11, weight: .medium))
                 .foregroundStyle(stripNotice.textColor)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(stripNotice.text)
         } else {
             Text(PanelFooterHints.text(for: hintContext))
-                .font(.system(size: 11))
+                .font(.avenir(size: 11))
                 .foregroundStyle(.tertiary)
         }
     }

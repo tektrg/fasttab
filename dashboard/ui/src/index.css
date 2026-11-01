@@ -28,7 +28,7 @@
   --shadow-drag: 0 4px 16px rgba(36,89,214,.25);
   /* Text stays Avenir; mono is for terminal output, commands/diffs, ids
      and counts only (loaded in index.html). */
-  --sans: 'Avenir', 'Avenir Next', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --sans: 'Avenir Next', 'Avenir', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   /* Meta / caption text; raised to 13px at phone width (media block below). */
   --fs-meta: 11px;
@@ -53,6 +53,9 @@
   --shadow-drag: 0 4px 16px rgba(0,0,0,.5);
 }
 * { box-sizing: border-box; }
+/* Settings > Font = System (data-font set on <html> by fontPref.ts). */
+:root[data-font="system"] { --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
 /* Avenir for chrome and data; --mono only where the text is machine output. */
 body { margin:0; background:var(--canvas); color:var(--ink);
   font-family: var(--sans);

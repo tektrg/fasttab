@@ -17,7 +17,10 @@ cd "${repo_root}"
 
 APP="dist/FastTab.app"
 ENTITLEMENTS="dist/FastTab.entitlements"
-SIGN_IDENTITY="${FASTTAB_SIGN_IDENTITY:-SELAV8N2B9}"
+# Two certs share team id SELAV8N2B9 on the Air, so the bare id is "ambiguous": prefer the cert
+# hash pinned in ~/.config/fasttab-signing.identity (same file prod-push.sh uses).
+pinned_identity="$(cat "${HOME}/.config/fasttab-signing.identity" 2>/dev/null || true)"
+SIGN_IDENTITY="${FASTTAB_SIGN_IDENTITY:-${pinned_identity:-SELAV8N2B9}}"
 
 [[ -d "${APP}" ]] || { echo "build-app: ${APP} not found (expected an existing bundle to refresh)" >&2; exit 1; }
 

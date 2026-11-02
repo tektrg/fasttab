@@ -100,6 +100,8 @@ struct ParadeeRenderer: ParadeeRendering {
         for piece in pieces {
             samples += try model.waveform(ids: ParadeeTokenizer.padded(piece), voiceIndex: voiceIndex, speed: speed)
         }
+        // NaN would trap in `ParadeeWAV.encode` (Int16(NaN)); fail instead → device voice fallback.
+        guard samples.allSatisfy(\.isFinite) else { throw ParadeeError.inferenceFailed("non-finite audio") }
         return ParadeeRenderedSentence(samples: samples, sampleRate: config.sampleRate, idCount: ids.count,
                                        pieces: pieces.count, synthesisSeconds: Date().timeIntervalSince(started))
     }

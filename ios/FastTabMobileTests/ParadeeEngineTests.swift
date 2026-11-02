@@ -21,10 +21,12 @@ final class FakeParadeeModel: ParadeeWaveformModel, @unchecked Sendable {
     private let lock = NSLock()
     private var _calls: [Call] = []
     var calls: [Call] { lock.withLock { _calls } }
+    /// Every sample's value (a test sets `.nan` to mimic a broken inference).
+    var sample: Float = 0.5
 
     func waveform(ids: [Int64], voiceIndex: Int64, speed: Float) throws -> [Float] {
         lock.withLock { _calls.append(Call(ids: ids, voiceIndex: voiceIndex, speed: speed)) }
-        return Array(repeating: 0.5, count: ids.count)
+        return Array(repeating: sample, count: ids.count)
     }
 }
 
@@ -145,6 +147,19 @@ final class ParadeeRendererTests: XCTestCase {
         _ = try renderer.render("ab", voice: .puck, speed: 1)
         XCTAssertEqual(phonemizer.accents.last, .american)
         XCTAssertEqual(model.calls.last?.voiceIndex, 2)
+    }
+
+    /// A NaN sample used to reach `ParadeeWAV.encode`, whose `Int16(NaN)` traps (app crash).
+    /// It is a synthesis failure instead, so the engine falls back to the device voice.
+    func testNonFiniteAudioIsAFailureNotACrash() throws {
+        let config = try bundledConfig()
+        let model = FakeParadeeModel()
+        model.sample = .nan
+        let renderer = ParadeeRenderer(phonemizer: FakeParadeePhonemizer(), tokenizer: ParadeeTokenizer(vocab: config.vocab),
+                                       model: model, config: config)
+        XCTAssertThrowsError(try renderer.render("ab", voice: .heart, speed: 1)) { error in
+            XCTAssertEqual(error as? ParadeeError, .inferenceFailed("non-finite audio"))
+        }
     }
 
     func testGateOnByDefaultOnlyWhereOfferedAndOnlyForEnglish() {

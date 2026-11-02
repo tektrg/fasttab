@@ -298,7 +298,8 @@ final class NaturalVoiceEngineTests: XCTestCase {
     }
 
     func testQuotaMidArticleFallsBackFromTheFailedSentenceWithShiftedRanges() async {
-        server.script("Two.", .init(status: 402, body: FakeTTSServer.json(["code": "tts_user_quota", "resetsAt": "2026-11-01T00:00:00Z"])))
+        // resetsAt must stay in the future: the engine compares it with the real clock.
+        server.script("Two.", .init(status: 402, body: FakeTTSServer.json(["code": "tts_user_quota", "resetsAt": "2099-01-01T00:00:00Z"])))
         speak(from: 1)
         await waitUntil { !self.device.runs.isEmpty }
         let run = device.runs[0]

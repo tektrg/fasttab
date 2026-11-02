@@ -35,6 +35,11 @@ final class ReadAloudController: ObservableObject {
     private let deviceEngine: SpeechEngine
     private let makeNaturalEngine: (SpeechEngine) -> SpeechEngine
     private lazy var naturalEngine: SpeechEngine = makeNaturalEngine(deviceEngine)
+    /// English voice (beta, on-device Paradee); falls back to the device voice itself.
+    private let makeParadeeEngine: (SpeechEngine) -> SpeechEngine
+    private lazy var paradeeEngine: SpeechEngine = makeParadeeEngine(deviceEngine)
+    /// The build offers the English voice switch (tests pass a constant).
+    private let isParadeeOffered: @MainActor () -> Bool
     /// The engine of the current run (picked from settings on every (re)start).
     private var engine: SpeechEngine
     private let settingsStore: ReaderReadingSettingsStore
@@ -55,11 +60,17 @@ final class ReadAloudController: ObservableObject {
     init(
         engine: SpeechEngine? = nil,
         naturalEngine makeNaturalEngine: ((_ deviceEngine: SpeechEngine) -> SpeechEngine)? = nil,
+        paradeeEngine makeParadeeEngine: ((_ deviceEngine: SpeechEngine) -> SpeechEngine)? = nil,
         settingsStore: ReaderReadingSettingsStore = .shared,
         integratesWithSystem: Bool = true,
-        isNaturalVoiceEntitled: @escaping @MainActor () -> Bool = { NaturalVoiceAccess.shared.isEntitled }
+        isNaturalVoiceEntitled: @escaping @MainActor () -> Bool = { NaturalVoiceAccess.shared.isEntitled },
+        isParadeeOffered: @escaping @MainActor () -> Bool = { ParadeeGate.isOfferedInThisBuild }
     ) {
         self.isNaturalVoiceEntitled = isNaturalVoiceEntitled
+        self.isParadeeOffered = isParadeeOffered
+        self.makeParadeeEngine = makeParadeeEngine ?? { device in
+            ParadeeSpeechEngine(device: device, preferredDeviceVoice: { settingsStore.settings.speechVoiceIdentifier })
+        }
         let deviceEngine = engine ?? AppleSpeechEngine()
         self.deviceEngine = deviceEngine
         self.engine = deviceEngine
@@ -74,6 +85,7 @@ final class ReadAloudController: ObservableObject {
             .removeDuplicates {
                 $0.speechRate == $1.speechRate && $0.speechVoiceIdentifier == $1.speechVoiceIdentifier
                     && $0.naturalVoiceEnabled == $1.naturalVoiceEnabled
+                    && $0.paradeeVoiceEnabled == $1.paradeeVoiceEnabled && $0.paradeeVoiceID == $1.paradeeVoiceID
             }
             .dropFirst()
             .sink { [weak self] settings in self?.settingsDidChange(settings) }
@@ -223,15 +235,22 @@ final class ReadAloudController: ObservableObject {
     /// (Re)starts the engine at `chunk` under a fresh generation.
     private func runEngine(from chunk: Int, settings: ReaderReadingSettings) {
         engine.stop()
-        let entitled = isNaturalVoiceEntitled()
-        engine = NaturalVoiceGate.usesNaturalVoice(toggleOn: settings.wantsNaturalVoice, entitled: entitled) ? naturalEngine : deviceEngine
         generation += 1
         currentChunk = chunk
-        voiceIdentifier = ReadAloudVoiceSelector.select(
-            preferredIdentifier: settings.speechVoiceIdentifier,
-            languageCode: languageCode,
-            among: deviceEngine.availableVoices
-        )?.id
+        if ParadeeGate.routesToParadee(languageCode: languageCode, setting: settings.paradeeVoiceEnabled,
+                                       offered: isParadeeOffered()) {
+            // English article: the on-device Paradee voice, free (no subscription check).
+            engine = paradeeEngine
+            voiceIdentifier = ParadeeVoice.resolve(settings.paradeeVoiceID).optionID
+        } else {
+            let entitled = isNaturalVoiceEntitled()
+            engine = NaturalVoiceGate.usesNaturalVoice(toggleOn: settings.wantsNaturalVoice, entitled: entitled) ? naturalEngine : deviceEngine
+            voiceIdentifier = ReadAloudVoiceSelector.select(
+                preferredIdentifier: settings.speechVoiceIdentifier,
+                languageCode: languageCode,
+                among: deviceEngine.availableVoices
+            )?.id
+        }
         transition(to: .playing)
         engine.speak(
             chunks,

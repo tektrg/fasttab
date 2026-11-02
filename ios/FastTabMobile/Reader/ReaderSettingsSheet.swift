@@ -10,10 +10,14 @@ public struct ReaderSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     /// Voices for the open article's language; empty hides the voice picker.
     let readAloudVoices: [ReadAloudVoiceOption]
+    /// The open article's language; English articles can list the Paradee voices instead.
+    let readAloudLanguage: String?
 
-    init(store: ReaderReadingSettingsStore = .shared, readAloudVoices: [ReadAloudVoiceOption] = []) {
+    init(store: ReaderReadingSettingsStore = .shared, readAloudVoices: [ReadAloudVoiceOption] = [],
+         readAloudLanguage: String? = nil) {
         self.store = store
         self.readAloudVoices = readAloudVoices
+        self.readAloudLanguage = readAloudLanguage
     }
 
     public var body: some View {
@@ -23,7 +27,7 @@ public struct ReaderSettingsSheet: View {
                 sizeSection
                 fontSection
                 appearanceSection
-                ReadAloudSettingsSection(store: store, voices: readAloudVoices)
+                ReadAloudSettingsSection(store: store, voices: readAloudVoices, articleLanguage: readAloudLanguage)
                 resetSection
             }
             .dsListStyle()

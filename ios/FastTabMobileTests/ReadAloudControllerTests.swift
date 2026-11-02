@@ -36,7 +36,9 @@ final class ReadAloudControllerTests: XCTestCase {
         suiteName = "ReadAloudControllerTests.\(UUID().uuidString)"
         store = ReaderReadingSettingsStore(local: UserDefaults(suiteName: suiteName)!, cloud: nil, isCloudSyncEnabled: false)
         engine = FakeSpeechEngine()
-        controller = ReadAloudController(engine: engine, settingsStore: store, integratesWithSystem: false)
+        // Device-voice state machine: keep English articles off the Paradee voice.
+        controller = ReadAloudController(engine: engine, settingsStore: store, integratesWithSystem: false,
+                                         isParadeeOffered: { false })
     }
 
     override func tearDown() async throws {

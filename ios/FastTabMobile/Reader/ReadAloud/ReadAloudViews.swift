@@ -99,6 +99,8 @@ struct ReadAloudBackToReadingButton: View {
 struct ReadAloudSettingsSection: View {
     @ObservedObject var store: ReaderReadingSettingsStore
     let voices: [ReadAloudVoiceOption]
+    /// The open article's language (BCP-47); English articles may use the Paradee voices.
+    var articleLanguage: String? = nil
     @State private var showsPaywall = false
     private var access: NaturalVoiceAccess { .shared }
 
@@ -112,7 +114,16 @@ struct ReadAloudSettingsSection: View {
                     Text(Self.rateLabel(rate)).tag(rate)
                 }
             }
-            if !voices.isEmpty {
+            if usesParadee {
+                Picker("Voice", selection: Binding(
+                    get: { ParadeeVoice.resolve(store.settings.paradeeVoiceID) },
+                    set: { store.setParadeeVoice($0) }
+                )) {
+                    ForEach(ParadeeVoice.allCases, id: \.self) { voice in
+                        Text("\(voice.name) · \(voice.accentLabel)").tag(voice)
+                    }
+                }
+            } else if !voices.isEmpty {
                 Picker("Voice", selection: Binding(
                     get: { selectedVoiceID },
                     set: { store.setSpeechVoice(identifier: $0) }
@@ -121,6 +132,15 @@ struct ReadAloudSettingsSection: View {
                     ForEach(voices) { voice in
                         Text(Self.voiceLabel(voice)).tag(Optional(voice.id))
                     }
+                }
+            }
+            if ParadeeGate.isOfferedInThisBuild {
+                Toggle(isOn: Binding(
+                    get: { store.settings.wantsParadeeVoice },
+                    set: { store.setParadeeVoiceEnabled($0) }
+                )) {
+                    Text("English voice (beta)")
+                    Text("Free, on-device voice for English articles")
                 }
             }
             Toggle(isOn: Binding(
@@ -153,9 +173,18 @@ struct ReadAloudSettingsSection: View {
         NaturalVoiceGate.settingsRow(entitled: access.isEntitled, awaitingConfirmation: access.isAwaitingConfirmation)
     }
 
+    /// English article with the English voice on: the picker lists the Paradee voices.
+    private var usesParadee: Bool {
+        ParadeeGate.routesToParadee(languageCode: articleLanguage, setting: store.settings.paradeeVoiceEnabled,
+                                    offered: ParadeeGate.isOfferedInThisBuild)
+    }
+
     private var footer: String {
         let voices = "Automatic picks the best voice installed for the article's language. Download Enhanced or Premium voices in Settings › Accessibility › Spoken Content › Voices."
-        return voices + " Natural voice streams a more human voice from the internet (subscription) and falls back to the device voice when it isn't available."
+        let paradee = ParadeeGate.isOfferedInThisBuild
+            ? " English voice reads English articles with a voice that runs on this iPhone, no internet needed."
+            : ""
+        return voices + paradee + " Natural voice streams a more human voice from the internet (subscription) and falls back to the device voice when it isn't available."
     }
 
     /// The saved voice when it is in this language's list; otherwise "Automatic".

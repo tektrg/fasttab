@@ -13,6 +13,11 @@ packages:
   # detection + link-card metadata for X / YouTube / Reddit / GitHub.
   IndieLibKit:
     path: ../../IndieLibKit
+  # On-device English Read Aloud voice (Paradee, FastTabMobile/Reader/ReadAloud/Paradee/): runs
+  # the bundled paradee_int8.onnx. Pinned: a new ORT can change the binary size a lot.
+  OnnxRuntime:
+    url: https://github.com/microsoft/onnxruntime-swift-package-manager
+    exactVersion: 1.24.2
 
 targets:
   FastTabMobile:
@@ -70,6 +75,9 @@ targets:
       # On-device transcript clean-up (FastTabMobile/Reader/YouTube/TranscriptCleanup*.swift).
       - package: IndieLibKit
         product: IndieTextCleanup
+      # Paradee voice inference (FastTabMobile/Reader/ReadAloud/Paradee/ParadeeModel.swift).
+      - package: OnnxRuntime
+        product: onnxruntime
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile

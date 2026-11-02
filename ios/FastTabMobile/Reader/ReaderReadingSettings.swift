@@ -142,6 +142,8 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
     /// Natural voice is on and offered in this build (DEBUG / TestFlight only for now).
     /// The person's switch only; Read Aloud also needs the subscription (`NaturalVoiceGate`).
     var wantsNaturalVoice: Bool { naturalVoiceEnabled ?? false }
+    /// "English voice (beta)" switch as shown: on by default where offered (`ParadeeGate`).
+    var wantsParadeeVoice: Bool { ParadeeGate.isEnabled(setting: paradeeVoiceEnabled, offered: ParadeeGate.isOfferedInThisBuild) }
 
     public var fontSize: Int
     public var fontFamily: ReaderFontFamily
@@ -157,6 +159,11 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
     public var speechVoiceIdentifier: String?
     /// "Natural voice (beta)": Google voice via theindie-api. Nil/false = device voice.
     public var naturalVoiceEnabled: Bool?
+    /// "English voice (beta)": Paradee, the on-device voice, for English articles.
+    /// Nil = the build's default (on in DEBUG / TestFlight, see `ParadeeGate`).
+    public var paradeeVoiceEnabled: Bool?
+    /// Paradee voice the user picked (`ParadeeVoice.rawValue`, e.g. "af_heart"). Nil = Heart.
+    public var paradeeVoiceID: String?
     public var updatedAt: Date
 
     public static var defaults: Self {
@@ -181,6 +188,8 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
         speechRate: Double? = nil,
         speechVoiceIdentifier: String? = nil,
         naturalVoiceEnabled: Bool? = nil,
+        paradeeVoiceEnabled: Bool? = nil,
+        paradeeVoiceID: String? = nil,
         updatedAt: Date = Date()
     ) {
         self.fontSize = min(max(fontSize, Self.fontSizeRange.lowerBound), Self.fontSizeRange.upperBound)
@@ -192,6 +201,8 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
         self.speechRate = speechRate
         self.speechVoiceIdentifier = speechVoiceIdentifier
         self.naturalVoiceEnabled = naturalVoiceEnabled
+        self.paradeeVoiceEnabled = paradeeVoiceEnabled
+        self.paradeeVoiceID = paradeeVoiceID
         self.updatedAt = updatedAt
     }
 
@@ -419,6 +430,14 @@ public final class ReaderReadingSettingsStore: ObservableObject {
 
     public func setNaturalVoiceEnabled(_ enabled: Bool) {
         update { $0.naturalVoiceEnabled = enabled }
+    }
+
+    public func setParadeeVoiceEnabled(_ enabled: Bool) {
+        update { $0.paradeeVoiceEnabled = enabled }
+    }
+
+    func setParadeeVoice(_ voice: ParadeeVoice) {
+        update { $0.paradeeVoiceID = voice == .default ? nil : voice.rawValue }
     }
 
     public func resetToDefaults() {

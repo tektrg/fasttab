@@ -359,7 +359,7 @@ final class NaturalVoiceEngineTests: XCTestCase {
         server.holdText = "One."
         let controller = ReadAloudController(engine: device, naturalEngine: { _ in self.engine },
                                              settingsStore: store, integratesWithSystem: false,
-                                             isNaturalVoiceEntitled: { true })
+                                             isNaturalVoiceEntitled: { true }, isParadeeOffered: { false })
         let article = ReaderArticle(title: "Title", content: "<p>One. Two.</p><p>Three.</p>", url: URL(string: "https://e.com")!)
         controller.start(article: article, fromChunk: 1) // gen A waits on "One."
         server.holdText = nil
@@ -380,7 +380,7 @@ final class NaturalVoiceEngineTests: XCTestCase {
         store.setNaturalVoiceEnabled(true)
         let controller = ReadAloudController(engine: device, naturalEngine: { _ in self.engine },
                                              settingsStore: store, integratesWithSystem: false,
-                                             isNaturalVoiceEntitled: { false })
+                                             isNaturalVoiceEntitled: { false }, isParadeeOffered: { false })
         let article = ReaderArticle(title: "Title", content: "<p>One.</p>", url: URL(string: "https://e.com")!)
         controller.start(article: article)
         XCTAssertFalse(device.runs.isEmpty, "built-in voice plays")

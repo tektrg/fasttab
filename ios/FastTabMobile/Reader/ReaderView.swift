@@ -162,7 +162,8 @@ public struct ReaderView: View {
             handleBack()
         }
         .sheet(isPresented: $showReadingSettings) {
-            ReaderSettingsSheet(readAloudVoices: readAloudVoicesForCurrentArticle)
+            ReaderSettingsSheet(readAloudVoices: readAloudVoicesForCurrentArticle,
+                                readAloudLanguage: readAloudLanguageForCurrentArticle)
         }
         .sheet(isPresented: $showHighlightsSheet) {
             highlightsSheet
@@ -459,9 +460,13 @@ public struct ReaderView: View {
 
     /// Voices for the loaded article's language, for the settings sheet's voice picker.
     private var readAloudVoicesForCurrentArticle: [ReadAloudVoiceOption] {
-        guard case .loaded(let article) = viewModel.loadState,
-              let language = ReadAloudText.dominantLanguage(of: ReadAloudText.chunks(for: article)) else { return [] }
+        guard let language = readAloudLanguageForCurrentArticle else { return [] }
         return ReadAloudVoiceSelector.voices(for: language, among: readAloud.availableVoices)
+    }
+
+    private var readAloudLanguageForCurrentArticle: String? {
+        guard case .loaded(let article) = viewModel.loadState else { return nil }
+        return ReadAloudText.dominantLanguage(of: ReadAloudText.chunks(for: article))
     }
 
     // MARK: - Highlights Sheet

@@ -40,6 +40,16 @@ xcodebuild -project FastTabMobile.xcodeproj -scheme FastTabMobile -configuration
   -destination 'generic/platform=iOS' -archivePath "${out}/FastTab.xcarchive" "${auth[@]}" \
   archive -quiet
 
+# onnxruntime is a static library already linked into the app; Xcode still embeds an empty
+# onnxruntime.framework shell whose min-iOS doesn't match its Info.plist → upload error 90208.
+# Nothing loads it (no LC_LOAD_DYLIB), so drop it; export re-signs the app.
+app="${out}/FastTab.xcarchive/Products/Applications/FastTabMobile.app"
+if otool -L "${app}/FastTabMobile" | grep -q onnxruntime; then
+  echo "app links onnxruntime.framework dynamically; not removing it" >&2; exit 1
+fi
+if [[ -d "${app}/Frameworks/onnxruntime.framework" ]]; then rm -r "${app}/Frameworks/onnxruntime.framework"; fi
+rmdir "${app}/Frameworks" 2>/dev/null || true
+
 cat > "${out}/ExportOptions.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -54,6 +64,12 @@ xcodebuild -exportArchive -archivePath "${out}/FastTab.xcarchive" -exportPath "$
   -exportOptionsPlist "${out}/ExportOptions.plist" "${auth[@]}" -quiet
 ipa="$(ls "${out}"/export/*.ipa)"
 scripts/check-ipa-entitlements.sh "${ipa}"
+if unzip -l "${ipa}" | grep -q "Frameworks/onnxruntime.framework/"; then
+  echo "IPA still embeds onnxruntime.framework (upload would fail 90208)" >&2; exit 1
+fi
+mkdir -p "${out}/ipa-check" && unzip -q -o "${ipa}" -d "${out}/ipa-check"
+codesign --verify --deep --strict "${out}/ipa-check/Payload/FastTabMobile.app"
+echo "   signature ok, no onnxruntime shell"
 
 echo "==> upload ${ipa##*/}"
 asc builds upload --app "${APP_ID}" --ipa "${ipa}"

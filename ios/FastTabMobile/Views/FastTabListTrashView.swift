@@ -5,6 +5,7 @@ import FastTabSync
 /// (`FastTabListLibrary.trashRetention`) before they are purged for good.
 struct FastTabListTrashView: View {
     @ObservedObject private var store = SavedOnIPhoneStore.shared
+    @ObservedObject private var readingProgress = ReaderReadingProgress.shared
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingEmpty = false
 
@@ -66,15 +67,16 @@ struct FastTabListTrashView: View {
     }
 
     private func row(_ link: SavedOnIPhoneLink) -> some View {
-        let host = URL(string: link.url)?.host() ?? link.url
-        return HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(link.title ?? host).lineLimit(2)
-                Text(subtitle(host: host, deletedAt: link.deletedAt))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
+        let url = URL(string: link.url)
+        let host = url?.host() ?? link.url
+        let progress = url.map { max(link.progress, readingProgress.progress(for: $0)) } ?? link.progress
+        return LinkLibraryRow(
+            title: link.title ?? host,
+            url: url,
+            domain: host,
+            subtitle: subtitle(host: host, deletedAt: link.deletedAt),
+            progress: progress
+        ) {
             Button {
                 withAnimation { store.restore(id: link.id) }
             } label: {

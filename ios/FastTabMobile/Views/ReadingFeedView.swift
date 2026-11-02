@@ -21,11 +21,14 @@ public struct ReadingFeedView: View {
     @State private var moveToBookmarksListItemID: String? = nil
     @State private var toast: String? = nil
     @State private var showingListTrash = false
+    @State private var showingViewAll = false
 
     public init() {}
 
+    /// The shelf: finished reads (99%+) live only in "View all" → Read (`LinkShelves`).
     private var displayRecentItems: [RecentAddedItem] {
-        recentProvider.items(filteredByFolder: selectedFolder)
+        RecentAddedProgress(reading: readingProgress, saved: savedStore)
+            .shelf(recentProvider.items(filteredByFolder: selectedFolder))
     }
 
     private let emergingLanesTip = EmergingLanesTip()
@@ -167,6 +170,9 @@ public struct ReadingFeedView: View {
         .sheet(isPresented: $showingListTrash) {
             FastTabListTrashView()
         }
+        .fullScreenCover(isPresented: $showingViewAll) {
+            LinkLibraryView()
+        }
         .sheet(item: $saveToBookmarkURL) { url in
             BookmarkMovePicker(
                 sourceDeviceID: activeDeviceID,
@@ -238,7 +244,7 @@ public struct ReadingFeedView: View {
             ) {
                 HStack(spacing: DS.Space.xs) {
                     if !savedStore.trashedItems.isEmpty { listTrashButton }
-                    DSCountPill(displayRecentItems.count)
+                    viewAllButton
                 }
             }
 
@@ -277,6 +283,23 @@ public struct ReadingFeedView: View {
                 }
             }
         }
+    }
+
+    /// Opens the full-screen library (`LinkLibraryView`): FastTab List, Bookmarks, Read, Trash.
+    private var viewAllButton: some View {
+        Button {
+            showingViewAll = true
+        } label: {
+            HStack(spacing: DS.Space.xxs) {
+                Text("View all")
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.bold))
+            }
+            .font(DS.Font.control)
+            .foregroundStyle(DS.Tint.action)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("View all saved links")
     }
 
     /// Opens the FastTab List's Trash (`FastTabListTrashView`).
@@ -544,33 +567,7 @@ public struct ReadingFeedView: View {
     }
 
     private func deleteRecentItem(_ item: RecentAddedItem) {
-        switch item.source {
-        case .bookmark(let browser, _, let bookmark, let profileName, let deviceID):
-            SyncConsumer.shared.sendDeleteBookmark(
-                bookmark: bookmark,
-                browserName: browser,
-                profileName: profileName,
-                targetDeviceID: deviceID
-            )
-            LocalCache.shared.removeBookmark(id: bookmark.id)
-            withAnimation {
-                recentProvider.removeItem(id: item.id)
-            }
-            presentToast("Queued delete — confirm on your Mac")
-        case .shareSheet(let commandID, _):
-            SyncConsumer.shared.cancelQueuedCommand(id: commandID)
-            LocalCache.shared.removeSentCommand(id: commandID)
-            withAnimation {
-                recentProvider.removeItem(id: item.id)
-            }
-            presentToast("Removed link")
-        case .savedOnIPhone(let linkID):
-            SavedOnIPhoneStore.shared.remove(id: linkID)
-            withAnimation {
-                recentProvider.removeItem(id: item.id)
-            }
-            presentToast("Moved to Trash")
-        }
+        presentToast(recentProvider.delete(item))
     }
 
     private func emergingDeleteInfo(for item: EmergingItem) -> (title: String, icon: String) {

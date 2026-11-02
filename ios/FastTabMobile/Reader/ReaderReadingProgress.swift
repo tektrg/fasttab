@@ -27,6 +27,11 @@ public final class ReaderReadingProgress: ObservableObject {
         store[canonical(url)]?.progress ?? 0.0
     }
 
+    /// When the article's progress last changed (for a finished article: when it was read).
+    public func lastUpdated(for url: URL) -> Date? {
+        store[canonical(url)]?.updatedAt
+    }
+
     public func set(progress: Double, for url: URL) {
         let key = canonical(url)
         store[key] = ProgressEntry(progress: max(0, min(1, progress)), updatedAt: Date())

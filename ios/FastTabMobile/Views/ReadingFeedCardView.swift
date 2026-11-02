@@ -218,34 +218,7 @@ public struct ReadingFeedCardView: View {
         }
     }
 
-    /// Site image (with play / Shorts overlays), else a text tile for an X or Reddit post
-    /// without media, else the generic placeholder.
-    @ViewBuilder
     private var thumbnailView: some View {
-        if let preview, let image = preview.image {
-            LinkCardImageView(image: image, preview: preview)
-        } else if let preview, preview.site == .x || preview.site == .reddit,
-                  let snippet = preview.snippetText, !snippet.isEmpty {
-            LinkCardTextTileView(preview: preview, text: snippet)
-        } else {
-            ZStack {
-                DS.Palette.surfaceMuted
-
-                if isLoadingPreview {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    VStack(spacing: DS.Space.xs) {
-                        Text(domain.prefix(1).uppercased())
-                            .font(.title.weight(.bold))
-                            .foregroundStyle(.tertiary)
-                        Image(systemName: "doc.plaintext")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .accessibilityHidden(true)
-                }
-            }
-        }
+        LinkThumbnailContent(preview: preview, isLoading: isLoadingPreview, domain: domain)
     }
 }

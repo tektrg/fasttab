@@ -277,6 +277,34 @@ public final class RecentAddedProvider: ObservableObject {
         items.removeAll { $0.id == id }
     }
 
+    /// Deletes one row the way its source allows (queued Mac delete for a bookmark, cancel for a
+    /// queued share, Trash for a phone-saved link) and returns the toast text. Shared by the
+    /// Read tab's shelf and the "View all" screen.
+    @discardableResult
+    public func delete(_ item: RecentAddedItem) -> String {
+        let message: String
+        switch item.source {
+        case .bookmark(let browser, _, let bookmark, let profileName, let deviceID):
+            SyncConsumer.shared.sendDeleteBookmark(
+                bookmark: bookmark,
+                browserName: browser,
+                profileName: profileName,
+                targetDeviceID: deviceID
+            )
+            LocalCache.shared.removeBookmark(id: bookmark.id)
+            message = "Queued delete — confirm on your Mac"
+        case .shareSheet(let commandID, _):
+            SyncConsumer.shared.cancelQueuedCommand(id: commandID)
+            LocalCache.shared.removeSentCommand(id: commandID)
+            message = "Removed link"
+        case .savedOnIPhone(let linkID):
+            SavedOnIPhoneStore.shared.remove(id: linkID)
+            message = "Moved to Trash"
+        }
+        withAnimation { removeItem(id: item.id) }
+        return message
+    }
+
     public func items(filteredByFolder folderPath: String?) -> [RecentAddedItem] {
         guard let folderPath, !folderPath.isEmpty else {
             return items

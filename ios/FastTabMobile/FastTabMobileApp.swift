@@ -104,7 +104,7 @@ public struct FastTabMobileApp: App {
             #if DEBUG
             .sheet(isPresented: $showsDemoPaywall) { NaturalVoicePaywallView().environment(accountSession) }
             #endif
-            .fullScreenCover(item: $widgetReaderItem) { item in
+            .readerPresentation(item: $widgetReaderItem) { item in
                 ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
                     // Presented outside the TabView: pass the account on (Sign in with Apple
                     // in the transcript error and the Natural Voice paywall needs it).

@@ -37,8 +37,8 @@ public struct ReaderWebView: UIViewRepresentable {
     public var onTextDeselected: (() -> Void)?
     /// Called when user taps an existing highlight
     public var onHighlightTapped: ((String) -> Void)?
-    /// Called when the user swipes from the left edge to go back.
-    public var onSwipeBack: (() -> Void)?
+    /// Left-edge swipe to go back, as it moves (the reader follows the finger).
+    public var onEdgeSwipe: ((ReaderEdgeSwipe) -> Void)?
     /// Called as the user scrolls: `true` to hide the navigation header, `false` to show it.
     public var onHeaderHiddenChanged: ((Bool) -> Void)?
     /// Called when the user scrolls to (or away from) the end of the article.
@@ -67,7 +67,7 @@ public struct ReaderWebView: UIViewRepresentable {
         onTextSelected: ((String, String) -> Void)? = nil,
         onTextDeselected: (() -> Void)? = nil,
         onHighlightTapped: ((String) -> Void)? = nil,
-        onSwipeBack: (() -> Void)? = nil,
+        onEdgeSwipe: ((ReaderEdgeSwipe) -> Void)? = nil,
         onHeaderHiddenChanged: ((Bool) -> Void)? = nil,
         onReachedEndChanged: ((Bool) -> Void)? = nil,
         onDeleteLink: (() -> Void)? = nil,
@@ -85,7 +85,7 @@ public struct ReaderWebView: UIViewRepresentable {
         self.onTextSelected = onTextSelected
         self.onTextDeselected = onTextDeselected
         self.onHighlightTapped = onHighlightTapped
-        self.onSwipeBack = onSwipeBack
+        self.onEdgeSwipe = onEdgeSwipe
         self.onHeaderHiddenChanged = onHeaderHiddenChanged
         self.onReachedEndChanged = onReachedEndChanged
         self.onDeleteLink = onDeleteLink
@@ -103,7 +103,7 @@ public struct ReaderWebView: UIViewRepresentable {
     public func makeCoordinator() -> Coordinator {
         Coordinator(viewModel: viewModel, onTextSelected: onTextSelected,
                     onTextDeselected: onTextDeselected, onHighlightTapped: onHighlightTapped,
-                    onSwipeBack: onSwipeBack,
+                    onEdgeSwipe: onEdgeSwipe,
                     onHeaderHiddenChanged: onHeaderHiddenChanged,
                     onReachedEndChanged: onReachedEndChanged,
                     onDeleteLink: onDeleteLink,
@@ -178,7 +178,7 @@ public struct ReaderWebView: UIViewRepresentable {
                 "window.ftSetVideoVisible && ftSetVideoVisible(\(viewModel.isVideoVisible));", completionHandler: nil)
         }
 
-        context.coordinator.onSwipeBack = onSwipeBack
+        context.coordinator.onEdgeSwipe = onEdgeSwipe
         context.coordinator.onUserBeganScrolling = onUserBeganScrolling
         context.coordinator.onReadAloudTap = onReadAloudTap
         context.coordinator.onReachedEndChanged = onReachedEndChanged
@@ -451,7 +451,7 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     @MainActor lazy var readAloudSync = ReadAloudPageSync()
     var onUserBeganScrolling: (() -> Void)?
     var onReadAloudTap: ((String, Int) -> Void)?
-    var onSwipeBack: (() -> Void)?
+    var onEdgeSwipe: ((ReaderEdgeSwipe) -> Void)?
     weak var edgeSwipeGesture: UIScreenEdgePanGestureRecognizer?
     /// What the page was loaded with (bootstrap). Pushes sent before the page is ready are
     /// lost, so `ready` re-sends whatever differs from this.
@@ -517,7 +517,7 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
          onTextSelected: ((String, String) -> Void)?,
          onTextDeselected: (() -> Void)?,
          onHighlightTapped: ((String) -> Void)?,
-         onSwipeBack: (() -> Void)? = nil,
+         onEdgeSwipe: ((ReaderEdgeSwipe) -> Void)? = nil,
          onHeaderHiddenChanged: ((Bool) -> Void)? = nil,
          onReachedEndChanged: ((Bool) -> Void)? = nil,
          onDeleteLink: (() -> Void)? = nil,
@@ -527,7 +527,7 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
         self.onTextSelected = onTextSelected
         self.onTextDeselected = onTextDeselected
         self.onHighlightTapped = onHighlightTapped
-        self.onSwipeBack = onSwipeBack
+        self.onEdgeSwipe = onEdgeSwipe
         self.onHeaderHiddenChanged = onHeaderHiddenChanged
         self.onReachedEndChanged = onReachedEndChanged
         self.onDeleteLink = onDeleteLink
@@ -550,16 +550,11 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
             self.activeObserver = nil
         }
         reloadHandler = nil
-        onSwipeBack = nil
+        onEdgeSwipe = nil
     }
 
     @objc func handleEdgeSwipe(_ recognizer: UIScreenEdgePanGestureRecognizer) {
-        guard recognizer.state == .ended else { return }
-        let translation = recognizer.translation(in: recognizer.view)
-        let velocity = recognizer.velocity(in: recognizer.view)
-        if translation.x > 40 || velocity.x > 250 {
-            onSwipeBack?()
-        }
+        if let swipe = ReaderEdgeSwipe(recognizer) { onEdgeSwipe?(swipe) }
     }
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {

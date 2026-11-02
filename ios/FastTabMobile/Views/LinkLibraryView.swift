@@ -70,7 +70,7 @@ struct LinkLibraryView: View {
                 .tag(Tab.trash)
         }
         .dsToast($toast)
-        .fullScreenCover(item: $readerItem) { item in
+        .readerPresentation(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
     }

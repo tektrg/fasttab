@@ -90,7 +90,7 @@ public struct SuggestBookmarksView: View {
         .sheet(item: $selectedBrowserURL) { url in
             InAppBrowserView(url: url)
         }
-        .fullScreenCover(item: $readerItem) { item in
+        .readerPresentation(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
         .sheet(item: $customPickSuggestion) { suggestion in

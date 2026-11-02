@@ -3,7 +3,7 @@ import SafariServices
 import WebKit
 import FastTabSync
 
-/// Simple `Identifiable` carrier for presenting `ReaderView` via `fullScreenCover` or `sheet`.
+/// Simple `Identifiable` carrier for presenting `ReaderView` with `.readerPresentation(item:)`.
 public struct ReaderNavigationItem: Identifiable, Hashable {
     public let id = UUID()
     public let url: URL
@@ -28,6 +28,8 @@ public struct ReaderView: View {
     /// Read Again state for the End of Article button (marked here or synced in).
     @ObservedObject private var savedStore = SavedOnIPhoneStore.shared
     @Environment(\.dismiss) private var dismiss
+    /// Set when presented with `.readerPresentation`: closing slides the reader out to the right.
+    @Environment(\.readerSlide) private var slide
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
 
@@ -60,7 +62,19 @@ public struct ReaderView: View {
     private func handleBack() {
         guard !isDismissing else { return }
         isDismissing = true
-        dismiss()
+        if let slide { slide.dismiss() } else { dismiss() }
+    }
+
+    /// Left-edge swipe (page or chrome): the reader follows the finger when it slides;
+    /// otherwise a far or fast enough swipe goes back.
+    private func handleEdgeSwipe(_ swipe: ReaderEdgeSwipe) {
+        guard !isDismissing else { return }
+        if let slide {
+            slide.handle(swipe)
+            if slide.isLeaving { isDismissing = true }
+        } else if case .ended(let translation, let velocity) = swipe, translation > 40 || velocity > 250 {
+            handleBack()
+        }
     }
 
     public init(url: URL, title: String, focusHighlightID: String? = nil) {
@@ -161,8 +175,8 @@ public struct ReaderView: View {
                 viewModel.flushPendingProgress()
             }
         }
-        .onScreenEdgeSwipeBack {
-            handleBack()
+        .onScreenEdgeSwipeBack { swipe in
+            handleEdgeSwipe(swipe)
         }
         .sheet(isPresented: $showReadingSettings) {
             ReaderSettingsSheet()
@@ -240,8 +254,8 @@ public struct ReaderView: View {
             onHighlightTapped: { id in
                 tappedHighlightID = id
             },
-            onSwipeBack: {
-                handleBack()
+            onEdgeSwipe: { swipe in
+                handleEdgeSwipe(swipe)
             },
             onHeaderHiddenChanged: { hidden in
                 isHeaderHidden = hidden
@@ -643,7 +657,7 @@ public struct ReaderView: View {
         LastOpenedStore.shared.remove(url: url)
 
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        dismiss()
+        handleBack()
     }
 
     private func normalizeURL(_ u: URL) -> String {
@@ -686,13 +700,13 @@ extension View {
 // MARK: - Left Edge Swipe To Go Back
 
 extension View {
-    func onScreenEdgeSwipeBack(action: @escaping () -> Void) -> some View {
+    func onScreenEdgeSwipeBack(action: @escaping (ReaderEdgeSwipe) -> Void) -> some View {
         self.modifier(ScreenEdgeSwipeBackModifier(onSwipe: action))
     }
 }
 
 private struct ScreenEdgeSwipeBackModifier: ViewModifier {
-    let onSwipe: () -> Void
+    let onSwipe: (ReaderEdgeSwipe) -> Void
 
     func body(content: Content) -> some View {
         content
@@ -701,7 +715,7 @@ private struct ScreenEdgeSwipeBackModifier: ViewModifier {
 }
 
 private struct ScreenEdgeSwipeBackRepresentable: UIViewControllerRepresentable {
-    let onSwipe: () -> Void
+    let onSwipe: (ReaderEdgeSwipe) -> Void
 
     func makeUIViewController(context: Context) -> ScreenEdgeSwipeBackViewController {
         ScreenEdgeSwipeBackViewController(onSwipe: onSwipe)
@@ -713,10 +727,10 @@ private struct ScreenEdgeSwipeBackRepresentable: UIViewControllerRepresentable {
 }
 
 private final class ScreenEdgeSwipeBackViewController: UIViewController, UIGestureRecognizerDelegate {
-    var onSwipe: () -> Void
+    var onSwipe: (ReaderEdgeSwipe) -> Void
     private weak var gesture: UIScreenEdgePanGestureRecognizer?
 
-    init(onSwipe: @escaping () -> Void) {
+    init(onSwipe: @escaping (ReaderEdgeSwipe) -> Void) {
         self.onSwipe = onSwipe
         super.init(nibName: nil, bundle: nil)
     }
@@ -760,12 +774,7 @@ private final class ScreenEdgeSwipeBackViewController: UIViewController, UIGestu
     }
 
     @objc private func handleEdgePan(_ recognizer: UIScreenEdgePanGestureRecognizer) {
-        guard recognizer.state == .ended else { return }
-        let translation = recognizer.translation(in: recognizer.view)
-        let velocity = recognizer.velocity(in: recognizer.view)
-        if translation.x > 40 || velocity.x > 250 {
-            onSwipe()
-        }
+        if let swipe = ReaderEdgeSwipe(recognizer) { onSwipe(swipe) }
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {

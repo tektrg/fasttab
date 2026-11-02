@@ -345,7 +345,7 @@ public struct BookmarkTreeView: View {
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
         }
-        .fullScreenCover(item: $readerItem) { item in
+        .readerPresentation(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
         .sheet(item: $moveRequest) { request in

@@ -53,7 +53,7 @@ struct OnboardingTryReaderStep: View {
         }
         .task(id: preloader.status) { await revealPreparingIfSlow() }
         .onDisappear { ReaderPreloader.shared.cancel() }
-        .fullScreenCover(item: $readerItem, onDismiss: forgetSampleVisit) { item in
+        .readerPresentation(item: $readerItem, onDismiss: forgetSampleVisit) { item in
             ReaderView(url: item.url, title: item.title)
         }
     }

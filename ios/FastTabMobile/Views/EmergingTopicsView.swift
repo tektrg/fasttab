@@ -95,7 +95,7 @@ public struct EmergingTopicsView: View {
         .sheet(item: $selectedURLForReader) { url in
             InAppBrowserView(url: url)
         }
-        .fullScreenCover(item: $readerItem) { item in
+        .readerPresentation(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
         .confirmationDialog(

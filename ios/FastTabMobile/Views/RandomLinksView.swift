@@ -167,7 +167,7 @@ public struct RandomLinksView: View {
         }
         // Reader only and Mac draw from different pools.
         .onChange(of: appMode.mode) { _, _ in reshuffle() }
-        .fullScreenCover(item: $readerItem) { item in
+        .readerPresentation(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
         .sheet(item: $moveRequest) { item in

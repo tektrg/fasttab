@@ -81,9 +81,17 @@ targets:
       # Paradee voice inference (FastTabMobile/Reader/ReadAloud/Paradee/ParadeeModel.swift).
       - package: OnnxRuntime
         product: onnxruntime
-        # Static library in a framework wrapper: linked into the app binary. Embedding it
-        # copies a stub dylib whose minos (17.0) != its Info.plist (15.1) → upload error 90208.
-        embed: false
+    postBuildScripts:
+      # onnxruntime ships a STATIC library in a framework wrapper, already linked into the
+      # app binary. Xcode still copies a stub onnxruntime.framework into Frameworks/ (ignores
+      # `embed: false`); its minos (17.0) != its Info.plist (15.1), so App Store upload fails
+      # with 90208. Nothing loads the stub (otool -L), so drop it before the app is signed.
+      - name: Remove onnxruntime stub framework
+        basedOnDependencyAnalysis: false
+        script: |
+          stub="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/onnxruntime.framework"
+          if [ -d "${stub}" ]; then rm -r "${stub}"; fi
+          rmdir "${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}" 2>/dev/null || true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile

@@ -242,10 +242,7 @@ public struct ReadingFeedView: View {
                 "Recent Added",
                 context: selectedFolder.map { "in \(BookmarkTreeBuilder.splitPath($0).last ?? $0)" }
             ) {
-                HStack(spacing: DS.Space.xs) {
-                    if !savedStore.trashedItems.isEmpty { listTrashButton }
-                    viewAllButton
-                }
+                viewAllButton
             }
 
             if displayRecentItems.isEmpty {
@@ -302,7 +299,8 @@ public struct ReadingFeedView: View {
         .accessibilityLabel("View all saved links")
     }
 
-    /// Opens the FastTab List's Trash (`FastTabListTrashView`).
+    /// Opens the FastTab List's Trash (`FastTabListTrashView`). Only the reader-only phones'
+    /// FastTab List header uses it; with the Mac companion, Trash is View all > Trash.
     private var listTrashButton: some View {
         Button {
             showingListTrash = true

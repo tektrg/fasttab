@@ -1,0 +1,22 @@
+What's new
+- Read Aloud has its own settings: ••• > Read Aloud Settings (voice, speed, English voice, Multi-language voice). Reading Settings now only covers how the article looks.
+- While Read Aloud plays, the bottom bar becomes three big controls: back 15 seconds, pause, forward 15 seconds. Pause brings the normal bar back.
+- Headphones, the lock screen and car controls can pause, resume and skip 15 seconds back or forward. On AirPods, double-press skips forward and triple-press skips back.
+- "Natural voice" is now called "Multi-language voice".
+- Read Again: mark any link to come back to it — from the link list, cards, Shuffle, or the end of an article. Marked links get their own "Read Again" tab in View all, stay there until you remove them, and come back up in Shuffle and in a "Read Again" lane under Emerging.
+- Articles now slide in from the right and slide back out to the right. Swiping from the left edge follows your finger.
+- Read count: links show how many times you've read them to the end, next to the reading progress (e.g. "100% · Read 2×").
+
+What to test
+- Open an article and press Play: the bar should switch to back 15 / pause / forward 15. Tap pause: the normal bar returns, and Play resumes where you left off.
+- Skip back and forward several times quickly, including across paragraphs. Reading should jump to the start of a sentence, the highlight should follow, and there should be no silence, double voices or stale audio.
+- With AirPods or other headphones: pause, resume, and skip (double-press / triple-press on AirPods). Do the same from the lock screen. Do the lock-screen skip buttons show "15"?
+- Pause, skip from the headphones or lock screen, then press Play in the app: it should continue from the new spot.
+- Leave the article while it's reading: playback stops, and the headphone buttons no longer control FastTab.
+- Open ••• > Read Aloud Settings and change voice and speed. Check Reading Settings still has everything about how the article looks.
+- Mark a few links "Read Again" from different places (a bookmark, a finished article, a Shuffle card, the end of an article). They should appear only under View all > Read Again, survive closing the app, and show up on your other devices.
+- Remove one from Read Again, and delete one then restore it from Trash.
+- Shuffle a few times and refresh Emerging: Read Again links should come back up.
+- Read an article from the top to the end twice: its row should show "Read 2×". Reopening it at the end shouldn't add to the count.
+- Open articles from different places (Read tab, View all, Shuffle, Search, a widget). Each should slide in from the right with the previous screen visible behind it, never a black screen. Close with the back arrow and with a slow and a quick swipe from the left edge.
+- Tell us anything that feels slow, confusing or broken.

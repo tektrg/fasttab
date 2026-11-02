@@ -101,7 +101,8 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         SWIFT_VERSION: "5.9"
         ENABLE_USER_SCRIPT_SANDBOXING: NO
-        OTHER_CODE_SIGN_FLAGS: "--deep -i app.theindie.FastTabMobile"
+        # No OTHER_CODE_SIGN_FLAGS "--deep -i <app id>": it re-signs embedded frameworks
+        # (onnxruntime.framework) with the app's identifier and the iPhone refuses the install.
       configs:
         Release:
           # App Store demo library (AppStoreDemo/, Debug only): keep its thumbnails out of Release.

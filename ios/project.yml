@@ -88,6 +88,9 @@ targets:
       # with 90208. Nothing loads the stub (otool -L), so drop it before the app is signed.
       - name: Remove onnxruntime stub framework
         basedOnDependencyAnalysis: false
+        # Declared input = the copied stub, so this runs AFTER Xcode embeds it.
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/onnxruntime.framework
         script: |
           stub="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/onnxruntime.framework"
           if [ -d "${stub}" ]; then rm -r "${stub}"; fi

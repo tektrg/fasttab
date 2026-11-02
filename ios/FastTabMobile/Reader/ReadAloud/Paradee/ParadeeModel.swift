@@ -23,7 +23,7 @@ final class ParadeeONNXModel: ParadeeWaveformModel, @unchecked Sendable {
     private let env: ORTEnv
     private let session: ORTSession
     /// One inference at a time: Read Aloud only ever needs one, and it keeps memory flat.
-    private let lock = NSLock()
+    private let lock = ParadeeInferenceLock()
 
     init(modelPath: String) throws {
         do {
@@ -39,8 +39,10 @@ final class ParadeeONNXModel: ParadeeWaveformModel, @unchecked Sendable {
     }
 
     func waveform(ids: [Int64], voiceIndex: Int64, speed: Float) throws -> [Float] {
-        lock.lock()
-        defer { lock.unlock() }
+        try lock.run { try infer(ids: ids, voiceIndex: voiceIndex, speed: speed) }
+    }
+
+    private func infer(ids: [Int64], voiceIndex: Int64, speed: Float) throws -> [Float] {
         do {
             let inputs: [String: ORTValue] = [
                 "input_ids": try Self.tensor(ids, .int64, shape: [1, ids.count]),
@@ -61,6 +63,21 @@ final class ParadeeONNXModel: ParadeeWaveformModel, @unchecked Sendable {
     private static func tensor<T>(_ values: [T], _ type: ORTTensorElementDataType, shape: [Int]) throws -> ORTValue {
         let data = values.withUnsafeBufferPointer { NSMutableData(bytes: $0.baseAddress, length: $0.count * MemoryLayout<T>.stride) }
         return try ORTValue(tensorData: data, elementType: type, shape: shape.map { NSNumber(value: $0) })
+    }
+}
+
+/// Serializes model inferences. Rapid ±15 s skips cancel sentence renders that are still
+/// queued here behind the running inference; each one checks cancellation once it holds the
+/// lock and bails with `CancellationError`, so only the current sentence's work runs (an
+/// inference already running can't be interrupted, but it is at most one ≤510-id piece).
+final class ParadeeInferenceLock: @unchecked Sendable {
+    private let lock = NSLock()
+
+    func run<T>(_ body: () throws -> T) throws -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        try Task.checkCancellation()
+        return try body()
     }
 }
 
@@ -85,6 +102,8 @@ protocol ParadeeRendering: Sendable {
 }
 
 /// G2P → ids → (pieces of ≤510 ids, each padded) → model, pieces' audio joined.
+/// A cancelled render (the run was stopped or skipped) throws `CancellationError` before its
+/// next piece instead of finishing the sentence.
 struct ParadeeRenderer: ParadeeRendering {
     let phonemizer: ParadeePhonemizing
     let tokenizer: ParadeeTokenizer
@@ -98,6 +117,7 @@ struct ParadeeRenderer: ParadeeRendering {
         let pieces = tokenizer.pieces(of: ids)
         var samples: [Float] = []
         for piece in pieces {
+            try Task.checkCancellation()
             samples += try model.waveform(ids: ParadeeTokenizer.padded(piece), voiceIndex: voiceIndex, speed: speed)
         }
         // NaN would trap in `ParadeeWAV.encode` (Int16(NaN)); fail instead → device voice fallback.

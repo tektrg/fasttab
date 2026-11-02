@@ -23,9 +23,12 @@ final class FakeParadeeModel: ParadeeWaveformModel, @unchecked Sendable {
     var calls: [Call] { lock.withLock { _calls } }
     /// Every sample's value (a test sets `.nan` to mimic a broken inference).
     var sample: Float = 0.5
+    /// Runs inside every call, on the rendering task (e.g. to cancel it mid-sentence).
+    var onCall: (@Sendable () -> Void)?
 
     func waveform(ids: [Int64], voiceIndex: Int64, speed: Float) throws -> [Float] {
         lock.withLock { _calls.append(Call(ids: ids, voiceIndex: voiceIndex, speed: speed)) }
+        onCall?()
         return Array(repeating: sample, count: ids.count)
     }
 }
@@ -40,14 +43,42 @@ final class FakeParadeeRenderer: ParadeeRendering, @unchecked Sendable {
     var failing: Set<String> = []
     /// Text that renders to no audio (nothing speakable).
     var silent: Set<String> = []
+    /// Text whose render runs until its task is cancelled, then bails like the real model.
+    var untilCancelled: Set<String> = []
 
     func render(_ text: String, voice: ParadeeVoice, speed: Float) throws -> ParadeeRenderedSentence {
         lock.withLock { _rendered.append(text); _voices.append(voice) }
         if failing.contains(text) { throw ParadeeError.inferenceFailed("scripted") }
+        if untilCancelled.contains(text) {
+            let deadline = Date().addingTimeInterval(2)
+            while !Task.isCancelled, Date() < deadline { usleep(1_000) }
+            try Task.checkCancellation()
+        }
         let samples: [Float] = silent.contains(text) ? [] : Array(repeating: 0.1, count: 2_400)
         return ParadeeRenderedSentence(samples: samples, sampleRate: 24_000, idCount: text.count, pieces: 1,
                                        synthesisSeconds: 0.01)
     }
+}
+
+/// Holds a synchronous section open until `release()` (blocks its thread, not the test).
+final class HoldGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let released = DispatchSemaphore(value: 0)
+    private var _isInside = false
+    var isInside: Bool { lock.withLock { _isInside } }
+
+    func enterAndWait() {
+        lock.withLock { _isInside = true }
+        released.wait()
+    }
+
+    func release() { released.signal() }
+}
+
+/// `waitUntil` for nonisolated tests.
+func waitUntilOff(timeout: TimeInterval = 2, _ condition: @Sendable () -> Bool) async {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition(), Date() < deadline { try? await Task.sleep(for: .milliseconds(5)) }
 }
 
 private func bundledConfig() throws -> ParadeeConfig {
@@ -160,6 +191,55 @@ final class ParadeeRendererTests: XCTestCase {
         XCTAssertThrowsError(try renderer.render("ab", voice: .heart, speed: 1)) { error in
             XCTAssertEqual(error as? ParadeeError, .inferenceFailed("non-finite audio"))
         }
+    }
+
+    /// Rapid skips: a sentence render cancelled between its ≤510-id pieces stops there
+    /// instead of running the rest of its inference ahead of the new sentence.
+    func testCancelledRenderStopsBetweenPieces() async throws {
+        let config = try bundledConfig()
+        let model = FakeParadeeModel()
+        model.onCall = { withUnsafeCurrentTask { $0?.cancel() } } // cancelled during piece 1
+        let renderer = ParadeeRenderer(phonemizer: FakeParadeePhonemizer(), tokenizer: ParadeeTokenizer(vocab: config.vocab),
+                                       model: model, config: config)
+        let long = Array(repeating: "ab", count: 200).joined(separator: " ") // 2 pieces
+        let result = await Task.detached { try renderer.render(long, voice: .heart, speed: 1) }.result
+        XCTAssertThrowsError(try result.get()) { XCTAssertTrue($0 is CancellationError, "\($0)") }
+        XCTAssertEqual(model.calls.count, 1, "piece 2 never reached the model")
+    }
+
+    func testRenderCancelledBeforeItStartsNeverCallsTheModel() async throws {
+        let config = try bundledConfig()
+        let model = FakeParadeeModel()
+        let renderer = ParadeeRenderer(phonemizer: FakeParadeePhonemizer(), tokenizer: ParadeeTokenizer(vocab: config.vocab),
+                                       model: model, config: config)
+        let task = Task.detached { () throws -> ParadeeRenderedSentence in
+            while !Task.isCancelled { await Task.yield() }
+            return try renderer.render("ab", voice: .heart, speed: 1)
+        }
+        task.cancel()
+        let result = await task.result
+        XCTAssertThrowsError(try result.get()) { XCTAssertTrue($0 is CancellationError, "\($0)") }
+        XCTAssertTrue(model.calls.isEmpty)
+    }
+
+    /// The model runs one inference at a time. A render cancelled while it waited for the
+    /// current one (rapid skips) must bail once it gets the lock, not run its inference.
+    func testInferenceLockSkipsWorkCancelledWhileWaiting() async throws {
+        let lock = ParadeeInferenceLock()
+        let gate = HoldGate()
+        let model = FakeParadeeModel()
+        let first = Task.detached { try lock.run { () -> Int in gate.enterAndWait(); return 1 } }
+        await waitUntilOff { gate.isInside }
+        let second = Task.detached { try lock.run { try model.waveform(ids: [0, 1, 0], voiceIndex: 0, speed: 1) } }
+        try await Task.sleep(for: .milliseconds(50)) // second is now blocked on the lock
+        second.cancel()
+        gate.release()
+        let firstValue = try await first.value
+        XCTAssertEqual(firstValue, 1)
+        let result = await second.result
+        XCTAssertThrowsError(try result.get()) { XCTAssertTrue($0 is CancellationError, "\($0)") }
+        XCTAssertTrue(model.calls.isEmpty, "no inference for a cancelled render")
+        XCTAssertEqual(try lock.run { 3 }, 3, "lock released")
     }
 
     func testGateOnByDefaultOnlyWhereOfferedAndOnlyForEnglish() {
@@ -312,6 +392,20 @@ final class ParadeeSpeechEngineTests: XCTestCase {
         speak(from: 1, generation: 2) // a new run forgets the old pause
         await waitUntil { self.device.runs.count == 2 }
         XCTAssertFalse(device.isPaused)
+    }
+
+    /// Rapid skips cancel in-flight renders: a render that bails with CancellationError is
+    /// not a synthesis failure (no notice, no device-voice fallback).
+    func testCancelledRenderIsNotASynthesisFailure() async {
+        renderer.untilCancelled = ["One."]
+        speak(from: 1)
+        await waitUntil { self.renderer.rendered.contains("One.") }
+        speak(from: 2, generation: 2) // skip: stop() cancels the in-flight render
+        await waitUntil { self.events.contains { $0.1 == .chunkFinished(2) } }
+        try? await Task.sleep(for: .milliseconds(30))
+        XCTAssertTrue(notices.isEmpty, "\(notices)")
+        XCTAssertTrue(device.runs.isEmpty)
+        XCTAssertEqual(events.map(\.0), Array(repeating: 2, count: events.count), "nothing from the cancelled run")
     }
 
     func testSilentSentenceIsSkippedNotHighlighted() async {

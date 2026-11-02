@@ -111,7 +111,8 @@ final class ParadeeSpeechEngine: SpeechEngine {
             do {
                 rendered = try await currentRender.value
             } catch {
-                guard !Task.isCancelled else { return }
+                // A cancelled render belongs to a stopped run: never a "synthesis failed" fallback.
+                guard !Task.isCancelled, !(error is CancellationError) else { return }
                 fallBack(after: error, at: sentence, fallback)
                 return
             }

@@ -22,6 +22,9 @@ public final class SavedOnIPhoneStore: ObservableObject {
 
     @Published public private(set) var items: [SavedOnIPhoneLink] = []
     @Published public private(set) var trashedItems: [SavedOnIPhoneLink] = []
+    /// Live items by `URL.readerCanonicalKey`, rebuilt with `items`: cheap per-row lookups
+    /// (Read Again membership, read count) for links that came from anywhere.
+    private var liveByCanonicalKey: [String: SavedOnIPhoneLink] = [:]
 
     private var library: FastTabListLibrary
     private let fileStore: FastTabListFileStore
@@ -74,6 +77,43 @@ public final class SavedOnIPhoneStore: ObservableObject {
         return true
     }
 
+    /// The live (not trashed) list item for this link, matched by canonical URL.
+    public func liveItem(for url: URL) -> SavedOnIPhoneLink? {
+        liveByCanonicalKey[url.readerCanonicalKey]
+    }
+
+    /// In **Read Again**: a live list item with the flag. Trashed items are not.
+    public func isReadAgain(_ url: URL) -> Bool {
+        liveItem(for: url)?.isReadAgain == true
+    }
+
+    /// Live items marked Read Again (Shuffle and Emerging draw from these).
+    public var readAgainItems: [SavedOnIPhoneLink] {
+        items.filter(\.isReadAgain)
+    }
+
+    /// "Read Again" on any link: marks the list item, adding one first (the way Read Later
+    /// does) when the link isn't in the list. `localReadCount` seeds the item's read count.
+    /// False when the link isn't a web page.
+    @discardableResult
+    public func markReadAgain(url: String, title: String?, localReadCount: Int = 0) -> Bool {
+        guard var link = FastTabListBridge.readLaterLink(url: url, title: title, now: now()) else { return false }
+        link.readCount = localReadCount
+        mutate { $0.markReadAgain(link, now: self.now()) }
+        return true
+    }
+
+    /// "Remove from Read Again". The item stays in the list.
+    public func removeFromReadAgain(url: URL) {
+        guard let item = liveItem(for: url) else { return }
+        mutate { $0.setReadAgain(id: item.id, false, now: self.now()) }
+    }
+
+    /// A reread finished in the reader (`ReadSession`); ignored for links not in the list.
+    public func recordFinishedRead(url: URL) {
+        mutate { $0.recordFinishedRead(url: url.absoluteString, now: self.now()) }
+    }
+
     /// Delete from the list = move to Trash.
     public func remove(id: String) { mutate { $0.moveToTrash(id: id, now: self.now()) } }
     public func restore(id: String) { mutate { $0.restore(id: id, now: self.now()) } }
@@ -118,7 +158,15 @@ public final class SavedOnIPhoneStore: ObservableObject {
     private func publish() {
         let live = library.liveItems
         let trashed = library.trashedItems
-        if live != items { items = live }
+        if live != items {
+            var byKey: [String: SavedOnIPhoneLink] = [:]
+            for item in live {
+                guard let url = URL(string: item.url) else { continue }
+                byKey[url.readerCanonicalKey] = item
+            }
+            liveByCanonicalKey = byKey
+            items = live
+        }
         if trashed != trashedItems { trashedItems = trashed }
     }
 

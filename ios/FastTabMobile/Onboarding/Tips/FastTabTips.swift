@@ -55,11 +55,12 @@ extension FastTabTip {
 
 /// Read tab, first time the Emerging carousel has cards.
 /// Lanes: `EmergingContentProvider` (Forgotten = bookmarks 30+ days old and
-/// tabs idle 3+ days; Pick up = pages visited in the last 3 days, not open now).
+/// tabs idle 3+ days; Pick up = pages visited in the last 3 days, not open now;
+/// Read Again = links the user marked to reread, not opened here this week).
 struct EmergingLanesTip: FastTabTip {
-    var title: Text { Text("Forgotten and Pick up") }
+    var title: Text { Text("Forgotten, Pick up and Read Again") }
     var message: Text? {
-        Text("Forgotten: month-old bookmarks and tabs left idle for days. Pick up: pages you visited lately but closed.")
+        Text("Forgotten: month-old bookmarks and tabs left idle for days. Pick up: pages you visited lately but closed. Read Again: links you marked to reread.")
     }
     var image: Image? { Image(systemName: "sparkles") }
 }

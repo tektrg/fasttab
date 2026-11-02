@@ -6,6 +6,8 @@
 #   scripts/fasttab-ios-testflight.sh marketing/appstore/testflight-notes-<version>-<build>.txt
 # The build number is whatever ios/project.yml says (bump + commit it first).
 # Env: ASC_PROFILE (CraftAgentApstoreConnect), ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH.
+#      NOTES_ONLY=1 — skip archive/upload; wait for this build number and set its notes
+#      (resume after a timeout: re-uploading the same build number is rejected).
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,7 +21,7 @@ ASC_ISSUER_ID="${ASC_ISSUER_ID:-61b86e20-5703-42b1-afc4-ecf9714f6013}"
 ASC_KEY_PATH="${ASC_KEY_PATH:-${HOME}/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8}"
 
 cd "${repo_root}/ios"
-[[ -z "$(git status --porcelain)" ]] || { echo "ios/ checkout is dirty; commit first" >&2; exit 1; }
+[[ -z "$(git status --porcelain)" ]] || { echo "checkout is dirty; commit first" >&2; exit 1; }
 build="$(grep -m1 -E '^[[:space:]]*CURRENT_PROJECT_VERSION:' project.yml | grep -oE '[0-9]+')"
 version="$(grep -m1 -E '^[[:space:]]*MARKETING_VERSION:' project.yml | grep -oE '[0-9.]+')"
 [[ -s "${notes_file}" ]] || { echo "notes file empty: ${notes_file}" >&2; exit 1; }
@@ -27,6 +29,7 @@ version="$(grep -m1 -E '^[[:space:]]*MARKETING_VERSION:' project.yml | grep -oE 
 echo "==> FastTab Reader ${version} (${build}) from $(git rev-parse --abbrev-ref HEAD)@$(git rev-parse --short HEAD)"
 
 out="${repo_root}/.build/testflight/${build}"
+if [[ "${NOTES_ONLY:-0}" != 1 ]]; then
 rm -rf "${out}"; mkdir -p "${out}"
 auth=(-allowProvisioningUpdates -authenticationKeyPath "${ASC_KEY_PATH}"
       -authenticationKeyID "${ASC_KEY_ID}" -authenticationKeyIssuerID "${ASC_ISSUER_ID}")
@@ -54,8 +57,11 @@ scripts/check-ipa-entitlements.sh "${ipa}"
 
 echo "==> upload ${ipa##*/}"
 asc builds upload --app "${APP_ID}" --ipa "${ipa}"
-asc builds wait --app "${APP_ID}" --build-number "${build}" --platform IOS
-asc builds update --app "${APP_ID}" --build-number "${build}" --platform IOS --uses-non-exempt-encryption=false || true
+fi
+echo "==> wait for processing (on timeout: NOTES_ONLY=1 $0 $1)"
+asc builds wait --app "${APP_ID}" --build-number "${build}" --platform IOS --timeout 60m --fail-on-invalid
+asc builds update --app "${APP_ID}" --build-number "${build}" --platform IOS --uses-non-exempt-encryption=false \
+  || echo "   (encryption flag not updated; Info.plist already declares it)"
 notes="$(cat "${notes_file}")"
 asc builds test-notes update --app "${APP_ID}" --build-number "${build}" --platform IOS --locale en-US --whats-new "${notes}" \
   || asc builds test-notes create --app "${APP_ID}" --build-number "${build}" --platform IOS --locale en-US --whats-new "${notes}"

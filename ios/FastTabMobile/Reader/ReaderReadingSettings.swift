@@ -214,6 +214,22 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
         return self == d
     }
 
+    /// Appearance only (size, font, spacing, colours) at factory defaults; Read Aloud
+    /// fields ignored. Drives "Reset to Defaults" in Reading Settings.
+    public var isAppearanceDefault: Bool { self == withDefaultAppearance() }
+
+    /// Same Read Aloud settings and `updatedAt`, factory appearance.
+    func withDefaultAppearance() -> Self {
+        var d = Self.defaults
+        d.speechRate = speechRate
+        d.speechVoiceIdentifier = speechVoiceIdentifier
+        d.naturalVoiceEnabled = naturalVoiceEnabled
+        d.paradeeVoiceEnabled = paradeeVoiceEnabled
+        d.paradeeVoiceID = paradeeVoiceID
+        d.updatedAt = updatedAt
+        return d
+    }
+
     // MARK: Effective appearance
 
     /// Which background hex applies for the current system appearance.
@@ -442,6 +458,15 @@ public final class ReaderReadingSettingsStore: ObservableObject {
 
     public func resetToDefaults() {
         var next = ReaderReadingSettings.defaults
+        next.updatedAt = Date()
+        settings = next
+        persistLocal()
+        pushToCloud()
+    }
+
+    /// Reading Settings' reset: appearance back to defaults, Read Aloud settings kept.
+    public func resetAppearanceToDefaults() {
+        var next = settings.withDefaultAppearance()
         next.updatedAt = Date()
         settings = next
         persistLocal()

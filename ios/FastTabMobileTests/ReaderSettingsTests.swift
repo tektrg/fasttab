@@ -110,6 +110,31 @@ final class ReaderSettingsTests: XCTestCase {
         XCTAssertTrue(makeStore().settings.isDefault)
     }
 
+    /// Reading Settings' "Reset to Defaults" no longer shows Read Aloud, so it must not wipe it.
+    func testAppearanceResetKeepsReadAloudSettings() {
+        let store = makeStore()
+        store.setFontSize(30)
+        store.setSpeechRate(1.5)
+        store.setNaturalVoiceEnabled(true)
+        XCTAssertFalse(store.settings.isAppearanceDefault)
+
+        store.resetAppearanceToDefaults()
+
+        let reloaded = makeStore().settings
+        XCTAssertEqual(reloaded.fontSize, ReaderReadingSettings.defaultFontSize)
+        XCTAssertTrue(reloaded.isAppearanceDefault)
+        XCTAssertEqual(reloaded.speechRate, 1.5)
+        XCTAssertEqual(reloaded.naturalVoiceEnabled, true)
+        XCTAssertFalse(reloaded.isDefault)
+    }
+
+    func testReadAloudChangesAloneKeepAppearanceDefault() {
+        let store = makeStore()
+        store.setSpeechRate(2.0)
+        XCTAssertTrue(store.settings.isAppearanceDefault) // Reset stays disabled in Reading Settings
+        XCTAssertFalse(store.settings.isDefault)
+    }
+
     // MARK: - Effective background
 
     func testEffectiveBackgroundHexFollowsScheme() {

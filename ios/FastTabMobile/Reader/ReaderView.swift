@@ -34,8 +34,9 @@ public struct ReaderView: View {
     @State private var selectedRange: String = ""
     @State private var showHighlightBar: Bool = false
 
-    // Reading settings sheet
+    // Reading settings sheet / Read Aloud settings sheet
     @State private var showReadingSettings: Bool = false
+    @State private var showReadAloudSettings: Bool = false
 
     // Highlight management sheet
     @State private var showHighlightsSheet: Bool = false
@@ -162,8 +163,11 @@ public struct ReaderView: View {
             handleBack()
         }
         .sheet(isPresented: $showReadingSettings) {
-            ReaderSettingsSheet(readAloudVoices: readAloudVoicesForCurrentArticle,
-                                readAloudLanguage: readAloudLanguageForCurrentArticle)
+            ReaderSettingsSheet()
+        }
+        .sheet(isPresented: $showReadAloudSettings) {
+            ReadAloudSettingsSheet(voices: readAloudVoicesForCurrentArticle,
+                                   articleLanguage: readAloudLanguageForCurrentArticle)
         }
         .sheet(isPresented: $showHighlightsSheet) {
             highlightsSheet
@@ -408,6 +412,11 @@ public struct ReaderView: View {
                 } label: {
                     Label("Reading Settings", systemImage: "textformat.size")
                 }
+                Button {
+                    showReadAloudSettings = true
+                } label: {
+                    Label("Read Aloud Settings", systemImage: "speaker.wave.2")
+                }
                 Divider()
                 Button {
                     isLongExtraction = false
@@ -458,7 +467,7 @@ public struct ReaderView: View {
         .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)
     }
 
-    /// Voices for the loaded article's language, for the settings sheet's voice picker.
+    /// Voices for the loaded article's language, for the Read Aloud settings' voice picker.
     private var readAloudVoicesForCurrentArticle: [ReadAloudVoiceOption] {
         guard let language = readAloudLanguageForCurrentArticle else { return [] }
         return ReadAloudVoiceSelector.voices(for: language, among: readAloud.availableVoices)

@@ -95,7 +95,42 @@ struct ReadAloudBackToReadingButton: View {
     }
 }
 
-/// "Read Aloud" section of the reading settings sheet: speed + voice.
+/// "Read Aloud Settings" sheet, opened from the reader's ••• menu (separate from the
+/// typography-only "Reading Settings"). Same settings store as the reader.
+struct ReadAloudSettingsSheet: View {
+    @ObservedObject var store: ReaderReadingSettingsStore
+    /// Voices for the open article's language; empty hides the device voice picker.
+    let voices: [ReadAloudVoiceOption]
+    /// The open article's language; English articles can list the Paradee voices instead.
+    let articleLanguage: String?
+    @Environment(\.dismiss) private var dismiss
+
+    init(store: ReaderReadingSettingsStore? = nil, voices: [ReadAloudVoiceOption] = [],
+         articleLanguage: String? = nil) {
+        self.store = store ?? .shared
+        self.voices = voices
+        self.articleLanguage = articleLanguage
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ReadAloudSettingsSection(store: store, voices: voices, articleLanguage: articleLanguage)
+            }
+            .dsListStyle()
+            .navigationTitle("Read Aloud Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+/// Read Aloud speed, voice and voice switches (the body of `ReadAloudSettingsSheet`).
 struct ReadAloudSettingsSection: View {
     @ObservedObject var store: ReaderReadingSettingsStore
     let voices: [ReadAloudVoiceOption]
@@ -162,8 +197,6 @@ struct ReadAloudSettingsSection: View {
             if naturalVoiceRow.offersRestore {
                 Button("Restore Purchases") { showsPaywall = true }
             }
-        } header: {
-            Text("Read Aloud")
         } footer: {
             Text(footer)
         }

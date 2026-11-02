@@ -2,22 +2,16 @@ import SwiftUI
 
 /// Reading appearance settings: size, Tier-A system font, line height,
 /// colour scheme and per-appearance background (presets + free colour pick).
+/// Read Aloud has its own sheet (`ReadAloudSettingsSheet`); Reset leaves it alone.
 /// Writes go straight to `ReaderReadingSettingsStore`, which persists locally
 /// and mirrors to iCloud Key-Value Store.
 public struct ReaderSettingsSheet: View {
     @ObservedObject var store: ReaderReadingSettingsStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
-    /// Voices for the open article's language; empty hides the voice picker.
-    let readAloudVoices: [ReadAloudVoiceOption]
-    /// The open article's language; English articles can list the Paradee voices instead.
-    let readAloudLanguage: String?
 
-    init(store: ReaderReadingSettingsStore = .shared, readAloudVoices: [ReadAloudVoiceOption] = [],
-         readAloudLanguage: String? = nil) {
+    init(store: ReaderReadingSettingsStore = .shared) {
         self.store = store
-        self.readAloudVoices = readAloudVoices
-        self.readAloudLanguage = readAloudLanguage
     }
 
     public var body: some View {
@@ -27,7 +21,6 @@ public struct ReaderSettingsSheet: View {
                 sizeSection
                 fontSection
                 appearanceSection
-                ReadAloudSettingsSection(store: store, voices: readAloudVoices, articleLanguage: readAloudLanguage)
                 resetSection
             }
             .dsListStyle()
@@ -227,11 +220,11 @@ public struct ReaderSettingsSheet: View {
     private var resetSection: some View {
         Section {
             Button(role: .destructive) {
-                store.resetToDefaults()
+                store.resetAppearanceToDefaults()
             } label: {
                 Label("Reset to Defaults", systemImage: "arrow.counterclockwise")
             }
-            .disabled(store.settings.isDefault)
+            .disabled(store.settings.isAppearanceDefault)
         }
     }
 

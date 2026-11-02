@@ -116,11 +116,9 @@ final class ParadeeRuntime: @unchecked Sendable {
     private let lock = NSLock()
     private var loaded: ParadeeRenderer?
 
-    /// The English text → phoneme converter shipped in this app; nil until one is bundled.
+    /// The English text → phoneme converter shipped in this app (misaki port, `G2P/` + `G2PData/`).
     static func makePhonemizer(bundle: Bundle) -> ParadeePhonemizing? {
-        // The G2P lands separately (`ParadeeG2P: ParadeePhonemizing`); wire it here:
-        // `ParadeeG2P(bundle: bundle)`. Until then Paradee falls back to the device voice.
-        nil
+        ParadeeG2P(bundle: bundle)
     }
 
     func renderer(bundle: Bundle = .main) throws -> ParadeeRenderer {

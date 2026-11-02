@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import FastTabSync
 
 /// State & business logic for a single reader session.
 /// Drives `ReaderView` via `@StateObject`.
@@ -100,6 +101,9 @@ public final class ReaderViewModel: ObservableObject {
     // MARK: - Dependencies (lazy so init is nonisolated-safe)
 
     private var progressStore: ReaderReadingProgress { .shared }
+    /// Counts a reread once per session (`ReadSession`); armed by `loadInitialState` with the
+    /// restored position, so it never counts before the reader has opened.
+    private var readSession = ReadSession(startProgress: 1)
     private var highlightStore: ReaderHighlightStore { .shared }
     private var articleCache: ReaderArticleCache { .shared }
     private var settingsStore: ReaderReadingSettingsStore { .shared }
@@ -153,6 +157,7 @@ public final class ReaderViewModel: ObservableObject {
     public func loadInitialState() {
         LastOpenedStore.shared.recordOpened(url: url, title: title)
         scrollProgress = progressStore.progress(for: url)
+        readSession = ReadSession(startProgress: scrollProgress)
         statsRecorder.beginReading(url: url, savedProgress: scrollProgress)
         highlights = highlightStore.highlights(for: url)
         ReaderCommentThreads.shared.load(highlights)
@@ -268,6 +273,10 @@ public final class ReaderViewModel: ObservableObject {
 
     public func updateScrollProgress(_ progress: Double, immediate: Bool = false) {
         scrollProgress = progress
+        if readSession.record(progress: progress) {
+            ReaderReadCounts.shared.increment(url)
+            SavedOnIPhoneStore.shared.recordFinishedRead(url: url)
+        }
         if immediate {
             // `immediate` is a finished scroll gesture, not the reader closing: stats still
             // batch small gains until a real flush.

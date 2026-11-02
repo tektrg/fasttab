@@ -3,16 +3,19 @@ import FastTabSync
 
 /// "View all" from the Read tab's Recent Added shelf: a full screen with its own bottom tab
 /// bar. **FastTab List** (phone-saved + shared links), **Bookmarks** (Mac bookmarks),
-/// **Read** (finished, 99-100%) and **Trash** (the FastTab List's Trash).
+/// **Read Again** (links the user marked to reread), **Read** (finished, 99-100%) and
+/// **Trash** (the FastTab List's Trash).
 ///
-/// A finished link appears only under Read (`LinkShelves`), never in the other tabs or on the
-/// shelf. Rows come from `RecentAddedProvider`, so dedupe and sources match the shelf.
+/// A finished link appears only under Read, a Read Again link only under Read Again
+/// (`LinkShelves`), never in the other tabs or on the shelf. Rows come from
+/// `RecentAddedProvider`, so dedupe and sources match the shelf.
 struct LinkLibraryView: View {
-    enum Tab: Hashable { case fastTabList, bookmarks, read, trash }
+    enum Tab: Hashable { case fastTabList, bookmarks, readAgain, read, trash }
 
     @ObservedObject private var recentProvider = RecentAddedProvider.shared
     @ObservedObject private var readingProgress = ReaderReadingProgress.shared
     @ObservedObject private var savedStore = SavedOnIPhoneStore.shared
+    @ObservedObject private var readCounts = ReaderReadCounts.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var selection: Tab
@@ -47,6 +50,14 @@ struct LinkLibraryView: View {
             .tag(Tab.bookmarks)
 
             linkTab(
+                "Read Again", items: split.readAgain,
+                emptyIcon: ReadAgainLabel.markIcon,
+                emptyText: "Links you mark Read Again stay here until you remove them. They also come up in Shuffle and Emerging."
+            )
+            .tabItem { Label("Read Again", systemImage: ReadAgainLabel.markIcon) }
+            .tag(Tab.readAgain)
+
+            linkTab(
                 "Read", items: split.read,
                 emptyIcon: "checkmark.circle",
                 emptyText: "Links you read to the end (99%+) move here."
@@ -77,9 +88,12 @@ struct LinkLibraryView: View {
                     List {
                         ForEach(items) { item in
                             row(item)
+                                .swipeActions(edge: .leading) {
+                                    readAgainButton(item)
+                                }
                                 .swipeActions(edge: .trailing) {
                                     Button(role: .destructive) {
-                                        toast = recentProvider.delete(item)
+                                        toast = delete(item)
                                     } label: {
                                         Label(deleteTitle(item), systemImage: "trash")
                                     }
@@ -103,6 +117,7 @@ struct LinkLibraryView: View {
 
     private func row(_ item: RecentAddedItem) -> some View {
         let progress = RecentAddedProgress(reading: readingProgress, saved: savedStore).progress(item)
+        let readCount = LinkReadState(saved: savedStore, counts: readCounts).readCount(item.url)
         return Button {
             LastOpenedStore.shared.recordOpened(url: item.url, title: item.title)
             readerItem = ReaderNavigationItem(url: item.url, title: item.title)
@@ -112,6 +127,7 @@ struct LinkLibraryView: View {
                 url: item.url,
                 domain: item.domain,
                 progress: progress,
+                readCount: readCount,
                 badgeText: item.source.badgeText,
                 badgeTint: item.source.tintColor,
                 badgeIcon: item.source.iconName
@@ -125,15 +141,38 @@ struct LinkLibraryView: View {
             } label: {
                 Label("Copy Link", systemImage: "doc.on.doc")
             }
+            readAgainButton(item)
             Button(role: .destructive) {
-                toast = recentProvider.delete(item)
+                toast = delete(item)
             } label: {
                 Label(deleteTitle(item), systemImage: "trash")
             }
         }
     }
 
+    /// "Read Again" / "Remove from Read Again" (swipe and long-press).
+    private func readAgainButton(_ item: RecentAddedItem) -> some View {
+        let isReadAgain = savedStore.isReadAgain(item.url)
+        return Button {
+            toast = LinkReadState(saved: savedStore, counts: readCounts).toggleReadAgain(url: item.url, title: item.title)
+        } label: {
+            Label(ReadAgainLabel.title(isReadAgain: isReadAgain), systemImage: ReadAgainLabel.icon(isReadAgain: isReadAgain))
+        }
+        .tint(DS.Tint.action)
+    }
+
+    /// A Read Again row is a list item even when the row came in as a share or bookmark:
+    /// deleting it sends that item to Trash (restoring brings the flag back).
+    private func delete(_ item: RecentAddedItem) -> String {
+        if item.source.listItemID == nil, let listItem = savedStore.liveItem(for: item.url), listItem.isReadAgain {
+            savedStore.remove(id: listItem.id)
+            return "Moved to Trash"
+        }
+        return recentProvider.delete(item)
+    }
+
     private func deleteTitle(_ item: RecentAddedItem) -> String {
-        item.source.isBookmark ? "Delete Bookmark" : "Delete Link"
+        if savedStore.isReadAgain(item.url) { return "Delete Link" }
+        return item.source.isBookmark ? "Delete Bookmark" : "Delete Link"
     }
 }

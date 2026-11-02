@@ -9,11 +9,20 @@ public enum EmergingItemSource: Hashable, Sendable {
     case generic
 }
 
-/// Which of the feed's two lanes an item was pulled into. Drives the badge
+/// Which of the feed's lanes an item was pulled into. Drives the badge
 /// label so the reason a card is here is always legible.
 public enum EmergingLane: String, Sendable {
     case forgotten = "Forgotten"
     case pickUp = "Pick up"
+    /// Links the user marked Read Again (FastTab List flag); the card's badge says so.
+    case readAgain = "Read Again"
+}
+
+/// A Read Again list item, snapshotted for the off-main ranking.
+struct ReadAgainCandidate: Sendable {
+    let url: URL
+    let title: String
+    let markedAt: Date
 }
 
 public struct EmergingItem: Identifiable, Hashable, Sendable {
@@ -95,14 +104,26 @@ public final class EmergingContentProvider: ObservableObject {
     nonisolated private static let forgottenTabIdleDays: Double = 3
     nonisolated private static let pickUpRecentDays: Double = 3
     nonisolated private static let ownReadWindowDays: Double = 7
+    nonisolated static let readAgainTarget = 2
 
     private var stateCancellable: AnyCancellable?
+    private var readAgainCancellable: AnyCancellable?
     private var activeTask: Task<Void, Never>?
 
     private init() {
         refresh()
 
         stateCancellable = LocalCache.shared.$state
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.refresh()
+            }
+
+        // Marking/unmarking Read Again changes the Read Again lane (progress edits don't).
+        readAgainCancellable = SavedOnIPhoneStore.shared.$items
+            .map { Set($0.filter(\.isReadAgain).map(\.id)) }
+            .removeDuplicates()
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -126,6 +147,11 @@ public final class EmergingContentProvider: ObservableObject {
         let dismissedHosts = EmergingDismissalStore.shared.dismissedHosts
         let dismissedLinkKeys = EmergingDismissalStore.shared.dismissedLinkKeys
         let classificationCache = EmergingLinkClassifier.shared.cacheSnapshot()
+        let readAgain = SavedOnIPhoneStore.shared.readAgainItems.compactMap { link -> ReadAgainCandidate? in
+            guard let url = URL(string: link.url), url.scheme?.hasPrefix("http") == true else { return nil }
+            return ReadAgainCandidate(url: url, title: link.title ?? url.host() ?? link.url,
+                                      markedAt: link.readAgainAt ?? link.savedAt)
+        }
 
         activeTask = Task.detached(priority: .userInitiated) { [weak self] in
             let computed = Self.computeRecommendations(
@@ -133,7 +159,8 @@ public final class EmergingContentProvider: ObservableObject {
                 lastOpened: lastOpened,
                 dismissedHosts: dismissedHosts,
                 dismissedLinkKeys: dismissedLinkKeys,
-                classificationCache: classificationCache
+                classificationCache: classificationCache,
+                readAgain: readAgain
             )
             guard !Task.isCancelled else { return }
 
@@ -156,9 +183,17 @@ public final class EmergingContentProvider: ObservableObject {
         lastOpened: [LastOpenedItem],
         dismissedHosts: Set<String>,
         dismissedLinkKeys: Set<String>,
-        classificationCache: [String: Bool]
+        classificationCache: [String: Bool],
+        readAgain: [ReadAgainCandidate]
     ) -> [EmergingItem] {
         let now = Date()
+
+        // Read Again lane first: its links never also show up as Forgotten / Pick up.
+        let readAgainItems = readAgainLane(
+            readAgain, lastOpened: lastOpened,
+            dismissedHosts: dismissedHosts, dismissedLinkKeys: dismissedLinkKeys, now: now
+        )
+        let readAgainKeys = Set(readAgainItems.map { EmergingURLUtils.dedupeKey($0.url) })
 
         // Anything read on the iPhone recently shouldn't come back as "new".
         var recentlyReadOnPhoneKeys = Set<String>()
@@ -409,7 +444,7 @@ public final class EmergingContentProvider: ObservableObject {
                 return $0.topicScore > $1.topicScore
             }
             var picked: [EmergingItem] = []
-            var seenKeys = Set<String>()
+            var seenKeys = readAgainKeys
             var topicCounts: [String: Int] = [:]
             var hostCounts: [String: Int] = [:]
 
@@ -437,9 +472,70 @@ public final class EmergingContentProvider: ObservableObject {
         // happens after this function returns (see `refresh()`), so a link
         // gets one silent chance before the model has an opinion, and drops
         // out on the following refresh if it comes back "tool".
-        return (forgotten + pickUp).filter { item in
+        // Read Again is the user's own pick, so the tool filter doesn't apply to it.
+        let filtered = (forgotten + pickUp).filter { item in
             classificationCache[EmergingURLUtils.dedupeKey(item.url)] != false
         }
+        let forgottenCount = filtered.prefix { $0.lane == .forgotten }.count
+        return Array(filtered.prefix(forgottenCount)) + readAgainItems + filtered.dropFirst(forgottenCount)
+    }
+
+    /// The Read Again lane: up to `target` links the user marked Read Again, skipping dismissed
+    /// links/websites and anything opened on this phone in the last `ownReadWindowDays`
+    /// (same filters as the other lanes). Never opened here comes first, then the longest
+    /// since opened, then the oldest mark; at most `maxPerHost` per website.
+    nonisolated static func readAgainLane(
+        _ candidates: [ReadAgainCandidate],
+        lastOpened: [LastOpenedItem],
+        dismissedHosts: Set<String>,
+        dismissedLinkKeys: Set<String>,
+        now: Date,
+        target: Int = readAgainTarget
+    ) -> [EmergingItem] {
+        var openedAtByKey: [String: Date] = [:]
+        for opened in lastOpened {
+            guard let url = URL(string: opened.url) else { continue }
+            let key = EmergingURLUtils.dedupeKey(url)
+            openedAtByKey[key] = max(openedAtByKey[key] ?? .distantPast, opened.openedAt)
+        }
+        let recentCutoff = now.addingTimeInterval(-ownReadWindowDays * 86400)
+
+        let eligible = candidates.compactMap { candidate -> (ReadAgainCandidate, key: String, openedAt: Date?)? in
+            let key = EmergingURLUtils.dedupeKey(candidate.url)
+            let host = (candidate.url.host() ?? "").lowercased()
+            guard !dismissedHosts.contains(host), !dismissedLinkKeys.contains(key) else { return nil }
+            let openedAt = openedAtByKey[key]
+            if let openedAt, openedAt > recentCutoff { return nil }
+            return (candidate, key, openedAt)
+        }.sorted { lhs, rhs in
+            let l = lhs.openedAt ?? .distantPast, r = rhs.openedAt ?? .distantPast
+            if l != r { return l < r }
+            return lhs.0.markedAt < rhs.0.markedAt
+        }
+
+        var picked: [EmergingItem] = []
+        var seenKeys = Set<String>()
+        var hostCounts: [String: Int] = [:]
+        for (candidate, key, openedAt) in eligible {
+            guard picked.count < target else { break }
+            guard seenKeys.insert(key).inserted else { continue }
+            let host = (candidate.url.host() ?? "").lowercased()
+            guard hostCounts[host, default: 0] < maxPerHost else { continue }
+            hostCounts[host, default: 0] += 1
+            let reason = openedAt.map { "Last opened \(formatAge(now.timeIntervalSince($0) / 86400)) ago" }
+                ?? "Marked to read again"
+            picked.append(EmergingItem(
+                id: "readagain_\(key)",
+                title: candidate.title,
+                url: candidate.url,
+                domain: host,
+                badgeText: EmergingLane.readAgain.rawValue,
+                reason: reason,
+                source: .generic,
+                lane: .readAgain
+            ))
+        }
+        return picked
     }
 
     private nonisolated static func extractTopicKeywords(from text: String) -> Set<String> {

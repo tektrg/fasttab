@@ -420,6 +420,11 @@
     }
   }
 
+  /* Read Again spans the row under Delete / Save to Folder. */
+  .ft-end-buttons .ft-btn-wide {
+    grid-column: 1 / -1;
+  }
+
   .ft-btn {
     display: inline-flex;
     align-items: center;
@@ -454,6 +459,11 @@
   .ft-btn-primary {
     background: var(--link);
     color: #ffffff;
+  }
+
+  .ft-btn-secondary {
+    background: color-mix(in srgb, var(--link) 12%, transparent);
+    color: var(--link);
   }
 
   .ft-btn svg {
@@ -501,6 +511,13 @@
         </svg>
         <span>Save to Folder…</span>
       </button>
+      <button id="ft-read-again-btn" type="button" class="ft-btn ft-btn-secondary ft-btn-wide" onclick="handleReadAgainClick()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="1 4 1 10 7 10"></polyline>
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+        </svg>
+        <span id="ft-read-again-label">Read Again</span>
+      </button>
     </div>
   </footer>
 </div>
@@ -537,14 +554,25 @@ function handleSaveFolderClick() {
   } catch(e) {}
 }
 
+function handleReadAgainClick() {
+  try {
+    window.webkit.messageHandlers.toggleReadAgain.postMessage({});
+  } catch(e) {}
+}
+
+// Partial updates are fine: only the fields present change (Swift pushes readAgainLabel alone).
 function ftUpdateEndActions(data) {
   if (!data) return;
   if (data.deleteLabel) {
     var lbl = document.getElementById('ft-delete-label');
     if (lbl) lbl.textContent = data.deleteLabel;
   }
+  if (data.readAgainLabel) {
+    var raLbl = document.getElementById('ft-read-again-label');
+    if (raLbl) raLbl.textContent = data.readAgainLabel;
+  }
   var badgesEl = document.getElementById('ft-end-badges');
-  if (badgesEl) {
+  if (badgesEl && data.locationBadges) {
     badgesEl.innerHTML = '';
     var list = data.locationBadges || [];
     list.forEach(function(badge) {

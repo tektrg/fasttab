@@ -21,12 +21,18 @@ final class MacReaderModel: ObservableObject {
     let progressSink: MacReaderProgressSink
     private let cache = MacReaderArticleCache(directory: MacReaderArticleCache.defaultDirectory)
 
+    /// Counts a reread (read count) once the page has loaded with its starting position.
+    private let readSession: MacReadSessionTracker
+
     init(url: URL, title: String?) {
         self.url = url
         self.title = title ?? url.host() ?? url.absoluteString
         let urlString = url.absoluteString
+        let readSession = MacReadSessionTracker()
+        self.readSession = readSession
         progressSink = MacReaderProgressSink { progress in
-            FastTabListStore.shared.recordReaderProgress(url: urlString, progress: progress)
+            FastTabListStore.shared.recordReaderProgress(
+                url: urlString, progress: progress, finishedRead: readSession.record(progress: progress))
         }
     }
 
@@ -45,6 +51,7 @@ final class MacReaderModel: ObservableObject {
         let supportDirectory = SyncService.shared.fastTabSupportDirectory
         let synced = ReaderMirror.loadHighlights(in: ReaderMirror.directory(supportDirectory: supportDirectory))
         let progress = FastTabListStore.shared.item(id: FastTabListLibrary.itemID(for: urlString)).map(\.progress) ?? 0
+        readSession.begin(startProgress: progress)
         let html = MacReaderPage.html(template: template, article: article, initialProgress: progress,
                                       highlights: MacReaderPage.highlights(forURL: urlString, in: synced))
         content = .article(html: html, baseURL: article.url)

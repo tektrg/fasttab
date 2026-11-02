@@ -1,7 +1,8 @@
 import Foundation
 import CryptoKit
 
-/// The FastTab List's rules as a plain value: dedupe, Trash, purge, read state.
+/// The FastTab List's rules as a plain value: dedupe, Trash, purge, read state, Read Again,
+/// read count.
 /// No I/O and no clock of its own (every mutation takes `now`), so it is tested
 /// directly; the phone's `SavedOnIPhoneStore` owns persistence and publishing.
 /// Shared (FastTabSync) so the Mac derives the same ids and applies the same rules.
@@ -111,6 +112,45 @@ public struct FastTabListLibrary: Equatable, Sendable {
             $0.readAt = isRead ? now : nil
             $0.readStateUpdatedAt = now
         }
+    }
+
+    /// Marks or unmarks **Read Again**. The flag survives Trash (restoring brings it back)
+    /// and rereading; only an unmark clears it.
+    public mutating func setReadAgain(id: String, _ isReadAgain: Bool, now: Date) {
+        guard let item = item(id: id), item.isReadAgain != isReadAgain else { return }
+        update(id: id, now: now) {
+            $0.readAgainAt = isReadAgain ? now : nil
+            $0.readAgainUpdatedAt = now
+        }
+    }
+
+    /// "Read Again" on any link (bookmark, card, list item): a link already in the list is
+    /// just marked, in place; otherwise it is added the way "Read Later" adds it (a trashed
+    /// one comes back out of Trash) and then marked. `link.readCount` (a count the device
+    /// kept before the link had a list item) seeds the item's count, never lowers it.
+    public mutating func markReadAgain(_ link: SavedOnIPhoneLink, now: Date) {
+        let id = Self.itemID(for: link.url)
+        if item(id: id)?.isTrashed != false { save(link, now: now) }
+        if link.readCount > (item(id: id)?.readCount ?? 0) {
+            update(id: id, now: now) {
+                $0.readCount = link.readCount
+                $0.readCountUpdatedAt = now
+            }
+        }
+        setReadAgain(id: id, true, now: now)
+    }
+
+    /// One more read to the end (`ReadSession` decides when). False when the URL isn't in
+    /// the list.
+    @discardableResult
+    public mutating func recordFinishedRead(url urlString: String, now: Date) -> Bool {
+        let id = Self.itemID(for: urlString)
+        guard item(id: id) != nil else { return false }
+        update(id: id, now: now) {
+            $0.readCount += 1
+            $0.readCountUpdatedAt = now
+        }
+        return true
     }
 
     private mutating func update(id: String, now: Date, _ change: (inout SavedOnIPhoneLink) -> Void) {

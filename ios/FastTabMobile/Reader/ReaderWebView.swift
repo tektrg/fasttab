@@ -16,6 +16,7 @@ private enum JSMessage: String, CaseIterable {
     case readAloudTap     // { text: String, offset: Int } — article tapped (-1: not on text)
     case deleteLink       // tapped delete button at end of article
     case saveToBookmarkFolder // tapped save to folder button at end of article
+    case toggleReadAgain  // tapped Read Again / Remove from Read Again at end of article
 }
 
 // MARK: - ReaderWebView
@@ -46,6 +47,10 @@ public struct ReaderWebView: UIViewRepresentable {
     public var onDeleteLink: (() -> Void)?
     /// Called when user taps save to folder at end of article.
     public var onSaveToBookmarkFolder: (() -> Void)?
+    /// Marked Read Again: the End of Article button reads "Remove from Read Again".
+    var isReadAgain: Bool = false
+    /// Called when the user taps the End of Article Read Again button.
+    var onToggleReadAgain: (() -> Void)?
     /// Read Aloud progress to highlight; nil when Read Aloud has never started.
     var readAloud: ReadAloudPageState?
     /// The user started dragging the page (Read Aloud pauses auto-scroll).
@@ -67,6 +72,8 @@ public struct ReaderWebView: UIViewRepresentable {
         onReachedEndChanged: ((Bool) -> Void)? = nil,
         onDeleteLink: (() -> Void)? = nil,
         onSaveToBookmarkFolder: (() -> Void)? = nil,
+        isReadAgain: Bool = false,
+        onToggleReadAgain: (() -> Void)? = nil,
         readAloud: ReadAloudPageState? = nil,
         onUserBeganScrolling: (() -> Void)? = nil,
         onReadAloudTap: ((String, Int) -> Void)? = nil,
@@ -83,6 +90,8 @@ public struct ReaderWebView: UIViewRepresentable {
         self.onReachedEndChanged = onReachedEndChanged
         self.onDeleteLink = onDeleteLink
         self.onSaveToBookmarkFolder = onSaveToBookmarkFolder
+        self.isReadAgain = isReadAgain
+        self.onToggleReadAgain = onToggleReadAgain
         self.readAloud = readAloud
         self.onUserBeganScrolling = onUserBeganScrolling
         self.onReadAloudTap = onReadAloudTap
@@ -176,6 +185,11 @@ public struct ReaderWebView: UIViewRepresentable {
         context.coordinator.onHeaderHiddenChanged = onHeaderHiddenChanged
         context.coordinator.onDeleteLink = onDeleteLink
         context.coordinator.onSaveToBookmarkFolder = onSaveToBookmarkFolder
+        context.coordinator.onToggleReadAgain = onToggleReadAgain
+        context.coordinator.isReadAgain = isReadAgain
+        if context.coordinator.pushedReadAgain != isReadAgain {
+            context.coordinator.pushReadAgain()
+        }
         if let readAloud {
             context.coordinator.readAloudSync.webView = webView
             onReadAloudPageReady?(context.coordinator.readAloudSync)
@@ -264,6 +278,7 @@ public struct ReaderWebView: UIViewRepresentable {
         let videoLarge: Bool
         let deleteLabel: String
         let locationBadges: [String]
+        let readAgainLabel: String
     }
 
     /// JS that applies the full settings-derived CSS-var set. Shared by the live
@@ -360,7 +375,9 @@ public struct ReaderWebView: UIViewRepresentable {
             videoVisible: viewModel.isVideoVisible,
             videoLarge: viewModel.isVideoLarge,
             deleteLabel: deleteLabel,
-            locationBadges: badges
+            locationBadges: badges,
+            readAgainLabel: ReaderEndActions.readAgainLabel(
+                isReadAgain: SavedOnIPhoneStore.shared.isReadAgain(viewModel.url))
         )
 
         var jsonString = "{}"
@@ -411,6 +428,11 @@ struct ReaderEndActions: Equatable {
         default: return "Delete Link"
         }
     }
+
+    /// The End of Article Read Again button, same wording as every other surface.
+    static func readAgainLabel(isReadAgain: Bool) -> String {
+        ReadAgainLabel.title(isReadAgain: isReadAgain)
+    }
 }
 
 // MARK: - Coordinator
@@ -450,6 +472,16 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                                    completionHandler: nil)
     }
 
+    /// Relabels the End of Article Read Again button ("Read Again" / "Remove from Read Again").
+    @MainActor func pushReadAgain() {
+        pushedReadAgain = isReadAgain
+        let payload = ["readAgainLabel": ReaderEndActions.readAgainLabel(isReadAgain: isReadAgain)]
+        guard let webView, let data = try? JSONEncoder().encode(payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.ftUpdateEndActions && ftUpdateEndActions(\(json));",
+                                   completionHandler: nil)
+    }
+
     @MainActor func pushTranscript(_ texts: [TranscriptCleanupSession.ParagraphText]) {
         guard let webView, !texts.isEmpty, let data = try? JSONEncoder().encode(texts),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -465,6 +497,10 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     var onReachedEndChanged: ((Bool) -> Void)?
     var onDeleteLink: (() -> Void)?
     var onSaveToBookmarkFolder: (() -> Void)?
+    var onToggleReadAgain: (() -> Void)?
+    /// Read Again state the view wants shown, and what the page last got (nil = never).
+    var isReadAgain = false
+    private(set) var pushedReadAgain: Bool?
     private(set) var isAtEnd: Bool = false
 
     // Scroll-direction tracking for header auto-hide
@@ -660,10 +696,13 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                 self.onDeleteLink?()
             case .saveToBookmarkFolder:
                 self.onSaveToBookmarkFolder?()
+            case .toggleReadAgain:
+                self.onToggleReadAgain?()
             case .ready:
                 // A push made while the page was still loading was a no-op there; send what
                 // changed since the page's bootstrap now that it can take it.
                 self.pushCommentedHighlights(self.viewModel.commentedHighlightIDs)
+                self.pushReadAgain()
                 if let cleanup = self.viewModel.transcriptCleanup {
                     self.pushedTranscriptRevision = cleanup.revision
                     self.pushTranscript(cleanup.shownTexts.filter { self.loadedTranscript[$0.i] != $0 })

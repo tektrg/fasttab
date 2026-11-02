@@ -77,8 +77,10 @@ struct LinkReadState {
 
 /// One label pair for every surface (rows, cards, Shuffle, End of Article).
 enum ReadAgainLabel {
-    static let mark = "Read Again"
+    static let mark = "Add to Read Again"
     static let unmark = "Remove from Read Again"
+    /// Badge on a marked Shuffle card (a state, not an action).
+    static let badge = "Read Again"
     static let markIcon = "arrow.counterclockwise.circle"
     static let unmarkIcon = "minus.circle"
 

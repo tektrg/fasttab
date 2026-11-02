@@ -104,7 +104,7 @@ final class ReadAgainTests: XCTestCase {
     }
 
     func testEndOfArticleLabelsMatchTheOtherSurfaces() {
-        XCTAssertEqual(ReaderEndActions.readAgainLabel(isReadAgain: false), "Read Again")
+        XCTAssertEqual(ReaderEndActions.readAgainLabel(isReadAgain: false), "Add to Read Again")
         XCTAssertEqual(ReaderEndActions.readAgainLabel(isReadAgain: true), "Remove from Read Again")
     }
 

@@ -603,7 +603,7 @@ private struct RandomCardView: View {
             )
 
             VStack(alignment: .leading, spacing: DS.Space.sm) {
-                Text(isReadAgain ? ReadAgainLabel.mark : item.source.badgeText)
+                Text(isReadAgain ? ReadAgainLabel.badge : item.source.badgeText)
                     .font(DS.Font.tag)
                     .padding(.horizontal, DS.Space.sm)
                     .padding(.vertical, 3)

@@ -50,7 +50,7 @@ struct NaturalVoicePaywallView: View {
             Image(systemName: "waveform.circle.fill")
                 .font(.system(size: 48))
                 .foregroundStyle(.tint)
-            Text("Natural Voice")
+            Text("Multi-language Voice")
                 .font(.largeTitle.bold())
             Text("Listen to articles and transcripts in a human-sounding voice.")
                 .font(.title3)
@@ -115,7 +115,7 @@ struct NaturalVoicePaywallView: View {
     /// Apple guideline 3.1.2: price per period, trial, auto-renewal and how to cancel, before buying.
     static func termsText(price: String, period: String, trial: Bool) -> String {
         let start = trial ? "Free for 7 days, then \(price) per \(period)." : "\(price) per \(period)."
-        return start + " Renews automatically until cancelled. Cancel anytime in Settings › Apple Account › Subscriptions at least 24 hours before the period ends. Natural voice includes a fair-use monthly allowance; Read Aloud switches to the built-in voice if it runs out. Purchases are linked to your Sign in with Apple account."
+        return start + " Renews automatically until cancelled. Cancel anytime in Settings › Apple Account › Subscriptions at least 24 hours before the period ends. Multi-language voice includes a fair-use monthly allowance; Read Aloud switches to the built-in voice if it runs out. Purchases are linked to your Sign in with Apple account."
     }
 
     @ViewBuilder
@@ -178,7 +178,7 @@ struct NaturalVoicePaywallView: View {
         case .confirming:
             await confirm()
         case .waitingForApproval:
-            message = "Waiting for approval. Natural voice turns on once it's approved."
+            message = "Waiting for approval. Multi-language voice turns on once it's approved."
         case .cancelled:
             break
         case .failed(let error):
@@ -198,7 +198,7 @@ struct NaturalVoicePaywallView: View {
         }
     }
 
-    static let stillConfirmingMessage = "Payment received. We're still confirming it with our server; natural voice turns on automatically, no need to buy again."
+    static let stillConfirmingMessage = "Payment received. We're still confirming it with our server; multi-language voice turns on automatically, no need to buy again."
 
     private func restore() async {
         isWorking = true
@@ -208,9 +208,9 @@ struct NaturalVoicePaywallView: View {
         case .restored:
             if access.isConfirmedByServer { onUnlocked(); dismiss() }
             else if access.isAwaitingConfirmation { await confirm() }
-            else { message = "No active Natural Voice subscription found." }
+            else { message = "No active Multi-language Voice subscription found." }
         case .nothingToRestore:
-            message = "No Natural Voice subscription to restore."
+            message = "No Multi-language Voice subscription to restore."
         case .failed(let error):
             message = Self.message(for: error)
         }

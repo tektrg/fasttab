@@ -1,6 +1,6 @@
 import Foundation
 
-/// What Read Aloud plays when "Natural voice" is on: the natural (Google) voice, falling
+/// What Read Aloud plays when "Multi-language voice" is on: the natural (Google) voice, falling
 /// back to the device voice so listening never just stops.
 /// - quota used up / server unavailable / no network → the rest of the run continues on the
 ///   device voice from the failed sentence, with a `.notice`. Quota stays "used up" until
@@ -72,20 +72,20 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
     static func notice(for error: NaturalVoiceError, awaitingConfirmation: Bool = false) -> String {
         switch error {
         case .quotaExhausted(let resetsAt?):
-            return "Natural voice used up — resumes \(resetsAt.formatted(date: .abbreviated, time: .omitted))"
+            return "Multi-language voice used up — resumes \(resetsAt.formatted(date: .abbreviated, time: .omitted))"
         case .quotaExhausted(nil):
-            return "Natural voice used up — using device voice"
+            return "Multi-language voice used up — using device voice"
         case .subscriptionRequired where awaitingConfirmation:
             return "Confirming your purchase… using device voice for now"
         case .subscriptionRequired:
-            return "Natural voice needs a subscription — using device voice"
+            return "Multi-language voice needs a subscription — using device voice"
         case .unavailable, .sentenceRejected:
             #if DEBUG
             if let reason = NaturalVoiceDiagnostics.lastFailure {
-                return "Natural voice unavailable (\(reason)), using device voice"
+                return "Multi-language voice unavailable (\(reason)), using device voice"
             }
             #endif
-            return "Natural voice unavailable, using device voice"
+            return "Multi-language voice unavailable, using device voice"
         }
     }
 

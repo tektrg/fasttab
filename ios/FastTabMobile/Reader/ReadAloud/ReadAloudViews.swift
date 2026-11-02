@@ -50,7 +50,7 @@ struct ReadAloudTapFeedbackView: View {
     }
 }
 
-/// Small capsule (e.g. "Natural voice unavailable, using device voice") shown for a few
+/// Small capsule (e.g. "Multi-language voice unavailable, using device voice") shown for a few
 /// seconds whenever the controller posts a new engine notice.
 struct ReadAloudNoticeView: View {
     let notice: ReadAloudController.EngineNotice?
@@ -153,7 +153,7 @@ struct ReadAloudSettingsSection: View {
                     }
                 }
             )) {
-                Text("Natural voice")
+                Text("Multi-language voice")
                 Text(naturalVoiceRow.subtitle)
             }
             .sheet(isPresented: $showsPaywall) {
@@ -184,7 +184,7 @@ struct ReadAloudSettingsSection: View {
         let paradee = ParadeeGate.isOfferedInThisBuild
             ? " English voice reads English articles with a voice that runs on this iPhone, no internet needed."
             : ""
-        return voices + paradee + " Natural voice streams a more human voice from the internet (subscription) and falls back to the device voice when it isn't available."
+        return voices + paradee + " Multi-language voice streams a more human voice from the internet (subscription) and falls back to the device voice when it isn't available."
     }
 
     /// The saved voice when it is in this language's list; otherwise "Automatic".

@@ -306,7 +306,7 @@ final class NaturalVoiceEngineTests: XCTestCase {
         XCTAssertEqual(run.from, 1)
         XCTAssertEqual(run.chunks, ["Title", "Two.", "Three."]) // chunk 1 cut at the failed sentence
         XCTAssertEqual(notices.count, 1)
-        XCTAssertTrue(notices[0].hasPrefix("Natural voice used up — resumes"))
+        XCTAssertTrue(notices[0].hasPrefix("Multi-language voice used up — resumes"))
         run.onEvent(run.generation, .word(chunk: 1, range: NSRange(location: 0, length: 3)))
         XCTAssertEqual(events.last?.1, .word(chunk: 1, range: NSRange(location: 5, length: 3)))
 
@@ -322,7 +322,7 @@ final class NaturalVoiceEngineTests: XCTestCase {
         server.script("One.", .init(status: 503, body: FakeTTSServer.json(["code": "tts_disabled"])))
         speak(from: 1)
         await waitUntil { !self.device.runs.isEmpty }
-        XCTAssertEqual(notices, ["Natural voice unavailable (HTTP 503 tts_disabled), using device voice"])
+        XCTAssertEqual(notices, ["Multi-language voice unavailable (HTTP 503 tts_disabled), using device voice"])
         XCTAssertEqual(device.runs[0].chunks[1], "One. Two.")
         server.script("One.", .init(status: 200, body: FakeTTSServer.audio("One.")))
         speak(from: 1, generation: 2)

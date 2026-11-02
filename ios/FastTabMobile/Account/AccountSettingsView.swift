@@ -32,7 +32,7 @@ struct AccountSettingsView: View {
                 run { await deleteAccountAfterAppleConfirms() }
             }
         } message: {
-            Text("You'll confirm with Apple first. Your theindie account is removed from the server. Your tabs, bookmarks and reading on this phone stay. A Natural Voice subscription keeps billing through Apple until you cancel it in Settings › Apple Account › Subscriptions; Restore Purchases links it to a new account. This cannot be undone.")
+            Text("You'll confirm with Apple first. Your theindie account is removed from the server. Your tabs, bookmarks and reading on this phone stay. A Multi-language Voice subscription keeps billing through Apple until you cancel it in Settings › Apple Account › Subscriptions; Restore Purchases links it to a new account. This cannot be undone.")
         }
     }
 

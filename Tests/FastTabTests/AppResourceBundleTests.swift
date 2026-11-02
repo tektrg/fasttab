@@ -40,6 +40,34 @@ struct AppResourceBundleTests {
         #expect(bundle?.url(forResource: "table-core", withExtension: "js") != nil)
     }
 
+    /// Only runtime bundles ship: a stray `*Tests.bundle` (test fixtures SwiftPM leaves in the same
+    /// folder) or an unknown bundle must stay out of the app.
+    @Test func installerShipsOnlyRuntimeBundles() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("fasttab-allow-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let bin = root.appendingPathComponent("bin")
+        let app = root.appendingPathComponent("X.app")
+        try fm.createDirectory(at: app.appendingPathComponent("Contents/Resources"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: bin, withIntermediateDirectories: true)
+        try fm.copyItem(at: Self.productsDir.appendingPathComponent("IndieLibKit_IndieTable.bundle"),
+                        to: bin.appendingPathComponent("IndieLibKit_IndieTable.bundle"))
+        for name in ["GRDB_GRDB.bundle", "FastTabPackage_AgentBarTests.bundle", "IndieLibKit_IndieTableTests.bundle", "Some_Unused.bundle"] {
+            try fm.createDirectory(at: bin.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+
+        // The build refreshes an existing app in place, so a bundle shipped by an older build lingers.
+        try fm.createDirectory(at: app.appendingPathComponent("Contents/Resources/FastTabPackage_AgentBarTests.bundle"),
+                               withIntermediateDirectories: true)
+
+        let result = try run("scripts/install-resource-bundles.sh", [bin.path, app.path])
+        #expect(result.status == 0, "\(result.output)")
+
+        let shipped = try fm.contentsOfDirectory(atPath: app.appendingPathComponent("Contents/Resources").path).sorted()
+        #expect(shipped == ["GRDB_GRDB.bundle", "IndieLibKit_IndieTable.bundle"], "shipped: \(shipped)")
+        #expect(!shipped.contains { $0.hasSuffix("Tests.bundle") })
+    }
+
     @Test func installerFailsLoudlyWhenAnExpectedBundleIsMissing() throws {
         let empty = FileManager.default.temporaryDirectory.appendingPathComponent("fasttab-empty-\(UUID().uuidString)")
         let app = empty.appendingPathComponent("X.app")

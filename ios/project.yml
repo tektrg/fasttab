@@ -81,6 +81,9 @@ targets:
       # Paradee voice inference (FastTabMobile/Reader/ReadAloud/Paradee/ParadeeModel.swift).
       - package: OnnxRuntime
         product: onnxruntime
+        # Static library in a framework wrapper: linked into the app binary. Embedding it
+        # copies a stub dylib whose minos (17.0) != its Info.plist (15.1) → upload error 90208.
+        embed: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.theindie.FastTabMobile
@@ -91,7 +94,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: FastTabMobile/FastTabMobile.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: 1.0.0
-        CURRENT_PROJECT_VERSION: 7
+        CURRENT_PROJECT_VERSION: 8
         GENERATE_INFOPLIST_FILE: YES
         # Home-screen + App Store name. Widgets keep "FastTab" (below).
         INFOPLIST_KEY_CFBundleDisplayName: FastTab Reader
@@ -161,7 +164,7 @@ targets:
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_ENTITLEMENTS: FastTabShare/FastTabShare.entitlements
       MARKETING_VERSION: 1.0.0
-      CURRENT_PROJECT_VERSION: 7
+      CURRENT_PROJECT_VERSION: 8
       INFOPLIST_FILE: FastTabShare/Info.plist
       SWIFT_VERSION: "5.9"
       ENABLE_USER_SCRIPT_SANDBOXING: NO
@@ -198,7 +201,7 @@ targets:
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_ENTITLEMENTS: FastTabWidgets/FastTabWidgets.entitlements
       MARKETING_VERSION: 1.0.0
-      CURRENT_PROJECT_VERSION: 7
+      CURRENT_PROJECT_VERSION: 8
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: FastTab
       SWIFT_VERSION: "5.9"

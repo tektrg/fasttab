@@ -12,7 +12,7 @@ What to test
 - Try all four voices: ••• > Reading Settings > Read Aloud. Is any voice clearly better or worse?
 - Listen to a long article with the screen locked and with AirPods. Any gaps, stutters or stops?
 - Try airplane mode: the English voice should keep working.
-- Try the speed slider at slow and fast settings.
+- Try slow and fast reading speeds.
 - Listen for mispronounced words, especially names, numbers and dates. Tell us which ones.
 - Open a non-English article: Read Aloud should work exactly as before.
 - Turn off "English voice (beta)" in Read Aloud settings: English articles go back to the built-in iPhone voice.

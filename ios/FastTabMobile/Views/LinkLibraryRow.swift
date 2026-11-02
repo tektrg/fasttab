@@ -12,6 +12,8 @@ struct LinkLibraryRow<Trailing: View>: View {
     var subtitle: String? = nil
     /// Best-known read progress, 0...1.
     let progress: Double
+    /// Times read to the end; shown as "Read 3×" next to the progress when > 0.
+    var readCount: Int = 0
     var badgeText: String? = nil
     var badgeTint: Color = DS.Tint.action
     var badgeIcon: String? = nil
@@ -65,10 +67,10 @@ struct LinkLibraryRow<Trailing: View>: View {
         }
     }
 
-    /// "Read" once finished, "NN% read" while in progress, nothing before the first scroll.
+    /// "Read" once finished, "NN% read" while in progress, nothing before the first scroll;
+    /// with a read count, "100% · Read 3×" (`ReadProgressText`).
     private var progressText: String? {
-        if LinkShelves.isFinished(progress: progress) { return "Read" }
-        return progress > 0.01 ? "\(Int(min(progress, 1) * 100))% read" : nil
+        ReadProgressText.line(progress: progress, readCount: readCount)
     }
 
     @ViewBuilder
@@ -100,11 +102,12 @@ struct LinkLibraryRow<Trailing: View>: View {
 extension LinkLibraryRow where Trailing == EmptyView {
     init(
         title: String, url: URL?, domain: String, subtitle: String? = nil, progress: Double,
+        readCount: Int = 0,
         badgeText: String? = nil, badgeTint: Color = DS.Tint.action, badgeIcon: String? = nil
     ) {
         self.init(
             title: title, url: url, domain: domain, subtitle: subtitle, progress: progress,
-            badgeText: badgeText, badgeTint: badgeTint, badgeIcon: badgeIcon, trailing: { EmptyView() }
+            readCount: readCount, badgeText: badgeText, badgeTint: badgeTint, badgeIcon: badgeIcon, trailing: { EmptyView() }
         )
     }
 }

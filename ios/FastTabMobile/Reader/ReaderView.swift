@@ -25,6 +25,8 @@ public struct ReaderView: View {
 
     @StateObject private var viewModel: ReaderViewModel
     @StateObject private var readAloud = ReadAloudController()
+    /// Read Again state for the End of Article button (marked here or synced in).
+    @ObservedObject private var savedStore = SavedOnIPhoneStore.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
@@ -249,6 +251,10 @@ public struct ReaderView: View {
             },
             onSaveToBookmarkFolder: {
                 showBookmarkPicker = true
+            },
+            isReadAgain: savedStore.isReadAgain(viewModel.url),
+            onToggleReadAgain: {
+                toggleReadAgain()
             },
             readAloud: ReadAloudPageState(
                 position: readAloud.spokenPosition,
@@ -588,6 +594,12 @@ public struct ReaderView: View {
             targetDeviceID: targetDeviceID
         )
         toast = "Saved to \(destination.folderDisplayName)"
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    /// End of Article "Read Again" / "Remove from Read Again".
+    private func toggleReadAgain() {
+        toast = LinkReadState(saved: savedStore).toggleReadAgain(url: viewModel.url, title: viewModel.title)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 

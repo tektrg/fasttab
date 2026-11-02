@@ -58,6 +58,39 @@ struct RandomCardItem: Identifiable, Hashable {
     let source: RandomCardSource
 }
 
+/// How Shuffle deals its deck. Read Again links (FastTab List items with the flag) are
+/// always dealt — up to `maxReadAgain` of them — in both modes, so a few rereads aren't lost
+/// among thousands of bookmarks; the rest of the deck is a random draw from the pool.
+/// A Read Again card replaces any other card for the same link.
+enum ShuffleDeck {
+    static let maxReadAgain = 10
+
+    /// One card per live Read Again link (id `saved|<item id>`, same as reader-only cards,
+    /// so a skip carries over), minus today's skips.
+    static func readAgainCards(_ links: [SavedOnIPhoneLink], isSkipped: (String) -> Bool) -> [RandomCardItem] {
+        links.compactMap { link in
+            guard link.isReadAgain, !link.isTrashed,
+                  let url = URL(string: link.url), url.scheme?.hasPrefix("http") == true else { return nil }
+            let id = "saved|\(link.id)"
+            guard !isSkipped(id) else { return nil }
+            return RandomCardItem(id: id, title: link.title ?? url.host ?? link.url, url: url, source: .savedLink(link))
+        }
+    }
+
+    static func build(
+        pool: [RandomCardItem],
+        readAgain: [RandomCardItem],
+        maxSize: Int,
+        shuffle: ([RandomCardItem]) -> [RandomCardItem] = { $0.shuffled() }
+    ) -> [RandomCardItem] {
+        let dealt = Array(shuffle(readAgain).prefix(min(maxReadAgain, maxSize)))
+        let readAgainKeys = Set(readAgain.map(\.url.readerCanonicalKey))
+        let rest = shuffle(pool.filter { !readAgainKeys.contains($0.url.readerCanonicalKey) })
+            .prefix(maxSize - dealt.count)
+        return shuffle(dealt + rest)
+    }
+}
+
 enum RandomCardDecision {
     case moveTo
     case skip
@@ -78,6 +111,7 @@ enum RandomCardMenuAction {
     case deleteSavedLink
     case hideLink
     case hideFolder
+    case toggleReadAgain
 }
 
 public struct RandomLinksView: View {
@@ -191,6 +225,7 @@ public struct RandomLinksView: View {
 
                     RandomCardView(
                         item: item,
+                        isReadAgain: savedStore.isReadAgain(item.url),
                         isTop: isTop,
                         cardSize: cardSize,
                         isExpanding: isTarget && isExpanding,
@@ -247,7 +282,7 @@ public struct RandomLinksView: View {
     private var hasAnySourceData: Bool {
         if appMode.isStandalone { return !savedStore.items.isEmpty }
         return !localCache.state.bookmarkBlobs.isEmpty || !localCache.state.tabs.isEmpty
-            || !highlightStore.allHighlightsNewestFirst().isEmpty
+            || !highlightStore.allHighlightsNewestFirst().isEmpty || !savedStore.readAgainItems.isEmpty
     }
 
     /// A highlight card opens its article scrolled to that highlight.
@@ -356,6 +391,8 @@ public struct RandomLinksView: View {
             hiddenStore.hide(folderKey: key)
             presentToast("Won't surface this folder again")
             deck.removeAll { $0.source.hiddenFolderKey.map(hiddenStore.isHidden(folderKey:)) ?? false }
+        case .toggleReadAgain:
+            presentToast(LinkReadState(saved: savedStore).toggleReadAgain(url: item.url, title: item.title))
         case .deleteSavedLink:
             guard case .savedLink(let link) = item.source else { return }
             savedStore.remove(id: link.id)
@@ -414,16 +451,19 @@ public struct RandomLinksView: View {
     }
 
     private func reshuffle() {
-        var pool = buildPool()
-        pool.shuffle()
-        deck = Array(pool.prefix(Self.maxDeckSize))
+        let readAgain = ShuffleDeck.readAgainCards(savedStore.readAgainItems, isSkipped: skipStore.isSkipped)
+            .filter(isSurfaceable)
+        deck = ShuffleDeck.build(pool: buildPool(), readAgain: readAgain, maxSize: Self.maxDeckSize)
     }
 
     private func buildPool() -> [RandomCardItem] {
-        collectPool().filter { item in
-            !hiddenStore.isHidden(url: item.url)
-                && !(item.source.hiddenFolderKey.map(hiddenStore.isHidden(folderKey:)) ?? false)
-        }
+        collectPool().filter(isSurfaceable)
+    }
+
+    /// Not hidden with "Don't Surface…" (the link, or its bookmark folder).
+    private func isSurfaceable(_ item: RandomCardItem) -> Bool {
+        !hiddenStore.isHidden(url: item.url)
+            && !(item.source.hiddenFolderKey.map(hiddenStore.isHidden(folderKey:)) ?? false)
     }
 
     private func collectPool() -> [RandomCardItem] {
@@ -490,6 +530,8 @@ public struct RandomLinksView: View {
 /// the rest are visible purely for the stacked-deck depth effect.
 private struct RandomCardView: View {
     let item: RandomCardItem
+    /// Marked Read Again (live): badge says so, menu offers "Remove from Read Again".
+    let isReadAgain: Bool
     let isTop: Bool
     let cardSize: CGSize
     let isExpanding: Bool
@@ -561,7 +603,7 @@ private struct RandomCardView: View {
             )
 
             VStack(alignment: .leading, spacing: DS.Space.sm) {
-                Text(item.source.badgeText)
+                Text(isReadAgain ? ReadAgainLabel.mark : item.source.badgeText)
                     .font(DS.Font.tag)
                     .padding(.horizontal, DS.Space.sm)
                     .padding(.vertical, 3)
@@ -627,6 +669,12 @@ private struct RandomCardView: View {
             onMenuAction(.copyURL)
         } label: {
             Label("Copy URL", systemImage: "doc.on.doc")
+        }
+
+        Button {
+            onMenuAction(.toggleReadAgain)
+        } label: {
+            Label(ReadAgainLabel.title(isReadAgain: isReadAgain), systemImage: ReadAgainLabel.icon(isReadAgain: isReadAgain))
         }
 
         Menu {

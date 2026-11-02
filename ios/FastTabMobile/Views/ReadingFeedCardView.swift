@@ -26,6 +26,12 @@ public struct ReadingFeedCardView: View {
     /// choices (just this link, or the whole website) rather than a single
     /// destructive delete, since it's teaching the feed, not removing data.
     public let onMarkNotARead: ((_ wholeWebsite: Bool) -> Void)?
+    /// Times read to the end; a small "Read 3×" chip on the thumbnail when > 0.
+    public let readCount: Int
+    /// Menu shows "Remove from Read Again" instead of "Read Again".
+    public let isReadAgain: Bool
+    /// "Read Again" / "Remove from Read Again"; nil hides the item.
+    public let onToggleReadAgain: (() -> Void)?
 
     @State private var preview: LinkPreview?
     @State private var isLoadingPreview: Bool = true
@@ -50,7 +56,10 @@ public struct ReadingFeedCardView: View {
         saveToBookmarksTitle: String = "Save to Bookmarks",
         onReadLater: (() -> Void)? = nil,
         onDelete: (() -> Void)? = nil,
-        onMarkNotARead: ((_ wholeWebsite: Bool) -> Void)? = nil
+        onMarkNotARead: ((_ wholeWebsite: Bool) -> Void)? = nil,
+        readCount: Int = 0,
+        isReadAgain: Bool = false,
+        onToggleReadAgain: (() -> Void)? = nil
     ) {
         self.title = title
         self.url = url
@@ -69,6 +78,9 @@ public struct ReadingFeedCardView: View {
         self.onReadLater = onReadLater
         self.onDelete = onDelete
         self.onMarkNotARead = onMarkNotARead
+        self.readCount = readCount
+        self.isReadAgain = isReadAgain
+        self.onToggleReadAgain = onToggleReadAgain
     }
 
     public var body: some View {
@@ -84,6 +96,7 @@ public struct ReadingFeedCardView: View {
                     .overlay { thumbnailView }
                     .clipped()
                     .overlay(alignment: .bottom) { progressBar }
+                    .overlay(alignment: .topTrailing) { readCountChip }
 
                 VStack(alignment: .leading, spacing: DS.Space.xs) {
                     Text(displayTitle)
@@ -115,7 +128,7 @@ public struct ReadingFeedCardView: View {
             .contentShape(RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityValue(readingProgress > 0.01 ? "\(Int(readingProgress * 100)) percent read" : "")
+        .accessibilityValue(ReadProgressText.line(progress: readingProgress, readCount: readCount) ?? "")
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: DS.Radius.lg, style: .continuous))
         .contextMenu {
             Button {
@@ -149,6 +162,14 @@ public struct ReadingFeedCardView: View {
                     onReadLater()
                 } label: {
                     Label("Read Later", systemImage: "eyeglasses")
+                }
+            }
+
+            if let onToggleReadAgain {
+                Button {
+                    onToggleReadAgain()
+                } label: {
+                    Label(ReadAgainLabel.title(isReadAgain: isReadAgain), systemImage: ReadAgainLabel.icon(isReadAgain: isReadAgain))
                 }
             }
 
@@ -215,6 +236,21 @@ public struct ReadingFeedCardView: View {
             }
             .frame(height: 3)
             .background(Color.black.opacity(0.15))
+        }
+    }
+
+    /// "Read 3×" on the thumbnail's corner, the same wording as the View all rows.
+    @ViewBuilder
+    private var readCountChip: some View {
+        if let text = ReadProgressText.readCount(readCount) {
+            Text(text)
+                .font(DS.Font.tag)
+                .foregroundStyle(.white)
+                .padding(.horizontal, DS.Space.xs)
+                .padding(.vertical, 2)
+                .background(.black.opacity(0.55), in: Capsule())
+                .padding(DS.Space.xs)
+                .accessibilityHidden(true)
         }
     }
 

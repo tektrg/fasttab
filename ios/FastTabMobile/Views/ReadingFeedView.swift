@@ -10,6 +10,7 @@ public struct ReadingFeedView: View {
     @ObservedObject private var readingProgress = ReaderReadingProgress.shared
     @ObservedObject private var highlightStore = ReaderHighlightStore.shared
     @ObservedObject private var savedStore = SavedOnIPhoneStore.shared
+    @ObservedObject private var readCounts = ReaderReadCounts.shared
     @ObservedObject private var appMode = AppModeModel.shared
 
     @State private var selectedFolder: String? = nil
@@ -36,9 +37,19 @@ public struct ReadingFeedView: View {
     /// Reader-only phones: no Send to Mac, no Mac bookmarks, no closing Mac tabs.
     private var offersMacActions: Bool { !appMode.isStandalone }
 
-    /// Saved first for reader-only phones: their own reading list is the feed.
+    /// Saved first for reader-only phones: their own reading list is the feed. Read Again
+    /// links live under View all > Read Again (and Shuffle/Emerging), not here.
     private var savedLinkItems: [SavedOnIPhoneLink] {
-        savedStore.items.filter { URL(string: $0.url) != nil }
+        savedStore.items.filter { URL(string: $0.url) != nil && !$0.isReadAgain }
+    }
+
+    private var readState: LinkReadState {
+        LinkReadState(saved: savedStore, counts: readCounts)
+    }
+
+    /// "Read Again" / "Remove from Read Again" for any card.
+    private func toggleReadAgain(url: URL, title: String) -> () -> Void {
+        { presentToast(readState.toggleReadAgain(url: url, title: title)) }
     }
 
     private var activeDeviceID: String {
@@ -275,14 +286,18 @@ public struct ReadingFeedView: View {
                         onReadLater: item.source.isBookmark ? { readLater(url: item.url, title: item.title) } : nil,
                         onDelete: {
                             deleteRecentItem(item)
-                        }
+                        },
+                        readCount: readState.readCount(item.url),
+                        isReadAgain: false,
+                        onToggleReadAgain: toggleReadAgain(url: item.url, title: item.title)
                     )
                 }
             }
         }
     }
 
-    /// Opens the full-screen library (`LinkLibraryView`): FastTab List, Bookmarks, Read, Trash.
+    /// Opens the full-screen library (`LinkLibraryView`): FastTab List, Bookmarks, Read Again,
+    /// Read, Trash. Reader-only phones get it too (their only way to Read Again).
     private var viewAllButton: some View {
         Button {
             showingViewAll = true
@@ -319,6 +334,7 @@ public struct ReadingFeedView: View {
                 HStack(spacing: DS.Space.xs) {
                     listTrashButton
                     DSCountPill(savedLinkItems.count)
+                    viewAllButton
                 }
             }
 
@@ -350,7 +366,10 @@ public struct ReadingFeedView: View {
                             onDelete: {
                                 withAnimation { savedStore.remove(id: link.id) }
                                 presentToast("Moved to Trash")
-                            }
+                            },
+                            readCount: readState.readCount(url),
+                            isReadAgain: false,
+                            onToggleReadAgain: toggleReadAgain(url: url, title: title)
                         )
                     }
                 }
@@ -395,7 +414,7 @@ public struct ReadingFeedView: View {
                         domain: item.domain,
                         badgeText: item.badgeText,
                         badgeTint: DS.Tint.emerging,
-                        badgeIcon: "sparkles",
+                        badgeIcon: item.lane == .readAgain ? ReadAgainLabel.markIcon : "sparkles",
                         readingProgress: readingProgress.progress(for: item.url),
                         deleteTitle: delTitle,
                         deleteIcon: delIcon,
@@ -414,7 +433,10 @@ public struct ReadingFeedView: View {
                         },
                         onMarkNotARead: { wholeWebsite in
                             markEmergingItemNotARead(item, wholeWebsite: wholeWebsite)
-                        }
+                        },
+                        readCount: readState.readCount(item.url),
+                        isReadAgain: readState.isReadAgain(item.url),
+                        onToggleReadAgain: toggleReadAgain(url: item.url, title: item.title)
                     )
                 }
             }
@@ -472,7 +494,10 @@ public struct ReadingFeedView: View {
                             },
                             onDelete: {
                                 deleteLastOpenedItem(item, url: url)
-                            }
+                            },
+                            readCount: readState.readCount(url),
+                            isReadAgain: readState.isReadAgain(url),
+                            onToggleReadAgain: toggleReadAgain(url: url, title: item.title)
                         )
                     }
                 }
@@ -569,6 +594,7 @@ public struct ReadingFeedView: View {
     }
 
     private func emergingDeleteInfo(for item: EmergingItem) -> (title: String, icon: String) {
+        if item.lane == .readAgain { return ("Delete Link", "trash") }
         switch item.source {
         case .bookmark:
             return ("Delete Bookmark", "trash")
@@ -586,6 +612,13 @@ public struct ReadingFeedView: View {
     }
 
     private func deleteEmergingItem(_ item: EmergingItem) {
+        // A Read Again card is a FastTab List item: Trash it (restoring brings the flag back).
+        if item.lane == .readAgain, let listItem = savedStore.liveItem(for: item.url) {
+            savedStore.remove(id: listItem.id)
+            withAnimation { emergingProvider.removeItem(id: item.id) }
+            presentToast("Moved to Trash")
+            return
+        }
         switch item.source {
         case .bookmark(let bookmark, let browserName, let profileName, let deviceID):
             SyncConsumer.shared.sendDeleteBookmark(

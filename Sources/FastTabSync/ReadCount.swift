@@ -4,14 +4,19 @@ import Foundation
 ///
 /// A read counts when, within one session, progress reaches the finish line (99%,
 /// `LinkShelves.finishedThreshold`) having **started** that session below `startsBelow`.
-/// So reopening a finished article (parked at the end) adds nothing, rereading from the
-/// top adds one, and a session counts at most once.
+/// A finished article reopens parked at the end (a revisit, not counted); going back to the
+/// top (below `restartsBelow`) starts the reread there. So reopening at the end or scrolling
+/// around near it adds nothing, rereading from the top adds one, and a session counts at
+/// most once.
 public struct ReadSession: Equatable, Sendable {
     /// A session that opens at or past this is a revisit, not a reread.
     public static let startsBelow = 0.9
+    /// A revisit becomes a reread once the reader is back this close to the top.
+    public static let restartsBelow = 0.1
 
-    /// True until this session has counted (false from the start for a revisit).
+    /// True while a finish would count (false for a revisit until it goes back to the top).
     public private(set) var canCount: Bool
+    private var hasCounted = false
 
     public init(startProgress: Double) {
         canCount = startProgress < Self.startsBelow
@@ -19,8 +24,10 @@ public struct ReadSession: Equatable, Sendable {
 
     /// Feed every progress update; true exactly once, on the update that finishes the read.
     public mutating func record(progress: Double) -> Bool {
+        if !hasCounted, progress < Self.restartsBelow { canCount = true }
         guard canCount, LinkShelves.isFinished(progress: progress) else { return false }
         canCount = false
+        hasCounted = true
         return true
     }
 }

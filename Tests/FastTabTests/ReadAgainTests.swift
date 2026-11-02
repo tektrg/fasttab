@@ -245,6 +245,16 @@ struct ReadAgainTests {
         #expect(counts(startingAt: 0.89, [0.99]) == [true])
     }
 
+    @Test("A finished article reopens parked at the end: going back to the top and reading down counts once")
+    func sessionRereadFromTopAfterParkedAtEnd() {
+        #expect(counts(startingAt: 1, [0.6, 0.05, 0.5, 1, 0.02, 1]) == [false, false, false, true, false, false])
+    }
+
+    @Test("Scrolling up and down near the end of a parked article never counts")
+    func sessionNearEndWobbleNeverCounts() {
+        #expect(counts(startingAt: 1, [0.8, 1, 0.3, 0.995, 0.15, 1]) == [false, false, false, false, false, false])
+    }
+
     @Test("Row text: progress alone, count alone, both")
     func progressText() {
         #expect(ReadProgressText.line(progress: 0, readCount: 0) == nil)

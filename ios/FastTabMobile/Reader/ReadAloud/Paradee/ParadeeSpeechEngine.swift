@@ -167,22 +167,12 @@ final class ParadeeSpeechEngine: SpeechEngine {
         // ranges are shifted back, so highlights still land on the page text.
         let chunk = sentence.chunk
         let offset = sentence.range.location
-        var chunks = run.chunks
-        if offset > 0 { chunks[chunk] = (chunks[chunk] as NSString).substring(from: offset) }
+        let chunks = ReadAloudMidChunkStart.cut(run.chunks, chunk: chunk, offset: offset)
         let voice = ReadAloudVoiceSelector.select(preferredIdentifier: preferredDeviceVoice(), languageCode: "en",
                                                   among: device.availableVoices)?.id
         device.speak(chunks, from: chunk, voiceIdentifier: voice, rate: run.rate,
                      generation: run.generation) { eventGeneration, event in
-            run.onEvent(eventGeneration, Self.shift(event, inChunk: chunk, by: offset))
-        }
-    }
-
-    private static func shift(_ event: SpeechEngineEvent, inChunk chunk: Int, by offset: Int) -> SpeechEngineEvent {
-        func moved(_ range: NSRange) -> NSRange { NSRange(location: range.location + offset, length: range.length) }
-        switch event {
-        case .word(chunk, let range): return .word(chunk: chunk, range: moved(range))
-        case .sentence(chunk, let range): return .sentence(chunk: chunk, range: moved(range))
-        default: return event
+            run.onEvent(eventGeneration, ReadAloudMidChunkStart.shift(event, inChunk: chunk, by: offset))
         }
     }
 }

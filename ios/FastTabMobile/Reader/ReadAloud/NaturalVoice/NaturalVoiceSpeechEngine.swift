@@ -113,11 +113,10 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
     /// Device voice from `offset` (UTF-16) inside `chunk`: that chunk is cut to start there
     /// and its event ranges are shifted back, so highlights still land on the page text.
     private func speakOnDevice(_ run: DeviceRun, fromChunk chunk: Int, offset: Int) {
-        var chunks = run.chunks
-        if offset > 0 { chunks[chunk] = (chunks[chunk] as NSString).substring(from: offset) }
+        let chunks = ReadAloudMidChunkStart.cut(run.chunks, chunk: chunk, offset: offset)
         device.speak(chunks, from: chunk, voiceIdentifier: run.voiceIdentifier, rate: run.rate,
                      generation: run.generation) { eventGeneration, event in
-            run.onEvent(eventGeneration, Self.shift(event, inChunk: chunk, by: offset))
+            run.onEvent(eventGeneration, ReadAloudMidChunkStart.shift(event, inChunk: chunk, by: offset))
         }
     }
 
@@ -142,14 +141,5 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
     private func finishRejectedSentence() {
         rejectedSentenceDone?.resume()
         rejectedSentenceDone = nil
-    }
-
-    private static func shift(_ event: SpeechEngineEvent, inChunk chunk: Int, by offset: Int) -> SpeechEngineEvent {
-        func moved(_ range: NSRange) -> NSRange { NSRange(location: range.location + offset, length: range.length) }
-        switch event {
-        case .word(chunk, let range): return .word(chunk: chunk, range: moved(range))
-        case .sentence(chunk, let range): return .sentence(chunk: chunk, range: moved(range))
-        default: return event
-        }
     }
 }

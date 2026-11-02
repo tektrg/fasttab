@@ -4,7 +4,8 @@ import MediaPlayer
 
 /// Plays one article aloud through a `SpeechEngine`. Owns the audio session
 /// (background playback, interruptions) and the lock-screen Now Playing entry +
-/// play/pause remote commands. One instance per open reader.
+/// remote commands (play/pause, ±15 s skips from the lock screen, headphones and car).
+/// One instance per open reader.
 ///
 /// Single source of truth: `generation` identifies the current engine run and
 /// `currentChunk` the paragraph being spoken. Engine events from any other
@@ -23,6 +24,12 @@ final class ReadAloudController: ObservableObject {
     private(set) var chunks: [String] = []
     /// Paragraph being spoken (or about to resume).
     private(set) var currentChunk = 0
+    /// UTF-16 offset in `currentChunk` of the last word/sentence spoken (where a ±15 s skip
+    /// measures from); the run's start offset until the engine reports one.
+    private(set) var currentOffset = 0
+    /// Where the current engine run began (mid-chunk after a skip).
+    private var runStart = ReadAloudPosition(chunk: 0, offset: 0)
+    var currentPosition: ReadAloudPosition { ReadAloudPosition(chunk: currentChunk, offset: currentOffset) }
     /// True once Read Aloud was started in this reader; only then does tapping a
     /// paragraph start/jump playback (no surprise speech on an ordinary tap).
     @Published private(set) var hasBeenUsed = false
@@ -215,12 +222,54 @@ final class ReadAloudController: ObservableObject {
         isAutoScrollPaused = false
         chunks = []
         currentChunk = 0
+        currentOffset = 0
         guard integratesWithSystem else { return }
         unregisterRemoteCommands()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    // MARK: - Skip ±15 s
+
+    /// Back / forward ~15 s of speech (`ReadAloudSkip`): restarts the engine at the start of
+    /// the nearest sentence, so the page highlight and auto-scroll follow. Paused stays paused
+    /// at the new place; forward past the end stops, like finishing the article.
+    func skip(_ direction: ReadAloudSkip.Direction) {
+        guard state != .idle, !chunks.isEmpty else { return }
+        let wasPaused = state == .paused
+        let settings = settingsStore.settings
+        let target = ReadAloudSkip.target(chunks: chunks, from: currentPosition,
+                                          rate: settings.effectiveSpeechRate, direction: direction)
+        readAloudLog.info("skip \(String(describing: direction)) from \(self.currentChunk):\(self.currentOffset) to \(String(describing: target))")
+        switch target {
+        case .end:
+            stop()
+            finishedArticle = true
+        case .position(let position):
+            isAutoScrollPaused = false
+            if integratesWithSystem, !wasPaused { activateAudioSession() }
+            runEngine(from: position.chunk, offset: position.offset, settings: settings)
+            if wasPaused { pause() }
+        }
+    }
+
+    /// Lock screen, headphone and car buttons. Next/previous track (AirPods double/triple
+    /// press, car arrows) skip ±15 s like the lock screen's skip buttons.
+    enum RemoteCommand: CaseIterable {
+        case play, pause, togglePlayPause, skipBackward, skipForward, previousTrack, nextTrack
+    }
+
+    func handleRemoteCommand(_ command: RemoteCommand) {
+        readAloudLog.info("remote command \(String(describing: command))")
+        switch command {
+        case .play: resume()
+        case .pause: pause()
+        case .togglePlayPause: state == .playing ? pause() : resume()
+        case .skipBackward, .previousTrack: skip(.backward)
+        case .skipForward, .nextTrack: skip(.forward)
+        }
     }
 
     // MARK: - State machine
@@ -232,11 +281,15 @@ final class ReadAloudController: ObservableObject {
         if integratesWithSystem, newState != .idle { updateNowPlaying() }
     }
 
-    /// (Re)starts the engine at `chunk` under a fresh generation.
-    private func runEngine(from chunk: Int, settings: ReaderReadingSettings) {
+    /// (Re)starts the engine at `offset` (UTF-16) inside `chunk` under a fresh generation.
+    /// A mid-chunk start hands the engine that chunk cut short and shifts its ranges back
+    /// (`ReadAloudMidChunkStart`), so it works the same for every engine.
+    private func runEngine(from chunk: Int, offset: Int = 0, settings: ReaderReadingSettings) {
         engine.stop()
         generation += 1
         currentChunk = chunk
+        currentOffset = offset
+        runStart = ReadAloudPosition(chunk: chunk, offset: offset)
         if ParadeeGate.routesToParadee(languageCode: languageCode, setting: settings.paradeeVoiceEnabled,
                                        offered: isParadeeOffered()) {
             // English article: the on-device Paradee voice, free (no subscription check).
@@ -253,13 +306,13 @@ final class ReadAloudController: ObservableObject {
         }
         transition(to: .playing)
         engine.speak(
-            chunks,
+            ReadAloudMidChunkStart.cut(chunks, chunk: chunk, offset: offset),
             from: chunk,
             voiceIdentifier: voiceIdentifier,
             rate: settings.effectiveSpeechRate,
             generation: generation
         ) { [weak self] generation, event in
-            self?.handle(event, generation: generation)
+            self?.handle(ReadAloudMidChunkStart.shift(event, inChunk: chunk, by: offset), generation: generation)
         }
     }
 
@@ -272,8 +325,11 @@ final class ReadAloudController: ObservableObject {
         case .chunkStarted(let chunk):
             readAloudLog.debug("utterance start chunk \(chunk) gen \(eventGeneration)")
             currentChunk = chunk
+            currentOffset = chunk == runStart.chunk ? runStart.offset : 0
+            if integratesWithSystem, state == .playing { updateNowPlaying() } // re-sync the estimated elapsed time
         case .word(let chunk, let range), .sentence(let chunk, let range):
             guard chunk == currentChunk, state == .playing else { return }
+            currentOffset = range.location
             spokenPosition = ReadAloudSpokenPosition(sessionID: generation, chunkIndex: chunk, wordRange: range)
         case .chunkFinished(let chunk):
             readAloudLog.debug("utterance finish chunk \(chunk) gen \(eventGeneration)")
@@ -342,34 +398,51 @@ final class ReadAloudController: ObservableObject {
         }
     }
 
+    /// Elapsed / duration are estimates from text length (`ReadAloudSkip.estimatedTimeline`),
+    /// refreshed on every state change, skip and paragraph start; the rate (1 playing, 0
+    /// paused) lets iOS run or freeze the clock in between.
     private func updateNowPlaying() {
+        let timeline = ReadAloudSkip.estimatedTimeline(chunks: chunks, at: currentPosition,
+                                                       rate: settingsStore.settings.effectiveSpeechRate)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [
             MPMediaItemPropertyTitle: articleTitle,
             MPMediaItemPropertyArtist: siteName,
             MPNowPlayingInfoPropertyPlaybackRate: state == .playing ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: timeline.elapsed,
+            MPMediaItemPropertyPlaybackDuration: timeline.duration,
         ]
     }
 
     private func registerRemoteCommands() {
         guard remoteCommandTargets.isEmpty else { return }
         let center = MPRemoteCommandCenter.shared()
-        func add(_ command: MPRemoteCommand, _ action: @escaping @MainActor (ReadAloudController) -> Void) {
+        func add(_ command: MPRemoteCommand, _ remote: RemoteCommand) {
             command.isEnabled = true
             let target = command.addTarget { [weak self] _ in
                 guard let self else { return .commandFailed }
-                MainActor.assumeIsolated { action(self) }
+                MainActor.assumeIsolated { self.handleRemoteCommand(remote) }
                 return .success
             }
             remoteCommandTargets.append((command, target))
         }
-        add(center.playCommand) { $0.resume() }
-        add(center.pauseCommand) { $0.pause() }
-        add(center.togglePlayPauseCommand) { $0.state == .playing ? $0.pause() : $0.resume() }
+        let interval = [NSNumber(value: ReadAloudSkip.interval)]
+        center.skipBackwardCommand.preferredIntervals = interval
+        center.skipForwardCommand.preferredIntervals = interval
+        add(center.playCommand, .play)
+        add(center.pauseCommand, .pause)
+        add(center.togglePlayPauseCommand, .togglePlayPause)
+        add(center.skipBackwardCommand, .skipBackward)
+        add(center.skipForwardCommand, .skipForward)
+        add(center.previousTrackCommand, .previousTrack)
+        add(center.nextTrackCommand, .nextTrack)
     }
 
+    /// Removes our targets and disables those commands, so the lock screen stops offering them.
     private func unregisterRemoteCommands() {
         for (command, target) in remoteCommandTargets {
             command.removeTarget(target)
+            command.isEnabled = false
         }
         remoteCommandTargets = []
     }

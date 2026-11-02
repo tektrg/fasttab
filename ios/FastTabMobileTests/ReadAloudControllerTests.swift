@@ -7,14 +7,17 @@ import XCTest
 final class ReadAloudControllerTests: XCTestCase {
 
     private final class FakeSpeechEngine: SpeechEngine {
-        struct Run { let from: Int; let generation: Int; let onEvent: @MainActor (Int, SpeechEngineEvent) -> Void }
+        struct Run {
+            let chunks: [String]; let from: Int; let generation: Int
+            let onEvent: @MainActor (Int, SpeechEngineEvent) -> Void
+        }
         var runs: [Run] = []
         var stopCount = 0
         var availableVoices: [ReadAloudVoiceOption] = []
 
         func speak(_ chunks: [String], from startIndex: Int, voiceIdentifier: String?, rate: Double,
                    generation: Int, onEvent: @escaping @MainActor (Int, SpeechEngineEvent) -> Void) {
-            runs.append(Run(from: startIndex, generation: generation, onEvent: onEvent))
+            runs.append(Run(chunks: chunks, from: startIndex, generation: generation, onEvent: onEvent))
         }
         func pause() {}
         func resume() {}
@@ -246,5 +249,144 @@ final class ReadAloudControllerTests: XCTestCase {
         XCTAssertEqual(controller.state, .idle)
         XCTAssertEqual(engine.runs.count, 1)
         XCTAssertNil(controller.tapFeedback)
+    }
+
+    // MARK: - Skip ±15 s
+
+    /// Two long paragraphs (each well over 15 s of text) and a short last one.
+    private let longArticle: ReaderArticle = {
+        func paragraph(_ name: String) -> String {
+            (1...8).map { "Sentence \($0) of the \(name) paragraph is here." }.joined(separator: " ")
+        }
+        let body = "<p>\(paragraph("first"))</p><p>\(paragraph("second"))</p><p>The end is near now.</p>"
+        return ReaderArticle(title: "Title", content: body, url: URL(string: "https://e.com")!)
+    }()
+
+    private func expectedSkip(_ direction: ReadAloudSkip.Direction, from position: ReadAloudPosition) -> ReadAloudPosition? {
+        guard case .position(let target) = ReadAloudSkip.target(chunks: controller.chunks, from: position, rate: 1,
+                                                                 direction: direction) else { return nil }
+        return target
+    }
+
+    func testSkipForwardWhilePlayingRestartsMidParagraphAndHighlightFollows() throws {
+        controller.start(article: longArticle)
+        engine.send(.chunkStarted(1)); engine.send(word(1, 0))
+        let target = try XCTUnwrap(expectedSkip(.forward, from: ReadAloudPosition(chunk: 1, offset: 0)))
+        XCTAssertEqual(target.chunk, 1)
+        XCTAssertGreaterThan(target.offset, 0)
+        controller.isAutoScrollPaused = true
+
+        controller.skip(.forward)
+
+        XCTAssertEqual(controller.state, .playing)
+        XCTAssertFalse(controller.isAutoScrollPaused) // the page scrolls to the new place
+        XCTAssertEqual(engine.runs.count, 2)
+        let run = engine.runs[1]
+        XCTAssertEqual(run.from, 1)
+        XCTAssertEqual(run.chunks[1], (controller.chunks[1] as NSString).substring(from: target.offset))
+        XCTAssertEqual(run.chunks[2], controller.chunks[2]) // only the start chunk is cut
+        XCTAssertEqual(controller.currentPosition, target)
+
+        engine.send(word(1, 5), run: 0) // old run: stale
+        XCTAssertNil(controller.spokenPosition)
+        engine.send(.chunkStarted(1)); engine.send(word(1, 0))
+        XCTAssertEqual(controller.spokenPosition?.chunkIndex, 1)
+        XCTAssertEqual(controller.spokenPosition?.wordRange.location, target.offset) // page coordinates
+        engine.send(.chunkStarted(2)); engine.send(word(2, 4))
+        XCTAssertEqual(controller.spokenPosition?.wordRange.location, 4) // later chunks are not shifted
+    }
+
+    func testRepeatedSkipsMeasureFromTheLastJumpBeforeAnyWordIsSpoken() throws {
+        controller.start(article: longArticle)
+        let first = try XCTUnwrap(expectedSkip(.forward, from: ReadAloudPosition(chunk: 0, offset: 0)))
+        controller.skip(.forward)
+        XCTAssertEqual(controller.currentPosition, first)
+        let second = try XCTUnwrap(expectedSkip(.forward, from: first))
+        controller.skip(.forward)
+        XCTAssertEqual(controller.currentPosition, second)
+        XCTAssertEqual(engine.runs.last?.from, second.chunk)
+    }
+
+    func testSkipBackCrossesIntoThePreviousParagraph() throws {
+        controller.start(article: longArticle)
+        engine.send(.chunkStarted(2)); engine.send(word(2, 10))
+        let target = try XCTUnwrap(expectedSkip(.backward, from: ReadAloudPosition(chunk: 2, offset: 10)))
+        XCTAssertEqual(target.chunk, 1)
+        controller.skip(.backward)
+        XCTAssertEqual(engine.runs.last?.from, 1)
+        XCTAssertEqual(controller.currentPosition, target)
+    }
+
+    func testSkipBackAtTheStartRestartsFromTheBeginning() {
+        controller.start(article: longArticle)
+        engine.send(.chunkStarted(1)); engine.send(word(1, 9))
+        controller.skip(.backward)
+        XCTAssertEqual(engine.runs.last?.from, 0)
+        XCTAssertEqual(engine.runs.last?.chunks, controller.chunks) // nothing cut
+        XCTAssertEqual(controller.state, .playing)
+    }
+
+    func testSkipForwardPastTheEndStopsAndNextPlayStartsFromTitle() {
+        controller.start(article: longArticle)
+        engine.send(.chunkStarted(3)); engine.send(word(3, 4))
+        controller.skip(.forward)
+        XCTAssertEqual(controller.state, .idle)
+        XCTAssertTrue(controller.finishedArticle)
+        controller.play(article: longArticle, viewport: nil)
+        XCTAssertEqual(engine.runs.last?.from, 0)
+    }
+
+    func testSkipWhilePausedMovesButStaysPaused() throws {
+        controller.start(article: longArticle)
+        engine.send(.chunkStarted(1)); engine.send(word(1, 0))
+        controller.pause()
+        let target = try XCTUnwrap(expectedSkip(.forward, from: ReadAloudPosition(chunk: 1, offset: 0)))
+        controller.skip(.forward)
+        XCTAssertEqual(controller.state, .paused)
+        XCTAssertEqual(engine.runs.count, 2)
+        XCTAssertEqual(controller.currentPosition, target)
+        XCTAssertNil(controller.spokenPosition)
+    }
+
+    func testSkipWhenStoppedDoesNothing() {
+        controller.skip(.forward)
+        controller.skip(.backward)
+        XCTAssertEqual(controller.state, .idle)
+        XCTAssertTrue(engine.runs.isEmpty)
+    }
+
+    // MARK: - Remote commands (lock screen, headphones, car)
+
+    func testTrackAndSkipCommandsJumpFifteenSeconds() throws {
+        controller.start(article: longArticle)
+        engine.send(.chunkStarted(1)); engine.send(word(1, 0))
+        let forward = try XCTUnwrap(expectedSkip(.forward, from: ReadAloudPosition(chunk: 1, offset: 0)))
+        controller.handleRemoteCommand(.nextTrack) // AirPods double press
+        XCTAssertEqual(controller.currentPosition, forward)
+        let back = try XCTUnwrap(expectedSkip(.backward, from: forward))
+        controller.handleRemoteCommand(.previousTrack) // AirPods triple press
+        XCTAssertEqual(controller.currentPosition, back)
+
+        let forward2 = try XCTUnwrap(expectedSkip(.forward, from: back))
+        controller.handleRemoteCommand(.skipForward)
+        XCTAssertEqual(controller.currentPosition, forward2)
+        let back2 = try XCTUnwrap(expectedSkip(.backward, from: forward2))
+        controller.handleRemoteCommand(.skipBackward)
+        XCTAssertEqual(controller.currentPosition, back2)
+        XCTAssertEqual(engine.runs.count, 5)
+        XCTAssertEqual(controller.state, .playing)
+    }
+
+    func testPlayPauseCommandsStillWork() {
+        controller.start(article: longArticle)
+        controller.handleRemoteCommand(.pause)
+        XCTAssertEqual(controller.state, .paused)
+        controller.handleRemoteCommand(.togglePlayPause)
+        XCTAssertEqual(controller.state, .playing)
+        controller.handleRemoteCommand(.togglePlayPause)
+        XCTAssertEqual(controller.state, .paused)
+        controller.handleRemoteCommand(.play)
+        XCTAssertEqual(controller.state, .playing)
+        XCTAssertEqual(engine.runs.count, 1) // resumed, never restarted
     }
 }

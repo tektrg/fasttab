@@ -27,6 +27,30 @@ struct ReadAloudButton: View {
     private var isPlaying: Bool { controller.state == .playing }
 }
 
+/// What the reader's bottom bar shows while Read Aloud plays: back 15 s, pause, forward 15 s.
+/// Pause hands the bar back to its normal controls (whose Read Aloud button resumes).
+struct ReadAloudTransportControls: View {
+    @ObservedObject var controller: ReadAloudController
+
+    var body: some View {
+        HStack(spacing: DS.Space.xl) {
+            control("gobackward.15", label: "Back 15 seconds", font: .title3) { controller.skip(.backward) }
+            control("pause.fill", label: "Pause", font: .title2) { controller.pause() }
+            control("goforward.15", label: "Forward 15 seconds", font: .title3) { controller.skip(.forward) }
+        }
+    }
+
+    private func control(_ symbol: String, label: String, font: Font, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(font)
+                .readerBarTapTarget()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
 /// Centred play/pause glyph that fades in and out after a tap on the article.
 struct ReadAloudTapFeedbackView: View {
     let feedback: ReadAloudController.TapFeedback?

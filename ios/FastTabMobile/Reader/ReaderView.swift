@@ -328,8 +328,35 @@ public struct ReaderView: View {
 
     /// Floating bottom control bar. Replaces the old top `toolbarContent` —
     /// close, font size, highlights and the overflow menu all live here.
+    /// While Read Aloud plays it shows only the transport (back 15 s / pause / forward 15 s);
+    /// pausing or the end of playback brings the normal controls back.
     /// Every control is a 44pt tap target (HIG minimum).
     private var bottomControlBar: some View {
+        let isReadingAloud = readAloud.state == .playing
+        return ZStack {
+            if isReadingAloud {
+                ReadAloudTransportControls(controller: readAloud)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            } else {
+                standardBarControls
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+        }
+        .padding(.horizontal, DS.Space.xl)
+        .padding(.vertical, DS.Space.md)
+        .readerBottomBarGlass()
+        .dsShadow(.floating)
+        .padding(.horizontal, DS.Space.lg)
+        // Clear the WebView's bottom progress bar + home indicator.
+        .padding(.bottom, DS.Space.sm)
+        .offset(y: isHeaderHidden ? 120 : 0)
+        .opacity(isHeaderHidden ? 0 : 1)
+        .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)
+        .animation(.easeInOut(duration: 0.2), value: isReadingAloud)
+    }
+
+    /// The bar's normal controls: back, Read Aloud, video, transcript clean-up, highlights, •••.
+    private var standardBarControls: some View {
         HStack(spacing: DS.Space.sm) {
             Button {
                 handleBack()
@@ -363,108 +390,105 @@ public struct ReaderView: View {
                 TranscriptCleanupToggle(cleanup: cleanup)
             }
 
-            // Highlights list
-            Menu {
-                if viewModel.highlights.isEmpty {
-                    Text("No highlights yet")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(viewModel.highlights) { h in
-                        Button {
-                            tappedHighlightID = h.id
-                        } label: {
-                            Label(
-                                h.selectedText.prefix(40) + (h.selectedText.count > 40 ? "…" : ""),
-                                systemImage: "circle.fill"
-                            )
-                            .foregroundStyle(h.color.swiftUIColor)
-                        }
-                    }
-                    Divider()
-                    Button {
-                        showHighlightsSheet = true
-                    } label: {
-                        Label("Manage Highlights…", systemImage: "list.bullet")
-                    }
-                    Button(role: .destructive) {
-                        viewModel.clearAllHighlights()
-                    } label: {
-                        Label("Clear All Highlights", systemImage: "trash")
-                    }
-                }
-            } label: {
-                Image(systemName: "highlighter")
-                    .overlay(alignment: .topTrailing) {
-                        if !viewModel.highlights.isEmpty {
-                            Circle()
-                                .fill(Color.yellow)
-                                .frame(width: 8, height: 8)
-                                .offset(x: 4, y: -4)
-                        }
-                    }
-                    .readerBarTapTarget()
-            }
+            highlightsMenu
+            moreActionsMenu
+        }
+    }
 
-            // More actions: reading settings / share / open in Safari / reload / bookmark / delete
-            Menu {
-                Button {
-                    showReadingSettings = true
-                } label: {
-                    Label("Reading Settings", systemImage: "textformat.size")
-                }
-                Button {
-                    showReadAloudSettings = true
-                } label: {
-                    Label("Read Aloud Settings", systemImage: "speaker.wave.2")
-                }
-                Divider()
-                Button {
-                    isLongExtraction = false
-                    Task { await viewModel.reloadArticle() }
-                } label: {
-                    Label("Reload Article", systemImage: "arrow.clockwise")
-                }
-                ShareLink(item: viewModel.url) {
-                    Label("Share Link", systemImage: "square.and.arrow.up")
-                }
-                Button {
-                    UIApplication.shared.open(viewModel.url)
-                } label: {
-                    Label("Open in Safari", systemImage: "safari")
+    /// Highlights list.
+    private var highlightsMenu: some View {
+        Menu {
+            if viewModel.highlights.isEmpty {
+                Text("No highlights yet")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(viewModel.highlights) { h in
+                    Button {
+                        tappedHighlightID = h.id
+                    } label: {
+                        Label(
+                            h.selectedText.prefix(40) + (h.selectedText.count > 40 ? "…" : ""),
+                            systemImage: "circle.fill"
+                        )
+                        .foregroundStyle(h.color.swiftUIColor)
+                    }
                 }
                 Divider()
                 Button {
-                    showBookmarkPicker = true
+                    showHighlightsSheet = true
                 } label: {
-                    Label("Save to Bookmark Folder…", systemImage: "folder.badge.plus")
+                    Label("Manage Highlights…", systemImage: "list.bullet")
                 }
                 Button(role: .destructive) {
-                    deleteCurrentLink()
+                    viewModel.clearAllHighlights()
                 } label: {
-                    Label("Delete Link", systemImage: "trash")
+                    Label("Clear All Highlights", systemImage: "trash")
                 }
-                if let cleanup = viewModel.transcriptCleanup, cleanup.isAvailable {
-                    Divider()
-                    Toggle(isOn: Binding(get: { cleanup.isEnabled }, set: { cleanup.setEnabled($0) })) {
-                        Label("Clean Up Transcript (Experimental)", systemImage: "wand.and.sparkles")
+            }
+        } label: {
+            Image(systemName: "highlighter")
+                .overlay(alignment: .topTrailing) {
+                    if !viewModel.highlights.isEmpty {
+                        Circle()
+                            .fill(Color.yellow)
+                            .frame(width: 8, height: 8)
+                            .offset(x: 4, y: -4)
                     }
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .readerBarTapTarget()
-            }
-            .accessibilityLabel("More actions")
+                .readerBarTapTarget()
         }
-        .padding(.horizontal, DS.Space.xl)
-        .padding(.vertical, DS.Space.md)
-        .readerBottomBarGlass()
-        .dsShadow(.floating)
-        .padding(.horizontal, DS.Space.lg)
-        // Clear the WebView's bottom progress bar + home indicator.
-        .padding(.bottom, DS.Space.sm)
-        .offset(y: isHeaderHidden ? 120 : 0)
-        .opacity(isHeaderHidden ? 0 : 1)
-        .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)
+    }
+
+    /// More actions: reading / Read Aloud settings, reload, share, Safari, bookmark, delete.
+    private var moreActionsMenu: some View {
+        Menu {
+            Button {
+                showReadingSettings = true
+            } label: {
+                Label("Reading Settings", systemImage: "textformat.size")
+            }
+            Button {
+                showReadAloudSettings = true
+            } label: {
+                Label("Read Aloud Settings", systemImage: "speaker.wave.2")
+            }
+            Divider()
+            Button {
+                isLongExtraction = false
+                Task { await viewModel.reloadArticle() }
+            } label: {
+                Label("Reload Article", systemImage: "arrow.clockwise")
+            }
+            ShareLink(item: viewModel.url) {
+                Label("Share Link", systemImage: "square.and.arrow.up")
+            }
+            Button {
+                UIApplication.shared.open(viewModel.url)
+            } label: {
+                Label("Open in Safari", systemImage: "safari")
+            }
+            Divider()
+            Button {
+                showBookmarkPicker = true
+            } label: {
+                Label("Save to Bookmark Folder…", systemImage: "folder.badge.plus")
+            }
+            Button(role: .destructive) {
+                deleteCurrentLink()
+            } label: {
+                Label("Delete Link", systemImage: "trash")
+            }
+            if let cleanup = viewModel.transcriptCleanup, cleanup.isAvailable {
+                Divider()
+                Toggle(isOn: Binding(get: { cleanup.isEnabled }, set: { cleanup.setEnabled($0) })) {
+                    Label("Clean Up Transcript (Experimental)", systemImage: "wand.and.sparkles")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .readerBarTapTarget()
+        }
+        .accessibilityLabel("More actions")
     }
 
     /// Voices for the loaded article's language, for the Read Aloud settings' voice picker.

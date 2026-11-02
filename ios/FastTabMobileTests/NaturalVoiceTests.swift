@@ -146,18 +146,21 @@ final class FakeDeviceEngine: SpeechEngine {
     private(set) var runs: [Run] = []
     var availableVoices: [ReadAloudVoiceOption] = []
     var finishesImmediately = false
+    /// The latest run is paused: `pause()` after its `speak`, no `resume()` / `stop()` since.
+    private(set) var isPaused = false
 
     func speak(_ chunks: [String], from startIndex: Int, voiceIdentifier: String?, rate: Double,
                generation: Int, onEvent: @escaping @MainActor (Int, SpeechEngineEvent) -> Void) {
+        isPaused = false // like AVSpeechSynthesizer after `stop`: a new run plays
         runs.append(Run(chunks: chunks, from: startIndex, generation: generation, onEvent: onEvent))
         if finishesImmediately {
             onEvent(generation, .word(chunk: startIndex, range: NSRange(location: 0, length: 2)))
             onEvent(generation, .chunkFinished(startIndex))
         }
     }
-    func pause() {}
-    func resume() {}
-    func stop() {}
+    func pause() { isPaused = true }
+    func resume() { isPaused = false }
+    func stop() { isPaused = false }
 }
 
 @MainActor
@@ -339,6 +342,45 @@ final class NaturalVoiceEngineTests: XCTestCase {
         XCTAssertEqual(player.played, ["mp3:Two.", "mp3:Three."])
         XCTAssertTrue(notices.isEmpty)
         XCTAssertTrue(events.contains { $0.1 == .word(chunk: 1, range: NSRange(location: 0, length: 2)) })
+    }
+
+    /// A skip / settings change while paused restarts the run, then pauses it. If the natural
+    /// voice then fails, the device-voice fallback must start paused too, not speak over a
+    /// "paused" screen.
+    func testFallbackWhilePausedStartsPaused() async {
+        server.script("One.", .init(status: 503, body: FakeTTSServer.json(["code": "tts_disabled"])))
+        speak(from: 1)
+        engine.pause()
+        await waitUntil { !self.device.runs.isEmpty }
+        XCTAssertEqual(device.runs.count, 1)
+        XCTAssertTrue(device.isPaused, "fallback run paused right after it started")
+        engine.resume()
+        XCTAssertFalse(device.isPaused)
+    }
+
+    func testFallbackAfterResumeOrNewRunPlays() async {
+        server.script("One.", .init(status: 503, body: FakeTTSServer.json(["code": "tts_disabled"])))
+        speak(from: 1)
+        engine.pause()
+        engine.resume()
+        await waitUntil { !self.device.runs.isEmpty }
+        XCTAssertFalse(device.isPaused)
+
+        engine.pause()
+        speak(from: 1, generation: 2) // a new run forgets the old pause
+        await waitUntil { self.device.runs.count == 2 }
+        XCTAssertFalse(device.isPaused)
+        engine.stop()
+    }
+
+    func testRejectedSentenceWhilePausedStartsPaused() async {
+        server.script("One.", .init(status: 400, body: FakeTTSServer.json(["code": "tts_rejected"])))
+        speak(from: 1)
+        engine.pause()
+        await waitUntil { !self.device.runs.isEmpty }
+        XCTAssertEqual(device.runs.map(\.chunks), [["One."]])
+        XCTAssertTrue(device.isPaused)
+        engine.stop()
     }
 
     func testStoppedRunDeliversNothingLate() async {

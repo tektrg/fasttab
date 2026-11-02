@@ -280,6 +280,40 @@ final class ParadeeSpeechEngineTests: XCTestCase {
         XCTAssertTrue(player.played.isEmpty)
     }
 
+    /// A skip / settings change while paused restarts the run, then pauses it. A synthesis or
+    /// load failure after that must start the device voice paused, not speak while "paused".
+    func testFallbackWhilePausedStartsPaused() async {
+        renderer.failing = ["One."]
+        speak(from: 1)
+        engine.pause()
+        await waitUntil { !self.device.runs.isEmpty }
+        XCTAssertTrue(device.isPaused, "fallback run paused right after it started")
+        engine.resume()
+        XCTAssertFalse(device.isPaused)
+    }
+
+    func testLoadFailureWhilePausedStartsPaused() async {
+        engine = makeEngine(load: { throw ParadeeError.modelUnavailable("missing") })
+        speak(from: 1)
+        engine.pause()
+        await waitUntil { !self.device.runs.isEmpty }
+        XCTAssertTrue(device.isPaused)
+    }
+
+    func testFallbackAfterResumeOrNewRunPlays() async {
+        renderer.failing = ["One."]
+        speak(from: 1)
+        engine.pause()
+        engine.resume()
+        await waitUntil { !self.device.runs.isEmpty }
+        XCTAssertFalse(device.isPaused)
+
+        engine.pause()
+        speak(from: 1, generation: 2) // a new run forgets the old pause
+        await waitUntil { self.device.runs.count == 2 }
+        XCTAssertFalse(device.isPaused)
+    }
+
     func testSilentSentenceIsSkippedNotHighlighted() async {
         renderer.silent = ["Two."]
         speak(from: 1)

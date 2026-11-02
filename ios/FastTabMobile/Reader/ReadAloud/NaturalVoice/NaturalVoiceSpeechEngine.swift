@@ -16,6 +16,10 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
     private let awaitingConfirmation: @MainActor () -> Bool
     private var quotaResetsAt: Date?
     private var generation = 0
+    /// Paused by the listener (set by `pause`, cleared by `resume` / `speak` / `stop`). A device
+    /// run started while paused (fallback, rejected sentence) is paused at once, else a paused
+    /// skip followed by a network/quota failure speaks under a "paused" screen.
+    private var isPaused = false
     /// Resumes a rejected sentence's wait when the device voice finished or was stopped.
     private var rejectedSentenceDone: CheckedContinuation<Void, Never>?
 
@@ -60,10 +64,11 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
     }
 
     // Only one of the two is ever sounding; pausing the idle one is a no-op.
-    func pause() { natural.pause(); device.pause() }
-    func resume() { natural.resume(); device.resume() }
+    func pause() { isPaused = true; natural.pause(); device.pause() }
+    func resume() { isPaused = false; natural.resume(); device.resume() }
 
     func stop() {
+        isPaused = false
         natural.stop()
         device.stop()
         finishRejectedSentence()
@@ -118,6 +123,7 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
                      generation: run.generation) { eventGeneration, event in
             run.onEvent(eventGeneration, ReadAloudMidChunkStart.shift(event, inChunk: chunk, by: offset))
         }
+        if isPaused { device.pause() }
     }
 
     private func speakSingleSentenceOnDevice(_ sentence: ReadAloudSentence, _ run: DeviceRun) async {
@@ -135,6 +141,7 @@ final class NaturalVoiceSpeechEngine: SpeechEngine {
                     break
                 }
             }
+            if isPaused { device.pause() }
         }
     }
 

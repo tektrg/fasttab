@@ -22,6 +22,10 @@ final class ParadeeSpeechEngine: SpeechEngine {
     private var runTask: Task<Void, Never>?
     private var pendingRenders: [Task<RenderedAudio, Error>] = []
     private var generation = 0
+    /// Paused by the listener (set by `pause`, cleared by `resume` / `speak` / `stop`). A device
+    /// fallback started while paused is paused at once, else a paused skip followed by a load or
+    /// synthesis failure speaks under a "paused" screen.
+    private var isPaused = false
 
     init(
         device: SpeechEngine,
@@ -68,10 +72,11 @@ final class ParadeeSpeechEngine: SpeechEngine {
     }
 
     // Only one of the two is ever sounding; pausing the idle one is a no-op.
-    func pause() { player.pause(); device.pause() }
-    func resume() { player.resume(); device.resume() }
+    func pause() { isPaused = true; player.pause(); device.pause() }
+    func resume() { isPaused = false; player.resume(); device.resume() }
 
     func stop() {
+        isPaused = false
         runTask?.cancel()
         runTask = nil
         pendingRenders.forEach { $0.cancel() }
@@ -174,6 +179,7 @@ final class ParadeeSpeechEngine: SpeechEngine {
                      generation: run.generation) { eventGeneration, event in
             run.onEvent(eventGeneration, ReadAloudMidChunkStart.shift(event, inChunk: chunk, by: offset))
         }
+        if isPaused { device.pause() }
     }
 }
 

@@ -77,6 +77,11 @@ for res in Readability.js reader_template.html; do
   cp "ios/FastTabMobile/Resources/${res}" "${APP}/Contents/Resources/${res}"
 done
 
+# SwiftPM resource bundles (IndieTable's table-core.js for Settings > Highlights, ...). Without
+# them the app traps on first use outside the build Mac. Must precede the final codesign.
+echo "==> Installing SwiftPM resource bundles"
+scripts/install-resource-bundles.sh "$(swift build -c release --show-bin-path)" "${APP}"
+
 # SwiftPM does not add the bundle's Frameworks dir to the rpath, so the embedded
 # Sparkle.framework can't be found at runtime. Add it (idempotent).
 if ! otool -l "${APP}/Contents/MacOS/FastTab" | grep -q "@executable_path/../Frameworks"; then

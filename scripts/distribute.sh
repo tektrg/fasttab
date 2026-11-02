@@ -201,6 +201,14 @@ for res in Readability.js reader_template.html; do
   run cp "ios/FastTabMobile/Resources/${res}" "${APP}/Contents/Resources/${res}"
 done
 
+# SwiftPM resource bundles (IndieTable's table-core.js for Settings > Highlights, ...). Without
+# them the app traps on first use. Must precede signing (step 4).
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "  [dry-run] scripts/install-resource-bundles.sh <bin-path> ${APP}"
+else
+  scripts/install-resource-bundles.sh "$(swift build -c release --show-bin-path)" "${APP}"
+fi
+
 # Ensure Sparkle rpath is set (idempotent)
 if ! otool -l "${APP}/Contents/MacOS/FastTab" | grep -q "@executable_path/../Frameworks"; then
   run install_name_tool -add_rpath "@executable_path/../Frameworks" "${APP}/Contents/MacOS/FastTab"

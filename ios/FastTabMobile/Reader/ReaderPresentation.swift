@@ -61,6 +61,9 @@ private struct ReaderPresentationModifier<Item: Identifiable, Reader: View>: Vie
             return
         }
         guard presented?.id != item.id else { return }
+        // The screen underneath stays live under the cover, so a search keyboard would
+        // stay up over the reader's bottom bar: put it away before sliding in.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         slide.prepareForEntry { [self] in finishDismissal() }
         withoutAnimation { presented = item }
     }

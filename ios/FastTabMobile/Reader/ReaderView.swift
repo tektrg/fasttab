@@ -134,6 +134,8 @@ public struct ReaderView: View {
             .overlay {
                 ReadAloudTapFeedbackView(feedback: readAloud.tapFeedback)
             }
+            // VoiceOver two-finger "Z" scrub = Back (slides out like the chevron).
+            .accessibilityAction(.escape) { handleBack() }
             .overlay(alignment: .bottom) {
                 VStack(spacing: DS.Space.sm) {
                     if showHighlightBar {

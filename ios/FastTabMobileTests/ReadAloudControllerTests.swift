@@ -336,16 +336,79 @@ final class ReadAloudControllerTests: XCTestCase {
         XCTAssertEqual(engine.runs.last?.from, 0)
     }
 
-    func testSkipWhilePausedMovesButStaysPaused() throws {
+    /// The sentence of `chunks[position.chunk]` starting at `position.offset`.
+    private func sentenceRange(at position: ReadAloudPosition) throws -> NSRange {
+        try XCTUnwrap(ReadAloudSentences.split(controller.chunks[position.chunk], chunk: position.chunk)
+            .first { $0.range.location == position.offset }?.range)
+    }
+
+    /// Paused, then skipped forward once from the start of chunk 1.
+    private func pauseAndSkipForward(scrolledAway: Bool = false) throws -> ReadAloudPosition {
         controller.start(article: longArticle)
         engine.send(.chunkStarted(1)); engine.send(word(1, 0))
         controller.pause()
+        controller.isAutoScrollPaused = scrolledAway
         let target = try XCTUnwrap(expectedSkip(.forward, from: ReadAloudPosition(chunk: 1, offset: 0)))
         controller.skip(.forward)
+        return target
+    }
+
+    func testSkipWhilePausedMovesStaysPausedAndShowsTheTargetSentence() throws {
+        let target = try pauseAndSkipForward(scrolledAway: true)
         XCTAssertEqual(controller.state, .paused)
         XCTAssertEqual(engine.runs.count, 2)
         XCTAssertEqual(controller.currentPosition, target)
-        XCTAssertNil(controller.spokenPosition)
+        XCTAssertFalse(controller.isAutoScrollPaused) // the page scrolls to the target
+        // The page highlights the sentence the skip landed on, like during playback.
+        XCTAssertEqual(controller.spokenPosition?.chunkIndex, target.chunk)
+        XCTAssertEqual(controller.spokenPosition?.wordRange, try sentenceRange(at: target))
+        engine.send(.chunkStarted(1)); engine.send(word(1, 0)) // the paused run's early events
+        XCTAssertEqual(controller.spokenPosition?.wordRange, try sentenceRange(at: target))
+        XCTAssertEqual(controller.currentPosition, target)
+    }
+
+    /// The in-app Play button after a paused skip: resumes at the skip target even when that
+    /// paragraph is off screen (it used to start from the screen and lose the skip).
+    func testPlayAfterPausedSkipResumesAtTheTargetEvenWhenOffScreen() throws {
+        let target = try pauseAndSkipForward()
+        let text = controller.chunks.joined()
+        controller.play(article: longArticle, viewport: ReadAloudViewport(
+            pageText: text, firstVisibleOffset: 0, lastVisibleOffset: 4, isAtTop: true)) // only the title
+        XCTAssertEqual(controller.state, .playing)
+        XCTAssertEqual(engine.runs.count, 2) // resumed the parked run, not restarted
+        XCTAssertEqual(controller.currentPosition, target)
+        XCTAssertEqual(controller.spokenPosition?.wordRange, try sentenceRange(at: target))
+
+        // Consumed: an ordinary pause later goes back to the on-screen rule.
+        controller.pause()
+        controller.play(article: longArticle, viewport: ReadAloudViewport(
+            pageText: text, firstVisibleOffset: 0, lastVisibleOffset: 4, isAtTop: true))
+        XCTAssertEqual(engine.runs.count, 3)
+        XCTAssertEqual(engine.runs.last?.from, 0)
+    }
+
+    func testHeadphonePlayAfterPausedSkipResumesAtTheTarget() throws {
+        let target = try pauseAndSkipForward()
+        controller.handleRemoteCommand(.play)
+        XCTAssertEqual(controller.state, .playing)
+        XCTAssertEqual(engine.runs.count, 2)
+        XCTAssertEqual(controller.currentPosition, target)
+        XCTAssertEqual(controller.spokenPosition?.wordRange, try sentenceRange(at: target))
+        engine.send(.chunkStarted(1)); engine.send(word(1, 0)) // the run's own words take over
+        XCTAssertEqual(controller.spokenPosition?.wordRange.location, target.offset)
+        XCTAssertEqual(controller.spokenPosition?.wordRange.length, 3)
+    }
+
+    func testSettingsChangeWhilePausedAfterSkipKeepsTheTarget() throws {
+        let target = try pauseAndSkipForward()
+        store.setSpeechRate(1.5)
+        XCTAssertEqual(controller.state, .paused)
+        XCTAssertEqual(engine.runs.count, 3)
+        XCTAssertEqual(engine.runs.last?.from, target.chunk)
+        XCTAssertEqual(engine.runs.last?.chunks[target.chunk],
+                       (controller.chunks[target.chunk] as NSString).substring(from: target.offset))
+        XCTAssertEqual(controller.currentPosition, target)
+        XCTAssertEqual(controller.spokenPosition?.wordRange, try sentenceRange(at: target))
     }
 
     func testSkipWhenStoppedDoesNothing() {

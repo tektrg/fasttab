@@ -28,10 +28,12 @@ struct ReadAloudViewport: Equatable {
 }
 
 /// Where the Play button starts. The rule, in order:
-/// 1. Paused, and the paused paragraph is still on screen (or the screen is unknown) → resume.
-/// 2. The last run read to the end of the article → start from the title.
-/// 3. The page is at the very top (or the screen is unknown) → start from the title.
-/// 4. Otherwise → the first paragraph at or below the top of the screen.
+/// 1. Paused right after a ±15 s skip → resume there (the listener chose that place; the
+///    screen may not have caught up).
+/// 2. Paused, and the paused paragraph is still on screen (or the screen is unknown) → resume.
+/// 3. The last run read to the end of the article → start from the title.
+/// 4. The page is at the very top (or the screen is unknown) → start from the title.
+/// 5. Otherwise → the first paragraph at or below the top of the screen.
 enum ReadAloudStartPoint: Equatable {
     case resume
     case chunk(Int)
@@ -39,10 +41,12 @@ enum ReadAloudStartPoint: Equatable {
     static func decide(
         isPaused: Bool,
         pausedChunk: Int,
+        pausedAtSkipTarget: Bool = false,
         finishedArticle: Bool,
         chunks: [String],
         viewport: ReadAloudViewport?
     ) -> Self {
+        if isPaused, pausedAtSkipTarget { return .resume }
         guard let viewport else { return isPaused ? .resume : .chunk(0) }
         let locator = ReadAloudTextLocator(documentText: viewport.pageText, chunks: chunks)
         if isPaused, locator.chunk(pausedChunk, overlaps: viewport.firstVisibleOffset, viewport.lastVisibleOffset) {

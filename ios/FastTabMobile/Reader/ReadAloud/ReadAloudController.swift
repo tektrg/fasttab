@@ -16,7 +16,8 @@ final class ReadAloudController: ObservableObject {
     enum PlaybackState: Equatable { case idle, playing, paused }
 
     @Published private(set) var state: PlaybackState = .idle
-    /// Word being spoken; nil whenever not actively speaking (the page clears its highlight).
+    /// Word / sentence being spoken; nil whenever not actively speaking (the page clears its
+    /// highlight), except paused right after a skip: then the target sentence (`parkPaused`).
     @Published private(set) var spokenPosition: ReadAloudSpokenPosition?
     /// Set when the user scrolls by hand during playback; "Back to reading" clears it.
     @Published var isAutoScrollPaused = false
@@ -29,6 +30,10 @@ final class ReadAloudController: ObservableObject {
     private(set) var currentOffset = 0
     /// Where the current engine run began (mid-chunk after a skip).
     private var runStart = ReadAloudPosition(chunk: 0, offset: 0)
+    /// Set by a skip while paused: the run is parked at this sentence start. The page shows that
+    /// sentence, and Play / resume continue from it whatever is on screen. Cleared by any state
+    /// change (resume, a new run, stop).
+    private var pausedSkipTarget: ReadAloudPosition?
     var currentPosition: ReadAloudPosition { ReadAloudPosition(chunk: currentChunk, offset: currentOffset) }
     /// True once Read Aloud was started in this reader; only then does tapping a
     /// paragraph start/jump playback (no surprise speech on an ordinary tap).
@@ -123,6 +128,7 @@ final class ReadAloudController: ObservableObject {
         let startPoint = ReadAloudStartPoint.decide(
             isPaused: isPaused,
             pausedChunk: currentChunk,
+            pausedAtSkipTarget: pausedSkipTarget != nil,
             finishedArticle: finishedArticle,
             chunks: isPaused ? chunks : ReadAloudText.chunks(for: article),
             viewport: viewport
@@ -208,9 +214,13 @@ final class ReadAloudController: ObservableObject {
 
     func resume() {
         guard state == .paused else { return }
+        let parked = pausedSkipTarget
         if integratesWithSystem { activateAudioSession() }
         engine.resume()
         transition(to: .playing)
+        // Keep the skip target lit until the run reports its own progress (sentence voices
+        // already sent their first sentence while paused, and those events were dropped).
+        if let parked { spokenPosition = highlight(at: parked) }
     }
 
     /// Ends playback and clears the lock-screen entry (also used when leaving the article).
@@ -235,7 +245,8 @@ final class ReadAloudController: ObservableObject {
 
     /// Back / forward ~15 s of speech (`ReadAloudSkip`): restarts the engine at the start of
     /// the nearest sentence, so the page highlight and auto-scroll follow. Paused stays paused
-    /// at the new place; forward past the end stops, like finishing the article.
+    /// at the new place, with that sentence highlighted (`parkPaused`); forward past the end
+    /// stops, like finishing the article.
     func skip(_ direction: ReadAloudSkip.Direction) {
         guard state != .idle, !chunks.isEmpty else { return }
         let wasPaused = state == .paused
@@ -251,8 +262,29 @@ final class ReadAloudController: ObservableObject {
             isAutoScrollPaused = false
             if integratesWithSystem, !wasPaused { activateAudioSession() }
             runEngine(from: position.chunk, offset: position.offset, settings: settings)
-            if wasPaused { pause() }
+            if wasPaused { parkPaused(at: position) }
         }
+    }
+
+    /// Pauses the run just started at `position` and shows its sentence on the page (which
+    /// scrolls to it, as during playback), so a paused skip is visible and Play keeps it.
+    private func parkPaused(at position: ReadAloudPosition) {
+        pause()
+        pausedSkipTarget = position
+        spokenPosition = highlight(at: position)
+    }
+
+    /// The sentence containing `position` (the whole rest of the chunk if none), as the page
+    /// highlight for the current run.
+    private func highlight(at position: ReadAloudPosition) -> ReadAloudSpokenPosition? {
+        guard chunks.indices.contains(position.chunk) else { return nil }
+        let text = chunks[position.chunk]
+        let sentence = ReadAloudSentences.split(text, chunk: position.chunk)
+            .first { NSMaxRange($0.range) > position.offset }?.range
+        let length = (text as NSString).length
+        let offset = min(max(position.offset, 0), length)
+        return ReadAloudSpokenPosition(sessionID: generation, chunkIndex: position.chunk,
+                                       wordRange: sentence ?? NSRange(location: offset, length: length - offset))
     }
 
     /// Lock screen, headphone and car buttons. Next/previous track (AirPods double/triple
@@ -277,6 +309,7 @@ final class ReadAloudController: ObservableObject {
     private func transition(to newState: PlaybackState) {
         readAloudLog.info("state \(String(describing: self.state)) -> \(String(describing: newState)) chunk \(self.currentChunk) gen \(self.generation)")
         spokenPosition = nil
+        pausedSkipTarget = nil
         state = newState
         if integratesWithSystem, newState != .idle { updateNowPlaying() }
     }
@@ -347,9 +380,14 @@ final class ReadAloudController: ObservableObject {
         switch state {
         case .playing: runEngine(from: currentChunk, settings: settings)
         case .paused:
-            // Restart paused at the same paragraph so resume uses the new settings.
-            runEngine(from: currentChunk, settings: settings)
-            pause()
+            // Restart paused at the same paragraph (or the skip target) so resume uses the new settings.
+            if let parked = pausedSkipTarget {
+                runEngine(from: parked.chunk, offset: parked.offset, settings: settings)
+                parkPaused(at: parked)
+            } else {
+                runEngine(from: currentChunk, settings: settings)
+                pause()
+            }
         case .idle: break
         }
     }

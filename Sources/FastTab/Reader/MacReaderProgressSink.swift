@@ -1,4 +1,21 @@
+import FastTabSync
 import Foundation
+
+/// The Mac reader's `ReadSession`: starts when the page loads with its saved position;
+/// progress committed before that never counts.
+@MainActor
+final class MacReadSessionTracker {
+    private var session: ReadSession?
+
+    func begin(startProgress: Double) {
+        session = ReadSession(startProgress: startProgress)
+    }
+
+    /// True once per session, on the commit that finishes a reread.
+    func record(progress: Double) -> Bool {
+        session?.record(progress: progress) ?? false
+    }
+}
 
 /// Collects the reader's scroll position and writes it to the FastTab List at most once per
 /// `delay` (each write is a sync send), right away when the page asks (scroll end, close), and

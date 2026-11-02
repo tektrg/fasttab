@@ -42,9 +42,13 @@ public enum FastTabListBridge {
     }
 
     /// Short reading-state hint for a row: "Read", "40% read", or nil for unread/unstarted.
+    /// With a read count: "Read 3×" (read), "40% · Read 2×" (rereading).
     public static func progressHint(for link: SavedOnIPhoneLink) -> String? {
-        if link.isRead { return "Read" }
         let percent = Int((link.progress * 100).rounded())
+        if let countText = ReadProgressText.readCount(link.readCount) {
+            return (link.isRead || percent < 1) ? countText : "\(percent)% · \(countText)"
+        }
+        if link.isRead { return "Read" }
         return percent >= 1 ? "\(percent)% read" : nil
     }
 }

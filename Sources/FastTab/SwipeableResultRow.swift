@@ -200,7 +200,7 @@ private struct ResultRowView: View {
     private var actionReserveWidth: CGFloat {
         guard rowStyle == .minimal, isActionsVisible else { return 0 }
         return RowActionOverlay<EmptyView>.reservedWidth(
-            buttonCount: 1,
+            buttonCount: 2,
             leadingFadeWidth: 0,
             trailingPadding: 0
         )
@@ -308,9 +308,12 @@ private struct ResultRowView: View {
                 Button(result.isPinned ? "Unpin Tab" : "Pin Tab", action: onPin)
             }
             Button("Copy Link", action: onCopy)
-            Divider()
-            Button(closeActionTitle, role: .destructive, action: onRemove)
         }
+        RowCloseButton(
+            keepsGhost: result.type == .tab && result.isPinned && !result.isGhost,
+            help: closeActionTitle,
+            action: onRemove
+        )
     }
 
     @ViewBuilder

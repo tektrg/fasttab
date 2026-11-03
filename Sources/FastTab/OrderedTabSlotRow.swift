@@ -36,7 +36,7 @@ struct OrderedTabSlotRow: View {
     private var actionReserveWidth: CGFloat {
         guard rowStyle == .minimal, isActionsVisible else { return 0 }
         return RowActionOverlay<EmptyView>.reservedWidth(
-            buttonCount: 1,
+            buttonCount: 2,
             leadingFadeWidth: 0,
             trailingPadding: 0
         )
@@ -222,8 +222,11 @@ struct OrderedTabSlotRow: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(slot.url, forType: .string)
             }
-            Divider()
-            Button(closeActionTitle, role: .destructive, action: onClose)
         }
+        RowCloseButton(
+            keepsGhost: slot.isPinned && !isGhost,
+            help: closeActionTitle,
+            action: onClose
+        )
     }
 }

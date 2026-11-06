@@ -15,6 +15,7 @@ struct CustomViewDraft: Equatable {
     var domainsText: String
     var keywords: String
     var lastVisited: LastVisitedRule
+    var pinned: PinnedRule
     var semanticPrompt: String
     var groupBy: CustomViewGroupBy
 
@@ -73,6 +74,7 @@ struct CustomViewDraft: Equatable {
         domainsText = view.domains.joined(separator: ", ")
         keywords = view.keywords
         lastVisited = view.lastVisited
+        pinned = view.pinned
         semanticPrompt = view.semanticPrompt
         groupBy = view.groupBy
     }
@@ -154,6 +156,7 @@ struct CustomViewDraft: Equatable {
             domains: normalizedDomains,
             keywords: keywords.trimmingCharacters(in: .whitespacesAndNewlines),
             lastVisited: lastVisited,
+            pinned: pinned,
             semanticPrompt: semanticPrompt.trimmingCharacters(in: .whitespacesAndNewlines),
             groupBy: groupBy
         )
@@ -266,6 +269,11 @@ extension CustomView {
         let words = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
         if !words.isEmpty { parts.append("“\(words)”") }
 
+        switch pinned {
+        case .any: break
+        case .only: parts.append("Pinned")
+        case .exclude: parts.append("Not pinned")
+        }
         if lastVisited != .any { parts.append(lastVisited.displayName) }
         if hasSemanticFilter { parts.append("AI") }
 

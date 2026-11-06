@@ -39,6 +39,10 @@ struct CustomView: Codable, Identifiable, Equatable, Hashable, Sendable {
     /// the command bar search). Empty = no constraint.
     var keywords: String
     var lastVisited: LastVisitedRule
+    /// Browser-pinned tab flag (`BrowserSearchResult.isPinned`). `.only`
+    /// admits pinned tabs alone (bookmarks/history are never pinned);
+    /// `.exclude` drops pinned tabs. `.any` when absent from older JSON.
+    var pinned: PinnedRule
     /// Natural-language "AI filter" (Foundation Models). Empty = off. Stored
     /// only — `CustomViewFilter` does not evaluate it.
     var semanticPrompt: String
@@ -53,6 +57,7 @@ struct CustomView: Codable, Identifiable, Equatable, Hashable, Sendable {
         domains: [String] = [],
         keywords: String = "",
         lastVisited: LastVisitedRule = .any,
+        pinned: PinnedRule = .any,
         semanticPrompt: String = "",
         groupBy: CustomViewGroupBy = .none
     ) {
@@ -64,6 +69,7 @@ struct CustomView: Codable, Identifiable, Equatable, Hashable, Sendable {
         self.domains = domains
         self.keywords = keywords
         self.lastVisited = lastVisited
+        self.pinned = pinned
         self.semanticPrompt = semanticPrompt
         self.groupBy = groupBy
     }
@@ -80,7 +86,7 @@ struct CustomView: Codable, Identifiable, Equatable, Hashable, Sendable {
     // MARK: Codable
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, iconName, types, profiles, domains, keywords, lastVisited, semanticPrompt, groupBy
+        case id, name, iconName, types, profiles, domains, keywords, lastVisited, pinned, semanticPrompt, groupBy
     }
 
     init(from decoder: Decoder) throws {
@@ -97,6 +103,7 @@ struct CustomView: Codable, Identifiable, Equatable, Hashable, Sendable {
             domains: (try? c.decodeIfPresent([String].self, forKey: .domains)) ?? [],
             keywords: (try? c.decodeIfPresent(String.self, forKey: .keywords)) ?? "",
             lastVisited: (try? c.decodeIfPresent(LastVisitedRule.self, forKey: .lastVisited)) ?? .any,
+            pinned: (try? c.decodeIfPresent(PinnedRule.self, forKey: .pinned)) ?? .any,
             semanticPrompt: (try? c.decodeIfPresent(String.self, forKey: .semanticPrompt)) ?? "",
             groupBy: (try? c.decodeIfPresent(CustomViewGroupBy.self, forKey: .groupBy)) ?? .none
         )
@@ -113,6 +120,7 @@ struct CustomView: Codable, Identifiable, Equatable, Hashable, Sendable {
         try c.encode(domains, forKey: .domains)
         try c.encode(keywords, forKey: .keywords)
         try c.encode(lastVisited, forKey: .lastVisited)
+        try c.encode(pinned, forKey: .pinned)
         try c.encode(semanticPrompt, forKey: .semanticPrompt)
         try c.encode(groupBy, forKey: .groupBy)
     }
@@ -198,6 +206,41 @@ struct LastVisitedPreset: Hashable, Identifiable, Sendable {
     let seconds: TimeInterval
     let displayName: String
     var id: TimeInterval { seconds }
+}
+
+// MARK: - Pinned
+
+/// Filter on the browser's own pinned-tab flag (`BrowserSearchResult.isPinned`,
+/// reported by the companion extension) — not FastTab's Stack pins.
+enum PinnedRule: String, Codable, CaseIterable, Hashable, Sendable {
+    case any
+    /// Pinned tabs only (so no bookmarks or history).
+    case only
+    /// Everything except pinned tabs.
+    case exclude
+
+    /// Segmented-control label.
+    var displayName: String {
+        switch self {
+        case .any: return "Any"
+        case .only: return "Pinned"
+        case .exclude: return "Not pinned"
+        }
+    }
+
+    func matches(_ item: BrowserSearchResult) -> Bool {
+        switch self {
+        case .any: return true
+        case .only: return item.isPinned
+        case .exclude: return !item.isPinned
+        }
+    }
+
+    /// Unknown values (a rule added by a newer build) fall back to `.any`.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = PinnedRule(rawValue: raw) ?? .any
+    }
 }
 
 // MARK: - Group by

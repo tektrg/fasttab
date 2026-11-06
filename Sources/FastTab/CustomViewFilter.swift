@@ -98,7 +98,14 @@ enum CustomViewFilter {
         // A bookmark or history row for a page that's open (and shown) is
         // redundant; the open tab is the actionable row. Tabs themselves are
         // never dropped, and without shown tabs nothing is suppressed.
-        let openPages = Set(tabs.map { pageKey(forURL: $0.result.url) })
+        var openPages = Set(tabs.map { pageKey(forURL: $0.result.url) })
+        // "Not pinned" hides pinned pages, so a pinned tab's bookmark or
+        // history row must not stand in for the tab it filtered out.
+        if view.pinned == .exclude {
+            for candidate in candidates where candidate.type == .tab && candidate.isPinned {
+                openPages.insert(pageKey(forURL: candidate.url))
+            }
+        }
         if !openPages.isEmpty {
             bookmarks.removeAll { openPages.contains(pageKey(forURL: $0.result.url)) }
         }
@@ -144,6 +151,7 @@ enum CustomViewFilter {
         let domains: [String]
         let keywordWords: [String]
         let rule: LastVisitedRule
+        let pinned: PinnedRule
 
         init(view: CustomView) {
             types = view.effectiveTypes
@@ -155,11 +163,12 @@ enum CustomViewFilter {
             domains = view.domains.compactMap(CustomViewDomain.normalize).filter { seen.insert($0).inserted }
             keywordWords = searchWords(in: view.keywords)
             rule = view.lastVisited
+            pinned = view.pinned
         }
 
         /// Everything except the time rule (which needs the resolved visit).
         func matchesStructure(_ item: BrowserSearchResult) -> Bool {
-            guard types.contains(item.type) else { return false }
+            guard types.contains(item.type), pinned.matches(item) else { return false }
             if !profiles.isEmpty {
                 guard let profile = item.profileName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                       profiles.contains(profile) else { return false }

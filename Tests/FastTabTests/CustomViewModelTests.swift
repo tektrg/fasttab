@@ -16,6 +16,7 @@ struct CustomViewModelTests {
             domains: ["github.com", "gitlab.com"],
             keywords: "pull request",
             lastVisited: .olderThan(7 * 86_400),
+            pinned: .exclude,
             semanticPrompt: "code reviews waiting on me",
             groupBy: .domain
         )
@@ -150,5 +151,30 @@ struct CustomViewModelTests {
         let goodJSON = String(decoding: try JSONEncoder().encode(good), as: UTF8.self)
         defaults.set(Data("[\(goodJSON), \"garbage\", 7]".utf8), forKey: CustomViewStore.defaultsKey)
         #expect(CustomViewStore(defaults: defaults).views == [good])
+    }
+
+    @Test(arguments: PinnedRule.allCases)
+    func pinnedRuleRoundTrips(rule: PinnedRule) throws {
+        let view = CustomView(name: "p", pinned: rule)
+        #expect(try JSONDecoder().decode(CustomView.self, from: JSONEncoder().encode(view)).pinned == rule)
+    }
+
+    /// A view saved before the Pinned filter existed (no "pinned" key).
+    @Test func oldSavedViewWithoutPinnedDecodesAsAny() throws {
+        let json = """
+        {"id":"\(UUID().uuidString)","name":"Old","iconName":"star","types":["tab"],"profiles":["Work"],
+         "domains":["github.com"],"keywords":"pr","lastVisited":{"kind":"within","seconds":604800},
+         "semanticPrompt":"","groupBy":"domain"}
+        """
+        let view = try JSONDecoder().decode(CustomView.self, from: Data(json.utf8))
+        #expect(view.pinned == .any)
+        #expect(view.name == "Old")
+        #expect(view.profiles == ["Work"])
+        #expect(view.groupBy == .domain)
+    }
+
+    @Test func unknownPinnedValueFallsBackToAny() throws {
+        let json = #"{"name":"Future","pinned":"pinnedInGroup"}"#
+        #expect(try JSONDecoder().decode(CustomView.self, from: Data(json.utf8)).pinned == .any)
     }
 }

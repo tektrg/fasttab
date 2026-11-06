@@ -226,4 +226,46 @@ struct CustomViewFilterTests {
         #expect(!result.isEmpty)
         #expect(Date().timeIntervalSince(start) < 1.0)
     }
+
+    // MARK: Pinned
+
+    private static func pinnedTab(_ url: String, title: String, pinned: Bool) -> BrowserSearchResult {
+        BrowserSearchResult(
+            title: title, url: url, browserName: "Google Chrome", type: .tab,
+            timestamp: now.addingTimeInterval(-60), windowIndex: 1, tabIndex: 1,
+            isPinned: pinned
+        )
+    }
+
+    private static let pinnedCandidates: [BrowserSearchResult] = [
+        pinnedTab("https://mail.example.com/inbox", title: "pinned tab", pinned: true),
+        pinnedTab("https://news.example.com", title: "plain tab", pinned: false),
+        item(.bookmark, "https://b.com", title: "bm"),
+        item(.history, "https://c.com", title: "hist"),
+    ]
+
+    @Test func pinnedAnyConstrainsNothing() {
+        #expect(Set(titles(CustomView(name: "v"), Self.pinnedCandidates)) == ["pinned tab", "plain tab", "bm", "hist"])
+    }
+
+    @Test func pinnedOnlyKeepsPinnedTabsAndNeverBookmarksOrHistory() {
+        let view = CustomView(name: "v", pinned: .only)
+        #expect(titles(view, Self.pinnedCandidates) == ["pinned tab"])
+        // Even when the view asks only for bookmarks + history.
+        #expect(titles(CustomView(name: "v", types: [.bookmark, .history], pinned: .only), Self.pinnedCandidates).isEmpty)
+    }
+
+    @Test func pinnedExcludeDropsPinnedTabsAndTheirTwins() {
+        var candidates = Self.pinnedCandidates
+        // The pinned page's own bookmark / history row must not stand in for it.
+        candidates.append(Self.item(.bookmark, "https://mail.example.com/inbox", title: "mail bm"))
+        candidates.append(Self.item(.history, "https://www.mail.example.com/inbox/#label", title: "mail hist"))
+        let view = CustomView(name: "v", pinned: .exclude)
+        #expect(Set(titles(view, candidates)) == ["plain tab", "bm", "hist"])
+    }
+
+    @Test func pinnedIsAndedWithOtherFields() {
+        let view = CustomView(name: "v", domains: ["news.example.com"], pinned: .only)
+        #expect(titles(view, Self.pinnedCandidates).isEmpty)
+    }
 }

@@ -206,7 +206,12 @@ struct CustomViewEditorTests {
         #expect(CustomViewDraft.lastVisitedHint(rule: .within(Self.day), historyReachDays: nil)
                 == "Based on recent history.")
         #expect(CustomViewDraft.lastVisitedHint(rule: .olderThan(30 * Self.day), historyReachDays: 12)
-                == "Based on your recent history (about 12 days). Bookmarks last opened before that show under Unknown.")
+                == "Based on your recent history (about 12 days). Bookmarks not opened in that time are left out.")
+        // The hint must describe what the filter does: an unknown last
+        // visit never matches a time rule (owner decision), so such a
+        // bookmark is excluded — not shown under "Unknown".
+        let bookmark = CustomViewFilterTests.item(.bookmark, "https://old.example", title: "Old", ago: nil)
+        #expect(CustomViewFilter.evaluate(CustomView(name: "Old", lastVisited: .olderThan(30 * Self.day)), candidates: [bookmark]).isEmpty)
     }
 
     @Test func previewPublishesHistoryReach() async {

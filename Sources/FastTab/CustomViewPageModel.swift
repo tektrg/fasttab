@@ -166,7 +166,10 @@ final class CustomViewPageModel: ObservableObject {
         activeViewID = viewID
         generation += 1
         refreshTask?.cancel()
+        // Nil it too: `scheduleGraceRetry` only schedules when none is set,
+        // and a cancelled task never clears itself.
         graceRetryTask?.cancel()
+        graceRetryTask = nil
         faviconPrefetchTask?.cancel()
         snapshot = nil
         semanticStatus = nil

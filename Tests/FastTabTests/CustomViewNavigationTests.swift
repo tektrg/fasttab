@@ -369,6 +369,29 @@ struct CustomViewPageModelTests {
         #expect(model.semanticStatus == nil)
     }
 
+    /// Leaving a page before its cold-cache grace retry fired must not latch
+    /// the retry off: a later open with still-empty sources has to reach
+    /// the empty state instead of staying blank.
+    @Test func leavingDuringTheEmptySourcesGraceDoesNotDisableLaterRetries() async throws {
+        let view = CustomView(name: "All")
+        let (store, cleanup) = makeStore([view])
+        defer { cleanup() }
+        let sources = Sources()
+        let model = CustomViewPageModel(
+            candidates: { sources.results },
+            sourcesDidChange: sources.changed.eraseToAnyPublisher(),
+            customViewStore: store,
+            debounce: .milliseconds(10),
+            emptySourcesGrace: 0.1
+        )
+        model.activate(viewID: view.id)
+        model.activate(viewID: nil)
+        model.activate(viewID: view.id)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        await model.refreshTask?.value
+        #expect(model.snapshot?.items.isEmpty == true)
+    }
+
     @Test func emptyMatchProducesEmptySnapshotNotNil() async {
         let view = CustomView(name: "None", domains: ["nowhere.example"])
         let (store, cleanup) = makeStore([view])

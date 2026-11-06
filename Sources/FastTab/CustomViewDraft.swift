@@ -53,7 +53,8 @@ struct CustomViewDraft: Equatable {
         var hint = historyReachDays.map { "Based on your recent history (about \($0) \($0 == 1 ? "day" : "days"))." }
             ?? "Based on recent history."
         if case .olderThan = rule {
-            hint += " Bookmarks last opened before that show under Unknown."
+            // Unknown last visits never match a time rule (CustomViewFilter).
+            hint += " Bookmarks not opened in that time are left out."
         }
         return hint
     }

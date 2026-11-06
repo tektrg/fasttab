@@ -165,6 +165,10 @@ struct CustomViewEditorTests {
     @Test func pinnedHintOnlyForAConstraint() {
         #expect(CustomViewEditorForm.pinnedHint(.any) == nil)
         #expect(CustomViewEditorForm.pinnedHint(.only)?.contains("No bookmarks or history") == true)
+        // FastTab's own pins count in every browser (Safari included), so the
+        // hint must not say pinning needs Chrome + the extension.
+        #expect(CustomViewEditorForm.pinnedHint(.only)?.contains("FastTab") == true)
+        #expect(CustomViewEditorForm.pinnedHint(.only)?.contains("Chrome") == false)
         #expect(CustomViewEditorForm.pinnedHint(.exclude) != nil)
     }
 

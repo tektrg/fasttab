@@ -210,8 +210,9 @@ struct LastVisitedPreset: Hashable, Identifiable, Sendable {
 
 // MARK: - Pinned
 
-/// Filter on the browser's own pinned-tab flag (`BrowserSearchResult.isPinned`,
-/// reported by the companion extension) — not FastTab's Stack pins.
+/// Filter on a tab's pinned flag (`BrowserSearchResult.isPinned`): the
+/// browser's pin (companion extension) OR FastTab's own pin, which the live-tab
+/// cache overlays for every browser (`MyOrderStore.overlayPinStatus`).
 enum PinnedRule: String, Codable, CaseIterable, Hashable, Sendable {
     case any
     /// Pinned tabs only (so no bookmarks or history).

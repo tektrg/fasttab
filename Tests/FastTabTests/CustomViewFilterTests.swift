@@ -268,4 +268,21 @@ struct CustomViewFilterTests {
         let view = CustomView(name: "v", domains: ["news.example.com"], pinned: .only)
         #expect(titles(view, Self.pinnedCandidates).isEmpty)
     }
+
+    /// The live-tab cache overlays FastTab's own pins (`MyOrderStore`) onto
+    /// every browser's tabs, so a Safari tab pinned in FastTab counts as
+    /// pinned even though Safari itself has no pin flag to report.
+    @Test func pinnedCountsFastTabPinsInAnyBrowser() {
+        let safariTab = BrowserSearchResult(
+            title: "safari pinned in FastTab", url: "https://news.ycombinator.com", browserName: "Safari",
+            type: .tab, timestamp: Self.now.addingTimeInterval(-60), windowIndex: 1, tabIndex: 1
+        )
+        let slot = OrderedTabSlot(
+            url: safariTab.url, matchKey: safariTab.url, title: safariTab.title, browserName: "Safari",
+            profileName: nil, state: .live, boundTabID: nil, isPinned: true, confirmedInBrowser: false
+        )
+        let live = MyOrderStore.overlayPinStatus(on: [safariTab], using: [slot])
+        #expect(titles(CustomView(name: "v", pinned: .only), live) == ["safari pinned in FastTab"])
+        #expect(titles(CustomView(name: "v", pinned: .exclude), live).isEmpty)
+    }
 }

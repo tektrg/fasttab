@@ -336,8 +336,9 @@ struct CustomViewEditorForm: View {
     static func pinnedHint(_ rule: PinnedRule) -> String? {
         switch rule {
         case .any: return nil
-        // Only the companion extension reports pinning (Safari never does).
-        case .only: return "Tabs pinned in the browser (Chrome-family browsers with the FastTab extension). No bookmarks or history."
+        // `isPinned` = the browser's pin (companion extension) OR FastTab's own
+        // pin (`MyOrderStore.overlayPinStatus`), which works in every browser.
+        case .only: return "Tabs pinned in FastTab or the browser. No bookmarks or history."
         case .exclude: return "Leaves out pinned tabs, and their bookmarks and history."
         }
     }
@@ -373,6 +374,8 @@ struct CustomViewEditorForm: View {
             .menuStyle(.button)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel("Profiles")
+            // The label replaces the button title for VoiceOver; keep the selection audible.
+            .accessibilityValue(Self.profileMenuTitle(selected: draft.profiles, options: profileOptions))
             if draft.profiles.count > 1 {
                 Text(Self.selectedProfilesList(selected: draft.profiles, options: profileOptions))
                     .font(.caption2)

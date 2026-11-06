@@ -36,7 +36,11 @@ struct CustomViewEditor: View {
                     .padding(.bottom, 6)
             }
             ScrollView(.vertical) {
-                CustomViewEditorForm(draft: $draft, profileOptions: preview.profileOptions)
+                CustomViewEditorForm(
+                    draft: $draft,
+                    profileOptions: preview.profileOptions,
+                    historyReachDays: preview.historyReachDays
+                )
                     .padding(.horizontal, style == .bar ? 14 : 16)
                     .padding(.vertical, 10)
             }
@@ -97,11 +101,13 @@ struct CustomViewEditor: View {
     }
 }
 
-/// The builder's fields. Reusable on its own; takes the draft and the
-/// profile names to offer.
+/// The builder's fields. Reusable on its own; takes the draft, the
+/// profile names to offer, and how far back cached history reaches.
 struct CustomViewEditorForm: View {
     @Binding var draft: CustomViewDraft
     let profileOptions: [CustomViewProfileOption]
+    /// See `CustomViewDraft.historyReachDays`; nil = no history cached.
+    var historyReachDays: Int? = nil
 
     @FocusState private var focusedField: Field?
     @State private var isAIAvailable = CustomViewAI.isAvailable
@@ -309,10 +315,17 @@ struct CustomViewEditorForm: View {
         return options
     }
 
+    @ViewBuilder
     private var lastVisitedControls: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 6) { lastVisitedModePicker; lastVisitedDurationPicker }
             VStack(alignment: .leading, spacing: 4) { lastVisitedModePicker; lastVisitedDurationPicker }
+        }
+        if let hint = CustomViewDraft.lastVisitedHint(rule: draft.lastVisited, historyReachDays: historyReachDays) {
+            Text(hint)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -398,10 +411,13 @@ final class CustomViewEditorPreview: ObservableObject {
     /// Nil until the first count lands.
     @Published private(set) var matchCount: Int?
     @Published private(set) var profileOptions: [CustomViewProfileOption] = []
+    /// See `CustomViewDraft.historyReachDays`; refreshed with the sources.
+    @Published private(set) var historyReachDays: Int?
 
     private let candidates: @MainActor () -> [BrowserSearchResult]
     private let prepareSources: @MainActor () -> Void
     private let debounceNanoseconds: UInt64
+    private let now: () -> Date
     private var draft: CustomViewDraft?
     private var countTask: Task<Void, Never>?
     private var sourcesSubscription: AnyCancellable?
@@ -411,9 +427,11 @@ final class CustomViewEditorPreview: ObservableObject {
         candidates: @escaping @MainActor () -> [BrowserSearchResult],
         prepareSources: @escaping @MainActor () -> Void = {},
         sourcesDidChange: AnyPublisher<Void, Never>,
-        debounceNanoseconds: UInt64 = 250_000_000
+        debounceNanoseconds: UInt64 = 250_000_000,
+        now: @escaping () -> Date = Date.init
     ) {
         self.candidates = candidates
+        self.now = now
         self.prepareSources = prepareSources
         self.debounceNanoseconds = debounceNanoseconds
         sourcesSubscription = sourcesDidChange
@@ -455,7 +473,9 @@ final class CustomViewEditorPreview: ObservableObject {
 
     private func recompute(draft: CustomViewDraft, debounce: Bool) {
         if !debounce {
-            profileOptions = CustomViewProfileOption.options(from: candidates(), selected: draft.profiles)
+            let current = candidates()
+            profileOptions = CustomViewProfileOption.options(from: current, selected: draft.profiles)
+            historyReachDays = CustomViewDraft.historyReachDays(candidates: current, now: now())
         }
         generation += 1
         let gen = generation

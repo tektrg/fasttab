@@ -29,6 +29,35 @@ struct CustomViewDraft: Equatable {
     /// Display order of the type toggles.
     static let typeOrder: [BrowserResultType] = [.tab, .bookmark, .history]
 
+    // MARK: Last visited hint
+
+    /// How many whole days back "Last visited" can see. FastTab only caches
+    /// the newest history rows per browser profile (`historyCachePerBrowserLimit`),
+    /// so older visits are unknown. Per browser + profile with history: now −
+    /// its oldest cached row; the shortest reach wins. Rounded down, min 1.
+    /// Nil when no history is cached.
+    static func historyReachDays(candidates: [BrowserSearchResult], now: Date = Date()) -> Int? {
+        var oldestBySource: [String: Date] = [:]
+        for item in candidates where item.type == .history && item.timestamp >= CustomViewFilter.lastVisitFloor {
+            let key = item.browserName + "\u{1F}" + (item.profileName ?? "")
+            if let existing = oldestBySource[key], existing <= item.timestamp { continue }
+            oldestBySource[key] = item.timestamp
+        }
+        guard let reach = oldestBySource.values.map({ now.timeIntervalSince($0) }).min() else { return nil }
+        return max(1, Int((reach / 86_400).rounded(.down)))
+    }
+
+    /// The secondary line under the Last visited control; nil for Any.
+    static func lastVisitedHint(rule: LastVisitedRule, historyReachDays: Int?) -> String? {
+        if rule == .any { return nil }
+        var hint = historyReachDays.map { "Based on your recent history (about \($0) \($0 == 1 ? "day" : "days"))." }
+            ?? "Based on recent history."
+        if case .olderThan = rule {
+            hint += " Bookmarks last opened before that show under Unknown."
+        }
+        return hint
+    }
+
     /// A fresh "New View" draft: everything shown, no filters.
     init(id: UUID = UUID()) {
         self.init(view: CustomView(id: id, name: "", types: CustomView.allowedTypes))

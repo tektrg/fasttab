@@ -309,17 +309,17 @@ struct CustomViewPageModelTests {
         #expect(model.snapshot == nil)
     }
 
-    @Test func postFilterHookRunsBeforeGrouping() async {
-        let view = CustomView(name: "All")
+    @Test func withoutAnAIFilterEngineAPromptIsIgnored() async {
+        let view = CustomView(name: "All", semanticPrompt: "Only keepers")
         let (store, cleanup) = makeStore([view])
         defer { cleanup() }
         let sources = Sources()
         sources.results = [Self.tab("https://a.com", title: "Keep"), Self.tab("https://b.com", title: "Drop")]
         let model = makeModel(sources, store: store)
-        model.postFilter = { _, items in items.filter { $0.result.title == "Keep" } }
         model.activate(viewID: view.id)
         await model.refreshTask?.value
-        #expect(model.snapshot?.items.map(\.result.title) == ["Keep"])
+        #expect(model.snapshot?.items.count == 2)
+        #expect(model.semanticStatus == nil)
     }
 
     @Test func emptyMatchProducesEmptySnapshotNotNil() async {

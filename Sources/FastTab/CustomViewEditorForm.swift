@@ -358,12 +358,26 @@ struct CustomViewEditorForm: View {
                 .focused($focusedField, equals: .prompt)
                 .disabled(!isAIAvailable)
             Text(isAIAvailable
-                 ? "Describe what belongs here. Apple Intelligence checks the items the filters above find, on this Mac."
+                 ? "Describe what belongs here. Apple Intelligence checks the 300 most recent items the filters above find, on this Mac."
                  : CustomViewAI.unavailableMessage)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+            // The field is disabled without Apple Intelligence; a prompt saved
+            // earlier (or synced) must still be removable.
+            if !isAIAvailable, CustomViewEditorForm.canRemoveAIFilter(draft: draft, isAIAvailable: isAIAvailable) {
+                Button("Remove AI filter") {
+                    draft.semanticPrompt = ""
+                }
+                .controlSize(.small)
+            }
         }
+    }
+
+    /// The "Remove AI filter" button shows when the prompt field can't be
+    /// edited (no Apple Intelligence) but holds a prompt.
+    static func canRemoveAIFilter(draft: CustomViewDraft, isAIAvailable: Bool) -> Bool {
+        !isAIAvailable && !draft.semanticPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func issueText(_ message: String) -> some View {

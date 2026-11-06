@@ -46,11 +46,22 @@ extension ContentView {
         let snapshot = customViewPage.snapshot.flatMap { $0.viewID == viewID ? $0 : nil }
         let groupBy = customViewStore.view(id: viewID)?.groupBy ?? .none
         // The inline builder replaces the rows while editing this view.
+        let semanticStatus = snapshot == nil ? nil : customViewPage.semanticStatus
         CustomViewEditorSlot(page: .custom(viewID)) {
-            Group {
+            VStack(spacing: 0) {
+                // Inside the page's fixed height: the rows below give way.
+                if let semanticStatus, !semanticStatus.message.isEmpty {
+                    CustomViewSemanticStatusLine(status: semanticStatus)
+                }
                 if let snapshot {
                     if snapshot.items.isEmpty {
-                        customViewEmptyState(viewID: viewID)
+                        if case .sorting = semanticStatus {
+                            // First AI batches still running: not "no items" yet.
+                            Color.clear
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            customViewEmptyState(viewID: viewID)
+                        }
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 0) {
@@ -151,5 +162,38 @@ extension ContentView {
         }
         .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// One quiet line above a custom view's rows: the AI filter's progress, its
+/// "paused" banner when Apple Intelligence can't run, or a note (cap reached,
+/// items it couldn't check).
+struct CustomViewSemanticStatusLine: View {
+    let status: CustomViewSemanticStatus
+
+    var body: some View {
+        HStack(spacing: 6) {
+            switch status {
+            case .sorting:
+                ProgressView()
+                    .controlSize(.mini)
+            case .paused:
+                Image(systemName: "pause.circle")
+            case .finished:
+                Image(systemName: "sparkles")
+            }
+            Text(status.message)
+                .monospacedDigit()
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.04))
+        .accessibilityElement(children: .combine)
     }
 }

@@ -24,6 +24,7 @@ extension ContentView {
     /// visible (warming its sources), and idles it otherwise.
     func syncCustomViewPage() {
         customViewPage.activate(viewID: appState.isVisible ? viewStore.activeView.customID : nil)
+        syncCustomViewEditor()
     }
 
     /// Keeps the selection valid as the page's rows change, and lands on the
@@ -44,42 +45,45 @@ extension ContentView {
     func customViewResultsList(viewID: UUID, showWindowName: Bool, showProfileName: Bool) -> some View {
         let snapshot = customViewPage.snapshot.flatMap { $0.viewID == viewID ? $0 : nil }
         let groupBy = customViewStore.view(id: viewID)?.groupBy ?? .none
-        Group {
-            if let snapshot {
-                if snapshot.items.isEmpty {
-                    customViewEmptyState(viewID: viewID)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(snapshot.sections.enumerated()), id: \.element.id) { sectionIndex, section in
-                                if !section.title.isEmpty {
-                                    stackSectionHeader(
-                                        title: section.title.uppercased(),
-                                        icon: Self.sectionIcon(groupBy: groupBy, sectionID: section.id)
-                                    )
-                                }
-                                let offset = snapshot.sectionOffsets[sectionIndex]
-                                ForEach(Array(section.items.enumerated()), id: \.element.id) { rowIndex, item in
-                                    let index = offset + rowIndex
-                                    displayItemRow(
-                                        item: .result(item.result),
-                                        index: index,
-                                        isSelected: appState.selectedIndex == index,
-                                        showWindowName: showWindowName,
-                                        showProfileName: showProfileName
-                                    )
+        // The inline builder replaces the rows while editing this view.
+        CustomViewEditorSlot(page: .custom(viewID)) {
+            Group {
+                if let snapshot {
+                    if snapshot.items.isEmpty {
+                        customViewEmptyState(viewID: viewID)
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(snapshot.sections.enumerated()), id: \.element.id) { sectionIndex, section in
+                                    if !section.title.isEmpty {
+                                        stackSectionHeader(
+                                            title: section.title.uppercased(),
+                                            icon: Self.sectionIcon(groupBy: groupBy, sectionID: section.id)
+                                        )
+                                    }
+                                    let offset = snapshot.sectionOffsets[sectionIndex]
+                                    ForEach(Array(section.items.enumerated()), id: \.element.id) { rowIndex, item in
+                                        let index = offset + rowIndex
+                                        displayItemRow(
+                                            item: .result(item.result),
+                                            index: index,
+                                            isSelected: appState.selectedIndex == index,
+                                            showWindowName: showWindowName,
+                                            showProfileName: showProfileName
+                                        )
+                                    }
                                 }
                             }
+                            .padding(.vertical, 3)
                         }
-                        .padding(.vertical, 3)
+                        .background(Color.clear)
                     }
-                    .background(Color.clear)
+                } else {
+                    // Evaluating (first pass is off the main thread) or waiting
+                    // for cold caches — blank rather than a premature "no items".
+                    Color.clear
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else {
-                // Evaluating (first pass is off the main thread) or waiting
-                // for cold caches — blank rather than a premature "no items".
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .onChange(of: customViewPage.snapshot?.revision) { _, _ in
@@ -118,9 +122,13 @@ extension ContentView {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// "＋ New View" — the last page. Placeholder until the inline builder
-    /// (slice 3) replaces it; "Create View" goes through the single editor hook.
+    /// "＋ New View" — the last page: an intro with "Create View", which
+    /// (like Return here) opens the inline builder in its place.
     var newViewPage: some View {
+        CustomViewEditorSlot(page: .newView) { newViewIntro }
+    }
+
+    private var newViewIntro: some View {
         VStack(spacing: 8) {
             Spacer()
             Image(systemName: "plus.rectangle.on.rectangle")

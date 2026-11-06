@@ -14,7 +14,7 @@ public enum CommandBarView: Hashable, Codable, Sendable {
     case stack
     /// A user-defined `CustomView`, by id.
     case custom(UUID)
-    /// The trailing "＋ New View" page (builder placeholder until slice 3).
+    /// The trailing "＋ New View" page (hosts the inline view builder).
     case newView
 
     /// The fixed pages, in swipe order. They also own the global per-view

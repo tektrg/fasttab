@@ -139,7 +139,7 @@ struct CommandBarViewTabStrip: View {
     private func contextMenu(for tab: CommandBarViewTab) -> some View {
         if let id = tab.view.customID {
             Button("Edit View…") { CustomViewEditorPresenter.shared.presentEdit(id: id) }
-            Button("Delete View", role: .destructive) { CustomViewStore.shared.delete(id: id) }
+            Button("Delete View…", role: .destructive) { CustomViewEditorPresenter.shared.requestDelete(id: id) }
         }
     }
 

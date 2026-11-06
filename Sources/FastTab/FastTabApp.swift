@@ -813,7 +813,10 @@ private final class CommandBarPanelController: NSObject {
     /// while the cursor is already outside just as readily as to the cursor
     /// leaving while already empty.
     func evaluateHoverDismiss() {
-        guard AppState.shared.isVisible, AppState.shared.isSearchTextEmpty, panel != nil else {
+        // An open view builder / delete confirmation is work in progress:
+        // leaving the bar must not throw it away.
+        guard AppState.shared.isVisible, AppState.shared.isSearchTextEmpty,
+              !CustomViewEditorPresenter.shared.holdsBar, panel != nil else {
             pendingHoverDismiss?.cancel()
             pendingHoverDismiss = nil
             return
@@ -834,6 +837,7 @@ private final class CommandBarPanelController: NSObject {
         let work = DispatchWorkItem { [weak self] in
             self?.pendingHoverDismiss = nil
             guard AppState.shared.isVisible, AppState.shared.isSearchTextEmpty,
+                  !CustomViewEditorPresenter.shared.holdsBar,
                   self?.isCursorOutsideSurface() == true else { return }
             AppState.shared.hideCommandBar()
         }

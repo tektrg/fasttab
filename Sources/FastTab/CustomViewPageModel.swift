@@ -184,26 +184,3 @@ final class CustomViewPageModel: ObservableObject {
         }
     }
 }
-
-/// Where the custom view builder is opened from (New View page, a view's
-/// header pill context menu, the empty state). Slice 3 implements the
-/// builder by observing `request` (or replacing these two methods).
-@MainActor
-final class CustomViewEditorPresenter: ObservableObject {
-    static let shared = CustomViewEditorPresenter()
-
-    enum Request: Equatable {
-        case new
-        case edit(UUID)
-    }
-
-    /// The builder the UI should show; nil = none. Slice 3 clears it with
-    /// `dismiss()` when the builder closes.
-    @Published private(set) var request: Request?
-
-    func presentNew() { request = .new }
-
-    func presentEdit(id: UUID) { request = .edit(id) }
-
-    func dismiss() { request = nil }
-}

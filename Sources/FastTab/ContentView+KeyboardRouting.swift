@@ -268,15 +268,26 @@ extension ContentView {
             if appState.isRecordingShortcut { return event }
 
             if event.type == .scrollWheel {
+                // The view builder's form scrolls; no page swipes under it.
+                if customViewEditorHoldsBar { return event }
                 return handlePointerScrollSwipe(event) ? nil : event
             } else if event.type == .keyDown {
-                if appState.isVisible {
-                    appState.recordTypingActivity()
-                }
+                // Hidden bar: keys belong to whatever window is key (Settings
+                // text fields — e.g. the Views sheet — need Space/arrows/Return).
+                guard appState.isVisible else { return event }
+                appState.recordTypingActivity()
                 let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 let userModifiers = flags.intersection([.command, .option, .control, .shift])
 
                 let noModifiers = userModifiers.isEmpty
+
+                // The inline view builder owns the keyboard while it's up
+                // (ContentView+CustomViewEditor).
+                switch routeCustomViewEditorKey(event, modifiers: userModifiers) {
+                case .consume: return nil
+                case .passThrough: return event
+                case .notInvolved: break
+                }
 
                 // ⌘1…⌘9 view switching (Nth page in swipe order, New View
                 // excluded — `CommandBarView.numberedShortcutTarget`): must be

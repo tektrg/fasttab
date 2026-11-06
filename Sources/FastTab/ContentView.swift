@@ -895,7 +895,7 @@ struct ContentView: View {
         let items = displayedItems
         if items.isEmpty {
             appState.selectedIndex = -1
-            isSearchFocused = true
+            if !customViewEditorHoldsBar { isSearchFocused = true }
             clearKeyboardSwipe()
             resetPointerSwipe(animated: false)
         } else if searchText.isEmpty {

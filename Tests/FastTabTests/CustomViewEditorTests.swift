@@ -66,10 +66,12 @@ struct CustomViewEditorTests {
             domains: ["jira.example.com"],
             keywords: " sprint ",
             lastVisited: .within(7 * Self.day),
+            pinned: .only,
             semanticPrompt: "tickets",
             groupBy: .domain
         )
         let draft = CustomViewDraft(view: saved)
+        #expect(draft.pinned == .only)
         // Empty (= all) types show as all ticked.
         #expect(draft.types == CustomView.allowedTypes)
         #expect(draft.domainsText == "jira.example.com")
@@ -79,6 +81,7 @@ struct CustomViewEditorTests {
         #expect(resaved.keywords == "sprint")
         #expect(resaved.lastVisited == saved.lastVisited)
         #expect(resaved.groupBy == .domain)
+        #expect(resaved.pinned == .only)
         #expect(resaved.semanticPrompt == "tickets")
     }
 
@@ -115,6 +118,8 @@ struct CustomViewEditorTests {
         )
         #expect(busy.filterSummary == "Bookmarks + History · 3 profiles · a.com +1 · “rust async” · Older than 30 days")
         #expect(CustomView(name: "c", profiles: ["Work", "Home"]).filterSummary == "Work, Home")
+        #expect(CustomView(name: "p", types: [.tab], pinned: .only).filterSummary == "Tabs · Pinned")
+        #expect(CustomView(name: "p", pinned: .exclude).filterSummary == "Not pinned")
     }
 
     // MARK: Profile chips
@@ -136,6 +141,43 @@ struct CustomViewEditorTests {
             selected: ["Gone"]
         )
         #expect(mixed.map(\.label) == ["Default · Arc, Google Chrome", "Gone", "Work · Google Chrome"])
+    }
+
+    // MARK: Profile menu / pinned / narrow layout
+
+    @Test func profileMenuTitleSummarizesTheSelection() {
+        let options = [
+            CustomViewProfileOption(name: "Default", browsers: ["Google Chrome"], showsBrowsers: true),
+            CustomViewProfileOption(name: "AptusFit", browsers: ["Microsoft Edge"], showsBrowsers: true),
+            CustomViewProfileOption(name: "Work", browsers: ["Google Chrome"], showsBrowsers: true),
+        ]
+        #expect(CustomViewEditorForm.profileMenuTitle(selected: [], options: options) == "Any profile")
+        #expect(CustomViewEditorForm.profileMenuTitle(selected: [" "], options: options) == "Any profile")
+        #expect(CustomViewEditorForm.profileMenuTitle(selected: ["default"], options: options) == "Default · Google Chrome")
+        // A saved profile not seen now still reads as its name.
+        #expect(CustomViewEditorForm.profileMenuTitle(selected: ["Gone"], options: options) == "Gone")
+        #expect(CustomViewEditorForm.profileMenuTitle(selected: ["Work", "work"], options: options) == "Work · Google Chrome")
+        #expect(CustomViewEditorForm.profileMenuTitle(selected: ["Work", "AptusFit", "Default"], options: options) == "3 profiles")
+        #expect(CustomViewEditorForm.selectedProfilesList(selected: ["Work", "aptusfit"], options: options)
+                == "AptusFit · Microsoft Edge; Work · Google Chrome")
+    }
+
+    @Test func pinnedHintOnlyForAConstraint() {
+        #expect(CustomViewEditorForm.pinnedHint(.any) == nil)
+        #expect(CustomViewEditorForm.pinnedHint(.only)?.contains("No bookmarks or history") == true)
+        #expect(CustomViewEditorForm.pinnedHint(.exclude) != nil)
+    }
+
+    /// Labels go above the fields in the edge-anchored bar (320pt surface),
+    /// beside them in every notch width and the Settings sheet.
+    @Test func formRowsStackOnlyInTheNarrowBar() {
+        let layout = CustomViewFormRowLayout(labelWidth: 86, stackBelowWidth: CustomViewEditorForm.stackedLabelsBelowWidth)
+        let formWidth = { (outer: CGFloat) in outer - 24 - 28 } // mainContent + editor padding
+        #expect(layout.isStacked(width: formWidth(CommandBarLayout.edgeSurfaceWidth)))
+        #expect(!layout.isStacked(width: formWidth(CommandBarLayout.surfaceWidth * CommandBarLayout.minimalWidthFraction)))
+        #expect(!layout.isStacked(width: formWidth(CommandBarLayout.surfaceWidth)))
+        #expect(!layout.isStacked(width: 520 - 32))
+        #expect(!layout.isStacked(width: nil))
     }
 
     // MARK: Live count
@@ -162,6 +204,17 @@ struct CustomViewEditorTests {
         #expect(preview.matchCount == 2)
 
         draft.types = [.tab]
+        preview.update(draft: draft)
+        await preview.pendingCount?.value
+        #expect(preview.matchCount == 1)
+
+        // The tab isn't pinned: "Pinned" leaves nothing, "Not pinned" keeps it.
+        draft.pinned = .only
+        preview.update(draft: draft)
+        await preview.pendingCount?.value
+        #expect(preview.matchCount == 0)
+
+        draft.pinned = .exclude
         preview.update(draft: draft)
         await preview.pendingCount?.value
         #expect(preview.matchCount == 1)

@@ -59,45 +59,120 @@ struct CustomViewEditor: View {
         }
     }
 
-    @ViewBuilder
     private var footer: some View {
+        CustomViewEditorFooter(
+            draft: draft,
+            isNew: isNew,
+            matchCountText: CustomViewEditorFooter.matchCountText(
+                count: preview.matchCount,
+                hasSemanticFilter: draft.previewView.hasSemanticFilter
+            ),
+            isConfirmingDelete: $isConfirmingDelete,
+            onCancel: onCancel,
+            onSave: onSave,
+            onDelete: onDelete
+        )
+    }
+}
+
+/// Cancel / Save, the live match count, and "Delete View…" with its inline
+/// confirmation. Fits any bar width: one row when there's room, otherwise
+/// the text moves to its own line above the buttons.
+struct CustomViewEditorFooter: View {
+    let draft: CustomViewDraft
+    let isNew: Bool
+    let matchCountText: String
+    @Binding var isConfirmingDelete: Bool
+    let onCancel: () -> Void
+    let onSave: () -> Void
+    let onDelete: (() -> Void)?
+
+    var body: some View {
         if isConfirmingDelete, let onDelete {
-            HStack(spacing: 8) {
-                Text("Delete “\(draft.previewView.name.isEmpty ? "this view" : draft.previewView.name)”? Your tabs, bookmarks and history stay as they are.")
-                    .font(.caption)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Button("Cancel") { isConfirmingDelete = false }
-                    .keyboardShortcut(.cancelAction)
-                Button("Delete View", role: .destructive, action: onDelete)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    deletePrompt.lineLimit(2)
+                    Spacer(minLength: 8)
+                    deleteButtons(onDelete)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    deletePrompt
+                    HStack(spacing: 8) {
+                        Spacer(minLength: 0)
+                        deleteButtons(onDelete)
+                    }
+                }
             }
         } else {
-            HStack(spacing: 8) {
-                if onDelete != nil {
-                    Button("Delete View…") { isConfirmingDelete = true }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    deleteButton
+                    countText
+                    Spacer(minLength: 8)
+                    actionButtons
                 }
-                Text(matchCountText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 8)
-                Button("Cancel", action: onCancel)
-                    .keyboardShortcut(.cancelAction)
-                Button(isNew ? "Create View" : "Save", action: onSave)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(!draft.isValid)
-                    .help(draft.issues.first?.message ?? "Save (⌘Return)")
+                VStack(alignment: .leading, spacing: 6) {
+                    countText
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        deleteButton
+                        Spacer(minLength: 8)
+                        actionButtons
+                    }
+                }
             }
         }
     }
 
-    private var matchCountText: String {
-        guard let count = preview.matchCount else { return "Counting…" }
+    private var deletePrompt: some View {
+        Text("Delete “\(draft.previewView.name.isEmpty ? "this view" : draft.previewView.name)”? Your tabs, bookmarks and history stay as they are.")
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func deleteButtons(_ onDelete: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Button("Cancel") { isConfirmingDelete = false }
+                .keyboardShortcut(.cancelAction)
+            Button("Delete View", role: .destructive, action: onDelete)
+        }
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var deleteButton: some View {
+        if onDelete != nil {
+            Button("Delete View…") { isConfirmingDelete = true }
+                .fixedSize()
+        }
+    }
+
+    private var countText: some View {
+        Text(matchCountText)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 8) {
+            Button("Cancel", action: onCancel)
+                .keyboardShortcut(.cancelAction)
+            Button(isNew ? "Create View" : "Save", action: onSave)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!draft.isValid)
+                .help(draft.issues.first?.message ?? "Save (⌘Return)")
+        }
+        .fixedSize()
+    }
+
+    static func matchCountText(count: Int?, hasSemanticFilter: Bool) -> String {
+        guard let count else { return "Counting…" }
         let base = count == 1 ? "1 item matches" : "\(count) items match"
-        return draft.previewView.hasSemanticFilter ? base + " before the AI filter" : base
+        return hasSemanticFilter ? base + " before the AI filter" : base
     }
 }
 
@@ -117,6 +192,9 @@ struct CustomViewEditorForm: View {
     }
 
     private static let labelWidth: CGFloat = 86
+    /// Narrower than this (the edge-anchored bar), labels go above their
+    /// fields so every field gets the full width.
+    static let stackedLabelsBelowWidth: CGFloat = 360
     private static let defaultWithin: TimeInterval = 7 * 86_400
     private static let defaultOlderThan: TimeInterval = 30 * 86_400
 
@@ -129,7 +207,8 @@ struct CustomViewEditorForm: View {
             }
             row("Icon") { iconGrid }
             row("Show") { typeChips }
-            row("Profiles") { profileChips }
+            row("Pinned") { pinnedControl }
+            row("Profiles") { profileMenu }
             row("Domains") { domainsField }
             row("Keywords") {
                 TextField("Words in the title or address", text: $draft.keywords)
@@ -139,14 +218,11 @@ struct CustomViewEditorForm: View {
             row("Last visited") { lastVisitedControls }
             row("AI filter") { aiField }
             row("Group by") {
-                Picker("Group by", selection: $draft.groupBy) {
-                    ForEach(CustomViewGroupBy.allCases, id: \.self) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
+                // Segmented when it fits, a menu otherwise.
+                ViewThatFits(in: .horizontal) {
+                    groupByPicker.pickerStyle(.segmented).fixedSize()
+                    groupByPicker.pickerStyle(.menu).fixedSize()
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
             }
         }
         .onAppear {
@@ -159,11 +235,11 @@ struct CustomViewEditorForm: View {
     }
 
     private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        CustomViewFormRowLayout(labelWidth: Self.labelWidth, stackBelowWidth: Self.stackedLabelsBelowWidth) {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: Self.labelWidth, alignment: .trailing)
+                .lineLimit(1)
             VStack(alignment: .leading, spacing: 4) {
                 content()
             }
@@ -171,10 +247,19 @@ struct CustomViewEditorForm: View {
         }
     }
 
+    private var groupByPicker: some View {
+        Picker("Group by", selection: $draft.groupBy) {
+            ForEach(CustomViewGroupBy.allCases, id: \.self) { mode in
+                Text(mode.displayName).tag(mode)
+            }
+        }
+        .labelsHidden()
+    }
+
     // MARK: Icon
 
     private var iconGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 4), count: 8), alignment: .leading, spacing: 4) {
+        CustomViewFlowLayout(spacing: 4) {
             ForEach(CustomViewDraft.iconChoices, id: \.self) { icon in
                 let isSelected = draft.iconName == icon
                 Button {
@@ -201,7 +286,7 @@ struct CustomViewEditorForm: View {
 
     private var typeChips: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
+            CustomViewFlowLayout(spacing: 6) {
                 ForEach(CustomViewDraft.typeOrder, id: \.self) { type in
                     CustomViewChip(
                         title: CustomView.pluralLabel(type),
@@ -222,30 +307,108 @@ struct CustomViewEditorForm: View {
         }
     }
 
+    // MARK: Pinned
+
+    private var pinnedPicker: some View {
+        Picker("Pinned", selection: $draft.pinned) {
+            ForEach(PinnedRule.allCases, id: \.self) { rule in
+                Text(rule.displayName).tag(rule)
+            }
+        }
+        .labelsHidden()
+    }
+
     @ViewBuilder
-    private var profileChips: some View {
+    private var pinnedControl: some View {
+        ViewThatFits(in: .horizontal) {
+            pinnedPicker.pickerStyle(.segmented).fixedSize()
+            pinnedPicker.pickerStyle(.menu).fixedSize()
+        }
+        if let hint = Self.pinnedHint(draft.pinned) {
+            Text(hint)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Under the Pinned control; nil for Any.
+    static func pinnedHint(_ rule: PinnedRule) -> String? {
+        switch rule {
+        case .any: return nil
+        // Only the companion extension reports pinning (Safari never does).
+        case .only: return "Tabs pinned in the browser (Chrome-family browsers with the FastTab extension). No bookmarks or history."
+        case .exclude: return "Leaves out pinned tabs, and their bookmarks and history."
+        }
+    }
+
+    // MARK: Profiles
+
+    /// One menu (OR within the field; nothing ticked = any profile) — a chip
+    /// per profile took the whole editor with many browsers' profiles.
+    @ViewBuilder
+    private var profileMenu: some View {
         if profileOptions.isEmpty {
             Text("Any profile")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } else {
-            CustomViewFlowLayout(spacing: 6) {
+            Menu {
+                Toggle("Any profile", isOn: Binding(
+                    get: { draft.profiles.isEmpty },
+                    set: { if $0 { draft.profiles = [] } }
+                ))
+                Divider()
                 ForEach(profileOptions) { option in
-                    CustomViewChip(
-                        title: option.label,
-                        systemImage: nil,
-                        isOn: draft.isProfileSelected(option.name)
-                    ) {
-                        draft.toggleProfile(option.name)
-                    }
+                    Toggle(option.label, isOn: Binding(
+                        get: { draft.isProfileSelected(option.name) },
+                        set: { _ in draft.toggleProfile(option.name) }
+                    ))
                 }
+            } label: {
+                Text(Self.profileMenuTitle(selected: draft.profiles, options: profileOptions))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
-            if draft.profiles.isEmpty {
-                Text("None selected: any profile.")
+            .menuStyle(.button)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel("Profiles")
+            if draft.profiles.count > 1 {
+                Text(Self.selectedProfilesList(selected: draft.profiles, options: profileOptions))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// The profile menu's button title: "Any profile", the one profile's
+    /// label ("Default · Google Chrome"), or "3 profiles".
+    static func profileMenuTitle(selected: [String], options: [CustomViewProfileOption]) -> String {
+        let names = selected
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        var seen = Set<String>()
+        let unique = names.filter { seen.insert($0.lowercased()).inserted }
+        switch unique.count {
+        case 0: return "Any profile"
+        case 1: return label(of: unique[0], in: options)
+        default: return "\(unique.count) profiles"
+        }
+    }
+
+    /// The ticked profiles' labels, in menu order, for the line under the
+    /// menu when more than one is ticked.
+    static func selectedProfilesList(selected: [String], options: [CustomViewProfileOption]) -> String {
+        options
+            .filter { option in selected.contains { $0.caseInsensitiveCompare(option.name) == .orderedSame } }
+            .map(\.label)
+            .joined(separator: "; ")
+    }
+
+    private static func label(of name: String, in options: [CustomViewProfileOption]) -> String {
+        options.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.label ?? name
     }
 
     // MARK: Domains
@@ -590,5 +753,68 @@ struct CustomViewFlowLayout: Layout {
         }
         if !current.indices.isEmpty { rows.append(current) }
         return rows
+    }
+}
+
+/// One labelled form row: label (trailing-aligned, fixed width) beside the
+/// field when the row is at least `stackBelowWidth` wide, label above the
+/// field otherwise — so the narrow edge-anchored bar gives every field its
+/// full width instead of overflowing. First subview = label, second = field.
+struct CustomViewFormRowLayout: Layout {
+    var labelWidth: CGFloat
+    var stackBelowWidth: CGFloat
+    var spacing: CGFloat = 10
+    var stackedSpacing: CGFloat = 3
+
+    func isStacked(width: CGFloat?) -> Bool {
+        (width ?? .infinity) < stackBelowWidth
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let frames = arrange(width: proposal.width, subviews: subviews)
+        let width = proposal.width ?? max(frames.label.maxX, frames.content.maxX)
+        return CGSize(width: width, height: max(frames.label.maxY, frames.content.maxY))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let frames = arrange(width: bounds.width, subviews: subviews)
+        for (index, frame) in [frames.label, frames.content].enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                proposal: ProposedViewSize(width: frame.width, height: frame.height)
+            )
+        }
+    }
+
+    private func arrange(width: CGFloat?, subviews: Subviews) -> (label: CGRect, content: CGRect) {
+        let label = subviews[0], content = subviews[1]
+        if isStacked(width: width) {
+            let labelSize = label.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            let contentProposal = ProposedViewSize(width: width, height: nil)
+            let contentSize = content.sizeThatFits(contentProposal)
+            return (
+                CGRect(origin: .zero, size: labelSize),
+                CGRect(x: 0, y: labelSize.height + stackedSpacing,
+                       width: width ?? contentSize.width, height: contentSize.height)
+            )
+        }
+        let contentWidth = width.map { max(0, $0 - labelWidth - spacing) }
+        let labelProposal = ProposedViewSize(width: labelWidth, height: nil)
+        let contentProposal = ProposedViewSize(width: contentWidth, height: nil)
+        let labelSize = label.sizeThatFits(labelProposal)
+        let contentSize = content.sizeThatFits(contentProposal)
+        // Line the label's text up with the field's first line; capped so a
+        // field with no text (the icon grid) keeps its label near the top.
+        let labelBaseline = label.dimensions(in: labelProposal)[VerticalAlignment.firstTextBaseline]
+        let contentBaseline = content.dimensions(in: contentProposal)[VerticalAlignment.firstTextBaseline]
+        let shift = min(max(contentBaseline - labelBaseline, -labelSize.height), 6)
+        return (
+            CGRect(x: labelWidth - min(labelSize.width, labelWidth), y: max(shift, 0),
+                   width: min(labelSize.width, labelWidth), height: labelSize.height),
+            CGRect(x: labelWidth + spacing, y: max(-shift, 0),
+                   width: contentWidth ?? contentSize.width, height: contentSize.height)
+        )
     }
 }

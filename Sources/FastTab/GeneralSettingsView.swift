@@ -8,6 +8,8 @@ struct GeneralSettingsView: View {
     @StateObject private var launchAtLogin = LaunchAtLoginService.shared
     @ObservedObject private var edgeReveal = EdgeRevealStore.shared
     @ObservedObject private var viewStore = CommandBarViewStore.shared
+    /// Keeps custom view names in the "Hover opens" picker current.
+    @ObservedObject private var customViewStore = CustomViewStore.shared
     @ObservedObject private var myOrderStore = MyOrderStore.shared
     @ObservedObject private var rowSwipeStore = RowSwipeGestureStore.shared
 
@@ -76,7 +78,7 @@ struct GeneralSettingsView: View {
                         get: { viewStore.hoverDefaultView },
                         set: { viewStore.setHoverDefaultView($0) }
                     )) {
-                        ForEach(CommandBarView.allCases, id: \.self) { view in
+                        ForEach(viewStore.selectableDefaultViews, id: \.self) { view in
                             Text(view.displayName).tag(view)
                         }
                     }

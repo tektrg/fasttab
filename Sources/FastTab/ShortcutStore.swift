@@ -53,6 +53,9 @@ class ShortcutStore: ObservableObject {
         case .stack:
             stackShortcut = shortcut
             prefix = "shortcut.stack"
+        case .custom, .newView:
+            // Global shortcuts exist for the builtin views only.
+            return
         }
 
         if let shortcut {
@@ -70,6 +73,7 @@ class ShortcutStore: ObservableObject {
         switch view {
         case .recents: return recentsShortcut
         case .stack: return stackShortcut
+        case .custom, .newView: return nil
         }
     }
 

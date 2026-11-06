@@ -6,6 +6,8 @@ struct ShortcutsSettingsView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject private var shortcutStore = ShortcutStore.shared
     @ObservedObject private var viewStore = CommandBarViewStore.shared
+    /// Keeps custom view names in the "Default view" picker current.
+    @ObservedObject private var customViewStore = CustomViewStore.shared
 
     var body: some View {
         Form {
@@ -26,7 +28,7 @@ struct ShortcutsSettingsView: View {
                     get: { viewStore.defaultView },
                     set: { viewStore.setDefaultView($0) }
                 )) {
-                    ForEach(CommandBarView.allCases, id: \.self) { view in
+                    ForEach(viewStore.selectableDefaultViews, id: \.self) { view in
                         Text(view.displayName).tag(view)
                     }
                 }

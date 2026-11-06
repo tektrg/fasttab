@@ -147,8 +147,12 @@ struct CommandBarViewStoreTests {
         #expect(store.slideDirection == .backward)
     }
 
+    @MainActor
     @Test func commandBarViewIndicesAndOrder() {
-        #expect(CommandBarView.recents.index == 0)
-        #expect(CommandBarView.stack.index == 1)
+        let (store, _, cleanup) = Self.makeStore()
+        defer { cleanup() }
+        #expect(store.index(of: .recents) == 0)
+        #expect(store.index(of: .stack) == 1)
+        #expect(store.availableViews == [.recents, .stack, .newView])
     }
 }

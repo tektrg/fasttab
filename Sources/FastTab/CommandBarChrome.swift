@@ -65,35 +65,37 @@ struct SearchHeader: View {
     let onLeftArrowAtEmpty: () -> Void
     let onUpArrow: () -> Void
     let onDownArrow: () -> Void
-    /// Two-tab switch between Recents/search and Stack — the same
-    /// destinations as swiping horizontally or ⌘1/⌘2. The active tab wears
-    /// the accent pill (full search box, or icon plus "Stack"); the inactive
-    /// tab is just its icon. The pill slides between tabs on switch.
-    let isStackActive: Bool
+    /// The view switcher: one tab per page in swipe order (Recents/search,
+    /// Stack, custom views, "＋ New View") — the same destinations as swiping
+    /// horizontally or ⌘1…⌘9. The active tab wears the accent pill (the full
+    /// search box for Recents, otherwise icon plus name); inactive tabs are
+    /// just icons. The pill slides between tabs on switch. See
+    /// `CommandBarViewTabStrip`.
+    let activeView: CommandBarView
+    let viewTabs: [CommandBarViewTab]
     let onSelectView: (CommandBarView) -> Void
 
     @Namespace private var tabHighlight
 
     var body: some View {
         HStack(spacing: 6) {
-            if isStackActive {
-                HeaderTabIcon(
-                    icon: "magnifyingglass",
-                    help: "Search (⌘1)",
-                    label: "Search"
-                ) { onSelectView(.recents) }
-            } else {
+            if activeView == .recents {
                 searchTab
-            }
-
-            if isStackActive {
-                stackTab
+                CommandBarViewTabStrip(
+                    tabs: viewTabs.filter { $0.view != .recents },
+                    activeView: activeView,
+                    highlight: tabHighlight,
+                    onSelect: onSelectView,
+                    capsInlineIcons: true
+                )
             } else {
-                HeaderTabIcon(
-                    icon: "square.stack",
-                    help: "Open Stack (⌘2)",
-                    label: "Open Stack"
-                ) { onSelectView(.stack) }
+                CommandBarViewTabStrip(
+                    tabs: viewTabs,
+                    activeView: activeView,
+                    highlight: tabHighlight,
+                    onSelect: onSelectView,
+                    capsInlineIcons: false
+                )
             }
         }
         .padding(4)
@@ -163,27 +165,6 @@ struct SearchHeader: View {
         .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
 
-    /// Active stack tab: icon plus full name riding the sliding pill.
-    private var stackTab: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "square.stack.fill")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-
-            Text("Stack")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.accentColor.opacity(0.14))
-                .matchedGeometryEffect(id: "HeaderTabHighlight", in: tabHighlight)
-        }
-        .transition(.opacity.combined(with: .scale(scale: 0.98)))
-    }
-
     /// In alias mode the placeholder names the destination, so an empty input
     /// still says where Enter would take you.
     private var searchFieldPlaceholder: String {
@@ -193,7 +174,7 @@ struct SearchHeader: View {
 }
 
 /// Icon-only inactive header tab with hover feedback.
-private struct HeaderTabIcon: View {
+struct HeaderTabIcon: View {
     let icon: String
     let help: String
     let label: String

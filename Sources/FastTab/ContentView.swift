@@ -17,6 +17,8 @@ struct ContentView: View {
     @ObservedObject var shortcutStore = ShortcutStore.shared
     @ObservedObject var edgeRevealStore = EdgeRevealStore.shared
     @ObservedObject var viewStore = CommandBarViewStore.shared
+    @ObservedObject var customViewStore = CustomViewStore.shared
+    @ObservedObject var customViewPage = CustomViewPageModel.shared
     @ObservedObject var myOrderStore = MyOrderStore.shared
     @ObservedObject var sentLinkInbox = SentLinkInbox.shared
     @ObservedObject var revealTrigger = CommandBarRevealTrigger.shared
@@ -148,12 +150,15 @@ struct ContentView: View {
     }
 
     func displayItems(for view: CommandBarView) -> [CommandBarDisplayItem] {
+        if view.isCustomPage {
+            return customPageDisplayItems(for: view)
+        }
         if !isSearchActive {
             switch view {
             case .stack:
                 return stackPinnedSlots.map(CommandBarDisplayItem.orderedEntry)
                     + stackSentLinks.map(CommandBarDisplayItem.result)
-            case .recents:
+            case .recents, .custom, .newView:
                 break
             }
         }
@@ -333,6 +338,7 @@ struct ContentView: View {
         scopeDropdownSelectedIndex = 0
         appState.selectedIndex = 0
         scrollResultsToTop(proxy)
+        syncCustomViewPage()
     }
 
     private func handleSelectedIndexChange(proxy: ScrollViewProxy) {
@@ -390,6 +396,7 @@ struct ContentView: View {
             }
             isShowingAllOpenTabs = wasOpenedByMouse
             triggerFetch()
+            syncCustomViewPage()
             DispatchQueue.main.async {
                 isSearchFocused = true
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
@@ -400,6 +407,7 @@ struct ContentView: View {
             wasOpenedByHover = false
             wasOpenedByMouse = false
             isShowingAllOpenTabs = false
+            syncCustomViewPage()
         }
     }
 
@@ -540,7 +548,8 @@ struct ContentView: View {
                                     moveSelectionForward(includeSearchField: true)
                                     lastInteractionKey = .upDown
                                 },
-                                isStackActive: viewStore.activeView == .stack,
+                                activeView: viewStore.activeView,
+                                viewTabs: headerViewTabs,
                                 onSelectView: { viewStore.selectView($0) }
                             )
                             searchHeader

@@ -47,7 +47,7 @@ extension ContentView {
         audibleTabsStrip(audibleTabs)
     }
 
-    private var modeSlideTransition: AnyTransition {
+    var modeSlideTransition: AnyTransition {
         let isForward = viewStore.slideDirection == .forward
         return .asymmetric(
             insertion: .move(edge: isForward ? .trailing : .leading).combined(with: .opacity),
@@ -62,8 +62,12 @@ extension ContentView {
         let resultsHeight = CommandBarLayout.resultsHeight(for: commandBarAnchor, rowStyle: rowStyle, rowCount: resultsSizingRowCount)
         let audibleTabs = audibleSectionTabs
 
+        // Custom views and the New View page always show their own content
+        // (`CommandBarView.isCustomPage`), never the Recents search/loading.
+        let isCustomPage = viewStore.activeView.isCustomPage
+
         Group {
-            if appState.browserService.isLoading && displayedResults.isEmpty {
+            if !isCustomPage && appState.browserService.isLoading && displayedResults.isEmpty {
                 VStack(spacing: 10) {
                     resultsTopStrips(audibleTabs)
                     Spacer()
@@ -76,7 +80,7 @@ extension ContentView {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: resultsHeight)
-            } else if isSearchActive {
+            } else if !isCustomPage && isSearchActive {
                 VStack(spacing: 0) {
                     resultsTopStrips(audibleTabs)
 
@@ -111,6 +115,13 @@ extension ContentView {
                                 .transition(modeSlideTransition)
                         case .stack:
                             stackResultsList(showWindowName: showWindowName, showProfileName: showProfileName)
+                                .transition(modeSlideTransition)
+                        case .custom(let id):
+                            customViewResultsList(viewID: id, showWindowName: showWindowName, showProfileName: showProfileName)
+                                .id(id)
+                                .transition(modeSlideTransition)
+                        case .newView:
+                            newViewPage
                                 .transition(modeSlideTransition)
                         }
                     }
@@ -185,7 +196,7 @@ extension ContentView {
         }
     }
 
-    private func stackSectionHeader(title: String, icon: String) -> some View {
+    func stackSectionHeader(title: String, icon: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.system(size: 9, weight: .semibold))
@@ -232,6 +243,9 @@ extension ContentView {
                 return ("No tabs found", SearchSource.recentsEmptyHint(enabled: SourceSelectionStore.shared.launchSnapshot), "rectangle.stack.badge.magnifyingglass")
             case .stack:
                 return ("Stack is empty", "Pin a tab to keep it here, or send a link from your iPhone.", "square.stack")
+            case .custom, .newView:
+                // Custom pages have their own empty states (ContentView+CustomViews).
+                return ("Nothing here", "", "square.stack.3d.up")
             }
         }()
 
@@ -267,7 +281,7 @@ extension ContentView {
     }
 
     @ViewBuilder
-    private func displayItemRow(
+    func displayItemRow(
         item: CommandBarDisplayItem,
         index: Int,
         isSelected: Bool,

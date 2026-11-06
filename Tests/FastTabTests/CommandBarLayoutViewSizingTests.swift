@@ -10,7 +10,7 @@ struct CommandBarLayoutViewSizingTests {
         let anchors = CommandBarAnchor.allCases
         let rowStyles: [ResultRowStyle] = [.minimal, .full]
         let footers: [Bool] = [true, false]
-        let views: [CommandBarView] = CommandBarView.allCases
+        let views: [CommandBarView] = [.recents, .stack, .custom(UUID()), .newView]
         let allTabsStates: [Bool] = [false, true]
         let quickOpenLimits = [CommandBarLayout.minQuickOpenItemLimit, 5, 10, CommandBarLayout.maxQuickOpenItemLimit]
 

@@ -71,7 +71,8 @@ extension ContentView {
                 deltaY: deltaY,
                 isEnded: gestureEnded || gestureCancelled,
                 isMomentum: isMomentum,
-                currentView: viewStore.activeView
+                currentView: viewStore.activeView,
+                orderedViews: viewStore.availableViews
             ) {
                 viewStore.selectView(nextView)
                 return true

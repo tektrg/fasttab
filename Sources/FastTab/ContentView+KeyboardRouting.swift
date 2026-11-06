@@ -10,6 +10,8 @@ private let kLeftArrowKeyCode: UInt16 = 123
 private let kRightArrowKeyCode: UInt16 = 124
 private let kUpArrowKeyCode: UInt16 = 126
 private let kDownArrowKeyCode: UInt16 = 125
+/// ANSI number-row key codes → digit, for ⌘1…⌘9 view switching.
+private let kDigitKeyCodes: [UInt16: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9]
 
 extension ContentView {
     func activateAndHide(_ result: BrowserSearchResult) {
@@ -39,7 +41,13 @@ extension ContentView {
             // Alias mode is an explicit commitment, so Enter belongs to it even
             // before anything is typed (opens the site's search page) and even
             // when no row is highlighted.
-            if let activeSearchAlias {
+            // Custom pages ignore the (preserved) Recents search text; the New
+            // View page's Return is its "Create View" button.
+            if viewStore.activeView == .newView {
+                CustomViewEditorPresenter.shared.presentNew()
+            } else if viewStore.activeView.isCustomPage {
+                // Nothing selected on a custom view: no-op.
+            } else if let activeSearchAlias {
                 activateSearchAlias(alias: activeSearchAlias, query: searchText)
             } else if !searchText.isEmpty, displayedResults.isEmpty {
                 activateSearchTheWeb(query: searchText)
@@ -270,18 +278,13 @@ extension ContentView {
 
                 let noModifiers = userModifiers.isEmpty
 
-                // ⌘1/2 view switching: must be guarded on isVisible so Settings doesn't swallow them.
-                if appState.isVisible, userModifiers == [.command] {
-                    switch event.keyCode {
-                    case 18:
-                        viewStore.selectView(.recents)
-                        return nil
-                    case 19:
-                        viewStore.selectView(.stack)
-                        return nil
-                    default:
-                        break
-                    }
+                // ⌘1…⌘9 view switching (Nth page in swipe order, New View
+                // excluded — `CommandBarView.numberedShortcutTarget`): must be
+                // guarded on isVisible so Settings doesn't swallow them.
+                if appState.isVisible, userModifiers == [.command],
+                   let number = kDigitKeyCodes[event.keyCode],
+                   viewStore.selectNumberedView(number) {
+                    return nil
                 }
 
                 // ⌘P: toggle pin on selected row (ordered entry or live tab result)

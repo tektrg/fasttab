@@ -13,12 +13,16 @@ struct ViewSwitchFlickDetector {
 
     /// Processes horizontal scroll delta with vertical scroll safety.
     /// Returns the target view to switch to if a flick triggered, or nil.
+    /// `orderedViews` is the swipe order (`CommandBarViewStore.availableViews`);
+    /// a leftward flick (negative delta) moves one page forward, rightward
+    /// one page back, clamped at both ends.
     mutating func handleScroll(
         deltaX: CGFloat,
         deltaY: CGFloat = 0,
         isEnded: Bool,
         isMomentum: Bool = false,
-        currentView: CommandBarView
+        currentView: CommandBarView,
+        orderedViews: [CommandBarView] = CommandBarView.builtins
     ) -> CommandBarView? {
         if isEnded {
             accumulator = 0
@@ -41,31 +45,18 @@ struct ViewSwitchFlickDetector {
         guard absX >= 1.5 else { return nil }
 
         // Direction clamping: cannot flick further than edges
-        if currentView == .stack && deltaX < 0 {
-            accumulator = 0
-            return nil
-        }
-        if currentView == .recents && deltaX > 0 {
+        let step = deltaX < 0 ? 1 : -1
+        guard let target = CommandBarView.neighbor(of: currentView, step: step, in: orderedViews) else {
             accumulator = 0
             return nil
         }
 
         accumulator += deltaX
 
-        if accumulator <= -Self.threshold {
+        if abs(accumulator) >= Self.threshold {
             isSuppressed = true
             accumulator = 0
-            switch currentView {
-            case .recents: return .stack
-            case .stack: return nil
-            }
-        } else if accumulator >= Self.threshold {
-            isSuppressed = true
-            accumulator = 0
-            switch currentView {
-            case .stack: return .recents
-            case .recents: return nil
-            }
+            return target
         }
 
         return nil

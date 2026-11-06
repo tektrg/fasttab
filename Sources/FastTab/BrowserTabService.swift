@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Combine
 import OSLog
 import ApplicationServices
 import FastTabSync
@@ -43,12 +44,23 @@ class BrowserTabService: ObservableObject {
     private var lastIssuedQuery: String = ""
     private var lastIssuedFilter: ScopeFilter = ScopeFilter()
 
-    private(set) var cachedBookmarks: [BrowserSearchResult] = []
-    private var cachedHistory: [BrowserSearchResult] = []
+    private(set) var cachedBookmarks: [BrowserSearchResult] = [] {
+        didSet { customViewSourcesDidChange.send() }
+    }
+    private(set) var cachedHistory: [BrowserSearchResult] = [] {
+        didSet { customViewSourcesDidChange.send() }
+    }
     private var cacheLastUpdatedAt: Date?
     private var cachedQuickOpenResults: [BrowserSearchResult] = []
     private var cachedQuickOpenSourceAppBundleIdentifier: String?
-    private(set) var cachedLiveTabs: [BrowserSearchResult] = []
+    private(set) var cachedLiveTabs: [BrowserSearchResult] = [] {
+        didSet { customViewSourcesDidChange.send() }
+    }
+    /// Fires on every change to the caches behind `customViewCandidates()`
+    /// (often several times per refresh — debounce on the UI side). A plain
+    /// subject, not `@Published`, so it doesn't re-render every view that
+    /// observes this service.
+    let customViewSourcesDidChange = PassthroughSubject<Void, Never>()
     var authoritativeLiveTabSnapshot: AuthoritativeLiveTabSnapshot { liveTabRefreshPipeline.snapshot }
     private var lastLiveTabsRefreshAt: Date = .distantPast
 
@@ -1890,6 +1902,27 @@ class BrowserTabService: ObservableObject {
         Task.detached(priority: .userInitiated) {
             targetBackend.openURL(result)
         }
+    }
+
+    // MARK: - Custom views data source
+
+    /// Everything a custom view can show, straight from the existing caches:
+    /// open tabs (no ghost Stack slots), bookmarks, and recent history (the
+    /// cache holds the newest `historyCachePerBrowserLimit` rows per browser,
+    /// so older visits are invisible to custom views). Feed this to
+    /// `CustomViewFilter.evaluate`; observe `customViewSourcesDidChange`.
+    func customViewCandidates() -> [BrowserSearchResult] {
+        cachedLiveTabs.filter { $0.type == .tab && !$0.isGhost }
+            + cachedBookmarks.filter { $0.type == .bookmark }
+            + cachedHistory.filter { $0.type == .history }
+    }
+
+    /// Call when a custom view page appears: warms the bookmark/history
+    /// caches through the normal refresh path (forced when both are still
+    /// empty, otherwise subject to the usual 30s interval). Live tabs are
+    /// refreshed by the regular bar-open fetch.
+    func prepareCustomViewSources() {
+        refreshCachesIfNeeded(force: cachedBookmarks.isEmpty && cachedHistory.isEmpty)
     }
 
     private func refreshCachesIfNeeded(force: Bool) {

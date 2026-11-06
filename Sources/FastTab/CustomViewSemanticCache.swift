@@ -13,20 +13,34 @@ import OSLog
 /// capped at `capacity` entries; past it, the least recently used are evicted
 /// down to 90%. Entries of prompts no view uses any more are dropped by
 /// `prune(keepingPromptHashes:)`.
+///
+/// Saving: changes are coalesced (one write `saveDelay` after the last one),
+/// and the JSON is encoded and written atomically on a serial background
+/// queue — never on the main thread. `flush()` (app termination) writes any
+/// pending change synchronously.
 @MainActor
 final class CustomViewSemanticCache {
-    static let shared = CustomViewSemanticCache(fileURL: CustomViewSemanticCache.defaultFileURL)
+    static var shared: CustomViewSemanticCache {
+        if let loaded = sharedIfLoaded { return loaded }
+        let cache = CustomViewSemanticCache(fileURL: defaultFileURL)
+        sharedIfLoaded = cache
+        return cache
+    }
+
+    /// Set once something used the shared cache (so quitting never loads a
+    /// 20k-entry file just to flush it).
+    private(set) static var sharedIfLoaded: CustomViewSemanticCache?
 
     static let defaultCapacity = 20_000
 
-    struct Entry: Codable, Equatable {
+    struct Entry: Codable, Equatable, Sendable {
         /// Matches the prompt.
         var m: Bool
         /// Last used (seconds since 1970), for LRU eviction.
         var t: Double
     }
 
-    private struct FileContents: Codable {
+    private struct FileContents: Codable, Sendable {
         var version: Int
         var entries: [String: Entry]
     }
@@ -37,14 +51,29 @@ final class CustomViewSemanticCache {
     let capacity: Int
     private let fileURL: URL?
     private let now: () -> Date
+    private let saveDelay: TimeInterval
+    /// Called on the write queue after each file write (tests).
+    private let onWrite: (@Sendable () -> Void)?
     private var saveTask: Task<Void, Never>?
+    /// Entries changed since the last write was handed to the queue.
+    private var isDirty = false
+    /// Serial: writes land in the order they were made.
+    private let writeQueue = DispatchQueue(label: "com.trungluong.FastTab.CustomViewAICache", qos: .utility)
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "CustomViewAI")
 
     /// `fileURL` nil = memory only (tests).
-    init(fileURL: URL?, capacity: Int = CustomViewSemanticCache.defaultCapacity, now: @escaping () -> Date = Date.init) {
+    init(
+        fileURL: URL?,
+        capacity: Int = CustomViewSemanticCache.defaultCapacity,
+        now: @escaping () -> Date = Date.init,
+        saveDelay: TimeInterval = 1.5,
+        onWrite: (@Sendable () -> Void)? = nil
+    ) {
         self.fileURL = fileURL
         self.capacity = max(1, capacity)
         self.now = now
+        self.saveDelay = max(0, saveDelay)
+        self.onWrite = onWrite
         entries = Self.load(from: fileURL)
     }
 
@@ -128,28 +157,45 @@ final class CustomViewSemanticCache {
 
     // MARK: Persistence
 
-    /// Coalesces writes: one save a couple of seconds after the last change.
+    /// Coalesces writes: one save `saveDelay` after the last change.
     private func scheduleSave() {
         guard fileURL != nil else { return }
+        isDirty = true
         saveTask?.cancel()
+        let delay = UInt64(saveDelay * 1_000_000_000)
         saveTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            guard !Task.isCancelled else { return }
-            self?.saveNow()
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.saveTask = nil
+            self.enqueueWrite(wait: false)
         }
     }
 
-    func saveNow() {
+    /// Writes any pending change now and waits for it (app termination).
+    func flush() {
         saveTask?.cancel()
         saveTask = nil
-        guard let fileURL else { return }
+        enqueueWrite(wait: true)
+    }
+
+    /// Hands a snapshot of `entries` (a copy-on-write value — cheap here) to
+    /// the write queue, which encodes and writes it atomically.
+    private func enqueueWrite(wait: Bool) {
+        guard isDirty, let fileURL else { return }
+        isDirty = false
         let contents = FileContents(version: Self.fileVersion, entries: entries)
-        do {
-            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(contents).write(to: fileURL, options: .atomic)
-        } catch {
-            logger.error("AI filter cache save failed: \(error.localizedDescription, privacy: .public)")
+        let logger = self.logger
+        let onWrite = self.onWrite
+        let work: @Sendable () -> Void = {
+            do {
+                try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try JSONEncoder().encode(contents).write(to: fileURL, options: .atomic)
+            } catch {
+                logger.error("AI filter cache save failed: \(error.localizedDescription, privacy: .public)")
+            }
+            onWrite?()
         }
+        if wait { writeQueue.sync(execute: work) } else { writeQueue.async(execute: work) }
     }
 
     private static func load(from fileURL: URL?) -> [String: Entry] {

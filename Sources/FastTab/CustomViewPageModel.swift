@@ -73,8 +73,13 @@ final class CustomViewPageModel: ObservableObject {
         candidates: { AppState.shared.browserService.customViewCandidates() },
         prepareSources: { AppState.shared.browserService.prepareCustomViewSources() },
         sourcesDidChange: AppState.shared.browserService.customViewSourcesDidChange.eraseToAnyPublisher(),
-        semanticFilter: .shared
+        semanticFilter: .shared,
+        prefetchFavicons: { AppState.shared.browserService.preloadFavicons(for: $0, limit: $0.count) }
     )
+
+    /// Rows (from the top, display order) whose site icons are loaded after
+    /// each publish — the same browser favicon lookup Recents uses.
+    static let faviconPrefetchLimit = 100
 
     /// Nil until the active view has been evaluated at least once (the UI
     /// shows nothing rather than a premature "No items" state).
@@ -101,6 +106,10 @@ final class CustomViewPageModel: ObservableObject {
     /// Minimum gap between progressive (per AI batch) row publishes.
     private let progressiveInterval: TimeInterval
     private var graceRetryTask: Task<Void, Never>?
+    private let prefetchFavicons: @MainActor ([BrowserSearchResult]) -> Void
+    /// Debounce for favicon requests (progressive AI publishes come fast).
+    private let faviconPrefetchDelay: TimeInterval
+    private var faviconPrefetchTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "CustomViewPage")
 
@@ -112,7 +121,9 @@ final class CustomViewPageModel: ObservableObject {
         semanticFilter: CustomViewSemanticFilter? = nil,
         debounce: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(250),
         emptySourcesGrace: TimeInterval = 1.5,
-        progressiveInterval: TimeInterval = 0.25
+        progressiveInterval: TimeInterval = 0.25,
+        prefetchFavicons: @escaping @MainActor ([BrowserSearchResult]) -> Void = { _ in },
+        faviconPrefetchDelay: TimeInterval = 0.22
     ) {
         self.candidates = candidates
         self.prepareSources = prepareSources
@@ -120,6 +131,8 @@ final class CustomViewPageModel: ObservableObject {
         self.semanticFilter = semanticFilter
         self.emptySourcesGrace = emptySourcesGrace
         self.progressiveInterval = progressiveInterval
+        self.prefetchFavicons = prefetchFavicons
+        self.faviconPrefetchDelay = faviconPrefetchDelay
 
         // Fires many times per cache refresh — coalesce.
         sourcesDidChange
@@ -154,6 +167,7 @@ final class CustomViewPageModel: ObservableObject {
         generation += 1
         refreshTask?.cancel()
         graceRetryTask?.cancel()
+        faviconPrefetchTask?.cancel()
         snapshot = nil
         semanticStatus = nil
         hasPublishedRows = false
@@ -230,6 +244,15 @@ final class CustomViewPageModel: ObservableObject {
         var lastPublish = Date.distantPast
         await semantic.run(prompt: view.semanticPrompt, items: items) { progress in
             guard !Task.isCancelled, self.generation == gen else { return }
+            if progress.becameUnavailable {
+                // Apple Intelligence went away mid-run: the partial AI list
+                // would sit under the "paused" banner — show what the
+                // structured filters match instead (as when it's unavailable
+                // from the start).
+                self.publish(view: view, items: items, now: now)
+                if self.semanticStatus != .paused { self.semanticStatus = .paused }
+                return
+            }
             let ids = progress.included.map(\.id)
             if ids != lastIDs,
                lastIDs == nil || progress.isFinished || Date().timeIntervalSince(lastPublish) >= self.progressiveInterval {
@@ -267,6 +290,22 @@ final class CustomViewPageModel: ObservableObject {
             revision: revision,
             isInitial: isInitial
         )
+        scheduleFaviconPrefetch(for: flat)
+    }
+
+    /// Bookmark / history rows aren't covered by the Recents prefetch, so
+    /// the page asks for its own rows' icons (debounced; leaving the page
+    /// cancels a pending request).
+    private func scheduleFaviconPrefetch(for items: [CustomViewItem]) {
+        faviconPrefetchTask?.cancel()
+        guard !items.isEmpty else { return }
+        let targets = items.prefix(Self.faviconPrefetchLimit).map(\.result)
+        let delay = UInt64(faviconPrefetchDelay * 1_000_000_000)
+        faviconPrefetchTask = Task { [weak self] in
+            if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
+            guard !Task.isCancelled, let self else { return }
+            self.prefetchFavicons(targets)
+        }
     }
 
     private func scheduleGraceRetry() {

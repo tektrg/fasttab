@@ -329,6 +329,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         MyOrderStore.shared.flush()
         FastTabListStore.shared.flushPendingWrite()
+        CustomViewSemanticCache.sharedIfLoaded?.flush()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

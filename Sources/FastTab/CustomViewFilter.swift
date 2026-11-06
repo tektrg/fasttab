@@ -95,9 +95,13 @@ enum CustomViewFilter {
             }
         }
 
-        // A history row for a page that's open (and shown) is redundant; the
-        // open tab is the actionable row. Tabs themselves are never dropped.
+        // A bookmark or history row for a page that's open (and shown) is
+        // redundant; the open tab is the actionable row. Tabs themselves are
+        // never dropped, and without shown tabs nothing is suppressed.
         let openPages = Set(tabs.map { pageKey(forURL: $0.result.url) })
+        if !openPages.isEmpty {
+            bookmarks.removeAll { openPages.contains(pageKey(forURL: $0.result.url)) }
+        }
         let history = historyByPage
             .filter { !openPages.contains($0.key) }
             .values.sorted { $0.order < $1.order }

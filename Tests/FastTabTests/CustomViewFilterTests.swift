@@ -173,13 +173,30 @@ struct CustomViewFilterTests {
             Self.item(.tab, "https://a.com/page", title: "tab twin", ago: nil),
             Self.item(.bookmark, "https://a.com/page", title: "bm", ago: nil),
         ]
-        // Both tabs survive, the bookmark stays, the history row goes.
-        #expect(Set(titles(CustomView(name: "v"), candidates)) == ["tab", "tab twin", "bm"])
+        // Both tabs survive; the bookmark and history rows of the open page go.
+        #expect(Set(titles(CustomView(name: "v"), candidates)) == ["tab", "tab twin"])
         // When tabs are excluded by the view, the history row is kept.
         #expect(titles(CustomView(name: "v", types: [.history]), candidates) == ["hist"])
         // An open tab filtered out by time doesn't suppress the history row
         // either (the bookmark passes via its history-joined visit).
         #expect(Set(titles(CustomView(name: "v", lastVisited: .within(Self.hour)), candidates)) == ["hist", "bm"])
+    }
+
+    @Test func openTabSuppressesSamePageBookmarkOnlyWhenTabsAreShown() {
+        let candidates = [
+            Self.item(.tab, "https://www.docs.com/guide/", title: "open guide", ago: 60),
+            Self.item(.bookmark, "http://docs.com/guide#top", title: "guide bm", ago: nil),
+            Self.item(.bookmark, "https://docs.com/other", title: "other bm", ago: nil),
+            Self.item(.bookmark, "https://docs.com/guide?v=2", title: "query bm", ago: nil),
+        ]
+        // Tabs + bookmarks: the open page's bookmark is redundant.
+        #expect(Set(titles(CustomView(name: "v", types: [.tab, .bookmark]), candidates)) == ["open guide", "other bm", "query bm"])
+        // Bookmarks only: every bookmark stays, the tab isn't in the view.
+        #expect(Set(titles(CustomView(name: "v", types: [.bookmark]), candidates)) == ["guide bm", "other bm", "query bm"])
+        // A tab excluded by another filter (here the profile) doesn't suppress.
+        let workTabs = [Self.item(.tab, "https://docs.com/guide", title: "home tab", profile: "Home"),
+                        Self.item(.bookmark, "https://docs.com/guide", title: "work bm", ago: nil, profile: "Work")]
+        #expect(titles(CustomView(name: "v", profiles: ["work"]), workTabs) == ["work bm"])
     }
 
     // MARK: Sort

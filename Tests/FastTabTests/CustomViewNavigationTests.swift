@@ -283,6 +283,53 @@ struct CustomViewPageModelTests {
         #expect(snapshot.items.map(\.result.title) == ["A", "C", "B"])
     }
 
+    @Test func publishedRowsRequestTheirFaviconsInDisplayOrderCapped() async throws {
+        let view = CustomView(name: "All")
+        let (store, cleanup) = makeStore([view])
+        defer { cleanup() }
+        let sources = Sources()
+        sources.results = (0..<150).map { Self.tab("https://s\($0).example/p", title: "T\($0)", ago: TimeInterval(60 + $0)) } + [
+            CustomViewFilterTests.item(.bookmark, "https://bm.example", title: "bm", ago: nil),
+            CustomViewFilterTests.item(.history, "https://h.example", title: "hist", ago: 10),
+        ]
+        var requests: [[BrowserSearchResult]] = []
+        let model = CustomViewPageModel(
+            candidates: { sources.results },
+            sourcesDidChange: sources.changed.eraseToAnyPublisher(),
+            customViewStore: store,
+            debounce: .milliseconds(10),
+            emptySourcesGrace: 0,
+            prefetchFavicons: { requests.append($0) },
+            faviconPrefetchDelay: 0
+        )
+        model.activate(viewID: view.id)
+        await model.refreshTask?.value
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        let snapshot = try #require(model.snapshot)
+        let last = try #require(requests.last)
+        #expect(requests.count == 1)
+        #expect(last.count == CustomViewPageModel.faviconPrefetchLimit)
+        #expect(last.map(\.id) == snapshot.items.prefix(CustomViewPageModel.faviconPrefetchLimit).map(\.result.id))
+        #expect(last.first?.title == "hist") // history rows are included (newest first)
+
+        // Leaving the page cancels a pending request.
+        let countBefore = requests.count
+        let slow = CustomViewPageModel(
+            candidates: { sources.results },
+            sourcesDidChange: sources.changed.eraseToAnyPublisher(),
+            customViewStore: store,
+            emptySourcesGrace: 0,
+            prefetchFavicons: { requests.append($0) },
+            faviconPrefetchDelay: 0.2
+        )
+        slow.activate(viewID: view.id)
+        await slow.refreshTask?.value
+        slow.activate(viewID: nil)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(requests.count == countBefore)
+    }
+
     @Test func sourceChangesRefreshTheActiveViewOnly() async throws {
         let view = CustomView(name: "All")
         let (store, cleanup) = makeStore([view])

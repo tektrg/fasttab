@@ -75,12 +75,23 @@ struct CommandBarViewTabStrip: View {
         } else {
             ViewThatFits(in: .horizontal) {
                 row
+                // The strip can't be trackpad-scrolled (a horizontal swipe
+                // switches pages), so the active pill must always be brought
+                // into view: on appear (⌘N / a flick from Recents rebuilds the
+                // strip — scroll after the first layout pass, or `scrollTo`
+                // is a no-op), on switch, and when tabs are added/renamed.
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) { row }
                         .fixedSize(horizontal: false, vertical: true)
-                        .onAppear { proxy.scrollTo(activeView, anchor: .center) }
+                        .onAppear {
+                            proxy.scrollTo(activeView, anchor: .center)
+                            DispatchQueue.main.async { proxy.scrollTo(activeView, anchor: .center) }
+                        }
                         .onChange(of: activeView) { _, view in
                             withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(view, anchor: .center) }
+                        }
+                        .onChange(of: tabs) { _, _ in
+                            DispatchQueue.main.async { proxy.scrollTo(activeView, anchor: .center) }
                         }
                 }
             }

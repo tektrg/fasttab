@@ -155,6 +155,20 @@ struct CustomViewSemanticPromptTests {
 
 // MARK: - Cache
 
+/// Records each cache file write and whether it ran on the main thread.
+final class CacheWriteLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var onMain: [Bool] = []
+    var count: Int { lock.withLock { onMain.count } }
+    var allOffMain: Bool { lock.withLock { !onMain.isEmpty && !onMain.contains(true) } }
+    var record: @Sendable () -> Void {
+        { [self] in
+            let main = Thread.isMainThread
+            lock.withLock { onMain.append(main) }
+        }
+    }
+}
+
 @MainActor
 struct CustomViewSemanticCacheTests {
     @Test func keysFollowPromptPageAndTitle() {
@@ -203,11 +217,40 @@ struct CustomViewSemanticCacheTests {
         cache.store(["\(keep):a:b": true, "\(drop):a:b": false, "garbage": true])
         cache.prune(keepingPromptHashes: [keep])
         #expect(Array(cache.entries.keys) == ["\(keep):a:b"])
-        cache.saveNow()
+        cache.flush()
 
         let reloaded = CustomViewSemanticCache(fileURL: url)
         #expect(reloaded.verdict(forKey: "\(keep):a:b") == true)
         #expect(reloaded.entries.count == 1)
+    }
+
+    @Test func savesAreCoalescedAndWrittenOffTheMainThread() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ft-ai-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("cache.json")
+        let writes = CacheWriteLog()
+        let cache = CustomViewSemanticCache(fileURL: url, saveDelay: 0.05, onWrite: writes.record)
+        for batch in 0..<5 { cache.store(["p:\(batch):t": true]) }
+        // Nothing yet: still inside the debounce window.
+        #expect(writes.count == 0)
+        // Poll (the full suite runs in parallel and can delay the debounce).
+        let deadline = Date().addingTimeInterval(10)
+        while writes.count == 0, Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        #expect(writes.count == 1) // five batches → one write
+        #expect(writes.allOffMain)
+        #expect(CustomViewSemanticCache(fileURL: url).entries.count == 5)
+    }
+
+    @Test func flushWritesPendingChangesSynchronously() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ft-ai-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("cache.json")
+        let cache = CustomViewSemanticCache(fileURL: url, saveDelay: 60)
+        cache.store(["p:a:t": false])
+        cache.flush() // app termination
+        #expect(CustomViewSemanticCache(fileURL: url).verdict(forKey: "p:a:t") == false)
+        cache.flush() // nothing pending: no-op
     }
 }
 
@@ -411,6 +454,25 @@ struct CustomViewSemanticPageTests {
         #expect(model.semanticStatus == .paused)
         #expect(model.semanticStatus?.message == "AI filter paused — requires Apple Intelligence")
         #expect(fake.batches.isEmpty)
+    }
+
+    @Test func aiGoingUnavailableMidRunFallsBackToStructuredResults() async {
+        let view = CustomView(name: "Read", semanticPrompt: "Articles to read")
+        let (store, cleanup) = CustomViewPageModelTests().makeStore([view])
+        defer { cleanup() }
+        // Batch 1 classifies; Apple Intelligence is gone by batch 2.
+        let fake = FakeSemanticClassifier(respond: { titles in
+            if titles.contains("Dashboard") { throw CustomViewSemanticError.unavailable }
+            return Set(titles.filter { $0.contains("Read") })
+        })
+        let model = makeModel(sources(["Read one", "Dashboard", "Read two"]), store: store, filter: SemanticFixtures.filter(fake, batchSize: 1))
+        model.activate(viewID: view.id)
+        await model.refreshTask?.value
+
+        #expect(fake.batches.count == 2)
+        #expect(model.semanticStatus == .paused)
+        // Not the partial AI list ("Read one") under the paused banner.
+        #expect(model.snapshot?.items.map(\.result.title) == ["Read one", "Dashboard", "Read two"])
     }
 
     @Test func viewWithoutPromptSkipsTheAI() async {

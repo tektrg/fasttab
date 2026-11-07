@@ -5,6 +5,7 @@ import FastTabSync
 import FastTabWebReader
 import Foundation
 import IndieAccount
+import Network
 import IndieSharing
 import os
 
@@ -49,6 +50,10 @@ final class WebReaderController: NSObject, ObservableObject {
     private var activationObserver: NSObjectProtocol?
     private var lastRecipientIDs: Set<String> = []
     private var signInNonce: String?
+    private let cleanup = WebReaderCleanup()
+    private var cleanupTask: Task<Void, Never>?
+    private var cleanupObserver: NSObjectProtocol?
+    private var pathMonitor: NWPathMonitor?
 
     private lazy var api: any WebReaderAPI = LiveWebReaderAPI(
         baseURL: TheIndieServerConfiguration.baseURL(configuration: Self.accountConfiguration),
@@ -66,6 +71,7 @@ final class WebReaderController: NSObject, ObservableObject {
 
     /// At launch: nothing happens unless the toggle is on.
     func start() {
+        retryCleanupIfPending()
         guard isEnabled else { return }
         Task { await activate() }
     }
@@ -75,6 +81,8 @@ final class WebReaderController: NSObject, ObservableObject {
         isEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: Self.enabledDefaultsKey)
         if enabled {
+            cleanup.cancel() // back on: keep the server copy, nothing to delete
+            stopCleanupRetries()
             Task { await activate() }
         } else {
             deactivate()
@@ -97,16 +105,58 @@ final class WebReaderController: NSObject, ObservableObject {
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
         activationObserver = nil
         status = "Off"
-        guard isSignedIn else { return }
-        Task {
-            do {
-                try await api.deleteSnapshot()
-                uploader.reset()
-                status = "Off. Server copy deleted."
-            } catch {
-                errorMessage = "Could not delete the web copy: \(error)"
+        cleanup.markPending() // persisted first: retried until the server is clean
+        retryCleanupIfPending()
+    }
+
+    // MARK: - Toggle-off server cleanup (final poll → unpair browsers → delete snapshot)
+
+    /// Called at launch, after sign-in, on app activate and when the network comes back.
+    func retryCleanupIfPending() {
+        guard cleanup.isPending else { stopCleanupRetries(); return }
+        installCleanupTriggers()
+        guard cleanupTask == nil else { return }
+        cleanupTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.cleanupTask = nil }
+            await self.account.restoreIfNeeded()
+            guard self.isSignedIn else { self.status = "Off. Sign in to delete the web copy."; return }
+            let ok = await self.cleanup.runIfPending(api: self.api) { try await self.drainInbox() }
+            if ok, !self.isEnabled {
+                self.uploader.reset()
+                self.pairedBrowsers = []
+                self.status = "Off. Server copy deleted, browsers unpaired."
+                self.stopCleanupRetries()
+            } else if !ok, self.cleanup.isPending {
+                self.status = "Off. Will delete the web copy when online."
             }
         }
+    }
+
+    private func installCleanupTriggers() {
+        if cleanupObserver == nil {
+            cleanupObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.retryCleanupIfPending() }
+            }
+        }
+        if pathMonitor == nil {
+            let monitor = NWPathMonitor()
+            monitor.pathUpdateHandler = { [weak self] path in
+                guard path.status == .satisfied else { return }
+                Task { @MainActor in self?.retryCleanupIfPending() }
+            }
+            monitor.start(queue: .global(qos: .utility))
+            pathMonitor = monitor
+        }
+    }
+
+    private func stopCleanupRetries() {
+        if let cleanupObserver { NotificationCenter.default.removeObserver(cleanupObserver) }
+        cleanupObserver = nil
+        pathMonitor?.cancel()
+        pathMonitor = nil
     }
 
     // MARK: - Inputs (fed by SyncService)
@@ -202,17 +252,23 @@ final class WebReaderController: NSObject, ObservableObject {
     }
 
     func pollInbox() async {
-        guard isEnabled, let identity = account.registeredDeviceIdentity, let deviceID = identity.deviceID,
-              let keyPair = try? DeviceKeyPair(privateKeyRawRepresentation: identity.privateKey) else { return }
+        guard isEnabled else { return }
         do {
-            let summary = try await WebInboxImporter.run(
-                api: api, deviceID: deviceID.uuidString.lowercased(), keyPair: keyPair, sink: self)
-            if summary.highlights > 0 {
-                SyncService.shared.queueReaderChanges()
-                NotificationCenter.default.post(name: .readerMirrorDidChange, object: nil)
-            }
+            try await drainInbox()
         } catch {
             logger.error("Web inbox poll failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Imports + acks the whole inbox. Throws when it could not be drained (cleanup then waits).
+    private func drainInbox() async throws {
+        guard let identity = account.registeredDeviceIdentity, let deviceID = identity.deviceID,
+              let keyPair = try? DeviceKeyPair(privateKeyRawRepresentation: identity.privateKey) else { return }
+        let summary = try await WebInboxImporter.run(
+            api: api, deviceID: deviceID.uuidString.lowercased(), keyPair: keyPair, sink: self)
+        if summary.highlights > 0 {
+            SyncService.shared.queueReaderChanges()
+            NotificationCenter.default.post(name: .readerMirrorDidChange, object: nil)
         }
     }
 
@@ -288,7 +344,7 @@ extension WebReaderController: ASAuthorizationControllerDelegate {
             let ok = await self.account.signIn(identityToken: identityToken, authorizationCode: code,
                                                rawNonce: nonce, fullName: fullName)
             self.objectWillChange.send()
-            if ok { await self.activate() } else { self.errorMessage = "Sign in failed." }
+            if ok { self.retryCleanupIfPending(); await self.activate() } else { self.errorMessage = "Sign in failed." }
         }
     }
 

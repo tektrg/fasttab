@@ -15,18 +15,26 @@ final class FakeWebReaderAPI: WebReaderAPI, @unchecked Sendable {
     var acked: [String] = []
     var snapshotDeleted = false
     var webDevices: [WebReaderDevice] = []
+    var calls: [String] = []
+    var offline = false
+    struct Offline: Error {}
 
-    func devices() async throws -> [WebReaderDevice] { webDevices }
-    func removeDevice(id: String) async throws { webDevices.removeAll { $0.id == id } }
+    func devices() async throws -> [WebReaderDevice] { if offline { throw Offline() }; return webDevices }
+    func removeDevice(id: String) async throws {
+        if offline { throw Offline() }
+        calls.append("unpair:\(id)"); webDevices.removeAll { $0.id == id }
+    }
     func approvePairing(id: String, code: String) async throws {}
     func putSnapshot(version: Int, blob: WebSealedBlob) async throws { snapshots.append((version, blob)) }
     func putArticle(id: String, blob: WebSealedBlob) async throws { articles[id] = blob }
     func deleteArticle(id: String) async throws { articles[id] = nil; deletedArticles.append(id) }
-    func deleteSnapshot() async throws { snapshotDeleted = true }
+    func deleteSnapshot() async throws { if offline { throw Offline() }; calls.append("delete"); snapshotDeleted = true }
     func pendingInbox(after cursor: String?) async throws -> WebInboxPage {
-        WebInboxPage(items: inbox.filter { !acked.contains($0.id) }, cursor: nil)
+        if offline { throw Offline() }
+        calls.append("poll")
+        return WebInboxPage(items: inbox.filter { !acked.contains($0.id) }, cursor: nil)
     }
-    func ackInbox(ids: [String]) async throws { acked += ids }
+    func ackInbox(ids: [String]) async throws { calls.append("ack"); acked += ids }
 }
 
 @MainActor
@@ -287,5 +295,76 @@ struct WebReaderTests {
         let pending = await bridge.pendingChanges()
         #expect(pending.saves.isEmpty)
         #expect(pending.deletes.isEmpty)
+    }
+
+    // MARK: Toggle-off cleanup
+
+    static func freshDefaults() -> UserDefaults {
+        let name = "webreader-test-\(UUID().uuidString)"
+        return UserDefaults(suiteName: name)!
+    }
+
+    @Test("cleanup: final poll + ack, then unpair web devices, then delete snapshot; flag cleared")
+    @MainActor
+    func cleanupOrder() async throws {
+        let mac = DeviceKeyPair()
+        let macID = UUID().uuidString.lowercased()
+        let api = FakeWebReaderAPI()
+        let blob = try WebReaderCrypto.seal(Data(#"{"schema":"fasttab.web.progress/1","url":"https://read.me/x","fraction":0.5,"updatedAt":"2026-11-07T10:00:00Z"}"#.utf8),
+                                            kind: .highlight(id: "p1"), for: [.init(deviceID: macID, publicKey: mac.publicKey)])
+        api.inbox = [WebInboxItem(id: "p1", articleId: "a", suite: blob.suite, wraps: blob.wraps, ciphertext: Base64URL.encode(blob.ciphertext))]
+        api.webDevices = [WebReaderDevice(id: "w1", platform: "web", app: "fasttab", publicKey: "k"),
+                          WebReaderDevice(id: "m1", platform: "macos", app: "fasttab", publicKey: "k"),
+                          WebReaderDevice(id: "o1", platform: "web", app: "parklet", publicKey: "k")]
+        let sink = RecordingSink(mirror: try #require(ReaderMirror.makeBridge(supportDirectory: Self.tempDir()).highlights as? ReaderMirror))
+        let cleanup = WebReaderCleanup(defaults: Self.freshDefaults())
+        cleanup.markPending()
+        let ok = await cleanup.runIfPending(api: api) {
+            _ = try await WebInboxImporter.run(api: api, deviceID: macID, keyPair: mac, sink: sink)
+        }
+        #expect(ok)
+        #expect(Array(api.calls.prefix(2)) == ["poll", "ack"])
+        let tail = api.calls.drop { $0 == "poll" || $0 == "ack" }
+        #expect(Array(tail) == ["unpair:w1", "delete"])
+        #expect(api.acked == ["p1"])
+        #expect(api.webDevices.map(\.id) == ["m1", "o1"])
+        #expect(!cleanup.isPending)
+    }
+
+    @Test("cleanup offline: nothing deleted, flag persists, retry at launch succeeds and clears it")
+    @MainActor
+    func cleanupOfflineRetry() async throws {
+        let api = FakeWebReaderAPI()
+        api.offline = true
+        api.webDevices = [WebReaderDevice(id: "w1", platform: "web", app: "fasttab", publicKey: "k")]
+        let defaults = Self.freshDefaults()
+        let cleanup = WebReaderCleanup(defaults: defaults)
+        cleanup.markPending()
+        let first = await cleanup.runIfPending(api: api) { _ = try await api.pendingInbox(after: nil) }
+        #expect(!first)
+        #expect(!api.snapshotDeleted)
+        #expect(api.webDevices.count == 1)
+        // App relaunch: new instance reads the persisted flag.
+        api.offline = false
+        let relaunched = WebReaderCleanup(defaults: defaults)
+        #expect(relaunched.isPending)
+        #expect(await relaunched.runIfPending(api: api) { _ = try await api.pendingInbox(after: nil) })
+        #expect(api.snapshotDeleted)
+        #expect(api.webDevices.isEmpty)
+        #expect(!WebReaderCleanup(defaults: defaults).isPending)
+    }
+
+    @Test("re-enabling clears the pending flag without deleting anything")
+    @MainActor
+    func cleanupCancelledByReenable() async {
+        let api = FakeWebReaderAPI()
+        api.webDevices = [WebReaderDevice(id: "w1", platform: "web", app: "fasttab", publicKey: "k")]
+        let cleanup = WebReaderCleanup(defaults: Self.freshDefaults())
+        cleanup.markPending()
+        cleanup.cancel()
+        #expect(await cleanup.runIfPending(api: api) { _ = try await api.pendingInbox(after: nil) })
+        #expect(api.calls.isEmpty)
+        #expect(!api.snapshotDeleted)
+        #expect(api.webDevices.count == 1)
     }
 }

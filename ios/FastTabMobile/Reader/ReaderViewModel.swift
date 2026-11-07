@@ -62,8 +62,10 @@ public final class ReaderViewModel: ObservableObject {
     @Published public var loadState: LoadState = .idle {
         didSet {
             // Count words as soon as a tracked article is on screen, off the main thread.
-            if case .loaded(let article) = loadState, statsRecorder.isTracked(url) {
-                startWordCountIfNeeded(article)
+            if case .loaded(let article) = loadState {
+                // Tracked: the daily goal loads once the word count lands. Untracked: the
+                // article adds nothing, the bar just shows today so far.
+                if statsRecorder.isTracked(url) { startWordCountIfNeeded(article) } else { loadDailyGoal(articleWords: 0) }
             }
             if case .loaded(let article) = loadState { setUpTranscriptCleanup(for: article) }
         }
@@ -89,6 +91,10 @@ public final class ReaderViewModel: ObservableObject {
     @Published public var pendingClearAllHighlights: Bool = false
     /// Highlights on this page with an open comment thread: the page marks them 💬.
     @Published public private(set) var commentedHighlightIDs: Set<String> = []
+    /// Today's reading against the daily word goal, for the page's second progress bar.
+    /// Set once per loaded article; the page adds this session's new ground itself.
+    @Published public private(set) var dailyGoal: ReaderDailyGoal?
+    private var dailyGoalTask: Task<Void, Never>?
 
     // MARK: - Inputs
 
@@ -352,6 +358,20 @@ public final class ReaderViewModel: ObservableObject {
             guard !Task.isCancelled, let self else { return }
             self.articleWordCount = wordCount
             self.recordReadingStats(progress: self.scrollProgress, isFlush: false)
+            self.loadDailyGoal(articleWords: wordCount)
+        }
+    }
+
+    private func loadDailyGoal(articleWords: Int) {
+        dailyGoalTask?.cancel()
+        dailyGoalTask = Task { [weak self] in
+            guard let self else { return }
+            let today = await self.statsRecorder.todayProgress(for: self.url)
+            guard !Task.isCancelled else { return }
+            self.dailyGoal = ReaderDailyGoal(
+                wordsToday: today.wordsToday, articleWords: articleWords,
+                highWater: today.highWater, goal: ReadingGoal.dailyWords
+            )
         }
     }
 

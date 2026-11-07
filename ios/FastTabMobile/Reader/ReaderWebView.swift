@@ -224,6 +224,10 @@ public struct ReaderWebView: UIViewRepresentable {
             context.coordinator.pushCommentedHighlights(viewModel.commentedHighlightIDs)
         }
 
+        if viewModel.dailyGoal != context.coordinator.pushedDailyGoal {
+            context.coordinator.pushDailyGoal(viewModel.dailyGoal)
+        }
+
         // If viewModel requests highlight removal, remove from DOM
         if let removeID = viewModel.highlightToRemoveID {
             let removeJS = "removeHighlight('\(removeID)');"
@@ -448,6 +452,7 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     var pushedTranscriptRevision: Int?
     /// Highlights last sent to the page as having open comments (💬).
     var pushedCommentedIDs: Set<String> = []
+    var pushedDailyGoal: ReaderDailyGoal?
     @MainActor lazy var readAloudSync = ReadAloudPageSync()
     var onUserBeganScrolling: (() -> Void)?
     var onReadAloudTap: ((String, Int) -> Void)?
@@ -470,6 +475,14 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
               let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.ftSetCommentedHighlights && ftSetCommentedHighlights(\(json));",
                                    completionHandler: nil)
+    }
+
+    /// Second progress bar: today's words against the daily goal (`ReaderDailyGoal`).
+    @MainActor func pushDailyGoal(_ goal: ReaderDailyGoal?) {
+        pushedDailyGoal = goal
+        guard let webView, let goal, let data = try? JSONEncoder().encode(goal),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.ftSetDailyGoal && ftSetDailyGoal(\(json));", completionHandler: nil)
     }
 
     /// Relabels the End of Article Read Again button ("Read Again" / "Remove from Read Again").
@@ -698,6 +711,7 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                 // changed since the page's bootstrap now that it can take it.
                 self.pushCommentedHighlights(self.viewModel.commentedHighlightIDs)
                 self.pushReadAgain()
+                self.pushDailyGoal(self.viewModel.dailyGoal)
                 if let cleanup = self.viewModel.transcriptCleanup {
                     self.pushedTranscriptRevision = cleanup.revision
                     self.pushTranscript(cleanup.shownTexts.filter { self.loadedTranscript[$0.i] != $0 })

@@ -113,6 +113,26 @@ final class ReadingStatsRecorder {
         append([event(ReadingMetric.highlight, url: url, title: title, value: 1)])
     }
 
+    /// Words logged today, and how far into `url` the log already counts (its high water).
+    /// Ground past the high water is not in today's total yet, so the reader can add it live.
+    /// The high water is taken when the read is queued, and later writes wait behind the read,
+    /// so the two always describe the same log: no ground is counted twice or missed.
+    func todayProgress(for url: URL, calendar: Calendar = .current) async -> (wordsToday: Double, highWater: Double) {
+        let highWater = ledger.entries[url.readerCanonicalKey]?.highWater ?? 0
+        let dayStart = calendar.startOfDay(for: now())
+        let previous = lastWrite
+        let log = log
+        let read = Task { @MainActor in
+            await previous?.value
+            let events = (try? await log.loadEvents()) ?? []
+            return events
+                .filter { $0.metric == ReadingMetric.words && $0.timestamp >= dayStart }
+                .reduce(0) { $0 + $1.value }
+        }
+        lastWrite = Task { _ = await read.value }
+        return (await read.value, highWater)
+    }
+
     /// Drops events past `retention`. Cheap enough to run once per launch.
     func pruneExpiredEvents() {
         let cutoff = now().addingTimeInterval(-Self.retention)

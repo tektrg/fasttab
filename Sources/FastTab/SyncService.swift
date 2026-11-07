@@ -58,6 +58,7 @@ final class SyncService: NSObject, ObservableObject {
     var tabOrderFlushTask: Task<Void, Never>?
     var pendingTabOrderSlots: [OrderedTabSlot]?
     var tabStatsPublishState = TabStatsPublishState()
+    var faviconPublishState = FaviconPublishState()
 
     private var tabDebounceTask: Task<Void, Never>?
     private var syncPollTimer: Timer?
@@ -317,6 +318,10 @@ final class SyncService: NSObject, ObservableObject {
 
     func publishLiveTabsNow(_ tabs: [BrowserSearchResult], unreadableBrowsers: Set<String> = []) {
         guard let syncEngine else { return }
+
+        // Icons for the phone's tab list ride their own record, independent of
+        // whether the tab records changed (an icon can resolve after its tab).
+        requestFaviconsPublish(for: tabs)
 
         guard let plan = liveTabPublishState.planPublish(tabs, unreadableBrowsers: unreadableBrowsers) else {
             logger.info("Live tabs sync skipped (content unchanged). tabCount=\(tabs.count)")
@@ -761,6 +766,8 @@ final class SyncService: NSObject, ObservableObject {
                 lastPublishedHistoryHashes.removeValue(forKey: deletion.recordID.recordName)
             case SyncedTabStats.recordType:
                 resetTabStatsPublishState()
+            case SyncedFavicons.recordType:
+                resetFaviconPublishState()
             default:
                 break
             }
@@ -800,6 +807,7 @@ final class SyncService: NSObject, ObservableObject {
         lastPublishedTabOrderHash = ""
         tabOrderGate.reset()
         resetTabStatsPublishState()
+        resetFaviconPublishState()
         pendingRecordsToSave.removeAll()
         serverRecordsByID.removeAll()
         stateZoneMirror.reset()

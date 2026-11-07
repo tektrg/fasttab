@@ -234,6 +234,9 @@ extension SyncService {
         case SyncedTabStats.recordType:
             guard let intendedStats = SyncedTabStats(from: intendedRecord) else { return nil }
             return intendedStats.applying(to: serverRecord)
+        case SyncedFavicons.recordType:
+            guard let intendedFavicons = SyncedFavicons(from: intendedRecord) else { return nil }
+            return intendedFavicons.applying(to: serverRecord)
         case SyncedTabOrder.recordType:
             guard let intendedOrder = SyncedTabOrder(from: intendedRecord) else { return nil }
             return intendedOrder.applying(to: serverRecord)

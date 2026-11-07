@@ -232,6 +232,10 @@ extension SyncConsumer {
                 if let stats = SyncedTabStats(from: record) {
                     LocalCache.shared.updateTabStats(stats)
                 }
+            case SyncedFavicons.recordType:
+                if let favicons = SyncedFavicons(from: record) {
+                    FaviconModel.shared.apply(favicons)
+                }
             case SyncCommand.recordType:
                 if let command = SyncCommand(from: record) {
                     LocalCache.shared.updateCommandStatus(
@@ -256,6 +260,7 @@ extension SyncConsumer {
                 LocalCache.shared.removeBookmarkBlob(id: recordName)
                 LocalCache.shared.removeHistorySlice(id: recordName)
                 LocalCache.shared.removeTabStats(recordName: recordName)
+                FaviconModel.shared.remove(recordName: recordName)
             }
         }
 

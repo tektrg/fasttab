@@ -193,6 +193,7 @@ public final class ReaderViewModel: ObservableObject {
             let article = try await loadArticle()
             articleCache.save(article)
             articleWordCount = nil
+            dailyGoal = nil  // hide, not jump back, until the fresh word count reloads it
             wordCountTask?.cancel()
             wordCountTask = nil
             loadState = .loaded(article)

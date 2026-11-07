@@ -290,6 +290,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         LicenseService.shared.validateForLaunch()
         registerForCloudKitPushes()
         FastTabFeedback.start()
+        WebReaderController.shared.start()
 
         #if DEBUG
         // Screenshot/QA hook: open the reader on a URL at launch (debug builds only).

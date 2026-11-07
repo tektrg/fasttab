@@ -349,7 +349,10 @@ extension ContentView {
                     myOrderStore.reorderSlot(from: from, to: to)
                     appState.selectedIndex = min(to, max(0, stackPinnedSlots.count - 1))
                 },
-                reorderUpperBound: stackPinnedSlots.count
+                reorderUpperBound: stackPinnedSlots.count,
+                onSendToFastTabList: {
+                    sendStackSlotToFastTabList(slot)
+                }
             )
             .contentShape(Rectangle())
             .padding(.horizontal, 8)

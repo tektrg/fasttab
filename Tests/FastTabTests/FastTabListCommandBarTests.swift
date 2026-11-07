@@ -90,14 +90,29 @@ struct FastTabListCommandBarTests {
     // MARK: Bridges
 
     @Test func bridgeOfferedPerRowType() {
-        #expect(FastTabListRowBridge.forResult(row(.tab, url: "https://a.com")) == .readLater)
-        #expect(FastTabListRowBridge.forResult(row(.bookmark, url: "http://a.com")) == .readLater)
+        #expect(FastTabListRowBridge.forResult(row(.tab, url: "https://a.com")) == .sendToListAndClose)
+        #expect(FastTabListRowBridge.forResult(row(.bookmark, url: "http://a.com")) == .sendToList)
         #expect(FastTabListRowBridge.forResult(row(.tab, url: "file:///Users/x", browser: "Finder")) == nil)
         #expect(FastTabListRowBridge.forResult(row(.tab, url: "https://a.com", isGhost: true)) == nil)
-        #expect(FastTabListRowBridge.forResult(row(.history, url: "https://a.com")) == nil)
+        #expect(FastTabListRowBridge.forResult(row(.history, url: "https://a.com")) == .sendToList)
+        #expect(FastTabListRowBridge.forResult(row(.history, url: "chrome://settings")) == nil)
         #expect(FastTabListRowBridge.forResult(row(.sent, url: "https://a.com")) == nil)
         let listRow = BrowserTabService.fastTabListResults(from: [link("https://a.com/x")])[0]
         #expect(FastTabListRowBridge.forResult(listRow) == .moveToBookmarks)
+    }
+
+    @Test func bridgeTitlesUseTheFastTabListName() {
+        #expect(FastTabListRowBridge.sendToList.title == "Send to FastTab List")
+        #expect(FastTabListRowBridge.sendToListAndClose.title == "Send to FastTab List & Close")
+        #expect(FastTabListRowBridge.sendToList.sendsToList)
+        #expect(FastTabListRowBridge.sendToListAndClose.sendsToList)
+        #expect(!FastTabListRowBridge.moveToBookmarks.sendsToList)
+    }
+
+    @Test func stackSlotOffersSendAndCloseOnlyForLiveWebTabs() {
+        #expect(FastTabListRowBridge.forStackSlot(url: "https://a.com", isLive: true) == .sendToListAndClose)
+        #expect(FastTabListRowBridge.forStackSlot(url: "https://a.com", isLive: false) == nil)
+        #expect(FastTabListRowBridge.forStackSlot(url: "file:///Users/x", isLive: true) == nil)
     }
 
     @Test func moveToBookmarksPrefersTheCurrentBrowserThenTheBusiestProfile() {

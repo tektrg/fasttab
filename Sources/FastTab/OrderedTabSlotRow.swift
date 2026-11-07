@@ -221,7 +221,7 @@ struct OrderedTabSlotRow: View {
             }
             if let onSendToFastTabList,
                let bridge = FastTabListRowBridge.forStackSlot(slot) {
-                Button(bridge.title, action: onSendToFastTabList)
+                Button("\(bridge.title) (⌘S)", action: onSendToFastTabList)
             }
             Button(slot.isPinned ? "Unpin Tab" : "Pin Tab", action: onTogglePin)
             Button("Copy URL") {

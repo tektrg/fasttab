@@ -17,18 +17,19 @@ final class FakeWebReaderAPI: WebReaderAPI, @unchecked Sendable {
     var webDevices: [WebReaderDevice] = []
     var calls: [String] = []
     var offline = false
+    var onCall: ((String) -> Void)?
     struct Offline: Error {}
 
     func devices() async throws -> [WebReaderDevice] { if offline { throw Offline() }; return webDevices }
     func removeDevice(id: String) async throws {
         if offline { throw Offline() }
-        calls.append("unpair:\(id)"); webDevices.removeAll { $0.id == id }
+        calls.append("unpair:\(id)"); onCall?("unpair"); webDevices.removeAll { $0.id == id }
     }
     func approvePairing(id: String, code: String) async throws {}
     func putSnapshot(version: Int, blob: WebSealedBlob) async throws { snapshots.append((version, blob)) }
     func putArticle(id: String, blob: WebSealedBlob) async throws { articles[id] = blob }
     func deleteArticle(id: String) async throws { articles[id] = nil; deletedArticles.append(id) }
-    func deleteSnapshot() async throws { if offline { throw Offline() }; calls.append("delete"); snapshotDeleted = true }
+    func deleteSnapshot() async throws { if offline { throw Offline() }; calls.append("delete"); snapshotDeleted = true; onCall?("delete") }
     func pendingInbox(after cursor: String?) async throws -> WebInboxPage {
         if offline { throw Offline() }
         calls.append("poll")
@@ -366,5 +367,43 @@ struct WebReaderTests {
         #expect(api.calls.isEmpty)
         #expect(!api.snapshotDeleted)
         #expect(api.webDevices.count == 1)
+    }
+
+    @Test("re-enabled while the delete is in flight: outcome says the server was touched (uploader must reset)")
+    @MainActor
+    func cleanupInterruptedAfterDelete() async {
+        let api = FakeWebReaderAPI()
+        let defaults = Self.freshDefaults()
+        let cleanup = WebReaderCleanup(defaults: defaults)
+        api.onCall = { if $0 == "delete" { defaults.removeObject(forKey: WebReaderCleanup.pendingDefaultsKey) } }
+        cleanup.markPending()
+        let outcome = await cleanup.run(api: api) { _ = try await api.pendingInbox(after: nil) }
+        #expect(outcome == .interrupted(touchedServer: true))
+        #expect(!cleanup.isPending)
+    }
+
+    @Test("re-enabled before anything was removed: interrupted, server untouched")
+    @MainActor
+    func cleanupInterruptedBeforeTouch() async {
+        let api = FakeWebReaderAPI()
+        api.webDevices = [WebReaderDevice(id: "w1", platform: "web", app: "fasttab", publicKey: "k")]
+        let cleanup = WebReaderCleanup(defaults: Self.freshDefaults())
+        cleanup.markPending()
+        let outcome = await cleanup.run(api: api) { cleanup.cancel() }
+        #expect(outcome == .interrupted(touchedServer: false))
+        #expect(api.webDevices.count == 1)
+        #expect(!api.snapshotDeleted)
+    }
+
+    @Test("off -> on -> off mid-run: run notices the flag is back and finishes")
+    @MainActor
+    func cleanupOffOnOff() async {
+        let api = FakeWebReaderAPI()
+        api.webDevices = [WebReaderDevice(id: "w1", platform: "web", app: "fasttab", publicKey: "k")]
+        let cleanup = WebReaderCleanup(defaults: Self.freshDefaults())
+        cleanup.markPending()
+        let outcome = await cleanup.run(api: api) { cleanup.cancel(); cleanup.markPending() }
+        #expect(outcome == .clean)
+        #expect(api.snapshotDeleted)
     }
 }

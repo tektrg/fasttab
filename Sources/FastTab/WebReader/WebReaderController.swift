@@ -83,13 +83,16 @@ final class WebReaderController: NSObject, ObservableObject {
         if enabled {
             cleanup.cancel() // back on: keep the server copy, nothing to delete
             stopCleanupRetries()
-            Task { await activate() }
+            Task { await activate() } // waits for any in-flight cleanup first
         } else {
             deactivate()
         }
     }
 
     private func activate() async {
+        // A cleanup mid-flight may still unpair/delete; let it finish (it resets the ledger
+        // if it touched the server) so the first upload is a full one.
+        await cleanupTask?.value
         await account.restoreIfNeeded()
         guard isEnabled, isSignedIn else { status = "Sign in to pair a browser."; return }
         await refreshPairedBrowsers()
@@ -121,14 +124,33 @@ final class WebReaderController: NSObject, ObservableObject {
             defer { self.cleanupTask = nil }
             await self.account.restoreIfNeeded()
             guard self.isSignedIn else { self.status = "Off. Sign in to delete the web copy."; return }
-            let ok = await self.cleanup.runIfPending(api: self.api) { try await self.drainInbox() }
-            if ok, !self.isEnabled {
+            let outcome = await self.cleanup.run(api: self.api) { try await self.drainInbox() }
+            switch outcome {
+            case .clean:
                 self.uploader.reset()
-                self.pairedBrowsers = []
-                self.status = "Off. Server copy deleted, browsers unpaired."
-                self.stopCleanupRetries()
-            } else if !ok, self.cleanup.isPending {
+                if !self.isEnabled {
+                    self.pairedBrowsers = []
+                    self.status = "Off. Server copy deleted, browsers unpaired."
+                    self.stopCleanupRetries()
+                }
+            case .interrupted(let touchedServer):
+                if touchedServer { self.uploader.reset() }
+                // Toggled off again while this run was stopping: go again now.
+                if self.cleanup.isPending, !self.isEnabled { self.rerunCleanup = true }
+            case .failed:
                 self.status = "Off. Will delete the web copy when online."
+            }
+        }
+    }
+
+    private var rerunCleanup = false {
+        didSet {
+            guard rerunCleanup else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.cleanupTask?.value
+                self.rerunCleanup = false
+                self.retryCleanupIfPending()
             }
         }
     }

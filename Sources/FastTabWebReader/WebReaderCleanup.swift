@@ -19,23 +19,41 @@ public final class WebReaderCleanup {
     /// Toggle back on: the user wants the web copy again; drop the cleanup without deleting.
     public func cancel() { defaults.removeObject(forKey: Self.pendingDefaultsKey) }
 
+    public enum Outcome: Equatable {
+        /// Server clean, flag cleared.
+        case clean
+        /// Network/server error; flag kept for a retry.
+        case failed
+        /// Re-enabled mid-run. `touchedServer`: browsers were unpaired or the snapshot deleted,
+        /// so the caller must reset its upload ledger before uploading again.
+        case interrupted(touchedServer: Bool)
+    }
+
     /// Runs the cleanup if pending. `finalPoll` must throw when the inbox could not be drained.
-    /// Returns true when the server is clean (flag cleared); false keeps the flag for a retry.
-    @discardableResult
-    public func runIfPending(api: any WebReaderAPI, finalPoll: () async throws -> Void) async -> Bool {
-        guard isPending else { return true }
+    public func run(api: any WebReaderAPI, finalPoll: () async throws -> Void) async -> Outcome {
+        guard isPending else { return .clean }
+        var touched = false
         do {
             try await finalPoll()
-            guard isPending else { return false } // re-enabled meanwhile
+            guard isPending else { return .interrupted(touchedServer: false) }
             for device in try await api.devices() where device.isWebBrowser && device.app == "fasttab" {
+                touched = true
                 try await api.removeDevice(id: device.id)
             }
-            guard isPending else { return false }
+            guard isPending else { return .interrupted(touchedServer: touched) }
+            touched = true
             try await api.deleteSnapshot()
+            guard isPending else { return .interrupted(touchedServer: true) }
             cancel()
-            return true
+            return .clean
         } catch {
-            return false
+            return isPending ? .failed : .interrupted(touchedServer: touched)
         }
+    }
+
+    /// Bool form: true when the server is clean.
+    @discardableResult
+    public func runIfPending(api: any WebReaderAPI, finalPoll: () async throws -> Void) async -> Bool {
+        await run(api: api, finalPoll: finalPoll) == .clean
     }
 }

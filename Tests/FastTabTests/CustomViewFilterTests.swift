@@ -216,9 +216,11 @@ struct CustomViewFilterTests {
     }
 
     @Test func handlesFiveThousandCandidatesQuickly() {
-        let candidates = (0..<5_000).map { i in
-            Self.item(i % 3 == 0 ? .tab : (i % 3 == 1 ? .bookmark : .history),
-                      "https://site\(i % 200).com/p/\(i)", title: "Item \(i)", ago: Double(i) * 60)
+        // Split up: one big expression exceeds Swift 6.3.3's type-checker budget (the Pro).
+        let kinds: [BrowserResultType] = [.tab, .bookmark, .history]
+        let candidates: [BrowserSearchResult] = (0..<5_000).map { i in
+            let url = "https://site\(i % 200).com/p/\(i)"
+            return Self.item(kinds[i % 3], url, title: "Item \(i)", ago: Double(i) * 60)
         }
         let view = CustomView(name: "v", domains: ["site1.com", "site2.com"], keywords: "item", lastVisited: .within(30 * Self.day))
         let start = Date()

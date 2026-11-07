@@ -369,8 +369,8 @@ public struct ReaderView: View {
         .readerBottomBarGlass()
         .dsShadow(.floating)
         .padding(.horizontal, DS.Space.lg)
-        // Clear the WebView's bottom progress bar + home indicator.
-        .padding(.bottom, DS.Space.sm)
+        // Clear the WebView's bottom progress bars (article + daily goal) + home indicator.
+        .padding(.bottom, DS.Space.md)
         .offset(y: isHeaderHidden ? 120 : 0)
         .opacity(isHeaderHidden ? 0 : 1)
         .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)

@@ -112,6 +112,26 @@ final class ReadingStatsRecorderTests: XCTestCase {
         XCTAssertEqual(wordEvents.map(\.value), [40])
     }
 
+    /// The reader's daily goal bar: today's logged words plus live ground past the high water.
+    func testTodayProgressCountsTodayOnlyAndHighWaterMatchesTheLog() async {
+        let yesterday = MetricEvent(timestamp: Date().addingTimeInterval(-2 * 24 * 3600), subject: "old",
+                                    metric: ReadingMetric.words, value: 900)
+        let log = InMemoryMetricEventLog(events: [yesterday])
+        let recorder = makeRecorder(log: log)
+        recorder.beginReading(url: articleURL, savedProgress: 0.1)
+        recorder.recordProgress(url: articleURL, title: "", progress: 0.5, wordCount: 1_000, isFlush: false)
+        // Not awaited: the snapshot must still include this write and its high water.
+        let today = await recorder.todayProgress(for: articleURL)
+        XCTAssertEqual(today.wordsToday, 400)
+        XCTAssertEqual(today.highWater, 0.5, accuracy: 1e-9)
+
+        // Sub-step gain is neither logged nor in the high water: the page counts it live.
+        recorder.recordProgress(url: articleURL, title: "", progress: 0.52, wordCount: 1_000, isFlush: false)
+        let later = await recorder.todayProgress(for: articleURL)
+        XCTAssertEqual(later.wordsToday, 400)
+        XCTAssertEqual(later.highWater, 0.5, accuracy: 1e-9)
+    }
+
     func testEachNewHighlightCounts() async {
         let log = InMemoryMetricEventLog()
         let recorder = makeRecorder(log: log)
@@ -180,5 +200,26 @@ final class ReadingTopicResolverTests: XCTestCase {
         let resolver = ReadingTopicResolver(defaults: defaults)
         let event = MetricEvent(timestamp: Date(), subject: "https://a.com/x", metric: ReadingMetric.words, labels: [ReadingMetric.hostLabel: "a.com"])
         XCTAssertEqual(resolver.topicsByArticle(for: [event], bookmarkBlobs: []), ["https://a.com/x": "a.com"])
+    }
+}
+
+
+final class ReaderDailyGoalTests: XCTestCase {
+    private let goal = ReaderDailyGoal(wordsToday: 1_000, articleWords: 2_000, highWater: 0.25, goal: 3_000)
+
+    func testOnlyGroundPastTheHighWaterAdds() {
+        XCTAssertEqual(goal.words(sessionProgress: 0.1), 1_000)
+        XCTAssertEqual(goal.words(sessionProgress: 0.75), 2_000, accuracy: 1e-9)
+        XCTAssertEqual(goal.fraction(sessionProgress: 0.75), 2.0 / 3.0, accuracy: 1e-9)
+    }
+
+    func testBarStaysFullPastTheGoal() {
+        let met = ReaderDailyGoal(wordsToday: 5_000, articleWords: 100, highWater: 0, goal: 3_000)
+        XCTAssertEqual(met.fraction(sessionProgress: 1), 1)
+    }
+
+    func testUntrackedArticleOnlyShowsToday() {
+        let untracked = ReaderDailyGoal(wordsToday: 1_500, articleWords: 0, highWater: 0, goal: 3_000)
+        XCTAssertEqual(untracked.fraction(sessionProgress: 1), 0.5)
     }
 }

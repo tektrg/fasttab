@@ -220,7 +220,7 @@ struct OrderedTabSlotRow: View {
                 }
             }
             if let onSendToFastTabList,
-               let bridge = FastTabListRowBridge.forStackSlot(url: slot.url, isLive: !isGhost && !isFrozen) {
+               let bridge = FastTabListRowBridge.forStackSlot(slot) {
                 Button(bridge.title, action: onSendToFastTabList)
             }
             Button(slot.isPinned ? "Unpin Tab" : "Pin Tab", action: onTogglePin)

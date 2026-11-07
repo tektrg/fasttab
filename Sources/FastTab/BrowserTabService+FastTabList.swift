@@ -49,6 +49,11 @@ enum FastTabListRowBridge: Equatable {
     static func forStackSlot(url: String, isLive: Bool) -> FastTabListRowBridge? {
         isLive && FastTabListBridge.isReadableWebURL(url) ? .sendToListAndClose : nil
     }
+
+    /// The menu item and ⌘S both use this, so a frozen or ghost slot never gets closed.
+    static func forStackSlot(_ slot: OrderedTabSlot) -> FastTabListRowBridge? {
+        forStackSlot(url: slot.url, isLive: slot.state == .live)
+    }
 }
 
 /// Where "Move to Bookmarks" writes on this Mac: the top level ("Other Bookmarks") of a

@@ -43,8 +43,14 @@ extension ContentView {
     func handleFastTabListShortcut(keyCode: UInt16) -> Bool {
         guard keyCode == Self.readLaterKeyCode || keyCode == Self.moveToBookmarksKeyCode else { return false }
         let items = displayedItems
-        guard items.indices.contains(appState.selectedIndex),
-              let result = items[appState.selectedIndex].result,
+        guard items.indices.contains(appState.selectedIndex) else { return false }
+        // Stack slots close through the Stack store (pinned → ghost), never the raw tab path.
+        if case .orderedEntry(let slot) = items[appState.selectedIndex] {
+            guard keyCode == Self.readLaterKeyCode, FastTabListRowBridge.forStackSlot(slot) != nil else { return false }
+            sendStackSlotToFastTabList(slot)
+            return true
+        }
+        guard let result = items[appState.selectedIndex].result,
               let bridge = FastTabListRowBridge.forResult(result),
               bridge.sendsToList == (keyCode == Self.readLaterKeyCode) else { return false }
         performFastTabListBridge(result)

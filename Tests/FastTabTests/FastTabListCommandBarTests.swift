@@ -115,6 +115,17 @@ struct FastTabListCommandBarTests {
         #expect(FastTabListRowBridge.forStackSlot(url: "file:///Users/x", isLive: true) == nil)
     }
 
+    /// ⌘S and the menu must agree on Stack slots: frozen and ghost slots offer nothing.
+    @Test func stackSlotBridgeFollowsSlotState() {
+        func slot(_ state: SlotState, url: String = "https://a.com") -> OrderedTabSlot {
+            OrderedTabSlot(url: url, title: "A", browserName: "Google Chrome", state: state)
+        }
+        #expect(FastTabListRowBridge.forStackSlot(slot(.live)) == .sendToListAndClose)
+        #expect(FastTabListRowBridge.forStackSlot(slot(.browserFrozen)) == nil)
+        #expect(FastTabListRowBridge.forStackSlot(slot(.ghost)) == nil)
+        #expect(FastTabListRowBridge.forStackSlot(slot(.live, url: "chrome://settings")) == nil)
+    }
+
     @Test func moveToBookmarksPrefersTheCurrentBrowserThenTheBusiestProfile() {
         let bookmarks = [
             row(.bookmark, url: "https://1", browser: "Google Chrome", profile: "Work"),

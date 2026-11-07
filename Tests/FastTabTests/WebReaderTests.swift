@@ -142,6 +142,23 @@ struct WebReaderTests {
         #expect(!build.snapshot.articles.contains { $0.url == "https://x.com/9" })
     }
 
+    @Test("GET /v1/me/devices decodes the server's real shape (deviceID)")
+    func decodesServerDevices() throws {
+        // Captured from local theindie-api `feat/web-reader` (e2e run 2026-11-07).
+        let json = #"{"devices":[{"deviceID":"770444e8-44b1-434f-9548-f5e2d14e61c1","publicKey":"wac2U-gJyhNWLEhHAFQ3ncvHKNZpgaIpKFbyZ1aC2mc","app":"fasttab","platform":"web","name":"Web browser","createdAt":1794067631124,"lastSeenAt":1794067631124}]}"#
+        let devices = try LiveWebReaderAPI.decodeDevices(Data(json.utf8))
+        #expect(devices.map(\.id) == ["770444e8-44b1-434f-9548-f5e2d14e61c1"])
+        #expect(devices.first?.platform == "web")
+    }
+
+    @Test("articleId matches the browser's for fragment, query and trailing-slash URLs")
+    func articleIDMatchesBrowser() {
+        // Same vectors as theindieapp_website src/fasttab-web/test/crypto.test.ts.
+        #expect(WebReaderJSON.articleID(for: "https://Example.com/a/b/?q=1&x=é#frag") == "d348c1f9023ae3eeae37d4ee26b821da")
+        #expect(WebReaderJSON.articleID(for: "https://example.com/post?a=1#sec") == "a7e109ccedf1a8272e14cdcd58266c55")
+        #expect(WebReaderJSON.articleID(for: "https://example.com") == "100680ad546ce6a577f42f52df33b4cf")
+    }
+
     @Test("articleId = first 32 hex of SHA-256 of the URL without fragment")
     func articleID() {
         let id = WebReaderJSON.articleID(for: "https://example.com/a?b=1#frag")

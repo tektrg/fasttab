@@ -94,7 +94,8 @@ public struct LiveWebReaderAPI: WebReaderAPI {
     }
 
     private struct DeviceDTO: Decodable {
-        let deviceId: String
+        /// Server spells it `deviceID` (shared with every app's /v1/me/devices client).
+        let deviceID: String
         let publicKey: String
         let app: String
         let platform: String
@@ -106,10 +107,13 @@ public struct LiveWebReaderAPI: WebReaderAPI {
     private struct DevicesDTO: Decodable { let devices: [DeviceDTO] }
 
     public func devices() async throws -> [WebReaderDevice] {
-        let data = try await send("GET", "/v1/me/devices")
-        return try JSONDecoder().decode(DevicesDTO.self, from: data).devices.map {
+        try Self.decodeDevices(try await send("GET", "/v1/me/devices"))
+    }
+
+    static func decodeDevices(_ data: Data) throws -> [WebReaderDevice] {
+        try JSONDecoder().decode(DevicesDTO.self, from: data).devices.map {
             WebReaderDevice(
-                id: $0.deviceId, platform: $0.platform, app: $0.app, name: $0.name, publicKey: $0.publicKey,
+                id: $0.deviceID, platform: $0.platform, app: $0.app, name: $0.name, publicKey: $0.publicKey,
                 createdAt: $0.createdAt.map { Date(timeIntervalSince1970: $0 / 1000) },
                 lastSeenAt: $0.lastSeenAt.map { Date(timeIntervalSince1970: $0 / 1000) })
         }

@@ -363,6 +363,12 @@ public final class ReaderViewModel: ObservableObject {
         }
     }
 
+    /// After the page reloads (content process killed): hide the bar, re-take today's snapshot.
+    func reloadDailyGoal() {
+        dailyGoal = nil
+        loadDailyGoal(articleWords: statsRecorder.isTracked(url) ? (articleWordCount ?? 0) : 0)
+    }
+
     private func loadDailyGoal(articleWords: Int) {
         dailyGoalTask?.cancel()
         dailyGoalTask = Task { [weak self] in

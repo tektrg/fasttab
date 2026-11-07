@@ -320,6 +320,8 @@ public struct ReaderWebView: UIViewRepresentable {
         coordinator.reloadHandler = { [weak webView, weak coordinator, viewModel, article] in
             guard let webView else { return }
             coordinator?.resetPushedTranscript(viewModel.transcriptCleanup)
+            // The new page forgets this session's scroll; a fresh snapshot already logs it.
+            viewModel.reloadDailyGoal()
             Self.loadTemplate(into: webView, viewModel: viewModel, article: article,
                               focusHighlightID: nil)
         }

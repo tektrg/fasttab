@@ -56,4 +56,32 @@ final class FaviconModelTests: XCTestCase {
         XCTAssertNotNil(model.image(forHost: sentinel))
         XCTAssertNil(model.image(forURL: sentinel))            // not a web URL: never looked up
     }
+
+    /// A PNG header declaring 100000 x 100000 px with no pixel data (decode-bomb shape).
+    private func hostileHeaderPNG() -> Data {
+        func be(_ v: UInt32) -> [UInt8] { [UInt8(v >> 24 & 255), UInt8(v >> 16 & 255), UInt8(v >> 8 & 255), UInt8(v & 255)] }
+        func crc32(_ bytes: [UInt8]) -> UInt32 {
+            var crc: UInt32 = 0xFFFF_FFFF
+            for b in bytes {
+                crc ^= UInt32(b)
+                for _ in 0..<8 { crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB8_8320 : crc >> 1 }
+            }
+            return ~crc
+        }
+        let body = Array("IHDR".utf8) + be(100_000) + be(100_000) + [8, 6, 0, 0, 0]
+        return Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] + be(13) + body + be(crc32(body)))
+    }
+
+    func testOversizedClaimsAreNeverDecoded() {
+        let model = makeModel()
+        model.apply(SyncedFavicons(deviceID: "mac-1", icons: ["bomb.com": hostileHeaderPNG()]))
+        XCTAssertNil(model.image(forURL: "https://bomb.com"))
+
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 300))
+        let bigPixels = renderer.pngData { ctx in
+            UIColor.red.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 300, height: 300))
+        }
+        model.apply(SyncedFavicons(deviceID: "mac-2", icons: ["wide.com": bigPixels]))
+        XCTAssertNil(model.image(forURL: "https://wide.com"))
+    }
 }

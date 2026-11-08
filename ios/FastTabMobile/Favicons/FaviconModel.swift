@@ -47,7 +47,10 @@ public final class FaviconModel: ObservableObject {
     public func image(forHost host: String) -> UIImage? {
         if let image = decoded[host] { return image }
         if misses.contains(host) { return nil }
-        guard let data = store.iconData(forHost: host), let image = UIImage(data: data) else {
+        // Synced data is untrusted for decoding: header-check size before any UIImage decode.
+        guard let data = store.iconData(forHost: host),
+              FaviconImage.isSafeToDecode(data),
+              let image = UIImage(data: data) else {
             misses.insert(host)
             return nil
         }
@@ -63,12 +66,18 @@ public final class FaviconModel: ObservableObject {
 }
 
 /// A tab's site icon, falling back to the globe while none has synced (or it can't be decoded).
+/// The icon sits on a subtle plate so transparent / black-on-transparent glyphs stay visible on dark rows.
 struct FaviconView: View {
     let url: String
     var fallbackSystemName = "globe"
     var fallbackTint: Color = DS.Tint.action
 
     @ObservedObject private var model = FaviconModel.shared
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var plate: Color {
+        colorScheme == .dark ? Color.white.opacity(0.9) : Color(.secondarySystemFill)
+    }
 
     var body: some View {
         Group {
@@ -77,8 +86,9 @@ struct FaviconView: View {
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()
+                    .padding(1.5)
+                    .background(plate, in: RoundedRectangle(cornerRadius: DS.Radius.xs, style: .continuous))
                     .clipShape(RoundedRectangle(cornerRadius: DS.Radius.xs, style: .continuous))
-                    .accessibilityHidden(true)
             } else {
                 Image(systemName: fallbackSystemName)
                     .foregroundStyle(fallbackTint)
@@ -86,5 +96,6 @@ struct FaviconView: View {
             }
         }
         .frame(width: 20, height: 20)
+        .accessibilityHidden(true)
     }
 }

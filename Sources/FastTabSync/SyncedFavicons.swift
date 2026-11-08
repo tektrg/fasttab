@@ -15,9 +15,10 @@ public struct SyncedFavicons: Identifiable, Hashable, Sendable {
 
     /// Hosts per record. Open tabs rarely span more distinct sites than this.
     public static let maxEntries = 150
-    /// Largest accepted PNG. A 48 px favicon is normally 0.5–2 KB; anything
-    /// bigger is a photo-like icon not worth the sync bytes.
-    public static let maxIconBytes = 3 * 1024
+    /// Largest accepted PNG. A 48 px favicon is normally 0.5–4 KB; anything
+    /// bigger is a photo-like icon not worth the sync bytes. (Generous enough that a
+    /// 48 px icon isn't pushed down to a blurry 24 px one.)
+    public static let maxIconBytes = 8 * 1024
     /// Whole-record budget for the icon bytes (the 1 MB CloudKit limit minus
     /// plist overhead and headroom).
     public static let maxTotalBytes = 600 * 1024
@@ -116,7 +117,8 @@ extension SyncedFavicons {
         self.id = record.recordID.recordName
         self.deviceID = deviceID
         self.updatedAt = updatedAt
-        self.icons = icons
+        // Entries over the byte cap were never ours to publish: drop them rather than decode.
+        self.icons = icons.filter { $0.value.count <= Self.maxIconBytes }
     }
 
     public func toRecord(zoneID: CKRecordZone.ID) -> CKRecord? {

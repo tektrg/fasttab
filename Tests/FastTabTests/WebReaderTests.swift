@@ -25,7 +25,8 @@ final class FakeWebReaderAPI: WebReaderAPI, @unchecked Sendable {
         if offline { throw Offline() }
         calls.append("unpair:\(id)"); onCall?("unpair"); webDevices.removeAll { $0.id == id }
     }
-    func approvePairing(id: String, code: String) async throws {}
+    func approvePairing(id: String, code: String) async throws { calls.append("approve-id:\(id):\(code)") }
+    func approvePairing(code: String) async throws { calls.append("approve-code:\(code)") }
     func putSnapshot(version: Int, blob: WebSealedBlob) async throws { snapshots.append((version, blob)) }
     func putArticle(id: String, blob: WebSealedBlob) async throws { articles[id] = blob }
     func deleteArticle(id: String) async throws { articles[id] = nil; deletedArticles.append(id) }
@@ -405,5 +406,31 @@ struct WebReaderTests {
         let outcome = await cleanup.run(api: api) { cleanup.cancel(); cleanup.markPending() }
         #expect(outcome == .clean)
         #expect(api.snapshotDeleted)
+    }
+}
+
+
+@Suite("Web reader pairing input (v1.3 code only)")
+struct WebPairingInputTests {
+    @Test func typedCodeIsNormalized() {
+        #expect(WebPairingRequest(input: " abcd-efgh ") == .code("ABCDEFGH"))
+        #expect(WebPairingRequest(input: "ab cd ef gh") == .code("ABCDEFGH"))
+    }
+
+    @Test func pastedLegacyLinkStillWorks() {
+        #expect(WebPairingRequest(input: "fasttab://pair-web?id=abc-123&code=wxyz2345") == .link(id: "abc-123", code: "WXYZ2345"))
+    }
+
+    @Test func rejectsWrongLengthOrEmpty() {
+        #expect(WebPairingRequest(input: "") == nil)
+        #expect(WebPairingRequest(input: "ABC") == nil)
+        #expect(WebPairingRequest(input: "fasttab://pair-web?code=ABCDEFGH") == nil)
+    }
+
+    @Test func codeGoesToCodeOnlyRouteAndLinkToLegacyRoute() async throws {
+        let api = FakeWebReaderAPI()
+        try await WebPairingRequest.code("ABCDEFGH").approve(with: api)
+        try await WebPairingRequest.link(id: "p1", code: "WXYZ2345").approve(with: api)
+        #expect(api.calls == ["approve-code:ABCDEFGH", "approve-id:p1:WXYZ2345"])
     }
 }

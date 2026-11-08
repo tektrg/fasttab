@@ -5,7 +5,6 @@ import SwiftUI
 /// More > Experimental section).
 struct ExperimentalSettingsView: View {
     @ObservedObject private var webReader = WebReaderController.shared
-    @State private var pairingLink = ""
     @State private var pairingCode = ""
     @State private var isPairing = false
 
@@ -45,17 +44,16 @@ struct ExperimentalSettingsView: View {
 
     private var pairingSection: some View {
         Section("Pair a browser") {
-            TextField("Pairing link or id", text: $pairingLink)
-            TextField("8-character code", text: $pairingCode)
+            TextField("Pairing code", text: $pairingCode, prompt: Text("8 characters, shown in the browser"))
             Button(isPairing ? "Pairing…" : "Approve") {
                 isPairing = true
                 Task {
-                    await webReader.approvePairing(linkOrID: pairingLink, code: pairingCode)
+                    await webReader.approvePairing(input: pairingCode)
                     isPairing = false
-                    if webReader.errorMessage == nil { pairingLink = ""; pairingCode = "" }
+                    if webReader.errorMessage == nil { pairingCode = "" }
                 }
             }
-            .disabled(isPairing || pairingLink.isEmpty)
+            .disabled(isPairing || pairingCode.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
 

@@ -296,22 +296,16 @@ final class WebReaderController: NSObject, ObservableObject {
 
     // MARK: - Pairing
 
-    /// Accepts the browser's `fasttab://pair-web?id=…&code=…` link (QR / copy), or a pairing id
-    /// and the 8-character code it shows.
-    func approvePairing(linkOrID: String, code: String) async {
+    /// Approves the browser showing this 8-character code. A pasted pre-v1.3
+    /// `fasttab://pair-web?id=…&code=…` link in the same field still works.
+    func approvePairing(input: String) async {
         errorMessage = nil
-        var pairingID = linkOrID.trimmingCharacters(in: .whitespacesAndNewlines)
-        var pairingCode = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        if let components = URLComponents(string: pairingID), components.scheme == "fasttab" {
-            pairingID = components.queryItems?.first { $0.name == "id" }?.value ?? ""
-            if pairingCode.isEmpty { pairingCode = components.queryItems?.first { $0.name == "code" }?.value ?? "" }
-        }
-        guard !pairingID.isEmpty, pairingCode.count == 8 else {
-            errorMessage = "Paste the pairing link (or id) and the 8-character code shown in the browser."
+        guard let request = WebPairingRequest(input: input) else {
+            errorMessage = "Type the 8-character code shown in the browser."
             return
         }
         do {
-            try await api.approvePairing(id: pairingID, code: pairingCode)
+            try await request.approve(with: api)
             await refreshPairedBrowsers()
             scheduleUpload(immediately: true)
         } catch {

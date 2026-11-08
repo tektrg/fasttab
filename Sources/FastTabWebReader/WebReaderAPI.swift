@@ -59,8 +59,10 @@ public struct WebInboxPage: Codable, Equatable, Sendable {
 public protocol WebReaderAPI: Sendable {
     func devices() async throws -> [WebReaderDevice]
     func removeDevice(id: String) async throws
-    /// `POST /v1/web-pairings/:id/approve {code}`.
+    /// `POST /v1/web-pairings/:id/approve {code}` (pre-v1.3 link pairing).
     func approvePairing(id: String, code: String) async throws
+    /// `POST /v1/web-pairings/approve {code}`: v1.3, the code alone.
+    func approvePairing(code: String) async throws
     /// `PUT /v1/snapshots/fasttab` then `PUT /v1/snapshots/fasttab/content`.
     func putSnapshot(version: Int, blob: WebSealedBlob) async throws
     /// Single JSON `PUT /v1/snapshots/fasttab/articles/:id {suite, wraps, ciphertext}`.
@@ -125,6 +127,10 @@ public struct LiveWebReaderAPI: WebReaderAPI {
 
     public func approvePairing(id: String, code: String) async throws {
         _ = try await send("POST", "/v1/web-pairings/\(escape(id))/approve", json: ["code": code])
+    }
+
+    public func approvePairing(code: String) async throws {
+        _ = try await send("POST", "/v1/web-pairings/approve", json: ["code": code])
     }
 
     private struct EnvelopeDTO: Encodable {

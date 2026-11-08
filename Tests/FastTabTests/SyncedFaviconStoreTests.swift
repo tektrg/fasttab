@@ -85,7 +85,7 @@ struct SyncedFaviconStoreTests {
     func hostileStrings() throws {
         let dir = tempDir()
         let store = SyncedFaviconStore(directory: dir)
-        let sentinel = "$(echo INJECTED)"
+        let sentinel = "$(echo injected)" // lowercase: hosts are looked up lowercased
         let traversal = "../../escape"
         store.apply(SyncedFavicons(
             deviceID: traversal + sentinel,
@@ -96,7 +96,7 @@ struct SyncedFaviconStoreTests {
         let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
         #expect(!names.isEmpty)
         for name in names {
-            #expect(!name.contains("INJECTED"))
+            #expect(!name.lowercased().contains("injected"))
             #expect(!name.contains("/") && !name.contains(".."))
         }
         // Nothing was written outside the store directory.

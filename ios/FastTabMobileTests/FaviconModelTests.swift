@@ -51,7 +51,7 @@ final class FaviconModelTests: XCTestCase {
 
     func testHostileHostStringIsInert() {
         let model = makeModel()
-        let sentinel = "$(echo INJECTED)"
+        let sentinel = "$(echo injected)" // lowercase: hosts are looked up lowercased
         model.apply(SyncedFavicons(deviceID: "mac-1", icons: [sentinel: pngData(color: .green)]))
         XCTAssertNotNil(model.image(forHost: sentinel))
         XCTAssertNil(model.image(forURL: sentinel))            // not a web URL: never looked up

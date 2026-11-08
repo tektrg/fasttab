@@ -1,38 +1,58 @@
 import FastTabSync
 import Foundation
 
-/// The bridge a command-bar row offers between the FastTab List and browser Bookmarks.
+/// The bridge a command-bar row offers between the FastTab List (the synced read-later
+/// list the iPhone shows) and browser Bookmarks.
 enum FastTabListRowBridge: Equatable {
-    /// Tab or bookmark → add to the FastTab List.
-    case readLater
+    /// Bookmark or history row → add to the FastTab List (nothing to close).
+    case sendToList
+    /// Live browser tab → add to the FastTab List, then close the tab.
+    case sendToListAndClose
     /// FastTab List item → browser bookmark, then the item goes to Trash.
     case moveToBookmarks
 
     var title: String {
         switch self {
-        case .readLater: return "Read later"
+        case .sendToList: return "Send to FastTab List"
+        case .sendToListAndClose: return "Send to FastTab List & Close"
         case .moveToBookmarks: return "Move to Bookmarks"
         }
     }
 
     var symbolName: String {
         switch self {
-        case .readLater: return "eyeglasses"
+        case .sendToList, .sendToListAndClose: return "eyeglasses"
         case .moveToBookmarks: return "bookmark"
         }
     }
 
-    /// Which bridge (if any) `result` offers: web tabs and bookmarks can be read later,
-    /// list items can become bookmarks. Finder windows, ghosts and history rows offer none.
+    /// Both "send" variants save the link to the FastTab List (⌘S).
+    var sendsToList: Bool { self != .moveToBookmarks }
+
+    /// Which bridge (if any) `result` offers: live web tabs are sent then closed, bookmarks
+    /// and history are sent, list items can become bookmarks. Finder windows, ghosts, sent
+    /// links and non-web URLs offer none.
     static func forResult(_ result: BrowserSearchResult) -> FastTabListRowBridge? {
         switch result.type {
         case .fastTabList:
             return .moveToBookmarks
-        case .tab where !result.isGhost, .bookmark:
-            return FastTabListBridge.isReadableWebURL(result.url) ? .readLater : nil
-        case .tab, .sent, .history:
+        case .tab where !result.isGhost:
+            return FastTabListBridge.isReadableWebURL(result.url) ? .sendToListAndClose : nil
+        case .bookmark, .history:
+            return FastTabListBridge.isReadableWebURL(result.url) ? .sendToList : nil
+        case .tab, .sent:
             return nil
         }
+    }
+
+    /// Stack slot rows: only a live (open, non-frozen) web tab can be sent and closed.
+    static func forStackSlot(url: String, isLive: Bool) -> FastTabListRowBridge? {
+        isLive && FastTabListBridge.isReadableWebURL(url) ? .sendToListAndClose : nil
+    }
+
+    /// The menu item and ⌘S both use this, so a frozen or ghost slot never gets closed.
+    static func forStackSlot(_ slot: OrderedTabSlot) -> FastTabListRowBridge? {
+        forStackSlot(url: slot.url, isLive: slot.state == .live)
     }
 }
 
@@ -114,10 +134,11 @@ extension BrowserTabService {
         Task.detached(priority: .userInitiated) { backend.openURL(openable) }
     }
 
-    /// "Read later" on a tab or bookmark row. Returns false when the link can't be saved.
+    /// "Send to FastTab List" on a tab, bookmark or history row. Returns false when the
+    /// link can't be saved. Closing the tab (for `.sendToListAndClose`) is the caller's job.
     @discardableResult
     func readLater(_ result: BrowserSearchResult) -> Bool {
-        guard FastTabListRowBridge.forResult(result) == .readLater else { return false }
+        guard FastTabListRowBridge.forResult(result)?.sendsToList == true else { return false }
         return FastTabListStore.shared.readLater(url: result.url, title: result.title)
     }
 

@@ -17,6 +17,8 @@ struct OrderedTabSlotRow: View {
     /// otherwise a row dragged past the section would silently unpin itself.
     /// Defaults to the full store count.
     var reorderUpperBound: Int? = nil
+    /// "Send to FastTab List & Close"; offered only on live web tabs (see `forStackSlot`).
+    var onSendToFastTabList: (() -> Void)? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
@@ -216,6 +218,10 @@ struct OrderedTabSlotRow: View {
                 } else {
                     onSelect()
                 }
+            }
+            if let onSendToFastTabList,
+               let bridge = FastTabListRowBridge.forStackSlot(slot) {
+                Button("\(bridge.title) (⌘S)", action: onSendToFastTabList)
             }
             Button(slot.isPinned ? "Unpin Tab" : "Pin Tab", action: onTogglePin)
             Button("Copy URL") {

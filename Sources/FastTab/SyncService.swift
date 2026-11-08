@@ -299,6 +299,7 @@ final class SyncService: NSObject, ObservableObject {
     // MARK: - Live Tabs Publishing
 
     func updateLiveTabs(_ tabs: [BrowserSearchResult], unreadableBrowsers: Set<String> = []) {
+        noteTabsForWebSnapshot(tabs)
         tabDebounceTask?.cancel()
         tabDebounceTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s debounce
@@ -358,6 +359,7 @@ final class SyncService: NSObject, ObservableObject {
     // MARK: - Bookmarks Publishing
 
     func updateBookmarks(_ bookmarks: [BrowserSearchResult]) {
+        noteBookmarksForWebSnapshot(bookmarks)
         guard let syncEngine else { return }
 
         // Group bookmarks by browser and profile

@@ -12,6 +12,8 @@ let indieFeedback: Target.Dependency = .product(name: "IndieFeedback", package: 
 let indieComments: Target.Dependency = .product(name: "IndieComments", package: "IndieLibKit")
 let indieTable: Target.Dependency = .product(name: "IndieTable", package: "IndieLibKit")
 let indieMCP: Target.Dependency = .product(name: "IndieMCP", package: "IndieLibKit")
+let indieSharing: Target.Dependency = .product(name: "IndieSharing", package: "IndieLibKit")
+let indieAccount: Target.Dependency = .product(name: "IndieAccount", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -49,6 +51,12 @@ let package = Package(
             name: "FastTabReader",
             dependencies: ["FastTabSync", indieComments, indieTable]
         ),
+        // Experimental web reader (fasttab.theindie.app/web): E2E-encrypted snapshot upload,
+        // browser highlights inbox. Contract: memory/Projects/fasttab-web-reader/contract.md.
+        .target(
+            name: "FastTabWebReader",
+            dependencies: ["FastTabSync", indieSharing]
+        ),
         // Stdio MCP server bundled in the app (Contents/MacOS/fasttab-mcp): comment tools over
         // the reader mirror.
         .executableTarget(
@@ -68,8 +76,11 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 "FastTabSync",
                 "FastTabReader",
+                "FastTabWebReader",
                 "CommandBarKit",
                 indieSearch,
+                indieSharing,
+                indieAccount,
                 indieMetrics,
                 indieMotion,
                 indieEdgeReveal,
@@ -90,7 +101,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabMCP", "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP]
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP]
         ),
         .testTarget(
             name: "AgentBarTests",

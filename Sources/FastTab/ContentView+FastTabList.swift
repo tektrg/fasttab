@@ -8,9 +8,17 @@ extension ContentView {
     /// "Move to Bookmarks" on FastTab List items.
     func performFastTabListBridge(_ result: BrowserSearchResult) {
         switch FastTabListRowBridge.forResult(result) {
-        case .readLater:
+        case .sendToList:
             let saved = appState.browserService.readLater(result)
-            showToast(saved ? "Added to FastTab List" : "Can't add this link")
+            showToast(saved ? "Sent to FastTab List" : "Can't add this link")
+        case .sendToListAndClose:
+            // Close only once the link is safely in the list.
+            guard appState.browserService.readLater(result) else {
+                showToast("Can't add this link")
+                return
+            }
+            showToast("Sent to FastTab List")
+            performRemove(result)
         case .moveToBookmarks:
             appState.browserService.moveFastTabListItemToBookmarks(result) { folderLabel in
                 showToast(folderLabel.map { "Moved to \($0)" } ?? "Couldn't add the bookmark")
@@ -20,19 +28,31 @@ extension ContentView {
         }
     }
 
-    /// ⌘S = Read later, ⌘D = Move to Bookmarks, on the selected row. Returns whether the
+    /// Stack slot "Send to FastTab List & Close": saves the link, then closes the slot's tab.
+    func sendStackSlotToFastTabList(_ slot: OrderedTabSlot) {
+        guard FastTabListStore.shared.readLater(url: slot.url, title: slot.title) else {
+            showToast("Can't add this link")
+            return
+        }
+        showToast("Sent to FastTab List")
+        myOrderStore.closeSlot(slot.slotID)
+    }
+
+    /// ⌘S = Send to FastTab List (and close, on a tab), ⌘D = Move to Bookmarks, on the selected row. Returns whether the
     /// key was handled (only when the row offers that bridge).
     func handleFastTabListShortcut(keyCode: UInt16) -> Bool {
-        let wanted: FastTabListRowBridge
-        switch keyCode {
-        case Self.readLaterKeyCode: wanted = .readLater
-        case Self.moveToBookmarksKeyCode: wanted = .moveToBookmarks
-        default: return false
-        }
+        guard keyCode == Self.readLaterKeyCode || keyCode == Self.moveToBookmarksKeyCode else { return false }
         let items = displayedItems
-        guard items.indices.contains(appState.selectedIndex),
-              let result = items[appState.selectedIndex].result,
-              FastTabListRowBridge.forResult(result) == wanted else { return false }
+        guard items.indices.contains(appState.selectedIndex) else { return false }
+        // Stack slots close through the Stack store (pinned → ghost), never the raw tab path.
+        if case .orderedEntry(let slot) = items[appState.selectedIndex] {
+            guard keyCode == Self.readLaterKeyCode, FastTabListRowBridge.forStackSlot(slot) != nil else { return false }
+            sendStackSlotToFastTabList(slot)
+            return true
+        }
+        guard let result = items[appState.selectedIndex].result,
+              let bridge = FastTabListRowBridge.forResult(result),
+              bridge.sendsToList == (keyCode == Self.readLaterKeyCode) else { return false }
         performFastTabListBridge(result)
         return true
     }

@@ -11,6 +11,9 @@ public final class ReaderMirror: ReaderHighlightSyncStore {
     public let directory: URL
     public let comments: CommentStore
     private var byID: [String: SyncedReaderHighlight]
+    /// Highlights made on this Mac (imported from the web reader): the only ones it sends to
+    /// CloudKit. Everything else is the phone's, mirrored read-only.
+    private var ownIDs: Set<String>
 
     private struct Stored: Codable, Sendable {
         let id: String
@@ -22,6 +25,21 @@ public final class ReaderMirror: ReaderHighlightSyncStore {
         self.directory = directory
         self.comments = comments ?? Self.commentStore(in: directory)
         byID = Dictionary(Self.loadHighlights(in: directory).map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        ownIDs = Set((try? JSONDecoder().decode([String].self, from: Data(contentsOf: Self.ownIDsURL(in: directory)))) ?? [])
+    }
+
+    /// True for a highlight this Mac created (see `ownIDs`).
+    public func isOwn(_ id: String) -> Bool { ownIDs.contains(id) }
+
+    /// Adds a highlight made on this Mac; the bridge sends it on its next pending pass.
+    /// An id already present is left alone (re-imports are no-ops). False when not added.
+    @discardableResult
+    public func addOwn(_ highlight: SyncedReaderHighlight) -> Bool {
+        guard byID[highlight.id] == nil else { return false }
+        byID[highlight.id] = highlight
+        ownIDs.insert(highlight.id)
+        save()
+        return true
     }
 
     /// The mirror folder in the app's support directory, shared with the MCP helper.
@@ -46,7 +64,8 @@ public final class ReaderMirror: ReaderHighlightSyncStore {
             ledgerURL: mirror.directory.appendingPathComponent("sync_ledger.json"),
             comments: mirror.comments,
             highlights: mirror,
-            sendsHighlights: false
+            sendsHighlights: false,
+            sendsOwnHighlight: { [weak mirror] id in mirror?.isOwn(id) ?? false }
         )
     }
 
@@ -62,6 +81,7 @@ public final class ReaderMirror: ReaderHighlightSyncStore {
 
     public func removeRemote(id: String) {
         guard byID.removeValue(forKey: id) != nil else { return }
+        ownIDs.remove(id)
         save()
     }
 
@@ -70,9 +90,14 @@ public final class ReaderMirror: ReaderHighlightSyncStore {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try JSONEncoder().encode(stored).write(to: Self.highlightsURL(in: directory), options: .atomic)
+            try JSONEncoder().encode(ownIDs.sorted()).write(to: Self.ownIDsURL(in: directory), options: .atomic)
         } catch {
             // Next fetch re-applies; the ledger only advances for what was applied in memory.
         }
+    }
+
+    private nonisolated static func ownIDsURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("own_highlight_ids.json")
     }
 
     private nonisolated static func highlightsURL(in directory: URL) -> URL {

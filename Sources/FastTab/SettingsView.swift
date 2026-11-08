@@ -5,7 +5,7 @@ import AppKit
 /// One entry in the Settings sidebar. Each case's content lives in its own
 /// `*SettingsView` file — this file only owns the sidebar and routing.
 enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
-    case general, appearance, shortcuts, views, sources, bookmarks, highlights, sync, searchAliases, advanced, license, feedback, about
+    case general, appearance, shortcuts, views, sources, bookmarks, highlights, sync, searchAliases, advanced, experimental, license, feedback, about
 
     var id: String { rawValue }
 
@@ -21,6 +21,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .sync: return "Sync"
         case .searchAliases: return "Search Aliases"
         case .advanced: return "Advanced"
+        case .experimental: return "Experimental"
         case .license: return "License"
         case .feedback: return FastTabFeedback.menuTitle
         case .about: return "About"
@@ -39,6 +40,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .sync: return "icloud"
         case .searchAliases: return "magnifyingglass"
         case .advanced: return "wrench.and.screwdriver"
+        case .experimental: return "flask"
         case .license: return "key"
         case .feedback: return FastTabFeedback.symbolName
         case .about: return "info.circle"
@@ -49,7 +51,7 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
     static let primaryTabs: [SettingsTab] = [.general, .appearance, .shortcuts, .views, .sources, .bookmarks, .highlights, .sync]
 
     /// Rows under the sidebar's "Advanced" header.
-    static let advancedTabs: [SettingsTab] = [.searchAliases, .advanced, .license]
+    static let advancedTabs: [SettingsTab] = [.searchAliases, .advanced, .experimental, .license]
 }
 
 /// Lets code outside the Settings window (e.g. the command bar's banners)
@@ -150,6 +152,8 @@ struct SettingsView: View {
                 .formStyle(.grouped)
         case .advanced:
             AdvancedSettingsView()
+        case .experimental:
+            ExperimentalSettingsView()
         case .license:
             LicenseSettingsView()
         case .feedback:

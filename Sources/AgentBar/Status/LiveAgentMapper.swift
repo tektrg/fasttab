@@ -3,7 +3,8 @@ import Foundation
 /// Maps the dashboard's live agent rows into `AgentSnapshot`s: every live agent
 /// is `.working` or `.needsYou` (see `AgentSectionClassifier`).
 enum LiveAgentMapper {
-    static let statusTextMaxLength = 120
+    /// Safety cap only: the row wraps the status line in full, so this just bounds a runaway screen line.
+    static let statusTextMaxLength = 600
     static let promptExcerptMaxLength = 300
 
     static func map(

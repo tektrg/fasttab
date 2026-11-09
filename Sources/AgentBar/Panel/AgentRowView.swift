@@ -41,7 +41,8 @@ struct AgentRowView: View {
         }
         .padding(.leading, indent)
         .padding(.horizontal, 12)
-        .frame(height: AgentPanelMetrics.rowHeight)
+        .padding(.vertical, 3)
+        .frame(minHeight: AgentPanelMetrics.rowHeight)   // grows with a wrapped status line
         .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Color.accentColor.opacity(0.22) : .clear))
         .padding(.horizontal, 10)
         .opacity(dimming)
@@ -210,11 +211,11 @@ struct AgentRowView: View {
     }
 
     private var detailLine: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Text(detailText)
                 .font(.avenir(size: 12))
                 .foregroundStyle(isConfirming ? Color.red : .secondary)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)   // wraps, never cut with an ellipsis
             Spacer(minLength: 8)
             if !routedNotes.isEmpty {
                 RoutedNoteBadgeView(notes: routedNotes, onClear: onClearRoutedNote)

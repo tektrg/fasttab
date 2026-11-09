@@ -1,4 +1,5 @@
 import Foundation
+import IndieBrowserTabs
 import AppKit
 import OSLog
 import os
@@ -66,71 +67,33 @@ struct SafariBackend: BrowserBackend {
         // instead of ~3 per tab. This mirrors the Chromium backend; a 100-tab
         // Safari window drops from ~300 IPC round-trips to a few. Per-window
         // `try` keeps one bad window from aborting the whole scan.
-        let script = """
-        tell application "Safari"
-            if it is not running then return ""
-            set fieldSep to (ASCII character 31)
-            set rowSep to (ASCII character 28)
-            set tabData to ""
-            try
-                set winCount to count of windows
-                repeat with w from 1 to winCount
-                    try
-                        set activeTabIndex to index of current tab of window w
-                        set windowTitle to name of window w
-                        set tabNames to name of every tab of window w
-                        set tabURLs to URL of every tab of window w
-                        repeat with t from 1 to count of tabNames
-                            set tabName to item t of tabNames
-                            set tabURL to item t of tabURLs
-                            if tabURL is missing value then set tabURL to ""
-                            if tabName is missing value then set tabName to tabURL
-                            set isActive to (t is equal to activeTabIndex) as string
-                            set rowData to "Safari" & fieldSep & w & fieldSep & t & fieldSep & tabName & fieldSep & tabURL & fieldSep & isActive & fieldSep & windowTitle
-                            if tabData is "" then
-                                set tabData to rowData
-                            else
-                                set tabData to tabData & rowSep & rowData
-                            end if
-                        end repeat
-                    on error
-                        -- skip window on error
-                    end try
-                end repeat
-            on error
-                return "\(kLiveTabReadFailedSentinel)"
-            end try
-            return tabData
-        end tell
-        """
-
-        let output: String
-        switch LiveTabScriptOutput(rawOutput: runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script])) {
-        case .unreadable:
+        // Shared tab read (IndieLibKit IndieBrowserTabs): one script per browser, title + URL per tab.
+        // osascript keeps its own process timeout, so no Apple Event timeout in the script.
+        let script = BrowserTabScripts.readScript(.safari, timeoutSeconds: nil)
+        let liveTabs: [IndieBrowserTabs.BrowserTab]
+        switch BrowserTabScripts.read(output: runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script])) {
+        case .tabs(let list):
+            liveTabs = list
+        case .notRunning:
+            return .fetched([])
+        case .denied, .failed:
             logUnreadableLiveTabRead(logger, browserName: "Safari")
             return .unreadable
-        case .noTabs:
-            return .fetched([])
-        case .rows(let rows):
-            output = rows
         }
+        if liveTabs.isEmpty { return .fetched([]) }
 
         var newResults: [BrowserSearchResult] = []
-        let rows = output.components(separatedBy: kRowSep)
         let activeTimesCount = activeTimes.count
-        logger.info("recency-sort fetchLiveTabs start. browser='Safari' activeTimesCount=\(activeTimesCount) rows=\(rows.count)")
-        for row in rows where !row.isEmpty {
-            let parts = row.components(separatedBy: kFieldSep)
-            guard parts.count >= 7 else { continue }
-
-            let browserName = parts[0]
-            let winIdx = Int(parts[1]) ?? 1
-            let tabIdx = Int(parts[2]) ?? 1
-            let title = parts[3]
-            let url = parts[4]
+        logger.info("recency-sort fetchLiveTabs start. browser='Safari' activeTimesCount=\(activeTimesCount) rows=\(liveTabs.count)")
+        for live in liveTabs {
+            let browserName = "Safari"
+            let winIdx = live.window
+            let tabIdx = live.tab
+            let title = live.title
+            let url = live.url
             guard !url.isEmpty else { continue }
-            let isActive = parts[5] == "true"
-            let windowName = parts[6]
+            let isActive = live.isActive
+            let windowName = live.windowTitle
             let hasMediaIndicator = browserWindowMediaIndicatorBelongsToTab(tabTitle: title, windowName: windowName)
             let key = makeTabRecencyKey(browserName: browserName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
             let urlKey = makeTabURLRecencyKey(browserName: browserName, url: url)
@@ -693,41 +656,14 @@ struct SafariBackend: BrowserBackend {
     // MARK: - Actions
 
     func activateTab(_ result: BrowserSearchResult) {
-        let safeURL = appleScriptQuoted(result.url)
-        let fallbackWindow = max(1, result.windowIndex ?? 1)
-        let fallbackTab = max(1, result.tabIndex ?? 1)
-
-        let script = """
-        tell application "Safari"
-            activate
-            set targetURL to "\(safeURL)"
-            set foundMatch to false
-            try
-                set winCount to count of windows
-                repeat with w from 1 to winCount
-                    set tabList to tabs of window w
-                    repeat with i from 1 to count of tabList
-                        try
-                            set thisURL to URL of item i of tabList
-                            if thisURL is equal to targetURL then
-                                set current tab of window w to item i of tabList
-                                set index of window w to 1
-                                set foundMatch to true
-                                exit repeat
-                            end if
-                        end try
-                    end repeat
-                    if foundMatch then exit repeat
-                end repeat
-            end try
-            if foundMatch is false then
-                try
-                    set current tab of window \(fallbackWindow) to tab \(fallbackTab) of window \(fallbackWindow)
-                    set index of window \(fallbackWindow) to 1
-                end try
-            end if
-        end tell
-        """
+        // Shared focus script (IndieLibKit IndieBrowserTabs): match by URL, else window/tab index.
+        let script = BrowserTabScripts.focusScript(
+            .safari,
+            url: result.url,
+            window: result.windowIndex ?? 1,
+            tab: result.tabIndex ?? 1,
+            timeoutSeconds: nil
+        )
 
         logger.info("activateTab: app=Safari title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
         runAppleScript(script, logger: logger, action: "activateTab")

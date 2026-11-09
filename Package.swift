@@ -13,6 +13,7 @@ let indieComments: Target.Dependency = .product(name: "IndieComments", package: 
 let indieTable: Target.Dependency = .product(name: "IndieTable", package: "IndieLibKit")
 let indieMCP: Target.Dependency = .product(name: "IndieMCP", package: "IndieLibKit")
 let indieSharing: Target.Dependency = .product(name: "IndieSharing", package: "IndieLibKit")
+let indieBrowserTabs: Target.Dependency = .product(name: "IndieBrowserTabs", package: "IndieLibKit")
 let indieAccount: Target.Dependency = .product(name: "IndieAccount", package: "IndieLibKit")
 
 let package = Package(
@@ -78,6 +79,7 @@ let package = Package(
                 "FastTabReader",
                 "FastTabWebReader",
                 "CommandBarKit",
+                indieBrowserTabs,
                 indieSearch,
                 indieSharing,
                 indieAccount,
@@ -101,7 +103,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP]
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", indieSharing, indieBrowserTabs, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP]
         ),
         .testTarget(
             name: "AgentBarTests",

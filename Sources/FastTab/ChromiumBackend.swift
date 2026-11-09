@@ -1,4 +1,5 @@
 import Foundation
+import IndieBrowserTabs
 import AppKit
 import OSLog
 import CommandBarKit
@@ -46,70 +47,34 @@ struct ChromiumBackend: BrowserBackend {
         activeTimes: inout [String: Date],
         currentFlowSourceAppBundleIdentifier: String?
     ) -> LiveTabFetchOutcome {
-        let script = """
-        tell application "\(appName)"
-            if it is not running then return ""
-            set fieldSep to (ASCII character 31)
-            set rowSep to (ASCII character 28)
-            set tabData to ""
-            try
-                set winCount to count of windows
-                repeat with w from 1 to winCount
-                    set activeTabIndex to active tab index of window w
-                    set windowTitle to title of window w
-                    -- Custom name from Chrome's "Name Window…"; not every
-                    -- Chromium browser exposes it, so fall back to "".
-                    set givenName to ""
-                    try
-                        set givenName to given name of window w
-                    end try
-                    if givenName is missing value then set givenName to ""
-                    set tabTitles to title of every tab of window w
-                    set tabURLs to URL of every tab of window w
-                    repeat with t from 1 to count of tabTitles
-                        set isActive to (t is equal to activeTabIndex) as string
-                        set rowData to "\(appName)" & fieldSep & w & fieldSep & t & fieldSep & (item t of tabTitles) & fieldSep & (item t of tabURLs) & fieldSep & isActive & fieldSep & windowTitle & fieldSep & givenName
-                        if tabData is "" then
-                            set tabData to rowData
-                        else
-                            set tabData to tabData & rowSep & rowData
-                        end if
-                    end repeat
-                end repeat
-            on error
-                return "\(kLiveTabReadFailedSentinel)"
-            end try
-            return tabData
-        end tell
-        """
-
-        let output: String
-        switch LiveTabScriptOutput(rawOutput: runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script])) {
-        case .unreadable:
+        // Shared tab read (IndieLibKit IndieBrowserTabs): one script per browser, title + URL per tab.
+        // osascript keeps its own process timeout, so no Apple Event timeout in the script.
+        let script = BrowserTabScripts.readScript(
+            ScriptableBrowser(bundleID: bundleIdentifier, appName: appName, dialect: .chromium), timeoutSeconds: nil)
+        let liveTabs: [IndieBrowserTabs.BrowserTab]
+        switch BrowserTabScripts.read(output: runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script])) {
+        case .tabs(let list):
+            liveTabs = list
+        case .notRunning:
+            return .fetched([])
+        case .denied, .failed:
             logUnreadableLiveTabRead(logger, browserName: appName)
             return .unreadable
-        case .noTabs:
-            return .fetched([])
-        case .rows(let rows):
-            output = rows
         }
+        if liveTabs.isEmpty { return .fetched([]) }
 
         var newResults: [BrowserSearchResult] = []
-        let rows = output.components(separatedBy: kRowSep)
         let activeTimesCount = activeTimes.count
-        logger.info("recency-sort fetchLiveTabs start. browser='\(self.appName, privacy: .public)' activeTimesCount=\(activeTimesCount) rows=\(rows.count)")
-        for row in rows where !row.isEmpty {
-            let parts = row.components(separatedBy: kFieldSep)
-            guard parts.count >= 7 else { continue }
-
-            let appName = parts[0]
-            let winIdx = Int(parts[1]) ?? 1
-            let tabIdx = Int(parts[2]) ?? 1
-            let title = parts[3]
-            let url = parts[4]
-            let isActive = parts[5] == "true"
-            let windowTitle = parts[6]
-            let givenName = parts.count > 7 ? parts[7].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        logger.info("recency-sort fetchLiveTabs start. browser='\(self.appName, privacy: .public)' activeTimesCount=\(activeTimesCount) rows=\(liveTabs.count)")
+        for live in liveTabs {
+            let appName = self.appName
+            let winIdx = live.window
+            let tabIdx = live.tab
+            let title = live.title
+            let url = live.url
+            let isActive = live.isActive
+            let windowTitle = live.windowTitle
+            let givenName = live.windowGivenName
             // Show the user's window name when set; the title (active tab +
             // profile suffix) is the fallback and the profile's source.
             let windowName = givenName.isEmpty ? windowTitle : givenName
@@ -667,34 +632,14 @@ struct ChromiumBackend: BrowserBackend {
     // MARK: - Actions
 
     func activateTab(_ result: BrowserSearchResult) {
-        let safeURL = appleScriptQuoted(result.url)
-        let script = """
-        tell application "\(result.browserName)"
-            activate
-            set targetURL to "\(safeURL)"
-            set foundMatch to false
-            try
-                repeat with w in windows
-                    set tabURLs to URL of every tab of w
-                    repeat with i from 1 to count of tabURLs
-                        if (item i of tabURLs) is equal to targetURL then
-                            set index of w to 1
-                            set active tab index of window 1 to i
-                            set foundMatch to true
-                            exit repeat
-                        end if
-                    end repeat
-                    if foundMatch then exit repeat
-                end repeat
-            end try
-            if foundMatch is false then
-                try
-                    set index of window \(result.windowIndex ?? 1) to 1
-                    set active tab index of window 1 to \(result.tabIndex ?? 1)
-                end try
-            end if
-        end tell
-        """
+        // Shared focus script (IndieLibKit IndieBrowserTabs): match by URL, else window/tab index.
+        let script = BrowserTabScripts.focusScript(
+            ScriptableBrowser(bundleID: bundleIdentifier, appName: result.browserName, dialect: .chromium),
+            url: result.url,
+            window: result.windowIndex ?? 1,
+            tab: result.tabIndex ?? 1,
+            timeoutSeconds: nil
+        )
 
         logger.info("activateTab: app=\(result.browserName, privacy: .public) title='\(result.title, privacy: .public)' url='\(result.url, privacy: .public)'")
         runAppleScript(script, logger: logger, action: "activateTab")

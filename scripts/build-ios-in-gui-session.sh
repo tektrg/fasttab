@@ -21,7 +21,10 @@ deadline=$(( SECONDS + 45 * 60 ))
 while [[ ! -s "${log}.exit" ]] && tmux has-session -t fasttab-ios-push 2>/dev/null && (( SECONDS < deadline )); do
   sleep 3
 done
-sleep 1   # the exit file is written as the session ends
+if [[ ! -s "${log}.exit" ]] && tmux has-session -t fasttab-ios-push 2>/dev/null; then
+  echo "build-ios-in-gui-session: TIMED OUT after 45 min; the build is still running in tmux session fasttab-ios-push (kill it to retry). Log: ${log}" >&2
+  exit 1
+fi
 tail -5 "${log}"
 code="$(cat "${log}.exit" 2>/dev/null || true)"
 if [[ "${code}" != 0 ]]; then

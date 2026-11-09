@@ -102,10 +102,13 @@ if [[ "${IOS:-0}" == 1 ]]; then
   device_arg=""; [[ "${device}" == auto ]] || device_arg=" --device ${device}"
   # The Pro must build exactly what was pushed (its checkout may lag or be dirty).
   head="$(git rev-parse HEAD)"
-  pro_head="$(ssh "${PRO}" "git -C '${PRO_REPO}' rev-parse HEAD")"
+  pro_head="$(ssh "${PRO}" "git -C '${PRO_REPO}' rev-parse HEAD")" \
+    || die "cannot reach the Pro (${PRO}) to check its checkout — no iPhone build"
+  pro_dirty="$(ssh "${PRO}" "git -C '${PRO_REPO}' status --porcelain --untracked-files=no")" \
+    || die "cannot reach the Pro (${PRO}) to check its checkout — no iPhone build"
   [[ "${DRY_RUN:-0}" == 1 || "${pro_head}" == "${head}" ]] \
     || die "the Pro's checkout is at ${pro_head:0:7}, not ${head:0:7} — the iPhone would get other code"
-  [[ "${DRY_RUN:-0}" == 1 || -z "$(ssh "${PRO}" "git -C '${PRO_REPO}' status --porcelain --untracked-files=no")" ]] \
+  [[ "${DRY_RUN:-0}" == 1 || -z "${pro_dirty}" ]] \
     || die "the Pro's checkout has uncommitted edits — the iPhone would get them too"
   # Via a tmux session on the Pro so Xcode can sign (see build-ios-in-gui-session.sh).
   rc=0; run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/build-ios-in-gui-session.sh${device_arg}" || rc=$?

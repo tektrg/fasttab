@@ -36,10 +36,12 @@ enum ReaderSummaryText {
     static func capped(_ text: String) -> String {
         guard text.count > maxCharacters || text.utf16.count > maxCharacters else { return text }
         var head = headCharacters
+        var tail = tailCharacters
         var result = ""
         repeat {
-            result = String(text.prefix(head)) + cutMarker + String(text.suffix(tailCharacters))
-            head -= 2_000
+            result = String(text.prefix(head)) + cutMarker + String(text.suffix(tail))
+            head = head * 4 / 5
+            tail = tail * 4 / 5
         } while result.utf16.count > maxCharacters && head > 0
         return result
     }

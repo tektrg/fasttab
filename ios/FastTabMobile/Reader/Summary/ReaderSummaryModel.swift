@@ -23,7 +23,7 @@ enum ReaderSummaryFailure: Equatable {
         }
     }
 
-    func message(now: Date = Date(), calendar: Calendar = .current) -> String {
+    func message(now: Date = Date()) -> String {
         switch self {
         case .tooShort: return "This article is too short to summarize."
         case .subscriptionRequired: return "Summary is part of the FastTab subscription."
@@ -182,7 +182,7 @@ final class ReaderSummaryModel {
         }
         task = Task {
             let outcome = await work.value
-            Self.inFlight[key] = nil
+            if Self.inFlight[key] == work { Self.inFlight[key] = nil } // not a newer request's entry
             self.finish(outcome, keeping: previous)
         }
     }

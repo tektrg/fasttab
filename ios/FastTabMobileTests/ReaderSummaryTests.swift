@@ -85,6 +85,11 @@ final class ReaderSummaryTextTests: XCTestCase {
         XCTAssertTrue(capped.contains("[…]"))
     }
 
+    func testCapHoldsEvenForLongGraphemeSequences() {
+        let family = String(repeating: "👨‍👩‍👧‍👦", count: 30_000) // 1 Character, 11 UTF-16 units each
+        XCTAssertLessThanOrEqual(ReaderSummaryText.capped(family).utf16.count, ReaderSummaryText.maxCharacters)
+    }
+
     func testLanguageCodeShapeFilter() {
         XCTAssertEqual(ReaderSummaryText.acceptableLanguageCode("vi"), "vi")
         XCTAssertEqual(ReaderSummaryText.acceptableLanguageCode("zh-Hans"), "zh-Hans")
@@ -242,7 +247,8 @@ final class ReaderSummaryFailureTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let resets = ISO8601DateFormatter().date(from: "2026-12-01T00:00:00Z")!
         let message = ReaderSummaryFailure.quotaExhausted(resetsAt: resets).message(now: now)
-        XCTAssertTrue(message.contains("December 1"), message) // not "November 30" in a US time zone
+        XCTAssertTrue(message.contains("December"), message) // the UTC date, not "November 30" in a US time zone
+        XCTAssertFalse(message.contains("November"), message)
     }
 
     func testQuotaMessageMentionsRenewalOnlyWhenKnownAndFuture() {

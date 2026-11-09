@@ -121,17 +121,35 @@ struct ReaderSummaryClient: Sendable {
             send: { request in
                 // The answer takes 10-20 s; keep the request alive if the phone locks meanwhile
                 // (a dropped request would have been charged but never delivered).
-                let background = await MainActor.run {
-                    UIApplication.shared.beginBackgroundTask(withName: "reader-summary")
-                }
+                let grant = await BackgroundGrant.begin()
                 do {
                     let result = try await URLSession.shared.data(for: request)
-                    await MainActor.run { UIApplication.shared.endBackgroundTask(background) }
+                    await grant.end()
                     return result
                 } catch {
-                    await MainActor.run { UIApplication.shared.endBackgroundTask(background) }
+                    await grant.end()
                     throw error
                 }
             })
+    }
+}
+
+/// A UIKit background-time grant around one request. If iOS runs out of grace time first, the
+/// expiration handler ends it (iOS kills an app that doesn't); `end()` is safe to call twice.
+final class BackgroundGrant: @unchecked Sendable {
+    @MainActor private var identifier: UIBackgroundTaskIdentifier = .invalid
+
+    @MainActor static func begin(name: String = "reader-summary") -> BackgroundGrant {
+        let grant = BackgroundGrant()
+        grant.identifier = UIApplication.shared.beginBackgroundTask(withName: name) { [weak grant] in
+            MainActor.assumeIsolated { grant?.end() }
+        }
+        return grant
+    }
+
+    @MainActor func end() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
     }
 }

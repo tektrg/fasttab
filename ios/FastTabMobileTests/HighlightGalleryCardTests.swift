@@ -81,12 +81,43 @@ final class HighlightGalleryCardTests: XCTestCase {
             }
             .indieGalleryStyle(.fastTab)
             .frame(width: 390, height: 700)
+            .background(DS.Palette.canvas)
             .environment(\.colorScheme, scheme)
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
-            let image = renderer.uiImage
-            XCTAssertNotNil(image, "\(scheme)")
-            XCTAssertGreaterThan(image?.size.width ?? 0, 300)
+            // A real window, not ImageRenderer: the gallery needs a layout pass to learn its width
+            // (it stays hidden until then) and lazy stacks only build cards inside a live hierarchy.
+            let host = UIHostingController(rootView: view)
+            host.overrideUserInterfaceStyle = scheme == .dark ? .dark : .light
+            let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+            window.frame = CGRect(x: 0, y: 0, width: 390, height: 700)
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            for _ in 0..<5 {
+                host.view.layoutIfNeeded()
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+            }
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            window.isHidden = true
+            // For eyeballing: the simulator can write to the host's /tmp.
+            try? image.pngData()?.write(to: URL(fileURLWithPath: "/tmp/highlights-gallery-\(scheme == .dark ? "dark" : "light").png"))
+            // Cards drawn = many distinct colours (text, chips, colour bar); a blank canvas has few.
+            XCTAssertGreaterThan(Self.distinctColorCount(image), 40, "gallery rendered blank in \(scheme)")
         }
+    }
+
+    /// Distinct colours on a coarse grid of the image (cheap "is anything drawn" check).
+    private static func distinctColorCount(_ image: UIImage) -> Int {
+        guard let cg = image.cgImage, let data = cg.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return 0 }
+        var seen = Set<UInt32>()
+        let bpp = cg.bitsPerPixel / 8
+        for y in stride(from: 0, to: cg.height, by: 6) {
+            for x in stride(from: 0, to: cg.width, by: 6) {
+                let o = y * cg.bytesPerRow + x * bpp
+                seen.insert(UInt32(bytes[o]) << 16 | UInt32(bytes[o + 1]) << 8 | UInt32(bytes[o + 2]))
+            }
+        }
+        return seen.count
     }
 }

@@ -25,7 +25,7 @@ struct HighlightGalleryCard: View {
                 .accessibilityHidden(true)
         } title: {
             Text(entry.articleTitle)
-                .font(DS.Font.cardTitle)
+                .font(.headline)
                 .foregroundStyle(.primary)
                 .lineLimit(3)
         } excerpt: {
@@ -35,6 +35,7 @@ struct HighlightGalleryCard: View {
                     .frame(width: 3)
                     .accessibilityHidden(true)
                 Text(entry.highlight.selectedText)
+                    .font(.subheadline)
                     .foregroundStyle(.primary.opacity(0.8))
                     .lineLimit(Self.excerptLineLimit)
             }

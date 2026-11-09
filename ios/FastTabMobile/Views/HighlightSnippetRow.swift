@@ -3,8 +3,8 @@ import UIKit
 
 /// One highlight's snippet + the article it came from: a colour dot, the highlighted
 /// text (3 lines on a card, in full as a row), and the resolved article title (secondary line).
-/// Reused both as a carousel card (`.card`) on the Read tab and as a plain list row
-/// (`.row`) in `HighlightsListView` (via `HighlightFeedRow`).
+/// Used as a carousel card (`.card`) on the Read tab. `.row` (the old Highlights list row) has
+/// no caller since the Highlights screen became a card gallery (`HighlightGalleryCard`).
 public struct HighlightSnippetRow: View {
     public enum Style { case card, row }
 

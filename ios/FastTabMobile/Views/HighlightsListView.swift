@@ -96,6 +96,7 @@ public struct HighlightsListView: View {
         HighlightGalleryCard(entry: entry, filter: $filter) { commentingEntry = entry }
             .onTapGesture { open(entry.highlight) }
             .accessibilityAddTraits(.isButton)
+            .accessibilityValue(entry.comments.last.map { "Latest comment: \($0)" } ?? "")
             .accessibilityAction { open(entry.highlight) }
             .accessibilityAction(named: "Comments") { commentingEntry = entry }
             .accessibilityAction(named: "Edit Tags") { taggingEntry = entry }

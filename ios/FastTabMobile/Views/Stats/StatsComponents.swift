@@ -157,7 +157,7 @@ struct WrappingRowsLayout: Layout {
             var size = subview.sizeThatFits(.unspecified)
             // Never wider than the row: a long chip truncates instead of spilling out (narrow
             // gallery cards on iPhone).
-            if maxWidth.isFinite, size.width > maxWidth {
+            if maxWidth.isFinite, maxWidth > 0, size.width > maxWidth {
                 size = subview.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
                 size.width = min(size.width, maxWidth)
             }

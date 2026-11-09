@@ -36,7 +36,7 @@ struct HighlightGalleryCard: View {
                     .fill(entry.highlight.color.swiftUIColor)
                     .frame(width: 3)
                     .accessibilityHidden(true)
-                Text(entry.highlight.selectedText)
+                Text(entry.highlight.selectedText.isEmpty ? "(empty highlight)" : entry.highlight.selectedText)
                     .font(.subheadline)
                     .foregroundStyle(.primary.opacity(0.8))
                     .lineLimit(Self.excerptLineLimit)
@@ -56,6 +56,8 @@ struct HighlightGalleryCard: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    // VoiceOver: the card's default action opens the article; "Comments" is a named action.
+                    .accessibilityHidden(true)
                 }
                 if !entry.userTags.isEmpty || !entry.folderTags.isEmpty {
                     // VoiceOver reaches these through the card's "Filter by …" actions.

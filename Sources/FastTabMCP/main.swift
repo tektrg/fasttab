@@ -19,7 +19,8 @@ let readerDirectory: URL = ProcessInfo.processInfo.environment["FASTTAB_READER_D
 let reading = ReadingTools(
     connector: ReadingConnector(sources: sources),
     index: try? ReadingIndex(fileURL: ReadingIndex.fileURL(supportDirectory: sources.supportDirectory)),
-    browser: BrowserData.standard())
+    browser: BrowserData.standard(),
+    textStore: ArticleTextStore(directory: ArticleTextStore.directory(supportDirectory: sources.supportDirectory)))
 let threads = ReaderCommentTools(library: ReaderLibrary(directory: readerDirectory))
 let allTools = reading.tools + threads.tools
 

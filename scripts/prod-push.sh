@@ -97,8 +97,7 @@ done
 
 if [[ "${IOS:-0}" == 1 ]]; then
   branch="$(git rev-parse --abbrev-ref HEAD)"
-  run git push pro "${branch}"
-  # Via a tmux session on the Pro so Xcode can sign (see build-ios-in-gui-session.sh).
+  run git push pro "${branch}" || die "push to the Pro failed (its checkout dirty?) — no iPhone build"
   device="${IOS_DEVICE:-243A482F-26DD-5381-8067-41B9DFD7A8CC}"   # iPhone 16e
   device_arg=""; [[ "${device}" == auto ]] || device_arg=" --device ${device}"
   # The Pro must build exactly what was pushed (its checkout may lag or be dirty).
@@ -106,8 +105,11 @@ if [[ "${IOS:-0}" == 1 ]]; then
   pro_head="$(ssh "${PRO}" "git -C '${PRO_REPO}' rev-parse HEAD")"
   [[ "${DRY_RUN:-0}" == 1 || "${pro_head}" == "${head}" ]] \
     || die "the Pro's checkout is at ${pro_head:0:7}, not ${head:0:7} — the iPhone would get other code"
+  [[ "${DRY_RUN:-0}" == 1 || -z "$(ssh "${PRO}" "git -C '${PRO_REPO}' status --porcelain --untracked-files=no")" ]] \
+    || die "the Pro's checkout has uncommitted edits — the iPhone would get them too"
   # Via a tmux session on the Pro so Xcode can sign (see build-ios-in-gui-session.sh).
-  run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/build-ios-in-gui-session.sh${device_arg}" \
-    || die "iPhone install FAILED on ${device} (log on the Pro: /tmp/fasttab-ios-push.log). Mac apps (if any) were already deployed."
+  rc=0; run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/build-ios-in-gui-session.sh${device_arg}" || rc=$?
+  (( rc == 255 )) && die "lost the ssh connection to the Pro — the build may still be running; check /tmp/fasttab-ios-push.log there"
+  (( rc == 0 )) || die "iPhone install FAILED on ${device} (log on the Pro: /tmp/fasttab-ios-push.log). Mac apps (if any) were already deployed."
 fi
 echo "==> prod-push done"

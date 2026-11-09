@@ -12,7 +12,7 @@ log="/tmp/fasttab-ios-push.log"
 rm -f "${log}.exit"
 tmux has-session 2>/dev/null || { echo "build-ios-in-gui-session: no tmux server in the GUI session; open a terminal on the Pro once" >&2; exit 1; }
 tmux kill-session -t fasttab-ios-push 2>/dev/null || true
-args="$(printf ' %q' "$@")"
+args=""; (( $# )) && args="$(printf ' %q' "$@")"
 tmux new-session -d -s fasttab-ios-push \
   "cd '${repo_root}' && scripts/build-ios.sh${args} > '${log}' 2>&1; echo \$? > '${log}.exit'; tmux wait-for -S fasttab-ios-push-done"
 tmux wait-for fasttab-ios-push-done

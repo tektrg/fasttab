@@ -27,6 +27,12 @@ final class SyncService: NSObject, ObservableObject {
 
     // In-memory cache of records to be supplied to CKSyncEngine recordProvider
     var pendingRecordsToSave: [CKRecord.ID: CKRecord] = [:]
+    /// The exact record objects handed to the engine in the batch now being
+    /// sent. A save ack may only clear `pendingRecordsToSave` when the pending
+    /// entry is still that same object: a newer record queued mid-flight (the
+    /// 3-minute device heartbeat, a tab refresh) must survive the ack, or its
+    /// pending change is later dropped as "no cached content" and never sent.
+    var inFlightRecords: [CKRecord.ID: CKRecord] = [:]
     /// The phone's reader highlights + comment threads (SyncService+ReaderSync.swift).
     lazy var readerSync = ReaderMirror.makeBridge(supportDirectory: fastTabSupportDirectory)
     var readerZoneCatchUpInFlight = false
@@ -801,6 +807,7 @@ final class SyncService: NSObject, ObservableObject {
         tabOrderGate.reset()
         resetTabStatsPublishState()
         pendingRecordsToSave.removeAll()
+        inFlightRecords.removeAll()
         serverRecordsByID.removeAll()
         stateZoneMirror.reset()
     }
@@ -848,7 +855,14 @@ extension SyncService: CKSyncEngineDelegate {
 
             case .sentRecordZoneChanges(let sentChanges):
                 for saved in sentChanges.savedRecords {
-                    self.pendingRecordsToSave.removeValue(forKey: saved.recordID)
+                    let sent = self.inFlightRecords.removeValue(forKey: saved.recordID)
+                    if Self.shouldClearPendingSave(pending: self.pendingRecordsToSave[saved.recordID], sent: sent) {
+                        self.pendingRecordsToSave.removeValue(forKey: saved.recordID)
+                    }
+                    if saved.recordID.recordName == self.deviceID {
+                        // .notice persists in the log store (info is purged within minutes).
+                        self.logger.notice("Device heartbeat acknowledged by iCloud")
+                    }
                     self.serverRecordsByID[saved.recordID] = saved
                     if ReaderSyncBridge.handles(saved.recordType) { self.readerSync.didSave(saved) }
                     if saved.recordType == SyncCommand.recordType {
@@ -874,6 +888,7 @@ extension SyncService: CKSyncEngineDelegate {
                 }
                 var queuedSaveRetry = false
                 for failedSave in sentChanges.failedRecordSaves {
+                    self.inFlightRecords.removeValue(forKey: failedSave.record.recordID)
                     switch self.readerZoneOutcome(ofFailedSave: failedSave.record, error: failedSave.error) {
                     case .settled:
                         self.pendingRecordsToSave.removeValue(forKey: failedSave.record.recordID)
@@ -963,6 +978,12 @@ extension SyncService: CKSyncEngineDelegate {
             }
         }
         guard !batchPlan.deliverableChanges.isEmpty else { return nil }
+
+        await MainActor.run {
+            for case .saveRecord(let id) in batchPlan.deliverableChanges {
+                self.inFlightRecords[id] = records[id]
+            }
+        }
 
         return await CKSyncEngine.RecordZoneChangeBatch(
             pendingChanges: batchPlan.deliverableChanges,

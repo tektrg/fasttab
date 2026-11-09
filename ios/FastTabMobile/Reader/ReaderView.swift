@@ -41,6 +41,12 @@ public struct ReaderView: View {
     // Reading settings sheet / Read Aloud settings sheet
     @State private var showReadingSettings: Bool = false
     @State private var showReadAloudSettings: Bool = false
+    /// AI Summary sheet / its paywall; the model lives as long as the reader so a summary being
+    /// written survives closing the sheet.
+    @State private var showSummary: Bool = false
+    @State private var showSummaryPaywall: Bool = false
+    @State private var summaryModel: ReaderSummaryModel?
+    @State private var summaryUrlKey: String?
 
     // Highlight management sheet
     @State private var showHighlightsSheet: Bool = false
@@ -189,6 +195,16 @@ public struct ReaderView: View {
         }
         .sheet(isPresented: $showHighlightsSheet) {
             highlightsSheet
+        }
+        .sheet(isPresented: $showSummary) {
+            if let summaryModel {
+                ReaderSummarySheet(model: summaryModel) { showSummaryPaywall = true }
+            }
+        }
+        .sheet(isPresented: $showSummaryPaywall) {
+            NaturalVoicePaywallView(feature: .readerSummary) {
+                if case .loaded(let article) = viewModel.loadState { startSummary(article) }
+            }
         }
         // Item, not a lookup in `viewModel.highlights`: deleting from the sheet removes it there
         // first, which would blank the sheet while it slides away.
@@ -474,6 +490,13 @@ public struct ReaderView: View {
             } label: {
                 Label("Read Aloud Settings", systemImage: "speaker.wave.2")
             }
+            if case .loaded(let article) = viewModel.loadState {
+                Button {
+                    startSummary(article)
+                } label: {
+                    Label("Summary", systemImage: "sparkles")
+                }
+            }
             Divider()
             Button {
                 isLongExtraction = false
@@ -511,6 +534,20 @@ public struct ReaderView: View {
                 .readerBarTapTarget()
         }
         .accessibilityLabel("More actions")
+    }
+
+    /// Menu → Summary. Subscribers see the sheet; others the paywall (the server re-checks).
+    private func startSummary(_ article: ReaderArticle) {
+        guard NaturalVoiceAccess.shared.isEntitled else {
+            showSummaryPaywall = true
+            return
+        }
+        let key = viewModel.url.readerCanonicalKey
+        if summaryModel == nil || summaryUrlKey != key {
+            summaryModel = ReaderSummaryModel(article: article, urlKey: key)
+            summaryUrlKey = key
+        }
+        showSummary = true
     }
 
     /// Voices for the loaded article's language, for the Read Aloud settings' voice picker.

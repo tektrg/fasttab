@@ -7,7 +7,11 @@ import SwiftUI
 /// (price, period, trial, auto-renewal, how to cancel) and the Terms of Use + Privacy links sit
 /// above the buy button. Built-in voices stay free: closing this changes nothing.
 struct NaturalVoicePaywallView: View {
-    /// Called after a purchase or restore that unlocked the voice.
+    /// What the person tapped to get here; one subscription unlocks both, the copy leads with this.
+    enum Feature { case naturalVoice, readerSummary }
+
+    var feature: Feature = .naturalVoice
+    /// Called after a purchase or restore that unlocked the feature.
     var onUnlocked: () -> Void = {}
 
     @Environment(AccountSession.self) private var accountSession
@@ -47,12 +51,14 @@ struct NaturalVoicePaywallView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Image(systemName: "waveform.circle.fill")
+            Image(systemName: feature == .readerSummary ? "sparkles" : "waveform.circle.fill")
                 .font(.system(size: 48))
                 .foregroundStyle(.tint)
-            Text("Multi-language Voice")
+            Text(feature == .readerSummary ? "AI Summary" : "Multi-language Voice")
                 .font(.largeTitle.bold())
-            Text("Listen to articles and transcripts in a human-sounding voice.")
+            Text(feature == .readerSummary
+                 ? "Get the gist of any article in seconds. Includes multi-language voice."
+                 : "Listen to articles and transcripts in a human-sounding voice.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
         }
@@ -60,7 +66,11 @@ struct NaturalVoicePaywallView: View {
 
     private var benefits: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            Label("Lifelike voices streamed from the cloud", systemImage: "sparkles")
+            if feature == .readerSummary {
+                Label("Structured AI summaries of any article", systemImage: "sparkles")
+                Label("Saved on your iPhone, never paid for twice", systemImage: "arrow.down.circle")
+            }
+            Label("Lifelike voices streamed from the cloud", systemImage: "waveform")
             Label("Keeps playing with the screen locked", systemImage: "lock.fill")
             Label("Built-in iPhone voices stay free", systemImage: "checkmark.circle")
         }
@@ -115,7 +125,7 @@ struct NaturalVoicePaywallView: View {
     /// Apple guideline 3.1.2: price per period, trial, auto-renewal and how to cancel, before buying.
     static func termsText(price: String, period: String, trial: Bool) -> String {
         let start = trial ? "Free for 7 days, then \(price) per \(period)." : "\(price) per \(period)."
-        return start + " Renews automatically until cancelled. Cancel anytime in Settings › Apple Account › Subscriptions at least 24 hours before the period ends. Multi-language voice includes a fair-use monthly allowance; Read Aloud switches to the built-in voice if it runs out. Purchases are linked to your Sign in with Apple account."
+        return start + " Renews automatically until cancelled. Cancel anytime in Settings › Apple Account › Subscriptions at least 24 hours before the period ends. The subscription includes AI Summary and multi-language voice, each with a fair-use monthly allowance; Read Aloud switches to the built-in voice if the voice allowance runs out. Purchases are linked to your Sign in with Apple account."
     }
 
     @ViewBuilder
@@ -178,7 +188,7 @@ struct NaturalVoicePaywallView: View {
         case .confirming:
             await confirm()
         case .waitingForApproval:
-            message = "Waiting for approval. Multi-language voice turns on once it's approved."
+            message = "Waiting for approval. Your subscription turns on once it's approved."
         case .cancelled:
             break
         case .failed(let error):

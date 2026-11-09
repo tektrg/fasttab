@@ -148,14 +148,19 @@ struct AgentRowView: View {
         }
     }
 
+    /// Everything this row offers (the full list the keyboard and the model gate on).
     private var buttons: [RowButtonSpec] {
         var specs = RowButtons.available(for: agent)
-        guard !treeMenuItems.isEmpty, !specs.contains(where: { $0.button == .moreActions }) else { return specs }
+        guard !menuItems.isEmpty, !specs.contains(where: { $0.button == .moreActions }) else { return specs }
         specs.append(RowButtonSpec(button: .moreActions, disabledReason: nil))
         return specs
     }
 
-    private var menuItems: [RowButtonSpec] { RowButtons.menuItems(for: agent) + treeMenuItems }
+    /// The ⋯ menu: the text buttons that no longer draw as capsules (Peek, Park, Message…), then the
+    /// menu's own items (Done, Compact…), then the tree items.
+    private var menuItems: [RowButtonSpec] {
+        RowButtons.movedIntoMenu(RowButtons.available(for: agent)) + RowButtons.menuItems(for: agent) + treeMenuItems
+    }
 
     /// Done/Close pane live in the ⋯ menu normally, but a press that needs a second look (or is
     /// mid-flight, or just finished) must not vanish the moment the menu closes: this pulls that
@@ -181,7 +186,13 @@ struct AgentRowView: View {
     /// Selected (or settling): every button, with a busy/confirming/just-finished menu item
     /// (`activeMenuItemSpec`) swapped in for the ⋯ trigger. Otherwise only the blocked row's red one.
     private var visibleButtons: [RowButtonSpec] {
-        let base = isSelected || actionState != nil ? buttons : buttons.filter { showsQuestionButton && $0.isBlockedAction }
+        // Only the red blocker button and ⋯ draw; a button the keyboard is on (or that is mid-press)
+        // is drawn too, so it never acts unseen. Everything else is in the ⋯ menu.
+        var keeping: Set<RowButton> = []
+        if let highlightedButton { keeping.insert(highlightedButton) }
+        if let pressed = actionState?.button { keeping.insert(pressed) }
+        let strip = RowButtons.stripSpecs(buttons, keeping: keeping)
+        let base = isSelected || actionState != nil ? strip : strip.filter { showsQuestionButton && $0.isBlockedAction }
         guard let activeMenuItemSpec else { return base }
         return base.map { $0.button == .moreActions ? activeMenuItemSpec : $0 }
     }

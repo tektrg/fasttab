@@ -28,6 +28,34 @@ struct RowButtonsTests {
         #expect(menuItems(F.agent("a", section: .working)) == [.compact, .clear])   // no Done/Close pane while working
     }
 
+    // MARK: - Only the red blocker button draws; the rest moves into the ⋯ menu
+
+    @Test func aBlockedRowDrawsOnlyItsRedButtonAndTheRestMovesIntoTheMenu() {
+        let agent = AnswerFixtures.blockedAgent("q", blocker: .question(AnswerFixtures.question()))
+        let all = RowButtons.available(for: agent)
+        #expect(RowButtons.stripSpecs(all).map(\.button) == [.answer])
+        #expect(RowButtons.movedIntoMenu(all).map(\.button) == [.peek, .park])
+    }
+
+    @Test func aPlainRowDrawsOnlyTheMenuTriggerAndEveryTextButtonMoves() {
+        let all = RowButtons.available(for: F.agent("a", section: .needsYou))   // Peek, Park, Message, ⋯
+        #expect(RowButtons.stripSpecs(all).map(\.button) == [.moreActions])
+        #expect(RowButtons.movedIntoMenu(all).map(\.button) == [.peek, .park, .message])
+    }
+
+    @Test func aWrapUpAnswerStaysOnTheRowLikeABlockersButton() {
+        var message = RowButtonSpec(button: .message, disabledReason: nil)
+        message.answersWrapUp = true
+        let all = [message, RowButtonSpec(button: .peek, disabledReason: nil), RowButtonSpec(button: .moreActions, disabledReason: nil)]
+        #expect(RowButtons.stripSpecs(all).map(\.button) == [.message, .moreActions])
+        #expect(RowButtons.movedIntoMenu(all).map(\.button) == [.peek])
+    }
+
+    @Test func aHighlightedOrMidPressButtonIsDrawnSoItNeverActsUnseen() {
+        let all = RowButtons.available(for: F.agent("a", section: .parked))   // Unpark, Peek, Message, ⋯
+        #expect(RowButtons.stripSpecs(all, keeping: [.peek]).map(\.button) == [.peek, .moreActions])
+    }
+
     // MARK: - Message / Compact / Clear share one eligibility gate
 
     @Test func blockedRowsNeverOfferMessageOrCompactOrClear() {

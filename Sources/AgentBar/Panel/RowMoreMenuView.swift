@@ -60,7 +60,7 @@ struct RowMoreMenuView: View, Equatable {
                 } else {
                     Button(spec.label) { onSelect(spec.button) }
                         .disabled(!spec.isEnabled)
-                        .help(spec.disabledReason ?? "")   // same "why" tooltip a disabled capsule gives via RowActionButtonView
+                        .help(spec.disabledReason ?? spec.hint ?? "")   // same "why" tooltip a disabled capsule gives via RowActionButtonView
                 }
             }
         } label: {

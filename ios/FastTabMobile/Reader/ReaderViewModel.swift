@@ -298,7 +298,7 @@ public final class ReaderViewModel: ObservableObject {
         pendingPersistTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
             guard !Task.isCancelled else { return }
-            progressStore.set(progress: progress, for: url)
+            progressStore.set(progress: progress, for: url, title: title)
             LastOpenedStore.shared.updateProgress(url: url, progress: progress)
             SavedOnIPhoneStore.shared.recordProgress(url: url, progress: progress)
             recordReadingStats(progress: progress, isFlush: false)
@@ -334,7 +334,7 @@ public final class ReaderViewModel: ObservableObject {
     private func persistProgressNow(statsFlush: Bool) {
         pendingPersistTask?.cancel()
         pendingPersistTask = nil
-        progressStore.set(progress: scrollProgress, for: url)
+        progressStore.set(progress: scrollProgress, for: url, title: title)
         LastOpenedStore.shared.updateProgress(url: url, progress: scrollProgress)
         SavedOnIPhoneStore.shared.recordProgress(url: url, progress: scrollProgress)
         recordReadingStats(progress: scrollProgress, isFlush: statsFlush)

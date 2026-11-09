@@ -43,6 +43,13 @@ public final class SyncConsumer: NSObject, ObservableObject {
     )
     var listChangeObserver: NSObjectProtocol?
     var listSendTask: Task<Void, Never>?
+    /// Reading progress on any page, sent for the Mac's reading connector (same zone).
+    lazy var activitySync = ReadingActivitySyncBridge(
+        ledgerURL: AppGroupContainer.fileURL(forFileNamed: Self.readingActivityLedgerFileName),
+        store: ReaderReadingProgress.shared
+    )
+    var activityChangeObserver: NSObjectProtocol?
+    var activitySendTask: Task<Void, Never>?
     private var hasStarted = false
     /// Manual iCloud sweep bookkeeping (SyncConsumer+ZoneSweep.swift).
     var lastZoneSweepAt: Date?

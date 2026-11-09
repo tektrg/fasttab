@@ -76,6 +76,34 @@ public struct ReadingFormat: Sendable {
         return lines.joined(separator: "\n") + "\n"
     }
 
+    public func bookmarksMarkdown(_ bookmarks: [BrowserBookmark], total: Int, unavailable: [String]) -> String {
+        var lines = ["# Bookmarks — \(count(total, "bookmark"))" + (total > bookmarks.count ? " (showing \(bookmarks.count))" : "")]
+        if !unavailable.isEmpty { lines += ["", "_Not readable: \(unavailable.joined(separator: ", "))._"] }
+        if bookmarks.isEmpty { lines += ["", "Nothing matches."] }
+        lines += bookmarks.map { b in
+            "- **\(inline(b.title))** · \(b.browser)" + (b.folder.isEmpty ? "" : " · \(inline(b.folder))") + " · <\(b.url)>"
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    public func historyMarkdown(_ visits: [BrowserVisit], since: Date, windowDays: Int, unavailable: [String]) -> String {
+        var lines = ["# Browser history — \(count(visits.count, "page")) since \(day(since))",
+                     "", "_Window: last \(windowDays) day\(windowDays == 1 ? "" : "s") (set by the user)._"]
+        if !unavailable.isEmpty { lines += ["", "_Not readable: \(unavailable.joined(separator: ", "))._"] }
+        if visits.isEmpty { lines += ["", "Nothing matches."] }
+        lines += visits.map { v in "- **\(inline(v.title))** · \(v.browser) · \(day(v.visitedAt)) · <\(v.url)>" }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    public func json(_ b: BrowserBookmark) -> JSONValue {
+        ["title": .string(b.title), "url": .string(b.url), "folder": .string(b.folder), "browser": .string(b.browser),
+         "added_at": date(b.addedAt)]
+    }
+
+    public func json(_ v: BrowserVisit) -> JSONValue {
+        ["title": .string(v.title), "url": .string(v.url), "browser": .string(v.browser), "visited_at": date(v.visitedAt)]
+    }
+
     public func json(_ hit: SearchHit) -> JSONValue {
         ["source": .string(hit.source), "id": .string(hit.id), "url": .string(hit.url), "title": .string(hit.title),
          "snippet": .string(hit.snippet), "date": date(hit.date)]

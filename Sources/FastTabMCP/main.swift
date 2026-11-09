@@ -18,7 +18,8 @@ let readerDirectory: URL = ProcessInfo.processInfo.environment["FASTTAB_READER_D
 
 let reading = ReadingTools(
     connector: ReadingConnector(sources: sources),
-    index: try? ReadingIndex(fileURL: ReadingIndex.fileURL(supportDirectory: sources.supportDirectory)))
+    index: try? ReadingIndex(fileURL: ReadingIndex.fileURL(supportDirectory: sources.supportDirectory)),
+    browser: BrowserData.standard())
 let threads = ReaderCommentTools(library: ReaderLibrary(directory: readerDirectory))
 let allTools = reading.tools + threads.tools
 
@@ -30,12 +31,19 @@ if invokedAsCLI || arguments.first == "cli" {
     exit(output.exitCode)
 }
 
+/// Every agent call, shown in Settings › Highlights › AI agent access (CLI runs are not logged:
+/// the user ran them).
+let accessLog = try? AgentAccessLog(
+    fileURL: ReadingConnectorSettings.accessLogURL(supportDirectory: sources.supportDirectory),
+    changeNotificationName: ReadingConnectorSettings.accessLogNotification)
+_ = try? await accessLog?.pruneExpired()
+
 let server = MCPServer(
     info: MCPServerInfo(
         name: "fasttab", version: "2",
         instructions: ReadingTools.instructions + "\n\n" + ReaderCommentTools.instructions),
     tools: MCPToolRegistry(allTools),
-    recordToolCall: { _ in })
+    recordToolCall: { event in await accessLog?.recordReportingFailure(event) })
 await StdioTransport(server: server).run(input: FileHandle.standardInput.bytes) { reply in
     // Markdown answers reach the agent as plain text (see MarkdownReplies).
     let body = reply.last == UInt8(ascii: "\n") ? reply.dropLast() : reply

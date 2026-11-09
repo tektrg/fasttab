@@ -87,6 +87,8 @@ let package = Package(
                 "FastTabSync",
                 "FastTabReader",
                 "FastTabWebReader",
+                "ReadingConnector",
+                indieMCP,
                 "CommandBarKit",
                 indieSearch,
                 indieSharing,
@@ -111,7 +113,8 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP]
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP,
+                           .product(name: "GRDB", package: "GRDB.swift")]
         ),
         .testTarget(
             name: "AgentBarTests",

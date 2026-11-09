@@ -36,8 +36,8 @@ SHELL_READY_TIMEOUT_MS = 16000
 LOGIN_TEMPLATE = ("env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_MODEL "
                   "CLAUDE_CONFIG_DIR={config_dir} {claude} /login")
 POOL_TAB_LABEL = "cliproxy-login"
-POOL_LOGIN_COMMAND = ("/usr/local/opt/cliproxyapi/bin/cliproxyapi "
-                      "-config /usr/local/etc/cliproxyapi.conf -claude-login")
+POOL_LOGIN_COMMAND = ("/opt/homebrew/opt/cliproxyapi/bin/cliproxyapi "
+                      "-config /opt/homebrew/etc/cliproxyapi.conf -claude-login")
 
 
 def claude_binary():

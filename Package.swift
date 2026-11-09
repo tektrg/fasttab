@@ -57,6 +57,12 @@ let package = Package(
             name: "FastTabWebReader",
             dependencies: ["FastTabSync", indieSharing]
         ),
+        // The reading connector's engine (read-only): the List, the phone's reading activity,
+        // highlights + threads. Shared by the fasttab-mcp tools and the `fasttab` CLI.
+        .target(
+            name: "ReadingConnector",
+            dependencies: ["FastTabSync", "FastTabReader", indieComments]
+        ),
         // Stdio MCP server bundled in the app (Contents/MacOS/fasttab-mcp): comment tools over
         // the reader mirror.
         .executableTarget(
@@ -101,7 +107,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP]
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP]
         ),
         .testTarget(
             name: "AgentBarTests",

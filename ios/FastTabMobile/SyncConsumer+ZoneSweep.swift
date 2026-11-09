@@ -73,6 +73,9 @@ extension SyncConsumer {
     }
 
     private static func tokenURL(for zoneID: CKRecordZone.ID) -> URL {
-        AppGroupContainer.fileURL(forFileNamed: "zone_sweep_token_\(zoneID.zoneName).dat")
+        // "v2": builds before the favicon record dropped it as an unknown type while their
+        // token moved on, so a phone updated after its Mac never saw the icons. A new
+        // file name makes this build re-read each zone once from the start.
+        AppGroupContainer.fileURL(forFileNamed: "zone_sweep_token_v2_\(zoneID.zoneName).dat")
     }
 }

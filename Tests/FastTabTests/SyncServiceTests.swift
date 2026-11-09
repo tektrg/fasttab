@@ -714,6 +714,18 @@ struct SyncServiceTests {
         #expect(SyncService.shouldPublishDeviceHeartbeat(lastPublishedAt: nil, now: Date(timeIntervalSince1970: 0)))
     }
 
+    @Test("A save ack never clears a newer record queued while the send was in flight")
+    func saveAckKeepsNewerQueuedRecord() {
+        let id = CKRecord.ID(recordName: "device", zoneID: SyncConstants.stateZoneID)
+        let sent = CKRecord(recordType: "SyncedDevice", recordID: id)
+        let newer = CKRecord(recordType: "SyncedDevice", recordID: id)
+
+        #expect(SyncService.shouldClearPendingSave(pending: sent, sent: sent))
+        #expect(!SyncService.shouldClearPendingSave(pending: newer, sent: sent))
+        #expect(SyncService.shouldClearPendingSave(pending: newer, sent: nil))
+        #expect(!SyncService.shouldClearPendingSave(pending: nil, sent: sent))
+    }
+
     @Test("Any queued record retry requests one follow-up send")
     func queuedRecordRetrySendDecision() {
         #expect(!SyncService.shouldRequestRecordRetrySend(queuedSaveRetry: false, queuedDeleteRetry: false))

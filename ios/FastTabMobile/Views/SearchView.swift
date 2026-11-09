@@ -157,9 +157,14 @@ public struct SearchView: View {
                 List {
                     ForEach(matchingResults) { item in
                         HStack(spacing: DS.Space.md) {
-                            Image(systemName: item.type.icon)
-                                .foregroundColor(item.type.color)
-                                .font(.system(size: DS.IconSize.row))
+                            if item.type == .tab {
+                                FaviconView(url: item.url)
+                            } else {
+                                Image(systemName: item.type.icon)
+                                    .foregroundColor(item.type.color)
+                                    .font(.system(size: DS.IconSize.row))
+                                    .frame(width: 20)
+                            }
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(item.title)

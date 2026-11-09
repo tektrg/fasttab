@@ -39,11 +39,15 @@ public final class ReaderSyncBridge {
 
     public let zoneID: CKRecordZone.ID
     public let comments: CommentStore
-    private let highlights: ReaderHighlightSyncStore
+    /// The store this bridge syncs (the Mac's `ReaderMirror`, the phone's highlight store).
+    public let highlights: ReaderHighlightSyncStore
     private let ledgerURL: URL
     /// False on the Mac: it only mirrors highlights, so it never saves or deletes one (a stale
     /// mirror or a lost ledger must not overwrite the phone). Comment events still go out.
     private let sendsHighlights: Bool
+    /// When `sendsHighlights` is false, the highlights this device created itself and does
+    /// send (the Mac: ones imported from the web reader). Nil = none.
+    private let sendsOwnHighlight: (@MainActor (String) -> Bool)?
     /// Record name → hash of the payload CloudKit last confirmed (or delivered).
     private var confirmed: [String: String]
 
@@ -52,9 +56,11 @@ public final class ReaderSyncBridge {
         comments: CommentStore,
         highlights: ReaderHighlightSyncStore,
         sendsHighlights: Bool = true,
+        sendsOwnHighlight: (@MainActor (String) -> Bool)? = nil,
         zoneID: CKRecordZone.ID = SyncConstants.readerZoneID
     ) {
         self.sendsHighlights = sendsHighlights
+        self.sendsOwnHighlight = sendsOwnHighlight
         self.ledgerURL = ledgerURL
         self.comments = comments
         self.highlights = highlights
@@ -74,14 +80,16 @@ public final class ReaderSyncBridge {
         for event in await localCommentEvents() where confirmed[event.recordName] == nil {
             saves.append(event.toRecord(zoneID: zoneID))
         }
-        guard sendsHighlights else { return (saves, []) }
+        guard sendsHighlights || sendsOwnHighlight != nil else { return (saves, []) }
         let localHighlights = highlights.syncedHighlights()
-        for highlight in localHighlights where confirmed[highlight.recordName] != Self.hash(highlight.payload) {
+        for highlight in localHighlights where confirmed[highlight.recordName] != Self.hash(highlight.payload)
+            && sends(highlightID: highlight.id) {
             saves.append(highlight.toRecord(zoneID: zoneID))
         }
         let localNames = Set(localHighlights.map(\.recordName))
         let deletes = confirmed.keys
             .filter { $0.hasPrefix(SyncedReaderHighlight.namePrefix) && !localNames.contains($0) }
+            .filter { sends(highlightID: String($0.dropFirst(SyncedReaderHighlight.namePrefix.count))) }
             .sorted()
             .map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
         return (saves, deletes)
@@ -129,7 +137,7 @@ public final class ReaderSyncBridge {
                 let local = localPayloads[name]
                 // Not sent yet here: an edit (local differs from the ledger) or a delete
                 // (ledger knows it, no local copy). Either goes out next and wins.
-                let pendingLocally = sendsHighlights
+                let pendingLocally = sends(highlightID: highlight.id)
                     && (local.map { $0 != confirmed[name] } ?? (confirmed[name] != nil))
                 guard !pendingLocally else { continue }
                 if local == Self.hash(highlight.payload) {
@@ -165,6 +173,10 @@ public final class ReaderSyncBridge {
     }
 
     // MARK: - Private
+
+    private func sends(highlightID: String) -> Bool {
+        sendsHighlights || (sendsOwnHighlight?(highlightID) ?? false)
+    }
 
     private func localCommentEvents() async -> [SyncedCommentEvent] {
         let all = (try? await comments.allEvents()) ?? []

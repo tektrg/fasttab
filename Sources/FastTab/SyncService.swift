@@ -27,6 +27,12 @@ final class SyncService: NSObject, ObservableObject {
 
     // In-memory cache of records to be supplied to CKSyncEngine recordProvider
     var pendingRecordsToSave: [CKRecord.ID: CKRecord] = [:]
+    /// The exact record objects handed to the engine in the batch now being
+    /// sent. A save ack may only clear `pendingRecordsToSave` when the pending
+    /// entry is still that same object: a newer record queued mid-flight (the
+    /// 3-minute device heartbeat, a tab refresh) must survive the ack, or its
+    /// pending change is later dropped as "no cached content" and never sent.
+    var inFlightRecords: [CKRecord.ID: CKRecord] = [:]
     /// The phone's reader highlights + comment threads (SyncService+ReaderSync.swift).
     lazy var readerSync = ReaderMirror.makeBridge(supportDirectory: fastTabSupportDirectory)
     var readerZoneCatchUpInFlight = false
@@ -58,6 +64,7 @@ final class SyncService: NSObject, ObservableObject {
     var tabOrderFlushTask: Task<Void, Never>?
     var pendingTabOrderSlots: [OrderedTabSlot]?
     var tabStatsPublishState = TabStatsPublishState()
+    var faviconPublishState = FaviconPublishState()
 
     private var tabDebounceTask: Task<Void, Never>?
     private var syncPollTimer: Timer?
@@ -298,6 +305,7 @@ final class SyncService: NSObject, ObservableObject {
     // MARK: - Live Tabs Publishing
 
     func updateLiveTabs(_ tabs: [BrowserSearchResult], unreadableBrowsers: Set<String> = []) {
+        noteTabsForWebSnapshot(tabs)
         tabDebounceTask?.cancel()
         tabDebounceTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s debounce
@@ -317,6 +325,10 @@ final class SyncService: NSObject, ObservableObject {
 
     func publishLiveTabsNow(_ tabs: [BrowserSearchResult], unreadableBrowsers: Set<String> = []) {
         guard let syncEngine else { return }
+
+        // Icons for the phone's tab list ride their own record, independent of
+        // whether the tab records changed (an icon can resolve after its tab).
+        requestFaviconsPublish(for: tabs)
 
         guard let plan = liveTabPublishState.planPublish(tabs, unreadableBrowsers: unreadableBrowsers) else {
             logger.info("Live tabs sync skipped (content unchanged). tabCount=\(tabs.count)")
@@ -353,6 +365,7 @@ final class SyncService: NSObject, ObservableObject {
     // MARK: - Bookmarks Publishing
 
     func updateBookmarks(_ bookmarks: [BrowserSearchResult]) {
+        noteBookmarksForWebSnapshot(bookmarks)
         guard let syncEngine else { return }
 
         // Group bookmarks by browser and profile
@@ -761,6 +774,8 @@ final class SyncService: NSObject, ObservableObject {
                 lastPublishedHistoryHashes.removeValue(forKey: deletion.recordID.recordName)
             case SyncedTabStats.recordType:
                 resetTabStatsPublishState()
+            case SyncedFavicons.recordType:
+                resetFaviconPublishState()
             default:
                 break
             }
@@ -800,7 +815,9 @@ final class SyncService: NSObject, ObservableObject {
         lastPublishedTabOrderHash = ""
         tabOrderGate.reset()
         resetTabStatsPublishState()
+        resetFaviconPublishState()
         pendingRecordsToSave.removeAll()
+        inFlightRecords.removeAll()
         serverRecordsByID.removeAll()
         stateZoneMirror.reset()
     }
@@ -848,7 +865,14 @@ extension SyncService: CKSyncEngineDelegate {
 
             case .sentRecordZoneChanges(let sentChanges):
                 for saved in sentChanges.savedRecords {
-                    self.pendingRecordsToSave.removeValue(forKey: saved.recordID)
+                    let sent = self.inFlightRecords.removeValue(forKey: saved.recordID)
+                    if Self.shouldClearPendingSave(pending: self.pendingRecordsToSave[saved.recordID], sent: sent) {
+                        self.pendingRecordsToSave.removeValue(forKey: saved.recordID)
+                    }
+                    if saved.recordID.recordName == self.deviceID {
+                        // .notice persists in the log store (info is purged within minutes).
+                        self.logger.notice("Device heartbeat acknowledged by iCloud")
+                    }
                     self.serverRecordsByID[saved.recordID] = saved
                     if ReaderSyncBridge.handles(saved.recordType) { self.readerSync.didSave(saved) }
                     if saved.recordType == SyncCommand.recordType {
@@ -874,6 +898,7 @@ extension SyncService: CKSyncEngineDelegate {
                 }
                 var queuedSaveRetry = false
                 for failedSave in sentChanges.failedRecordSaves {
+                    self.inFlightRecords.removeValue(forKey: failedSave.record.recordID)
                     switch self.readerZoneOutcome(ofFailedSave: failedSave.record, error: failedSave.error) {
                     case .settled:
                         self.pendingRecordsToSave.removeValue(forKey: failedSave.record.recordID)
@@ -963,6 +988,12 @@ extension SyncService: CKSyncEngineDelegate {
             }
         }
         guard !batchPlan.deliverableChanges.isEmpty else { return nil }
+
+        await MainActor.run {
+            for case .saveRecord(let id) in batchPlan.deliverableChanges {
+                self.inFlightRecords[id] = records[id]
+            }
+        }
 
         return await CKSyncEngine.RecordZoneChangeBatch(
             pendingChanges: batchPlan.deliverableChanges,

@@ -569,10 +569,7 @@ public struct TabListView: View {
     @ViewBuilder
     private func tabRow(_ tab: SyncedTab, showTypeTag: String? = nil) -> some View {
         HStack(spacing: DS.Space.md) {
-            Image(systemName: "globe")
-                .foregroundStyle(DS.Tint.action)
-                .font(.system(size: DS.IconSize.row))
-                .frame(width: 20)
+            FaviconView(url: tab.url)
 
             VStack(alignment: .leading, spacing: DS.Space.xxs) {
                 HStack(spacing: 6) {

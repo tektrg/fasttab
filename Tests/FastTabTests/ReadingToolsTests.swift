@@ -24,7 +24,7 @@ struct ReadingToolsTests {
         for removed in ["create_thread", "reply", "resolve", "reopen"] {
             #expect(!all.contains { $0.name == removed })
         }
-        #expect(tools(f).tools.map(\.name).starts(with: ["reading_list", "highlights", "article"]))
+        #expect(tools(f).tools.map(\.name).starts(with: ["context_pack", "reading_list", "highlights", "article"]))
     }
 
     @Test func readingListMarkdownByDefaultJSONOnRequest() async throws {
@@ -102,7 +102,7 @@ struct ReadingToolsTests {
         #expect(await cli.run(["frobnicate"]).exitCode == 64)
         #expect(await cli.run(["reading", "--since"]).exitCode == 64)
         #expect(await cli.run(["reading", "--status", "bad"]).exitCode == 1)
-        #expect(!cli.help.contains("fasttab pack"), "commands for tools not served are hidden")
+        #expect(!cli.help.contains("fasttab search"), "commands for tools not served are hidden")
     }
 
     @Test func periods() {

@@ -13,7 +13,8 @@ struct HighlightGalleryCard: View {
     var onOpenComments: () -> Void = {}
 
     /// Longest excerpt before it is cut (the full text is one tap away in the reader).
-    static let excerptLineLimit = 6
+    static let excerptLineLimit = 12
+    static let titleLineLimit = 4
 
     var body: some View {
         IndieGalleryCard {
@@ -29,7 +30,7 @@ struct HighlightGalleryCard: View {
             Text(entry.articleTitle)
                 .font(.headline)
                 .foregroundStyle(.primary)
-                .lineLimit(3)
+                .lineLimit(Self.titleLineLimit)
         } excerpt: {
             HStack(alignment: .top, spacing: DS.Space.sm) {
                 Capsule()
@@ -90,7 +91,7 @@ struct HighlightGalleryCard: View {
             CGFloat(min(limit, max(1, Int((CGFloat(count) / charsPerLine).rounded(.up)))))
         }
         var height: CGFloat = 2 * DS.Space.lg + 16 // padding + meta line
-        height += lines(entry.articleTitle.count, max: 3) * 20
+        height += lines(entry.articleTitle.count, max: titleLineLimit) * 20
         height += lines(entry.highlight.selectedText.count, max: excerptLineLimit) * 20
         if !entry.comments.isEmpty { height += 18 }
         let chips = entry.userTags.count + entry.folderTags.count

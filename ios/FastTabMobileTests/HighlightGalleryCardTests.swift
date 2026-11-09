@@ -59,7 +59,7 @@ final class HighlightGalleryCardTests: XCTestCase {
 
     func testEstimateIsCappedByLineLimits() {
         let huge = entry(text: String(repeating: "word ", count: 2000), title: String(repeating: "T", count: 900))
-        XCTAssertLessThan(HighlightGalleryCard.estimatedHeight(huge, columnWidth: 170), 400)
+        XCTAssertLessThan(HighlightGalleryCard.estimatedHeight(huge, columnWidth: 170), 500)
     }
 
     // MARK: Render (light + dark, gallery of cards with every slot filled)

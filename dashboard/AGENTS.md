@@ -797,7 +797,7 @@ Presence only (an expired token reads true). Tests: `tests/test_account_login.py
 
 **Shared pool (preferred, live 2026-10-27).** Subscriptions are pooled in local
 CLIProxyAPI (`brew services` `cliproxyapi`, 127.0.0.1:8317, config
-`/usr/local/etc/cliproxyapi.conf`, fill-first + session affinity, OAuth files
+`/opt/homebrew/etc/cliproxyapi.conf`, fill-first + session affinity, OAuth files
 `~/.cli-proxy-api/`). accounts.json top row `cliproxy` (kind `proxy`, key in
 Keychain `claude-router-cliproxy`) → every session keeps the one `~/.claude`
 (hooks, skills, dashboard rows). Add an account: Settings › Accounts › "Add to

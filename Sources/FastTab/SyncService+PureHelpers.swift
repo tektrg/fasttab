@@ -196,6 +196,15 @@ extension SyncService {
     /// tell "awake" from "asleep" (`SyncedDevicePairing.heartbeatInterval`, 3
     /// min). Must stay well under the phone's staleness threshold or a healthy
     /// Mac reports itself asleep.
+    /// A save ack clears the queued record only when it is the one that was sent
+    /// (or nothing was tracked). A newer record queued mid-flight must stay, or
+    /// its pending change is dropped as "no cached content" and never uploaded.
+    nonisolated static func shouldClearPendingSave(pending: CKRecord?, sent: CKRecord?) -> Bool {
+        guard let pending else { return false }
+        guard let sent else { return true }
+        return pending === sent
+    }
+
     nonisolated static func shouldPublishDeviceHeartbeat(lastPublishedAt: Date?, now: Date) -> Bool {
         SyncedDevicePairing.isHeartbeatDue(lastPublishedAt: lastPublishedAt, now: now)
     }

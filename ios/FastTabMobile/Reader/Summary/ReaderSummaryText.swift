@@ -31,9 +31,17 @@ enum ReaderSummaryText {
         return .ready(Input(text: capped(full), languageCode: language))
     }
 
+    /// The server counts UTF-16 units (JavaScript `.length`), not Swift characters: accents written
+    /// as separate marks or emoji count more there, so the cap is checked in UTF-16 units too.
     static func capped(_ text: String) -> String {
-        guard text.count > maxCharacters else { return text }
-        return String(text.prefix(headCharacters)) + cutMarker + String(text.suffix(tailCharacters))
+        guard text.count > maxCharacters || text.utf16.count > maxCharacters else { return text }
+        var head = headCharacters
+        var result = ""
+        repeat {
+            result = String(text.prefix(head)) + cutMarker + String(text.suffix(tailCharacters))
+            head -= 2_000
+        } while result.utf16.count > maxCharacters && head > 0
+        return result
     }
 
     /// Only shapes like "vi" / "en-US" / "zh-Hans"; anything else is left to the server's default.

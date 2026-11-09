@@ -6,8 +6,12 @@ private final class FakeSummaryServer: @unchecked Sendable {
     private let lock = NSLock()
     private var answers: [Result<(Int, Data), Error>]
     private(set) var requests: [URLRequest] = []
+    private let delay: Duration
 
-    init(_ answers: [Result<(Int, Data), Error>]) { self.answers = answers }
+    init(_ answers: [Result<(Int, Data), Error>], delay: Duration = .zero) {
+        self.answers = answers
+        self.delay = delay
+    }
 
     var callCount: Int { lock.withLock { requests.count } }
 
@@ -16,6 +20,7 @@ private final class FakeSummaryServer: @unchecked Sendable {
             requests.append(request)
             return answers.isEmpty ? .success((503, Data())) : answers.removeFirst()
         }
+        if delay > .zero { try await Task.sleep(for: delay) }
         let (status, body) = try next.get()
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
         return (body, response)
@@ -71,6 +76,15 @@ final class ReaderSummaryTextTests: XCTestCase {
         XCTAssertEqual(ReaderSummaryText.capped("short"), "short")
     }
 
+    func testCapCountsUTF16UnitsLikeTheServer() {
+        // 50,000 Characters, but 100,000 UTF-16 units (letter + combining accent): the server would
+        // reject it if only Characters were capped.
+        let decomposed = String(repeating: "e\u{0301}", count: 50_000)
+        let capped = ReaderSummaryText.capped(decomposed)
+        XCTAssertLessThanOrEqual(capped.utf16.count, ReaderSummaryText.maxCharacters)
+        XCTAssertTrue(capped.contains("[…]"))
+    }
+
     func testLanguageCodeShapeFilter() {
         XCTAssertEqual(ReaderSummaryText.acceptableLanguageCode("vi"), "vi")
         XCTAssertEqual(ReaderSummaryText.acceptableLanguageCode("zh-Hans"), "zh-Hans")
@@ -123,6 +137,12 @@ final class ReaderSummaryClientTests: XCTestCase {
         catch { XCTAssertEqual(error as? ReaderSummaryError, .offline) }
         let other = FakeSummaryServer([.failure(URLError(.cannotParseResponse))])
         do { _ = try await makeClient(other).summarize(request); XCTFail("expected throw") }
+        catch { XCTAssertEqual(error as? ReaderSummaryError, .unavailable) }
+    }
+
+    func testSlowServerIsUnavailableNotOffline() async {
+        let server = FakeSummaryServer([.failure(URLError(.timedOut))])
+        do { _ = try await makeClient(server).summarize(request); XCTFail("expected throw") }
         catch { XCTAssertEqual(error as? ReaderSummaryError, .unavailable) }
     }
 
@@ -218,6 +238,13 @@ final class ReaderSummaryFailureTests: XCTestCase {
         XCTAssertFalse(ReaderSummaryFailure.offline.needsPaywall)
     }
 
+    func testRenewalDateIsTheUTCDateTheServerResetsOn() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let resets = ISO8601DateFormatter().date(from: "2026-12-01T00:00:00Z")!
+        let message = ReaderSummaryFailure.quotaExhausted(resetsAt: resets).message(now: now)
+        XCTAssertTrue(message.contains("December 1"), message) // not "November 30" in a US time zone
+    }
+
     func testQuotaMessageMentionsRenewalOnlyWhenKnownAndFuture() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let future = ReaderSummaryFailure.quotaExhausted(resetsAt: now.addingTimeInterval(86_400))
@@ -252,8 +279,10 @@ final class ReaderSummaryModelTests: XCTestCase {
     }
 
     private func settle(_ model: ReaderSummaryModel) async {
-        for _ in 0..<200 {
-            if case .loading = model.state { try? await Task.sleep(for: .milliseconds(10)) } else { return }
+        for _ in 0..<300 {
+            if case .loading = model.state { try? await Task.sleep(for: .milliseconds(10)); continue }
+            if model.isRegenerating { try? await Task.sleep(for: .milliseconds(10)); continue }
+            return
         }
     }
 
@@ -333,4 +362,41 @@ final class ReaderSummaryModelTests: XCTestCase {
         XCTAssertEqual(model.state, .failed(.subscriptionRequired))
         XCTAssertTrue(ReaderSummaryFailure.subscriptionRequired.needsPaywall)
     }
+
+    func testRegenerateKeepsTheOldSummaryOnScreenAndOnFailure() async {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Old"), .failure(URLError(.notConnectedToInternet))])
+        let model = model(server)
+        model.open(); await settle(model)
+        model.regenerate()
+        XCTAssertTrue(model.isRegenerating)
+        guard case .ready(let during) = model.state else { return XCTFail("old summary should stay while refreshing") }
+        XCTAssertEqual(during.text, "**Gist** Old")
+        await settle(model)
+        XCTAssertFalse(model.isRegenerating)
+        XCTAssertEqual(model.regenerateFailure, .offline)
+        guard case .ready(let after) = model.state else { return XCTFail("old summary should survive a failed refresh") }
+        XCTAssertEqual(after.text, "**Gist** Old")
+    }
+
+    func testTwoModelsForTheSameArticleShareOneRequest() async {
+        // Reader closed and reopened while the first request is still running: no second charge.
+        let server = FakeSummaryServer([FakeSummaryServer.ok()], delay: .milliseconds(150))
+        let first = model(server)
+        first.open()
+        let second = model(server)
+        second.open()
+        await settle(first); await settle(second)
+        XCTAssertEqual(server.callCount, 1)
+        guard case .ready = first.state, case .ready = second.state else { return XCTFail("both should be ready") }
+    }
+
+    func testHasSavedSummaryOnlyForTheExactText() async {
+        let server = FakeSummaryServer([FakeSummaryServer.ok()])
+        let first = model(server)
+        XCTAssertFalse(first.hasSavedSummary())
+        first.open(); await settle(first)
+        XCTAssertTrue(first.hasSavedSummary())
+        XCTAssertFalse(model(server, article: longArticle(title: "Edited Title")).hasSavedSummary())
+    }
 }
+

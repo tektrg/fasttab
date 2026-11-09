@@ -57,6 +57,10 @@ struct ReaderSummarySheet: View {
 
     private func summaryBody(_ result: ReaderSummaryResult) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
+            if let failure = model.regenerateFailure {
+                Label("Couldn't refresh. \(failure.message())", systemImage: "exclamationmark.circle")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             ForEach(Array(SummaryMarkdown.blocks(result.text).enumerated()), id: \.offset) { _, block in
                 blockView(block)
             }
@@ -71,8 +75,13 @@ struct ReaderSummarySheet: View {
                     Label("Copy", systemImage: "doc.on.doc")
                 }
                 Spacer()
-                Button { model.regenerate() } label: {
-                    Label("Regenerate", systemImage: "arrow.clockwise")
+                if model.isRegenerating {
+                    HStack(spacing: DS.Space.sm) { ProgressView(); Text("Refreshing…") }
+                        .accessibilityElement(children: .combine)
+                } else {
+                    Button { model.regenerate() } label: {
+                        Label("Regenerate", systemImage: "arrow.clockwise")
+                    }
                 }
             }
             .font(.subheadline)
@@ -84,12 +93,12 @@ struct ReaderSummarySheet: View {
     private func blockView(_ block: SummaryMarkdown.Block) -> some View {
         switch block {
         case .heading(let text):
-            Text(SummaryMarkdown.attributed(text)).font(.headline)
+            Text(SummaryMarkdown.attributed(text)).font(.headline).accessibilityAddTraits(.isHeader)
         case .paragraph(let text):
             Text(SummaryMarkdown.attributed(text)).font(.body)
         case .bullet(let level, let text):
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
-                Text("•").foregroundStyle(.secondary)
+                Text("•").foregroundStyle(.secondary).accessibilityHidden(true)
                 Text(SummaryMarkdown.attributed(text)).font(.callout)
             }
             .padding(.leading, CGFloat(level) * DS.Space.lg)
@@ -100,7 +109,7 @@ struct ReaderSummarySheet: View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
             Label(failure.message(), systemImage: "exclamationmark.circle").font(.body)
             if failure.needsPaywall {
-                Button("See plans") { dismiss(); onNeedsPaywall() }.buttonStyle(.borderedProminent)
+                Button("See plans") { onNeedsPaywall(); dismiss() }.buttonStyle(.borderedProminent)
             } else if failure.canRetry {
                 Button("Try Again") { model.retry() }.buttonStyle(.bordered)
             }

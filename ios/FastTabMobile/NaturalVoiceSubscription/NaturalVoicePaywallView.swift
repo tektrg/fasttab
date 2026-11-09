@@ -68,7 +68,7 @@ struct NaturalVoicePaywallView: View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
             if feature == .readerSummary {
                 Label("Structured AI summaries of any article", systemImage: "sparkles")
-                Label("Saved on your iPhone, never paid for twice", systemImage: "arrow.down.circle")
+                Label("Summaries are saved on your iPhone", systemImage: "arrow.down.circle")
             }
             Label("Lifelike voices streamed from the cloud", systemImage: "waveform")
             Label("Keeps playing with the screen locked", systemImage: "lock.fill")
@@ -208,7 +208,7 @@ struct NaturalVoicePaywallView: View {
         }
     }
 
-    static let stillConfirmingMessage = "Payment received. We're still confirming it with our server; multi-language voice turns on automatically, no need to buy again."
+    static let stillConfirmingMessage = "Payment received. We're still confirming it with our server; your subscription turns on automatically, no need to buy again."
 
     private func restore() async {
         isWorking = true
@@ -218,9 +218,9 @@ struct NaturalVoicePaywallView: View {
         case .restored:
             if access.isConfirmedByServer { onUnlocked(); dismiss() }
             else if access.isAwaitingConfirmation { await confirm() }
-            else { message = "No active Multi-language Voice subscription found." }
+            else { message = "No active subscription found." }
         case .nothingToRestore:
-            message = "No Multi-language Voice subscription to restore."
+            message = "No subscription to restore."
         case .failed(let error):
             message = Self.message(for: error)
         }

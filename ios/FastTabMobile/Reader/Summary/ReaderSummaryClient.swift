@@ -1,5 +1,6 @@
 import Foundation
 import IndieAccount
+import UIKit
 
 /// Body of theindie-api `POST /v1/ai/reader-summary`. `instruction` stays nil until the person
 /// edits the prompt (the server then uses its versioned default).
@@ -89,7 +90,7 @@ struct ReaderSummaryClient: Sendable {
     }
 
     private static let offlineCodes: Set<URLError.Code> = [
-        .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .internationalRoamingOff, .timedOut,
+        .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .internationalRoamingOff,
     ]
 
     /// Maps a non-200 answer onto what the sheet should say.
@@ -117,6 +118,20 @@ struct ReaderSummaryClient: Sendable {
         ReaderSummaryClient(
             endpoint: TheIndieServerConfiguration.baseURL(configuration: .fastTab).appending(path: "v1/ai/reader-summary"),
             headers: { NaturalVoiceClient.identityHeaders() },
-            send: { try await URLSession.shared.data(for: $0) })
+            send: { request in
+                // The answer takes 10-20 s; keep the request alive if the phone locks meanwhile
+                // (a dropped request would have been charged but never delivered).
+                let background = await MainActor.run {
+                    UIApplication.shared.beginBackgroundTask(withName: "reader-summary")
+                }
+                do {
+                    let result = try await URLSession.shared.data(for: request)
+                    await MainActor.run { UIApplication.shared.endBackgroundTask(background) }
+                    return result
+                } catch {
+                    await MainActor.run { UIApplication.shared.endBackgroundTask(background) }
+                    throw error
+                }
+            })
     }
 }

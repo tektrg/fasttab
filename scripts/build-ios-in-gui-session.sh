@@ -12,7 +12,7 @@ log="/tmp/fasttab-ios-push.log"
 tmux has-session 2>/dev/null || { echo "build-ios-in-gui-session: no tmux server in the GUI session; open a terminal on the Pro once" >&2; exit 1; }
 # A live session means another iPhone build is still running: never kill it mid-install.
 tmux has-session -t fasttab-ios-push 2>/dev/null && { echo "build-ios-in-gui-session: another iPhone build is running (tmux session fasttab-ios-push); wait for it" >&2; exit 1; }
-rm -f "${log}.exit"
+rm -f "${log}.exit"; : > "${log}"   # no stale lines from an earlier run
 args=""; (( $# )) && args="$(printf ' %q' "$@")"
 tmux new-session -d -s fasttab-ios-push \
   "cd '${repo_root}' && scripts/build-ios.sh${args} > '${log}' 2>&1; echo \$? > '${log}.exit'"

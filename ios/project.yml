@@ -58,6 +58,9 @@ targets:
       # plus text folding for its search. See FastTabMobile/Reader/HighlightFeedModel.swift.
       - package: IndieLibKit
         product: IndieTags
+      # Two-column card grid for the Highlights screen (FastTabMobile/Views/HighlightGalleryCard.swift).
+      - package: IndieLibKit
+        product: IndieGallery
       - package: IndieLibKit
         product: IndieSearch
       # Anchored comment threads on highlights (FastTabMobile/Reader/ReaderCommentThreads.swift),

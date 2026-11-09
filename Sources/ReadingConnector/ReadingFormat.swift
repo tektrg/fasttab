@@ -64,6 +64,23 @@ public struct ReadingFormat: Sendable {
         return lines.joined(separator: "\n") + "\n"
     }
 
+    public func searchMarkdown(_ hits: [SearchHit], query: String) -> String {
+        var lines = ["# Search \"\(inline(query))\" — \(count(hits.count, "hit"))", "", "_\(Self.untrustedNotice)_"]
+        if hits.isEmpty { lines += ["", "Nothing matches."] }
+        for (i, hit) in hits.enumerated() {
+            lines.append("\(i + 1). [\(hit.source)] **\(inline(hit.title))** · <\(hit.url)>"
+                + (hit.date.map { " · \(day($0))" } ?? "") + (hit.source == "highlights" || hit.source == "comments" ? " · id \(hit.id)" : ""))
+            let snippet = inline(hit.snippet)
+            if !snippet.isEmpty { lines.append("   > \(snippet)") }
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    public func json(_ hit: SearchHit) -> JSONValue {
+        ["source": .string(hit.source), "id": .string(hit.id), "url": .string(hit.url), "title": .string(hit.title),
+         "snippet": .string(hit.snippet), "date": date(hit.date)]
+    }
+
     /// `- **Title** — domain · read 2× · 100% · status · last 2027-01-13 · <url>`
     func itemLine(_ item: ReadingItem) -> String {
         var parts = ["**\(inline(item.displayTitle))**"]

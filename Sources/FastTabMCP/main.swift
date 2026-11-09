@@ -16,7 +16,9 @@ let sources = ReadingSources.standard()
 let readerDirectory: URL = ProcessInfo.processInfo.environment["FASTTAB_READER_DIR"]
     .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) } ?? sources.readerDirectory
 
-let reading = ReadingTools(connector: ReadingConnector(sources: sources))
+let reading = ReadingTools(
+    connector: ReadingConnector(sources: sources),
+    index: try? ReadingIndex(fileURL: ReadingIndex.fileURL(supportDirectory: sources.supportDirectory)))
 let threads = ReaderCommentTools(library: ReaderLibrary(directory: readerDirectory))
 let allTools = reading.tools + threads.tools
 

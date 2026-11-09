@@ -198,8 +198,9 @@ public struct BrowserData: Sendable {
                 """, arguments: [Self.chromiumMicros(since), limit])
             guard let rows else { unavailable.append(profile.label); continue }
             visits += rows.compactMap { row in
-                guard let url = row["url"] as String?, let micros = row["t"] as Int64? else { return nil }
-                let title = row["title"] as String? ?? ""
+                guard let url = Self.string(row, "url"), let micros = Int64.fromDatabaseValue(row["t"] as DatabaseValue)
+                else { return nil }
+                let title = Self.string(row, "title") ?? ""
                 return BrowserVisit(title: title.isEmpty ? url : title, url: url,
                                     visitedAt: Self.chromiumDate(micros: micros), browser: profile.label)
             }
@@ -212,8 +213,9 @@ public struct BrowserData: Sendable {
                 """, arguments: [since.timeIntervalSinceReferenceDate, limit])
             if let rows {
                 visits += rows.compactMap { row in
-                    guard let url = row["url"] as String?, let t = row["t"] as Double? else { return nil }
-                    return BrowserVisit(title: row["title"] as String? ?? url, url: url,
+                    guard let url = Self.string(row, "url"), let t = Double.fromDatabaseValue(row["t"] as DatabaseValue)
+                    else { return nil }
+                    return BrowserVisit(title: Self.string(row, "title") ?? url, url: url,
                                         visitedAt: Date(timeIntervalSinceReferenceDate: t), browser: "Safari")
                 }
             } else {
@@ -223,6 +225,11 @@ public struct BrowserData: Sendable {
         // The window again, on the merged rows: never trust a browser's clock column alone.
         let inWindow = visits.filter { $0.visitedAt >= since }.sorted { $0.visitedAt > $1.visitedAt }
         return (Array(inWindow.prefix(max(1, limit))), unavailable)
+    }
+
+    /// A text column, or nil for NULL / another type (a malformed row is skipped, never a crash).
+    static func string(_ row: Row, _ column: String) -> String? {
+        String.fromDatabaseValue(row[column] as DatabaseValue)
     }
 
     /// Copies the database (and its -wal / -journal) to a temp folder and queries the copy.

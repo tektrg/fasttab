@@ -39,7 +39,7 @@ public struct ReadingFormat: Sendable {
         for key in order {
             let group = byPage[key] ?? []
             guard let first = group.first?.highlight else { continue }
-            lines += ["", "## \(inline(first.pageTitle)) — \(first.site) · <\(first.articleURL?.absoluteString ?? key)>"]
+            lines += ["", "## \(inline(first.pageTitle)) — \(first.site) · \(link(first.articleURL?.absoluteString ?? key))"]
             for entry in group { lines += highlightLines(entry) }
         }
         return lines.joined(separator: "\n") + "\n"
@@ -47,7 +47,7 @@ public struct ReadingFormat: Sendable {
 
     public func articleMarkdown(_ detail: ArticleDetail) -> String {
         let title = detail.item?.displayTitle ?? detail.highlights.first?.highlight.pageTitle ?? detail.url
-        var lines = ["# \(inline(title))", "", "<\(detail.item?.url ?? detail.url)>", "", "_\(Self.untrustedNotice)_", ""]
+        var lines = ["# \(inline(title))", "", "\(link(detail.item?.url ?? detail.url))", "", "_\(Self.untrustedNotice)_", ""]
         if let item = detail.item {
             lines.append("- Status: \(item.status.rawValue) · \(percent(item.progress))"
                 + (item.readCount > 0 ? " · read \(item.readCount)×" : ""))
@@ -68,10 +68,14 @@ public struct ReadingFormat: Sendable {
         var lines = ["# Search \"\(inline(query))\" — \(count(hits.count, "hit"))", "", "_\(Self.untrustedNotice)_"]
         if hits.isEmpty { lines += ["", "Nothing matches."] }
         for (i, hit) in hits.enumerated() {
-            lines.append("\(i + 1). [\(hit.source)] **\(inline(hit.title))** · <\(hit.url)>"
+            lines.append("\(i + 1). [\(hit.source)] **\(inline(hit.title))** · \(link(hit.url))"
                 + (hit.date.map { " · \(day($0))" } ?? "") + (hit.source == "highlights" || hit.source == "comments" ? " · id \(hit.id)" : ""))
             let snippet = inline(hit.snippet)
-            if !snippet.isEmpty { lines.append("   > \(snippet)") }
+            guard !snippet.isEmpty else { continue }
+            // Fetched page text is fenced like article text; quotes and comments are the user's.
+            lines.append(hit.source == "text"
+                ? "   " + ArticleTextStore.wrapped(snippet, url: hit.url, limit: 600).replacingOccurrences(of: "\n", with: " ")
+                : "   > \(snippet)")
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -81,7 +85,7 @@ public struct ReadingFormat: Sendable {
         if !unavailable.isEmpty { lines += ["", "_Not readable: \(unavailable.joined(separator: ", "))._"] }
         if bookmarks.isEmpty { lines += ["", "Nothing matches."] }
         lines += bookmarks.map { b in
-            "- **\(inline(b.title))** · \(b.browser)" + (b.folder.isEmpty ? "" : " · \(inline(b.folder))") + " · <\(b.url)>"
+            "- **\(inline(b.title))** · \(b.browser)" + (b.folder.isEmpty ? "" : " · \(inline(b.folder))") + " · \(link(b.url))"
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -91,7 +95,7 @@ public struct ReadingFormat: Sendable {
                      "", "_Window: last \(windowDays) day\(windowDays == 1 ? "" : "s") (set by the user)._"]
         if !unavailable.isEmpty { lines += ["", "_Not readable: \(unavailable.joined(separator: ", "))._"] }
         if visits.isEmpty { lines += ["", "Nothing matches."] }
-        lines += visits.map { v in "- **\(inline(v.title))** · \(v.browser) · \(day(v.visitedAt)) · <\(v.url)>" }
+        lines += visits.map { v in "- **\(inline(v.title))** · \(v.browser) · \(day(v.visitedAt)) · \(link(v.url))" }
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -118,7 +122,7 @@ public struct ReadingFormat: Sendable {
         meta.append(percent(item.progress))
         meta.append(item.status.rawValue)
         meta.append("last \(day(item.lastActivityAt))")
-        meta.append("<\(item.url)>")
+        meta.append("\(link(item.url))")
         parts.append(meta.joined(separator: " · "))
         return parts.joined(separator: " — ")
     }
@@ -192,6 +196,19 @@ public struct ReadingFormat: Sendable {
         let formatter = ISO8601DateFormatter()
         formatter.timeZone = timeZone
         return .string(formatter.string(from: date))
+    }
+
+    /// `<url>` with the characters that could end the link or the line percent-encoded.
+    func link(_ url: String) -> String {
+        var safe = ""
+        for scalar in url.unicodeScalars {
+            switch scalar {
+            case "<", ">", " ", "\"", "`", "\\": safe += String(format: "%%%02X", scalar.value)
+            case _ where CharacterSet.newlines.contains(scalar) || CharacterSet.controlCharacters.contains(scalar): continue
+            default: safe.unicodeScalars.append(scalar)
+            }
+        }
+        return "<" + safe + ">"
     }
 
     func percent(_ progress: Double) -> String { "\(Int((min(max(progress, 0), 1) * 100).rounded()))%" }

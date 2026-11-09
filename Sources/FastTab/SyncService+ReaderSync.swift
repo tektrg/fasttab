@@ -132,6 +132,16 @@ extension SyncService {
         queueReaderChanges()
     }
 
+    /// Another iCloud account: the previous account's phone reading must not reach agents.
+    /// The mirror and its ledger are emptied and the reader-zone token dropped, so the next
+    /// catch-up reads the new account's zone from the start (every bridge merges re-reads).
+    func forgetReadingActivityOfPreviousAccount() {
+        activityMirror.removeAll()
+        activitySync.resetLedger()
+        try? FileManager.default.removeItem(at: ReaderMirror.directory(supportDirectory: fastTabSupportDirectory)
+            .appendingPathComponent("zone_change_token.dat"))
+    }
+
     /// Reader highlights first, then list items (each bridge ignores the other's records).
     func readerZoneOutcome(ofFailedSave record: CKRecord, error: Error) -> ReaderSyncBridge.FailedSaveOutcome {
         let readerOutcome = readerSync.outcome(ofFailedSave: record, error: error)

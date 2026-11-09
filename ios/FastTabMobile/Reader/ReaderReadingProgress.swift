@@ -70,8 +70,10 @@ public final class ReaderReadingProgress: ObservableObject, ReadingActivitySyncS
             let key = canonical(url)
             let local = store[key]
             guard local.map({ remote.lastReadAt > $0.updatedAt }) ?? false else { continue }
-            store[key] = ProgressEntry(progress: remote.progress, updatedAt: remote.lastReadAt,
-                                       title: remote.title ?? local?.title)
+            // Same merge as every other device, so the copies converge byte for byte.
+            let mine = local.map { ReadingActivity(url: key, title: $0.title, progress: $0.progress, lastReadAt: $0.updatedAt) }
+            let merged = mine.map { ReadingActivity.merge($0, remote) } ?? remote
+            store[key] = ProgressEntry(progress: merged.progress, updatedAt: merged.lastReadAt, title: merged.title)
             changed = true
         }
         if changed { saveToDisk() }

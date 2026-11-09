@@ -118,4 +118,13 @@ struct ReadingActivitySyncTests {
         #expect(stored.first?.url == "https://a.com/\(ReadingActivityMirror.maxEntries + 2)")
         #expect(!stored.contains { $0.url == "https://a.com/0" })
     }
+
+    @Test func removeAllForgetsThePreviousAccount() {
+        let url = temp("activity.json")
+        let mirror = ReadingActivityMirror(fileURL: url)
+        mirror.applyRemoteReadingActivities([ReadingActivity(url: "https://a.com/x", progress: 1, lastReadAt: t0)])
+        mirror.removeAll()
+        #expect(mirror.activities.isEmpty)
+        #expect(ReadingActivityMirror.load(fileURL: url).isEmpty)
+    }
 }

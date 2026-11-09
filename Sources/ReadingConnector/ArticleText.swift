@@ -11,18 +11,115 @@ public protocol PageFetching: Sendable {
 public struct URLSessionPageFetcher: PageFetching {
     public static let maxBytes = 5 * 1_024 * 1_024
 
+    public struct Refused: Error, LocalizedError {
+        public let errorDescription: String?
+    }
+
+    /// One ephemeral session (no cookies, no cache) for every fetch; redirects are checked.
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 30
+        return URLSession(configuration: configuration, delegate: RedirectGuard(), delegateQueue: nil)
+    }()
+
     public init() {}
 
     public func fetch(_ url: URL) async throws -> (data: Data, status: Int, contentType: String?) {
+        guard PublicHost.isPublic(url) else {
+            throw Refused(errorDescription: "only public web pages are fetched, not local or private network addresses")
+        }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) "
                          + "Version/18.0 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieStorage = nil
-        let (data, response) = try await URLSession(configuration: configuration).data(for: request)
+        let (bytes, response) = try await Self.session.bytes(for: request)
         let http = response as? HTTPURLResponse
-        return (data.prefix(Self.maxBytes), http?.statusCode ?? 200, http?.value(forHTTPHeaderField: "Content-Type"))
+        if let final = response.url, !PublicHost.isPublic(final) {
+            throw Refused(errorDescription: "the page redirected to a local or private network address")
+        }
+        // Stop reading at the cap: a huge or endless body never fills memory.
+        var data = Data()
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count >= Self.maxBytes { break }
+        }
+        return (data, http?.statusCode ?? 200, http?.value(forHTTPHeaderField: "Content-Type"))
+    }
+
+    /// Refuses a redirect to a non-public host or from https down to http.
+    final class RedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest) async -> URLRequest? {
+            guard let target = request.url, PublicHost.isPublic(target) else { return nil }
+            if response.url?.scheme?.lowercased() == "https", target.scheme?.lowercased() != "https" { return nil }
+            return request
+        }
+    }
+}
+
+/// Whether a URL points at the public internet: http(s), and every address its host resolves
+/// to is outside loopback, private, link-local, CGNAT, multicast and unique-local ranges
+/// (no `localhost`, `.local`, `192.168.x.x`, `169.254.x.x`, `::1`, `fc00::/7`, ...).
+public enum PublicHost {
+    public static func isPublic(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host()?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")), !host.isEmpty else {
+            return false
+        }
+        if host == "localhost" || host.hasSuffix(".localhost") || host.hasSuffix(".local") || host.hasSuffix(".internal")
+            || !host.contains(".") && !host.contains(":") {
+            return false
+        }
+        let addresses = resolve(host)
+        return !addresses.isEmpty && addresses.allSatisfy(isPublicAddress)
+    }
+
+    /// Numeric addresses for `host` (IPv4 as 4 bytes, IPv6 as 16).
+    static func resolve(_ host: String) -> [[UInt8]] {
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        var result: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, nil, &hints, &result) == 0, let first = result else { return [] }
+        defer { freeaddrinfo(first) }
+        var out: [[UInt8]] = []
+        var cursor: UnsafeMutablePointer<addrinfo>? = first
+        while let info = cursor {
+            if info.pointee.ai_family == AF_INET, let address = info.pointee.ai_addr {
+                address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { v4 in
+                    out.append(withUnsafeBytes(of: v4.pointee.sin_addr.s_addr) { Array($0) })
+                }
+            } else if info.pointee.ai_family == AF_INET6, let address = info.pointee.ai_addr {
+                address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { v6 in
+                    out.append(withUnsafeBytes(of: v6.pointee.sin6_addr) { Array($0) })
+                }
+            }
+            cursor = info.pointee.ai_next
+        }
+        return out
+    }
+
+    static func isPublicAddress(_ bytes: [UInt8]) -> Bool {
+        if bytes.count == 4 {
+            let (a, b) = (bytes[0], bytes[1])
+            return !(a == 0 || a == 10 || a == 127 || a >= 224
+                || (a == 169 && b == 254) || (a == 172 && (16...31).contains(b)) || (a == 192 && b == 168)
+                || (a == 100 && (64...127).contains(b)) || (a == 192 && b == 0 && bytes[2] == 0)
+                || (a == 198 && (18...19).contains(b)))
+        }
+        guard bytes.count == 16 else { return false }
+        if bytes.allSatisfy({ $0 == 0 }) || bytes[0..<15].allSatisfy({ $0 == 0 }) && bytes[15] == 1 { return false }  // :: and ::1
+        if bytes[0] & 0xFE == 0xFC { return false }                 // fc00::/7 unique local
+        if bytes[0] == 0xFE && bytes[1] & 0xC0 == 0x80 { return false }  // fe80::/10 link local
+        if bytes[0] == 0xFF { return false }                        // multicast
+        // IPv4-mapped (::ffff:a.b.c.d): judge the IPv4 address.
+        if bytes[0..<10].allSatisfy({ $0 == 0 }) && bytes[10] == 0xFF && bytes[11] == 0xFF {
+            return isPublicAddress(Array(bytes[12..<16]))
+        }
+        return true
     }
 }
 

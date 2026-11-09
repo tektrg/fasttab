@@ -47,7 +47,13 @@ struct AgentAccessSection: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .task { await load() }
-        .onChange(of: settings) { _, new in try? new.save(supportDirectory: supportDirectory) }
+        .onChange(of: settings) { old, new in
+            try? new.save(supportDirectory: supportDirectory)
+            // Less history allowed: nothing of it may stay on disk in the search index.
+            if old.historyEnabled && (!new.historyEnabled || new.historyWindowDays < old.historyWindowDays) {
+                ReadingIndex.deleteFiles(supportDirectory: supportDirectory)
+            }
+        }
     }
 
     private func commandRow(_ title: String, _ command: String) -> some View {

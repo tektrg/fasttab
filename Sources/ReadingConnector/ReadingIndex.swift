@@ -127,6 +127,15 @@ public final class ReadingIndex: Sendable {
         return refreshed
     }
 
+    /// Deletes the index files (history turned off or its window shortened): FTS5 keeps
+    /// deleted terms in its pages until a merge, so the file goes, and the next search rebuilds.
+    public static func deleteFiles(supportDirectory: URL) {
+        let url = fileURL(supportDirectory: supportDirectory)
+        for suffix in ["", "-wal", "-shm"] {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + suffix))
+        }
+    }
+
     /// Drops a source's rows (history turned off): nothing of it stays searchable.
     public func remove(source name: String) async throws {
         try await queue.write { db in

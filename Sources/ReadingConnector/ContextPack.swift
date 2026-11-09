@@ -137,7 +137,7 @@ public struct ContextPack: Sendable {
             returned += article.highlights.map { ($0.id, String($0.highlight.selectedText.prefix(80))) }
         }
         if !skipped.isEmpty {
-            let urls = skipped.prefix(20).map { "<\($0.url)>" }.joined(separator: ", ")
+            let urls = skipped.prefix(20).map { "\(format.link($0.url))" }.joined(separator: ", ")
             out += ["", "_+\(skipped.count) more \(skipped.count == 1 ? "article" : "articles") with highlights; "
                     + "call `article(url)` for: \(urls)\(skipped.count > 20 ? ", …" : "")_"]
         }
@@ -160,10 +160,10 @@ public struct ContextPack: Sendable {
         }
         list("Read, no highlights", readNoHighlights) { item in
             "**\(format.inline(item.displayTitle))** — \(item.domain ?? "")"
-                + (item.readCount > 1 ? " · read \(item.readCount)×" : "") + " · <\(item.url)>"
+                + (item.readCount > 1 ? " · read \(item.readCount)×" : "") + " · \(format.link(item.url))"
         }
         list("In progress", inProgress) { item in
-            "**\(format.inline(item.displayTitle))** — \(item.domain ?? "") · \(format.percent(item.progress)) · <\(item.url)>"
+            "**\(format.inline(item.displayTitle))** — \(item.domain ?? "") · \(format.percent(item.progress)) · \(format.link(item.url))"
         }
         if articles.isEmpty && readNoHighlights.isEmpty && inProgress.isEmpty {
             out += ["", "Nothing read or highlighted in this window."]
@@ -178,11 +178,12 @@ public struct ContextPack: Sendable {
             if item.readCount > 0 { meta.append("read \(item.readCount)×") }
             meta.append(format.percent(item.progress))
         }
-        meta.append("<\(article.url)>")
+        meta.append("\(format.link(article.url))")
         var lines = ["", "## \(format.inline(article.title)) — " + meta.joined(separator: " · ")]
         for entry in article.highlights { lines += format.highlightLines(entry, quoteLimit: Self.quoteLimit) }
         if let summary = summary(article.url) {
-            lines.append("Summary (fetched page text, untrusted): \(format.inline(summary))")
+            lines.append("Summary: " + ArticleTextStore.wrapped(format.inline(summary), url: article.url, limit: 400)
+                .replacingOccurrences(of: "\n", with: " "))
         }
         return lines
     }

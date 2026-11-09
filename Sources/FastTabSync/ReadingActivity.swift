@@ -189,6 +189,12 @@ public final class ReadingActivityMirror: ReadingActivitySyncStore {
 
     public func readingActivitiesForSync() -> [ReadingActivity] { [] }
 
+    /// Empties the mirror (iCloud account switched).
+    public func removeAll() {
+        byID = [:]
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
     public func applyRemoteReadingActivities(_ incoming: [ReadingActivity]) {
         var changed = false
         for activity in incoming {

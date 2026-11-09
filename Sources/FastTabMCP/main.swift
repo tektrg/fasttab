@@ -1,25 +1,41 @@
 import FastTabReader
 import Foundation
 import IndieMCP
+import ReadingConnector
 
-// fasttab-mcp: Fast Tab's reader comment tools over MCP (stdio). An agent client (Claude Code,
-// Claude Desktop, ...) starts it from FastTab.app/Contents/MacOS/. It reads and writes the
-// reader mirror the app keeps; the app syncs those comments to the iPhone on its next tick.
-// Works while Fast Tab is closed (writes then wait for the next launch). Never listens on a
-// network.
+// fasttab-mcp: Fast Tab's read-only reading connector over MCP (stdio). An agent client
+// (Claude Code, Claude Desktop, ...) starts it from FastTab.app/Contents/MacOS/. It reads the
+// files the app keeps (FastTab List, phone reading activity, highlights + threads) and writes
+// nothing back. Never listens on a network.
+//
+// Also the `fasttab` terminal command: `fasttab-mcp cli <command> …`, or the binary symlinked
+// as `fasttab` (`ln -s …/fasttab-mcp ~/.local/bin/fasttab`).
 
-/// The app's reader mirror; `FASTTAB_READER_DIR` overrides it (tests, a second profile).
-let directory: URL = {
-    if let override = ProcessInfo.processInfo.environment["FASTTAB_READER_DIR"], !override.isEmpty {
-        return URL(fileURLWithPath: override, isDirectory: true)
-    }
-    let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    return ReaderMirror.directory(supportDirectory: support.appendingPathComponent("com.trungluong.FastTab"))
-}()
+let sources = ReadingSources.standard()
+/// `FASTTAB_READER_DIR` still overrides just the reader mirror (older test setups).
+let readerDirectory: URL = ProcessInfo.processInfo.environment["FASTTAB_READER_DIR"]
+    .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) } ?? sources.readerDirectory
 
-let tools = ReaderCommentTools(library: ReaderLibrary(directory: directory))
+let reading = ReadingTools(connector: ReadingConnector(sources: sources))
+let threads = ReaderCommentTools(library: ReaderLibrary(directory: readerDirectory))
+let allTools = reading.tools + threads.tools
+
+let arguments = Array(CommandLine.arguments.dropFirst())
+let invokedAsCLI = URL(fileURLWithPath: CommandLine.arguments.first ?? "").lastPathComponent == "fasttab"
+if invokedAsCLI || arguments.first == "cli" {
+    let output = await ReadingCLI(tools: allTools).run(invokedAsCLI ? arguments : Array(arguments.dropFirst()))
+    FileHandle(fileDescriptor: output.exitCode == 0 ? 1 : 2).write(Data(output.text.utf8))
+    exit(output.exitCode)
+}
+
 let server = MCPServer(
-    info: MCPServerInfo(name: "fasttab", version: "1", instructions: ReaderCommentTools.instructions),
-    tools: MCPToolRegistry(tools.tools),
+    info: MCPServerInfo(
+        name: "fasttab", version: "2",
+        instructions: ReadingTools.instructions + "\n\n" + ReaderCommentTools.instructions),
+    tools: MCPToolRegistry(allTools),
     recordToolCall: { _ in })
-await StdioTransport(server: server).run()
+await StdioTransport(server: server).run(input: FileHandle.standardInput.bytes) { reply in
+    // Markdown answers reach the agent as plain text (see MarkdownReplies).
+    let body = reply.last == UInt8(ascii: "\n") ? reply.dropLast() : reply
+    FileHandle.standardOutput.write(MarkdownReplies.rewrite(Data(body)) + Data("\n".utf8))
+}

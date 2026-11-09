@@ -61,13 +61,14 @@ let package = Package(
         // highlights + threads. Shared by the fasttab-mcp tools and the `fasttab` CLI.
         .target(
             name: "ReadingConnector",
-            dependencies: ["FastTabSync", "FastTabReader", indieComments]
+            dependencies: ["FastTabSync", "FastTabReader", indieComments, indieMCP]
         ),
-        // Stdio MCP server bundled in the app (Contents/MacOS/fasttab-mcp): comment tools over
-        // the reader mirror.
+        // Stdio MCP server bundled in the app (Contents/MacOS/fasttab-mcp): the read-only
+        // reading connector + comment-thread tools. Also the `fasttab` CLI (`fasttab-mcp cli …`,
+        // or symlinked as `fasttab`).
         .executableTarget(
             name: "FastTabMCP",
-            dependencies: ["FastTabReader", indieComments, indieMCP]
+            dependencies: ["FastTabReader", "ReadingConnector", indieComments, indieMCP]
         ),
         // Reusable command-bar building blocks shared with future apps.
         // Only static-library dependencies and no resources on purpose: it links

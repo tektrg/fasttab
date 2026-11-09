@@ -9,6 +9,8 @@ import IndieGallery
 struct HighlightGalleryCard: View {
     let entry: HighlightFeedEntry
     @Binding var filter: HighlightFeedFilter
+    /// Tapping the latest-comment line opens the thread (the card's own tap opens the article).
+    var onOpenComments: () -> Void = {}
 
     /// Longest excerpt before it is cut (the full text is one tap away in the reader).
     static let excerptLineLimit = 6
@@ -43,16 +45,22 @@ struct HighlightGalleryCard: View {
         } footer: {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 if let latest = entry.comments.last {
-                    Label {
-                        Text(entry.comments.count > 1 ? "\(latest) · \(entry.comments.count) comments" : latest)
-                            .lineLimit(1)
-                    } icon: {
-                        Image(systemName: "text.bubble")
+                    Button(action: onOpenComments) {
+                        Label {
+                            Text(entry.comments.count > 1 ? "\(latest) · \(entry.comments.count) comments" : latest)
+                                .lineLimit(1)
+                        } icon: {
+                            Image(systemName: "text.bubble")
+                        }
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
                     }
-                    .foregroundStyle(.secondary)
+                    .buttonStyle(.plain)
                 }
-                if !entry.allTags.isEmpty {
+                if !entry.userTags.isEmpty || !entry.folderTags.isEmpty {
+                    // VoiceOver reaches these through the card's "Filter by …" actions.
                     HighlightRowChips(entry: entry, filter: $filter, showsArticle: false)
+                        .accessibilityHidden(true)
                 }
             }
         }
@@ -83,7 +91,7 @@ struct HighlightGalleryCard: View {
         height += lines(entry.articleTitle.count, max: 3) * 20
         height += lines(entry.highlight.selectedText.count, max: excerptLineLimit) * 20
         if !entry.comments.isEmpty { height += 18 }
-        let chips = entry.allTags.count
+        let chips = entry.userTags.count + entry.folderTags.count
         if chips > 0 { height += CGFloat((chips + 1) / 2) * 26 }
         return height + 3 * DS.Space.sm
     }

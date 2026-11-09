@@ -66,7 +66,7 @@ final class HighlightGalleryCardTests: XCTestCase {
 
     func testGalleryOfCardsRendersInLightAndDark() {
         let entries = [
-            entry(tags: ["Habits", "Identity"]),
+            entry(tags: ["Habits", "Identity", "Work/Research/AI papers/Long reads to finish"]),
             entry(text: "Hard things are hard because there are no easy answers.", title: "No clean getaways",
                   tags: ["Leadership"], comments: ["So true", "Agree"]),
             entry(text: "Your time is limited.", title: "Time is limited",

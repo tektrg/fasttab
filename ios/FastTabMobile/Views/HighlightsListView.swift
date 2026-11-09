@@ -93,7 +93,7 @@ public struct HighlightsListView: View {
     }
 
     private func galleryCard(_ entry: HighlightFeedEntry) -> some View {
-        HighlightGalleryCard(entry: entry, filter: $filter)
+        HighlightGalleryCard(entry: entry, filter: $filter) { commentingEntry = entry }
             .onTapGesture { open(entry.highlight) }
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { open(entry.highlight) }
@@ -101,6 +101,14 @@ public struct HighlightsListView: View {
             .accessibilityAction(named: "Edit Tags") { taggingEntry = entry }
             .accessibilityAction(named: articleFilterLabel(entry)) { toggleArticle(entry) }
             .accessibilityAction(named: "Delete") { delete(entry) }
+            .accessibilityActions {
+                // The tag chips are hidden from VoiceOver inside the combined card; one action each.
+                ForEach(entry.allTags, id: \.normalizedPath) { tag in
+                    Button(filter.tagFilter.covers(tag) ? "Remove filter \(tag.displayPath)" : "Filter by \(tag.displayPath)") {
+                        withAnimation(DS.Motion.quick) { filter.tagFilter.toggleCovering(tag) }
+                    }
+                }
+            }
             .contextMenu {
                 Button { commentingEntry = entry } label: { Label("Comments", systemImage: "text.bubble") }
                 Button { taggingEntry = entry } label: { Label("Edit Tags", systemImage: "tag") }

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import CommandBarKit
 @testable import AgentBar
+import IndieAgentSessions
 
 @MainActor
 struct AgentSwitchCoordinatorTests {

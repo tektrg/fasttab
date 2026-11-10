@@ -1,3 +1,4 @@
+import IndieAgentSessions
 import AppKit
 import Combine
 
@@ -105,6 +106,14 @@ final class AgentBarCoordinator {
     /// the fallback when the global shortcut could not be registered.
     func showPanel() {
         panelController.show()
+    }
+
+    /// `agentbar://session/<rowId>` (another app asking to show a session): the panel opens as on a
+    /// summon, with that row selected so the user can answer, message or approve it.
+    func openSessionLink(_ url: URL) {
+        guard let sessionID = AgentSessionLink().sessionID(from: url) else { return }
+        panelController.show()
+        model.revealSession(id: sessionID)
     }
 
     func showSettings() {

@@ -14,6 +14,7 @@ let indieTable: Target.Dependency = .product(name: "IndieTable", package: "Indie
 let indieMCP: Target.Dependency = .product(name: "IndieMCP", package: "IndieLibKit")
 let indieSharing: Target.Dependency = .product(name: "IndieSharing", package: "IndieLibKit")
 let indieAccount: Target.Dependency = .product(name: "IndieAccount", package: "IndieLibKit")
+let indieAgentSessions: Target.Dependency = .product(name: "IndieAgentSessions", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -105,10 +106,10 @@ let package = Package(
         .executableTarget(
             name: "FastTabNativeHost"
         ),
-        // Read-only agent switcher. Standalone app: no Sparkle, no FastTabSync.
+        // Agent switcher (⌥Tab panel). Standalone app: no Sparkle, no FastTabSync.
         .executableTarget(
             name: "AgentBar",
-            dependencies: ["CommandBarKit", indieSearch],
+            dependencies: ["CommandBarKit", indieSearch, indieAgentSessions],
             path: "Sources/AgentBar"
         ),
         .testTarget(
@@ -118,7 +119,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentBarTests",
-            dependencies: ["AgentBar", "CommandBarKit"],
+            dependencies: ["AgentBar", "CommandBarKit", indieAgentSessions],
             resources: [.copy("Fixtures")]
         ),
         .testTarget(

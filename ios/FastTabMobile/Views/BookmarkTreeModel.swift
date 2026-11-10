@@ -265,3 +265,87 @@ public enum BookmarkTreeBuilder {
             .map(String.init)
     }
 }
+
+/// One `deleteBookmarkFolder` command: the folder at `folderPath` in one
+/// browser profile on one Mac. A merged phone folder can span several
+/// profiles/Macs, so a folder delete is one request per source.
+public struct FolderDeleteRequest: Equatable, Sendable {
+    public let source: BookmarkSource
+    public let folderPath: [String]
+    /// The synced bookmark ids inside, hidden while the request travels.
+    public let bookmarkIDs: [String]
+}
+
+public enum FolderDeletePlan: Equatable, Sendable {
+    case send([FolderDeleteRequest])
+    /// A target Mac runs a FastTab too old to understand the command; it
+    /// would drop it silently, so nothing is sent.
+    case macNeedsUpdate(macName: String)
+    case notDeletable(reason: String)
+}
+
+public enum FolderDeletePlanner {
+    public static let safariReason = "Safari bookmarks can't be changed from FastTab"
+    public static let rootReason = "Built-in bookmark folders can't be deleted"
+    public static let syntheticReason = "This group isn't a real folder on your Mac"
+
+    public static func isSafari(_ browserName: String) -> Bool {
+        browserName.lowercased().contains("safari")
+    }
+
+    /// Every subfolder at any depth below `node`.
+    public static func subfolderCount(of node: BookmarkTreeNode) -> Int {
+        (node.children ?? []).reduce(0) { $1.isFolder ? $0 + 1 + subfolderCount(of: $1) : $0 }
+    }
+
+    /// Why `node` can't be deleted as a folder, or nil when it can.
+    public static func blockReason(for node: BookmarkTreeNode) -> String? {
+        guard node.isFolder else { return syntheticReason }
+        if node.id.contains("$synthetic") { return syntheticReason }
+        let path = BookmarkTreeBuilder.folderPathComponents(of: node)
+        if path.isEmpty { return syntheticReason }
+        if path.count == 1 { return rootReason }
+        let leaves = BookmarkTreeBuilder.collectLeaves(from: node)
+        if leaves.contains(where: { isSafari($0.source?.browserName ?? "") }) { return safariReason }
+        return nil
+    }
+
+    /// `devices` are the Macs the phone knows (their records carry capabilities).
+    public static func plan(for node: BookmarkTreeNode, devices: [SyncedDevice]) -> FolderDeletePlan {
+        if let reason = blockReason(for: node) { return .notDeletable(reason: reason) }
+        let path = BookmarkTreeBuilder.folderPathComponents(of: node)
+        var order: [String] = []
+        var bySource: [String: (source: BookmarkSource, ids: [String])] = [:]
+        for leaf in BookmarkTreeBuilder.collectLeaves(from: node) {
+            guard let source = leaf.source, let item = leaf.bookmarkItem else { continue }
+            if bySource[source.blobID] == nil {
+                order.append(source.blobID)
+                bySource[source.blobID] = (source, [])
+            }
+            bySource[source.blobID]?.ids.append(item.id)
+        }
+        guard !order.isEmpty else { return .notDeletable(reason: syntheticReason) }
+        for blobID in order {
+            guard let source = bySource[blobID]?.source else { continue }
+            let device = devices.first { $0.id == source.deviceID }
+            if !(device?.supports(SyncedDeviceCapability.deleteBookmarkFolder) ?? false) {
+                return .macNeedsUpdate(macName: device?.name ?? "your Mac")
+            }
+        }
+        return .send(order.compactMap { blobID in
+            bySource[blobID].map { FolderDeleteRequest(source: $0.source, folderPath: path, bookmarkIDs: $0.ids) }
+        })
+    }
+
+    /// `Delete folder "X" and its N bookmarks (incl. M subfolders)? This can't be undone.`
+    public static func confirmation(folderName: String, bookmarkCount: Int, subfolderCount: Int) -> String {
+        let bookmarks = bookmarkCount == 1 ? "1 bookmark" : "\(bookmarkCount) bookmarks"
+        let subfolders: String
+        switch subfolderCount {
+        case 0: subfolders = ""
+        case 1: subfolders = " (incl. 1 subfolder)"
+        default: subfolders = " (incl. \(subfolderCount) subfolders)"
+        }
+        return "Delete folder \"\(folderName)\" and its \(bookmarks)\(subfolders)? This can't be undone."
+    }
+}

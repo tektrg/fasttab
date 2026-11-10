@@ -25,26 +25,23 @@ struct ReaderCommentToolsTests {
         await tools.tools.first { $0.name == name }!.handler(arguments)
     }
 
-    @Test func toolNamesMatchMDLY() {
-        #expect(makeTools().tools.map(\.name) == ["list_threads", "read_thread", "create_thread", "reply", "resolve", "reopen"])
+    @Test func onlyReadToolsRemain() {
+        let tools = makeTools().tools
+        #expect(tools.map(\.name) == ["list_threads", "read_thread"])
+        #expect(tools.allSatisfy { $0.readOnly })
     }
 
-    @Test func agentWorksThroughOpenThreads() async {
+    @Test func agentReadsThreadsTheUserWrote() async throws {
         let tools = makeTools()
         #expect(await call(tools, "list_threads", [:]).resultCount == 0, "open-threads is the default and empty")
-        #expect(await call(tools, "reply", ["highlight_id": "h1", "text": "x"]).isError)
-
-        #expect(await call(tools, "create_thread", ["highlight_id": "h1", "text": "Source?"]).isError == false)
-        #expect(await call(tools, "create_thread", ["highlight_id": "h1", "text": "again"]).isError, "one thread per highlight")
+        try await tools.library.comment("Source?", onHighlight: "h1", by: .init(kind: .human, id: "me", label: "Me"))
         #expect(await call(tools, "list_threads", ["view": "open-threads"]).resultCount == 1)
-
-        #expect(await call(tools, "resolve", ["highlight_id": "h1"]).isError == false)
-        #expect(await call(tools, "list_threads", [:]).resultCount == 0)
         let read = await call(tools, "read_thread", ["highlight_id": "h1"])
-        #expect(read.structuredContent?["thread"] == "resolved")
+        #expect(read.structuredContent?["thread"] == "open")
         #expect(read.structuredContent?["url"]?.stringValue?.hasSuffix("#:~:text=plan%20then%20act") == true)
 
         #expect(await call(tools, "list_threads", ["view": "nope"]).isError)
         #expect(await call(tools, "read_thread", ["highlight_id": "missing"]).isError)
+        #expect(await call(tools, "list_threads", ["view": "all"]).resultCount == 1)
     }
 }

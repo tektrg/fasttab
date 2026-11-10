@@ -36,7 +36,9 @@ let package = Package(
         // `IndieEdgeReveal` (notch/edge/corner hover trigger) + `IndieEdgeRevealUI` (the black
         // edge-hugging surface and its grow-out motion).
         // `IndieFeedback`/`IndieFeedbackUI` (Settings > About > Chat with the Creator…).
-        .package(path: "../IndieLibKit")
+        .package(path: "../IndieLibKit"),
+        // The reading connector's search index (FTS5). Same package IndieLibKit already pulls in.
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0")
     ],
     targets: [
         .target(
@@ -57,11 +59,19 @@ let package = Package(
             name: "FastTabWebReader",
             dependencies: ["FastTabSync", indieSharing]
         ),
-        // Stdio MCP server bundled in the app (Contents/MacOS/fasttab-mcp): comment tools over
-        // the reader mirror.
+        // The reading connector's engine (read-only): the List, the phone's reading activity,
+        // highlights + threads. Shared by the fasttab-mcp tools and the `fasttab` CLI.
+        .target(
+            name: "ReadingConnector",
+            dependencies: ["FastTabSync", "FastTabReader", indieComments, indieMCP,
+                           .product(name: "GRDB", package: "GRDB.swift")]
+        ),
+        // Stdio MCP server bundled in the app (Contents/MacOS/fasttab-mcp): the read-only
+        // reading connector + comment-thread tools. Also the `fasttab` CLI (`fasttab-mcp cli …`,
+        // or symlinked as `fasttab`).
         .executableTarget(
             name: "FastTabMCP",
-            dependencies: ["FastTabReader", indieComments, indieMCP]
+            dependencies: ["FastTabReader", "ReadingConnector", indieComments, indieMCP]
         ),
         // Reusable command-bar building blocks shared with future apps.
         // Only static-library dependencies and no resources on purpose: it links
@@ -77,6 +87,8 @@ let package = Package(
                 "FastTabSync",
                 "FastTabReader",
                 "FastTabWebReader",
+                "ReadingConnector",
+                indieMCP,
                 "CommandBarKit",
                 indieSearch,
                 indieSharing,
@@ -101,7 +113,8 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP]
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP,
+                           .product(name: "GRDB", package: "GRDB.swift")]
         ),
         .testTarget(
             name: "AgentBarTests",

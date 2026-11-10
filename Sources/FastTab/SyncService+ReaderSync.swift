@@ -11,7 +11,8 @@ extension Notification.Name {
 // Reader highlights and comment threads from the phone (`ReaderZone`), mirrored to disk by
 // `ReaderMirror` through the shared `ReaderSyncBridge`. Comments written on this Mac (agent
 // tools) go back the same way. The FastTab List (read-later items) shares the zone through
-// `FastTabListSyncBridge`; this Mac both receives and edits it (`FastTabListStore`).
+// `FastTabListSyncBridge`; this Mac both receives and edits it (`FastTabListStore`). Phone
+// reading activity (`ReadingActivitySyncBridge`) is received only, into `ReadingActivityMirror`.
 
 extension SyncService {
     /// The mirror as Settings > Highlights reads and writes it; same comment store as sync.
@@ -52,6 +53,7 @@ extension SyncService {
         let readerDeletions = deletions.filter { $0.zoneID == SyncConstants.readerZoneID }
         listSync.absorb(records.filter { FastTabListSyncBridge.handles($0.recordType) })
         listSync.absorbDeletions(readerDeletions)
+        activitySync.absorb(records.filter { ReadingActivitySyncBridge.handles($0.recordType) })
         guard !readerRecords.isEmpty || !readerDeletions.isEmpty else { return }
         Task { @MainActor in
             await readerSync.absorb(readerRecords)
@@ -82,6 +84,7 @@ extension SyncService {
                     readerSync.absorbDeletions(changes.deletions.map(\.recordID))
                     listSync.absorb(records.filter { FastTabListSyncBridge.handles($0.recordType) })
                     listSync.absorbDeletions(changes.deletions.map(\.recordID))
+                    activitySync.absorb(records.filter { ReadingActivitySyncBridge.handles($0.recordType) })
                     token = changes.changeToken
                     if let data = try? NSKeyedArchiver.archivedData(withRootObject: changes.changeToken, requiringSecureCoding: true) {
                         try? data.write(to: tokenURL, options: .atomic)
@@ -127,6 +130,16 @@ extension SyncService {
     func resendFastTabListToNewAccount() {
         listSync.resetLedger()
         queueReaderChanges()
+    }
+
+    /// Another iCloud account: the previous account's phone reading must not reach agents.
+    /// The mirror and its ledger are emptied and the reader-zone token dropped, so the next
+    /// catch-up reads the new account's zone from the start (every bridge merges re-reads).
+    func forgetReadingActivityOfPreviousAccount() {
+        activityMirror.removeAll()
+        activitySync.resetLedger()
+        try? FileManager.default.removeItem(at: ReaderMirror.directory(supportDirectory: fastTabSupportDirectory)
+            .appendingPathComponent("zone_change_token.dat"))
     }
 
     /// Reader highlights first, then list items (each bridge ignores the other's records).

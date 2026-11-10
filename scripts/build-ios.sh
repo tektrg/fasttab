@@ -193,10 +193,12 @@ if ! xcrun devicectl device install app --device "${DEVICE_ID}" "${APP_PATH}"; t
   echo "    install failed, retrying in 10s (keep the phone unlocked)"
   sleep 10
   xcrun devicectl device install app --device "${DEVICE_ID}" "${APP_PATH}" \
-    || { echo "${UNREACHABLE_MSG}" >&2; exit 1; }
+    || { echo "build-ios: INSTALL FAILED on ${DEVICE_NAME} — see the devicectl error above (locked/unreachable phone, or a signing error)" >&2; exit 1; }
 fi
 
 echo "==> Launching"
-xcrun devicectl device process launch --device "${DEVICE_ID}" --terminate-existing "${BUNDLE_ID}"
+# Installed is what matters; a locked phone only blocks the launch.
+xcrun devicectl device process launch --device "${DEVICE_ID}" --terminate-existing "${BUNDLE_ID}" \
+  || echo "    installed, but could not launch (phone locked?) — open FastTab on the phone"
 
 echo "==> Done"

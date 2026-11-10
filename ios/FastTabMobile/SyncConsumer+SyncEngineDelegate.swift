@@ -23,6 +23,7 @@ extension SyncConsumer: CKSyncEngineDelegate {
                     // backlog cannot be sent until they exist again. Nothing in it is
                     // confirmed either: the FastTab List stays local and uploads again.
                     self.listSync.resetLedger()
+                    self.activitySync.resetLedger()
                     self.resetZoneSweepTokens()
                     self.ensureZonesExist()
                     self.restorePendingCommandOutbox()
@@ -49,6 +50,7 @@ extension SyncConsumer: CKSyncEngineDelegate {
                     if ReaderSyncBridge.handles(saved.recordType) { self.readerSync.didSave(saved) }
                 }
                 self.listSync.didSave(sentChanges.savedRecords)
+                self.activitySync.didSave(sentChanges.savedRecords)
                 for deletedID in sentChanges.deletedRecordIDs {
                     self.readerSync.didDelete(deletedID)
                 }
@@ -76,7 +78,12 @@ extension SyncConsumer: CKSyncEngineDelegate {
                     let readerOutcome = self.readerSync.outcome(ofFailedSave: failedSave.record, error: failedSave.error)
                     let outcome: ReaderSyncBridge.FailedSaveOutcome
                     if case .notReader = readerOutcome {
-                        outcome = self.listSync.outcome(ofFailedSave: failedSave.record, error: failedSave.error)
+                        let listOutcome = self.listSync.outcome(ofFailedSave: failedSave.record, error: failedSave.error)
+                        if case .notReader = listOutcome {
+                            outcome = self.activitySync.outcome(ofFailedSave: failedSave.record, error: failedSave.error)
+                        } else {
+                            outcome = listOutcome
+                        }
                     } else {
                         outcome = readerOutcome
                     }

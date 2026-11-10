@@ -3,22 +3,20 @@ import Foundation
 import IndieComments
 import IndieMCP
 
-/// Comment tools over the reader mirror, named like MDLY's (create_thread, reply, resolve,
-/// reopen, list, read). Threads hang off highlights, so every tool takes a `highlight_id`;
-/// `list_threads` runs the same saved views as Settings > Highlights.
+/// Read-only comment-thread tools over the reader mirror, named like MDLY's (list, read).
+/// Threads hang off highlights, so `read_thread` takes a `highlight_id`; `list_threads` runs
+/// the same saved views as Settings > Highlights. The write tools (create_thread, reply,
+/// resolve, reopen) were removed with the reading connector (owner, 2026-11-09): agents read,
+/// only the user writes.
 struct ReaderCommentTools {
     let library: ReaderLibrary
-    let author = CommentAuthor(kind: .agent, id: "fasttab-mcp", label: "Agent")
-
     static let instructions = """
-    Fast Tab reader highlights from the user's iPhone, each with an optional comment thread. \
-    Start with list_threads (view "open-threads" is the work queue), read a thread with \
-    read_thread, answer with reply, and resolve it when done. create_thread starts a thread on \
-    a highlight that has none. Comments sync back to the iPhone.
+    list_threads lists highlights in a saved view (all, open-threads, by-page, by-date) with \
+    each comment thread's status; read_thread shows one highlight's full thread.
     """
 
     var tools: [MCPTool] {
-        [listThreads, readThread, createThread, reply, setResolved(true), setResolved(false)]
+        [listThreads, readThread]
     }
 
     // MARK: - Tools
@@ -75,48 +73,6 @@ struct ReaderCommentTools {
         }
     }
 
-    private var createThread: MCPTool {
-        MCPTool(
-            name: "create_thread", title: "Start a thread",
-            description: "Starts the comment thread on a highlight that has none. Use reply when it has one.",
-            inputSchema: schema(["highlight_id": idProperty, "text": textProperty], required: ["highlight_id", "text"]),
-            readOnly: false
-        ) { arguments in
-            await perform("create_thread", arguments) { id in
-                guard try await library.entry(id: id).thread == nil else {
-                    throw ToolError("Highlight \(id) already has a thread; use reply.")
-                }
-                return try await library.comment(try text(arguments), onHighlight: id, by: author)
-            }
-        }
-    }
-
-    private var reply: MCPTool {
-        MCPTool(
-            name: "reply", title: "Reply",
-            description: "Adds a comment to a highlight's thread. Replying to a resolved thread reopens it.",
-            inputSchema: schema(["highlight_id": idProperty, "text": textProperty], required: ["highlight_id", "text"]),
-            readOnly: false
-        ) { arguments in
-            await perform("reply", arguments) { id in
-                guard try await library.entry(id: id).thread != nil else { throw ReaderLibrary.Failure.noThread(id) }
-                return try await library.comment(try text(arguments), onHighlight: id, by: author)
-            }
-        }
-    }
-
-    private func setResolved(_ resolved: Bool) -> MCPTool {
-        let name = resolved ? "resolve" : "reopen"
-        return MCPTool(
-            name: name, title: resolved ? "Resolve" : "Reopen",
-            description: resolved ? "Marks a highlight's thread resolved." : "Reopens a resolved thread.",
-            inputSchema: schema(["highlight_id": idProperty], required: ["highlight_id"]),
-            readOnly: false
-        ) { arguments in
-            await perform(name, arguments) { id in try await library.setResolved(resolved, onHighlight: id, by: author) }
-        }
-    }
-
     // MARK: - Helpers
 
     struct ToolError: Error, CustomStringConvertible {
@@ -125,16 +81,10 @@ struct ReaderCommentTools {
     }
 
     private var idProperty: JSONValue { ["type": "string", "description": "A highlight id from list_threads."] }
-    private var textProperty: JSONValue { ["type": "string", "description": "The comment, plain text."] }
 
     private func schema(_ properties: [String: JSONValue], required: [String]) -> JSONValue {
         ["type": "object", "properties": .object(properties), "required": .array(required.map(JSONValue.string)),
          "additionalProperties": false]
-    }
-
-    private func text(_ arguments: [String: JSONValue]) throws -> String {
-        guard let text = arguments["text"]?.stringValue else { throw ToolError("Missing text.") }
-        return text
     }
 
     private func perform(

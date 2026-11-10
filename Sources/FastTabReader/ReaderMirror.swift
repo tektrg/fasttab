@@ -43,7 +43,7 @@ public final class ReaderMirror: ReaderHighlightSyncStore {
     }
 
     /// The mirror folder in the app's support directory, shared with the MCP helper.
-    public static func directory(supportDirectory: URL) -> URL {
+    public nonisolated static func directory(supportDirectory: URL) -> URL {
         supportDirectory.appendingPathComponent("Reader", isDirectory: true)
     }
 

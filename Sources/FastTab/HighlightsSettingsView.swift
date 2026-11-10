@@ -6,7 +6,8 @@ import SwiftUI
 /// "Highlights" tab of Settings: the phone's reader highlights (synced) in the IndieTable
 /// views All / Open threads / By page / By date, searchable across quotes and comments.
 /// Clicking a row opens the article at the passage; its comment button expands the thread
-/// to reply, resolve or reopen. Agents get the same views through fasttab-mcp.
+/// to reply, resolve or reopen. Agents read the same data (read-only) through fasttab-mcp;
+/// the AI agent access section at the bottom sets what they may see.
 struct HighlightsSettingsView: View {
     @State private var view: HighlightView = .all
     @State private var searchText = ""
@@ -26,7 +27,7 @@ struct HighlightsSettingsView: View {
             }
             content
             Divider()
-            AgentHint()
+            AgentAccessSection()
         }
         .task { await reloadPeriodically() }
         .onReceive(NotificationCenter.default.publisher(for: .readerMirrorDidChange)) { _ in
@@ -242,28 +243,5 @@ private struct HighlightSettingsRow: View {
         case "pink": .pink
         default: .yellow
         }
-    }
-}
-
-/// How to connect an agent: the command that registers fasttab-mcp with Claude Code.
-private struct AgentHint: View {
-    private var command: String {
-        let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/fasttab-mcp").path
-        return "claude mcp add fasttab -- \"\(helper)\""
-    }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "sparkles").foregroundStyle(.secondary)
-            Text("Agents can work these views through fasttab-mcp.").font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            Button("Copy Claude Code command") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(command, forType: .string)
-            }
-            .controlSize(.small)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 }

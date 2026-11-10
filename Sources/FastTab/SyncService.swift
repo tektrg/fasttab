@@ -43,6 +43,13 @@ final class SyncService: NSObject, ObservableObject {
     )
     var listChangeObserver: NSObjectProtocol?
     var listSendTask: Task<Void, Never>?
+    /// The phone's reading activity (progress on any page read, listed or not), mirrored to
+    /// disk for the reading connector. Receive only (SyncService+ReaderSync.swift).
+    lazy var activityMirror = ReadingActivityMirror(fileURL: ReadingActivityMirror.fileURL(supportDirectory: fastTabSupportDirectory))
+    lazy var activitySync = ReadingActivitySyncBridge(
+        ledgerURL: fastTabSupportDirectory.appendingPathComponent("reading_activity_sync_ledger.json"),
+        store: activityMirror
+    )
     // Server-backed records retain CloudKit system fields such as change tags.
     // Domain updates must be applied to these objects instead of recreating IDs.
     var serverRecordsByID: [CKRecord.ID: CKRecord] = [:]
@@ -838,6 +845,7 @@ extension SyncService: CKSyncEngineDelegate {
                 self.refreshAccountStatus()
                 switch change.changeType {
                 case .signIn, .switchAccounts:
+                    if case .switchAccounts = change.changeType { self.forgetReadingActivityOfPreviousAccount() }
                     self.resetPublishState()
                     self.publishDevice()
                     self.ensureZonesExist()

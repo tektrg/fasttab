@@ -5,6 +5,9 @@
 # from there (Xcode exists only on the Pro).
 #
 # Env: MAC_PRO_SSH (mbp-m4)  MAC_PRO_REPO  APPS ("FastTab AgentBar")  IOS (0)  DRY_RUN (0)
+#      IOS_DEVICE — iPhone to install on (default: the owner's iPhone 16e). Explicit, so a second
+#      paired phone never makes the target ambiguous; IOS_DEVICE=auto lets build-ios.sh pick
+#      (and refuse when more than one phone is paired).
 #      SKIP_MAIN_SYNC (0) — deploy a non-main checkout without syncing (loud; for branch testing)
 #
 # Guards (user-approved 2026-10-02):
@@ -94,8 +97,22 @@ done
 
 if [[ "${IOS:-0}" == 1 ]]; then
   branch="$(git rev-parse --abbrev-ref HEAD)"
-  run git push pro "${branch}"
+  run git push pro "${branch}" || die "push to the Pro failed (its checkout dirty?) — no iPhone build"
+  device="${IOS_DEVICE:-243A482F-26DD-5381-8067-41B9DFD7A8CC}"   # iPhone 16e
+  device_arg=""; [[ "${device}" == auto ]] || device_arg=" --device ${device}"
+  # The Pro must build exactly what was pushed (its checkout may lag or be dirty).
+  head="$(git rev-parse HEAD)"
+  pro_head="$(ssh "${PRO}" "git -C '${PRO_REPO}' rev-parse HEAD")" \
+    || die "cannot reach the Pro (${PRO}) to check its checkout — no iPhone build"
+  pro_dirty="$(ssh "${PRO}" "git -C '${PRO_REPO}' status --porcelain --untracked-files=no")" \
+    || die "cannot reach the Pro (${PRO}) to check its checkout — no iPhone build"
+  [[ "${DRY_RUN:-0}" == 1 || "${pro_head}" == "${head}" ]] \
+    || die "the Pro's checkout is at ${pro_head:0:7}, not ${head:0:7} — the iPhone would get other code"
+  [[ "${DRY_RUN:-0}" == 1 || -z "${pro_dirty}" ]] \
+    || die "the Pro's checkout has uncommitted edits — the iPhone would get them too"
   # Via a tmux session on the Pro so Xcode can sign (see build-ios-in-gui-session.sh).
-  run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/build-ios-in-gui-session.sh"
+  rc=0; run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/build-ios-in-gui-session.sh${device_arg}" || rc=$?
+  (( rc == 255 )) && die "lost the ssh connection to the Pro — the build may still be running; check /tmp/fasttab-ios-push.log there"
+  (( rc == 0 )) || die "iPhone install FAILED on ${device} (log on the Pro: /tmp/fasttab-ios-push.log). Mac apps (if any) were already deployed."
 fi
 echo "==> prod-push done"

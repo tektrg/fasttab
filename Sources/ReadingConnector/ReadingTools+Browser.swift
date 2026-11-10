@@ -37,11 +37,11 @@ extension ReadingTools {
     }
 
     var history: MCPTool {
-        let window = settings().historyWindowDays
-        return MCPTool(
+        MCPTool(
             name: "history", title: "Browser history",
             description: "Pages the user visited in their browsers (one row per page, latest visit), newest first. "
-                + "Only the last \(window) day\(window == 1 ? "" : "s") are available (the user's setting).",
+                + "Only while the user allows it in FastTab Settings, and only within the window they chose "
+                + "(the reply names it).",
             inputSchema: Self.schema([
                 "since": Self.sinceProperty,
                 "query": ["type": "string", "description": "Words that must all appear in the title or URL."],
@@ -51,7 +51,7 @@ extension ReadingTools {
         ) { arguments in
             let settings = settings()
             guard let browser, settings.historyEnabled else {
-                return .failure("Browser history is turned off in Fast Tab Settings › Highlights › AI agent access.",
+                return .failure(Self.historyOffMessage,
                                 outcome: .refused, summary: "history: off")
             }
             let requested: Date?

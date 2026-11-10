@@ -84,14 +84,17 @@ struct ReadingBrowserToolsTests {
         #expect(ReadingConnectorSettings.load(supportDirectory: f.sources.supportDirectory).historyWindowDays == 30)
     }
 
-    @Test func historyOffMeansNoToolAndNoSearchSource() async throws {
+    @Test func historyOffMeansToolRefusesAndNoSearchSource() async throws {
         let f = try ReadingConnectorFixture()
         let t = try tools(f, try makeBrowsers(visits: visits), index: true)
-        #expect(!t.tools.contains { $0.name == "history" })
+        // Always listed: a running agent built its tool list before the user may turn history on.
+        #expect(t.tools.contains { $0.name == "history" })
         #expect(t.tools.contains { $0.name == "bookmarks" })
         #expect(!t.indexSources.contains { $0.name == "history" })
-        let refused = await t.history.handler([:])
+        let refused = await call(t, "history")
         #expect(refused.isError && refused.outcome == .refused)
+        #expect(refused.text == ReadingTools.historyOffMessage)
+        #expect(refused.text == "Browser history is off. Turn it on in FastTab Settings › Highlights › AI agent access.")
         #expect(await call(t, "search", ["query": "visited", "sources": ["history"]]).outcome == .refused)
         let everything = await call(t, "search", ["query": "visited", "format": "json"])
         #expect(!everything.text.contains("\"history\""))
@@ -122,6 +125,17 @@ struct ReadingBrowserToolsTests {
         let afterOff = await call(t, "search", ["query": "visited", "format": "json"])
         #expect(!afterOff.text.contains("\"history\""))
         #expect(await t.history.handler([:]).outcome == .refused, "the handler re-checks the setting")
+    }
+
+    @Test func turningHistoryOnReachesToolsListedEarlier() async throws {
+        let f = try ReadingConnectorFixture()
+        let t = try tools(f, try makeBrowsers(visits: visits))
+        let listedAtStartup = try #require(t.tools.first { $0.name == "history" })
+        #expect(await listedAtStartup.handler([:]).outcome == .refused)
+        try ReadingConnectorSettings(historyEnabled: true, historyWindowDays: 7).save(supportDirectory: f.sources.supportDirectory)
+        let on = await listedAtStartup.handler(["format": "json"])
+        #expect(!on.isError)
+        #expect(on.text.contains("today.example.com") && !on.text.contains("month.example.com"))
     }
 
     @Test func bookmarksFromChromiumAndSafari() async throws {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Combine
 import CommandBarKit
@@ -940,9 +941,13 @@ final class AgentPanelModel: ObservableObject {
     /// Hover: only rows that can be activated take the highlight.
     func select(agentID: String) {
         guard presentation.selectableAgentIDs.contains(agentID) else { return }
-        // A panel opened by a session link appears under a resting pointer, whose hover would
-        // replace the row the link asked for.
-        if let hoverIgnoredUntil, now() < hoverIgnoredUntil { return }
+        // A panel opened by a session link appears (and scrolls to the row) under a resting
+        // pointer, whose hover would replace the row the link asked for: hover counts again
+        // once the pointer moves.
+        if let pointer = pointerWhenSessionLinked {
+            guard pointerLocation() != pointer else { return }
+            pointerWhenSessionLinked = nil
+        }
         hoverSelectedAgentID = agentID
         selectedAgentID = agentID
         closePeekUnlessStillSelected()
@@ -1390,9 +1395,10 @@ final class AgentPanelModel: ObservableObject {
 
     /// A session link asked for this row, before the first status reading arrived.
     private var pendingSessionLinkID: String?
-    /// Hover selection is ignored until then, right after a session link selected a row.
-    private var hoverIgnoredUntil: Date?
-    static let sessionLinkHoverGraceSeconds: TimeInterval = 0.6
+    /// Where the pointer rested when a session link selected a row; hover is ignored until it moves.
+    private var pointerWhenSessionLinked: CGPoint?
+    /// The pointer's screen position (injectable for tests).
+    var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
 
     /// Selects the row a session link names (its dashboard `rowId`, or the row's own id), exactly
     /// as if the user had arrowed to it in a freshly summoned panel. Before the first status reading
@@ -1412,7 +1418,7 @@ final class AgentPanelModel: ObservableObject {
         }
         hoverSelectedAgentID = nil
         selectedAgentID = match
-        hoverIgnoredUntil = now().addingTimeInterval(Self.sessionLinkHoverGraceSeconds)
+        pointerWhenSessionLinked = pointerLocation()
     }
 
     /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer or decision is on its way.

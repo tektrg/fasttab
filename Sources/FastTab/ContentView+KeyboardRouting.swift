@@ -44,11 +44,22 @@ extension ContentView {
             return
         }
 
-        switch items[appState.selectedIndex] {
+        let item = items[appState.selectedIndex]
+        switch item {
         case .result(let result):
             activateAndHide(result)
         case .orderedEntry(let slot):
             activateOrderedSlot(slot)
+        case .showAllTabs, .searchTheWeb, .searchAliasHint, .searchAliasQuery:
+            activateExtraRow(item)
+        }
+    }
+
+    /// What clicking or pressing Return on one of Fast Tab's extra rows does.
+    func activateExtraRow(_ item: CommandBarDisplayItem) {
+        switch item {
+        case .result, .orderedEntry:
+            return
         case .showAllTabs:
             expandAllOpenTabs()
         case .searchTheWeb(let query):
@@ -258,7 +269,8 @@ extension ContentView {
         let items = displayedItems
         var row = FastTabKeyRouting.SelectedRow.none
         if items.indices.contains(appState.selectedIndex) {
-            switch items[appState.selectedIndex] {
+            let item = items[appState.selectedIndex]
+        switch item {
             case .orderedEntry: row = .stackSlot
             case .result(let result): row = result.type == .tab ? .liveTab : .otherResult
             default: row = .other

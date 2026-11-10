@@ -169,24 +169,19 @@ struct ContentView: View {
                 break
             }
         }
-        var items = displayedResults.map(CommandBarDisplayItem.result)
-        if !isSearchActive, quickOpenState.includesShowAllTabsItem {
-            items.append(.showAllTabs(count: filteredResults.count))
-        }
-        if !searchText.isEmpty, filteredResults.isEmpty, activeSearchAlias == nil {
-            items.append(.searchTheWeb(query: searchText))
-        }
-        if let activeSearchAlias {
-            // Top of the list, so it is the default Enter target: the user
-            // explicitly committed to this alias, and anything typed since is
-            // meant for it rather than for the local index.
-            items.insert(.searchAliasQuery(alias: activeSearchAlias, query: searchText), at: 0)
-        } else if let hintedAlias = searchAliasHint {
-            // Bottom, and never auto-selected — a plain search for a word that
-            // happens to be a keyword must not be hijacked.
-            items.append(.searchAliasHint(hintedAlias))
-        }
-        return items
+        return extraRows.extraRows(for: CommandBarListState(
+            query: searchText,
+            isSearchActive: isSearchActive,
+            matchCount: filteredResults.count
+        )).assembled(around: displayedResults.map(CommandBarDisplayItem.result))
+    }
+
+    var extraRows: FastTabExtraRows {
+        FastTabExtraRows(
+            includesShowAllTabs: quickOpenState.includesShowAllTabsItem,
+            activeSearchAlias: activeSearchAlias,
+            hintedSearchAlias: searchAliasHint
+        )
     }
 
     var displayedItems: [CommandBarDisplayItem] {

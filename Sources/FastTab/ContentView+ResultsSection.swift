@@ -356,45 +356,17 @@ extension ContentView {
             )
             .contentShape(Rectangle())
             .padding(.horizontal, 8)
-        case .showAllTabs(let count):
-            ShowAllTabsRow(count: count, isSelected: isSelected)
-                .contentShape(Rectangle())
-                .padding(.horizontal, 8)
-                .onTapGesture {
-                    expandAllOpenTabs()
-                }
-        case .searchTheWeb(let query):
-            SearchTheWebRow(
-                query: query,
-                browserName: appState.browserService.webSearchTargetBrowserName,
-                isSelected: isSelected
-            )
-            .contentShape(Rectangle())
-            .padding(.horizontal, 8)
-            .onTapGesture {
-                activateSearchTheWeb(query: query)
-            }
-        case .searchAliasHint(let alias):
-            SearchAliasHintRow(
-                alias: alias,
-                triggerKeys: searchAliasStore.triggerKeys,
-                isSelected: isSelected
-            )
-            .contentShape(Rectangle())
-            .padding(.horizontal, 8)
-            .onTapGesture {
-                commitSearchAlias(alias)
-            }
-        case .searchAliasQuery(let alias, let query):
-            SearchAliasQueryRow(
-                alias: alias,
-                query: query,
-                isSelected: isSelected
-            )
-            .contentShape(Rectangle())
-            .padding(.horizontal, 8)
-            .onTapGesture {
-                activateSearchAlias(alias: alias, query: query)
+        case .showAllTabs, .searchTheWeb, .searchAliasHint, .searchAliasQuery:
+            if let row = item.actionRow(
+                webSearchBrowserName: appState.browserService.webSearchTargetBrowserName,
+                aliasTriggerKeys: searchAliasStore.triggerKeys
+            ) {
+                CommandBarActionRow(row: row, isSelected: isSelected)
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 8)
+                    .onTapGesture {
+                        activateExtraRow(item)
+                    }
             }
         }
     }
@@ -418,6 +390,10 @@ private struct AudibleTabRow: View {
     let onMute: () -> Void
 
     @State private var isHovering = false
+
+    private var isActionsVisible: Bool {
+        CommandBarRowOverlayPolicy.isVisible(.hoverOnly, isHovering: isHovering, isSelected: false)
+    }
 
     var body: some View {
         // The mute action overlays the trailing edge with a solid background on
@@ -443,9 +419,8 @@ private struct AudibleTabRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-                .padding(.trailing, isHovering
-                    ? RowActionOverlay<EmptyView>.reservedWidth(buttonCount: 1, buttonDiameter: 20)
-                    : 0)
+                .padding(.trailing, CommandBarRowOverlayPolicy.reservedWidth(
+                    isVisible: isActionsVisible, isCompact: true, buttonCount: 1, buttonDiameter: 20))
 
                 Spacer(minLength: 0)
             }
@@ -458,7 +433,7 @@ private struct AudibleTabRow: View {
             RowActionOverlay(
                 isSelected: false,
                 isHovering: isHovering,
-                isVisible: isHovering,
+                isVisible: isActionsVisible,
                 accentTint: Color.accentColor.opacity(0.12),
                 trailingPadding: 10
             ) {

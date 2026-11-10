@@ -189,7 +189,9 @@ private struct ResultRowView: View {
         result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName)
     }
 
-    private var isActionsVisible: Bool { isHovering || isSelected }
+    private var isActionsVisible: Bool {
+        CommandBarRowOverlayPolicy.isVisible(.hoverOrSelection, isHovering: isHovering, isSelected: isSelected)
+    }
 
     /// Trailing clearance reserved while the action overlay is visible, so the
     /// minimal one-line title truncates before the buttons.
@@ -198,8 +200,9 @@ private struct ResultRowView: View {
     /// backdrop) covers it on hover. Reserving on hover re-wrapped the text and changed the
     /// row height; reserving always left a blank column beside every row.
     private var actionReserveWidth: CGFloat {
-        guard rowStyle == .minimal, isActionsVisible else { return 0 }
-        return RowActionOverlay<EmptyView>.reservedWidth(
+        CommandBarRowOverlayPolicy.reservedWidth(
+            isVisible: isActionsVisible,
+            isCompact: rowStyle == .minimal,
             buttonCount: 2,
             leadingFadeWidth: 0,
             trailingPadding: 0
@@ -243,7 +246,7 @@ private struct ResultRowView: View {
             RowActionOverlay(
                 isSelected: isSelected,
                 isHovering: isHovering,
-                isVisible: isHovering || isSelected,
+                isVisible: isActionsVisible,
                 leadingFadeWidth: 4,
                 trailingPadding: 10
             ) {

@@ -22,7 +22,7 @@ air_head="$(ssh "${AIR}" "git -C '${AIR_REPO}' rev-parse HEAD")" || { echo "prod
 air_dirty="$(ssh "${AIR}" "git -C '${AIR_REPO}' status --porcelain -- Sources Package.swift Package.resolved")" \
   || { echo "prod-pull: cannot reach the Air (${AIR})" >&2; exit 1; }
 if [[ "${DRY_RUN:-0}" != 1 ]]; then
-  [[ "${air_head}" == "${head_sha}" ]] || { echo "prod-pull: STOP — the Air's checkout is at ${air_head:0:7}, not ${head_sha:0:7}; it would build other code" >&2; exit 1; }
+  [[ "${air_head}" == "${head_sha}" ]] || { echo "prod-pull: STOP — the Air's checkout is at ${air_head:0:7}, not ${head_sha:0:7}; it would build other code. Switch the Air's checkout to $(git rev-parse --abbrev-ref HEAD) (and commit anything there), then rerun" >&2; exit 1; }
   [[ -z "${air_dirty}" ]] || { echo "prod-pull: STOP — the Air's checkout has uncommitted Mac source edits; it would build them too" >&2; exit 1; }
 fi
 
@@ -33,7 +33,7 @@ for app in ${APPS}; do
     *) echo "prod-pull: unknown app ${app}" >&2; exit 1 ;;
   esac
   # Deploy guard (see prod-push.sh guard 3): never replace code the incoming build lacks.
-  rc=0; verdict="$(scripts/deploy-stamp.sh verdict "$(cat "dist/${app}.app.commit" 2>/dev/null || true)" "${head_sha}")" || rc=$?
+  rc=0; verdict="$(scripts/deploy-stamp.sh verdict "$(cat "dist/${app}.app.commit" 2>/dev/null || true)" "${head_sha}" "${app}")" || rc=$?
   if (( rc == 3 )) && [[ " ${FORCE_REPLACE:-} " != *" ${app} "* && "${FORCE_REPLACE:-}" != all ]]; then
     echo "prod-pull: STOP ${app} — ${verdict}" >&2; refused+=" ${app}"; continue
   fi
@@ -42,7 +42,8 @@ for app in ${APPS}; do
   run ssh "${AIR}" "cd '${AIR_REPO}' && scripts/${script}"
   run scripts/app-lifecycle.sh stop "${app}"
   run rsync -aE --delete "${AIR}:${AIR_REPO}/dist/${app}.app/" "dist/${app}.app/"
-  [[ "${DRY_RUN:-0}" == 1 ]] || ssh "${AIR}" "cat '${AIR_REPO}/dist/${app}.app.commit'" > "dist/${app}.app.commit"
+  [[ "${DRY_RUN:-0}" == 1 ]] || ssh "${AIR}" "cat '${AIR_REPO}/dist/${app}.app.commit'" > "dist/${app}.app.commit" \
+    || { rm -f "dist/${app}.app.commit"; echo "!! could not copy ${app}'s deploy stamp — next deploy will only warn" >&2; }
   run scripts/app-lifecycle.sh start "${app}"
 done
 

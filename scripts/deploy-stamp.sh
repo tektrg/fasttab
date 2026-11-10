@@ -26,7 +26,7 @@ case "${1:-}" in
     echo "==> stamped dist/${app}.app.commit: $(cat "dist/${app}.app.commit")"
     ;;
   verdict)
-    line="${2-}"; target="${3:?usage: deploy-stamp.sh verdict <stamp line> <sha>}"
+    line="${2-}"; app="${4:-<App>}"; target="${3:?usage: deploy-stamp.sh verdict <stamp line> <sha> [App]}"
     sha="$(echo "${line}" | awk '{print $1}')"
     branch="$(echo "${line}" | awk '{print $2}')"
     dirty="$(echo "${line}" | awk '{print $3}')"
@@ -35,18 +35,22 @@ case "${1:-}" in
       exit 0
     fi
     if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
-      echo "refuse: the running app was built from ${sha:0:7} (${branch:-unknown branch}), a commit this checkout doesn't have — \`git fetch pro\`/merge it first, or override with FORCE_REPLACE=<App>"
+      echo "refuse: the running app was built from ${sha:0:7} (${branch:-unknown branch}), a commit this checkout doesn't have — \`git fetch pro\`/merge it first, or to replace it anyway rerun with FORCE_REPLACE=${app}"
       exit 3
     fi
     if [[ "${dirty}" == dirty ]]; then
-      echo "refuse: the running app was built from UNCOMMITTED edits on '${branch}' (${sha:0:7}) — commit + merge them first, or override with FORCE_REPLACE=<App>"
+      echo "refuse: the running app was built from UNCOMMITTED edits on '${branch}' (${sha:0:7}) — commit + merge them first, or to replace it anyway rerun with FORCE_REPLACE=${app}"
       exit 3
     fi
     if git merge-base --is-ancestor "${sha}" "${target}"; then
       echo "ok: running ${sha:0:7} (${branch}) is contained in ${target:0:7}"
       exit 0
     fi
-    echo "refuse: the running app was built from ${sha:0:7} on '${branch}', which ${target:0:7} doesn't contain — merge '${branch}' into main first, or override with FORCE_REPLACE=<App>"
+    if [[ "${branch}" == main || "${branch}" == HEAD ]]; then
+      echo "refuse: the running app was built from ${sha:0:7} (${branch}), which ${target:0:7} doesn't contain — the target has newer commits: \`git fetch pro && git merge pro/main\`, then rerun; or to replace it anyway rerun with FORCE_REPLACE=${app}"
+      exit 3
+    fi
+    echo "refuse: the running app was built from ${sha:0:7} on '${branch}', which ${target:0:7} doesn't contain — merge '${branch}' into main first, or to replace it anyway rerun with FORCE_REPLACE=${app}"
     exit 3
     ;;
   *) echo "usage: deploy-stamp.sh write <App> | verdict <stamp line> <sha>" >&2; exit 2 ;;

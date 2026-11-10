@@ -38,8 +38,8 @@ sync_main_with_pro() {
   fi
   [[ "$(git rev-parse --abbrev-ref HEAD)" == main ]] \
     || die "this checkout is on '$(git rev-parse --abbrev-ref HEAD)', not main (use a main worktree, or SKIP_MAIN_SYNC=1 for a branch test)"
-  [[ -z "$(git status --porcelain --untracked-files=no)" ]] \
-    || die "uncommitted changes here — commit them first"
+  [[ -z "$(git status --porcelain --untracked-files=no)" && -z "$(git status --porcelain -- Sources Package.swift Package.resolved)" ]] \
+    || die "uncommitted changes here (incl. new files under Sources/) — commit them first"
   run git fetch pro main
   if ! git merge-base --is-ancestor pro/main HEAD; then
     echo "+ git merge pro/main"
@@ -92,7 +92,7 @@ for app in ${APPS}; do
   # A failed read must not look like "no stamp" (that would wave the app through).
   stamp="$(ssh "${PRO}" "f='${PRO_REPO}/dist/${app}.app.commit'; if [ -f \"\$f\" ]; then cat \"\$f\"; fi")" \
     || die "cannot read ${app}'s deploy stamp on the Pro (${PRO}) — nothing was deployed"
-  rc=0; verdict="$(scripts/deploy-stamp.sh verdict "${stamp}" "${head_sha}")" || rc=$?
+  rc=0; verdict="$(scripts/deploy-stamp.sh verdict "${stamp}" "${head_sha}" "${app}")" || rc=$?
   if (( rc == 3 )) && [[ " ${FORCE_REPLACE:-} " != *" ${app} "* && "${FORCE_REPLACE:-}" != all ]]; then
     echo "prod-push: STOP ${app} — ${verdict}" >&2
     refused+=" ${app}"
@@ -118,7 +118,8 @@ for app in ${APPS}; do
   run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/app-lifecycle.sh stop ${app}"
   run rsync -aE --delete "dist/${app}.app/" "${PRO}:${PRO_REPO}/dist/${app}.app/"
   # Stamp via ssh, not rsync (openrsync mangles single-file targets).
-  [[ "${DRY_RUN:-0}" == 1 ]] || ssh "${PRO}" "cat > '${PRO_REPO}/dist/${app}.app.commit'" < "dist/${app}.app.commit"
+  [[ "${DRY_RUN:-0}" == 1 ]] || ssh "${PRO}" "cat > '${PRO_REPO}/dist/${app}.app.commit'" < "dist/${app}.app.commit" \
+    || echo "!! could not write ${app}'s deploy stamp on the Pro — next deploy will only warn" >&2
   run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/app-lifecycle.sh start ${app}"
 done
 

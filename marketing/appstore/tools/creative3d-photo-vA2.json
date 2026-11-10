@@ -1,0 +1,134 @@
+{
+  "slug": "fasttab-reader",
+  "name": "{slug}-photo-vA2",
+  "bg": "#1F5EF0",
+  "photo": "bg-nostalgic/fasttab-v1-train.png",
+  "screen": "1-tabs",
+  "cards": [
+    {
+      "shot": "6-bookmarks",
+      "crop": [
+        49,
+        640,
+        1070,
+        760
+      ],
+      "label": "Your Mac bookmarks, synced",
+      "frame": true
+    },
+    {
+      "shot": "5-reader",
+      "crop": [
+        30,
+        1360,
+        1090,
+        390
+      ],
+      "label": "Clean reader, your highlights",
+      "frame": true
+    },
+    {
+      "shot": "10-listen-settings",
+      "crop": [
+        60,
+        1250,
+        1060,
+        820
+      ],
+      "label": "Listen to any article",
+      "frame": true
+    },
+    {
+      "shot": "works-with",
+      "crop": [
+        0,
+        0,
+        1170,
+        380
+      ],
+      "label": "Works with",
+      "frame": true
+    }
+  ],
+  "layout": {
+    "header": {
+      "cap": [
+        254,
+        150,
+        1400,
+        1260
+      ],
+      "font": 160,
+      "cards": [
+        [
+          1268,
+          79,
+          572,
+          -8
+        ],
+        [
+          1619,
+          1130,
+          700,
+          -6
+        ],
+        [
+          1991,
+          75,
+          470,
+          4
+        ],
+        [
+          855,
+          1196,
+          560,
+          3
+        ]
+      ]
+    },
+    "search": {
+      "cap": [
+        220,
+        420,
+        1450,
+        1300
+      ],
+      "font": 190,
+      "cards": [
+        [
+          1066,
+          68,
+          700,
+          -6
+        ],
+        [
+          1310,
+          1611,
+          744,
+          6.5
+        ],
+        [
+          1915,
+          52,
+          643,
+          4
+        ],
+        [
+          204,
+          1571,
+          952,
+          -3
+        ]
+      ]
+    }
+  },
+  "text": {
+    "en": {
+      "headline": "Your Mac’s|*tabs & bookmarks,*|on your iPhone"
+    }
+  },
+  "photo_zoom": {
+    "search": 1,
+    "header": 1
+  }
+}

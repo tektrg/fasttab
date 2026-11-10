@@ -166,6 +166,13 @@ public struct ReaderView: View {
             viewModel.loadInitialState()
             viewModel.readerDidOpen()
             await viewModel.extractIfNeeded()
+            #if DEBUG
+            // App Store screenshots: the `listenSettings` screen opens the Read Aloud settings sheet.
+            if AppStoreDemo.isEnabled, AppStoreDemo.screen == .listenSettings {
+                try? await Task.sleep(for: .seconds(1.5))
+                showReadAloudSettings = true
+            }
+            #endif
         }
         .onDisappear {
             readAloud.stop()

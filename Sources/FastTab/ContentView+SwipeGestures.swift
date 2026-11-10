@@ -83,32 +83,21 @@ extension ContentView {
 
     /// Horizontal scroll with no row swipe in play flicks between views.
     private func handleViewFlick(_ event: NSEvent) -> Bool {
-        let isMomentum = !event.momentumPhase.isEmpty
-        let deltaX = normalizedHorizontalScrollDelta(from: event)
-        let deltaY = CGFloat(event.scrollingDeltaY)
-        let wasSuppressed = flickDetector.isSuppressed
-
-        if event.phase.contains(.began) {
-            flickDetector.reset()
-        }
-
-        // Only end suppression when momentum has finished or touch ended without momentum
-        let gestureEnded = event.momentumPhase.contains(.ended)
-            || (event.phase.contains(.ended) && !flickDetector.isSuppressed)
-        let gestureCancelled = event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled)
-
-        if let nextView = flickDetector.handleScroll(
-            deltaX: deltaX,
-            deltaY: deltaY,
-            isEnded: gestureEnded || gestureCancelled,
-            isMomentum: isMomentum,
+        let result = flickDetector.handleEvent(
+            deltaX: normalizedHorizontalScrollDelta(from: event),
+            deltaY: CGFloat(event.scrollingDeltaY),
+            began: event.phase.contains(.began),
+            touchEnded: event.phase.contains(.ended),
+            momentumEnded: event.momentumPhase.contains(.ended),
+            cancelled: event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled),
+            isMomentum: !event.momentumPhase.isEmpty,
             currentView: viewStore.activeView,
             orderedViews: viewStore.availableViews
-        ) {
+        )
+        if let nextView = result.target {
             viewStore.selectView(nextView)
-            return true
         }
-        return wasSuppressed || flickDetector.isSuppressed
+        return result.consumed
     }
 
     /// Fast Tab's perform hook for the shared swipe engine.

@@ -579,12 +579,12 @@ struct ContentView: View {
                                 .overlay(alignment: .topLeading) {
                                     if isScopeDropdownVisible {
                                         let suggestions = currentScopeSuggestions()
-                                        ScopeSuggestionDropdown(
-                                            suggestions: suggestions,
+                                        CommandBarScopeDropdown(
+                                            scopes: suggestions.map(\.commandBarScope),
                                             selectedIndex: scopeDropdownSelectedIndex,
                                             emptyStateText: scopeDropdownEmptyStateText,
                                             onHover: { idx in scopeDropdownSelectedIndex = idx },
-                                            onPick: { commitScopeSuggestion($0) }
+                                            onPick: { commitScopeSuggestion(suggestions[$0]) }
                                         )
                                         // Clamped to the surface: 420pt overflows
                                         // the half-width edge-anchored size.

@@ -79,27 +79,40 @@ struct SearchHeader: View {
 
     @Namespace private var tabHighlight
 
+    private func selectTab(_ id: String) {
+        if let view = CommandBarView(rawValue: id) { onSelectView(view) }
+    }
+
+    private func runTabMenuAction(_ tab: CommandBarViewTab, _ action: CommandBarRowAction) {
+        guard let id = tab.view?.customID else { return }
+        switch action.id {
+        case FastTabViewMenu.editID: onEditView(id)
+        case FastTabViewMenu.deleteID: onDeleteView(id)
+        default: break
+        }
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             if activeView == .recents {
                 searchTab
                 CommandBarViewTabStrip(
                     tabs: viewTabs.filter { $0.view != .recents },
-                    activeView: activeView,
+                    activeID: activeView.rawValue,
                     highlight: tabHighlight,
-                    onSelect: onSelectView,
-                    onEditView: onEditView,
-                    onDeleteView: onDeleteView,
+                    onSelect: selectTab,
+                    contextActions: FastTabViewMenu.actions(for:),
+                    onContextAction: runTabMenuAction,
                     capsInlineIcons: true
                 )
             } else {
                 CommandBarViewTabStrip(
                     tabs: viewTabs,
-                    activeView: activeView,
+                    activeID: activeView.rawValue,
                     highlight: tabHighlight,
-                    onSelect: onSelectView,
-                    onEditView: onEditView,
-                    onDeleteView: onDeleteView,
+                    onSelect: selectTab,
+                    contextActions: FastTabViewMenu.actions(for:),
+                    onContextAction: runTabMenuAction,
                     capsInlineIcons: false
                 )
             }
@@ -119,11 +132,11 @@ struct SearchHeader: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
-            ScopeChipsRow(
-                chips: scopeChips,
+            CommandBarScopeChipsRow(
+                chips: scopeChips.map { CommandBarScopeChip(id: $0.id, title: $0.displayLabel) },
                 focusedChipID: focusedChipID,
-                onRemove: onRemoveChip,
-                onFocusChip: onFocusChip
+                onRemove: { id in scopeChips.first { $0.id == id }.map(onRemoveChip) },
+                onFocusChip: { id in scopeChips.first { $0.id == id }.map(onFocusChip) }
             )
 
             if let activeAlias {
@@ -176,36 +189,6 @@ struct SearchHeader: View {
     private var searchFieldPlaceholder: String {
         if let activeAlias { return "Search \(activeAlias.displayName)…" }
         return scopeChips.isEmpty ? "Search tabs, bookmarks, history…" : ""
-    }
-}
-
-/// Icon-only inactive header tab with hover feedback.
-struct HeaderTabIcon: View {
-    let icon: String
-    let help: String
-    let label: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 15))
-                .foregroundStyle(isHovered ? Color.primary.opacity(0.85) : Color.secondary)
-                .frame(width: 28, height: 28)
-                .background {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
-                }
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .focusable(false)
-        .onHover { isHovered = $0 }
-        .help(help)
-        .accessibilityLabel(Text(label))
-        .transition(.opacity.combined(with: .scale(scale: 0.9)))
     }
 }
 

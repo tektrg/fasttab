@@ -202,7 +202,7 @@ struct CustomViewNavigationTests {
         let tabs = CommandBarViewTab.tabs(for: CommandBarView.ordered(customViews: [work]), customViews: [work])
         #expect(tabs.map(\.shortcutNumber) == [1, 2, 3, nil])
         #expect(tabs.map(\.title) == ["Search", "Stack", "Work", "New View"])
-        #expect(tabs[2].icon == "briefcase")
+        #expect(tabs[2].symbol == "briefcase")
         #expect(tabs[2].help == "Work (⌘3)")
         #expect(tabs[1].help == "Open Stack (⌘2)")
     }

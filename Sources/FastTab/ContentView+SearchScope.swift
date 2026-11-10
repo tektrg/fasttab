@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 extension ContentView {
     func scheduleFaviconPrefetch(for results: [BrowserSearchResult]) {
@@ -135,12 +136,9 @@ extension ContentView {
             scopeSuggestionMode = newMode
             scopeDropdownSelectedIndex = 0
         } else {
-            let count = currentScopeSuggestions().count
-            if count == 0 {
-                scopeDropdownSelectedIndex = 0
-            } else if scopeDropdownSelectedIndex >= count {
-                scopeDropdownSelectedIndex = count - 1
-            }
+            scopeDropdownSelectedIndex = CommandBarScopeState.clampSelection(
+                scopeDropdownSelectedIndex, count: currentScopeSuggestions().count
+            )
         }
     }
 
@@ -200,9 +198,9 @@ extension ContentView {
     }
 
     func moveScopeSuggestionSelection(by delta: Int) {
-        let count = currentScopeSuggestions().count
-        guard count > 0 else { return }
-        scopeDropdownSelectedIndex = (scopeDropdownSelectedIndex + delta + count) % count
+        scopeDropdownSelectedIndex = CommandBarScopeState.moveSelection(
+            scopeDropdownSelectedIndex, by: delta, count: currentScopeSuggestions().count
+        )
     }
 
     func commitScopeSuggestion(_ suggestion: ScopeSuggestion) {
@@ -295,13 +293,7 @@ extension ContentView {
     func removeChip(id: UUID) {
         guard let idx = scopeChips.firstIndex(where: { $0.id == id }) else { return }
         scopeChips.remove(at: idx)
-        if scopeChips.isEmpty {
-            focusedChipID = nil
-        } else if idx > 0 {
-            focusedChipID = scopeChips[idx - 1].id
-        } else {
-            focusedChipID = nil
-        }
+        focusedChipID = CommandBarScopeState.focusAfterRemoving(at: idx, remaining: scopeChips.map(\.id))
         isSearchFocused = focusedChipID == nil
         triggerFetch()
     }
@@ -309,25 +301,17 @@ extension ContentView {
     /// Gmail-style two-step delete: first backspace at empty input focuses the
     /// last chip; the next backspace (while a chip is focused) removes it.
     func handleBackspaceAtEmptyInput() {
-        guard !scopeChips.isEmpty else { return }
-        if let focusedChipID {
-            removeChip(id: focusedChipID)
-        } else {
-            focusedChipID = scopeChips.last?.id
+        switch CommandBarScopeState.backspaceAtEmptyInput(chips: scopeChips.map(\.id), focused: focusedChipID) {
+        case .none: break
+        case .focus(let id): focusedChipID = id
+        case .remove(let id): removeChip(id: id)
         }
     }
 
     /// Left-arrow at empty input enters the chip strip from the right and walks
     /// further leftward through chips on each subsequent press.
     func handleLeftArrowAtEmptyInput() {
-        guard !scopeChips.isEmpty else { return }
-        if let current = focusedChipID,
-           let idx = scopeChips.firstIndex(where: { $0.id == current }),
-           idx > 0 {
-            focusedChipID = scopeChips[idx - 1].id
-        } else if focusedChipID == nil {
-            focusedChipID = scopeChips.last?.id
-        }
+        focusedChipID = CommandBarScopeState.leftArrowAtEmptyInput(chips: scopeChips.map(\.id), focused: focusedChipID)
     }
 
     func handleScopeDropdownEnter() -> Bool {

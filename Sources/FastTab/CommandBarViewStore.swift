@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import IndieCommandBar
 
 /// One swipeable page of the command bar. Order (see
 /// `CommandBarViewStore.availableViews`): Recents → Stack → the user's custom
@@ -117,18 +118,13 @@ public enum CommandBarView: Hashable, Codable, Sendable {
     /// view, and its position shifts as views are added). ⌘N = the Nth entry;
     /// nil past the end.
     static func numberedShortcutTarget(_ number: Int, in ordered: [CommandBarView]) -> CommandBarView? {
-        let numbered = ordered.filter { $0 != .newView }
-        guard number >= 1, number <= min(9, numbered.count) else { return nil }
-        return numbered[number - 1]
+        CommandBarViewOrder.numberedTarget(number, in: ordered) { $0 != .newView }
     }
 
     /// The neighbouring page `step` places away in `ordered` (positive =
     /// forward), clamped: nil at either end or when `current` is not listed.
     static func neighbor(of current: CommandBarView, step: Int, in ordered: [CommandBarView]) -> CommandBarView? {
-        guard let index = ordered.firstIndex(of: current) else { return nil }
-        let target = index + step
-        guard ordered.indices.contains(target), target != index else { return nil }
-        return ordered[target]
+        CommandBarViewOrder.neighbor(of: current, step: step, in: ordered)
     }
 }
 

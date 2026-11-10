@@ -112,8 +112,8 @@ struct FastTabKeyRoutingTests {
     // MARK: Left / right (keyboard swipe)
 
     @Test func leftRightSwipeOnlyWithARow() {
-        #expect(route(R.leftArrowKeyCode, [], onRow()) == .keyboardSwipe(.delete))
-        #expect(route(R.rightArrowKeyCode, [], onRow()) == .keyboardSwipe(.copy))
+        #expect(route(R.leftArrowKeyCode, [], onRow()) == .keyboardSwipe(.trailing))
+        #expect(route(R.rightArrowKeyCode, [], onRow()) == .keyboardSwipe(.leading))
         #expect(route(R.leftArrowKeyCode) == .passThrough)
         #expect(route(R.rightArrowKeyCode) == .passThrough)
         #expect(route(R.leftArrowKeyCode, [.shift], onRow()) == .passThrough)

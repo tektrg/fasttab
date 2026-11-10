@@ -20,29 +20,23 @@ extension ContentView {
             ])
         }
 
-        if env.isRowSwipeEnabled() {
+        if env.isRowSwipeEnabled(), let phase = pointerSwipe.phase {
+            switch phase {
             // 1–2: Pointer swipe past confirm threshold — "release to act"
-            if pointerSwipeResultID != nil, !didConfirmPointerSwipe,
-               abs(pointerSwipeOffset) >= ResultSwipeMetrics.confirmDistance {
-                return pointerSwipeOffset < 0
+            case .releaseToAct(let edge):
+                return edge == .trailing
                     ? GuidanceHint(tokens: [.init(glyph: "←", label: "release to delete")])
                     : GuidanceHint(tokens: [.init(glyph: "→", label: "release to copy link")])
-            }
-
             // 3–4: Pointer swipe resting at reveal distance (gesture ended, not confirmed)
-            if pointerSwipeResultID != nil, pointerSwipeAction != nil,
-               !isPointerSwipeGestureActive, !didConfirmPointerSwipe {
-                return pointerSwipeOffset < 0
+            case .resting(let edge):
+                return edge == .trailing
                     ? GuidanceHint(tokens: [.init(glyph: "←", label: "swipe more to delete"),
                                             .init(glyph: "Esc", label: "cancel")])
                     : GuidanceHint(tokens: [.init(glyph: "→", label: "swipe more to copy"),
                                             .init(glyph: "Esc", label: "cancel")])
-            }
-
             // 5–6: Pointer swipe in progress, below confirm threshold
-            if pointerSwipeResultID != nil, isPointerSwipeGestureActive,
-               abs(pointerSwipeOffset) > 3 {
-                return pointerSwipeOffset < 0
+            case .inProgress(let edge):
+                return edge == .trailing
                     ? GuidanceHint(tokens: [.init(glyph: "←", label: "keep swiping to delete")])
                     : GuidanceHint(tokens: [.init(glyph: "→", label: "keep swiping to copy link")])
             }
@@ -58,9 +52,9 @@ extension ContentView {
         }
 
         // 8: Keyboard swipe revealed, awaiting second press to confirm
-        if keyboardSwipeResultID != nil {
-            let arrow = keyboardSwipeAction == .delete ? "←" : "→"
-            let verb = keyboardSwipeAction == .delete ? "delete" : "copy"
+        if keyboardSwipe.rowID != nil {
+            let arrow = keyboardSwipe.edge == .trailing ? "←" : "→"
+            let verb = keyboardSwipe.edge == .trailing ? "delete" : "copy"
             return GuidanceHint(tokens: [
                 .init(glyph: arrow, label: "press again to \(verb)"),
                 .init(glyph: "Esc", label: "cancel")

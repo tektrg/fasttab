@@ -61,19 +61,13 @@ struct ContentView: View {
     @State var faviconPrefetchDebounceTask: Task<Void, Never>?
     @State var suppressNextSearchChange = false
     @State private var lastActiveRefreshAt: Date = .distantPast
-    @State var keyboardSwipeResultID: String?
-    @State var keyboardSwipeAction: ResultSwipeAction?
+    @State var keyboardSwipe = CommandBarKeyboardSwipe()
     @State var closingResultID: String?
     @State var closingResultTask: Task<Void, Never>?
     @State var toastMessage: String?
     @State var toastDismissTask: Task<Void, Never>?
     @State var hoveredResultID: String?
-    @State var pointerSwipeResultID: String?
-    @State var pointerSwipeOffset: CGFloat = 0
-    @State var pointerSwipeAction: ResultSwipeAction?
-    @State var didConfirmPointerSwipe = false
-    @State var isPointerSwipeGestureActive = false
-    @State var suppressPointerSwipeUntilGestureEnds = false
+    @State var pointerSwipe = CommandBarPointerSwipe()
     @State var pointerSwipeSuppressionTask: Task<Void, Never>?
     @State var flickDetector = ViewSwitchFlickDetector()
     @State var isShowingAllOpenTabs = false

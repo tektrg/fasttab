@@ -72,7 +72,7 @@ enum FastTabKeyRouting {
         case unfocusChip
         case moveScopeSuggestion(by: Int)
         case moveSelection(forward: Bool, via: LastInteractionKey)
-        case keyboardSwipe(ResultSwipeAction)
+        case keyboardSwipe(CommandBarSwipeEdge)
         case activateSelection
         /// Esc with a row highlighted: back to the search field.
         case clearSelection
@@ -174,7 +174,7 @@ enum FastTabKeyRouting {
         case .moveSelection(let direction, let source):
             return .moveSelection(forward: direction == .forward, via: source == .space ? .space : .upDown)
         case .swipe(let direction):
-            return .keyboardSwipe(direction == .left ? .delete : .copy)
+            return .keyboardSwipe(direction.revealedEdge)
         case .commit:
             return .activateSelection
         case .clearSelection:

@@ -296,9 +296,9 @@ extension ContentView {
                 faviconImage: appState.browserService.faviconImage(for: result),
                 showWindowName: showWindowName,
                 showProfileName: showProfileName,
-                pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
-                pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
-                keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
+                pointerEdge: pointerSwipe.rowID == result.id ? pointerSwipe.revealedEdge : nil,
+                pointerOffset: pointerSwipe.rowID == result.id ? pointerSwipe.offset : 0,
+                keyboardEdge: keyboardSwipe.rowID == result.id ? keyboardSwipe.edge : nil,
                 isConfirmingRemoval: closingResultID == result.id,
                 onHoverChange: { isHovering in
                     if isHovering {

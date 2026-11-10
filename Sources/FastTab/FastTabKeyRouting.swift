@@ -2,8 +2,11 @@ import AppKit
 import IndieCommandBar
 
 /// The bar's keyDown decision table, kept pure so tests can pin it
-/// (`FastTabKeyRoutingTests`). `ContentView.setupLocalMonitor` builds a
-/// `Context`, asks `route`, and performs the returned `Action`.
+/// (`FastTabKeyRoutingTests`). Fast Tab's own keys (view builder, ⌘1…9,
+/// ⌘P/⌘W, ⌘S/⌘D, Stack reorder, Backspace, aliases, scope dropdown) get first
+/// refusal; the rest goes to IndieCommandBar's `CommandBarKeyRouter`.
+/// `ContentView.setupLocalMonitor` builds a `Context`, asks `route`, and
+/// performs the returned `Action`.
 enum FastTabKeyRouting {
     static let spaceKeyCode: UInt16 = 49
     static let returnKeyCode: UInt16 = 36
@@ -150,55 +153,45 @@ enum FastTabKeyRouting {
             return .commitAlias
         }
 
+        // Esc / arrows / Return: the scope dropdown and chip strip go first.
         if keyCode == escapeKeyCode {
             if c.isScopeDropdownVisible { return .dismissScopeDropdown }
             if c.isChipFocused { return .unfocusChip }
-            return c.selectedIndex == -1 ? .hideBar : .clearSelection
+        }
+        if noModifiers, c.isScopeDropdownVisible {
+            if keyCode == upArrowKeyCode { return .moveScopeSuggestion(by: -1) }
+            if keyCode == downArrowKeyCode { return .moveScopeSuggestion(by: 1) }
+        }
+        if keyCode == returnKeyCode, c.isScopeDropdownVisible, hooks.scopeDropdownEnter() {
+            return .consumed
         }
 
-        if noModifiers, keyCode == upArrowKeyCode {
-            if c.isScopeDropdownVisible { return .moveScopeSuggestion(by: -1) }
-            return .moveSelection(forward: false, via: .upDown)
-        }
-
-        if noModifiers, keyCode == downArrowKeyCode {
-            if c.isScopeDropdownVisible { return .moveScopeSuggestion(by: 1) }
-            return .moveSelection(forward: true, via: .upDown)
-        }
-
-        if noModifiers, keyCode == leftArrowKeyCode, c.selectedIndex >= 0 {
-            return .keyboardSwipe(.delete)
-        }
-
-        if noModifiers, keyCode == rightArrowKeyCode, c.selectedIndex >= 0 {
-            return .keyboardSwipe(.copy)
-        }
-
-        let shiftOnly = userModifiers == .shift
-        if keyCode == spaceKeyCode, noModifiers || shiftOnly, c.searchTextIsEmpty {
-            return .moveSelection(forward: !shiftOnly, via: .space)
-        }
-
-        if keyCode == returnKeyCode {
-            if c.isScopeDropdownVisible, hooks.scopeDropdownEnter() { return .consumed }
+        // Everything else is the shared bar's generic routing.
+        let press = CommandBarKeyPress(keyCode: keyCode, flags: modifiers)
+        let state = CommandBarKeyState(selectedIndex: c.selectedIndex, queryIsEmpty: c.searchTextIsEmpty)
+        guard let intent = CommandBarKeyRouter.intent(for: press, state: state) else { return .passThrough }
+        switch intent {
+        case .moveSelection(let direction, let source):
+            return .moveSelection(forward: direction == .forward, via: source == .space ? .space : .upDown)
+        case .swipe(let direction):
+            return .keyboardSwipe(direction == .left ? .delete : .copy)
+        case .commit:
             return .activateSelection
+        case .clearSelection:
+            return .clearSelection
+        case .close:
+            return .hideBar
         }
-
-        return .passThrough
     }
 
     /// Next selection for an arrow/Space/cycle step. `-1` is the search field.
     /// Returns the new index and whether the search field should take focus.
     static func movedSelection(from index: Int, forward: Bool, itemCount: Int, includeSearchField: Bool) -> (index: Int, focusSearch: Bool) {
-        let minimumIndex = includeSearchField ? -1 : 0
-        guard itemCount > 0 else { return (minimumIndex, includeSearchField) }
-        let maximumIndex = itemCount - 1
-        let next: Int
-        if forward {
-            next = (index < minimumIndex || index >= maximumIndex) ? minimumIndex : index + 1
-        } else {
-            next = (index <= minimumIndex || index > maximumIndex) ? maximumIndex : index - 1
-        }
-        return (next, includeSearchField && next == -1)
+        CommandBarController.movedSelection(
+            from: index,
+            direction: forward ? .forward : .backward,
+            itemCount: itemCount,
+            includeSearchField: includeSearchField
+        )
     }
 }

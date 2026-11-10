@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import IndieCommandBar
 
 extension ContentView {
     func activateAndHide(_ result: BrowserSearchResult) {
@@ -182,14 +183,11 @@ extension ContentView {
     private func moveSelection(forward: Bool, includeSearchField: Bool) {
         clearKeyboardSwipe()
         resetPointerSwipe(animated: true)
-        let moved = FastTabKeyRouting.movedSelection(
-            from: appState.selectedIndex,
-            forward: forward,
+        isSearchFocused = appState.commandBar.moveSelection(
+            forward ? .forward : .backward,
             itemCount: displayedItems.count,
             includeSearchField: includeSearchField
         )
-        appState.selectedIndex = moved.index
-        isSearchFocused = moved.focusSearch
     }
 
     /// Connects the shared cycle session to this view: each hotkey tap moves the

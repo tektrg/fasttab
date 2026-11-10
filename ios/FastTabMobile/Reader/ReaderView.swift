@@ -180,7 +180,9 @@ public struct ReaderView: View {
             viewModel.readerDidClose()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .background {
+            // `.inactive` too: the app switcher is inactive-only, and a kill from it never
+            // reaches `.background` — a throttled (up to 3 s) position would be lost.
+            if newPhase != .active {
                 viewModel.flushPendingProgress()
             }
         }

@@ -82,9 +82,48 @@ public final class SyncConsumer: NSObject, ObservableObject {
     /// a remote change yet — there is no push entitlement on either platform —
     /// so without this poll an open screen never updates at all.
     ///
-    /// Deliberately a plain fixed interval: once push notifications land, this
-    /// poll becomes a backstop and an adaptive schedule would be dead weight.
-    private static let foregroundRefreshInterval: TimeInterval = 6
+    /// The base (fastest) interval. Idle polls back off — see `pollInterval(afterEmptyPolls:)`:
+    /// a phone left open on an article fetched CloudKit every 6 s forever, keeping the radio
+    /// and CPU awake (the phone warmed up while reading).
+    static let foregroundRefreshInterval: TimeInterval = 6
+    static let maxForegroundRefreshInterval: TimeInterval = 30
+    /// Empty polls tolerated at full speed before backing off, so a Mac answer to a
+    /// just-sent command still arrives within one base tick.
+    static let fullSpeedEmptyPolls = 3
+
+    /// 6 s for the first few empty polls, then 12 → 24 → 30 s cap.
+    nonisolated static func pollInterval(afterEmptyPolls streak: Int) -> TimeInterval {
+        let over = streak - fullSpeedEmptyPolls
+        guard over >= 0 else { return foregroundRefreshInterval }
+        let doubled = foregroundRefreshInterval * pow(2, Double(min(over + 1, 8)))
+        return min(doubled, maxForegroundRefreshInterval)
+    }
+
+    /// Consecutive polls that moved nothing in either direction.
+    private(set) var emptyPollStreak = 0
+    /// Bumped whenever a fetch delivers any record change or deletion.
+    var fetchedChangeGeneration = 0
+
+    /// Something happened (local edit, remote change, foreground, push): poll fast again.
+    func resetPollBackoff() {
+        guard emptyPollStreak != 0 else { return }
+        emptyPollStreak = 0
+        // Pull a backed-off tick in; never push one out (frequent resets must not starve it).
+        if let timer = foregroundRefreshTimer,
+           timer.fireDate.timeIntervalSinceNow > Self.foregroundRefreshInterval {
+            scheduleNextPoll()
+        }
+    }
+
+    /// The success stamp moves at most this often. It feeds a "synced N ago" banner whose
+    /// thresholds are minutes, while a poll succeeds every few seconds — each fresh stamp
+    /// re-rendered the whole app root.
+    static let successStampGranularity: TimeInterval = 30
+
+    nonisolated static func shouldRefreshSuccessStamp(previous: Date?, now: Date) -> Bool {
+        guard let previous else { return true }
+        return now.timeIntervalSince(previous) >= successStampGranularity || now < previous
+    }
 
     public override init() {
         if let existing = UserDefaults.standard.string(forKey: Self.deviceIDDefaultsKey), !existing.isEmpty {
@@ -243,10 +282,14 @@ public final class SyncConsumer: NSObject, ObservableObject {
         isSyncing = visibleTransferCount > 0
     }
 
-    func markSyncSucceeded() {
-        lastSuccessfulSyncAt = Date()
-        lastSyncError = nil
-        syncHealth = .ok
+    func markSyncSucceeded(now: Date = Date()) {
+        // `@Published` fires on every assignment, equal or not: assign only real changes.
+        let recovering = lastSyncError != nil || syncHealth != .ok
+        if recovering || Self.shouldRefreshSuccessStamp(previous: lastSuccessfulSyncAt, now: now) {
+            lastSuccessfulSyncAt = now
+        }
+        if lastSyncError != nil { lastSyncError = nil }
+        if syncHealth != .ok { syncHealth = .ok }
     }
 
     func markSyncFailed(_ error: Error, whileDoing activity: String) {
@@ -268,12 +311,24 @@ public final class SyncConsumer: NSObject, ObservableObject {
     /// stacking timers.
     public func startForegroundRefresh() {
         guard foregroundRefreshTimer == nil else { return }
+        // Back to the foreground: the user is looking, so poll at full speed.
+        emptyPollStreak = 0
+        scheduleNextPoll()
+    }
+
+    /// One-shot timer re-armed after each tick, so the interval can follow the backoff.
+    private func scheduleNextPoll() {
+        foregroundRefreshTimer?.invalidate()
         foregroundRefreshTimer = Timer.scheduledTimer(
-            withTimeInterval: Self.foregroundRefreshInterval,
-            repeats: true
+            withTimeInterval: Self.pollInterval(afterEmptyPolls: emptyPollStreak),
+            repeats: false
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.pollForRemoteChanges()
+                guard let self else { return }
+                await self.pollForRemoteChanges()
+                // Stopped (backgrounded) while the tick ran: stay stopped.
+                guard self.foregroundRefreshTimer != nil else { return }
+                self.scheduleNextPoll()
             }
         }
     }
@@ -289,10 +344,20 @@ public final class SyncConsumer: NSObject, ObservableObject {
     /// without the user having to pull to refresh. A send with nothing queued
     /// never touches the network.
     private func pollForRemoteChanges() async {
+        let generation = fetchedChangeGeneration
         publishOwnDeviceIfDue()
+        let hadOutboundWork = syncEngine.map {
+            !$0.state.pendingRecordZoneChanges.isEmpty || !$0.state.pendingDatabaseChanges.isEmpty
+        } ?? false
         await performSend(visibility: .silent)
         await performFetch(visibility: .silent)
         await sweepZonesIfDue()
+        // Anything still waiting to leave the phone keeps the full-speed retry.
+        if hadOutboundWork || pendingCommandCount > 0 || fetchedChangeGeneration != generation {
+            emptyPollStreak = 0
+        } else {
+            emptyPollStreak += 1
+        }
     }
 
     // MARK: - Push-Driven Sync
@@ -308,7 +373,8 @@ public final class SyncConsumer: NSObject, ObservableObject {
     /// gets none at all. So this makes sync feel instant while the phone is in
     /// hand; the foreground poll remains the guarantee.
     public func handleRemoteNotification() async -> Bool {
-        await performFetch(visibility: .silent)
+        resetPollBackoff()
+        return await performFetch(visibility: .silent)
     }
 
     // MARK: - Fetch & Send
@@ -589,6 +655,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         // suspension or kill mid-send can never lose the user's intent. If that
         // write fails we still attempt the upload — best effort beats nothing —
         // but the user is told it is not guaranteed.
+        resetPollBackoff()
         let isDurable = persistToOutbox(command)
         LocalCache.shared.recordSentCommand(command, delivery: .queuedLocally)
         if !isDurable {

@@ -34,7 +34,7 @@ public struct ReadingCLI: Sendable {
         Command(name: "bookmarks", tool: "bookmarks", positional: "query",
                 usage: "fasttab bookmarks [<words>] [--folder <name>]"),
         Command(name: "history", tool: "history", positional: nil,
-                usage: "fasttab history [--since 3d] (only when allowed in FastTab Settings)"),
+                usage: "fasttab history [--since 3d] (off until allowed in FastTab Settings › Highlights › AI agent access)"),
     ]
 
     public struct Output: Equatable, Sendable {

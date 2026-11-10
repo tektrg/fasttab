@@ -138,6 +138,19 @@ struct ReadingBrowserToolsTests {
         #expect(on.text.contains("today.example.com") && !on.text.contains("month.example.com"))
     }
 
+    @Test func cliHistoryWhileOffSaysHowToTurnItOn() async throws {
+        let f = try ReadingConnectorFixture()
+        let t = try tools(f, try makeBrowsers(visits: visits))
+        let off = await ReadingCLI(tools: t.tools).run(["history"])
+        #expect(off.exitCode == 1)
+        #expect(off.text == ReadingTools.historyOffMessage + "\n")
+        #expect(!off.text.contains("Unknown command"))
+        #expect(ReadingCLI(tools: t.tools).help.contains("fasttab history"))
+        try ReadingConnectorSettings(historyEnabled: true, historyWindowDays: 7).save(supportDirectory: f.sources.supportDirectory)
+        let on = await ReadingCLI(tools: t.tools).run(["history"])
+        #expect(on.exitCode == 0 && on.text.contains("today.example.com"))
+    }
+
     @Test func bookmarksFromChromiumAndSafari() async throws {
         let f = try ReadingConnectorFixture()
         let t = try tools(f, try makeBrowsers(visits: []), index: true)

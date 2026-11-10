@@ -285,6 +285,7 @@ run codesign \
 
 run codesign --verify --deep --strict --verbose=1 "${APP}"
 echo "  Signed."
+[[ "${DRY_RUN}" == true ]] || scripts/deploy-stamp.sh write FastTab   # deploy guard stamp
 
 # ─── 5. Notarize ─────────────────────────────────────────────────────────────
 

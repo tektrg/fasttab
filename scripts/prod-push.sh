@@ -14,6 +14,10 @@
 #  1. Main sync first: this checkout must be on a clean `main`; the Pro's `main` is merged in
 #     here, then fast-forwarded on the Pro. Anything that can't merge cleanly (conflict here,
 #     or the Pro's uncommitted edits in the way) stops BEFORE any build or app restart.
+#  3. Never older code (owner decision 2026-11-10): each bundle has a stamp (dist/<App>.app.commit,
+#     scripts/deploy-stamp.sh). An app whose Pro stamp is a commit this build doesn't contain —
+#     e.g. a branch fix deployed with SKIP_MAIN_SYNC — is skipped with a STOP message; other apps
+#     still deploy. Missing stamp: warn and deploy. Override: FORCE_REPLACE="AgentBar" (or "all").
 #  2. Signed or nothing: an ad-hoc-signed bundle (signing identity missing from the keychain
 #     search list) is refused before it replaces the Pro's copy — ad-hoc loses macOS
 #     permissions (Accessibility for the hotkeys).
@@ -34,8 +38,8 @@ sync_main_with_pro() {
   fi
   [[ "$(git rev-parse --abbrev-ref HEAD)" == main ]] \
     || die "this checkout is on '$(git rev-parse --abbrev-ref HEAD)', not main (use a main worktree, or SKIP_MAIN_SYNC=1 for a branch test)"
-  [[ -z "$(git status --porcelain --untracked-files=no)" ]] \
-    || die "uncommitted changes here — commit them first"
+  [[ -z "$(git status --porcelain --untracked-files=no)" && -z "$(git status --porcelain -- Sources Package.swift Package.resolved)" ]] \
+    || die "uncommitted changes here (incl. new files under Sources/) — commit them first"
   run git fetch pro main
   if ! git merge-base --is-ancestor pro/main HEAD; then
     echo "+ git merge pro/main"
@@ -79,6 +83,27 @@ if [[ -n "${APPS}" && "${DRY_RUN:-0}" != 1 ]]; then
     || die "signing identity ${FASTTAB_SIGN_IDENTITY:-SELAV8N2B9} not in the keychain search list (security list-keychains -d user; see CLAUDE.md 'Air signing')"
 fi
 
+# Guard 3: drop any app whose Pro copy runs code this build doesn't contain (before building it).
+head_sha="$(git rev-parse HEAD)"
+git fetch -q pro 2>/dev/null || true   # so a commit built on the Pro's own branches is known here
+refused=""
+deploy_apps=""
+for app in ${APPS}; do
+  # A failed read must not look like "no stamp" (that would wave the app through).
+  stamp="$(ssh "${PRO}" "f='${PRO_REPO}/dist/${app}.app.commit'; if [ -f \"\$f\" ]; then cat \"\$f\"; fi")" \
+    || die "cannot read ${app}'s deploy stamp on the Pro (${PRO}) — nothing was deployed"
+  rc=0; verdict="$(scripts/deploy-stamp.sh verdict "${stamp}" "${head_sha}" "${app}")" || rc=$?
+  if (( rc == 3 )) && [[ " ${FORCE_REPLACE:-} " != *" ${app} "* && "${FORCE_REPLACE:-}" != all ]]; then
+    echo "prod-push: STOP ${app} — ${verdict}" >&2
+    refused+=" ${app}"
+    continue
+  fi
+  (( rc == 0 || rc == 3 )) || die "deploy stamp check failed for ${app}"
+  (( rc == 3 )) && echo "!! FORCE_REPLACE: replacing ${app} anyway — ${verdict}" || echo "==> ${app}: ${verdict}"
+  deploy_apps+=" ${app}"
+done
+APPS="${deploy_apps# }"
+
 for app in ${APPS}; do
   case "${app}" in
     FastTab)  run scripts/fasttab-build-mac-app.sh --no-open ;;
@@ -92,6 +117,9 @@ for app in ${APPS}; do require_signed "dist/${app}.app"; done
 for app in ${APPS}; do
   run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/app-lifecycle.sh stop ${app}"
   run rsync -aE --delete "dist/${app}.app/" "${PRO}:${PRO_REPO}/dist/${app}.app/"
+  # Stamp via ssh, not rsync (openrsync mangles single-file targets).
+  [[ "${DRY_RUN:-0}" == 1 ]] || ssh "${PRO}" "cat > '${PRO_REPO}/dist/${app}.app.commit'" < "dist/${app}.app.commit" \
+    || echo "!! could not write ${app}'s deploy stamp on the Pro — next deploy will only warn" >&2
   run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/app-lifecycle.sh start ${app}"
 done
 
@@ -115,4 +143,5 @@ if [[ "${IOS:-0}" == 1 ]]; then
   (( rc == 255 )) && die "lost the ssh connection to the Pro — the build may still be running; check /tmp/fasttab-ios-push.log there"
   (( rc == 0 )) || die "iPhone install FAILED on ${device} (log on the Pro: /tmp/fasttab-ios-push.log). Mac apps (if any) were already deployed."
 fi
+[[ -z "${refused}" ]] || die "not replaced (Pro runs code this build lacks):${refused} — see STOP lines above"
 echo "==> prod-push done"

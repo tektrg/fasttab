@@ -716,6 +716,8 @@ final class AgentPanelModel: ObservableObject {
     private var arrivalDetector = NeedsYouArrivalDetector()
     private var blockerMemory = BlockerMemory()
     private let blockerProbe: BlockerProbe
+    /// Puts a squeezed `※ recap` line back to its full text (read from the transcript).
+    private let recapExpander: RecapExpander
     /// The latest reading as the dashboard sent it, to derive the shown rows again when the probe learns something.
     private var lastReceived: StatusSnapshot?
     private var answerObservation: AnyCancellable?
@@ -738,6 +740,7 @@ final class AgentPanelModel: ObservableObject {
         message: MessageCardModel = MessageCardModel(),
         copier: IdentityCopier = IdentityCopier(),
         blockerProbe: BlockerProbe = BlockerProbe(),
+        recapExpander: RecapExpander = RecapExpander(),
         directSendRetryDelays: [TimeInterval] = [5, 10],
         treeModel: AgentTreeModel = AgentTreeModel(),
         loadPeekMessage: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript,
@@ -749,6 +752,7 @@ final class AgentPanelModel: ObservableObject {
         self.message = message
         self.copier = copier
         self.blockerProbe = blockerProbe
+        self.recapExpander = recapExpander
         self.directSendRetryDelays = directSendRetryDelays
         self.treeModel = treeModel
         self.store = store
@@ -765,6 +769,7 @@ final class AgentPanelModel: ObservableObject {
         wirePermissionCard()
         wireMessageCard()
         wireBlockerProbe()
+        recapExpander.onChange = { [weak self] in if let received = self?.lastReceived { self?.receive(received) } }
         wireTreeModel()
         copierObservation = copier.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
@@ -843,7 +848,7 @@ final class AgentPanelModel: ObservableObject {
 
     func receive(_ received: StatusSnapshot) {
         lastReceived = received
-        let snapshot = received.replacingAgents(shownBlockers(received.agents))
+        let snapshot = received.replacingAgents(recapExpander.expanded(shownBlockers(received.agents)))
         self.snapshot = snapshot
         treeModel.receive(received)
         // A dead feed shows no agents; that must not read as "they all went away".

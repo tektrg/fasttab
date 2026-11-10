@@ -242,6 +242,18 @@ import Testing
         #expect(root.totalBookmarkCount == 1)
     }
 
+    @MainActor @Test func storeFindsAndRemovesNestedFolder() {
+        let defaults = UserDefaults(suiteName: "bmfolder-\(UUID().uuidString)")!
+        let store = BookmarkTreeStore(defaults: defaults)
+        let inner = folder("7", children: [item("8")])
+        store.setRootFolders([folder("1", isRoot: true, children: [.folder(folder("4", children: [.folder(inner), item("5")]))])])
+        #expect(store.folder(withID: "Google Chrome|Default|7")?.totalBookmarkCount == 1)
+        #expect(store.removeFolder(id: "Google Chrome|Default|4"))
+        #expect(store.folder(withID: "Google Chrome|Default|7") == nil)
+        #expect(store.rootFolders.count == 1)
+        #expect(!store.removeFolder(id: "Google Chrome|Default|1"))
+    }
+
     @Test func confirmationCopyShowsCounts() {
         #expect(BookmarkFolderDeleteCopy.confirmation(folderName: "Work", bookmarkCount: 3, subfolderCount: 2)
                 == "Delete folder \"Work\" and its 3 bookmarks (incl. 2 subfolders)? This can't be undone.")

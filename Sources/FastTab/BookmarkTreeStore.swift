@@ -46,6 +46,23 @@ final class BookmarkTreeStore: ObservableObject {
         return didRemove
     }
 
+    /// The folder `id` anywhere in the tree.
+    func folder(withID id: String) -> BookmarkFolder? {
+        for root in rootFolders {
+            if let hit = root.folder(withID: id) { return hit }
+        }
+        return nil
+    }
+
+    /// Drops a deleted folder (and everything in it) from the visible tree.
+    @discardableResult
+    func removeFolder(id: String) -> Bool {
+        for i in rootFolders.indices where rootFolders[i].removeSubfolder(id: id) {
+            return true
+        }
+        return false
+    }
+
     func toggleFolder(_ folderID: String) {
         if isFolderExpanded(folderID) {
             collapseFolder(folderID)

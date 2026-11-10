@@ -49,7 +49,7 @@ extension ContentView {
         let ended = event.phase.contains(.ended) || event.momentumPhase.contains(.ended)
         let cancelled = event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled)
 
-        let canSwipeRow = RowSwipeGestureStore.shared.isEnabled && (hoveredResultID != nil || pointerSwipeResultID != nil)
+        let canSwipeRow = env.isRowSwipeEnabled() && (hoveredResultID != nil || pointerSwipeResultID != nil)
 
         if !canSwipeRow {
             let isMomentum = !event.momentumPhase.isEmpty

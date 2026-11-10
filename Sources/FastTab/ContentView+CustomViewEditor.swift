@@ -22,7 +22,7 @@ extension ContentView {
     /// (`setupLocalMonitor`). Esc closes the builder (or backs out of a
     /// delete confirmation) — never the whole bar; ⌘Return saves.
     func routeCustomViewEditorKey(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> CustomViewEditorKeyRoute {
-        let presenter = CustomViewEditorPresenter.shared
+        let presenter = env.customViewEditor
         guard presenter.holdsBar(on: viewStore.activeView) else { return .notInvolved }
 
         if event.keyCode == kEscapeKeyCode, modifiers.isEmpty {
@@ -45,13 +45,13 @@ extension ContentView {
     /// The builder / confirm card is on the active page: scroll events are
     /// the form's (no page swipes) and focus must not jump to the search field.
     var customViewEditorHoldsBar: Bool {
-        CustomViewEditorPresenter.shared.holdsBar(on: viewStore.activeView)
+        env.customViewEditor.holdsBar(on: viewStore.activeView)
     }
 
     /// Drops the builder / confirmation when the bar hides or the page
     /// changes (see `CustomViewEditorPresenter.syncWith`).
     func syncCustomViewEditor() {
-        CustomViewEditorPresenter.shared.syncWith(activeView: viewStore.activeView, isBarVisible: appState.isVisible)
+        env.customViewEditor.syncWith(activeView: viewStore.activeView, isBarVisible: appState.isVisible)
     }
 }
 
@@ -60,9 +60,9 @@ extension ContentView {
 /// Observes the presenter itself so `ContentView` doesn't have to.
 struct CustomViewEditorSlot<Content: View>: View {
     let page: CommandBarView
+    @ObservedObject var presenter: CustomViewEditorPresenter
     @ViewBuilder let content: () -> Content
 
-    @ObservedObject private var presenter = CustomViewEditorPresenter.shared
     @ObservedObject private var store = CustomViewStore.shared
 
     var body: some View {

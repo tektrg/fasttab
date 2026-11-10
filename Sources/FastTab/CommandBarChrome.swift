@@ -74,6 +74,8 @@ struct SearchHeader: View {
     let activeView: CommandBarView
     let viewTabs: [CommandBarViewTab]
     let onSelectView: (CommandBarView) -> Void
+    let onEditView: (UUID) -> Void
+    let onDeleteView: (UUID) -> Void
 
     @Namespace private var tabHighlight
 
@@ -86,6 +88,8 @@ struct SearchHeader: View {
                     activeView: activeView,
                     highlight: tabHighlight,
                     onSelect: onSelectView,
+                    onEditView: onEditView,
+                    onDeleteView: onDeleteView,
                     capsInlineIcons: true
                 )
             } else {
@@ -94,6 +98,8 @@ struct SearchHeader: View {
                     activeView: activeView,
                     highlight: tabHighlight,
                     onSelect: onSelectView,
+                    onEditView: onEditView,
+                    onDeleteView: onDeleteView,
                     capsInlineIcons: false
                 )
             }

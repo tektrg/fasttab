@@ -39,7 +39,14 @@ struct ContentView: View {
     /// A keyword the user just backed out of. Suppresses re-committing the same
     /// one so backing out and continuing to type can't loop.
     @State var rejectedAliasKeyword: String? = nil
-    @ObservedObject var searchAliasStore = SearchAliasStore.shared
+    @ObservedObject var searchAliasStore: SearchAliasStore
+    /// App services handed in by `FastTabApp` (see `CommandBarEnvironment`).
+    let env: CommandBarEnvironment
+
+    init(env: CommandBarEnvironment) {
+        self.env = env
+        self.searchAliasStore = env.searchAliasStore
+    }
     @State var scopeSuggestionMode: ScopeSuggestionMode = .hidden
     @State var scopeDropdownSelectedIndex: Int = 0
     /// When set, the named chip is keyboard-focused; the next backspace removes
@@ -550,7 +557,9 @@ struct ContentView: View {
                                 },
                                 activeView: viewStore.activeView,
                                 viewTabs: headerViewTabs,
-                                onSelectView: { viewStore.selectView($0) }
+                                onSelectView: { viewStore.selectView($0) },
+                                onEditView: { env.customViewEditor.presentEdit(id: $0) },
+                                onDeleteView: { env.customViewEditor.requestDelete(id: $0) }
                             )
                             searchHeader
                                 .background(

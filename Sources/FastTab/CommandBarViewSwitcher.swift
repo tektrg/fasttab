@@ -55,6 +55,9 @@ struct CommandBarViewTabStrip: View {
     let activeView: CommandBarView
     let highlight: Namespace.ID
     let onSelect: (CommandBarView) -> Void
+    /// Context-menu "Edit View…" / "Delete View…" on a custom view tab.
+    let onEditView: (UUID) -> Void
+    let onDeleteView: (UUID) -> Void
     let capsInlineIcons: Bool
 
     @Environment(\.isCompactCommandBar) private var isCompact
@@ -149,8 +152,8 @@ struct CommandBarViewTabStrip: View {
     @ViewBuilder
     private func contextMenu(for tab: CommandBarViewTab) -> some View {
         if let id = tab.view.customID {
-            Button("Edit View…") { CustomViewEditorPresenter.shared.presentEdit(id: id) }
-            Button("Delete View…", role: .destructive) { CustomViewEditorPresenter.shared.requestDelete(id: id) }
+            Button("Edit View…") { onEditView(id) }
+            Button("Delete View…", role: .destructive) { onDeleteView(id) }
         }
     }
 

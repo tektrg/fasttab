@@ -655,7 +655,7 @@ private final class CommandBarPanelController: NSObject {
     private var commandPanel: CommandBarPanel {
         if let panel { return panel }
 
-        let rootView = ContentView()
+        let rootView = ContentView(env: .live)
             .environmentObject(AppState.shared)
             .environmentObject(LicenseService.shared)
 

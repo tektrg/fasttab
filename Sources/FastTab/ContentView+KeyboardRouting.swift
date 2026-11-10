@@ -44,7 +44,7 @@ extension ContentView {
             // Custom pages ignore the (preserved) Recents search text; the New
             // View page's Return is its "Create View" button.
             if viewStore.activeView == .newView {
-                CustomViewEditorPresenter.shared.presentNew()
+                env.customViewEditor.presentNew()
             } else if viewStore.activeView.isCustomPage {
                 // Nothing selected on a custom view: no-op.
             } else if let activeSearchAlias {
@@ -143,7 +143,7 @@ extension ContentView {
     /// True when `keyCode` is a trigger the user has left enabled and the
     /// current text exactly names an alias.
     private func aliasCommittableBy(keyCode: UInt16) -> SearchAlias? {
-        let store = SearchAliasStore.shared
+        let store = env.searchAliasStore
         let triggerKey: SearchAliasTriggerKey
         switch keyCode {
         case kTabKeyCode: triggerKey = .tab
@@ -180,7 +180,7 @@ extension ContentView {
     /// open Settings on the Shortcuts tab.
     func openShortcutSettings() {
         dismissCommandBar()
-        SettingsNavigator.shared.open(.shortcuts, using: openSettings)
+        env.openSettingsPane(.shortcuts, openSettings)
     }
 
     func moveSelectionForward(includeSearchField: Bool) {

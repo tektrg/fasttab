@@ -47,7 +47,7 @@ extension ContentView {
         let groupBy = customViewStore.view(id: viewID)?.groupBy ?? .none
         // The inline builder replaces the rows while editing this view.
         let semanticStatus = snapshot == nil ? nil : customViewPage.semanticStatus
-        CustomViewEditorSlot(page: .custom(viewID)) {
+        CustomViewEditorSlot(page: .custom(viewID), presenter: env.customViewEditor) {
             VStack(spacing: 0) {
                 // Inside the page's fixed height: the rows below give way.
                 if let semanticStatus, !semanticStatus.message.isEmpty {
@@ -123,7 +123,7 @@ extension ContentView {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button("Edit View") {
-                CustomViewEditorPresenter.shared.presentEdit(id: viewID)
+                env.customViewEditor.presentEdit(id: viewID)
             }
             .controlSize(.small)
             .padding(.top, 4)
@@ -136,7 +136,7 @@ extension ContentView {
     /// "＋ New View" — the last page: an intro with "Create View", which
     /// (like Return here) opens the inline builder in its place.
     var newViewPage: some View {
-        CustomViewEditorSlot(page: .newView) { newViewIntro }
+        CustomViewEditorSlot(page: .newView, presenter: env.customViewEditor) { newViewIntro }
     }
 
     private var newViewIntro: some View {
@@ -153,7 +153,7 @@ extension ContentView {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Create View") {
-                CustomViewEditorPresenter.shared.presentNew()
+                env.customViewEditor.presentNew()
             }
             .commandBarProminentButtonStyle()
             .controlSize(.small)

@@ -20,7 +20,7 @@ extension ContentView {
             ])
         }
 
-        if RowSwipeGestureStore.shared.isEnabled {
+        if env.isRowSwipeEnabled() {
             // 1–2: Pointer swipe past confirm threshold — "release to act"
             if pointerSwipeResultID != nil, !didConfirmPointerSwipe,
                abs(pointerSwipeOffset) >= ResultSwipeMetrics.confirmDistance {
@@ -110,7 +110,7 @@ extension ContentView {
         }
 
         // 12: Mouse hover over a row, no keyboard result selected
-        if hoveredResultID != nil && !isResultFocused && RowSwipeGestureStore.shared.isEnabled {
+        if hoveredResultID != nil && !isResultFocused && env.isRowSwipeEnabled() {
             return GuidanceHint(tokens: [
                 .init(glyph: "←", label: "swipe to delete"),
                 .init(glyph: "→", label: "swipe to copy")

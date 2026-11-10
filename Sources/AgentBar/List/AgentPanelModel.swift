@@ -1401,7 +1401,7 @@ final class AgentPanelModel: ObservableObject {
     var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
 
     /// Selects the row a session link names (its dashboard `rowId`, or the row's own id), exactly
-    /// as if the user had arrowed to it in a freshly summoned panel. Before the first status reading
+    /// as if the user had arrowed to it in a freshly summoned panel, and opens its peek (details). Before the first status reading
     /// the request waits for it; a row that isn't listed shows "That session isn't running."
     func revealSession(id: String) {
         guard snapshot != nil else {
@@ -1419,6 +1419,9 @@ final class AgentPanelModel: ObservableObject {
         hoverSelectedAgentID = nil
         selectedAgentID = match
         pointerWhenSessionLinked = pointerLocation()
+        // Straight to its details: the peek (screen, or latest message for a status-only row).
+        closePeek()
+        openPeekOnSelected()
     }
 
     /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer or decision is on its way.

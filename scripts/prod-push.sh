@@ -85,10 +85,13 @@ fi
 
 # Guard 3: drop any app whose Pro copy runs code this build doesn't contain (before building it).
 head_sha="$(git rev-parse HEAD)"
+git fetch -q pro 2>/dev/null || true   # so a commit built on the Pro's own branches is known here
 refused=""
 deploy_apps=""
 for app in ${APPS}; do
-  stamp="$(ssh "${PRO}" "cat '${PRO_REPO}/dist/${app}.app.commit' 2>/dev/null" || true)"
+  # A failed read must not look like "no stamp" (that would wave the app through).
+  stamp="$(ssh "${PRO}" "f='${PRO_REPO}/dist/${app}.app.commit'; if [ -f \"\$f\" ]; then cat \"\$f\"; fi")" \
+    || die "cannot read ${app}'s deploy stamp on the Pro (${PRO}) — nothing was deployed"
   rc=0; verdict="$(scripts/deploy-stamp.sh verdict "${stamp}" "${head_sha}")" || rc=$?
   if (( rc == 3 )) && [[ " ${FORCE_REPLACE:-} " != *" ${app} "* && "${FORCE_REPLACE:-}" != all ]]; then
     echo "prod-push: STOP ${app} — ${verdict}" >&2

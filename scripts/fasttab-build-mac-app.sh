@@ -14,6 +14,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
+rm -f "dist/FastTab.app.commit"   # a failed build must not leave the old stamp on a half-built bundle
 
 APP="dist/FastTab.app"
 ENTITLEMENTS="dist/FastTab.entitlements"

@@ -44,6 +44,17 @@ struct SessionLinkTests {
         model.revealSession(id: "row-w2")
         #expect(model.selectedAgentID == "w2")
         #expect(model.footerNotice == nil)
+        #expect(model.peek?.agentID == "w2")   // straight to its details
+    }
+
+    @Test func aLinkReplacesAnOpenPeekWithTheLinkedSessions() {
+        let model = makeModel()
+        model.receive(snapshot)
+        model.resetForShow()
+        model.togglePeek()
+        #expect(model.peek?.agentID == "n1")
+        model.revealSession(id: "row-w1")
+        #expect(model.peek?.agentID == "w1")
     }
 
     @Test func alsoAcceptsTheRowsOwnId() {
@@ -60,6 +71,7 @@ struct SessionLinkTests {
         model.revealSession(id: "row-gone")
         #expect(model.selectedAgentID == "n1")
         #expect(model.footerNotice?.text == AgentPanelModel.sessionNotRunningNotice)
+        #expect(model.peek == nil)
     }
 
     @Test func aLinkBeforeTheFirstReadingWaitsForIt() {

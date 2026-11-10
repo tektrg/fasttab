@@ -1,18 +1,6 @@
 import SwiftUI
 import AppKit
 
-private let kSpaceKeyCode: UInt16 = 49
-private let kEnterKeyCode: UInt16 = 36
-private let kDeleteKeyCode: UInt16 = 51
-private let kTabKeyCode: UInt16 = 48
-private let kEscapeKeyCode: UInt16 = 53
-private let kLeftArrowKeyCode: UInt16 = 123
-private let kRightArrowKeyCode: UInt16 = 124
-private let kUpArrowKeyCode: UInt16 = 126
-private let kDownArrowKeyCode: UInt16 = 125
-/// ANSI number-row key codes → digit, for ⌘1…⌘9 view switching.
-private let kDigitKeyCodes: [UInt16: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9]
-
 extension ContentView {
     func activateAndHide(_ result: BrowserSearchResult) {
         clearKeyboardSwipe()
@@ -146,8 +134,8 @@ extension ContentView {
         let store = env.searchAliasStore
         let triggerKey: SearchAliasTriggerKey
         switch keyCode {
-        case kTabKeyCode: triggerKey = .tab
-        case kSpaceKeyCode: triggerKey = .space
+        case FastTabKeyRouting.tabKeyCode: triggerKey = .tab
+        case FastTabKeyRouting.spaceKeyCode: triggerKey = .space
         default: return nil
         }
         guard store.isTriggerEnabled(triggerKey) else { return nil }
@@ -184,47 +172,24 @@ extension ContentView {
     }
 
     func moveSelectionForward(includeSearchField: Bool) {
-        clearKeyboardSwipe()
-        resetPointerSwipe(animated: true)
-        let items = displayedItems
-        let minimumIndex = includeSearchField ? -1 : 0
-
-        if items.isEmpty {
-            appState.selectedIndex = minimumIndex
-            isSearchFocused = includeSearchField
-            return
-        }
-
-        let maximumIndex = items.count - 1
-        if appState.selectedIndex < minimumIndex || appState.selectedIndex >= maximumIndex {
-            appState.selectedIndex = minimumIndex
-        } else {
-            appState.selectedIndex += 1
-        }
-
-        isSearchFocused = includeSearchField && appState.selectedIndex == -1
+        moveSelection(forward: true, includeSearchField: includeSearchField)
     }
 
     func moveSelectionBackward(includeSearchField: Bool) {
+        moveSelection(forward: false, includeSearchField: includeSearchField)
+    }
+
+    private func moveSelection(forward: Bool, includeSearchField: Bool) {
         clearKeyboardSwipe()
         resetPointerSwipe(animated: true)
-        let items = displayedItems
-        let minimumIndex = includeSearchField ? -1 : 0
-
-        if items.isEmpty {
-            appState.selectedIndex = minimumIndex
-            isSearchFocused = includeSearchField
-            return
-        }
-
-        let maximumIndex = items.count - 1
-        if appState.selectedIndex <= minimumIndex || appState.selectedIndex > maximumIndex {
-            appState.selectedIndex = maximumIndex
-        } else {
-            appState.selectedIndex -= 1
-        }
-
-        isSearchFocused = includeSearchField && appState.selectedIndex == -1
+        let moved = FastTabKeyRouting.movedSelection(
+            from: appState.selectedIndex,
+            forward: forward,
+            itemCount: displayedItems.count,
+            includeSearchField: includeSearchField
+        )
+        appState.selectedIndex = moved.index
+        isSearchFocused = moved.focusSearch
     }
 
     /// Connects the shared cycle session to this view: each hotkey tap moves the
@@ -239,15 +204,14 @@ extension ContentView {
         }
     }
 
-    private func handleEscapeKey() {
-        if appState.selectedIndex == -1 {
-            appState.hideCommandBar()
-            cycleSession.reset()
-            clearKeyboardSwipe()
-            resetPointerSwipe(animated: false)
-            return
-        }
+    private func hideBarFromEscape() {
+        appState.hideCommandBar()
+        cycleSession.reset()
+        clearKeyboardSwipe()
+        resetPointerSwipe(animated: false)
+    }
 
+    private func clearSelectionFromEscape() {
         appState.selectedIndex = -1
         isSearchFocused = true
         cycleSession.reset()
@@ -276,219 +240,105 @@ extension ContentView {
                 // text fields — e.g. the Views sheet — need Space/arrows/Return).
                 guard appState.isVisible else { return event }
                 appState.recordTypingActivity()
-                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                let userModifiers = flags.intersection([.command, .option, .control, .shift])
-
-                let noModifiers = userModifiers.isEmpty
-
-                // The inline view builder owns the keyboard while it's up
-                // (ContentView+CustomViewEditor).
-                switch routeCustomViewEditorKey(event, modifiers: userModifiers) {
-                case .consume: return nil
-                case .passThrough: return event
-                case .notInvolved: break
-                }
-
-                // ⌘1…⌘9 view switching (Nth page in swipe order, New View
-                // excluded — `CommandBarView.numberedShortcutTarget`): must be
-                // guarded on isVisible so Settings doesn't swallow them.
-                if appState.isVisible, userModifiers == [.command],
-                   let number = kDigitKeyCodes[event.keyCode],
-                   viewStore.selectNumberedView(number) {
-                    return nil
-                }
-
-                // ⌘P: toggle pin on selected row (ordered entry or live tab result)
-                if appState.isVisible, userModifiers == [.command], event.keyCode == 35 {
-                    let items = displayedItems
-                    if appState.selectedIndex >= 0, appState.selectedIndex < items.count {
-                        switch items[appState.selectedIndex] {
-                        case .orderedEntry(let slot):
-                            myOrderStore.togglePinSlot(slot.slotID)
-                            return nil
-                        case .result(let result):
-                            if result.type == .tab {
-                                appState.browserService.togglePin(result)
-                                return nil
-                            }
-                        default:
-                            break
-                        }
-                    }
-                }
-
-                // ⌘W: close selected tab (ordered entry, live tab result, or open sent link)
-                if appState.isVisible, userModifiers == [.command], event.keyCode == 13 {
-                    let items = displayedItems
-                    if appState.selectedIndex >= 0, appState.selectedIndex < items.count {
-                        switch items[appState.selectedIndex] {
-                        case .orderedEntry(let slot):
-                            myOrderStore.closeSlot(slot.slotID)
-                            return nil
-                        case .result(let result):
-                            if result.type == .tab {
-                                performRemove(result)
-                                return nil
-                            }
-                        default:
-                            break
-                        }
-                    }
-                }
-
-                // ⌘S / ⌘D: FastTab List bridges (Read later / Move to Bookmarks)
-                if appState.isVisible, userModifiers == [.command],
-                   handleFastTabListShortcut(keyCode: event.keyCode) {
-                    return nil
-                }
-
-                // ⌥↑/⌥↓: reorder pinned rows in the Stack (sent-link rows sit below and never move)
-                if appState.isVisible, userModifiers == [.option], viewStore.activeView == .stack, searchText.isEmpty {
-                    let pinnedCount = stackPinnedSlots.count
-                    let slotIdx = appState.selectedIndex
-                    if event.keyCode == 126 { // Up arrow
-                        if slotIdx > 0, slotIdx < pinnedCount {
-                            myOrderStore.reorderSlot(from: slotIdx, to: slotIdx - 1)
-                            appState.selectedIndex -= 1
-                            return nil
-                        }
-                    } else if event.keyCode == 125 { // Down arrow
-                        if slotIdx >= 0, slotIdx < pinnedCount - 1 {
-                            myOrderStore.reorderSlot(from: slotIdx, to: slotIdx + 1)
-                            appState.selectedIndex += 1
-                            return nil
-                        }
-                    }
-                }
-
-                // Backspace at empty input: step-back into the chip strip,
-                // then delete on the next press. Routed here (not via SwiftUI
-                // `.onKeyPress(.delete)`) because that hook is unreliable when
-                // the TextField is empty.
-                // Alias badge sits closest to the caret, so it is what an
-                // empty-input backspace removes first — before the chip strip.
-                if noModifiers,
-                   event.keyCode == kDeleteKeyCode,
-                   appState.isVisible,
-                   searchText.isEmpty,
-                   activeSearchAlias != nil {
-                    exitSearchAliasMode()
-                    return nil
-                }
-
-                if noModifiers,
-                   event.keyCode == kDeleteKeyCode,
-                   appState.isVisible,
-                   searchText.isEmpty,
-                   !scopeChips.isEmpty {
-                    handleBackspaceAtEmptyInput()
-                    return nil
-                }
-
-                if noModifiers,
-                   event.keyCode == kDeleteKeyCode,
-                   appState.isVisible,
-                   searchText.isEmpty,
-                   appState.selectedIndex >= 0 {
-                    let items = displayedItems
-                    if appState.selectedIndex < items.count {
-                        switch items[appState.selectedIndex] {
-                        case .orderedEntry(let slot):
-                            myOrderStore.closeSlot(slot.slotID)
-                            return nil
-                        case .result(let result):
-                            if result.type == .tab {
-                                performRemove(result)
-                                return nil
-                            }
-                        default:
-                            break
-                        }
-                    }
-                }
-
-                // Tab/Space commit a typed keyword into alias mode. Space only
-                // ever reaches here with non-empty text, so it cannot collide
-                // with the empty-input "space moves the selection" binding
-                // handled further down.
-                if noModifiers,
-                   appState.isVisible,
-                   !isScopeDropdownVisible,
-                   activeSearchAlias == nil,
-                   !searchText.isEmpty,
-                   let alias = aliasCommittableBy(keyCode: event.keyCode) {
-                    commitSearchAlias(alias)
-                    return nil
-                }
-
-                if event.keyCode == kEscapeKeyCode && appState.isVisible {
-                    if isScopeDropdownVisible {
-                        dismissScopeDropdown()
-                        return nil
-                    }
-                    if focusedChipID != nil {
-                        focusedChipID = nil
-                        isSearchFocused = true
-                        return nil
-                    }
-                    handleEscapeKey()
-                    return nil
-                }
-
-                if noModifiers && event.keyCode == kUpArrowKeyCode {
-                    if isScopeDropdownVisible {
-                        moveScopeSuggestionSelection(by: -1)
-                        return nil
-                    }
-                    moveSelectionBackward(includeSearchField: true)
-                    lastInteractionKey = .upDown
-                    return nil
-                }
-
-                if noModifiers && event.keyCode == kDownArrowKeyCode {
-                    if isScopeDropdownVisible {
-                        moveScopeSuggestionSelection(by: 1)
-                        return nil
-                    }
-                    moveSelectionForward(includeSearchField: true)
-                    lastInteractionKey = .upDown
-                    return nil
-                }
-
-                if noModifiers && event.keyCode == kLeftArrowKeyCode && appState.selectedIndex >= 0 {
-                    handleKeyboardSwipe(.delete)
-                    lastInteractionKey = .leftRight
-                    return nil
-                }
-
-                if noModifiers && event.keyCode == kRightArrowKeyCode && appState.selectedIndex >= 0 {
-                    handleKeyboardSwipe(.copy)
-                    lastInteractionKey = .leftRight
-                    return nil
-                }
-
-                let shiftOnly = userModifiers == .shift
-                if event.keyCode == kSpaceKeyCode && (noModifiers || shiftOnly) && searchText.isEmpty {
-                    if shiftOnly {
-                        moveSelectionBackward(includeSearchField: true)
-                    } else {
-                        moveSelectionForward(includeSearchField: true)
-                    }
-                    lastInteractionKey = .space
-                    return nil
-                }
-
-                if event.keyCode == kEnterKeyCode {
-                    if isScopeDropdownVisible, handleScopeDropdownEnter() {
-                        return nil
-                    }
-                    activateSelectedDisplayItem()
-                    return nil
-                }
+                let action = FastTabKeyRouting.route(
+                    keyCode: event.keyCode,
+                    modifiers: event.modifierFlags,
+                    context: keyRoutingContext(keyCode: event.keyCode),
+                    hooks: keyRoutingHooks(event)
+                )
+                return perform(action, keyCode: event.keyCode) ? nil : event
             } else if event.type == .flagsChanged && appState.isVisible {
                 cycleSession.handleFlagsChanged(event.modifierFlags)
             }
             return event
         }
+    }
+
+    // MARK: - Key routing glue
+
+    private func keyRoutingContext(keyCode: UInt16) -> FastTabKeyRouting.Context {
+        let items = displayedItems
+        var row = FastTabKeyRouting.SelectedRow.none
+        if items.indices.contains(appState.selectedIndex) {
+            switch items[appState.selectedIndex] {
+            case .orderedEntry: row = .stackSlot
+            case .result(let result): row = result.type == .tab ? .liveTab : .otherResult
+            default: row = .other
+            }
+        }
+        return FastTabKeyRouting.Context(
+            isVisible: appState.isVisible,
+            selectedIndex: appState.selectedIndex,
+            selectedRow: row,
+            searchTextIsEmpty: searchText.isEmpty,
+            isAliasActive: activeSearchAlias != nil,
+            aliasCommittableByKey: aliasCommittableBy(keyCode: keyCode) != nil,
+            hasScopeChips: !scopeChips.isEmpty,
+            isScopeDropdownVisible: isScopeDropdownVisible,
+            isChipFocused: focusedChipID != nil,
+            isStackActive: viewStore.activeView == .stack,
+            stackPinnedCount: stackPinnedSlots.count
+        )
+    }
+
+    private func keyRoutingHooks(_ event: NSEvent) -> FastTabKeyRouting.Hooks {
+        let userModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .intersection([.command, .option, .control, .shift])
+        return FastTabKeyRouting.Hooks(
+            customViewEditor: { routeCustomViewEditorKey(event, modifiers: userModifiers) },
+            selectNumberedView: { viewStore.selectNumberedView($0) },
+            listShortcut: { handleFastTabListShortcut(keyCode: $0) },
+            scopeDropdownEnter: { handleScopeDropdownEnter() }
+        )
+    }
+
+    /// Performs a routed key. Returns true when the event is consumed.
+    private func perform(_ action: FastTabKeyRouting.Action, keyCode: UInt16) -> Bool {
+        let items = displayedItems
+        let selected = items.indices.contains(appState.selectedIndex) ? items[appState.selectedIndex] : nil
+        switch action {
+        case .passThrough:
+            return false
+        case .consumed:
+            return true
+        case .togglePinStackSlot:
+            if case .orderedEntry(let slot)? = selected { myOrderStore.togglePinSlot(slot.slotID) }
+        case .togglePinTab:
+            if case .result(let result)? = selected { appState.browserService.togglePin(result) }
+        case .closeStackSlot:
+            if case .orderedEntry(let slot)? = selected { myOrderStore.closeSlot(slot.slotID) }
+        case .removeTab:
+            if case .result(let result)? = selected { performRemove(result) }
+        case .reorderStack(let up):
+            let index = appState.selectedIndex
+            myOrderStore.reorderSlot(from: index, to: up ? index - 1 : index + 1)
+            appState.selectedIndex += up ? -1 : 1
+        case .exitAliasMode:
+            exitSearchAliasMode()
+        case .backspaceIntoChips:
+            handleBackspaceAtEmptyInput()
+        case .commitAlias:
+            if let alias = aliasCommittableBy(keyCode: keyCode) { commitSearchAlias(alias) }
+        case .dismissScopeDropdown:
+            dismissScopeDropdown()
+        case .unfocusChip:
+            focusedChipID = nil
+            isSearchFocused = true
+        case .moveScopeSuggestion(let delta):
+            moveScopeSuggestionSelection(by: delta)
+        case .moveSelection(let forward, let via):
+            moveSelection(forward: forward, includeSearchField: true)
+            lastInteractionKey = via
+        case .keyboardSwipe(let swipe):
+            handleKeyboardSwipe(swipe)
+            lastInteractionKey = .leftRight
+        case .activateSelection:
+            activateSelectedDisplayItem()
+        case .clearSelection:
+            clearSelectionFromEscape()
+        case .hideBar:
+            hideBarFromEscape()
+        }
+        return true
     }
 }

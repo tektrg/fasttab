@@ -15,24 +15,27 @@ enum CustomViewEditorKeyRoute {
     /// Belongs to the focused field (typing, arrows, Return, Tab, ⌘A…):
     /// deliver it untouched, skipping the bar's own bindings.
     case passThrough
-}
 
-extension ContentView {
-    /// Called first for every keyDown while the bar is visible
-    /// (`setupLocalMonitor`). Esc closes the builder (or backs out of a
-    /// delete confirmation) — never the whole bar; ⌘Return saves.
-    func routeCustomViewEditorKey(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> CustomViewEditorKeyRoute {
-        let presenter = env.customViewEditor
-        guard presenter.holdsBar(on: viewStore.activeView) else { return .notInvolved }
+    /// Pure apart from the presenter calls it makes (Esc cancels, ⌘Return
+    /// saves) — pinned by `FastTabKeyRoutingTests`.
+    @MainActor
+    static func route(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        presenter: CustomViewEditorPresenter,
+        activeView: CommandBarView,
+        beep: () -> Void = { NSSound.beep() }
+    ) -> CustomViewEditorKeyRoute {
+        guard presenter.holdsBar(on: activeView) else { return .notInvolved }
 
-        if event.keyCode == kEscapeKeyCode, modifiers.isEmpty {
+        if keyCode == kEscapeKeyCode, modifiers.isEmpty {
             presenter.cancelTopmost()
             return .consume
         }
-        if presenter.isEditing(on: viewStore.activeView) {
-            let isReturn = event.keyCode == kEnterKeyCode || event.keyCode == kKeypadEnterKeyCode
+        if presenter.isEditing(on: activeView) {
+            let isReturn = keyCode == kEnterKeyCode || keyCode == kKeypadEnterKeyCode
             if isReturn, modifiers == [.command] {
-                if presenter.pendingDeleteID == nil, !presenter.save() { NSSound.beep() }
+                if presenter.pendingDeleteID == nil, !presenter.save() { beep() }
                 return .consume
             }
             return .passThrough
@@ -40,6 +43,20 @@ extension ContentView {
         // Confirm card over a view's rows: plain keys must not drive the
         // list underneath; ⌘ shortcuts (menus) still work.
         return modifiers.contains(.command) ? .passThrough : .consume
+    }
+}
+
+extension ContentView {
+    /// Called first for every keyDown while the bar is visible
+    /// (`setupLocalMonitor`). Esc closes the builder (or backs out of a
+    /// delete confirmation) — never the whole bar; ⌘Return saves.
+    func routeCustomViewEditorKey(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> CustomViewEditorKeyRoute {
+        CustomViewEditorKeyRoute.route(
+            keyCode: event.keyCode,
+            modifiers: modifiers,
+            presenter: env.customViewEditor,
+            activeView: viewStore.activeView
+        )
     }
 
     /// The builder / confirm card is on the active page: scroll events are

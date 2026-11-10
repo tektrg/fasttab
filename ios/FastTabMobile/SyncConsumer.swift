@@ -467,6 +467,21 @@ public final class SyncConsumer: NSObject, ObservableObject {
         ))
     }
 
+    /// Deletes a whole folder (subfolders + bookmarks) in one browser profile
+    /// on one Mac. Only send to a Mac whose device record advertises
+    /// `SyncedDeviceCapability.deleteBookmarkFolder` (see `FolderDeletePlanner`).
+    public func sendDeleteBookmarkFolder(browserName: String, profileName: String, folderPath: [String], targetDeviceID: String) {
+        let payload = DeleteBookmarkFolderPayload(browserName: browserName, profileName: profileName, folderPath: folderPath)
+        guard let payloadJSON = Self.encodedPayload(payload) else { return }
+
+        queueCommand(SyncCommand(
+            kind: .deleteBookmarkFolder,
+            targetDeviceID: targetDeviceID,
+            sourceDeviceName: deviceName,
+            payloadJSON: payloadJSON
+        ))
+    }
+
     /// Moves a bookmark to a different folder — same Mac only (`targetDeviceID`
     /// is the source device; the destination browser/profile must live on
     /// that same device). Runs immediately on the Mac, no approval step.

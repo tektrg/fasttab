@@ -267,6 +267,9 @@ function onNativeMessage(msg) {
     case 'deleteBookmark':
       handleDeleteBookmark(p.requestID, p.bookmarkId, p.url);
       break;
+    case 'deleteBookmarkFolder':
+      handleDeleteBookmarkFolder(p.requestID, p.id, p.title, p.ancestorTitles);
+      break;
     case 'moveBookmark':
       handleMoveBookmark(p.requestID, p.id, p.parentId, p.index);
       break;
@@ -364,6 +367,38 @@ async function handleDeleteBookmark(requestID, bookmarkId, url) {
       return;
     }
     sendResponse('commandResult', { requestID, ok: false, error: 'No bookmarkId or url provided' });
+  } catch (e) {
+    sendResponse('commandResult', { requestID, ok: false, error: String(e) });
+  }
+}
+
+// Removes a whole folder tree. Refuses root folders (bookmark bar / other /
+// mobile, whose parent is the invisible root "0") and any node whose title or
+// ancestor names don't match what FastTab read from the Bookmarks file — the
+// app can't tell which profile this extension runs in, so a same-id folder in
+// another profile must never be removed. The first ancestor is the root folder,
+// whose display name may be localized differently, so it is not compared.
+async function handleDeleteBookmarkFolder(requestID, id, title, ancestorTitles) {
+  try {
+    if (!id || String(id) === '0') throw new Error('No folder id');
+    const [node] = await chrome.bookmarks.get(String(id));
+    if (!node || node.url) throw new Error('Not a folder');
+    if (!node.parentId || node.parentId === '0') throw new Error('Root folders cannot be deleted');
+    if (node.title !== title) throw new Error('Folder title mismatch');
+    const expected = Array.isArray(ancestorTitles) ? ancestorTitles : [];
+    const actual = [];
+    let parentId = node.parentId;
+    while (parentId && parentId !== '0') {
+      const [parent] = await chrome.bookmarks.get(parentId);
+      actual.unshift(parent.title);
+      parentId = parent.parentId;
+    }
+    if (actual.length !== expected.length) throw new Error('Folder path mismatch');
+    for (let i = 1; i < actual.length; i++) {
+      if (actual[i] !== expected[i]) throw new Error('Folder path mismatch');
+    }
+    await chrome.bookmarks.removeTree(String(id));
+    sendResponse('commandResult', { requestID, ok: true });
   } catch (e) {
     sendResponse('commandResult', { requestID, ok: false, error: String(e) });
   }

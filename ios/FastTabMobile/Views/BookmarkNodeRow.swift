@@ -75,7 +75,15 @@ struct BookmarkNodeRow: View {
     }
 
     private var canDelete: Bool {
-        node.isFolder ? canOperateFolder : isBookmarkWritable
+        node.isFolder ? (canOperateFolder && FolderDeletePlanner.blockReason(for: node) == nil) : isBookmarkWritable
+    }
+
+    /// Safari folders show Delete Folder disabled in the menu, with the reason,
+    /// rather than hiding it (owner decision 2026-11-10).
+    private var folderDeleteDisabledReason: String? {
+        guard node.isFolder, !canDelete,
+              FolderDeletePlanner.blockReason(for: node) == FolderDeletePlanner.safariReason else { return nil }
+        return FolderDeletePlanner.safariReason
     }
 
     private var canMove: Bool {
@@ -191,6 +199,14 @@ struct BookmarkNodeRow: View {
                     } label: {
                         Label("Delete Folder", systemImage: "trash")
                     }
+                }
+                if let reason = folderDeleteDisabledReason {
+                    Divider()
+                    Button(role: .destructive) {} label: {
+                        Label("Delete Folder", systemImage: "trash")
+                        Text(reason)
+                    }
+                    .disabled(true)
                 }
             } else if let urlStr = node.url, let url = URL(string: urlStr) {
                 Button {

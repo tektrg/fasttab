@@ -179,6 +179,7 @@ codesign --verify --deep --strict --verbose=2 "${APP}"
 
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP}/Contents/Info.plist")"
 echo "==> Done. ${APP} refreshed (v${version})"
+scripts/deploy-stamp.sh write FastTab   # which commit this bundle is (deploy guard)
 
 if [[ "${1:-}" != "--no-open" ]]; then
   echo "==> Relaunching app"

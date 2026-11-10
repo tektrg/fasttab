@@ -127,6 +127,7 @@ fi
 echo "==> Verifying signature"
 codesign --verify --strict --verbose=2 "${APP}"
 echo "==> Done. ${APP} created"
+scripts/deploy-stamp.sh write AgentBar   # which commit this bundle is (deploy guard)
 
 if [[ "${1:-}" != "--no-open" ]]; then
   echo "==> Launching app"

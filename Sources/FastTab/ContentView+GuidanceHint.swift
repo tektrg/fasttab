@@ -1,5 +1,5 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
 extension ContentView {
     var guidanceHint: GuidanceHint {

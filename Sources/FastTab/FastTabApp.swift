@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import OSLog
 import Combine
-import CommandBarKit
+import IndieCommandBar
 import IndieFeedbackUI
 import IndieEdgeReveal
 

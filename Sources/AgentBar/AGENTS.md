@@ -1,6 +1,6 @@
 # AgentBar — agent notes
 
-Native Mac agent switcher (⌥Tab panel) over the AptusFit **chief dashboard** (`127.0.0.1:4711`). Separate app/target from FastTab; shares only `CommandBarKit`. Rules: edits stay in `Sources/AgentBar` + `Tests/AgentBarTests`; `FastTab` / `CommandBarKit` diffs must be empty unless the task says otherwise.
+Native Mac agent switcher (⌥Tab panel) over the AptusFit **chief dashboard** (`127.0.0.1:4711`). Separate app/target from FastTab; shares only IndieLibKit `IndieCommandBar`. Rules: edits stay in `Sources/AgentBar` + `Tests/AgentBarTests`; `FastTab` / `IndieCommandBar` diffs must be empty unless the task says otherwise.
 
 ## Build / test / run
 - Switch primitives (`TmuxSessionSwitcher`, `HerdrCommandLine`, `ProcessCommandRunner`/`ExecutableLocator`, `TerminalAppController`, `ClaudeDesktopOpener`) live in IndieLibKit `IndieAgentSessions` (shared with MacLanes) since 2026-11-10; their tests moved there. `Switch/AgentSwitchCoordinator` (panel hide, failure notice, frecency) stays here.

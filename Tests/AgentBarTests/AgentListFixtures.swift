@@ -1,5 +1,5 @@
 import Foundation
-import CommandBarKit
+import IndieCommandBar
 @testable import AgentBar
 
 /// Hand-built agents and snapshots for list logic tests.

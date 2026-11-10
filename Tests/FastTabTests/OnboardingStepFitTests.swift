@@ -1,5 +1,5 @@
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 import IndieEdgeReveal
 import SwiftUI
 import Testing

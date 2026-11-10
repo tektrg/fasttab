@@ -15,6 +15,7 @@ let indieMCP: Target.Dependency = .product(name: "IndieMCP", package: "IndieLibK
 let indieSharing: Target.Dependency = .product(name: "IndieSharing", package: "IndieLibKit")
 let indieAccount: Target.Dependency = .product(name: "IndieAccount", package: "IndieLibKit")
 let indieAgentSessions: Target.Dependency = .product(name: "IndieAgentSessions", package: "IndieLibKit")
+let indieCommandBar: Target.Dependency = .product(name: "IndieCommandBar", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -74,13 +75,6 @@ let package = Package(
             name: "FastTabMCP",
             dependencies: ["FastTabReader", "ReadingConnector", indieComments, indieMCP]
         ),
-        // Reusable command-bar building blocks shared with future apps.
-        // Only static-library dependencies and no resources on purpose: it links
-        // into the app binary, so `build-app.sh` keeps copying a single executable.
-        .target(
-            name: "CommandBarKit",
-            dependencies: [indieEdgeReveal, indieEdgeRevealUI]
-        ),
         .executableTarget(
             name: "FastTab",
             dependencies: [
@@ -90,7 +84,7 @@ let package = Package(
                 "FastTabWebReader",
                 "ReadingConnector",
                 indieMCP,
-                "CommandBarKit",
+                indieCommandBar,
                 indieSearch,
                 indieSharing,
                 indieAccount,
@@ -109,22 +103,18 @@ let package = Package(
         // Agent switcher (⌥Tab panel). Standalone app: no Sparkle, no FastTabSync.
         .executableTarget(
             name: "AgentBar",
-            dependencies: ["CommandBarKit", indieSearch, indieAgentSessions],
+            dependencies: [indieCommandBar, indieSearch, indieAgentSessions],
             path: "Sources/AgentBar"
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP,
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, indieCommandBar, indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP,
                            .product(name: "GRDB", package: "GRDB.swift")]
         ),
         .testTarget(
             name: "AgentBarTests",
-            dependencies: ["AgentBar", "CommandBarKit", indieAgentSessions],
+            dependencies: ["AgentBar", indieCommandBar, indieAgentSessions],
             resources: [.copy("Fixtures")]
-        ),
-        .testTarget(
-            name: "CommandBarKitTests",
-            dependencies: ["CommandBarKit", indieEdgeReveal, indieEdgeRevealUI]
         )
     ]
 )

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CommandBarKit
+import IndieCommandBar
 @testable import AgentBar
 
 /// The PO's "Nest inside each status section" layout (`AgentListGrouping`, wired in via

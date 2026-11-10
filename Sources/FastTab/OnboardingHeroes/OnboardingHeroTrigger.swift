@@ -1,5 +1,5 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 import IndieMotion
 
 /// Step 2: a mini screen. The pointer glides to the chosen hot spot (notch,

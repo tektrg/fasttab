@@ -1,6 +1,6 @@
 import Foundation
 import Combine
-import CommandBarKit
+import IndieCommandBar
 
 /// Observable state behind the panel: the latest snapshot, the search text,
 /// the selection, the user's frecency and parked agents, and the row buttons

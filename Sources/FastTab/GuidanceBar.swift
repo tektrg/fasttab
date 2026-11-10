@@ -1,5 +1,5 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
 enum LastInteractionKey: Equatable {
     case none, upDown, space, leftRight

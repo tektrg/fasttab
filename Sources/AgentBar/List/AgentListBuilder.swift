@@ -1,5 +1,5 @@
 import Foundation
-import CommandBarKit
+import IndieCommandBar
 import IndieSearch
 
 /// Turns the latest status snapshot into the list the panel shows: state

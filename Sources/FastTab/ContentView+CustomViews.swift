@@ -1,5 +1,5 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
 /// Custom view pages (user-defined views after Stack) and the trailing
 /// "＋ New View" page. Kept out of `ContentView.body`, which sits at the

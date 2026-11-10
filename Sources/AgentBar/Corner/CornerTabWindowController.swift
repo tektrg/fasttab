@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
 /// The corner tab's window: a small non-activating panel, configured like the main panel (same
 /// level, same behaviour over full-screen apps). As the pill it never takes keyboard focus at all;

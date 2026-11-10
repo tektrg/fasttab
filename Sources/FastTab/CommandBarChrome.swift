@@ -1,5 +1,5 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
 struct PermissionBanner: View {
     let icon: String

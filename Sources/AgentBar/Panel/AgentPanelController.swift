@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
-import CommandBarKit
+import IndieCommandBar
 
 /// Owns the floating panel: builds it, places it on the screen the cursor is
 /// on, keeps its height in step with the content, and hides it on Esc or a

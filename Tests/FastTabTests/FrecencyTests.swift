@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CommandBarKit
+import IndieCommandBar
 @testable import FastTab
 
 // MARK: - URL normalization

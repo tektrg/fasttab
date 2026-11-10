@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CommandBarKit
+import IndieCommandBar
 @testable import AgentBar
 
 /// `AgentListScrollTarget` — where `AgentListView` scrolls on selection change so a selected

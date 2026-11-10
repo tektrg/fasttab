@@ -1,5 +1,5 @@
 import Foundation
-import CommandBarKit
+import IndieCommandBar
 
 /// The user's own switches, persisted as JSON in AgentBar's UserDefaults
 /// domain and keyed by agent id (session id, else pane id).

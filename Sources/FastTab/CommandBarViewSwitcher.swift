@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
 /// One entry of the header view switcher (`SearchHeader`).
 struct CommandBarViewTab: Identifiable, Equatable {

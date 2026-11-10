@@ -4,7 +4,7 @@ import Combine
 import OSLog
 import ApplicationServices
 import FastTabSync
-import CommandBarKit
+import IndieCommandBar
 import IndieSearch
 
 @MainActor

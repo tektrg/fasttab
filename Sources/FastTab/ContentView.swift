@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
 private struct SearchHeaderFrameKey: PreferenceKey {
     static let defaultValue: CGRect = .zero

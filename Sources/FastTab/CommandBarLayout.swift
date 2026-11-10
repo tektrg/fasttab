@@ -1,9 +1,9 @@
 import CoreGraphics
 import SwiftUI
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
-/// FastTab's own sizing on top of CommandBarKit's anchor geometry: row
+/// FastTab's own sizing on top of IndieCommandBar's anchor geometry: row
 /// heights, chrome allowances, quick-open row caps, and the surface/canvas
 /// frames derived from them.
 extension CommandBarLayout {

@@ -67,9 +67,9 @@ extension ContentView {
                             LazyVStack(spacing: 0) {
                                 ForEach(Array(snapshot.sections.enumerated()), id: \.element.id) { sectionIndex, section in
                                     if !section.title.isEmpty {
-                                        stackSectionHeader(
+                                        CommandBarSectionHeader(
                                             title: section.title.uppercased(),
-                                            icon: Self.sectionIcon(groupBy: groupBy, sectionID: section.id)
+                                            symbol: Self.sectionIcon(groupBy: groupBy, sectionID: section.id)
                                         )
                                     }
                                     let offset = snapshot.sectionOffsets[sectionIndex]

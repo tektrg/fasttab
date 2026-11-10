@@ -28,7 +28,16 @@ struct ContentView: View {
     /// each is driven by its own spring (see `playRevealAnimation`).
     @State var revealDepthProgress: Double = 1
     @State var revealSpreadProgress: Double = 1
-    @State var searchText = ""
+    /// The search query. Owned by IndieCommandBar's `CommandBarController`
+    /// (`appState.commandBar.query`); kept under this name for Fast Tab's
+    /// many readers.
+    var searchText: String {
+        get { appState.commandBar.query }
+        nonmutating set { appState.commandBar.query = newValue }
+    }
+    var searchTextBinding: Binding<String> {
+        Binding(get: { appState.commandBar.query }, set: { appState.commandBar.query = $0 })
+    }
     @State var scopeChips: [ScopeChip] = []
     /// Non-nil while the command bar is in alias mode: the keyword has been
     /// consumed, `searchText` now holds the query destined for that alias.
@@ -508,7 +517,7 @@ struct ContentView: View {
                             // expression (call + trailing closures + background
                             // GeometryReader) overwhelmed the type-checker.
                             let searchHeader = SearchHeader(
-                                searchText: $searchText,
+                                searchText: searchTextBinding,
                                 isSearchFocused: $isSearchFocused,
                                 scopeChips: scopeChips,
                                 activeAlias: activeSearchAlias,
@@ -636,7 +645,7 @@ struct ContentView: View {
                             }
 
                             if showHelperPanel {
-                                FooterShortcutBar {
+                                CommandBarFooterBar {
                                     // Stacks at the narrow edge-anchored width,
                                     // where the hints and the shortcut recorder
                                     // can't sit side by side without clipping.
@@ -767,6 +776,8 @@ struct ContentView: View {
                         }
                 }
                 .environment(\.isCompactCommandBar, isCompact(anchor))
+                // Fast Tab's look: system accent and its own icon (today's values).
+                .environment(\.commandBarTheme, CommandBarTheme(accentColor: .accentColor, appIcon: NSApp.applicationIconImage))
                 .scaleEffect(
                     x: revealScale(for: anchor, surfaceSize: surfaceSize).width,
                     y: revealScale(for: anchor, surfaceSize: surfaceSize).height,
@@ -913,7 +924,7 @@ struct ContentView: View {
     /// surface (the caller aligns it against the same edge), so it needs no
     /// knowledge of the canvas — only the direction to lean away from the edge.
     private func ambientShadow(anchor: CommandBarAnchor, surfaceSize: CGSize) -> some View {
-        let shadowColor = commandBarFullScreenShadowColor(for: colorScheme)
+        let shadowColor = CommandBarLayout.fullScreenShadowColor(for: colorScheme)
         let shift = CommandBarLayout.shadowShiftVector(for: anchor)
         let scale = revealScale(for: anchor, surfaceSize: surfaceSize)
         let anchorPoint = CommandBarLayout.revealAnchorUnitPoint(for: anchor)

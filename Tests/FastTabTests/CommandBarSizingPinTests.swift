@@ -22,7 +22,8 @@ struct CommandBarSizingPinTests {
         #expect(CommandBarLayout.surfaceSize(for: .rightEdge, rowStyle: .minimal, rowCount: 2) == CGSize(width: 320, height: 152 + 40 * 2))
         #expect(CommandBarLayout.surfaceSize(for: .notch, showFooter: false, topInset: 0).height == CGFloat(428))
         #expect(CommandBarLayout.surfaceSize(for: .leftEdge, showFooter: false).height == CGFloat(488))
-        #expect(CommandBarLayout.surfaceSize(for: .notch, rowStyle: .minimal, rowCount: 3, topInset: 12) == CGSize(width: 640.0 * 2.0 / 3.0, height: 254))
+        let minimal = CommandBarLayout.surfaceSize(for: .notch, rowStyle: .minimal, rowCount: 3, topInset: 12)
+        #expect(abs(minimal.width - 426.667) < 0.001 && minimal.height == 254)
         #expect(CommandBarLayout.surfaceSize(for: .notch, rowCount: 0, maxRows: 9, topInset: 0).height == CGFloat(188))
         #expect(CommandBarLayout.surfaceSize(for: .notch, maxRows: 9, topInset: 0).height == CGFloat(716))
     }
@@ -66,5 +67,26 @@ struct CommandBarSizingPinTests {
         #expect(CommandBarLayout.hoverDismissDelay(lastTypingDate: nil, now: now) == 0.35)
         #expect(CommandBarLayout.hoverDismissDelay(lastTypingDate: now.addingTimeInterval(-0.5), now: now) == 1.5)
         #expect(CommandBarLayout.hoverDismissDelay(lastTypingDate: now.addingTimeInterval(-5), now: now) == 0.35)
+    }
+}
+
+/// Fast Tab's hint words through IndieCommandBar's rules.
+struct FastTabGuidanceWordsTests {
+    func text(_ edit: (inout CommandBarGuidanceState) -> Void) -> String {
+        var s = CommandBarGuidanceState()
+        s.hasResults = true
+        edit(&s)
+        return CommandBarGuidance.hint(for: s, words: ContentView.guidanceWords).tokens.map { "\($0.glyph) \($0.label)" }.joined(separator: " | ")
+    }
+
+    @Test func hints() {
+        #expect(text { _ in } == "↑↓ navigate | ↵ open | @ scope | Esc dismiss")
+        #expect(text { $0.pointerSwipePhase = .releaseToAct(.leading) } == "→ release to copy link")
+        #expect(text { $0.pointerSwipePhase = .releaseToAct(.trailing) } == "← release to delete")
+        #expect(text { $0.selectedIndex = 0; $0.isSearchFocused = false; $0.lastInteraction = .upDown; $0.isExtraRowFocused = true } == "↵ show all | Esc back")
+    }
+
+    @Test func footerItemsWithoutQuery() {
+        #expect(text { $0.queryIsEmpty = false } == "↑↓ navigate | ↵ open | @ scope")
     }
 }

@@ -93,7 +93,7 @@ struct SearchHeader: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        CommandBarSearchHeaderFrame {
             if activeView == .recents {
                 searchTab
                 CommandBarViewTabStrip(
@@ -117,21 +117,29 @@ struct SearchHeader: View {
                 )
             }
         }
-        .padding(4)
-        .background(
-            CommandBarSurfaceBackground(
-                cornerRadius: 14,
-                accent: .clear
-            )
-        )
     }
 
-    /// Active search tab: the full search box riding the sliding pill.
+    /// Active search tab: IndieCommandBar's search pill with Fast Tab's scope
+    /// chips and alias badge inside.
     private var searchTab: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
+        CommandBarSearchPill(
+            text: $searchText,
+            isFocused: $isSearchFocused,
+            placeholder: searchFieldPlaceholder,
+            highlight: tabHighlight,
+            onUpArrow: onUpArrow,
+            onDownArrow: onDownArrow,
+            onLeftArrowAtEmpty: {
+                guard !scopeChips.isEmpty else { return false }
+                onLeftArrowAtEmpty()
+                return true
+            },
+            onBackspaceAtEmpty: {
+                guard !scopeChips.isEmpty else { return false }
+                onBackspaceAtEmpty()
+                return true
+            }
+        ) {
             CommandBarScopeChipsRow(
                 chips: scopeChips.map { CommandBarScopeChip(id: $0.id, title: $0.displayLabel) },
                 focusedChipID: focusedChipID,
@@ -142,46 +150,7 @@ struct SearchHeader: View {
             if let activeAlias {
                 SearchAliasBadge(alias: activeAlias, onRemove: onRemoveAlias)
             }
-
-            TextField(
-                searchFieldPlaceholder,
-                text: $searchText
-            )
-                .textFieldStyle(.plain)
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .focused($isSearchFocused)
-                .onKeyPress(.upArrow) {
-                    onUpArrow()
-                    return .handled
-                }
-                .onKeyPress(.downArrow) {
-                    onDownArrow()
-                    return .handled
-                }
-                .onKeyPress(.leftArrow) {
-                    if searchText.isEmpty && !scopeChips.isEmpty {
-                        onLeftArrowAtEmpty()
-                        return .handled
-                    }
-                    return .ignored
-                }
-                .onKeyPress(.delete) {
-                    if searchText.isEmpty && !scopeChips.isEmpty {
-                        onBackspaceAtEmpty()
-                        return .handled
-                    }
-                    return .ignored
-                }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.accentColor.opacity(0.14))
-                .matchedGeometryEffect(id: "HeaderTabHighlight", in: tabHighlight)
-        }
-        .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
 
     /// In alias mode the placeholder names the destination, so an empty input
@@ -223,17 +192,6 @@ private struct SearchAliasBadge: View {
     }
 }
 
-struct FooterShortcutBar<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        content
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(CommandBarSurfaceBackground(cornerRadius: 12))
-    }
-}
-
 /// Shared appearance preference keys for the command bar.
 enum CommandBarAppearance {
     static let outerPanelKey = "FastTab.appearance.outerGlassPanel"
@@ -242,8 +200,4 @@ enum CommandBarAppearance {
     static let menuBarIconVisibleKey = "FastTab.appearance.showMenuBarIcon"
     static let helperPanelVisibleKey = "FastTab.appearance.showHelperPanel"
     static let guideBarVisibleKey = "FastTab.appearance.showGuideBar"
-}
-
-func commandBarFullScreenShadowColor(for colorScheme: ColorScheme) -> Color {
-    colorScheme == .dark ? Color.black : Color.black.opacity(0.72)
 }

@@ -68,7 +68,7 @@ struct SessionLinkTests {
         #expect(model.footerNotice == nil)
         model.receive(snapshot)
         #expect(model.selectedAgentID == "w1")
-        model.select(agentID: "n1")
+        model.moveSelection(by: -1)
         model.receive(snapshot)   // applied once only
         #expect(model.selectedAgentID == "n1")
     }
@@ -78,5 +78,18 @@ struct SessionLinkTests {
         model.revealSession(id: "row-gone")
         model.receive(snapshot)
         #expect(model.footerNotice?.text == AgentPanelModel.sessionNotRunningNotice)
+    }
+
+    @Test func aRestingPointerDoesNotStealTheLinkedRowRightAway() {
+        var clock = F.now
+        let suite = "AgentBarTests.\(UUID().uuidString)"
+        let model = AgentPanelModel(store: FrecencyStore(defaults: UserDefaults(suiteName: suite)!), now: { clock })
+        model.receive(snapshot)
+        model.revealSession(id: "row-w2")
+        model.select(agentID: "n1")   // hover fired by the panel appearing under the pointer
+        #expect(model.selectedAgentID == "w2")
+        clock = clock.addingTimeInterval(AgentPanelModel.sessionLinkHoverGraceSeconds + 0.1)
+        model.select(agentID: "n1")   // a real hover later still works
+        #expect(model.selectedAgentID == "n1")
     }
 }

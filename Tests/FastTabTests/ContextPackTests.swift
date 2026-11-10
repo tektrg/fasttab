@@ -54,6 +54,29 @@ struct ContextPackTests {
         #expect(await pack(f, ["period": "whenever"]).hasPrefix("ERROR"))
     }
 
+    /// Re-read this week, highlighted months ago: the writer needs those quotes, so the page is
+    /// an article with its (dated) older highlights, never "Read, no highlights".
+    @Test func rereadPageShowsItsOlderHighlights() async throws {
+        let f = try ReadingConnectorFixture()
+        try f.writeList([
+            SavedOnIPhoneLink(url: "https://reread.example.com/essay", title: "Reread essay", savedAt: daysAgo(90),
+                              readAt: daysAgo(2), progress: 1, progressUpdatedAt: daysAgo(2)),
+        ])
+        f.addHighlight(id: "old1", url: "https://reread.example.com/essay", quote: "Highlighted long ago.",
+                       title: "Reread essay", createdAt: daysAgo(80))
+        let md = await pack(f, [:])
+        #expect(md.contains("1 article with highlights · 1 highlight · 0 comments · 0 read without highlights"))
+        #expect(md.contains("## Reread essay — reread.example.com"))
+        #expect(md.contains("> Highlighted long ago.  _(yellow, 2026-10-27, id old1)_"))
+        #expect(!md.contains("## Read, no highlights"))
+        // A topic matching only the old quote still finds the page.
+        #expect(await pack(f, ["period": "7d", "topic": "long ago"]).contains("## Reread essay"))
+        // Outside the window entirely: still nothing.
+        #expect(await pack(f, ["period": "1d"]).contains("Nothing read or highlighted"))
+    }
+
+    func daysAgo(_ d: Double) -> Date { ReadingConnectorFixture.daysAgo(d) }
+
     @Test func budgetKeepsCommentsWholeTrimsQuotesAndCountsOverflow() async throws {
         let f = try ReadingConnectorFixture()
         let longComment = String(repeating: "my own long thought ", count: 30)

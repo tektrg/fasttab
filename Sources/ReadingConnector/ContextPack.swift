@@ -68,6 +68,14 @@ public struct ContextPack: Sendable {
         }
         var byPage: [String: [HighlightEntry]] = [:]
         for entry in inWindow { byPage[entry.highlight.urlKey, default: []].append(entry) }
+        // A page read in the window keeps all its highlights, even ones made before the window
+        // (a re-read): a writer wants those quotes, and "Read, no highlights" would be false.
+        if let since = request.since {
+            let activeKeys = Set(items.filter { $0.lastActivityAt >= since }.map { Self.key($0.url) })
+            for entry in allHighlights where entry.highlight.createdAt < since && activeKeys.contains(entry.highlight.urlKey) {
+                byPage[entry.highlight.urlKey, default: []].append(entry)
+            }
+        }
 
         func pageMatches(_ key: String, item: ReadingItem?, highlights: [HighlightEntry]) -> Bool {
             guard !words.isEmpty else { return true }

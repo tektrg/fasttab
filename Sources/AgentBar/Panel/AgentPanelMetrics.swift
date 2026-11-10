@@ -147,7 +147,8 @@ enum AgentPanelMetrics {
         let content = rows.reduce(CGFloat(0)) { total, row in
             switch row {
             case .header: total + headerHeight
-            case .agent, .chiefPlaceholder: total + rowHeight
+            case .agent(let agent, let nesting): total + AgentRowMetrics.height(of: agent, nesting: nesting)
+            case .chiefPlaceholder: total + rowHeight
             }
         }
         return content + listVerticalPadding * 2

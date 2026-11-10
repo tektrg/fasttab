@@ -238,6 +238,20 @@ enum RowButtons {
         }
     }
 
+    /// What the row actually draws as capsules, from the full `available` list: only the red
+    /// blocker button (Answer / Review / Open terminal / a wrap-up's Answer) and the ⋯ trigger,
+    /// plus any button in `keeping` — the one the keyboard is on, or one mid-press — so ←/→ + Enter
+    /// never lands on something invisible. Everything else lives in the ⋯ menu (`movedIntoMenu`).
+    static func stripSpecs(_ specs: [RowButtonSpec], keeping: Set<RowButton> = []) -> [RowButtonSpec] {
+        specs.filter { $0.isBlockedAction || $0.button == .moreActions || keeping.contains($0.button) }
+    }
+
+    /// The text buttons that used to be capsules (Peek, Park/Unpark, Open in Claude, Message…) and
+    /// now open from the ⋯ menu, in their old left-to-right order.
+    static func movedIntoMenu(_ specs: [RowButtonSpec]) -> [RowButtonSpec] {
+        specs.filter { !$0.isBlockedAction && $0.button != .moreActions }
+    }
+
     /// The buttons the keyboard can land on: the capsule strip only (the ⋯ trigger is a stop, not
     /// a way into its own items — see `RowMoreMenuView`'s doc comment for why).
     static func usableButtons(for agent: AgentSnapshot) -> [RowButton] {

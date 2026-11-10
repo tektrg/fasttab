@@ -45,4 +45,11 @@ struct SettingsWindowLayoutTests {
         defer { added.forEach { store.delete(id: $0.id) } }
         #expect(try Self.splitViewHeight(for: .views) <= Self.windowHeight)
     }
+
+    /// Other pages that don't need AppState/LicenseService (those start
+    /// CloudKit in a test process): same failure shape must not appear.
+    @Test(arguments: [SettingsTab.appearance, .sources, .searchAliases, .feedback])
+    func otherPagesFitTheWindow(tab: SettingsTab) throws {
+        #expect(try Self.splitViewHeight(for: tab) <= Self.windowHeight, "\(tab)")
+    }
 }

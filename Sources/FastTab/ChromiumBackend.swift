@@ -252,6 +252,8 @@ struct ChromiumBackend: BrowserBackend {
                     profileName: profile.name,
                     parentTrail: []
                 ) {
+                    var folder = folder
+                    folder.isRoot = true
                     if folder.childCount > 0 || rootKey == "bookmark_bar" {
                         profileFolders.append(folder)
                     }
@@ -1065,6 +1067,54 @@ struct ChromiumBackend: BrowserBackend {
         } catch {
             logger.error("deleteBookmark: failed for profile=\(profile.name, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return false
+        }
+    }
+
+    // MARK: - Folder delete
+
+    func locateBookmarkFolder(_ target: BookmarkFolderTarget) -> BookmarkFolderLocateResult {
+        guard let profile = profiles().first(where: { $0.name == target.profileName }) else {
+            logger.error("locateBookmarkFolder: profile not found browser=\(self.appName, privacy: .public) profile=\(target.profileName, privacy: .public)")
+            return .failed(.notFound)
+        }
+        Self.bookmarkFileLock.lock()
+        defer { Self.bookmarkFileLock.unlock() }
+        guard let data = try? Data(contentsOf: profile.bookmarksURL),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let roots = root["roots"] as? [String: Any] else {
+            logger.error("locateBookmarkFolder: unreadable bookmark JSON at path=\(profile.bookmarksURL.path, privacy: .public)")
+            return .failed(.failed)
+        }
+        return ChromiumBookmarkFolderEditor.locate(target.locator, in: roots)
+    }
+
+    func deleteBookmarkFolder(_ target: BookmarkFolderTarget) -> BookmarkFolderDeleteOutcome {
+        guard let profile = profiles().first(where: { $0.name == target.profileName }) else {
+            logger.error("deleteBookmarkFolder: profile not found browser=\(self.appName, privacy: .public) profile=\(target.profileName, privacy: .public)")
+            return .notFound
+        }
+        Self.bookmarkFileLock.lock()
+        defer { Self.bookmarkFileLock.unlock() }
+        do {
+            let data = try Data(contentsOf: profile.bookmarksURL)
+            guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  var roots = root["roots"] as? [String: Any] else {
+                logger.error("deleteBookmarkFolder: invalid bookmark JSON at path=\(profile.bookmarksURL.path, privacy: .public)")
+                return .failed
+            }
+            let outcome = ChromiumBookmarkFolderEditor.remove(target.locator, from: &roots)
+            guard case .deleted = outcome else {
+                logger.error("deleteBookmarkFolder: not deleted outcome=\(String(describing: outcome), privacy: .public) profile=\(profile.name, privacy: .public)")
+                return outcome
+            }
+            root["roots"] = roots
+            let updated = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            try updated.write(to: profile.bookmarksURL, options: .atomic)
+            logger.info("deleteBookmarkFolder: removed \(String(describing: outcome), privacy: .public) from profile=\(profile.name, privacy: .public)")
+            return outcome
+        } catch {
+            logger.error("deleteBookmarkFolder: failed profile=\(profile.name, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return .failed
         }
     }
 

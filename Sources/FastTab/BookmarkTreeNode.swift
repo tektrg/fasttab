@@ -19,9 +19,62 @@ struct BookmarkFolder: Identifiable, Equatable, Sendable {
     let browserName: String
     let profileName: String
     var children: [BookmarkTreeNode]
+    /// A browser's built-in top folder (bookmark bar, Other, Mobile). Never deletable.
+    var isRoot: Bool = false
+    /// A grouping FastTab made up from flat bookmark paths (browsers without a
+    /// real folder tree, e.g. Safari) — there is no browser folder behind it.
+    var isSynthesized: Bool = false
 
     var childCount: Int {
         children.count
+    }
+
+    /// The browser's own folder id (`id` is `browser|profile|rawID`).
+    var rawID: String {
+        id.split(separator: "|", omittingEmptySubsequences: false).last.map(String.init) ?? id
+    }
+
+    /// Every bookmark in this folder and all its subfolders.
+    var totalBookmarkCount: Int {
+        children.reduce(0) { total, child in
+            switch child {
+            case .item: return total + 1
+            case .folder(let sub): return total + sub.totalBookmarkCount
+            }
+        }
+    }
+
+    /// Every subfolder at any depth below this folder.
+    var totalSubfolderCount: Int {
+        children.reduce(0) { total, child in
+            if case .folder(let sub) = child { return total + 1 + sub.totalSubfolderCount }
+            return total
+        }
+    }
+
+    /// Finds `id` here or in any subfolder.
+    func folder(withID id: String) -> BookmarkFolder? {
+        if self.id == id { return self }
+        for child in children {
+            if case .folder(let sub) = child, let hit = sub.folder(withID: id) { return hit }
+        }
+        return nil
+    }
+
+    /// Removes the subfolder `id` (at any depth). Returns whether it was found.
+    @discardableResult
+    mutating func removeSubfolder(id: String) -> Bool {
+        if let index = children.firstIndex(where: { if case .folder(let f) = $0 { return f.id == id }; return false }) {
+            children.remove(at: index)
+            return true
+        }
+        for index in children.indices {
+            if case .folder(var sub) = children[index], sub.removeSubfolder(id: id) {
+                children[index] = .folder(sub)
+                return true
+            }
+        }
+        return false
     }
 
     @discardableResult

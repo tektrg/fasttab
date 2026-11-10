@@ -9,6 +9,11 @@ public enum SyncCommandKind: String, Codable, Hashable, Sendable {
     case moveBookmark
     case addBookmark
     case createFolder
+    /// Deletes a whole bookmark folder (subfolders + bookmarks) in one go.
+    /// A Mac build that predates this case drops the record undecoded, so the
+    /// phone only sends it to a Mac advertising
+    /// `SyncedDeviceCapability.deleteBookmarkFolder`.
+    case deleteBookmarkFolder
 }
 
 public enum SyncCommandStatus: String, Codable, Hashable, Sendable {
@@ -181,6 +186,23 @@ public struct AddBookmarkPayload: Codable, Hashable, Sendable {
         self.profileName = profileName
         self.title = title
         self.url = url
+        self.folderPath = folderPath
+    }
+}
+
+/// Deletes a whole bookmark folder on a Mac: the folder itself, every
+/// subfolder and every bookmark inside. `folderPath` is the full display-name
+/// trail from the browser's root folder (e.g. `["Bookmarks Bar", "Work"]`,
+/// matching `SyncedBookmarkItem.folderPath` split on " / "). A single-element
+/// path names a root folder, which the Mac always refuses.
+public struct DeleteBookmarkFolderPayload: Codable, Hashable, Sendable {
+    public let browserName: String
+    public let profileName: String
+    public let folderPath: [String]
+
+    public init(browserName: String, profileName: String, folderPath: [String]) {
+        self.browserName = browserName
+        self.profileName = profileName
         self.folderPath = folderPath
     }
 }

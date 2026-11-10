@@ -9,6 +9,7 @@ enum AgentBarIdentity {
 @MainActor
 final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: AgentBarCoordinator?
+    private var pendingURLs: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu-bar-less background app: no dock icon, no menu bar.
@@ -17,6 +18,17 @@ final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
         let coordinator = AgentBarCoordinator()
         self.coordinator = coordinator
         coordinator.start()
+        for url in pendingURLs { coordinator.openSessionLink(url) }
+        pendingURLs = []
+    }
+
+    /// `agentbar://session/<id>` links (scheme registered by `scripts/build-agentbar-app.sh`).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let coordinator else {
+            pendingURLs += urls   // a link that launched the app may arrive before launch finishes
+            return
+        }
+        for url in urls { coordinator.openSessionLink(url) }
     }
 
     /// Launching the app again (e.g. `open AgentBar.app`) summons the panel.

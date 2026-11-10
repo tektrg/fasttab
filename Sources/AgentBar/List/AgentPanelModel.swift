@@ -854,6 +854,7 @@ final class AgentPanelModel: ObservableObject {
         settleRowActions()
         closePeekUnlessStillSelected()
         reconcileAnswerCard()
+        if let pendingSessionLinkID { revealSession(id: pendingSessionLinkID) }
         // Same care `pruneRoutedNotes`/`blockerProbe.observe` already take below: a dead feed's
         // `agents` is contractually empty (`StatusSnapshot.health.isDown`), so reconciling the tag
         // against it unconditionally would misread "feed blipped" as "the agent left" and clear a
@@ -1378,6 +1379,33 @@ final class AgentPanelModel: ObservableObject {
     /// toward ranking (a dead pane must not float to the top).
     func reportSwitchFailure(_ message: String) {
         showFailureNotice(.switchFailed(message))
+    }
+
+    // MARK: - Session link (`agentbar://session/<rowId>`)
+
+    static let sessionNotRunningNotice = "That session isn't running."
+
+    /// A session link asked for this row, before the first status reading arrived.
+    private var pendingSessionLinkID: String?
+
+    /// Selects the row a session link names (its dashboard `rowId`, or the row's own id), exactly
+    /// as if the user had arrowed to it in a freshly summoned panel. Before the first status reading
+    /// the request waits for it; a row that isn't listed shows "That session isn't running."
+    func revealSession(id: String) {
+        guard snapshot != nil else {
+            pendingSessionLinkID = id
+            return
+        }
+        pendingSessionLinkID = nil
+        let selectable = presentation.selectableAgentIDs
+        let match = (snapshot?.agents ?? []).first { $0.rowId == id && selectable.contains($0.id) }?.id
+            ?? (selectable.contains(id) ? id : nil)
+        guard let match else {
+            showFailureNotice(.actionFailed(Self.sessionNotRunningNotice))
+            return
+        }
+        hoverSelectedAgentID = nil
+        selectedAgentID = match
     }
 
     /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer or decision is on its way.

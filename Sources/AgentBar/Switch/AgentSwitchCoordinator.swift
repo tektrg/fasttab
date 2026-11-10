@@ -1,4 +1,5 @@
 import Foundation
+import IndieAgentSessions
 
 /// Switching to an agent: close the panel at once, ask the status source to
 /// focus the agent's terminal tab, then settle the outcome.
@@ -63,8 +64,7 @@ final class AgentSwitchCoordinator {
         }
     }
 
-    static let untrackedCliSessionMessage =
-        "this Claude CLI session runs in a terminal outside herdr and tmux — switch to it there."
+    static let untrackedCliSessionMessage = AgentTerminalJumper.untrackedCliSessionMessage
 
     private func focusPane(of agent: AgentSnapshot) async {
         panel.hide()

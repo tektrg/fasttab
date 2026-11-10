@@ -626,16 +626,18 @@ final class ReaderTests: XCTestCase {
         XCTAssertEqual(vm.scrollProgress, 0.72, accuracy: 0.001)
     }
 
-    func testViewModelUpdateScrollProgressImmediateFlushesToStores() {
+    func testViewModelUpdateScrollProgressImmediateAtTheEndFlushesToStores() {
         let url = URL(string: "https://example.com/immediate-flush")!
         let vm = ReaderViewModel(url: url, title: "Immediate Flush Test", statsRecorder: .isolatedForTests())
         LastOpenedStore.shared.recordOpened(url: url, title: "Immediate Flush Test")
 
-        vm.updateScrollProgress(0.85, immediate: true)
+        // A finished gesture mid-article now coalesces like scrolling (see PerformancePublishTests);
+        // reaching the end still writes at once.
+        vm.updateScrollProgress(1, immediate: true)
 
-        XCTAssertEqual(vm.scrollProgress, 0.85, accuracy: 0.001)
-        XCTAssertEqual(ReaderReadingProgress.shared.progress(for: url), 0.85, accuracy: 0.001)
-        XCTAssertEqual(LastOpenedStore.shared.items.first(where: { $0.url == url.absoluteString })?.readingProgress, 0.85)
+        XCTAssertEqual(vm.scrollProgress, 1, accuracy: 0.001)
+        XCTAssertEqual(ReaderReadingProgress.shared.progress(for: url), 1, accuracy: 0.001)
+        XCTAssertEqual(LastOpenedStore.shared.items.first(where: { $0.url == url.absoluteString })?.readingProgress, 1)
     }
 
     func testViewModelFlushPendingProgressFlushesDebouncedProgress() {

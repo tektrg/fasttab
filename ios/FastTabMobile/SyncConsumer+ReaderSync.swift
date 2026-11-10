@@ -80,6 +80,7 @@ extension SyncConsumer {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                self.resetPollBackoff()
                 self.readerSendTask?.cancel()
                 self.readerSendTask = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(500))
@@ -93,6 +94,7 @@ extension SyncConsumer {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                self.resetPollBackoff()
                 self.listSendTask?.cancel()
                 self.listSendTask = Task { @MainActor in
                     try? await Task.sleep(for: Self.fastTabListSendDebounce)
@@ -106,6 +108,7 @@ extension SyncConsumer {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                self.resetPollBackoff()
                 self.activitySendTask?.cancel()
                 self.activitySendTask = Task { @MainActor in
                     try? await Task.sleep(for: Self.readingActivitySendDebounce)

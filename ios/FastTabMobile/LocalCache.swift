@@ -150,6 +150,9 @@ public final class LocalCache: ObservableObject {
     public func updateDevice(_ device: SyncedDevice) {
         guard device.isMac else { return }
         if let idx = state.devices.firstIndex(where: { $0.id == device.id }) {
+            // An unchanged record (every poll re-delivers them) must not publish:
+            // each publish re-renders every screen observing the cache.
+            guard state.devices[idx] != device else { return }
             state.devices[idx] = device
         } else {
             state.devices.append(device)
@@ -169,6 +172,9 @@ public final class LocalCache: ObservableObject {
 
     public func updateTab(_ tab: SyncedTab) {
         if let idx = state.tabs.firstIndex(where: { $0.id == tab.id }) {
+            // An unchanged record (every poll re-delivers them) must not publish:
+            // each publish re-renders every screen observing the cache.
+            guard state.tabs[idx] != tab else { return }
             state.tabs[idx] = tab
         } else {
             state.tabs.append(tab)
@@ -184,6 +190,9 @@ public final class LocalCache: ObservableObject {
 
     public func updateTabOrder(_ tabOrder: SyncedTabOrder) {
         if let idx = state.tabOrders.firstIndex(where: { $0.id == tabOrder.id }) {
+            // An unchanged record (every poll re-delivers them) must not publish:
+            // each publish re-renders every screen observing the cache.
+            guard state.tabOrders[idx] != tabOrder else { return }
             state.tabOrders[idx] = tabOrder
         } else {
             state.tabOrders.append(tabOrder)
@@ -342,6 +351,9 @@ public final class LocalCache: ObservableObject {
 
     public func updateHistorySlice(_ slice: SyncedHistorySlice) {
         if let idx = state.historySlices.firstIndex(where: { $0.id == slice.id }) {
+            // An unchanged record (every poll re-delivers them) must not publish:
+            // each publish re-renders every screen observing the cache.
+            guard state.historySlices[idx] != slice else { return }
             state.historySlices[idx] = slice
         } else {
             state.historySlices.append(slice)

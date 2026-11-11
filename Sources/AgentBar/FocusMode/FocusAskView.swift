@@ -76,12 +76,18 @@ struct FocusAskView: View {
                         detail: option.isOther ? "Type your own answer" : option.description,
                         isHighlighted: position == state.highlightedPosition,
                         isChecked: state.isChecked(option),
+                        isCheckbox: state.question.isMultiSelect && !option.isOther,
                         fit: fit
                     ) { answer.clickOption(at: position) }
                 }
             }
             if let error = state.errorText { errorLine(error, fit: fit) }
             HStack {
+                if state.question.isMultiSelect {
+                    Text("Space or 1–9 ticks · ↩ submits \(state.checkedIndices.count) picked")
+                        .font(.avenir(size: max(12, fit.body * 0.65)))
+                        .foregroundStyle(FocusPalette.mute)
+                }
                 Spacer()
                 Button(state.question.isMultiSelect ? "Submit ↩" : "Answer ↩") { answer.pressSend() }
                     .controlSize(.large)
@@ -153,13 +159,20 @@ struct FocusAskView: View {
 
     private func optionRow(
         number: Int, title: String, detail: String, isHighlighted: Bool, isChecked: Bool,
-        fit: FocusTextFit, action: @escaping () -> Void
+        isCheckbox: Bool = false, fit: FocusTextFit, action: @escaping () -> Void
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: fit.body * 0.6) {
-            Text(isChecked ? "✓" : "\(number)")
+            Text(isChecked && !isCheckbox ? "✓" : "\(number)")
                 .font(.avenirMono(size: fit.body * 0.75, weight: .semibold))
                 .foregroundStyle(isHighlighted ? FocusPalette.accent : FocusPalette.mute)
                 .frame(width: fit.body * 1.2)
+            if isCheckbox {
+                Image(systemName: isChecked ? "checkmark.square.fill" : "square")
+                    .font(.system(size: fit.body * 0.95, weight: .medium))
+                    .foregroundStyle(isChecked ? FocusPalette.accent : FocusPalette.mute)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + fit.body * 0.3 }
+                    .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isChecked)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.avenir(size: fit.body, weight: .semibold))

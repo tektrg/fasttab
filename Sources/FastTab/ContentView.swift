@@ -56,7 +56,7 @@ struct ContentView: View {
     @State private var lastActiveRefreshAt: Date = .distantPast
     @State var keyboardSwipeResultID: String?
     @State var keyboardSwipeAction: ResultSwipeAction?
-    @State var closingResultID: String?
+    @State var rowRemovalExit = RowRemovalExit()
     @State var closingResultTask: Task<Void, Never>?
     @State var toastMessage: String?
     @State var toastDismissTask: Task<Void, Never>?

@@ -299,7 +299,7 @@ extension ContentView {
                 pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
                 pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
                 keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
-                isConfirmingRemoval: closingResultID == result.id,
+                isConfirmingRemoval: rowRemovalExit.isExiting(result.id),
                 onHoverChange: { isHovering in
                     if isHovering {
                         hoveredResultID = result.id

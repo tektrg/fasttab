@@ -56,6 +56,8 @@ struct ReaderSummaryResult: Equatable {
     let model: String
     let createdAt: Date
     let fromCache: Bool
+    /// The person edited the prompt after this was written; it stays until they Regenerate.
+    var madeWithOtherPrompt = false
 }
 
 /// One article's Summary: cache first (never pay twice), then the one-time consent, then the server.
@@ -86,8 +88,8 @@ final class ReaderSummaryModel {
     private let now: @Sendable () -> Date
     @ObservationIgnored private var input: ReaderSummaryText.Input?
     @ObservationIgnored private var task: Task<Void, Never>?
-    /// Custom prompt (slice 3); nil = the server's default.
-    private let instruction: String?
+    /// The person's custom prompt when this model was made; nil = the server's default.
+    let instruction: String?
 
     /// Requests in flight, by article + text + prompt, so a second model joins instead of paying again.
     private static var inFlight: [String: Task<State, Never>] = [:]
@@ -110,8 +112,7 @@ final class ReaderSummaryModel {
     /// A saved summary exists for this exact text (so a lapsed subscriber can still read it).
     func hasSavedSummary() -> Bool {
         guard case .ready(let prepared) = ReaderSummaryText.prepare(article: article) else { return false }
-        return store.record(urlKey: urlKey, textDigest: ReaderSummaryStore.digest(prepared.text),
-                            instructionHash: instructionHash) != nil
+        return store.anyRecord(urlKey: urlKey, textDigest: ReaderSummaryStore.digest(prepared.text)) != nil
     }
 
     /// Called whenever the sheet appears. Cheap when a summary is already showing or being written.
@@ -123,10 +124,10 @@ final class ReaderSummaryModel {
             state = .failed(.tooShort)
         case .ready(let prepared):
             input = prepared
-            if let hit = store.record(urlKey: urlKey, textDigest: ReaderSummaryStore.digest(prepared.text),
-                                      instructionHash: instructionHash) {
+            if let hit = store.anyRecord(urlKey: urlKey, textDigest: ReaderSummaryStore.digest(prepared.text)) {
                 state = .ready(ReaderSummaryResult(text: hit.summary, model: hit.model,
-                                                   createdAt: hit.createdAt, fromCache: true))
+                                                   createdAt: hit.createdAt, fromCache: true,
+                                                   madeWithOtherPrompt: hit.instructionHash != instructionHash))
             } else if consent.isGranted {
                 generate()
             } else {

@@ -26,9 +26,17 @@ struct ReaderSummaryStore: Sendable {
 
     /// The saved summary for this article text and prompt, or nil (none, unreadable, or the page changed).
     func record(urlKey: String, textDigest: String, instructionHash: String) -> ReaderSummaryRecord? {
+        guard let record = anyRecord(urlKey: urlKey, textDigest: textDigest),
+              record.instructionHash == instructionHash else { return nil }
+        return record
+    }
+
+    /// The saved summary for this article text made with ANY prompt (an edited prompt keeps showing
+    /// the old summary, marked, until the person asks for a new one).
+    func anyRecord(urlKey: String, textDigest: String) -> ReaderSummaryRecord? {
         guard let data = try? Data(contentsOf: fileURL(urlKey)),
               let record = try? JSONDecoder().decode(ReaderSummaryRecord.self, from: data),
-              record.textDigest == textDigest, record.instructionHash == instructionHash else { return nil }
+              record.textDigest == textDigest else { return nil }
         return record
     }
 

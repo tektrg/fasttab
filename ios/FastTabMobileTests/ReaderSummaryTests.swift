@@ -275,13 +275,14 @@ final class ReaderSummaryModelTests: XCTestCase {
     override func tearDown() { try? FileManager.default.removeItem(at: directory) }
 
     private func model(_ server: FakeSummaryServer, article: ReaderArticle? = nil,
-                       consented: Bool = true) -> ReaderSummaryModel {
+                       consented: Bool = true, instruction: String? = nil) -> ReaderSummaryModel {
         var consent = ReaderSummaryConsent()
         consent.defaults = defaults
         if consented { consent.grant() }
         return ReaderSummaryModel(article: article ?? longArticle(), urlKey: "https://e.com/a",
                                   client: makeClient(server), store: ReaderSummaryStore(directory: directory),
-                                  consent: consent, now: { Date(timeIntervalSince1970: 5) })
+                                  consent: consent, instruction: instruction,
+                                  now: { Date(timeIntervalSince1970: 5) })
     }
 
     private func settle(_ model: ReaderSummaryModel) async {
@@ -403,6 +404,64 @@ final class ReaderSummaryModelTests: XCTestCase {
         first.open(); await settle(first)
         XCTAssertTrue(first.hasSavedSummary())
         XCTAssertFalse(model(server, article: longArticle(title: "Edited Title")).hasSavedSummary())
+    }
+
+    private func sentInstruction(_ server: FakeSummaryServer, call: Int = 0) throws -> String? {
+        let body = try XCTUnwrap(server.requests[call].httpBody)
+        return (try JSONSerialization.jsonObject(with: body) as? [String: Any])?["instruction"] as? String
+    }
+
+    func testCustomPromptIsSentToTheServer() async throws {
+        let server = FakeSummaryServer([FakeSummaryServer.ok()])
+        let model = model(server, instruction: "Three bullets only.")
+        model.open(); await settle(model)
+        XCTAssertEqual(try sentInstruction(server), "Three bullets only.")
+    }
+
+    func testDefaultPromptSendsNoInstructionSoServerImprovementsApply() async throws {
+        let server = FakeSummaryServer([FakeSummaryServer.ok()])
+        let model = model(server)
+        model.open(); await settle(model)
+        XCTAssertNil(try sentInstruction(server))
+    }
+
+    func testEditingThePromptNeverReRunsASavedSummaryOnItsOwn() async {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Made with default")])
+        let first = model(server)
+        first.open(); await settle(first)
+
+        let edited = model(server, instruction: "Three bullets only.") // same article, new prompt
+        edited.open()
+        guard case .ready(let result) = edited.state else { return XCTFail("old summary should still show") }
+        XCTAssertEqual(result.text, "**Gist** Made with default")
+        XCTAssertTrue(result.madeWithOtherPrompt)
+        XCTAssertEqual(server.callCount, 1) // nothing was charged
+        XCTAssertTrue(edited.hasSavedSummary())
+    }
+
+    func testRegenerateAfterAPromptEditUsesTheNewPromptAndClearsTheFlag() async throws {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Old"), FakeSummaryServer.ok("**Gist** New")])
+        let first = model(server)
+        first.open(); await settle(first)
+        let edited = model(server, instruction: "Three bullets only.")
+        edited.open()
+        edited.regenerate(); await settle(edited)
+        XCTAssertEqual(try sentInstruction(server, call: 1), "Three bullets only.")
+        guard case .ready(let result) = edited.state else { return XCTFail("expected ready") }
+        XCTAssertEqual(result.text, "**Gist** New")
+        XCTAssertFalse(result.madeWithOtherPrompt)
+        // Reopening with the same new prompt is a plain cache hit.
+        let again = model(server, instruction: "Three bullets only.")
+        again.open()
+        guard case .ready(let cached) = again.state else { return XCTFail("expected cached") }
+        XCTAssertFalse(cached.madeWithOtherPrompt)
+        XCTAssertEqual(server.callCount, 2)
+    }
+
+    func testModelRemembersWhichPromptItWasBuiltWith() {
+        let server = FakeSummaryServer([])
+        XCTAssertNil(model(server).instruction)
+        XCTAssertEqual(model(server, instruction: "X").instruction, "X")
     }
 }
 

@@ -57,6 +57,10 @@ struct ReaderSummarySheet: View {
 
     private func summaryBody(_ result: ReaderSummaryResult) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
+            if result.madeWithOtherPrompt {
+                Label("Written with your previous prompt. Regenerate to use the new one.", systemImage: "info.circle")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             if let failure = model.regenerateFailure {
                 Label("Couldn't refresh. \(failure.message())", systemImage: "exclamationmark.circle")
                     .font(.footnote).foregroundStyle(.secondary)

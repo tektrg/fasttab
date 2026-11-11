@@ -14,6 +14,8 @@ struct ReaderSummaryRecord: Codable, Equatable {
     var createdAt: Date
     /// Server's default-prompt version when made (informational; a newer default never invalidates it).
     var defaultInstructionVersion: Int?
+    /// The server said the summary hit its length limit; shown with a note. nil on older records.
+    var truncated: Bool?
 }
 
 /// Saved summaries, one JSON file per article in Application Support (not Caches: a summary costs
@@ -26,9 +28,17 @@ struct ReaderSummaryStore: Sendable {
 
     /// The saved summary for this article text and prompt, or nil (none, unreadable, or the page changed).
     func record(urlKey: String, textDigest: String, instructionHash: String) -> ReaderSummaryRecord? {
+        guard let record = anyRecord(urlKey: urlKey, textDigest: textDigest),
+              record.instructionHash == instructionHash else { return nil }
+        return record
+    }
+
+    /// The saved summary for this article text made with ANY prompt (an edited prompt keeps showing
+    /// the old summary, marked, until the person asks for a new one).
+    func anyRecord(urlKey: String, textDigest: String) -> ReaderSummaryRecord? {
         guard let data = try? Data(contentsOf: fileURL(urlKey)),
               let record = try? JSONDecoder().decode(ReaderSummaryRecord.self, from: data),
-              record.textDigest == textDigest, record.instructionHash == instructionHash else { return nil }
+              record.textDigest == textDigest else { return nil }
         return record
     }
 

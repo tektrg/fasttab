@@ -24,6 +24,8 @@ struct ReaderSummaryResponse: Decodable, Equatable, Sendable {
     let model: String
     let promptVersion: Int?
     let defaultInstructionVersion: Int?
+    /// The answer hit the server's length limit and may end early (absent on older servers).
+    let truncated: Bool?
     let usage: Usage?
 }
 

@@ -56,6 +56,10 @@ struct ReaderSummaryResult: Equatable {
     let model: String
     let createdAt: Date
     let fromCache: Bool
+    /// The person edited the prompt after this was written; it stays until they Regenerate.
+    var madeWithOtherPrompt = false
+    /// The summary hit the server's length limit and may end early.
+    var truncated = false
 }
 
 /// One article's Summary: cache first (never pay twice), then the one-time consent, then the server.
@@ -86,11 +90,13 @@ final class ReaderSummaryModel {
     private let now: @Sendable () -> Date
     @ObservationIgnored private var input: ReaderSummaryText.Input?
     @ObservationIgnored private var task: Task<Void, Never>?
-    /// Custom prompt (slice 3); nil = the server's default.
-    private let instruction: String?
+    /// The person's custom prompt when this model was made; nil = the server's default.
+    let instruction: String?
 
-    /// Requests in flight, by article + text + prompt, so a second model joins instead of paying again.
-    private static var inFlight: [String: Task<State, Never>] = [:]
+    /// Requests in flight, by article + text (NOT prompt), so a second model joins instead of paying
+    /// again, even when the prompt was edited meanwhile (the joined answer is then marked as written
+    /// with the previous prompt).
+    private static var inFlight: [String: (task: Task<State, Never>, instructionHash: String)] = [:]
 
     init(article: ReaderArticle, urlKey: String,
          client: ReaderSummaryClient = .live, store: ReaderSummaryStore = .shared,
@@ -110,8 +116,7 @@ final class ReaderSummaryModel {
     /// A saved summary exists for this exact text (so a lapsed subscriber can still read it).
     func hasSavedSummary() -> Bool {
         guard case .ready(let prepared) = ReaderSummaryText.prepare(article: article) else { return false }
-        return store.record(urlKey: urlKey, textDigest: ReaderSummaryStore.digest(prepared.text),
-                            instructionHash: instructionHash) != nil
+        return store.anyRecord(urlKey: urlKey, textDigest: ReaderSummaryStore.digest(prepared.text)) != nil
     }
 
     /// Called whenever the sheet appears. Cheap when a summary is already showing or being written.
@@ -123,10 +128,11 @@ final class ReaderSummaryModel {
             state = .failed(.tooShort)
         case .ready(let prepared):
             input = prepared
-            if let hit = store.record(urlKey: urlKey, textDigest: ReaderSummaryStore.digest(prepared.text),
-                                      instructionHash: instructionHash) {
+            if let hit = store.anyRecord(urlKey: urlKey, textDigest: ReaderSummaryStore.digest(prepared.text)) {
                 state = .ready(ReaderSummaryResult(text: hit.summary, model: hit.model,
-                                                   createdAt: hit.createdAt, fromCache: true))
+                                                   createdAt: hit.createdAt, fromCache: true,
+                                                   madeWithOtherPrompt: hit.instructionHash != instructionHash,
+                                                   truncated: hit.truncated ?? false))
             } else if consent.isGranted {
                 generate()
             } else {
@@ -154,13 +160,17 @@ final class ReaderSummaryModel {
         regenerateFailure = nil
         if previous != nil { isRegenerating = true } else { state = .loading }
         let digest = ReaderSummaryStore.digest(input.text)
-        let key = "\(urlKey)\u{1F}\(digest)\u{1F}\(instructionHash)"
+        let key = "\(urlKey)\u{1F}\(digest)"
         let work: Task<State, Never>
+        let joinedOtherPrompt: Bool
         if let running = Self.inFlight[key] {
-            work = running
+            work = running.task
+            joinedOtherPrompt = running.instructionHash != instructionHash
         } else {
+            joinedOtherPrompt = false
             let request = ReaderSummaryRequest(text: input.text, languageCode: input.languageCode,
-                                               instruction: instruction)
+                                               instruction: instruction,
+                                               promptVersion: instruction == nil ? nil : ReaderSummaryPrompt.defaultVersion)
             // Not tied to the sheet or this model: the answer is saved for next time.
             work = Task { [client, store, urlKey, instructionHash, now] in
                 do {
@@ -168,21 +178,27 @@ final class ReaderSummaryModel {
                     let record = ReaderSummaryRecord(textDigest: digest, instructionHash: instructionHash,
                                                      summary: response.summary, model: response.model,
                                                      createdAt: now(),
-                                                     defaultInstructionVersion: response.defaultInstructionVersion)
+                                                     defaultInstructionVersion: response.defaultInstructionVersion,
+                                                     truncated: response.truncated)
                     store.save(record, urlKey: urlKey)
                     return State.ready(ReaderSummaryResult(text: record.summary, model: record.model,
-                                                           createdAt: record.createdAt, fromCache: false))
+                                                           createdAt: record.createdAt, fromCache: false,
+                                                           truncated: response.truncated ?? false))
                 } catch let error as ReaderSummaryError {
                     return State.failed(ReaderSummaryFailure(error))
                 } catch {
                     return State.failed(.unavailable)
                 }
             }
-            Self.inFlight[key] = work
+            Self.inFlight[key] = (work, instructionHash)
         }
         task = Task {
-            let outcome = await work.value
-            if Self.inFlight[key] == work { Self.inFlight[key] = nil } // not a newer request's entry
+            var outcome = await work.value
+            if Self.inFlight[key]?.task == work { Self.inFlight[key] = nil } // not a newer request's entry
+            if joinedOtherPrompt, case .ready(var result) = outcome {
+                result.madeWithOtherPrompt = true
+                outcome = .ready(result)
+            }
             self.finish(outcome, keeping: previous)
         }
     }

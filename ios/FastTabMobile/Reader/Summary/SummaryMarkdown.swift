@@ -32,3 +32,18 @@ enum SummaryMarkdown {
         return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
     }
 }
+
+/// Summary text is drawn at the reader's own text size (More ▸ the reader's Reading Settings), so a
+/// summary never looks smaller than the article. Pure, unit-tested.
+enum SummaryTextStyle {
+    struct Sizes: Equatable {
+        let body: CGFloat
+        let bullet: CGFloat
+        let heading: CGFloat
+    }
+
+    static func sizes(readerFontSize: Int) -> Sizes {
+        let base = CGFloat(readerFontSize)
+        return Sizes(body: base, bullet: base, heading: (base * 1.1).rounded())
+    }
+}

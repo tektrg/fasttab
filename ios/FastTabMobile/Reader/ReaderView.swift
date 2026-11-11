@@ -564,10 +564,12 @@ public struct ReaderView: View {
         summarySheet = canRead ? .summary : .paywall
     }
 
-    /// One model per article text: Reload Article can change the text, which needs a new model.
+    /// One model per article text and prompt: Reload Article or a prompt edit needs a new model.
     private func ensureSummaryModel(_ article: ReaderArticle) {
-        if summaryModel?.article != article {
-            summaryModel = ReaderSummaryModel(article: article, urlKey: viewModel.url.readerCanonicalKey)
+        let prompt = ReaderSummaryPromptStore.shared.customInstruction
+        if summaryModel?.article != article || summaryModel?.instruction != prompt {
+            summaryModel = ReaderSummaryModel(article: article, urlKey: viewModel.url.readerCanonicalKey,
+                                              instruction: prompt)
         }
     }
 

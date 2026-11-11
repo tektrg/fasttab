@@ -26,8 +26,10 @@ private final class FakeSummaryServer: @unchecked Sendable {
         return (body, response)
     }
 
-    static func ok(_ summary: String = "**Gist** A short summary.\n**Takeaway**\n  - Detail") -> Result<(Int, Data), Error> {
-        let json = #"{"summary":\#(jsonString(summary)),"model":"deepseek/test","promptVersion":1,"defaultInstructionVersion":1,"usage":{"remaining":42}}"#
+    static func ok(_ summary: String = "**Gist** A short summary.\n**Takeaway**\n  - Detail",
+                   truncated: Bool? = nil) -> Result<(Int, Data), Error> {
+        let flag = truncated.map { #","truncated":\#($0)"# } ?? ""
+        let json = #"{"summary":\#(jsonString(summary)),"model":"deepseek/test","promptVersion":1,"defaultInstructionVersion":1\#(flag),"usage":{"remaining":42}}"#
         return .success((200, Data(json.utf8)))
     }
 
@@ -230,6 +232,34 @@ final class SummaryMarkdownTests: XCTestCase {
     }
 }
 
+// MARK: - Text size follows the reader
+
+final class SummaryTextStyleTests: XCTestCase {
+    func testBodyAndBulletsUseTheReadersSizeAndHeadingsAreSlightlyLarger() {
+        XCTAssertEqual(SummaryTextStyle.sizes(readerFontSize: 18), SummaryTextStyle.Sizes(body: 18, bullet: 18, heading: 20))
+        XCTAssertEqual(SummaryTextStyle.sizes(readerFontSize: 14), SummaryTextStyle.Sizes(body: 14, bullet: 14, heading: 15))
+    }
+
+    func testFollowsTheReadersWholeSizeRange() {
+        for size in ReaderReadingSettings.fontSizeRange {
+            let sizes = SummaryTextStyle.sizes(readerFontSize: size)
+            XCTAssertEqual(sizes.body, CGFloat(size)) // never smaller than the article text
+            XCTAssertGreaterThanOrEqual(sizes.heading, sizes.body)
+        }
+    }
+
+    @MainActor
+    func testTheSummaryReadsTheReadersLiveSettings() {
+        // The sheet observes this store, so a size change in Reading Settings reaches it at once.
+        let store = ReaderReadingSettingsStore(local: UserDefaults(suiteName: "SummaryTextStyleTests-\(UUID())")!,
+                                               cloud: nil, isCloudSyncEnabled: false)
+        store.setFontSize(22)
+        XCTAssertEqual(SummaryTextStyle.sizes(readerFontSize: store.settings.fontSize).body, 22)
+        store.setFontSize(16)
+        XCTAssertEqual(SummaryTextStyle.sizes(readerFontSize: store.settings.fontSize).body, 16)
+    }
+}
+
 // MARK: - Failure wording
 
 final class ReaderSummaryFailureTests: XCTestCase {
@@ -275,13 +305,14 @@ final class ReaderSummaryModelTests: XCTestCase {
     override func tearDown() { try? FileManager.default.removeItem(at: directory) }
 
     private func model(_ server: FakeSummaryServer, article: ReaderArticle? = nil,
-                       consented: Bool = true) -> ReaderSummaryModel {
+                       consented: Bool = true, instruction: String? = nil) -> ReaderSummaryModel {
         var consent = ReaderSummaryConsent()
         consent.defaults = defaults
         if consented { consent.grant() }
         return ReaderSummaryModel(article: article ?? longArticle(), urlKey: "https://e.com/a",
                                   client: makeClient(server), store: ReaderSummaryStore(directory: directory),
-                                  consent: consent, now: { Date(timeIntervalSince1970: 5) })
+                                  consent: consent, instruction: instruction,
+                                  now: { Date(timeIntervalSince1970: 5) })
     }
 
     private func settle(_ model: ReaderSummaryModel) async {
@@ -403,6 +434,119 @@ final class ReaderSummaryModelTests: XCTestCase {
         first.open(); await settle(first)
         XCTAssertTrue(first.hasSavedSummary())
         XCTAssertFalse(model(server, article: longArticle(title: "Edited Title")).hasSavedSummary())
+    }
+
+    private func sentInstruction(_ server: FakeSummaryServer, call: Int = 0) throws -> String? {
+        let body = try XCTUnwrap(server.requests[call].httpBody)
+        return (try JSONSerialization.jsonObject(with: body) as? [String: Any])?["instruction"] as? String
+    }
+
+    func testCustomPromptIsSentToTheServer() async throws {
+        let server = FakeSummaryServer([FakeSummaryServer.ok()])
+        let model = model(server, instruction: "Three bullets only.")
+        model.open(); await settle(model)
+        XCTAssertEqual(try sentInstruction(server), "Three bullets only.")
+    }
+
+    func testCustomPromptAlsoSendsTheDefaultVersionThisAppKnows() async throws {
+        let server = FakeSummaryServer([FakeSummaryServer.ok()])
+        let model = model(server, instruction: "Three bullets only.")
+        model.open(); await settle(model)
+        let body = try XCTUnwrap(server.requests.first?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["promptVersion"] as? Int, ReaderSummaryPrompt.defaultVersion)
+        let plain = FakeSummaryServer([FakeSummaryServer.ok()])
+        let defaultModel = self.model(plain, article: longArticle(title: "Another Read")) // not the saved one
+        defaultModel.open(); await settle(defaultModel)
+        let plainBody = try XCTUnwrap(plain.requests.first?.httpBody)
+        let plainJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: plainBody) as? [String: Any])
+        XCTAssertNil(plainJSON["promptVersion"])
+    }
+
+    func testDefaultPromptSendsNoInstructionSoServerImprovementsApply() async throws {
+        let server = FakeSummaryServer([FakeSummaryServer.ok()])
+        let model = model(server)
+        model.open(); await settle(model)
+        XCTAssertNil(try sentInstruction(server))
+    }
+
+    func testEditingThePromptNeverReRunsASavedSummaryOnItsOwn() async {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Made with default")])
+        let first = model(server)
+        first.open(); await settle(first)
+
+        let edited = model(server, instruction: "Three bullets only.") // same article, new prompt
+        edited.open()
+        guard case .ready(let result) = edited.state else { return XCTFail("old summary should still show") }
+        XCTAssertEqual(result.text, "**Gist** Made with default")
+        XCTAssertTrue(result.madeWithOtherPrompt)
+        XCTAssertEqual(server.callCount, 1) // nothing was charged
+        XCTAssertTrue(edited.hasSavedSummary())
+    }
+
+    func testRegenerateAfterAPromptEditUsesTheNewPromptAndClearsTheFlag() async throws {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Old"), FakeSummaryServer.ok("**Gist** New")])
+        let first = model(server)
+        first.open(); await settle(first)
+        let edited = model(server, instruction: "Three bullets only.")
+        edited.open()
+        edited.regenerate(); await settle(edited)
+        XCTAssertEqual(try sentInstruction(server, call: 1), "Three bullets only.")
+        guard case .ready(let result) = edited.state else { return XCTFail("expected ready") }
+        XCTAssertEqual(result.text, "**Gist** New")
+        XCTAssertFalse(result.madeWithOtherPrompt)
+        // Reopening with the same new prompt is a plain cache hit.
+        let again = model(server, instruction: "Three bullets only.")
+        again.open()
+        guard case .ready(let cached) = again.state else { return XCTFail("expected cached") }
+        XCTAssertFalse(cached.madeWithOtherPrompt)
+        XCTAssertEqual(server.callCount, 2)
+    }
+
+    func testModelRemembersWhichPromptItWasBuiltWith() {
+        let server = FakeSummaryServer([])
+        XCTAssertNil(model(server).instruction)
+        XCTAssertEqual(model(server, instruction: "X").instruction, "X")
+    }
+
+    func testPromptEditedWhileASummaryIsBeingWrittenJoinsItInsteadOfPayingTwice() async {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Old prompt")], delay: .milliseconds(150))
+        let first = model(server)
+        first.open() // starts writing with the default prompt
+        let edited = model(server, instruction: "Three bullets only.") // reader reopened after a prompt edit
+        edited.open()
+        await settle(first); await settle(edited)
+        XCTAssertEqual(server.callCount, 1)
+        guard case .ready(let result) = edited.state else { return XCTFail("expected ready") }
+        XCTAssertTrue(result.madeWithOtherPrompt) // shown, marked; Regenerate uses the new prompt
+        guard case .ready(let original) = first.state else { return XCTFail("expected ready") }
+        XCTAssertFalse(original.madeWithOtherPrompt)
+    }
+
+    func testATruncatedSummaryIsFlaggedAndStaysFlaggedFromTheCache() async {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Cut", truncated: true)])
+        let first = model(server)
+        first.open(); await settle(first)
+        guard case .ready(let fresh) = first.state else { return XCTFail("expected ready") }
+        XCTAssertTrue(fresh.truncated)
+        let reopened = model(server)
+        reopened.open()
+        guard case .ready(let cached) = reopened.state else { return XCTFail("expected cached") }
+        XCTAssertTrue(cached.truncated)
+        XCTAssertEqual(server.callCount, 1)
+    }
+
+    func testOlderServersAndOlderSavedSummariesCountAsNotTruncated() async {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Whole")]) // no `truncated` field
+        let model = model(server)
+        model.open(); await settle(model)
+        guard case .ready(let result) = model.state else { return XCTFail("expected ready") }
+        XCTAssertFalse(result.truncated)
+        // A record saved before the field existed decodes with truncated == nil.
+        let old = #"{"textDigest":"d","instructionHash":"","summary":"S","model":"m","createdAt":1,"defaultInstructionVersion":1}"#
+        let decoded = try? JSONDecoder().decode(ReaderSummaryRecord.self, from: Data(old.utf8))
+        XCTAssertNotNil(decoded)
+        XCTAssertNil(decoded?.truncated)
     }
 }
 

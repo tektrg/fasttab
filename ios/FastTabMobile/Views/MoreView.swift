@@ -10,6 +10,7 @@ public struct MoreView: View {
     @StateObject private var statsViewModel = StatsViewModel()
     @Environment(AccountSession.self) private var accountSession
     private let intelligenceTip = IntelligenceTip()
+    @State private var summaryPromptStore = ReaderSummaryPromptStore.shared
     @AppStorage(TranscriptCleanupPreference.defaultsKey) private var transcriptCleanupEnabled = false
     @AppStorage(ReadingGoal.defaultsKey) private var dailyWordGoal = ReadingGoal.defaultDailyWords
 
@@ -194,6 +195,24 @@ public struct MoreView: View {
                     }
                 }
                 .dsListRow()
+            }
+
+            Section {
+                NavigationLink {
+                    ReaderSummaryPromptView()
+                } label: {
+                    MoreRowLabel(
+                        systemImage: "text.badge.star",
+                        tint: DS.Tint.emerging,
+                        title: "Summary prompt",
+                        subtitle: summaryPromptStore.customInstruction == nil ? "Default" : "Custom"
+                    )
+                }
+                .dsListRow()
+            } header: {
+                Text("AI")
+            } footer: {
+                Text("Edit how AI Summary writes. Summary is part of the FastTab subscription.")
             }
 
             Section(

@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 /// One agent row. The selected row (hover or keyboard) reveals its buttons in
 /// place of the age; a row waiting for a confirming press shows why, in red.
@@ -43,7 +44,7 @@ struct AgentRowView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 3)
         .frame(minHeight: AgentPanelMetrics.rowHeight)   // grows with a wrapped status line
-        .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Color.accentColor.opacity(0.22) : .clear))
+        .commandBarRowHighlight(isSelected: isSelected)   // the shared selected-row look
         .padding(.horizontal, 10)
         .opacity(dimming)
         .contentShape(Rectangle())

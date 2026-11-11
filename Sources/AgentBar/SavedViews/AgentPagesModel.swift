@@ -2,13 +2,26 @@ import Foundation
 import Combine
 import IndieCommandBar
 
-/// Agent Bar's fixed page: the full list, always first.
-enum AgentBuiltinPage: String, CommandBarBuiltinPage {
+/// A page of the strip above the agent list: All (always first), a saved view, or "＋ New view".
+/// Shown with the shared `CommandBarViewTab` model; `id` is the tab id.
+enum AgentPage: Hashable {
     case all
-}
+    case custom(UUID)
+    case newView
 
-/// A page of the strip above the agent list: All, a saved view, or "＋ New view".
-typealias AgentPage = CommandBarPage<AgentBuiltinPage>
+    var id: String {
+        switch self {
+        case .all: return "all"
+        case .custom(let id): return "custom:" + id.uuidString
+        case .newView: return "newView"
+        }
+    }
+
+    var customID: UUID? {
+        if case .custom(let id) = self { return id }
+        return nil
+    }
+}
 
 /// The saved-view editor while open.
 struct AgentViewEditorState: Equatable {
@@ -24,7 +37,7 @@ struct AgentViewEditorState: Equatable {
 @MainActor
 final class AgentPagesModel: ObservableObject {
     let store: AgentSavedViewStore
-    @Published private(set) var activePage: AgentPage = .builtin(.all)
+    @Published private(set) var activePage: AgentPage = .all
     @Published var editor: AgentViewEditorState?
     /// Called after the shown page or the active view's definition changed.
     var onPageChange: (() -> Void)?
@@ -37,8 +50,6 @@ final class AgentPagesModel: ObservableObject {
         self.store = store
         storeObservation = store.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
-
-    static let builtins: [AgentBuiltinPage] = [.all]
 
     /// Typed in the search box + Return: opens the editor for a new view. With no saved views yet
     /// this is how the first one is made (the strip, and its "+ New view" tab, only shows once one exists).
@@ -54,7 +65,7 @@ final class AgentPagesModel: ObservableObject {
 
     /// Swipe order: All, saved views, New view.
     var orderedPages: [AgentPage] {
-        AgentPage.ordered(builtins: Self.builtins, customIDs: store.views.map(\.id))
+        [.all] + store.views.map { .custom($0.id) } + [.newView]
     }
 
     /// The saved view the list is filtered by; nil on All (and while a new view is being built).
@@ -62,16 +73,30 @@ final class AgentPagesModel: ObservableObject {
         activePage.customID.flatMap(store.view(id:))
     }
 
-    var tabs: [CommandBarPageTab<AgentBuiltinPage>] {
-        CommandBarPageTab.tabs(for: orderedPages) { page in
+    var tabs: [CommandBarViewTab] {
+        let ordered = orderedPages
+        let numbers = CommandBarViewOrder.shortcutNumbers(for: ordered) { $0 != .newView }
+        return zip(ordered, numbers).map { page, number in
+            let title: String, symbol: String, base: String
             switch page {
-            case .builtin(.all): return ("All", "list.bullet", "All agents")
+            case .all: (title, symbol, base) = ("All", "list.bullet", "All agents")
             case .custom(let id):
                 let view = store.view(id: id)
-                return (view?.name ?? "View", view?.iconName ?? AgentViewCriteria.defaultIconName, nil)
-            case .newView: return ("New view", "plus", "New view")
+                title = view?.name ?? "View"
+                symbol = view?.iconName ?? AgentViewCriteria.defaultIconName
+                base = title
+            case .newView: (title, symbol, base) = ("New view", "plus", "New view")
             }
+            return CommandBarViewTab(
+                id: page.id, title: title, symbol: symbol, isEditable: page.customID != nil,
+                shortcutNumber: number, help: number.map { "\(base) (⌘\($0))" } ?? base
+            )
         }
+    }
+
+    /// The page a strip tab stands for.
+    func page(forTabID id: String) -> AgentPage? {
+        orderedPages.first { $0.id == id }
     }
 
     // MARK: Switching
@@ -87,7 +112,7 @@ final class AgentPagesModel: ObservableObject {
     /// ⌘1…⌘9: the Nth page (New view excluded). False when there is no such page.
     @discardableResult
     func selectNumbered(_ number: Int) -> Bool {
-        guard hasSavedViews, let target = AgentPage.numberedShortcutTarget(number, in: orderedPages) else { return false }
+        guard hasSavedViews, let target = CommandBarViewOrder.numberedTarget(number, in: orderedPages, isNumbered: { $0 != .newView }) else { return false }
         select(target)
         return true
     }
@@ -95,7 +120,7 @@ final class AgentPagesModel: ObservableObject {
     /// One page forward (positive) or back, clamped at both ends. False at an end.
     @discardableResult
     func step(_ step: Int) -> Bool {
-        guard hasSavedViews, let target = AgentPage.neighbor(of: activePage, step: step, in: orderedPages) else { return false }
+        guard hasSavedViews, let target = CommandBarViewOrder.neighbor(of: activePage, step: step, in: orderedPages) else { return false }
         select(target)
         return true
     }
@@ -110,14 +135,14 @@ final class AgentPagesModel: ObservableObject {
 
     func beginNew() {
         guard editor?.isNew != true else { return }
-        let returnPage = activePage == .newView ? .builtin(.all) : activePage
+        let returnPage = activePage == .newView ? .all : activePage
         editor = AgentViewEditorState(draft: .new(), isNew: true, returnPage: returnPage)
         setActive(.newView)
     }
 
     func beginEdit(id: UUID, confirmingDelete: Bool = false) {
         guard let view = store.view(id: id) else { return }
-        let returnPage = activePage == .newView ? AgentPage.builtin(.all) : activePage
+        let returnPage = activePage == .newView ? AgentPage.all : activePage
         editor = AgentViewEditorState(draft: AgentViewDraft(view), isNew: false, returnPage: returnPage, isConfirmingDelete: confirmingDelete)
         setActive(.custom(id))
     }
@@ -125,7 +150,7 @@ final class AgentPagesModel: ObservableObject {
     func cancelEditor() {
         guard let state = editor else { return }
         editor = nil
-        setActive(orderedPages.contains(state.returnPage) ? state.returnPage : .builtin(.all))
+        setActive(orderedPages.contains(state.returnPage) ? state.returnPage : .all)
     }
 
     /// Saves a valid draft and shows that view. False (editor stays) when invalid.
@@ -142,6 +167,6 @@ final class AgentPagesModel: ObservableObject {
     func deleteView(id: UUID) {
         store.delete(id: id)
         if editor?.draft.id == id { editor = nil }
-        if activePage == .custom(id) { setActive(.builtin(.all)) }
+        if activePage == .custom(id) { setActive(.all) }
     }
 }

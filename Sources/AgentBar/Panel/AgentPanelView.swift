@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import IndieCommandBar
 
 /// Panel content: the list or a status message, the optional stale-board note, then the search
 /// field and the footer (a failure notice floats above it). Total height is dictated by
@@ -54,11 +56,15 @@ struct AgentPanelView: View {
                 onOpenSettings: onOpenSettings
             )
         }
+        .overlay(alignment: .top) { CopiedToast(copier: model.copier) }
         .frame(width: AgentPanelMetrics.width)
         .frame(maxHeight: .infinity, alignment: .bottom)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(0.12)))
+        // Fast Tab's look: the shared glass, corner radius and theme. Agent Bar sets only its accent and icon.
+        .background(CommandBarFrostedBackground())
+        .clipShape(RoundedRectangle(cornerRadius: CommandBarLayout.surfaceCornerRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: CommandBarLayout.surfaceCornerRadius, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+        .environment(\.commandBarTheme, AgentBarTheme.current)
+        .tint(AgentBarTheme.current.accentColor)
         .confirmationDialog(
             "Attach across projects?",
             isPresented: Binding(get: { model.treeModel.pendingConfirm != nil }, set: { if !$0 { model.treeModel.cancelPendingAttach() } }),
@@ -86,22 +92,28 @@ struct AgentPanelView: View {
         // Agent Hierarchy window used; List row selection keeps this working without a competing
         // handler since nothing else claims ⌘]/⌘[/⌘⌫).
         .background {
+            let keys = AgentPanelKeys.shortcuts(
+                isNewWorker: model.newWorker != nil, focusCount: model.focusCount,
+                queryIsEmpty: model.query.isEmpty, canSwitchPages: model.canSwitchPages
+            )
             Group {
                 // None in New worker mode: the agent list (and its selection) is hidden there.
                 // Focus mode (`FocusMode/`): answer every agent that needs you, one big card at a time.
-                if model.newWorker == nil, model.focusCount > 0 {
+                if keys.contains(.focus) {
                     Button("Focus", action: model.onOpenFocus).keyboardShortcut("f", modifiers: .command)
                 }
-                if model.newWorker == nil {
+                if keys.contains(.reportTo) {
                     Button("Report to nearest chief", action: model.treeModel.indentSelected).keyboardShortcut("]", modifiers: .command)
+                }
+                if keys.contains(.stopReporting) {
                     Button("Stop reporting (Unassigned)", action: model.treeModel.outdentSelected).keyboardShortcut("[", modifiers: .command)
-                    // Only while the search is empty — otherwise ⌘⌫ belongs to the text field (delete to line start).
-                    if model.query.isEmpty {
-                        Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
-                    }
+                }
+                // Only while the search is empty — otherwise ⌘⌫ belongs to the text field (delete to line start).
+                if keys.contains(.stopReportingDelete) {
+                    Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
                 }
                 // ⌘1…⌘9: the Nth page of the strip (All = ⌘1), like Fast Tab's views.
-                if model.canSwitchPages {
+                if keys.contains(.page(1)) {
                     ForEach(1...9, id: \.self) { number in
                         Button("Page \(number)") { model.pages.selectNumbered(number) }
                             .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: .command)
@@ -210,5 +222,29 @@ struct AgentPanelView: View {
                 onNewWorker: model.enterNewWorkerMode
             )
         }
+    }
+}
+
+/// Agent Bar's only look settings on the shared shell: its accent colour and app icon.
+enum AgentBarTheme {
+    @MainActor static var current: CommandBarTheme {
+        CommandBarTheme(accentColor: .accentColor, appIcon: NSApp.applicationIconImage)
+    }
+}
+
+/// The shared "copied" toast at the top of the panel while a ⌘C / copy button's feedback lasts.
+private struct CopiedToast: View {
+    @ObservedObject var copier: IdentityCopier
+
+    var body: some View {
+        ZStack {
+            if copier.copiedAgentID != nil {
+                CommandBarToast(message: "Agent details copied")
+                    .padding(.top, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: copier.copiedAgentID)
+        .allowsHitTesting(false)
     }
 }

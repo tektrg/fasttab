@@ -1,4 +1,5 @@
 import Foundation
+import IndieCommandBar
 
 /// Keyboard selection over the selectable agent ids (headers and unfocusable
 /// rows are already excluded by the caller). Pure.
@@ -9,6 +10,15 @@ enum AgentSelection {
     /// first row and up the last.
     static func moved(from current: String?, by step: Int, in selectable: [String]) -> String? {
         guard !selectable.isEmpty else { return nil }
+        if abs(step) == 1 {
+            // ↑/↓: the shared shell's wrap rule (no search-field stop; nothing selected = before the first row).
+            let index = current.flatMap { selectable.firstIndex(of: $0) } ?? -1
+            let moved = CommandBarController.movedSelection(
+                from: index, direction: step > 0 ? .forward : .backward,
+                itemCount: selectable.count, includeSearchField: false
+            )
+            return selectable[moved.index]
+        }
         guard let current, let index = selectable.firstIndex(of: current) else {
             return step >= 0 ? selectable.first : selectable.last
         }

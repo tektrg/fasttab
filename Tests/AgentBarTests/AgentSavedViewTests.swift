@@ -148,7 +148,7 @@ struct AgentSavedViewTests {
         let a = AgentSavedView(name: "A"), b = AgentSavedView(name: "B")
         pages.store.add(a)
         pages.store.add(b)
-        #expect(pages.orderedPages == [.builtin(.all), .custom(a.id), .custom(b.id), .newView])
+        #expect(pages.orderedPages == [.all, .custom(a.id), .custom(b.id), .newView])
         #expect(pages.selectNumbered(3))
         #expect(pages.activeView == b)
         #expect(!pages.selectNumbered(4))
@@ -167,7 +167,7 @@ struct AgentSavedViewTests {
         #expect(pages.activePage == .newView)
         #expect(!pages.saveEditor())   // no name yet
         pages.cancelEditor()
-        #expect(pages.editor == nil && pages.activePage == .builtin(.all))
+        #expect(pages.editor == nil && pages.activePage == .all)
 
         pages.beginNew()
         pages.editor?.draft.name = " Workers "
@@ -195,7 +195,7 @@ struct AgentSavedViewTests {
         pages.beginEdit(id: a.id, confirmingDelete: true)
         #expect(pages.editor?.isConfirmingDelete == true)
         pages.deleteView(id: a.id)
-        #expect(pages.store.views.isEmpty && pages.editor == nil && pages.activePage == .builtin(.all))
+        #expect(pages.store.views.isEmpty && pages.editor == nil && pages.activePage == .all)
     }
 
     @Test func panelModelFiltersByActivePageAndSelectsFirstRow() {
@@ -215,13 +215,31 @@ struct AgentSavedViewTests {
     }
 
     @Test func flickStepsOncePerGesture() {
-        var flick = AgentPageFlickDetector()
-        #expect(flick.handleScroll(deltaX: -40, deltaY: 0, isEnded: false, isMomentum: false) == nil)
-        #expect(flick.handleScroll(deltaX: -40, deltaY: 0, isEnded: false, isMomentum: false) == 1)
-        #expect(flick.handleScroll(deltaX: -80, deltaY: 0, isEnded: false, isMomentum: false) == nil)
-        _ = flick.handleScroll(deltaX: 0, deltaY: 0, isEnded: true, isMomentum: false)
-        #expect(flick.handleScroll(deltaX: 10, deltaY: 50, isEnded: false, isMomentum: false) == nil)
-        #expect(flick.handleScroll(deltaX: 70, deltaY: 0, isEnded: false, isMomentum: false) == -1)
+        var flick = CommandBarViewFlick()
+        let ordered: [AgentPage] = [.all, .newView]
+        func scroll(_ x: CGFloat, _ y: CGFloat = 0, ended: Bool = false, at current: AgentPage = .all) -> AgentPage? {
+            flick.handleScroll(deltaX: x, deltaY: y, isEnded: ended, current: current, ordered: ordered)
+        }
+        #expect(scroll(-40) == nil)
+        #expect(scroll(-40) == .newView)
+        #expect(scroll(-80) == nil)
+        _ = scroll(0, ended: true)
+        #expect(scroll(10, 50, at: .newView) == nil)
+        #expect(scroll(70, at: .newView) == .all)
+    }
+
+    @Test func stripTabsUseTheSharedViewTabModel() {
+        let pages = AgentPagesModel(store: AgentSavedViewStore(defaults: defaults()))
+        let view = AgentSavedView(name: "Mine")
+        pages.store.add(view)
+        let tabs = pages.tabs
+        #expect(tabs.map(\.id) == ["all", "custom:" + view.id.uuidString, "newView"])
+        #expect(tabs.map(\.symbol).first == "list.bullet" && tabs.last?.symbol == "plus")
+        #expect(tabs.map(\.isEditable) == [false, true, false])
+        #expect(tabs.first?.help == "All agents (⌘1)")
+        #expect(CommandBarSavedViewMenu.actions(for: tabs[1]).map(\.id) == [CommandBarSavedViewMenu.editID, CommandBarSavedViewMenu.deleteID])
+        #expect(CommandBarSavedViewMenu.actions(for: tabs[0]).isEmpty)
+        #expect(pages.page(forTabID: tabs[1].id) == .custom(view.id))
     }
 
     @Test func pageStripAddsItsHeight() {
@@ -238,13 +256,13 @@ struct AgentSavedViewTests {
         #expect(!model.canSwitchPages)
         #expect(!pages.selectNumbered(1))
         #expect(!pages.step(1))
-        #expect(pages.activePage == .builtin(.all))
+        #expect(pages.activePage == .all)
         let a = AgentSavedView(name: "A")
         pages.store.add(a)
         #expect(model.showsPageStrip && model.canSwitchPages)
         pages.select(.custom(a.id))
         pages.deleteView(id: a.id)
-        #expect(!model.showsPageStrip && pages.activePage == .builtin(.all))
+        #expect(!model.showsPageStrip && pages.activePage == .all)
     }
 
     @Test func viewCommandOpensTheEditorWithoutAStrip() throws {

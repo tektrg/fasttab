@@ -39,6 +39,8 @@ struct ContentView: View {
         Binding(get: { appState.commandBar.query }, set: { appState.commandBar.query = $0 })
     }
     @State var scopeChips: [ScopeChip] = []
+    /// Bumped to scroll the results list back to its first row.
+    @State var listScrollToTop = CommandBarScrollToTop()
     /// Non-nil while the command bar is in alias mode: the keyword has been
     /// consumed, `searchText` now holds the query destined for that alias.
     @State var activeSearchAlias: SearchAlias? = nil
@@ -330,7 +332,7 @@ struct ContentView: View {
     /// same applies to `handleSearchTextChange`/`handleAppDidBecomeActive`
     /// below: the combined chain of adjacent modifier closures was too much
     /// for the checker even after any single one shrank.
-    private func handleActiveViewChange(proxy: ScrollViewProxy) {
+    private func handleActiveViewChange() {
         // Preserve the search query (text, chips, alias) across view
         // switches: the search field only lives in Recents, but both views
         // render the same filtered results while a search is active — so
@@ -342,18 +344,11 @@ struct ContentView: View {
         scopeSuggestionMode = .hidden
         scopeDropdownSelectedIndex = 0
         appState.selectedIndex = 0
-        scrollResultsToTop(proxy)
+        listScrollToTop.request()
         syncCustomViewPage()
     }
 
-    private func handleSelectedIndexChange(proxy: ScrollViewProxy) {
-        guard !isSearchFocused else { return }
-        withAnimation(.easeInOut(duration: 0.14)) {
-            scrollSelectedResultIntoView(proxy)
-        }
-    }
-
-    private func handleSearchTextChange(proxy: ScrollViewProxy) {
+    private func handleSearchTextChange() {
         if suppressNextSearchChange {
             suppressNextSearchChange = false
             return
@@ -387,11 +382,11 @@ struct ContentView: View {
         // Not animated: on the first character this coincides with the
         // quick-open → search branch swap, and an animation here made
         // SwiftUI interpolate that whole layout change while typing.
-        scrollResultsToTop(proxy)
+        listScrollToTop.request()
         scheduleSearchFetch()
     }
 
-    private func handleCommandBarVisibilityChange(_ visible: Bool, proxy: ScrollViewProxy) {
+    private func handleCommandBarVisibilityChange(_ visible: Bool) {
         if visible {
             wasOpenedByHover = appState.wasOpenedByHover
             wasOpenedByMouse = appState.wasOpenedByMouse
@@ -404,9 +399,7 @@ struct ContentView: View {
             syncCustomViewPage()
             DispatchQueue.main.async {
                 isSearchFocused = true
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
-                    scrollResultsToTop(proxy)
-                }
+                listScrollToTop.request(animation: .spring(response: 0.3, dampingFraction: 0.88))
             }
         } else {
             wasOpenedByHover = false
@@ -416,7 +409,7 @@ struct ContentView: View {
         }
     }
 
-    private func handleAppDidBecomeActive(proxy: ScrollViewProxy) {
+    private func handleAppDidBecomeActive() {
         guard appState.isVisible else { return }
 
         let now = Date()
@@ -424,9 +417,7 @@ struct ContentView: View {
         lastActiveRefreshAt = now
 
         triggerFetch()
-        withAnimation(.easeInOut(duration: 0.18)) {
-            scrollResultsToTop(proxy)
-        }
+        listScrollToTop.request(animation: .easeInOut(duration: 0.18))
     }
 
     var body: some View {
@@ -605,42 +596,34 @@ struct ContentView: View {
                                 .zIndex(100)
                                 .allowsHitTesting(isScopeDropdownVisible)
 
-                            ScrollViewReader { proxy in
-                                // Each modifier is erased to AnyView and split
-                                // into its own statement — stacking all four on
-                                // one expression (even a plain, unannotated
-                                // `let`) overwhelmed the type-checker ("unable
-                                // to type-check this expression in reasonable
-                                // time"); AnyView gives each statement a hard
-                                // type boundary so inference doesn't have to
-                                // carry the whole opaque chain forward.
+                            // The shared list owns scrolling (follow the
+                            // selection, scroll-to-top on request). Each
+                            // modifier is erased to AnyView in its own
+                            // statement: one long chain overwhelmed the
+                            // type-checker ("unable to type-check this
+                            // expression in reasonable time").
+                            Group {
                                 let withVisibilityChange: AnyView = AnyView(
-                                    resultsSection(proxy: proxy)
+                                    resultsSection()
                                         .onChange(of: appState.isVisible) { _, visible in
-                                            handleCommandBarVisibilityChange(visible, proxy: proxy)
+                                            handleCommandBarVisibilityChange(visible)
                                         }
                                 )
                                 let withSearchTextChange: AnyView = AnyView(
                                     withVisibilityChange
                                         .onChange(of: searchText) {
-                                            handleSearchTextChange(proxy: proxy)
+                                            handleSearchTextChange()
                                         }
                                 )
                                 let withAppActiveReceive: AnyView = AnyView(
                                     withSearchTextChange
                                         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                                            handleAppDidBecomeActive(proxy: proxy)
+                                            handleAppDidBecomeActive()
                                         }
                                 )
-                                let withActiveViewChange: AnyView = AnyView(
-                                    withAppActiveReceive
-                                        .onChange(of: viewStore.activeView) { _, _ in
-                                            handleActiveViewChange(proxy: proxy)
-                                        }
-                                )
-                                withActiveViewChange
-                                    .onChange(of: appState.selectedIndex) { _, _ in
-                                        handleSelectedIndexChange(proxy: proxy)
+                                withAppActiveReceive
+                                    .onChange(of: viewStore.activeView) { _, _ in
+                                        handleActiveViewChange()
                                     }
                             }
 

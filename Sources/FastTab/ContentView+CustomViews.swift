@@ -63,31 +63,28 @@ extension ContentView {
                             customViewEmptyState(viewID: viewID)
                         }
                     } else {
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                ForEach(Array(snapshot.sections.enumerated()), id: \.element.id) { sectionIndex, section in
-                                    if !section.title.isEmpty {
-                                        CommandBarSectionHeader(
-                                            title: section.title.uppercased(),
-                                            symbol: Self.sectionIcon(groupBy: groupBy, sectionID: section.id)
-                                        )
-                                    }
-                                    let offset = snapshot.sectionOffsets[sectionIndex]
-                                    ForEach(Array(section.items.enumerated()), id: \.element.id) { rowIndex, item in
-                                        let index = offset + rowIndex
-                                        displayItemRow(
-                                            item: .result(item.result),
-                                            index: index,
-                                            isSelected: appState.selectedIndex == index,
-                                            showWindowName: showWindowName,
-                                            showProfileName: showProfileName
-                                        )
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 3)
+                        CommandBarSectionedList(
+                            sections: snapshot.sections.map { section in
+                                CommandBarSection(
+                                    id: section.id,
+                                    title: section.title.isEmpty ? nil : section.title.uppercased(),
+                                    symbol: Self.sectionIcon(groupBy: groupBy, sectionID: section.id),
+                                    rows: section.items
+                                )
+                            },
+                            selectedIndex: appState.selectedIndex,
+                            followsSelection: !isSearchFocused,
+                            followAnimation: Self.selectionFollowAnimation,
+                            scrollToTop: listScrollToTop
+                        ) { item, index in
+                            displayItemRow(
+                                item: .result(item.result),
+                                index: index,
+                                isSelected: appState.selectedIndex == index,
+                                showWindowName: showWindowName,
+                                showProfileName: showProfileName
+                            )
                         }
-                        .background(Color.clear)
                     }
                 } else {
                     // Evaluating (first pass is off the main thread) or waiting

@@ -56,7 +56,7 @@ extension ContentView {
     }
 
     @ViewBuilder
-    func resultsSection(proxy: ScrollViewProxy) -> some View {
+    func resultsSection() -> some View {
         let showWindowName = shouldShowWindowName
         let showProfileName = shouldShowProfileName
         let resultsHeight = CommandBarLayout.resultsHeight(for: commandBarAnchor, rowStyle: rowStyle, rowCount: resultsSizingRowCount)
@@ -87,7 +87,13 @@ extension ContentView {
                     if displayedItems.isEmpty {
                         searchEmptyState
                     } else {
-                        CommandBarSectionedList(sections: [CommandBarSection(id: "results", rows: displayedItems)]) { item, index in
+                        CommandBarSectionedList(
+                            sections: [CommandBarSection(id: "results", rows: displayedItems)],
+                            selectedIndex: appState.selectedIndex,
+                            followsSelection: !isSearchFocused,
+                            followAnimation: Self.selectionFollowAnimation,
+                            scrollToTop: listScrollToTop
+                        ) { item, index in
                             displayItemRow(
                                 item: item,
                                 index: index,
@@ -143,10 +149,16 @@ extension ContentView {
         } else {
             // Flat selection: sent rows start at `stackSentLinksOffset`
             // (= pinned count), which is the section offset the list passes.
-            CommandBarSectionedList(sections: [
-                CommandBarSection(id: "pinned", title: "PINNED", symbol: "pin.fill", rows: pinnedItems),
-                CommandBarSection(id: "sent", title: "SENT TO MAC", symbol: "iphone", rows: sentItems),
-            ]) { item, index in
+            CommandBarSectionedList(
+                sections: [
+                    CommandBarSection(id: "pinned", title: "PINNED", symbol: "pin.fill", rows: pinnedItems),
+                    CommandBarSection(id: "sent", title: "SENT TO MAC", symbol: "iphone", rows: sentItems),
+                ],
+                selectedIndex: appState.selectedIndex,
+                followsSelection: !isSearchFocused,
+                followAnimation: Self.selectionFollowAnimation,
+                scrollToTop: listScrollToTop
+            ) { item, index in
                 displayItemRow(
                     item: item,
                     index: index,
@@ -164,7 +176,13 @@ extension ContentView {
         if items.isEmpty {
             modeEmptyState(for: view)
         } else {
-            CommandBarSectionedList(sections: [CommandBarSection(id: "items", rows: items)]) { item, index in
+            CommandBarSectionedList(
+                sections: [CommandBarSection(id: "items", rows: items)],
+                selectedIndex: viewStore.activeView == view ? appState.selectedIndex : nil,
+                followsSelection: !isSearchFocused,
+                followAnimation: Self.selectionFollowAnimation,
+                scrollToTop: listScrollToTop
+            ) { item, index in
                 displayItemRow(
                     item: item,
                     index: index,
@@ -312,13 +330,8 @@ extension ContentView {
         }
     }
 
-    func scrollResultsToTop(_ proxy: ScrollViewProxy) {
-        CommandBarResultsScroll.scrollToTop(proxy, rows: displayedItems)
-    }
-
-    func scrollSelectedResultIntoView(_ proxy: ScrollViewProxy) {
-        CommandBarResultsScroll.scrollSelection(proxy, rows: displayedItems, selectedIndex: appState.selectedIndex)
-    }
+    /// How the results list glides to a keyboard-selected row.
+    static var selectionFollowAnimation: Animation { .easeInOut(duration: 0.14) }
 }
 
 private struct AudibleTabRow: View {

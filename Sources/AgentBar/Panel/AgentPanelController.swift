@@ -84,6 +84,8 @@ final class AgentPanelController {
     private func wirePageSizing() {
         let changes = model.pages.$editor.map { $0 != nil }.removeDuplicates().map { _ in () }
             .merge(with: model.$newWorker.map { $0 != nil }.removeDuplicates().map { _ in () })
+            // First view saved / last deleted: the strip appears or goes, so the height changes too.
+            .merge(with: model.pages.store.$views.map(\.isEmpty).removeDuplicates().map { _ in () })
         pagesSubscription = changes.receive(on: DispatchQueue.main).sink { [weak self] in self?.applyCurrentSize() }
     }
 

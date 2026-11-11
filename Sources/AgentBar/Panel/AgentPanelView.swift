@@ -63,8 +63,8 @@ struct AgentPanelView: View {
         .background(CommandBarFrostedBackground())
         .clipShape(RoundedRectangle(cornerRadius: CommandBarLayout.surfaceCornerRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: CommandBarLayout.surfaceCornerRadius, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
-        .environment(\.commandBarTheme, AgentBarTheme.current)
-        .tint(AgentBarTheme.current.accentColor)
+        .environment(\.commandBarTheme, AgentBarTheme.theme(for: model.listSettings.accent))
+        .tint(model.listSettings.accent.color)
         .confirmationDialog(
             "Attach across projects?",
             isPresented: Binding(get: { model.treeModel.pendingConfirm != nil }, set: { if !$0 { model.treeModel.cancelPendingAttach() } }),
@@ -225,10 +225,14 @@ struct AgentPanelView: View {
     }
 }
 
-/// Agent Bar's only look settings on the shared shell: its accent colour and app icon.
+/// Agent Bar's only look settings on the shared shell: its accent colour (Settings › Appearance) and app icon.
 enum AgentBarTheme {
-    /// Built once: a fresh value on every render changed the environment each time.
-    @MainActor static let current = CommandBarTheme(accentColor: .accentColor, appIcon: NSApp.applicationIconImage)
+    /// Read once: the app icon does not change while running.
+    @MainActor static let appIcon = NSApp.applicationIconImage
+
+    @MainActor static func theme(for accent: CommandBarAccent) -> CommandBarTheme {
+        CommandBarTheme(accent: accent, appIcon: appIcon)
+    }
 }
 
 /// The shared "copied" toast at the top of the panel while a ⌘C / copy button's feedback lasts.

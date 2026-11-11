@@ -31,6 +31,23 @@ struct BlockedRowTests {
         #expect(RowButtons.usableButtons(for: agent) == [.peek, .park])   // the keyboard skips it
     }
 
+    /// Slice 8c: ←/→ walk the strip in the order it is drawn — the red Answer sits at the far right,
+    /// so it is the last stop going right, not the first.
+    @Test func arrowKeysFollowTheDrawnLeftToRightOrder() {
+        let agent = A.blockedAgent("q", blocker: .question(A.question()))
+        let keyboard = RowButtons.usableButtons(for: agent)
+        #expect(keyboard == RowButtons.drawingOrder(RowButtons.available(for: agent)).map(\.button))
+        #expect(keyboard.last == .answer)
+        var highlight: RowButton? = nil
+        var visited: [RowButton] = []
+        for _ in keyboard.indices {
+            highlight = RowButtonHighlight.moved(from: highlight, by: 1, in: keyboard)
+            visited.append(highlight!)
+        }
+        #expect(visited == [.peek, .park, .answer])
+        #expect(RowButtonHighlight.moved(from: .answer, by: -1, in: keyboard) == .park)
+    }
+
     @Test func onlyTheBlockedActionsAreRed() {
         #expect(RowButton.answer.isBlockedAction && RowButton.openTerminal.isBlockedAction)
         let others: [RowButton] = [.park, .unpark, .done, .closePane]
@@ -48,7 +65,7 @@ struct BlockedRowTests {
     }
 
     @Test func theKeyboardCanReachAnswerAndOpenTerminal() {
-        #expect(RowButtons.usableButtons(for: A.blockedAgent("q", blocker: .question(A.question()))) == [.answer, .peek, .park])
+        #expect(RowButtons.usableButtons(for: A.blockedAgent("q", blocker: .question(A.question()))) == [.peek, .park, .answer])
         #expect(RowButtonHighlight.moved(from: nil, by: 1, in: [.answer, .park]) == .answer)
     }
 

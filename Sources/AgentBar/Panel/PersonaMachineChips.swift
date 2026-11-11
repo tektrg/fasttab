@@ -1,9 +1,11 @@
 import SwiftUI
+import IndieCommandBar
 
 /// The persona confirm row's machine choice, e.g. `[Pro] [Air]` — the selected one filled
 /// (`PersonaPick.machineChips` / `machineID`; Up/Down move it). Sized to the 20pt routing row
 /// (`AgentPanelMetrics.routingRowHeight`): never taller, so the panel's fixed height budget holds.
 struct PersonaMachineChips: View {
+    @Environment(\.commandBarTheme) private var theme
     let chips: [PersonaMachine]
     let selectedID: String?
 
@@ -17,7 +19,7 @@ struct PersonaMachineChips: View {
                         .foregroundStyle(isSelected ? Color.white : Color.secondary)
                         .padding(.horizontal, 7)
                         .frame(height: 16)
-                        .background(Capsule().fill(isSelected ? Color.accentColor : Color.secondary.opacity(0.15)))
+                        .background(Capsule().fill(isSelected ? theme.accentColor : Color.secondary.opacity(0.15)))
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }

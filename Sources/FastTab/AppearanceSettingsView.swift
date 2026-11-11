@@ -7,18 +7,20 @@ struct AppearanceSettingsView: View {
     @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = true
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var resultRowStyle: ResultRowStyle = .minimal
     @AppStorage(CommandBarAppearance.quickOpenItemLimitKey) private var quickOpenItemLimit: Int = 5
+    @AppStorage(CommandBarAppearance.accentKey) private var accent: CommandBarAccent = .system
 
     var body: some View {
         Form {
             CommandBarAppearanceSection(
                 settings: Binding(
                     get: {
-                        CommandBarAppearanceSettings(background: outerPanelEnabled, rowStyle: resultRowStyle, rowLimit: quickOpenItemLimit)
+                        CommandBarAppearanceSettings(background: outerPanelEnabled, rowStyle: resultRowStyle, rowLimit: quickOpenItemLimit, accent: accent)
                     },
                     set: { newValue in
                         outerPanelEnabled = newValue.background
                         resultRowStyle = newValue.rowStyle
                         quickOpenItemLimit = newValue.rowLimit
+                        accent = newValue.accent
                     }
                 ),
                 options: CommandBarAppearanceOptions(

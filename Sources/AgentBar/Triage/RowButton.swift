@@ -259,10 +259,11 @@ enum RowButtons {
         specs.filter { !$0.isBlockedAction && $0.button != .moreActions }
     }
 
-    /// The buttons the keyboard can land on: the capsule strip only (the ⋯ trigger is a stop, not
-    /// a way into its own items — see `RowMoreMenuView`'s doc comment for why).
+    /// The buttons the keyboard can land on, in the strip's drawing order (`drawingOrder`), so ←/→
+    /// move left/right on screen (the ⋯ trigger is a stop, not a way into its own items — see
+    /// `RowMoreMenuView`'s doc comment for why).
     static func usableButtons(for agent: AgentSnapshot) -> [RowButton] {
-        available(for: agent).filter(\.isEnabled).map(\.button)
+        drawingOrder(available(for: agent)).filter(\.isEnabled).map(\.button)
     }
 
     private static func spec(_ button: RowButton, for agent: AgentSnapshot) -> RowButtonSpec {

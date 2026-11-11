@@ -3,6 +3,7 @@ import AppKit
 import IndieCommandBar
 
 struct BookmarkTreeRow: View {
+    @Environment(\.commandBarTheme) private var theme
     let row: BookmarkDisplayRow
     let isSelected: Bool
     let onSelect: () -> Void
@@ -29,7 +30,7 @@ struct BookmarkTreeRow: View {
         .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.05) : Color.clear))
+                .fill(isSelected ? theme.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.05) : Color.clear))
         )
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .onHover { isHovered = $0 }
@@ -50,7 +51,7 @@ struct BookmarkTreeRow: View {
 
                 Image(systemName: isExpanded ? "folder.fill" : "folder")
                     .font(.system(size: 14))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(theme.accentColor)
 
                 Text(name)
                     .font(.system(size: 13, weight: .medium))

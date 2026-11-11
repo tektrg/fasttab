@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 /// New worker step 1: the personas (folders) in place of the agent list, filtered by the search box.
 /// Hover selects, click picks (same as Return). Sized to `bodyHeight` like a card, since the window
@@ -72,6 +73,7 @@ struct NewWorkerFolderListView: View {
 
 /// One folder: persona name, then its folder address and description.
 private struct NewWorkerFolderRow: View {
+    @Environment(\.commandBarTheme) private var theme
     let folder: Persona
     let isSelected: Bool
 
@@ -88,7 +90,7 @@ private struct NewWorkerFolderRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .frame(height: AgentPanelMetrics.rowHeight)
-        .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Color.accentColor.opacity(0.22) : .clear))
+        .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? theme.accentColor.opacity(0.22) : .clear))
         .padding(.horizontal, 10)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)

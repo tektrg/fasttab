@@ -83,8 +83,8 @@ struct BlockerProbeTests {
         rig.source.replyWith(questionScreen)
         rig.model.receive(needsYou(nil))
         #expect(buttons(rig.model) == [.peek, .park, .message, .moreActions])
-        await waitUntil { buttons(rig.model) == [.answer, .park] }
-        #expect(buttons(rig.model) == [.answer, .peek, .park])
+        await waitUntil { buttons(rig.model) == [.park, .answer] }
+        #expect(buttons(rig.model) == [.peek, .park, .answer])
         #expect(rig.source.readPaneIds == ["w1:a"])
         #expect(rig.model.presentation.agents.first?.blockedOnYou != nil)
     }
@@ -93,17 +93,17 @@ struct BlockerProbeTests {
         let rig = makeRig()
         rig.source.replyWith(permissionScreen)
         rig.model.receive(needsYou(.permission))
-        #expect(buttons(rig.model) == [.openTerminal, .peek, .park])
-        await waitUntil { buttons(rig.model) == [.review, .park] }
-        #expect(buttons(rig.model) == [.review, .peek, .park])
+        #expect(buttons(rig.model) == [.peek, .park, .openTerminal])
+        await waitUntil { buttons(rig.model) == [.park, .review] }
+        #expect(buttons(rig.model) == [.peek, .park, .review])
     }
 
     @Test func aRowStillLoadingItsOptionsGetsTheAnswerButtonFromTheRead() async {
         let rig = makeRig()
         rig.source.replyWith(questionScreen)
         rig.model.receive(needsYou(.questionLoading(nil)))
-        await waitUntil { buttons(rig.model) == [.answer, .park] }
-        #expect(buttons(rig.model) == [.answer, .peek, .park])
+        await waitUntil { buttons(rig.model) == [.park, .answer] }
+        #expect(buttons(rig.model) == [.peek, .park, .answer])
     }
 
     @Test func aScreenWithNothingToAnswerLeavesTheRowAsItWas() async {
@@ -112,7 +112,7 @@ struct BlockerProbeTests {
         rig.model.receive(needsYou(.permission))
         await waitUntil { rig.source.readPaneIds.count >= 3 }
         await settleTasks()
-        #expect(buttons(rig.model) == [.openTerminal, .peek, .park])
+        #expect(buttons(rig.model) == [.peek, .park, .openTerminal])
         rig.source.replyWith(.failure("Can't reach the status dashboard."))
         rig.model.receive(needsYou(nil, id: "other"))
         await settleTasks()
@@ -163,8 +163,8 @@ struct BlockerProbeTests {
         let rig = makeRig()
         rig.source.replyWith(emptyScreen, permissionScreen)
         rig.model.receive(needsYou(.permission))
-        await waitUntil { buttons(rig.model) == [.review, .park] }
-        #expect(buttons(rig.model) == [.review, .peek, .park])
+        await waitUntil { buttons(rig.model) == [.park, .review] }
+        #expect(buttons(rig.model) == [.peek, .park, .review])
         #expect(rig.source.readPaneIds.count == 2)
     }
 

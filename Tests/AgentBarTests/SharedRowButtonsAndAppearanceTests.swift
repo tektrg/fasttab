@@ -50,6 +50,28 @@ struct SharedRowButtonsAndAppearanceTests {
         #expect(AgentListSettings.load(from: defaults).maxVisibleRows == 13)
     }
 
+    // Slice 8c: accent colour.
+    @Test func storeFromBefore8cLoadsWithTheSystemAccent() {
+        let defaults = makeScratchDefaults()
+        defaults.set("topLeft", forKey: "AgentBar.appearance.placement")
+        defaults.set(9, forKey: "listMaxVisibleRows")
+        let loaded = AgentListSettings.load(from: defaults)
+        #expect(loaded.accent == .system)
+        #expect(loaded.placement == .topLeft)
+        #expect(AgentListSettings.standard.accent == .system)
+    }
+
+    @Test @MainActor func accentRoundTripsUnderAgentBarsOwnKey() {
+        let defaults = makeScratchDefaults()
+        var chosen = AgentListSettings.standard
+        chosen.appearance.accent = .purple
+        chosen.save(to: defaults)
+        #expect(defaults.string(forKey: "AgentBar.appearance.accent") == "purple")
+        #expect(defaults.string(forKey: "FastTab.appearance.accent") == nil)
+        #expect(AgentListSettings.load(from: defaults).accent == .purple)
+        #expect(AgentBarTheme.theme(for: .system).accentColor == .accentColor)
+    }
+
     @Test func placementAndSizeRoundTrip() {
         let defaults = makeScratchDefaults()
         var chosen = AgentListSettings.standard

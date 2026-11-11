@@ -36,4 +36,14 @@ struct AppearanceSettingsMigrationTests {
         #expect(loaded.rowStyle == .minimal)
         #expect(loaded.rowLimit == 5)
     }
+
+    // Slice 8c: accent colour. Stores from before it existed show the system accent (today's look).
+    @Test func accentKeyIsFastTabsOwnAndDefaultsToSystem() {
+        #expect(CommandBarAppearance.accentKey == "FastTab.appearance.accent")
+        let defaults = scratch()
+        defaults.set(false, forKey: "FastTab.appearance.outerGlassPanel")
+        #expect(CommandBarAppearance.load(from: defaults).accent == .system)
+        defaults.set("orange", forKey: "FastTab.appearance.accent")
+        #expect(CommandBarAppearance.load(from: defaults).accent == .orange)
+    }
 }

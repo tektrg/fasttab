@@ -1425,7 +1425,8 @@ final class AgentPanelModel: ObservableObject {
     /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer or decision is on its way.
     private func usableButtons(for agent: AgentSnapshot) -> [RowButton] {
         guard sendingLabel(for: agent) == nil, sentLabel(for: agent) == nil else { return [] }
-        return TreeRowActions.availableButtons(for: agent, tree: treeModel.tree).filter(\.isEnabled).map(\.button)
+        // Same left-to-right order the row draws (red blocker button last), so ←/→ walk the screen.
+        return RowButtons.drawingOrder(TreeRowActions.availableButtons(for: agent, tree: treeModel.tree)).filter(\.isEnabled).map(\.button)
     }
 
     /// What the row says in place of its buttons while an answer or decision is on its way; nil when none is.

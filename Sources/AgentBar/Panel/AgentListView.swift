@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 /// The scrolling section list (rows already grouped, ranked and filtered).
 struct AgentListView: View {
@@ -90,6 +91,7 @@ private struct TreeDragSource: ViewModifier {
 /// happens for an agent the hierarchy tree doesn't know about at all (`tree.node(withID:)` nil) —
 /// there is no `AgentTreeNode` to attach.
 private struct TreeDropTarget: ViewModifier {
+    @Environment(\.commandBarTheme) private var theme
     let agentID: String
     let isChief: Bool
     @ObservedObject var treeModel: AgentTreeModel
@@ -98,7 +100,7 @@ private struct TreeDropTarget: ViewModifier {
     func body(content: Content) -> some View {
         if isChief {
             content
-                .background(isTargeted ? Color.accentColor.opacity(0.15) : Color.clear)
+                .background(isTargeted ? theme.accentColor.opacity(0.15) : Color.clear)
                 .dropDestination(for: String.self) { items, _ in
                     guard let childID = items.first, let tree = treeModel.tree,
                           let child = tree.node(withID: childID), let parent = tree.node(withID: agentID)

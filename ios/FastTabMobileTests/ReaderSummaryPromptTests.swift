@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import FastTabMobile
 
@@ -18,6 +19,15 @@ final class ReaderSummaryPromptTests: XCTestCase {
         XCTAssertEqual(ReaderSummaryPrompt.normalized("  Three bullets only.  \n"), "Three bullets only.")
         XCTAssertEqual(ReaderSummaryPrompt.normalized(ReaderSummaryPrompt.defaultInstruction + " Be brief."),
                        ReaderSummaryPrompt.defaultInstruction + " Be brief.")
+    }
+
+    /// Pins the whole default text. If this fails after changing the prompt, update it together with
+    /// theindie-api `DEFAULT_SUMMARY_INSTRUCTION` and bump both version numbers.
+    func testDefaultTextIsPinnedToTheServersExactText() {
+        let digest = SHA256.hash(data: Data(ReaderSummaryPrompt.defaultInstruction.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(digest, "659e0c0dec438d315bb393c8f91d728a6321dd3bbbb1fd856d4bf7ab3b3b5c40")
+        XCTAssertEqual(ReaderSummaryPrompt.defaultVersion, 1)
     }
 
     func testTheDefaultMirrorsTheServerAndFitsItsOwnLimit() {
@@ -66,6 +76,14 @@ final class ReaderSummaryPromptDraftTests: XCTestCase {
         XCTAssertTrue(draft.isUsingDefault)
         XCTAssertTrue(draft.canSave(stored: "Custom"))
         XCTAssertFalse(ReaderSummaryPromptDraft(stored: nil).canSave(stored: nil))
+    }
+
+    func testAnOverLongDraftCountsAsUnsavedEditsSoItIsNeverSilentlyReplaced() {
+        var draft = ReaderSummaryPromptDraft(stored: nil)
+        draft.text = String(repeating: "a", count: ReaderSummaryPrompt.maxInstructionLength + 300)
+        XCTAssertTrue(draft.hasUnsavedEdits(stored: nil))
+        XCTAssertFalse(draft.canSave(stored: nil))
+        XCTAssertFalse(ReaderSummaryPromptDraft(stored: "Custom").hasUnsavedEdits(stored: "Custom"))
     }
 
     func testOverLimitCannotBeSaved() {
@@ -188,6 +206,40 @@ final class ReaderSummaryPromptStoreTests: XCTestCase {
         a.reset()
         b.mergeFromCloud()
         XCTAssertNil(b.customInstruction)
+    }
+
+    func testAFastClockOnAnotherDeviceCannotLockThisOneOut() {
+        let cloud = FakeCloud()
+        let a = store(cloud: cloud)
+        a.save(instruction: "From A")
+        // Device B's clock is far behind everything A wrote.
+        let b = ReaderSummaryPromptStore(local: UserDefaults(suiteName: "ReaderSummaryPromptStoreTests-skew-\(UUID())")!,
+                                         cloud: cloud, now: { Date(timeIntervalSince1970: 1) })
+        XCTAssertEqual(b.customInstruction, "From A")
+        b.save(instruction: "From B")
+        a.mergeFromCloud()
+        XCTAssertEqual(a.customInstruction, "From B")
+    }
+
+    func testResetOrSaveWithNoChangeDoesNotTouchTheSyncClock() {
+        let cloud = FakeCloud()
+        let a = store(cloud: cloud)
+        a.reset()
+        a.save(instruction: "  ")
+        XCTAssertNil(cloud.values[ReaderSummaryPromptStore.cloudKey])
+        a.save(instruction: "Custom")
+        let written = cloud.values[ReaderSummaryPromptStore.cloudKey]
+        a.save(instruction: "Custom")
+        XCTAssertEqual(cloud.values[ReaderSummaryPromptStore.cloudKey], written)
+    }
+
+    func testALocalEditMadeWhileICloudWasUnavailableIsPushedLater() {
+        let a = store(cloud: nil)
+        a.save(instruction: "Edited offline")
+        let cloud = FakeCloud()
+        let relaunched = ReaderSummaryPromptStore(local: defaults, cloud: cloud)
+        XCTAssertEqual(relaunched.customInstruction, "Edited offline")
+        XCTAssertNotNil(cloud.values[ReaderSummaryPromptStore.cloudKey])
     }
 
     func testGarbageInTheCloudOrDefaultsIsIgnored() {

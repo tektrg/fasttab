@@ -161,7 +161,8 @@ final class ReaderSummaryModel {
             work = running
         } else {
             let request = ReaderSummaryRequest(text: input.text, languageCode: input.languageCode,
-                                               instruction: instruction)
+                                               instruction: instruction,
+                                               promptVersion: instruction == nil ? nil : ReaderSummaryPrompt.defaultVersion)
             // Not tied to the sheet or this model: the answer is saved for next time.
             work = Task { [client, store, urlKey, instructionHash, now] in
                 do {

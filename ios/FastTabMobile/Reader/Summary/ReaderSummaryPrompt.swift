@@ -68,8 +68,11 @@ struct ReaderSummaryPromptDraft: Equatable {
     var length: Int { ReaderSummaryPrompt.length(of: text) }
     var isOverLimit: Bool { length > ReaderSummaryPrompt.maxInstructionLength }
 
+    /// The draft differs from what is stored (an over-long draft counts: it is still the person's work).
+    func hasUnsavedEdits(stored: String?) -> Bool { normalized != stored }
+
     /// Save is offered when it would change what is stored, and the server would accept it.
-    func canSave(stored: String?) -> Bool { !isOverLimit && normalized != stored }
+    func canSave(stored: String?) -> Bool { !isOverLimit && hasUnsavedEdits(stored: stored) }
 
     mutating func resetToDefault() { text = ReaderSummaryPrompt.defaultInstruction }
 }

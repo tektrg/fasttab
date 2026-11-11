@@ -418,6 +418,21 @@ final class ReaderSummaryModelTests: XCTestCase {
         XCTAssertEqual(try sentInstruction(server), "Three bullets only.")
     }
 
+    func testCustomPromptAlsoSendsWhichDefaultVersionItWasEditedFrom() async throws {
+        let server = FakeSummaryServer([FakeSummaryServer.ok()])
+        let model = model(server, instruction: "Three bullets only.")
+        model.open(); await settle(model)
+        let body = try XCTUnwrap(server.requests.first?.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["promptVersion"] as? Int, ReaderSummaryPrompt.defaultVersion)
+        let plain = FakeSummaryServer([FakeSummaryServer.ok()])
+        let defaultModel = self.model(plain)
+        defaultModel.open(); await settle(defaultModel)
+        let plainBody = try XCTUnwrap(plain.requests.first?.httpBody)
+        let plainJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: plainBody) as? [String: Any])
+        XCTAssertNil(plainJSON["promptVersion"])
+    }
+
     func testDefaultPromptSendsNoInstructionSoServerImprovementsApply() async throws {
         let server = FakeSummaryServer([FakeSummaryServer.ok()])
         let model = model(server)

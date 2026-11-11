@@ -66,21 +66,34 @@ final class ReaderSummaryPromptStore {
     func save(instruction: String?) {
         let text = instruction ?? ""
         guard ReaderSummaryPrompt.length(of: text) <= ReaderSummaryPrompt.maxInstructionLength else { return }
-        commit(ReaderSummaryPrompt.normalized(text))
+        let normalized = ReaderSummaryPrompt.normalized(text)
+        guard normalized != setting.instruction else { return } // no change: don't bump the sync clock
+        commit(normalized)
     }
 
-    func reset() { commit(nil) }
+    /// Back to the default. Does nothing (and doesn't touch iCloud) when it already is.
+    func reset() {
+        guard setting.instruction != nil else { return }
+        commit(nil)
+    }
 
-    /// Takes the iCloud copy when it is newer than this device's.
+    /// Takes the iCloud copy when it is newer than this device's; pushes this device's when that is newer.
     func mergeFromCloud() {
-        guard let remote = Self.decode(cloud?.promptData(forKey: Self.cloudKey)),
-              remote.updatedAt > setting.updatedAt else { return }
-        setting = remote
-        persistLocal()
+        let remote = Self.decode(cloud?.promptData(forKey: Self.cloudKey))
+        if let remote, remote.updatedAt > setting.updatedAt {
+            setting = remote
+            persistLocal()
+        } else if cloud != nil, setting.updatedAt > .distantPast, remote.map({ setting.updatedAt > $0.updatedAt }) ?? true {
+            // A write made while iCloud was unavailable never reached it; send it now.
+            cloud?.setPromptData(Self.encode(setting), forKey: Self.cloudKey)
+        }
     }
 
     private func commit(_ instruction: String?) {
-        setting = Setting(instruction: instruction, updatedAt: now())
+        // Never earlier than what this device already holds: a device with a fast clock must not
+        // lock the others out of editing (last writer wins by timestamp).
+        let stamp = max(now(), setting.updatedAt.addingTimeInterval(0.001))
+        setting = Setting(instruction: instruction, updatedAt: stamp)
         persistLocal()
         cloud?.setPromptData(Self.encode(setting), forKey: Self.cloudKey)
     }

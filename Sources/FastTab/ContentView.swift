@@ -155,10 +155,10 @@ struct ContentView: View {
         }
         if !isSearchActive {
             switch view {
-            case .stack:
+            case .builtin(.stack):
                 return stackPinnedSlots.map(CommandBarDisplayItem.orderedEntry)
                     + stackSentLinks.map(CommandBarDisplayItem.result)
-            case .recents, .custom, .newView:
+            case .builtin(.recents), .custom, .newView:
                 break
             }
         }

@@ -173,36 +173,6 @@ struct SearchHeader: View {
     }
 }
 
-/// Icon-only inactive header tab with hover feedback.
-struct HeaderTabIcon: View {
-    let icon: String
-    let help: String
-    let label: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 15))
-                .foregroundStyle(isHovered ? Color.primary.opacity(0.85) : Color.secondary)
-                .frame(width: 28, height: 28)
-                .background {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
-                }
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .focusable(false)
-        .onHover { isHovered = $0 }
-        .help(help)
-        .accessibilityLabel(Text(label))
-        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-    }
-}
-
 private struct SearchAliasBadge: View {
     let alias: SearchAlias
     let onRemove: () -> Void

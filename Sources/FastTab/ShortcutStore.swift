@@ -47,10 +47,10 @@ class ShortcutStore: ObservableObject {
     func updateViewShortcut(for view: CommandBarView, shortcut: ViewShortcut?) {
         let prefix: String
         switch view {
-        case .recents:
+        case .builtin(.recents):
             recentsShortcut = shortcut
             prefix = "shortcut.recents"
-        case .stack:
+        case .builtin(.stack):
             stackShortcut = shortcut
             prefix = "shortcut.stack"
         case .custom, .newView:
@@ -71,8 +71,8 @@ class ShortcutStore: ObservableObject {
 
     func shortcut(for view: CommandBarView) -> ViewShortcut? {
         switch view {
-        case .recents: return recentsShortcut
-        case .stack: return stackShortcut
+        case .builtin(.recents): return recentsShortcut
+        case .builtin(.stack): return stackShortcut
         case .custom, .newView: return nil
         }
     }

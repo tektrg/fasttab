@@ -1,4 +1,5 @@
 import SwiftUI
+import CommandBarKit
 
 /// Settings › Views: the user's custom views (the swipeable pages after
 /// Recent and Stack) — reorder by dragging, edit / create in a sheet that

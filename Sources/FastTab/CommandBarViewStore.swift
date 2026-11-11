@@ -1,92 +1,46 @@
 import Foundation
 import SwiftUI
 import Combine
+import CommandBarKit
 
-/// One swipeable page of the command bar. Order (see
+/// Fast Tab's fixed pages, in swipe order. Raw values are persisted (default
+/// / hover-default view) — never change them.
+public enum FastTabBuiltinPage: String, CommandBarBuiltinPage, CaseIterable {
+    case recents
+    case stack
+}
+
+/// One swipeable page of the command bar (shared `CommandBarPage`). Order (see
 /// `CommandBarViewStore.availableViews`): Recents → Stack → the user's custom
 /// views (in `CustomViewStore` order) → "＋ New View".
 ///
-/// Persisted (default / hover-default view) as a plain string — `rawValue` —
-/// so the pre-custom-views values "recents" / "stack" still decode as-is;
-/// a custom view is stored as "custom:<UUID>".
-public enum CommandBarView: Hashable, Codable, Sendable {
-    case recents
-    case stack
-    /// A user-defined `CustomView`, by id.
-    case custom(UUID)
-    /// The trailing "＋ New View" page (hosts the inline view builder).
-    case newView
+/// Persisted as `rawValue`, so the pre-custom-views values "recents" /
+/// "stack" still decode as-is; a custom view is stored as "custom:<UUID>".
+public typealias CommandBarView = CommandBarPage<FastTabBuiltinPage>
+
+public extension CommandBarPage where Builtin == FastTabBuiltinPage {
+    static var recents: Self { .builtin(.recents) }
+    static var stack: Self { .builtin(.stack) }
 
     /// The fixed pages, in swipe order. They also own the global per-view
     /// shortcuts (`ShortcutStore`).
-    public static let builtins: [CommandBarView] = [.recents, .stack]
-
-    private static let customPrefix = "custom:"
-
-    public var rawValue: String {
-        switch self {
-        case .recents: return "recents"
-        case .stack: return "stack"
-        case .custom(let id): return Self.customPrefix + id.uuidString
-        case .newView: return "newView"
-        }
-    }
-
-    public init?(rawValue: String) {
-        switch rawValue {
-        case "recents": self = .recents
-        case "stack": self = .stack
-        case "newView": self = .newView
-        default:
-            guard rawValue.hasPrefix(Self.customPrefix),
-                  let id = UUID(uuidString: String(rawValue.dropFirst(Self.customPrefix.count))) else { return nil }
-            self = .custom(id)
-        }
-    }
-
-    public init(from decoder: Decoder) throws {
-        let raw = try decoder.singleValueContainer().decode(String.self)
-        guard let view = CommandBarView(rawValue: raw) else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown view \(raw)"))
-        }
-        self = view
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.singleValueContainer()
-        try c.encode(rawValue)
-    }
-
-    public var customID: UUID? {
-        if case .custom(let id) = self { return id }
-        return nil
-    }
-
-    /// Custom views and the New View page are full pages of their own: they
-    /// ignore the Recents search (which keeps its text across switches) and
-    /// always show their own content.
-    public var isCustomPage: Bool {
-        switch self {
-        case .recents, .stack: return false
-        case .custom, .newView: return true
-        }
-    }
+    static var builtins: [Self] { FastTabBuiltinPage.allCases.map(Self.builtin) }
 
     /// Tall pages size the panel to `expandedAllTabsMaxRows` (both the SwiftUI
     /// surface and the hover-dismiss hit test — `CommandBarLayout.surfaceMaxRows`).
-    public var isTall: Bool {
-        switch self {
-        case .recents: return false
-        case .stack, .custom, .newView: return true
-        }
-    }
+    var isTall: Bool { self != .recents }
 
+    @MainActor var displayName: String { displayName(customViews: CustomViewStore.shared.views) }
+    @MainActor var iconName: String { iconName(customViews: CustomViewStore.shared.views) }
+}
+
+extension CommandBarPage where Builtin == FastTabBuiltinPage {
     /// Name for builtins / New View; custom views resolve through
     /// `customViews` ("Untitled View" when the name is blank or the id is gone).
     func displayName(customViews: [CustomView]) -> String {
         switch self {
-        case .recents: return "Recents"
-        case .stack: return "Stack"
+        case .builtin(.recents): return "Recents"
+        case .builtin(.stack): return "Stack"
         case .newView: return "New View"
         case .custom(let id):
             let name = customViews.first { $0.id == id }?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -96,8 +50,8 @@ public enum CommandBarView: Hashable, Codable, Sendable {
 
     func iconName(customViews: [CustomView]) -> String {
         switch self {
-        case .recents: return "clock"
-        case .stack: return "square.stack"
+        case .builtin(.recents): return "clock"
+        case .builtin(.stack): return "square.stack"
         case .newView: return "plus"
         case .custom(let id):
             let icon = customViews.first { $0.id == id }?.iconName ?? ""
@@ -105,30 +59,9 @@ public enum CommandBarView: Hashable, Codable, Sendable {
         }
     }
 
-    @MainActor public var displayName: String { displayName(customViews: CustomViewStore.shared.views) }
-    @MainActor public var iconName: String { iconName(customViews: CustomViewStore.shared.views) }
-
     /// Swipe order: builtins, then `customViews` in order, then New View.
-    static func ordered(customViews: [CustomView]) -> [CommandBarView] {
-        builtins + customViews.map { .custom($0.id) } + [.newView]
-    }
-
-    /// ⌘1…⌘9 targets: every page except New View (it is a builder, not a
-    /// view, and its position shifts as views are added). ⌘N = the Nth entry;
-    /// nil past the end.
-    static func numberedShortcutTarget(_ number: Int, in ordered: [CommandBarView]) -> CommandBarView? {
-        let numbered = ordered.filter { $0 != .newView }
-        guard number >= 1, number <= min(9, numbered.count) else { return nil }
-        return numbered[number - 1]
-    }
-
-    /// The neighbouring page `step` places away in `ordered` (positive =
-    /// forward), clamped: nil at either end or when `current` is not listed.
-    static func neighbor(of current: CommandBarView, step: Int, in ordered: [CommandBarView]) -> CommandBarView? {
-        guard let index = ordered.firstIndex(of: current) else { return nil }
-        let target = index + step
-        guard ordered.indices.contains(target), target != index else { return nil }
-        return ordered[target]
+    static func ordered(customViews: [CustomView]) -> [Self] {
+        ordered(builtins: FastTabBuiltinPage.allCases, customIDs: customViews.map(\.id))
     }
 }
 

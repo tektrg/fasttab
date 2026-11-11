@@ -1,4 +1,5 @@
 import Foundation
+import CommandBarKit
 
 struct ViewSwitchFlickDetector {
     static let threshold: CGFloat = 60.0

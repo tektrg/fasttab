@@ -110,10 +110,10 @@ extension ContentView {
 
                     ZStack {
                         switch viewStore.activeView {
-                        case .recents:
+                        case .builtin(.recents):
                             modeResultsList(for: .recents, showWindowName: showWindowName, showProfileName: showProfileName)
                                 .transition(modeSlideTransition)
-                        case .stack:
+                        case .builtin(.stack):
                             stackResultsList(showWindowName: showWindowName, showProfileName: showProfileName)
                                 .transition(modeSlideTransition)
                         case .custom(let id):
@@ -239,9 +239,9 @@ extension ContentView {
     private func modeEmptyState(for view: CommandBarView) -> some View {
         let (title, subtitle, icon): (String, String, String) = {
             switch view {
-            case .recents:
+            case .builtin(.recents):
                 return ("No tabs found", SearchSource.recentsEmptyHint(enabled: SourceSelectionStore.shared.launchSnapshot), "rectangle.stack.badge.magnifyingglass")
-            case .stack:
+            case .builtin(.stack):
                 return ("Stack is empty", "Pin a tab to keep it here, or send a link from your iPhone.", "square.stack")
             case .custom, .newView:
                 // Custom pages have their own empty states (ContentView+CustomViews).

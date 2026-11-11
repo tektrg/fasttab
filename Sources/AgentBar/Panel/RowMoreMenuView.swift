@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 /// The row's "⋯" overflow menu — first of its kind in AgentBar (2026-09-22); a future control
 /// that needs somewhere to put secondary/housekeeping actions should follow this same shape
@@ -53,7 +54,8 @@ struct RowMoreMenuView: View, Equatable {
     nonisolated static func == (lhs: RowMoreMenuView, rhs: RowMoreMenuView) -> Bool { lhs.menuContent == rhs.menuContent }
 
     var body: some View {
-        Menu {
+        // The shared ⋯ trigger (IndieCommandBar); the items stay Agent Bar's own.
+        RowActionMoreMenu(isHighlighted: isHighlighted, font: .avenir(size: 11)) {
             ForEach(items, id: \.button.title) { spec in
                 if spec.button == .reportTo {
                     reportToSubmenu
@@ -63,19 +65,7 @@ struct RowMoreMenuView: View, Equatable {
                         .help(spec.disabledReason ?? spec.hint ?? "")   // same "why" tooltip a disabled capsule gives via RowActionButtonView
                 }
             }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.avenir(size: 11))   // matches CopyIdentityButton's icon exactly (regular weight)
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 18)
-                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .overlay(Circle().strokeBorder(isHighlighted ? Color.accentColor : .clear, lineWidth: 1.5))
-        .help("More actions")
-        .accessibilityLabel("More actions")
     }
 
     private var reportToSubmenu: some View {

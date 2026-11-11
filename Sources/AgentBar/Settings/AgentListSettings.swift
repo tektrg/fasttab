@@ -1,4 +1,5 @@
 import Foundation
+import IndieCommandBar
 
 /// The user's choices about what the list shows. Pure value: `load`/`save`
 /// move it in and out of UserDefaults, `applying(to:)` narrows a snapshot's
@@ -44,6 +45,28 @@ struct AgentListSettings: Equatable, Sendable {
     /// Defaults 3 / 7 days: PO call 2026-09-27.
     var sleepingListDays: Int = 3
     var sleepingSearchDays: Int = 7
+    /// Where the panel sits. Agent Bar's own copy of the shared appearance choice (default bottom-right).
+    var placement: CommandBarPlacement = .bottomRight
+    /// True (default): the panel is only as tall as its rows, up to `maxVisibleRows`. False: always that tall.
+    var fitsContent: Bool = true
+
+    /// Agent Bar's appearance keys. Rows-before-scrolling keeps its older key.
+    static let appearanceKeys: CommandBarAppearanceKeys = {
+        var keys = CommandBarAppearanceKeys(prefix: "AgentBar")
+        keys.rowLimit = maxVisibleRowsKey
+        return keys
+    }()
+
+    /// The shared appearance model's view of these settings (what the shared settings section edits).
+    /// Agent Bar draws neither a background toggle nor Minimal rows yet, so those stay at their defaults.
+    var appearance: CommandBarAppearanceSettings {
+        get { CommandBarAppearanceSettings(rowLimit: maxVisibleRows, placement: placement, fitsContent: fitsContent) }
+        set {
+            maxVisibleRows = newValue.rowLimit
+            placement = newValue.placement
+            fitsContent = newValue.fitsContent
+        }
+    }
 
     var endedWindowSeconds: TimeInterval { TimeInterval(endedWindowHours) * 3_600 }
 
@@ -54,14 +77,19 @@ struct AgentListSettings: Equatable, Sendable {
 
     static func load(from defaults: UserDefaults) -> AgentListSettings {
         let standard = Self.standard
+        let appearance = CommandBarAppearanceSettings.load(
+            from: defaults, keys: appearanceKeys, fallback: standard.appearance, rowLimitRange: maxVisibleRowsRange
+        )
         return AgentListSettings(
             endedWindowHours: choice(defaults, endedWindowHoursKey, in: endedWindowHoursChoices, fallback: standard.endedWindowHours),
             maxEndedRows: choice(defaults, maxEndedRowsKey, in: maxEndedRowsChoices, fallback: standard.maxEndedRows),
             showsNonClaudePanes: defaults.object(forKey: showsNonClaudePanesKey) as? Bool ?? standard.showsNonClaudePanes,
             showsClaudeOutsideHerdr: defaults.object(forKey: showsClaudeOutsideHerdrKey) as? Bool ?? standard.showsClaudeOutsideHerdr,
-            maxVisibleRows: choice(defaults, maxVisibleRowsKey, in: Array(maxVisibleRowsRange), fallback: standard.maxVisibleRows),
+            maxVisibleRows: appearance.rowLimit,
             sleepingListDays: choice(defaults, sleepingListDaysKey, in: sleepingListDaysChoices, fallback: standard.sleepingListDays),
-            sleepingSearchDays: choice(defaults, sleepingSearchDaysKey, in: sleepingSearchDaysChoices, fallback: standard.sleepingSearchDays)
+            sleepingSearchDays: choice(defaults, sleepingSearchDaysKey, in: sleepingSearchDaysChoices, fallback: standard.sleepingSearchDays),
+            placement: appearance.placement,
+            fitsContent: appearance.fitsContent
         )
     }
 
@@ -73,6 +101,8 @@ struct AgentListSettings: Equatable, Sendable {
         defaults.set(maxVisibleRows, forKey: Self.maxVisibleRowsKey)
         defaults.set(sleepingListDays, forKey: Self.sleepingListDaysKey)
         defaults.set(sleepingSearchDays, forKey: Self.sleepingSearchDaysKey)
+        defaults.set(placement.rawValue, forKey: Self.appearanceKeys.placement)
+        defaults.set(fitsContent, forKey: Self.appearanceKeys.fitsContent)
     }
 
     /// The agents that pass these settings, order kept. Ended rows arrive newest

@@ -192,11 +192,23 @@ private struct SearchAliasBadge: View {
     }
 }
 
-/// Shared appearance preference keys for the command bar.
+/// Fast Tab's appearance preference keys. The first three are Fast Tab's copy of the shared
+/// appearance model (IndieCommandBar `CommandBarAppearanceSettings`, keys `.fastTab`, names unchanged).
 enum CommandBarAppearance {
-    static let outerPanelKey = "FastTab.appearance.outerGlassPanel"
-    static let resultRowStyleKey = "FastTab.appearance.resultRowStyle"
-    static let quickOpenItemLimitKey = "FastTab.appearance.quickOpenItemLimit"
+    static let keys = CommandBarAppearanceKeys.fastTab
+    static let outerPanelKey = keys.background
+    static let resultRowStyleKey = keys.rowStyle
+    static let quickOpenItemLimitKey = keys.rowLimit
+    /// Fast Tab's defaults: background on, Minimal rows, 5 quick-open items. Position comes from
+    /// the hover-to-open edge (General), so Fast Tab does not offer the shared Position/Size pickers.
+    static let standard = CommandBarAppearanceSettings(background: true, rowStyle: .minimal, rowLimit: 5)
+
+    static func load(from defaults: UserDefaults = .standard) -> CommandBarAppearanceSettings {
+        CommandBarAppearanceSettings.load(
+            from: defaults, keys: keys, fallback: standard,
+            rowLimitRange: CommandBarLayout.minQuickOpenItemLimit...CommandBarLayout.maxQuickOpenItemLimit
+        )
+    }
     static let menuBarIconVisibleKey = "FastTab.appearance.showMenuBarIcon"
     static let helperPanelVisibleKey = "FastTab.appearance.showHelperPanel"
     static let guideBarVisibleKey = "FastTab.appearance.showGuideBar"

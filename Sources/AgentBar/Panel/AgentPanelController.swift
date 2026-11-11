@@ -171,10 +171,11 @@ final class AgentPanelController {
             for: presentation, maxListHeight: maxListHeight, isPeeking: isPeeking,
             isAnswering: isAnswering || model.pages.editor != nil,
             isComposing: isComposing, searchFieldLineCount: searchFieldLineCount, showsRoutingRow: showsRoutingRow,
-            showsPageStrip: !isComposing && model.showsPageStrip
+            showsPageStrip: !isComposing && model.showsPageStrip,
+            fitsContent: listSettings.fitsContent
         )
         let size = CGSize(width: AgentPanelMetrics.width, height: height)
-        panel.setFrame(AgentPanelPlacement.frame(size: size, in: placementFrame), display: panel.isVisible, animate: false)
+        panel.setFrame(AgentPanelPlacement.frame(size: size, in: placementFrame, placement: listSettings.placement), display: panel.isVisible, animate: false)
     }
 
     private func startOutsideClickMonitor() {

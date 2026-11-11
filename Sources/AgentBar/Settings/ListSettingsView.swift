@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// "List" tab: what the panel lists and how tall it may grow. Applies live.
+/// "List" tab: what the panel lists. Panel size and position are in Appearance. Applies live.
 struct ListSettingsView: View {
     @ObservedObject var settings: AgentBarSettings
 
@@ -53,18 +53,6 @@ struct ListSettingsView: View {
                     .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Section("Panel size") {
-                Stepper(value: binding(\.maxVisibleRows), in: AgentListSettings.maxVisibleRowsRange) {
-                    HStack {
-                        Text("Rows before scrolling")
-                        Spacer()
-                        Text("\(settings.list.maxVisibleRows)")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                }
             }
         }
         .formStyle(.grouped)

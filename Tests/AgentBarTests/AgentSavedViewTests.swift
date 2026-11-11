@@ -228,4 +228,48 @@ struct AgentSavedViewTests {
         let p = AgentListPresentation(state: .noAgents, rows: [], showsBoardNote: false)
         #expect(AgentPanelMetrics.height(for: p, showsPageStrip: true) - AgentPanelMetrics.height(for: p) == AgentPanelMetrics.pageStripHeight)
     }
+    // MARK: Zero views: no strip
+
+    @Test func stripAndPageKeysOnlyOnceAViewExists() {
+        let pages = AgentPagesModel(store: AgentSavedViewStore(defaults: defaults()))
+        let model = AgentPanelModel(store: FrecencyStore(defaults: defaults()), pages: pages, now: { F.now })
+        model.receive(snapshot)
+        #expect(!model.showsPageStrip)
+        #expect(!model.canSwitchPages)
+        #expect(!pages.selectNumbered(1))
+        #expect(!pages.step(1))
+        #expect(pages.activePage == .builtin(.all))
+        let a = AgentSavedView(name: "A")
+        pages.store.add(a)
+        #expect(model.showsPageStrip && model.canSwitchPages)
+        pages.select(.custom(a.id))
+        pages.deleteView(id: a.id)
+        #expect(!model.showsPageStrip && pages.activePage == .builtin(.all))
+    }
+
+    @Test func viewCommandOpensTheEditorWithoutAStrip() throws {
+        let pages = AgentPagesModel(store: AgentSavedViewStore(defaults: defaults()))
+        let model = AgentPanelModel(store: FrecencyStore(defaults: defaults()), pages: pages, now: { F.now })
+        model.receive(snapshot)
+        #expect(AgentPagesModel.isNewViewCommand("  /VIEW "))
+        #expect(!AgentPagesModel.isNewViewCommand("/views"))
+        model.query = "/view"
+        model.activateSelected()
+        #expect(pages.editor?.isNew == true)
+        #expect(model.query.isEmpty)
+        #expect(!model.showsPageStrip)
+        pages.editor?.draft.name = "First"
+        #expect(pages.saveEditor())
+        #expect(model.showsPageStrip)
+        let first = try #require(pages.store.views.first)
+        #expect(pages.activePage == .custom(first.id))
+    }
+
+    @Test func zeroViewHeightMatchesMain() {
+        let pages = AgentPagesModel(store: AgentSavedViewStore(defaults: defaults()))
+        let model = AgentPanelModel(store: FrecencyStore(defaults: defaults()), pages: pages, now: { F.now })
+        model.receive(snapshot)
+        let withStripFlag = AgentPanelMetrics.height(for: model.presentation, showsPageStrip: model.showsPageStrip)
+        #expect(withStripFlag == AgentPanelMetrics.height(for: model.presentation))
+    }
 }

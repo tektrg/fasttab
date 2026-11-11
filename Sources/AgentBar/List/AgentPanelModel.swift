@@ -153,7 +153,7 @@ final class AgentPanelModel: ObservableObject {
     /// `/new` enters New worker mode instead, same as a plain Return.
     func startRouting() {
         guard !isCardOpen, routingState == nil, taggedAgentID == nil, newWorker == nil else { return }
-        if enterNewWorkerIfCommand() { return }   // `/new` is a command, never a message for Jev
+        if enterNewWorkerIfCommand() || beginNewViewIfCommand() { return }   // commands, never a message for Jev
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard let apiKey = routingAPIKeyStore?.get(), !apiKey.isEmpty else {
@@ -1069,7 +1069,7 @@ final class AgentPanelModel: ObservableObject {
             message.pressSend()
             return
         }
-        if handleNewWorkerReturn() || enterNewWorkerIfCommand() { return }
+        if handleNewWorkerReturn() || enterNewWorkerIfCommand() || beginNewViewIfCommand() { return }
         if sendToTaggedIfPending() { return }
         guard let selectedAgentID else { return }
         if let highlightedButton {

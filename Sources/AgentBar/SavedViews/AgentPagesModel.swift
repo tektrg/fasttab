@@ -40,6 +40,18 @@ final class AgentPagesModel: ObservableObject {
 
     static let builtins: [AgentBuiltinPage] = [.all]
 
+    /// Typed in the search box + Return: opens the editor for a new view. With no saved views yet
+    /// this is how the first one is made (the strip, and its "+ New view" tab, only shows once one exists).
+    static let newViewCommand = "/view"
+
+    /// `/view` (any case, surrounding spaces ignored).
+    static func isNewViewCommand(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == newViewCommand
+    }
+
+    /// The strip and page switching (⌘1…⌘9, swipe) exist only once a view is saved.
+    var hasSavedViews: Bool { !store.views.isEmpty }
+
     /// Swipe order: All, saved views, New view.
     var orderedPages: [AgentPage] {
         AgentPage.ordered(builtins: Self.builtins, customIDs: store.views.map(\.id))
@@ -75,7 +87,7 @@ final class AgentPagesModel: ObservableObject {
     /// ⌘1…⌘9: the Nth page (New view excluded). False when there is no such page.
     @discardableResult
     func selectNumbered(_ number: Int) -> Bool {
-        guard let target = AgentPage.numberedShortcutTarget(number, in: orderedPages) else { return false }
+        guard hasSavedViews, let target = AgentPage.numberedShortcutTarget(number, in: orderedPages) else { return false }
         select(target)
         return true
     }
@@ -83,7 +95,7 @@ final class AgentPagesModel: ObservableObject {
     /// One page forward (positive) or back, clamped at both ends. False at an end.
     @discardableResult
     func step(_ step: Int) -> Bool {
-        guard let target = AgentPage.neighbor(of: activePage, step: step, in: orderedPages) else { return false }
+        guard hasSavedViews, let target = AgentPage.neighbor(of: activePage, step: step, in: orderedPages) else { return false }
         select(target)
         return true
     }

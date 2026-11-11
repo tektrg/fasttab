@@ -198,8 +198,12 @@ struct AgentRowView: View {
         return base.map { $0.button == .moreActions ? activeMenuItemSpec : $0 }
     }
 
+    /// Drawn inline (no backing, no fade) through the shared row-button overlay.
     private var buttonStrip: some View {
-        HStack(spacing: 6) {
+        RowActionOverlay(
+            isSelected: isSelected, isHovering: false, leadingFadeWidth: 0, trailingPadding: 0,
+            spacing: 6, showsBackground: false
+        ) {
             ForEach(visibleButtons, id: \.button.title) { spec in
                 if spec.button == .moreActions {
                     RowMoreMenuView(

@@ -20,12 +20,26 @@ enum AgentPanelKeys {
         case pickOption(Int)
         /// Any other character while a card is open is dropped.
         case dropStray
+        /// A card's text box is typing but the search box got the key: it belongs in that text.
+        case typeIntoCardText(String)
     }
 
     /// While a card is open the box types nothing: digits pick, ⌘C copies, other characters drop.
     /// Navigation keys (arrows, space, return, escape, tab) keep their own handlers.
-    static func cardKey(characters: String, modifiers: EventModifiers, isNavigationKey: Bool, isCardOpen: Bool) -> CardKey {
+    /// `cardTextHasKeyboard`: a card's text box (the answer card's free-text option) is typing. Then every
+    /// printable key, digits and Space included, is text; Return, Esc and arrows keep their handlers.
+    static func cardKey(
+        characters: String, modifiers: EventModifiers, isNavigationKey: Bool, isCardOpen: Bool,
+        cardTextHasKeyboard: Bool = false
+    ) -> CardKey {
         guard isCardOpen else { return .ignored }
+        if cardTextHasKeyboard {
+            guard modifiers.subtracting(.shift).isEmpty, !characters.isEmpty,
+                  !isNavigationKey || characters == " ",
+                  characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
+            else { return .ignored }
+            return .typeIntoCardText(characters)
+        }
         if modifiers == .command, characters == "c" { return .copyIdentity }
         guard modifiers.subtracting(.shift).isEmpty, !isNavigationKey else { return .ignored }
         if let number = Int(characters), (1...9).contains(number) { return .pickOption(number) }

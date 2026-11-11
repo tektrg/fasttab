@@ -170,9 +170,11 @@ struct SearchFieldView: View {
         let navigation: Set<KeyEquivalent> = [.upArrow, .downArrow, .leftArrow, .rightArrow, .space, .return, .escape, .tab]
         switch AgentPanelKeys.cardKey(
             characters: press.characters, modifiers: press.modifiers,
-            isNavigationKey: navigation.contains(press.key), isCardOpen: model.isCardOpen
+            isNavigationKey: navigation.contains(press.key), isCardOpen: model.isCardOpen,
+            cardTextHasKeyboard: model.cardTextHasKeyboard
         ) {
         case .ignored: return .ignored
+        case .typeIntoCardText(let text): model.typeIntoCardText(text); return .handled
         // ⌘C copies the agent's details. This handler only runs while the search box has the
         // keyboard, so a text field or a selection elsewhere in the card keeps its own copy.
         case .copyIdentity: return model.copyOpenCardIdentity() ? .handled : .ignored
@@ -231,6 +233,7 @@ struct SearchFieldView: View {
             }
             .onKeyPress(keys: [.space], phases: .down) { press in
                 guard press.modifiers.isEmpty else { return .ignored }
+                if model.cardTextHasKeyboard { model.typeIntoCardText(" "); return .handled }   // a space, not a peek
                 return model.togglePeek() ? .handled : .ignored
             }
             .onKeyPress(phases: .down) { press in answerCardKeyPress(press) }
@@ -257,6 +260,10 @@ struct SearchFieldView: View {
             }
             .onChange(of: model.newWorker != nil) { _, isOn in
                 if isOn { NotificationCenter.default.post(name: Self.didReceiveClickNotification, object: nil) }
+            }
+            // The card's text box has the keyboard: stop claiming it, or every re-render hands it back here.
+            .onChange(of: model.cardTextHasKeyboard) { _, typing in
+                if typing { isFocused = false }
             }
             .onChange(of: model.focusRequest) {
                 // The answer card's text view may have taken the keyboard without SwiftUI knowing,

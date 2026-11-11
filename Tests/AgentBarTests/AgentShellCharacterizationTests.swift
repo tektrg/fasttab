@@ -43,6 +43,22 @@ struct AgentShellCharacterizationTests {
         #expect(key("c", .command, open: false) == .ignored)
     }
 
+    /// Bug 2026-11-11: typing in the answer card's free-text option lost letters, digits and Space
+    /// whenever the search box got the keyboard back. While a card text box is typing, every
+    /// printable key goes to that text; only Return / Esc / arrows keep their own handlers.
+    @Test func whileTypingInACardEveryPrintableKeyGoesToTheCardText() {
+        func key(_ c: String, _ m: EventModifiers = [], nav: Bool = false) -> AgentPanelKeys.CardKey {
+            AgentPanelKeys.cardKey(characters: c, modifiers: m, isNavigationKey: nav, isCardOpen: true, cardTextHasKeyboard: true)
+        }
+        for c in ["a", "Z", "1", "4", "9", "0", "?", "é"] {
+            #expect(key(c) == .typeIntoCardText(c), "\(c)")
+        }
+        #expect(key("A", .shift) == .typeIntoCardText("A"))
+        #expect(key(" ", nav: true) == .typeIntoCardText(" "))   // Space types a space, never peeks
+        #expect(key("\r", nav: true) == .ignored)                // Return keeps its own handler (send)
+        #expect(key("c", .command) == .ignored)                   // the text box's own copy
+    }
+
     @Test func escapePeelsNoticeThenButtonsThenPeekThenCloses() {
         #expect(AgentPanelKeys.escape(dismissNotice: { true }, backOutOfButtons: { true }, hasPeek: true) == .dismissedNotice)
         #expect(AgentPanelKeys.escape(dismissNotice: { false }, backOutOfButtons: { true }, hasPeek: true) == .backedOutOfButtons)

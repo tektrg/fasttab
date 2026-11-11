@@ -1,6 +1,8 @@
 import SwiftUI
+import IndieCommandBar
 
-/// One small button on an agent row (Answer, Open terminal, Done, Park, Unpark, Close pane).
+/// One small button on an agent row (Answer, Open terminal, Done, Park, Unpark, Close pane), drawn by
+/// the shared `RowActionCapsuleButton` (IndieCommandBar) with its confirm and busy states.
 /// A blocked agent's Answer / Open terminal is red: the one thing waiting on you.
 /// Highlighted = the keyboard is on it; confirming = the second press is armed.
 struct RowActionButtonView: View {
@@ -10,46 +12,36 @@ struct RowActionButtonView: View {
     let onPress: () -> Void
 
     var body: some View {
-        Button(action: onPress) {
-            Text(state == nil ? spec.label : RowActionText.title(of: spec.button, state: state))
-                .font(.avenir(size: 11, weight: .medium))
-                .lineLimit(1)
-                .fixedSize()   // a label never wraps ("Answe / r"): the row makes room, the title gives way
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
-                .foregroundStyle(foreground)
-                .background(Capsule().fill(fill))
-                .overlay(Capsule().strokeBorder(isHighlighted ? Color.accentColor : .clear, lineWidth: 1.5))
-        }
-        .buttonStyle(.plain)
-        .disabled(!isPressable)
-        .opacity(spec.isEnabled ? 1 : 0.4)
-        .help(spec.disabledReason ?? spec.hint ?? "")
-        .accessibilityLabel(spec.button.title)
+        RowActionCapsuleButton(
+            titles: Self.titles(for: spec),
+            phase: Self.phase(of: spec.button, state: state),
+            isAlert: spec.isBlockedAction,
+            isHighlighted: isHighlighted,
+            isEnabled: spec.isEnabled,
+            help: spec.disabledReason ?? spec.hint ?? "",
+            font: .avenir(size: 11, weight: .medium),
+            action: onPress
+        )
     }
 
-    private var isConfirming: Bool {
-        if case .confirming(let button, _)? = state { return button == spec.button }
-        return false
-    }
-
-    /// A press is ignored while that button's request is in flight or done.
-    private var isPressable: Bool {
-        guard spec.isEnabled else { return false }
+    /// The shared phase for `button`: only the button the row's action is about leaves idle.
+    nonisolated static func phase(of button: RowButton, state: RowActionState?) -> RowActionButtonPhase {
+        guard let state, state.button == button else { return .idle }
         switch state {
-        case .busy(let button)?, .completed(let button)?: return button != spec.button
-        case .confirming?, nil: return true
+        case .busy: return .busy
+        case .confirming: return .confirming
+        case .completed: return .done
         }
     }
 
-    private var fill: Color {
-        if isConfirming { return Color.red.opacity(0.85) }
-        if spec.isBlockedAction { return Color.red.opacity(isHighlighted ? 0.26 : 0.16) }
-        return Color.primary.opacity(isHighlighted ? 0.18 : 0.10)
-    }
-
-    private var foreground: Color {
-        if isConfirming { return .white }
-        return spec.isBlockedAction ? Color.red : .primary
+    /// The words per phase: the button's label idle, else Agent Bar's own ("Confirm", "Stopping…", "Closed").
+    nonisolated static func titles(for spec: RowButtonSpec) -> RowActionButtonTitles {
+        let button = spec.button
+        return RowActionButtonTitles(
+            idle: spec.label,
+            confirming: RowActionText.title(of: button, state: .confirming(button, reason: "")),
+            busy: RowActionText.title(of: button, state: .busy(button)),
+            done: RowActionText.title(of: button, state: .completed(button))
+        )
     }
 }

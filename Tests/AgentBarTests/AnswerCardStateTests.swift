@@ -107,6 +107,20 @@ struct AnswerCardStateTests {
         #expect(state.handle(.escape) == .close)
     }
 
+    @Test func typedLettersDigitsAndSpacesLandInTheFreeText() {
+        var state = single()
+        _ = state.handle(.digit(3))
+        for chunk in ["d", "d", " ", "4", "2", " ", "ok"] { state.type(chunk) }
+        #expect(state.otherText == "dd 42 ok")
+        #expect(state.phase == .typingOther)
+    }
+
+    @Test func typingOutsideTheFreeTextChangesNothing() {
+        var state = single()
+        state.type("x")
+        #expect(state.otherText.isEmpty)
+    }
+
     @Test func digitsAndArrowsBelongToTheTextFieldWhileTyping() {
         var state = single()
         _ = state.handle(.digit(3))

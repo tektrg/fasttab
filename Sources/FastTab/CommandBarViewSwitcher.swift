@@ -31,16 +31,12 @@ extension CommandBarViewTab {
     }
 }
 
-/// Context menu of a header tab: Edit / Delete on custom views only.
+/// Context menu of a header tab: Edit / Delete on custom views only (shared `CommandBarSavedViewMenu`).
 enum FastTabViewMenu {
-    static let editID = "view.edit"
-    static let deleteID = "view.delete"
+    static let editID = CommandBarSavedViewMenu.editID
+    static let deleteID = CommandBarSavedViewMenu.deleteID
 
     static func actions(for tab: CommandBarViewTab) -> [CommandBarRowAction] {
-        guard tab.isEditable else { return [] }
-        return [
-            CommandBarRowAction(id: editID, title: "Edit View…", symbol: "pencil"),
-            CommandBarRowAction(id: deleteID, title: "Delete View…", symbol: "trash", role: .destructive),
-        ]
+        CommandBarSavedViewMenu.actions(for: tab)
     }
 }

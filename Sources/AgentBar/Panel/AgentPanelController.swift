@@ -17,7 +17,7 @@ final class AgentPanelController {
     private var sizeSubscription: AnyCancellable?
     private var pagesSubscription: AnyCancellable?
     private var scrollMonitor: Any?
-    private var flick = AgentPageFlickDetector()
+    private var flick = CommandBarViewFlick()
     private let activation: TextInputActivation
     private var focusObservers: [NSObjectProtocol] = []
 
@@ -100,21 +100,23 @@ final class AgentPanelController {
         )
     }
 
-    /// A horizontal two-finger swipe over the panel steps one page (`AgentPageFlickDetector`).
+    /// A horizontal two-finger swipe over the panel steps one page (shared `CommandBarViewFlick`).
     private func startScrollMonitor() {
         guard scrollMonitor == nil else { return }
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             guard let self, event.window === self.panel else { return event }
             let isEnded = event.phase.contains(.ended) || event.phase.contains(.cancelled)
             guard self.model.canSwitchPages else {
-                self.flick = AgentPageFlickDetector()
+                self.flick.reset()
                 return event
             }
-            if let step = self.flick.handleScroll(
+            let pages = self.model.pages
+            if let target = self.flick.handleScroll(
                 deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY,
-                isEnded: isEnded, isMomentum: event.momentumPhase != []
+                isEnded: isEnded, isMomentum: event.momentumPhase != [],
+                current: pages.activePage, ordered: pages.orderedPages
             ) {
-                self.model.pages.step(step)
+                pages.select(target)
                 return nil
             }
             return event

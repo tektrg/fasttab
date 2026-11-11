@@ -128,6 +128,12 @@ struct AnswerCardState: Equatable, Sendable {
         return .none
     }
 
+    /// Text typed while the free-text option is open (keys that reached the panel instead of the box).
+    mutating func type(_ text: String) {
+        guard phase == .typingOther else { return }
+        otherText += text
+    }
+
     private mutating func handleWhileTyping(_ key: Key) -> Effect {
         switch key {
         case .escape:

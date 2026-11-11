@@ -183,7 +183,7 @@ struct PermissionCardView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill(isHighlighted ? Color.accentColor.opacity(0.22) : .clear))
+        .background(RoundedRectangle(cornerRadius: 8).fill(isHighlighted ? AnswerOptionRowView.selectionFill : .clear))
         .contentShape(Rectangle())
         .onTapGesture { permission.clickChoice(choice) }
     }

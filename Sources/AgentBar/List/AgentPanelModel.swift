@@ -1491,6 +1491,14 @@ final class AgentPanelModel: ObservableObject {
         else if permission.isOpen { permission.handle(.digit(number)) }
     }
 
+    /// The answer card's free-text option is typing: its text box owns every printable key.
+    var cardTextHasKeyboard: Bool { answer.card?.state.phase == .typingOther }
+
+    /// A printable key that reached the search box while the card's text box is typing.
+    func typeIntoCardText(_ text: String) {
+        answer.card?.state.type(text)
+    }
+
     /// Any other character typed while a card is open: dropped (it still cancels a pending "Allow always").
     func handleCardStrayKey() {
         if permission.isOpen { permission.handle(.other) }

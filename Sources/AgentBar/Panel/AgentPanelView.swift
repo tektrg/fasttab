@@ -227,9 +227,8 @@ struct AgentPanelView: View {
 
 /// Agent Bar's only look settings on the shared shell: its accent colour and app icon.
 enum AgentBarTheme {
-    @MainActor static var current: CommandBarTheme {
-        CommandBarTheme(accentColor: .accentColor, appIcon: NSApp.applicationIconImage)
-    }
+    /// Built once: a fresh value on every render changed the environment each time.
+    @MainActor static let current = CommandBarTheme(accentColor: .accentColor, appIcon: NSApp.applicationIconImage)
 }
 
 /// The shared "copied" toast at the top of the panel while a ⌘C / copy button's feedback lasts.

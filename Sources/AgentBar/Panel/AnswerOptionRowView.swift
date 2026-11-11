@@ -65,7 +65,8 @@ struct AnswerOptionRowView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(isHighlighted ? Color.accentColor.opacity(0.22) : .clear))
+        // A neutral selection inside cards: an accent tint behind the text read poorly with warm accents.
+        .background(RoundedRectangle(cornerRadius: 8).fill(isHighlighted ? Self.selectionFill : .clear))
         .contentShape(Rectangle())
     }
 
@@ -94,6 +95,10 @@ struct AnswerOptionRowView: View {
                 }
             }
     }
+
+    /// The selected option's backing: the label colour at low opacity, so it keeps contrast in light
+    /// and dark whatever the accent is.
+    static let selectionFill = Color.primary.opacity(0.10)
 
     /// About three lines; longer text scrolls inside.
     static let textHeight: CGFloat = 52

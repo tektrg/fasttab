@@ -100,7 +100,7 @@ struct PlanCardView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(plan.highlightedIndex == option.index ? Color.accentColor.opacity(0.22) : .clear))
+        .background(RoundedRectangle(cornerRadius: 8).fill(plan.highlightedIndex == option.index ? AnswerOptionRowView.selectionFill : .clear))
         .contentShape(Rectangle())
         .onTapGesture { permission.clickPlanOption(index: option.index) }
     }

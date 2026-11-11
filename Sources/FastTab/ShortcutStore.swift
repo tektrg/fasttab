@@ -1,6 +1,6 @@
 import AppKit
 import Combine
-import CommandBarKit
+import IndieCommandBar
 
 @MainActor
 class ShortcutStore: ObservableObject {

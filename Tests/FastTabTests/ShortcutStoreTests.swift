@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 @testable import FastTab
 
 struct ShortcutStoreTests {

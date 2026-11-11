@@ -1,5 +1,5 @@
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 import IndieMotion
 import Testing
 @testable import FastTab

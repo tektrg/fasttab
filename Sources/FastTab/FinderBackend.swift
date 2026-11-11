@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 import OSLog
-import CommandBarKit
+import IndieCommandBar
 import IndieSearch
 
 /// Treats macOS Finder as a "browser" so its open windows surface in FastTab

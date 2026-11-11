@@ -1,43 +1,35 @@
 import SwiftUI
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
 extension ContentView {
     func clearKeyboardSwipe() {
-        keyboardSwipeResultID = nil
-        keyboardSwipeAction = nil
+        keyboardSwipe.clear()
     }
 
     func resetPointerSwipe(animated: Bool) {
-        let update = {
-            pointerSwipeResultID = nil
-            pointerSwipeOffset = 0
-            pointerSwipeAction = nil
-            didConfirmPointerSwipe = false
-            isPointerSwipeGestureActive = false
-        }
-
         if animated {
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.88), update)
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) { pointerSwipe.reset() }
         } else {
-            update()
+            pointerSwipe.reset()
         }
     }
 
     func clearPointerSwipeSuppression() {
         pointerSwipeSuppressionTask?.cancel()
         pointerSwipeSuppressionTask = nil
-        suppressPointerSwipeUntilGestureEnds = false
+        pointerSwipe.liftSuppression()
     }
 
-    private func suppressPointerSwipeUntilCurrentGestureEnds() {
-        suppressPointerSwipeUntilGestureEnds = true
+    /// The shared engine suppresses the rest of a confirmed gesture; this lifts
+    /// it after 450 ms in case the gesture's end event never arrives.
+    private func startPointerSwipeSuppressionTimer() {
         pointerSwipeSuppressionTask?.cancel()
         pointerSwipeSuppressionTask = Task {
             try? await Task.sleep(for: .milliseconds(450))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                suppressPointerSwipeUntilGestureEnds = false
+                pointerSwipe.liftSuppression()
                 pointerSwipeSuppressionTask = nil
             }
         }
@@ -49,135 +41,71 @@ extension ContentView {
         let ended = event.phase.contains(.ended) || event.momentumPhase.contains(.ended)
         let cancelled = event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled)
 
-        let canSwipeRow = RowSwipeGestureStore.shared.isEnabled && (hoveredResultID != nil || pointerSwipeResultID != nil)
-
-        if !canSwipeRow {
-            let isMomentum = !event.momentumPhase.isEmpty
-            let deltaX = normalizedHorizontalScrollDelta(from: event)
-            let deltaY = CGFloat(event.scrollingDeltaY)
-            let wasSuppressed = flickDetector.isSuppressed
-
-            if event.phase.contains(.began) {
-                flickDetector.reset()
-            }
-
-            // Only end suppression when momentum has finished or touch ended without momentum
-            let gestureEnded = event.momentumPhase.contains(.ended)
-                || (event.phase.contains(.ended) && !flickDetector.isSuppressed)
-            let gestureCancelled = event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled)
-
-            if let nextView = flickDetector.handleScroll(
-                deltaX: deltaX,
-                deltaY: deltaY,
-                isEnded: gestureEnded || gestureCancelled,
-                isMomentum: isMomentum,
-                currentView: viewStore.activeView,
-                orderedViews: viewStore.availableViews
-            ) {
-                viewStore.selectView(nextView)
-                return true
-            }
-            if wasSuppressed || flickDetector.isSuppressed {
-                return true
-            }
-            return false
+        guard pointerSwipe.canTrack(isEnabled: env.isRowSwipeEnabled(), hoveredRowID: hoveredResultID) else {
+            return handleViewFlick(event)
         }
 
-        if suppressPointerSwipeUntilGestureEnds {
-            if ended || cancelled {
-                clearPointerSwipeSuppression()
-            }
-            return true
-        }
-
-        if ended || cancelled {
-            return finishPointerScrollSwipe(cancelled: cancelled)
-        }
-
-        let deltaX = normalizedHorizontalScrollDelta(from: event)
-        let deltaY = CGFloat(event.scrollingDeltaY)
-        let absX = abs(deltaX)
-        let absY = abs(deltaY)
-
-        if pointerSwipeResultID != nil, absX < 3, absY > 3 {
-            resetPointerSwipe(animated: true)
-            return false
-        }
-
-        if pointerSwipeResultID == nil {
-            guard absX > 3, absX > absY * 1.35, let hoveredResultID else { return false }
-            pointerSwipeResultID = hoveredResultID
-            didConfirmPointerSwipe = false
-            isPointerSwipeGestureActive = true
-        }
-
-        guard !didConfirmPointerSwipe else { return true }
-
-        let nextOffset = max(
-            -ResultSwipeMetrics.maximumOffset,
-             min(ResultSwipeMetrics.maximumOffset, pointerSwipeOffset + deltaX)
+        let step = pointerSwipe.track(
+            deltaX: normalizedHorizontalScrollDelta(from: event),
+            deltaY: CGFloat(event.scrollingDeltaY),
+            ended: ended,
+            cancelled: cancelled,
+            hoveredRowID: hoveredResultID
         )
-        pointerSwipeOffset = nextOffset
-
-        guard let nextAction = swipeAction(for: nextOffset) else {
-            pointerSwipeAction = nil
+        switch step {
+        case .passThrough:
+            return false
+        case .consumed:
             return true
-        }
-
-        if abs(nextOffset) >= ResultSwipeMetrics.confirmDistance {
-            didConfirmPointerSwipe = true
-            confirmPointerSwipe(nextAction)
-        } else if abs(nextOffset) >= ResultSwipeMetrics.revealDistance {
-            pointerSwipeAction = nextAction
+        case .revealed:
             if !hasDiscoveredSwipe { hasDiscoveredSwipe = true }
-        }
-
-        return true
-    }
-
-    private func finishPointerScrollSwipe(cancelled: Bool) -> Bool {
-        guard pointerSwipeResultID != nil else { return false }
-        isPointerSwipeGestureActive = false
-        guard !didConfirmPointerSwipe else {
-            resetPointerSwipe(animated: false)
+            return true
+        case .reset(let animated, let consumed):
+            resetPointerSwipe(animated: animated)
+            return consumed
+        case .settle:
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) { pointerSwipe.settle() }
+            return true
+        case .confirm(let rowID, let edge):
+            guard let result = displayedResults.first(where: { $0.id == rowID }) else {
+                pointerSwipe.liftSuppression()
+                resetPointerSwipe(animated: true)
+                return true
+            }
+            startPointerSwipeSuppressionTimer()
+            performSwipeAction(edge, on: result)
+            return true
+        case .suppressionLifted:
+            clearPointerSwipeSuppression()
             return true
         }
-
-        if cancelled || abs(pointerSwipeOffset) < ResultSwipeMetrics.revealDistance {
-            resetPointerSwipe(animated: true)
-            return true
-        }
-
-        let restingAction = swipeAction(for: pointerSwipeOffset)
-        pointerSwipeAction = restingAction
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            pointerSwipeOffset = (restingAction?.sign ?? 0) * ResultSwipeMetrics.revealDistance
-        }
-        return true
     }
 
-    private func confirmPointerSwipe(_ action: ResultSwipeAction) {
-        let results = displayedResults
-        guard let pointerSwipeResultID,
-              let result = results.first(where: { $0.id == pointerSwipeResultID }) else {
-            resetPointerSwipe(animated: true)
-            return
+    /// Horizontal scroll with no row swipe in play flicks between views.
+    private func handleViewFlick(_ event: NSEvent) -> Bool {
+        let result = flickDetector.handleEvent(
+            deltaX: normalizedHorizontalScrollDelta(from: event),
+            deltaY: CGFloat(event.scrollingDeltaY),
+            began: event.phase.contains(.began),
+            touchEnded: event.phase.contains(.ended),
+            momentumEnded: event.momentumPhase.contains(.ended),
+            cancelled: event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled),
+            isMomentum: !event.momentumPhase.isEmpty,
+            currentView: viewStore.activeView,
+            orderedViews: viewStore.availableViews
+        )
+        if let nextView = result.target {
+            viewStore.selectView(nextView)
         }
-
-        switch action {
-        case .delete:
-            suppressPointerSwipeUntilCurrentGestureEnds()
-            performRemove(result)
-        case .copy:
-            suppressPointerSwipeUntilCurrentGestureEnds()
-            performCopyLink(result)
-        }
+        return result.consumed
     }
 
-    private func swipeAction(for offset: CGFloat) -> ResultSwipeAction? {
-        if offset <= -1 { return .delete }
-        if offset >= 1 { return .copy }
-        return nil
+    /// Fast Tab's perform hook for the shared swipe engine.
+    func performSwipeAction(_ edge: CommandBarSwipeEdge, on result: BrowserSearchResult) {
+        switch FastTabSwipeActions.kind(for: edge) {
+        case .remove: performRemove(result)
+        case .copyLink: performCopyLink(result)
+        }
     }
 
     private func normalizedHorizontalScrollDelta(from event: NSEvent) -> CGFloat {
@@ -185,32 +113,26 @@ extension ContentView {
         return -CGFloat(event.scrollingDeltaX) * directionMultiplier
     }
 
-    func handleKeyboardSwipe(_ action: ResultSwipeAction) {
+    func handleKeyboardSwipe(_ edge: CommandBarSwipeEdge) {
         let items = displayedItems
         guard items.indices.contains(appState.selectedIndex),
               let result = items[appState.selectedIndex].result else { return }
 
-        if keyboardSwipeResultID == result.id, keyboardSwipeAction == action {
-            switch action {
-            case .delete:
-                performRemove(result)
-            case .copy:
-                performCopyLink(result)
-            }
+        if case .perform(let edge) = keyboardSwipe.step(for: edge, on: result.id) {
+            performSwipeAction(edge, on: result)
             return
         }
 
         if !hasDiscoveredSwipe { hasDiscoveredSwipe = true }
         withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            keyboardSwipeResultID = result.id
-            keyboardSwipeAction = action
+            keyboardSwipe.reveal(edge, on: result.id)
         }
         isSearchFocused = false
     }
 
     func performCopyLink(_ result: BrowserSearchResult) {
         appState.browserService.copyLinkToClipboard(result)
-        showToastAndDismiss("Link copied")
+        showToastAndDismiss(FastTabSwipeActions.copiedToastText)
     }
 
     /// Choreographed in three overlapping beats: the content keeps sliding

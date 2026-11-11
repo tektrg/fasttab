@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CommandBarKit
+import IndieCommandBar
 @testable import AgentBar
 
 /// The model turns "an agent entered Needs you, as the user sees it" into a corner-tab call.

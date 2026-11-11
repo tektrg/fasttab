@@ -1,5 +1,5 @@
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
 /// The summon shortcut, stored in AgentBar's own UserDefaults domain
 /// (`com.trungluong.AgentBar`). Settings > Shortcuts edits it; it can also be

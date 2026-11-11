@@ -1,5 +1,5 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
 struct LicenseIssueBanner: View {
     let message: String

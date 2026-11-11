@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
 struct BookmarkTreeRow: View {
     let row: BookmarkDisplayRow

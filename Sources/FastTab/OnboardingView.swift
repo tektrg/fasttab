@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 import IndieEdgeReveal
 
 private let onboardingCompletedKey = "onboarding.v1.completed"

@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 import Testing
-import CommandBarKit
+import IndieCommandBar
 @testable import FastTab
 
 /// Slice 3 — the view builder: draft validation + normalization, the filter

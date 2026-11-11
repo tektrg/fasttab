@@ -1,5 +1,5 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
 /// Custom view pages (user-defined views after Stack) and the trailing
 /// "＋ New View" page. Kept out of `ContentView.body`, which sits at the
@@ -47,7 +47,7 @@ extension ContentView {
         let groupBy = customViewStore.view(id: viewID)?.groupBy ?? .none
         // The inline builder replaces the rows while editing this view.
         let semanticStatus = snapshot == nil ? nil : customViewPage.semanticStatus
-        CustomViewEditorSlot(page: .custom(viewID)) {
+        CustomViewEditorSlot(page: .custom(viewID), presenter: env.customViewEditor) {
             VStack(spacing: 0) {
                 // Inside the page's fixed height: the rows below give way.
                 if let semanticStatus, !semanticStatus.message.isEmpty {
@@ -63,31 +63,28 @@ extension ContentView {
                             customViewEmptyState(viewID: viewID)
                         }
                     } else {
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                ForEach(Array(snapshot.sections.enumerated()), id: \.element.id) { sectionIndex, section in
-                                    if !section.title.isEmpty {
-                                        stackSectionHeader(
-                                            title: section.title.uppercased(),
-                                            icon: Self.sectionIcon(groupBy: groupBy, sectionID: section.id)
-                                        )
-                                    }
-                                    let offset = snapshot.sectionOffsets[sectionIndex]
-                                    ForEach(Array(section.items.enumerated()), id: \.element.id) { rowIndex, item in
-                                        let index = offset + rowIndex
-                                        displayItemRow(
-                                            item: .result(item.result),
-                                            index: index,
-                                            isSelected: appState.selectedIndex == index,
-                                            showWindowName: showWindowName,
-                                            showProfileName: showProfileName
-                                        )
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 3)
+                        CommandBarSectionedList(
+                            sections: snapshot.sections.map { section in
+                                CommandBarSection(
+                                    id: section.id,
+                                    title: section.title.isEmpty ? nil : section.title.uppercased(),
+                                    symbol: Self.sectionIcon(groupBy: groupBy, sectionID: section.id),
+                                    rows: section.items
+                                )
+                            },
+                            selectedIndex: appState.selectedIndex,
+                            followsSelection: !isSearchFocused,
+                            followAnimation: Self.selectionFollowAnimation,
+                            scrollToTop: listScrollToTop
+                        ) { item, index in
+                            displayItemRow(
+                                item: .result(item.result),
+                                index: index,
+                                isSelected: appState.selectedIndex == index,
+                                showWindowName: showWindowName,
+                                showProfileName: showProfileName
+                            )
                         }
-                        .background(Color.clear)
                     }
                 } else {
                     // Evaluating (first pass is off the main thread) or waiting
@@ -123,7 +120,7 @@ extension ContentView {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button("Edit View") {
-                CustomViewEditorPresenter.shared.presentEdit(id: viewID)
+                env.customViewEditor.presentEdit(id: viewID)
             }
             .controlSize(.small)
             .padding(.top, 4)
@@ -136,7 +133,7 @@ extension ContentView {
     /// "＋ New View" — the last page: an intro with "Create View", which
     /// (like Return here) opens the inline builder in its place.
     var newViewPage: some View {
-        CustomViewEditorSlot(page: .newView) { newViewIntro }
+        CustomViewEditorSlot(page: .newView, presenter: env.customViewEditor) { newViewIntro }
     }
 
     private var newViewIntro: some View {
@@ -153,7 +150,7 @@ extension ContentView {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Create View") {
-                CustomViewEditorPresenter.shared.presentNew()
+                env.customViewEditor.presentNew()
             }
             .commandBarProminentButtonStyle()
             .controlSize(.small)

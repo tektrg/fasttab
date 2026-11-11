@@ -83,8 +83,12 @@ struct SearchFieldView: View {
                     }
                     .buttonStyle(.plain)
                     .focusable(false)
-                    .help("New worker (/new)")
+                    .help("New worker (/new) · right-click: New view (/view)")
                     .accessibilityLabel("New worker")
+                    .contextMenu {
+                        Button("New worker", action: model.enterNewWorkerMode)
+                        Button("New view", action: model.beginNewView)
+                    }
                 }
             }
             .frame(height: fieldRowHeight)
@@ -261,7 +265,7 @@ struct SearchFieldView: View {
 
 /// The tagged agent, inline in the search bar. Recreates FastTab's search-alias chip
 /// (`SearchAliasBadge` in `CommandBarChrome.swift`) — same capsule, same accent tint, same ✕ —
-/// since AgentBar and FastTab share only `CommandBarKit`, which has no such component to reuse.
+/// since AgentBar and FastTab share only `IndieCommandBar`, which has no such component to reuse.
 private struct TagChipView: View {
     let label: String
     let onRemove: () -> Void

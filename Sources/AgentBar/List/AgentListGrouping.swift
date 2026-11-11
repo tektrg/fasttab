@@ -1,5 +1,5 @@
 import Foundation
-import CommandBarKit
+import IndieCommandBar
 
 /// Nests each status section's rows by the agent hierarchy (`AgentTree`) — the PO's "Nest inside
 /// each section" layout (2026-09-25, superseding the earlier "one group per project" layout from

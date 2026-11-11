@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import FastTab
-import CommandBarKit
+import IndieCommandBar
 
 private func browserAlias(
     keyword: String,

@@ -1,5 +1,5 @@
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 import OSLog
 
 /// Which way a hotkey press moves the selection.

@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import OSLog
 import Combine
-import CommandBarKit
+import IndieCommandBar
 import IndieFeedbackUI
 import IndieEdgeReveal
 
@@ -19,15 +19,25 @@ public enum CommandBarOpenTrigger: Sendable, Equatable {
 
 @MainActor
 class AppState: ObservableObject {
-    @Published var isVisible: Bool = false {
-        didSet {
-            guard isVisible != oldValue else { return }
+    /// The shared bar's open/selection state (IndieCommandBar). `isVisible`
+    /// and `selectedIndex` read and write it; its changes republish here.
+    let commandBar = CommandBarController()
+    private var commandBarForwarding: AnyCancellable?
+
+    var isVisible: Bool {
+        get { commandBar.isOpen }
+        set {
+            guard newValue != commandBar.isOpen else {
+                commandBar.isOpen = newValue
+                return
+            }
+            commandBar.isOpen = newValue
             // The outside-click dismiss monitor is a *global* event monitor: it
             // wakes this process for every mouse-down anywhere on the Mac. Only
             // keep it installed while the bar is actually visible, otherwise a
             // hidden background app burns energy (and fires a publish storm) on
             // every click the user makes in any other app.
-            if isVisible {
+            if newValue {
                 CommandBarPanelController.shared.startOutsideClickMonitoring()
                 CommandBarPanelController.shared.startHoverDismissMonitoring()
             } else {
@@ -55,7 +65,10 @@ class AppState: ObservableObject {
             CommandBarPanelController.shared.evaluateHoverDismiss()
         }
     }
-    @Published var selectedIndex: Int = 0
+    var selectedIndex: Int {
+        get { commandBar.selectedIndex }
+        set { commandBar.selectedIndex = newValue }
+    }
     @Published var isRecordingShortcut: Bool = false
     @Published var wasOpenedByHover: Bool = false
     @Published var wasOpenedByMouse: Bool = false
@@ -85,6 +98,11 @@ class AppState: ObservableObject {
     private var pendingRevealStyle: EdgeRevealStyle?
 
     init() {
+        // Synchronous, like the @Published properties these replaced.
+        commandBarForwarding = commandBar.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+
         browserService.objectWillChange
             .debounce(for: .milliseconds(16), scheduler: RunLoop.main)
             .sink { [weak self] _ in
@@ -655,7 +673,7 @@ private final class CommandBarPanelController: NSObject {
     private var commandPanel: CommandBarPanel {
         if let panel { return panel }
 
-        let rootView = ContentView()
+        let rootView = ContentView(env: .live)
             .environmentObject(AppState.shared)
             .environmentObject(LicenseService.shared)
 

@@ -1,4 +1,5 @@
 import Foundation
+import IndieCommandBar
 import Combine
 
 /// The command bar's inline view builder and its delete confirmation.

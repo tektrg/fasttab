@@ -1,4 +1,4 @@
-import CommandBarKit
+import IndieCommandBar
 import Foundation
 
 /// Browser-specific keying on top of the kit's frecency scoring: entries are

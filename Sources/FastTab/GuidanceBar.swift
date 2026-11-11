@@ -1,27 +1,25 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
-enum LastInteractionKey: Equatable {
-    case none, upDown, space, leftRight
-}
+typealias LastInteractionKey = CommandBarLastInteraction
 
+/// Fast Tab's footer hint line: IndieCommandBar's `CommandBarGuidanceBar`
+/// with Fast Tab's status line (tab count, duplicates tag, or the hovered
+/// row's metadata in Minimal style).
 struct GuidanceBarView: View {
     let hint: GuidanceHint
     let statusText: String?
     var duplicateTabCount: Int = 0
     var onTapDuplicateTag: (() -> Void)? = nil
-    /// Hovered row's underlying result, in Minimal row style only — its
-    /// metadata takes over this status line in place of the tab count while
-    /// hovering, since Minimal rows don't show it inline. Nil otherwise.
+    /// Hovered row's result, Minimal row style only (nil otherwise).
     var hoveredResult: BrowserSearchResult? = nil
     var showWindowName: Bool = false
     var showProfileName: Bool = false
 
     @Environment(\.isCompactCommandBar) private var isCompact
-    @State private var stableHeight: CGFloat = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        CommandBarGuidanceBar(hint: hint) {
             if let hoveredResult {
                 HoveredResultMetadataRow(
                     result: hoveredResult,
@@ -42,48 +40,8 @@ struct GuidanceBarView: View {
                     }
                 }
             }
-
-            if !hint.isEmpty {
-                // Wraps instead of clipping: the half-width edge surface can't
-                // fit every hint token on one row.
-                WrappingHStack(horizontalSpacing: 8, verticalSpacing: 5) {
-                    ForEach(Array(hint.tokens.enumerated()), id: \.offset) { _, token in
-                        HStack(spacing: 3) {
-                            Text(token.glyph)
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 2)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill(.quaternary)
-                                )
-                            Text(token.label)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                }
-                .id(hint)
-                .transition(.opacity)
-            }
         }
-        .animation(.easeInOut(duration: 0.15), value: hint)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Hover swaps the status line and hint tokens, which can change how
-        // many lines the bar wraps to. Hold the tallest height seen so the
-        // results list above never shifts under the cursor.
-        .background(GeometryReader { proxy in
-            Color.clear.preference(key: GuidanceBarHeightKey.self, value: proxy.size.height)
-        })
-        .frame(minHeight: stableHeight, alignment: .top)
-        .onPreferenceChange(GuidanceBarHeightKey.self) { stableHeight = max(stableHeight, $0) }
     }
-}
-
-private struct GuidanceBarHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Hovered row's type icon, recency, window/profile, and URL — the same

@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 import OSLog
-import CommandBarKit
+import IndieCommandBar
 
 struct ChromiumProfile: Sendable {
     let browserAppName: String

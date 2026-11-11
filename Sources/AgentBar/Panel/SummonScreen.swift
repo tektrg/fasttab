@@ -1,5 +1,5 @@
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
 /// The display AgentBar's windows appear on: the one the mouse is on (the main
 /// display when it is on none). Shared by the panel and the corner tab so they

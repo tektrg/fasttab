@@ -1,5 +1,5 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 import IndieEdgeReveal
 
 /// "General" tab of Settings: how the app starts and how it's triggered.

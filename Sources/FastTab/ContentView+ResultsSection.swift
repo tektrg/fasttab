@@ -1,5 +1,5 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
 extension ContentView {
     /// All currently-audible tabs, independent of the active search text — the
@@ -56,7 +56,7 @@ extension ContentView {
     }
 
     @ViewBuilder
-    func resultsSection(proxy: ScrollViewProxy) -> some View {
+    func resultsSection() -> some View {
         let showWindowName = shouldShowWindowName
         let showProfileName = shouldShowProfileName
         let resultsHeight = CommandBarLayout.resultsHeight(for: commandBarAnchor, rowStyle: rowStyle, rowCount: resultsSizingRowCount)
@@ -87,21 +87,21 @@ extension ContentView {
                     if displayedItems.isEmpty {
                         searchEmptyState
                     } else {
-                        ScrollView {
-                            LazyVStack(spacing: 0) {
-                                ForEach(Array(displayedItems.enumerated()), id: \.element.id) { index, item in
-                                    displayItemRow(
-                                        item: item,
-                                        index: index,
-                                        isSelected: appState.selectedIndex == index,
-                                        showWindowName: showWindowName,
-                                        showProfileName: showProfileName
-                                    )
-                                }
-                            }
-                            .padding(.vertical, 3)
+                        CommandBarSectionedList(
+                            sections: [CommandBarSection(id: "results", rows: displayedItems)],
+                            selectedIndex: appState.selectedIndex,
+                            followsSelection: !isSearchFocused,
+                            followAnimation: Self.selectionFollowAnimation,
+                            scrollToTop: listScrollToTop
+                        ) { item, index in
+                            displayItemRow(
+                                item: item,
+                                index: index,
+                                isSelected: appState.selectedIndex == index,
+                                showWindowName: showWindowName,
+                                showProfileName: showProfileName
+                            )
                         }
-                        .background(Color.clear)
                     }
                 }
             } else {
@@ -130,24 +130,9 @@ extension ContentView {
                 }
             }
         }
-        // `resultsHeight` is what the surface is sized around, but the chrome
-        // allowance it budgets for is an estimate — the list takes up whatever
-        // is actually left over so the slack never shows as a dead band.
-        .frame(minHeight: resultsHeight, maxHeight: .infinity)
-        // The assigned height is only ever a best-effort estimate (see above),
-        // so when it undershoots, the list's true content wants more room than
-        // it was given. `.background` alone doesn't clip to that shortfall —
-        // without this, the overrun renders straight past the panel's rounded
-        // bottom edge instead of being cut off by it (the non-search results
-        // list already had this via its own `.clipped()`; this shared spot
-        // covers every branch above, search included).
-        //
-        // Clips to the *rounded* shape, not just the rectangular bounds
-        // (`.clipped()`): a plain rectangular clip still leaves the last row's
-        // square corners poking out past `CommandBarSurfaceBackground`'s
-        // rounded ones underneath.
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .background(CommandBarSurfaceBackground(cornerRadius: 16))
+        // `resultsHeight` is an estimate: the list fills what is left, and
+        // the shared results frame clips any overrun to the rounded corners.
+        .commandBarResultsFrame(minHeight: resultsHeight)
     }
 
     /// The Stack view: pinned tabs on top, iPhone-sent links ("Send to
@@ -162,53 +147,27 @@ extension ContentView {
         if pinnedItems.isEmpty && sentItems.isEmpty {
             modeEmptyState(for: .stack)
         } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if !pinnedItems.isEmpty {
-                        stackSectionHeader(title: "PINNED", icon: "pin.fill")
-                        ForEach(Array(pinnedItems.enumerated()), id: \.element.id) { index, item in
-                            displayItemRow(
-                                item: item,
-                                index: index,
-                                isSelected: appState.selectedIndex == index,
-                                showWindowName: showWindowName,
-                                showProfileName: showProfileName
-                            )
-                        }
-                    }
-                    if !sentItems.isEmpty {
-                        stackSectionHeader(title: "SENT TO MAC", icon: "iphone")
-                        ForEach(Array(sentItems.enumerated()), id: \.element.id) { sectionIndex, item in
-                            let index = stackSentLinksOffset + sectionIndex
-                            displayItemRow(
-                                item: item,
-                                index: index,
-                                isSelected: appState.selectedIndex == index,
-                                showWindowName: showWindowName,
-                                showProfileName: showProfileName
-                            )
-                        }
-                    }
-                }
-                .padding(.vertical, 3)
+            // Flat selection: sent rows start at `stackSentLinksOffset`
+            // (= pinned count), which is the section offset the list passes.
+            CommandBarSectionedList(
+                sections: [
+                    CommandBarSection(id: "pinned", title: "PINNED", symbol: "pin.fill", rows: pinnedItems),
+                    CommandBarSection(id: "sent", title: "SENT TO MAC", symbol: "iphone", rows: sentItems),
+                ],
+                selectedIndex: appState.selectedIndex,
+                followsSelection: !isSearchFocused,
+                followAnimation: Self.selectionFollowAnimation,
+                scrollToTop: listScrollToTop
+            ) { item, index in
+                displayItemRow(
+                    item: item,
+                    index: index,
+                    isSelected: appState.selectedIndex == index,
+                    showWindowName: showWindowName,
+                    showProfileName: showProfileName
+                )
             }
-            .background(Color.clear)
         }
-    }
-
-    func stackSectionHeader(title: String, icon: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 9, weight: .semibold))
-            Text(title)
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(0.5)
-            Spacer()
-        }
-        .foregroundStyle(.tertiary)
-        .padding(.horizontal, 10)
-        .padding(.top, 6)
-        .padding(.bottom, 2)
     }
 
     @ViewBuilder
@@ -217,21 +176,21 @@ extension ContentView {
         if items.isEmpty {
             modeEmptyState(for: view)
         } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        displayItemRow(
-                            item: item,
-                            index: index,
-                            isSelected: viewStore.activeView == view && appState.selectedIndex == index,
-                            showWindowName: showWindowName,
-                            showProfileName: showProfileName
-                        )
-                    }
-                }
-                .padding(.vertical, 3)
+            CommandBarSectionedList(
+                sections: [CommandBarSection(id: "items", rows: items)],
+                selectedIndex: viewStore.activeView == view ? appState.selectedIndex : nil,
+                followsSelection: !isSearchFocused,
+                followAnimation: Self.selectionFollowAnimation,
+                scrollToTop: listScrollToTop
+            ) { item, index in
+                displayItemRow(
+                    item: item,
+                    index: index,
+                    isSelected: viewStore.activeView == view && appState.selectedIndex == index,
+                    showWindowName: showWindowName,
+                    showProfileName: showProfileName
+                )
             }
-            .background(Color.clear)
         }
     }
 
@@ -296,9 +255,9 @@ extension ContentView {
                 faviconImage: appState.browserService.faviconImage(for: result),
                 showWindowName: showWindowName,
                 showProfileName: showProfileName,
-                pointerAction: pointerSwipeResultID == result.id ? pointerSwipeAction : nil,
-                pointerOffset: pointerSwipeResultID == result.id ? pointerSwipeOffset : 0,
-                keyboardAction: keyboardSwipeResultID == result.id ? keyboardSwipeAction : nil,
+                pointerEdge: pointerSwipe.rowID == result.id ? pointerSwipe.revealedEdge : nil,
+                pointerOffset: pointerSwipe.rowID == result.id ? pointerSwipe.offset : 0,
+                keyboardEdge: keyboardSwipe.rowID == result.id ? keyboardSwipe.edge : nil,
                 isConfirmingRemoval: rowRemovalExit.isExiting(result.id),
                 onHoverChange: { isHovering in
                     if isHovering {
@@ -356,59 +315,23 @@ extension ContentView {
             )
             .contentShape(Rectangle())
             .padding(.horizontal, 8)
-        case .showAllTabs(let count):
-            ShowAllTabsRow(count: count, isSelected: isSelected)
-                .contentShape(Rectangle())
-                .padding(.horizontal, 8)
-                .onTapGesture {
-                    expandAllOpenTabs()
-                }
-        case .searchTheWeb(let query):
-            SearchTheWebRow(
-                query: query,
-                browserName: appState.browserService.webSearchTargetBrowserName,
-                isSelected: isSelected
-            )
-            .contentShape(Rectangle())
-            .padding(.horizontal, 8)
-            .onTapGesture {
-                activateSearchTheWeb(query: query)
-            }
-        case .searchAliasHint(let alias):
-            SearchAliasHintRow(
-                alias: alias,
-                triggerKeys: searchAliasStore.triggerKeys,
-                isSelected: isSelected
-            )
-            .contentShape(Rectangle())
-            .padding(.horizontal, 8)
-            .onTapGesture {
-                commitSearchAlias(alias)
-            }
-        case .searchAliasQuery(let alias, let query):
-            SearchAliasQueryRow(
-                alias: alias,
-                query: query,
-                isSelected: isSelected
-            )
-            .contentShape(Rectangle())
-            .padding(.horizontal, 8)
-            .onTapGesture {
-                activateSearchAlias(alias: alias, query: query)
+        case .showAllTabs, .searchTheWeb, .searchAliasHint, .searchAliasQuery:
+            if let row = item.actionRow(
+                webSearchBrowserName: appState.browserService.webSearchTargetBrowserName,
+                aliasTriggerKeys: searchAliasStore.triggerKeys
+            ) {
+                CommandBarActionRow(row: row, isSelected: isSelected)
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 8)
+                    .onTapGesture {
+                        activateExtraRow(item)
+                    }
             }
         }
     }
 
-    func scrollResultsToTop(_ proxy: ScrollViewProxy) {
-        guard let firstItemID = displayedItems.first?.id else { return }
-        proxy.scrollTo(firstItemID, anchor: .top)
-    }
-
-    func scrollSelectedResultIntoView(_ proxy: ScrollViewProxy) {
-        let items = displayedItems
-        guard items.indices.contains(appState.selectedIndex) else { return }
-        proxy.scrollTo(items[appState.selectedIndex].id, anchor: .center)
-    }
+    /// How the results list glides to a keyboard-selected row.
+    static var selectionFollowAnimation: Animation { .easeInOut(duration: 0.14) }
 }
 
 private struct AudibleTabRow: View {
@@ -418,6 +341,10 @@ private struct AudibleTabRow: View {
     let onMute: () -> Void
 
     @State private var isHovering = false
+
+    private var isActionsVisible: Bool {
+        CommandBarRowOverlayPolicy.isVisible(.hoverOnly, isHovering: isHovering, isSelected: false)
+    }
 
     var body: some View {
         // The mute action overlays the trailing edge with a solid background on
@@ -443,9 +370,8 @@ private struct AudibleTabRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-                .padding(.trailing, isHovering
-                    ? RowActionOverlay<EmptyView>.reservedWidth(buttonCount: 1, buttonDiameter: 20)
-                    : 0)
+                .padding(.trailing, CommandBarRowOverlayPolicy.reservedWidth(
+                    isVisible: isActionsVisible, isCompact: true, buttonCount: 1, buttonDiameter: 20))
 
                 Spacer(minLength: 0)
             }
@@ -458,7 +384,7 @@ private struct AudibleTabRow: View {
             RowActionOverlay(
                 isSelected: false,
                 isHovering: isHovering,
-                isVisible: isHovering,
+                isVisible: isActionsVisible,
                 accentTint: Color.accentColor.opacity(0.12),
                 trailingPadding: 10
             ) {

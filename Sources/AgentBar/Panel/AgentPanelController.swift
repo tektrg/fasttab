@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
-import CommandBarKit
+import IndieCommandBar
 
 /// Owns the floating panel: builds it, places it on the screen the cursor is
 /// on, keeps its height in step with the content, and hides it on Esc or a
@@ -15,6 +15,9 @@ final class AgentPanelController {
     private var placementFrame = NSScreen.main?.visibleFrame ?? .zero
     private var outsideClickMonitor: Any?
     private var sizeSubscription: AnyCancellable?
+    private var pagesSubscription: AnyCancellable?
+    private var scrollMonitor: Any?
+    private var flick = AgentPageFlickDetector()
     private let activation: TextInputActivation
     private var focusObservers: [NSObjectProtocol] = []
 
@@ -72,19 +75,65 @@ final class AgentPanelController {
                 searchFieldLineCount: searchFieldLineCount, showsRoutingRow: showsRoutingRow
             )
         }
+        wirePageSizing()
     }
 
     var isVisible: Bool { panel.isVisible }
 
+    /// The page strip / editor / New worker mode changed: re-size once the change has landed.
+    private func wirePageSizing() {
+        let changes = model.pages.$editor.map { $0 != nil }.removeDuplicates().map { _ in () }
+            .merge(with: model.$newWorker.map { $0 != nil }.removeDuplicates().map { _ in () })
+            // First view saved / last deleted: the strip appears or goes, so the height changes too.
+            .merge(with: model.pages.store.$views.map(\.isEmpty).removeDuplicates().map { _ in () })
+        pagesSubscription = changes.receive(on: DispatchQueue.main).sink { [weak self] in self?.applyCurrentSize() }
+    }
+
+    private func applyCurrentSize() {
+        applySize(
+            for: model.presentation, listSettings: model.listSettings,
+            isPeeking: model.peek != nil,
+            isAnswering: model.isCardOpen || model.newWorker?.isComposing == false,
+            isComposing: model.taggedAgentID != nil || model.newWorker?.isComposing == true,
+            searchFieldLineCount: AgentPanelMetrics.searchFieldLineCount(for: model.query),
+            showsRoutingRow: model.routingState != nil
+        )
+    }
+
+    /// A horizontal two-finger swipe over the panel steps one page (`AgentPageFlickDetector`).
+    private func startScrollMonitor() {
+        guard scrollMonitor == nil else { return }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self, event.window === self.panel else { return event }
+            let isEnded = event.phase.contains(.ended) || event.phase.contains(.cancelled)
+            guard self.model.canSwitchPages else {
+                self.flick = AgentPageFlickDetector()
+                return event
+            }
+            if let step = self.flick.handleScroll(
+                deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY,
+                isEnded: isEnded, isMomentum: event.momentumPhase != []
+            ) {
+                self.model.pages.step(step)
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func stopScrollMonitor() {
+        guard let monitor = scrollMonitor else { return }
+        NSEvent.removeMonitor(monitor)
+        scrollMonitor = nil
+    }
+
     func show() {
         model.resetForShow()
         placementFrame = SummonScreen.visibleFrame(fallback: placementFrame)
-        applySize(
-            for: model.presentation, listSettings: model.listSettings,
-            isPeeking: model.peek != nil, isAnswering: model.isCardOpen
-        )
+        applyCurrentSize()
         panel.makeKeyAndOrderFront(nil)
         startOutsideClickMonitor()
+        startScrollMonitor()
         startFocusObservers()
         activation.panelDidShow()
         onVisibilityChange?(true)
@@ -97,6 +146,7 @@ final class AgentPanelController {
     func hide(restoringFocus: Bool = true, isAgentSwitch: Bool = false) {
         let wasVisible = panel.isVisible
         stopOutsideClickMonitor()
+        stopScrollMonitor()
         stopFocusObservers()
         panel.orderOut(nil)
         activation.panelDidHide(restoringFocus: restoringFocus, handingOffToAgentSwitch: isAgentSwitch)
@@ -113,9 +163,13 @@ final class AgentPanelController {
         showsRoutingRow: Bool = false
     ) {
         let maxListHeight = AgentPanelMetrics.maxListHeight(visibleRows: listSettings.maxVisibleRows)
+        // Read live: the strip and the saved-view editor change outside the publishers above
+        // (`pagesSubscription` re-applies after they do).
         let height = AgentPanelMetrics.height(
-            for: presentation, maxListHeight: maxListHeight, isPeeking: isPeeking, isAnswering: isAnswering,
-            isComposing: isComposing, searchFieldLineCount: searchFieldLineCount, showsRoutingRow: showsRoutingRow
+            for: presentation, maxListHeight: maxListHeight, isPeeking: isPeeking,
+            isAnswering: isAnswering || model.pages.editor != nil,
+            isComposing: isComposing, searchFieldLineCount: searchFieldLineCount, showsRoutingRow: showsRoutingRow,
+            showsPageStrip: !isComposing && model.showsPageStrip
         )
         let size = CGSize(width: AgentPanelMetrics.width, height: height)
         panel.setFrame(AgentPanelPlacement.frame(size: size, in: placementFrame), display: panel.isVisible, animate: false)

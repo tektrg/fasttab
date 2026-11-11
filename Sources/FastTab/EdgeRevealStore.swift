@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 import Combine
-import CommandBarKit
+import IndieCommandBar
 import IndieEdgeReveal
 
 /// `EdgeRevealStyle` itself lives in IndieLibKit (`IndieEdgeReveal`); its `rawValue` is the

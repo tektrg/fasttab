@@ -7,6 +7,7 @@ import Testing
 ///
 /// Other suites flip `ExtensionBetaPreference` too, so assertions poll for
 /// "store mirrors the stored setting" instead of pinning a value at one instant.
+extension ExtensionBetaPreferenceSerial {
 @MainActor
 @Suite(.serialized)
 struct AutomationPermissionStoreLiveSettingTests {
@@ -55,4 +56,5 @@ struct AutomationPermissionStoreLiveSettingTests {
         }
         return false
     }
-}
+}}
+

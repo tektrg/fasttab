@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import AppKit
 import SwiftUI
 import Testing
@@ -750,7 +751,7 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     let start = Date(timeIntervalSince1970: 1_800_000_000)
     let storage = InMemoryLicenseStorage(trial: TrialRecord(startedAt: start))
     let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient())
-    for _ in 0..<50 {
+    for _ in 0..<500 { // bounded poll; generous for loaded parallel runs
         if service.snapshot.trial != nil { break }
         try await Task.sleep(for: .milliseconds(10))
     }
@@ -762,7 +763,9 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
 
 @MainActor
 @Test func licenseServiceDoesNotBlockStartupWhenStorageStalls() async throws {
-    let storage = InMemoryLicenseStorage(loadDelay: .milliseconds(200))
+    // Stall far longer than the test runs: once the late load lands, the
+    // service (correctly) recovers and saves a trial, which this test is not about.
+    let storage = InMemoryLicenseStorage(loadDelay: .seconds(3))
     let clock = ContinuousClock()
     let startedAt = clock.now
     let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient(), initialLoadTimeout: .milliseconds(20))
@@ -794,12 +797,17 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
         client: TestPolarLicenseClient(),
         initialLoadTimeout: .milliseconds(20)
     )
+    // The "unavailable" state is transient by design; record every state so a
+    // starved test thread cannot miss it between samples.
+    var seenErrors: [String] = []
+    let subscription = service.$snapshot.sink { if let message = $0.lastErrorMessage { seenErrors.append(message) } }
+    defer { subscription.cancel() }
 
     for _ in 0..<500 { // bounded poll; generous for loaded parallel runs
-        if service.snapshot.lastErrorMessage != nil { break }
+        if !seenErrors.isEmpty { break }
         try await Task.sleep(for: .milliseconds(10))
     }
-    #expect(service.snapshot.lastErrorMessage == "License storage is unavailable.")
+    #expect(seenErrors.first == "License storage is unavailable.")
 
     for _ in 0..<500 { // bounded poll; generous for loaded parallel runs
         if service.snapshot.access == .licensed(.personal) { break }
@@ -860,7 +868,11 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     service.validateCachedLicenseIfNeeded(force: true)
     for _ in 0..<500 where client.validationCount == 0 { try await Task.sleep(for: .milliseconds(10)) }
     service.clearLicense()
-    try await Task.sleep(for: .milliseconds(120))
+    // The clear runs on its own task; wait for it, then past the in-flight
+    // validation, and check the validation did not write the license back.
+    for _ in 0..<500 { if await storage.license == nil { break }; try await Task.sleep(for: .milliseconds(10)) }
+    for _ in 0..<500 where client.finishedValidationCount < client.validationCount { try await Task.sleep(for: .milliseconds(10)) }
+    try await Task.sleep(for: .milliseconds(50))
     #expect(await storage.license == nil)
 }
 @MainActor
@@ -940,12 +952,12 @@ private actor InMemoryLicenseStorage: LicenseStorage {
         self.loadFails = loadFails
         self.deleteDelay = deleteDelay
     }
-    func loadTrial() throws -> TrialRecord? {
+    func loadTrial() async throws -> TrialRecord? {
         loadTrialCount += 1
         if loadFails { throw PolarLicenseClientError.invalidResponse }
-        if let loadDelay {
-            Thread.sleep(forTimeInterval: TimeInterval(loadDelay.components.seconds) + Double(loadDelay.components.attoseconds) / 1e18)
-        }
+        // Suspend rather than Thread.sleep: blocking a cooperative-pool thread
+        // starved the rest of the parallel test run and made timing tests flaky.
+        if let loadDelay { try await Task.sleep(for: loadDelay) }
         return trial
     }
     func saveTrial(_ trial: TrialRecord) throws { saveTrialCount += 1; self.trial = trial }
@@ -964,6 +976,7 @@ private final class TestPolarLicenseClient: PolarLicenseClient {
     private let activationResponse: PolarActivationResponse?
     private let validationDelay: Duration?
     private(set) var validationCount = 0
+    private(set) var finishedValidationCount = 0
     init(validatedLicense: PolarLicenseKey? = nil, activationResponse: PolarActivationResponse? = nil, validationDelay: Duration? = nil) {
         self.validatedLicense = validatedLicense
         self.activationResponse = activationResponse
@@ -975,6 +988,7 @@ private final class TestPolarLicenseClient: PolarLicenseClient {
     }
     func validate(key: String, organizationID: String, activationID: String, conditions: [String: Int]) async throws -> PolarLicenseKey {
         validationCount += 1
+        defer { finishedValidationCount += 1 }
         if let validationDelay { try await Task.sleep(for: validationDelay) }
         guard let validatedLicense else { throw PolarLicenseClientError.invalidResponse }
         return validatedLicense

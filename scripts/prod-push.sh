@@ -178,7 +178,12 @@ APPS="${deploy_apps# }"
 
 # iOS: the Pro must build exactly this commit — checked now, before any Mac app is stopped.
 if [[ "${IOS:-0}" == 1 ]]; then
-  run git push pro "$(git rev-parse --abbrev-ref HEAD)" || die "push to the Pro failed (its checkout dirty?) — nothing was deployed"
+  # Side branch + --ff-only (not a plain push): the Pro's updateInstead refuses ANY push to its
+  # checked-out branch while unrelated files (marketing/) are dirty; ff-only only minds touched files.
+  ios_branch="$(git rev-parse --abbrev-ref HEAD)"
+  run git push pro "+HEAD:refs/heads/prod-push-sync"
+  run ssh "${PRO}" "cd '${PRO_REPO}' && [ \"\$(git rev-parse --abbrev-ref HEAD)\" = '${ios_branch}' ] && git merge --ff-only prod-push-sync; rc=\$?; git branch -D prod-push-sync >/dev/null; exit \$rc" \
+    || die "the Pro's checkout isn't on ${ios_branch} or can't fast-forward to it — nothing was deployed"
   head="$(git rev-parse HEAD)"
   pro_head="$(pro "git -C '${PRO_REPO}' rev-parse HEAD")" || die "cannot reach the Pro (${PRO}) — nothing was deployed"
   [[ "${DRY_RUN:-0}" == 1 || "${pro_head}" == "${head}" ]] \

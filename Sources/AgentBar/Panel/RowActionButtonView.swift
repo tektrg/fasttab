@@ -25,7 +25,7 @@ struct RowActionButtonView: View {
     }
 
     /// The shared phase for `button`: only the button the row's action is about leaves idle.
-    static func phase(of button: RowButton, state: RowActionState?) -> RowActionButtonPhase {
+    nonisolated static func phase(of button: RowButton, state: RowActionState?) -> RowActionButtonPhase {
         guard let state, state.button == button else { return .idle }
         switch state {
         case .busy: return .busy
@@ -35,7 +35,7 @@ struct RowActionButtonView: View {
     }
 
     /// The words per phase: the button's label idle, else Agent Bar's own ("Confirm", "Stopping…", "Closed").
-    static func titles(for spec: RowButtonSpec) -> RowActionButtonTitles {
+    nonisolated static func titles(for spec: RowButtonSpec) -> RowActionButtonTitles {
         let button = spec.button
         return RowActionButtonTitles(
             idle: spec.label,

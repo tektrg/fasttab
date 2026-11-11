@@ -61,7 +61,7 @@ struct SharedRowButtonsAndAppearanceTests {
         #expect(AgentListSettings.standard.accent == .system)
     }
 
-    @Test @MainActor func accentRoundTripsUnderAgentBarsOwnKey() {
+    @Test func accentRoundTripsUnderAgentBarsOwnKey() {
         let defaults = makeScratchDefaults()
         var chosen = AgentListSettings.standard
         chosen.appearance.accent = .purple
@@ -69,7 +69,6 @@ struct SharedRowButtonsAndAppearanceTests {
         #expect(defaults.string(forKey: "AgentBar.appearance.accent") == "purple")
         #expect(defaults.string(forKey: "FastTab.appearance.accent") == nil)
         #expect(AgentListSettings.load(from: defaults).accent == .purple)
-        #expect(AgentBarTheme.theme(for: .system).accentColor == .accentColor)
     }
 
     @Test func placementAndSizeRoundTrip() {

@@ -70,12 +70,12 @@ struct PermissionPayloadTests {
     private func buttons(_ agent: AgentSnapshot) -> [RowButton] { RowButtons.available(for: agent).map(\.button) }
 
     @Test func aReviewableBoxOffersReviewAndParkInsteadOfOpenTerminal() {
-        #expect(buttons(P.agent("a", P.bash)) == [.peek, .park, .review])
+        #expect(buttons(P.agent("a", P.bash)) == [.review, .peek, .park])
         #expect(RowButtons.usableButtons(for: P.agent("a", P.bash)) == [.peek, .park, .review])
     }
 
     @Test func aPlainBlockedRowKeepsOpenTerminal() {
-        #expect(buttons(P.agent("a", nil)) == [.peek, .park, .openTerminal])
+        #expect(buttons(P.agent("a", nil)) == [.openTerminal, .peek, .park])
     }
 
     @Test func reviewIsRedLikeTheOtherBlockedActions() {

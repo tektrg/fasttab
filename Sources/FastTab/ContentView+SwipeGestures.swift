@@ -261,6 +261,7 @@ extension ContentView {
             // Let the collapse finish before releasing the row. If it is
             // still listed (the close failed), releasing slides it back.
             try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 let stillListed = displayedResults.contains { $0.id == resultID }
                 rowRemovalExit.finish(resultID, stillListed: stillListed)

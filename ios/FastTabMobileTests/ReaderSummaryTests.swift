@@ -418,7 +418,7 @@ final class ReaderSummaryModelTests: XCTestCase {
         XCTAssertEqual(try sentInstruction(server), "Three bullets only.")
     }
 
-    func testCustomPromptAlsoSendsWhichDefaultVersionItWasEditedFrom() async throws {
+    func testCustomPromptAlsoSendsTheDefaultVersionThisAppKnows() async throws {
         let server = FakeSummaryServer([FakeSummaryServer.ok()])
         let model = model(server, instruction: "Three bullets only.")
         model.open(); await settle(model)
@@ -477,6 +477,20 @@ final class ReaderSummaryModelTests: XCTestCase {
         let server = FakeSummaryServer([])
         XCTAssertNil(model(server).instruction)
         XCTAssertEqual(model(server, instruction: "X").instruction, "X")
+    }
+
+    func testPromptEditedWhileASummaryIsBeingWrittenJoinsItInsteadOfPayingTwice() async {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Old prompt")], delay: .milliseconds(150))
+        let first = model(server)
+        first.open() // starts writing with the default prompt
+        let edited = model(server, instruction: "Three bullets only.") // reader reopened after a prompt edit
+        edited.open()
+        await settle(first); await settle(edited)
+        XCTAssertEqual(server.callCount, 1)
+        guard case .ready(let result) = edited.state else { return XCTFail("expected ready") }
+        XCTAssertTrue(result.madeWithOtherPrompt) // shown, marked; Regenerate uses the new prompt
+        guard case .ready(let original) = first.state else { return XCTFail("expected ready") }
+        XCTAssertFalse(original.madeWithOtherPrompt)
     }
 }
 

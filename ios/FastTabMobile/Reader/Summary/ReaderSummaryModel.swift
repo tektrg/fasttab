@@ -91,8 +91,10 @@ final class ReaderSummaryModel {
     /// The person's custom prompt when this model was made; nil = the server's default.
     let instruction: String?
 
-    /// Requests in flight, by article + text + prompt, so a second model joins instead of paying again.
-    private static var inFlight: [String: Task<State, Never>] = [:]
+    /// Requests in flight, by article + text (NOT prompt), so a second model joins instead of paying
+    /// again, even when the prompt was edited meanwhile (the joined answer is then marked as written
+    /// with the previous prompt).
+    private static var inFlight: [String: (task: Task<State, Never>, instructionHash: String)] = [:]
 
     init(article: ReaderArticle, urlKey: String,
          client: ReaderSummaryClient = .live, store: ReaderSummaryStore = .shared,
@@ -155,11 +157,14 @@ final class ReaderSummaryModel {
         regenerateFailure = nil
         if previous != nil { isRegenerating = true } else { state = .loading }
         let digest = ReaderSummaryStore.digest(input.text)
-        let key = "\(urlKey)\u{1F}\(digest)\u{1F}\(instructionHash)"
+        let key = "\(urlKey)\u{1F}\(digest)"
         let work: Task<State, Never>
+        let joinedOtherPrompt: Bool
         if let running = Self.inFlight[key] {
-            work = running
+            work = running.task
+            joinedOtherPrompt = running.instructionHash != instructionHash
         } else {
+            joinedOtherPrompt = false
             let request = ReaderSummaryRequest(text: input.text, languageCode: input.languageCode,
                                                instruction: instruction,
                                                promptVersion: instruction == nil ? nil : ReaderSummaryPrompt.defaultVersion)
@@ -180,11 +185,15 @@ final class ReaderSummaryModel {
                     return State.failed(.unavailable)
                 }
             }
-            Self.inFlight[key] = work
+            Self.inFlight[key] = (work, instructionHash)
         }
         task = Task {
-            let outcome = await work.value
-            if Self.inFlight[key] == work { Self.inFlight[key] = nil } // not a newer request's entry
+            var outcome = await work.value
+            if Self.inFlight[key]?.task == work { Self.inFlight[key] = nil } // not a newer request's entry
+            if joinedOtherPrompt, case .ready(var result) = outcome {
+                result.madeWithOtherPrompt = true
+                outcome = .ready(result)
+            }
             self.finish(outcome, keeping: previous)
         }
     }

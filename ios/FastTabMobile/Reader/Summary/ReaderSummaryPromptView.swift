@@ -27,7 +27,7 @@ struct ReaderSummaryPromptView: View {
                          ? "Over the limit by \(draft.length - ReaderSummaryPrompt.maxInstructionLength). Shorten it to save."
                          : "\(draft.length) / \(ReaderSummaryPrompt.maxInstructionLength)")
                         .foregroundStyle(draft.isOverLimit ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
-                    Text("Write {language} where the summary's language should go. Fixed safety rules stay in place whatever you write. Summaries already saved are not changed; Regenerate in the Summary sheet to use a new prompt.")
+                    Text("Write {language} where the summary's language should go. Fixed rules are added around your prompt. Summaries already saved are not changed; Regenerate in the Summary sheet to use a new prompt.")
                 }
             }
             Section {
@@ -58,6 +58,8 @@ struct ReaderSummaryPromptView: View {
                 store.reset()
                 draft.resetToDefault()
             }
+        } message: {
+            Text("Your custom prompt is deleted now, on all your devices.")
         }
         .confirmationDialog("Discard your changes?", isPresented: $confirmsDiscard, titleVisibility: .visible) {
             Button("Discard Changes", role: .destructive) { dismiss() }

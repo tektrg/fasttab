@@ -171,7 +171,7 @@ final class ReaderSummaryPromptStoreTests: XCTestCase {
         XCTAssertNotNil(cloud.values[ReaderSummaryPromptStore.cloudKey])
     }
 
-    func testNewerCloudValueWinsOnLaunchAndOnChangeNotification() {
+    func testNewerCloudValueWinsOnLaunchAndWhenMerged() {
         let cloud = FakeCloud()
         let a = store(cloud: cloud)
         a.save(instruction: "From device A")
@@ -195,6 +195,10 @@ final class ReaderSummaryPromptStoreTests: XCTestCase {
         cloud.values[ReaderSummaryPromptStore.cloudKey] = stale
         a.mergeFromCloud()
         XCTAssertEqual(a.customInstruction, "Newer local")
+        // …and the stale cloud copy is healed with this device's newer one.
+        let healed = try? JSONDecoder().decode(ReaderSummaryPromptStore.Setting.self,
+                                               from: cloud.values[ReaderSummaryPromptStore.cloudKey] ?? Data())
+        XCTAssertEqual(healed?.instruction, "Newer local")
     }
 
     func testResetSyncsToTheOtherDeviceToo() {
@@ -208,7 +212,7 @@ final class ReaderSummaryPromptStoreTests: XCTestCase {
         XCTAssertNil(b.customInstruction)
     }
 
-    func testAFastClockOnAnotherDeviceCannotLockThisOneOut() {
+    func testADeviceWithASlowClockStillWinsWhenItEditsAfterSyncing() {
         let cloud = FakeCloud()
         let a = store(cloud: cloud)
         a.save(instruction: "From A")

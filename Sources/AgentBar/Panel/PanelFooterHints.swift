@@ -1,4 +1,5 @@
 import Foundation
+import IndieCommandBar
 
 /// The key hints in the footer (the answer and permission cards have their own; while a failure
 /// notice is showing the only hint is that esc dismisses it, since esc then no longer closes

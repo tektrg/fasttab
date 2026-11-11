@@ -84,6 +84,10 @@ struct AgentPanelView: View {
         .background {
             Group {
                 // None in New worker mode: the agent list (and its selection) is hidden there.
+                // Focus mode (`FocusMode/`): answer every agent that needs you, one big card at a time.
+                if model.newWorker == nil, model.focusCount > 0 {
+                    Button("Focus", action: model.onOpenFocus).keyboardShortcut("f", modifiers: .command)
+                }
                 if model.newWorker == nil {
                     Button("Report to nearest chief", action: model.treeModel.indentSelected).keyboardShortcut("]", modifiers: .command)
                     Button("Stop reporting (Unassigned)", action: model.treeModel.outdentSelected).keyboardShortcut("[", modifiers: .command)

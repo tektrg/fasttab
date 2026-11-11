@@ -34,6 +34,8 @@ final class AgentBarSettings: ObservableObject {
     /// itself is not here — it lives in Keychain, see `RoutingAPIKeyStoring`.
     @Published private(set) var routing: RoutingSettings
     @Published private(set) var hotkey: AgentHotkeyConfig
+    /// Focus mode's system-wide shortcut (`FocusHotkey`, default ⌥⇧F).
+    @Published private(set) var focusHotkey: AgentHotkeyConfig
     @Published private(set) var dashboardBaseURL: URL
 
     private let defaults: UserDefaults
@@ -48,6 +50,7 @@ final class AgentBarSettings: ObservableObject {
         sounds = SoundSettings.load(from: defaults)
         routing = RoutingSettings.load(from: defaults)
         hotkey = AgentHotkeyConfig.configured(defaults: defaults)
+        focusHotkey = FocusHotkey.configured(defaults: defaults)
         dashboardBaseURL = DashboardEndpoint.configured(defaults: defaults).baseURL
     }
 
@@ -104,6 +107,12 @@ final class AgentBarSettings: ObservableObject {
     func commitHotkey(_ config: AgentHotkeyConfig) {
         hotkey = config
         config.save(to: defaults)
+    }
+
+    /// Records the Focus mode shortcut that is now actually registered.
+    func commitFocusHotkey(_ config: AgentHotkeyConfig) {
+        focusHotkey = config
+        FocusHotkey.save(config, to: defaults)
     }
 
     /// Saves a dashboard address if it is valid; the default address is stored

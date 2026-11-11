@@ -61,13 +61,14 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -h|--help)
-      echo "Usage: $0 [--release] [--clean] [--wait] [--device <identifier>]"
+      echo "Usage: $0 [--release] [--clean] [--wait] [--device <identifier>] [--check-only]"
       echo ""
       echo "Options:"
       echo "  --release   Build with Release configuration (default: Debug)"
       echo "  --clean     Wipe build artifacts before building"
       echo "  --wait      If the iPhone isn't reachable, poll up to 2 min before giving up"
       echo "  --device    Specific device identifier/name to target"
+      echo "  --check-only  Only confirm the iPhone is paired + reachable, then exit"
       exit 0
       ;;
     *)

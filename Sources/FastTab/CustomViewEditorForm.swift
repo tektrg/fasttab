@@ -425,7 +425,7 @@ struct CustomViewEditorForm: View {
             if !invalid.isEmpty {
                 issueText(CustomViewDraft.Issue.invalidDomains(invalid).message)
             } else if !draft.normalizedDomains.isEmpty {
-                Text("Includes subdomains.")
+                Text("Includes subdomains. Patterns: *wild*card, /regex/.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }

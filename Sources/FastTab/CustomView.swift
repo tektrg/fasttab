@@ -1,4 +1,5 @@
 import Foundation
+import IndieSearch
 
 /// A user-defined, swipeable page in the command bar (after Recent and Stack):
 /// a saved set of filters over open tabs, bookmarks and history, plus how to
@@ -269,6 +270,15 @@ enum CustomViewGroupBy: String, Codable, CaseIterable, Hashable, Sendable {
 // MARK: - Domain normalization
 
 enum CustomViewDomain {
+    /// A `*wildcard*` or `/regex/` host pattern (shared `TextPattern`), matched against the bare host.
+    /// A leading `*.` alone is not a pattern: `*.github.com` still means github.com + subdomains.
+    static func isPattern(_ raw: String) -> Bool {
+        var s = Substring(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        if TextPattern.isRegex(String(s)) { return true }
+        while s.hasPrefix("*.") { s = s.dropFirst(2) }
+        return TextPattern.isWildcard(String(s))
+    }
+
     /// Bare lowercase host from whatever the user typed: strips scheme, path,
     /// query, port, credentials, leading `*.` / `.` and `www.`.
     /// "https://www.GitHub.com/x" → "github.com", "*.google.com" →

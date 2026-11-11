@@ -426,7 +426,7 @@ final class ReaderSummaryModelTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         XCTAssertEqual(json["promptVersion"] as? Int, ReaderSummaryPrompt.defaultVersion)
         let plain = FakeSummaryServer([FakeSummaryServer.ok()])
-        let defaultModel = self.model(plain)
+        let defaultModel = self.model(plain, article: longArticle(title: "Another Read")) // not the saved one
         defaultModel.open(); await settle(defaultModel)
         let plainBody = try XCTUnwrap(plain.requests.first?.httpBody)
         let plainJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: plainBody) as? [String: Any])

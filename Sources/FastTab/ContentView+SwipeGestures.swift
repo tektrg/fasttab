@@ -232,8 +232,10 @@ extension ContentView {
     /// it, and the confirmation icon would never render.
     func performRemove(_ result: BrowserSearchResult) {
         let resultID = result.id
+        // Restart the timer even for the same row, so a double click can't
+        // end its exit slide early.
+        closingResultTask?.cancel()
         if let pendingID = rowRemovalExit.begin(resultID) {
-            closingResultTask?.cancel()
             if let pendingResult = displayedResults.first(where: { $0.id == pendingID }) {
                 appState.browserService.remove(pendingResult)
             }

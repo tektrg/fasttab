@@ -147,7 +147,7 @@ struct CustomViewDraft: Equatable {
     /// dropped, no types → all). Drives the live match count while typing.
     var previewView: CustomView {
         var seenProfiles = Set<String>()
-        let profiles = profiles
+        let profiles = self.profiles
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seenProfiles.insert($0.lowercased()).inserted }
         return CustomView(
@@ -254,7 +254,7 @@ extension CustomView {
             parts.append(shown.map(Self.pluralLabel).joined(separator: " + "))
         }
 
-        let profiles = profiles
+        let profiles = self.profiles
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         if profiles.count > 2 {
@@ -264,7 +264,7 @@ extension CustomView {
         }
 
         var seen = Set<String>()
-        let domains = domains.compactMap(CustomViewDomain.normalize).filter { seen.insert($0).inserted }
+        let domains = self.domains.compactMap(CustomViewDomain.normalize).filter { seen.insert($0).inserted }
         if let first = domains.first {
             parts.append(domains.count > 1 ? "\(first) +\(domains.count - 1)" : first)
         }
@@ -272,12 +272,12 @@ extension CustomView {
         let words = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
         if !words.isEmpty { parts.append("“\(words)”") }
 
-        switch pinned {
+        switch self.pinned {
         case .any: break
         case .only: parts.append("Pinned")
         case .exclude: parts.append("Not pinned")
         }
-        if lastVisited != .any { parts.append(lastVisited.displayName) }
+        if self.lastVisited != .any { parts.append(self.lastVisited.displayName) }
         if hasSemanticFilter { parts.append("AI") }
 
         return parts.isEmpty ? "All tabs, bookmarks and history" : parts.joined(separator: " · ")

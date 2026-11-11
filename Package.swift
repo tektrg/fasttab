@@ -3,6 +3,8 @@
 import PackageDescription
 
 let indieSearch: Target.Dependency = .product(name: "IndieSearch", package: "IndieLibKit")
+// Saved views (model, store, day buckets, keyword matcher) shared by Fast Tab and Agent Bar.
+let indieSavedViews: Target.Dependency = .product(name: "IndieSavedViews", package: "IndieLibKit")
 let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "IndieLibKit")
 let indieMotion: Target.Dependency = .product(name: "IndieMotion", package: "IndieLibKit")
 let indieEdgeReveal: Target.Dependency = .product(name: "IndieEdgeReveal", package: "IndieLibKit")
@@ -92,6 +94,7 @@ let package = Package(
                 indieMCP,
                 "CommandBarKit",
                 indieSearch,
+                indieSavedViews,
                 indieSharing,
                 indieAccount,
                 indieMetrics,
@@ -114,7 +117,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP,
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, "CommandBarKit", indieSearch, indieSavedViews, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP,
                            .product(name: "GRDB", package: "GRDB.swift")]
         ),
         .testTarget(

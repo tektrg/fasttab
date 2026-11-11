@@ -1,4 +1,5 @@
 import Foundation
+import IndieSavedViews
 import IndieSearch
 
 /// One row of a custom view: the result plus its resolved last-visit time
@@ -151,9 +152,8 @@ enum CustomViewFilter {
         /// Plain domains (host or subdomain) and `*wildcard*` / `/regex/` host patterns.
         let domains: [String]
         let domainPatterns: [String]
-        let keywordWords: [String]
-        /// Keywords typed as one `*wildcard*` or `/regex/` (`TextPattern`): matched against title or URL.
-        let keywordPattern: String?
+        /// Plain words (all must appear) or one `*wildcard*` / `/regex/`, against title or URL.
+        let keywords: SavedViewKeywords
         let rule: LastVisitedRule
         let pinned: PinnedRule
 
@@ -168,14 +168,7 @@ enum CustomViewFilter {
             var seen = Set<String>()
             domains = view.domains.filter { !CustomViewDomain.isPattern($0) }
                 .compactMap(CustomViewDomain.normalize).filter { seen.insert($0).inserted }
-            let keywords = view.keywords.trimmingCharacters(in: .whitespacesAndNewlines)
-            if TextPattern.isPattern(keywords) {
-                keywordPattern = TextPattern.normalize(keywords) ?? "/(?!)/"  // broken regex: matches nothing
-                keywordWords = []
-            } else {
-                keywordPattern = nil
-                keywordWords = searchWords(in: view.keywords)
-            }
+            keywords = SavedViewKeywords(view.keywords)
             rule = view.lastVisited
             pinned = view.pinned
         }
@@ -192,10 +185,8 @@ enum CustomViewFilter {
                       domains.contains(where: { CustomViewDomain.host(host, isWithin: $0) })
                         || TextPattern.matches(host, entries: domainPatterns) else { return false }
             }
-            if let keywordPattern {
-                guard TextPattern.matches(anyOf: [item.title, item.url], entries: [keywordPattern]) else { return false }
-            } else if !keywordWords.isEmpty, !item.matches(words: keywordWords) { return false }
-            return true
+            return keywords.matches(texts: [item.title, item.url],
+                                    foldedKeys: [item.normalizedTitleKey, item.normalizedURLKey])
         }
 
         func matchesTime(_ visit: Date?, now: Date) -> Bool {

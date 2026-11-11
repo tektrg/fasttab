@@ -86,22 +86,28 @@ struct AgentPanelView: View {
         // Agent Hierarchy window used; List row selection keeps this working without a competing
         // handler since nothing else claims ⌘]/⌘[/⌘⌫).
         .background {
+            let keys = AgentPanelKeys.shortcuts(
+                isNewWorker: model.newWorker != nil, focusCount: model.focusCount,
+                queryIsEmpty: model.query.isEmpty, canSwitchPages: model.canSwitchPages
+            )
             Group {
                 // None in New worker mode: the agent list (and its selection) is hidden there.
                 // Focus mode (`FocusMode/`): answer every agent that needs you, one big card at a time.
-                if model.newWorker == nil, model.focusCount > 0 {
+                if keys.contains(.focus) {
                     Button("Focus", action: model.onOpenFocus).keyboardShortcut("f", modifiers: .command)
                 }
-                if model.newWorker == nil {
+                if keys.contains(.reportTo) {
                     Button("Report to nearest chief", action: model.treeModel.indentSelected).keyboardShortcut("]", modifiers: .command)
+                }
+                if keys.contains(.stopReporting) {
                     Button("Stop reporting (Unassigned)", action: model.treeModel.outdentSelected).keyboardShortcut("[", modifiers: .command)
-                    // Only while the search is empty — otherwise ⌘⌫ belongs to the text field (delete to line start).
-                    if model.query.isEmpty {
-                        Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
-                    }
+                }
+                // Only while the search is empty — otherwise ⌘⌫ belongs to the text field (delete to line start).
+                if keys.contains(.stopReportingDelete) {
+                    Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
                 }
                 // ⌘1…⌘9: the Nth page of the strip (All = ⌘1), like Fast Tab's views.
-                if model.canSwitchPages {
+                if keys.contains(.page(1)) {
                     ForEach(1...9, id: \.self) { number in
                         Button("Page \(number)") { model.pages.selectNumbered(number) }
                             .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: .command)

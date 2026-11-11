@@ -100,19 +100,22 @@ struct NaturalVoiceClient: Sendable {
         return withFraction.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
     }
 
-    static var live: NaturalVoiceClient {
+    /// Identification every theindie-api call from this phone carries: the install id, plus the
+    /// bearer session token when signed in (the same as the transcript calls).
+    static func identityHeaders() -> [String: String] {
         let keychain = KeychainStore(service: IndieAccountConfiguration.fastTab.keychainService)
-        return NaturalVoiceClient(
+        var headers = ["X-Install-Id": NaturalVoiceInstallID.value(in: keychain)]
+        if let token = SessionTokenStore(keychain: keychain).token() {
+            headers["Authorization"] = "Bearer \(token)"
+        }
+        return headers
+    }
+
+    static var live: NaturalVoiceClient {
+        NaturalVoiceClient(
             endpoint: TheIndieServerConfiguration.baseURL(configuration: .fastTab).appending(path: "v1/tts"),
             cache: NaturalVoiceAudioCache(),
-            headers: {
-                // Same identification as the transcript calls (bearer when signed in) + this install.
-                var headers = ["X-Install-Id": NaturalVoiceInstallID.value(in: keychain)]
-                if let token = SessionTokenStore(keychain: keychain).token() {
-                    headers["Authorization"] = "Bearer \(token)"
-                }
-                return headers
-            },
+            headers: { identityHeaders() },
             send: { try await URLSession.shared.data(for: $0) }
         )
     }

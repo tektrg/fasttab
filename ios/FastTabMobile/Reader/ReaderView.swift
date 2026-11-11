@@ -41,6 +41,12 @@ public struct ReaderView: View {
     // Reading settings sheet / Read Aloud settings sheet
     @State private var showReadingSettings: Bool = false
     @State private var showReadAloudSettings: Bool = false
+    /// AI Summary sheet / its paywall: ONE sheet slot (two sibling sheets swapping places is
+    /// flaky), and `summaryNext` is shown after the current one has finished dismissing.
+    @State private var summarySheet: SummarySheet?
+    @State private var summaryNext: SummarySheet?
+    @State private var summaryModel: ReaderSummaryModel?
+    private enum SummarySheet: Identifiable { case summary, paywall; var id: Self { self } }
 
     // Highlight management sheet
     @State private var showHighlightsSheet: Bool = false
@@ -198,6 +204,27 @@ public struct ReaderView: View {
         }
         .sheet(isPresented: $showHighlightsSheet) {
             highlightsSheet
+        }
+        .sheet(item: $summarySheet, onDismiss: {
+            if let next = summaryNext {
+                summaryNext = nil
+                summarySheet = next
+            }
+        }) { sheet in
+            switch sheet {
+            case .summary:
+                if let summaryModel {
+                    ReaderSummarySheet(model: summaryModel) { summaryNext = .paywall }
+                }
+            case .paywall:
+                NaturalVoicePaywallView(feature: .readerSummary) {
+                    // Unlocked: the paywall closes itself, then the summary opens.
+                    if case .loaded(let article) = viewModel.loadState {
+                        ensureSummaryModel(article)
+                        summaryNext = .summary
+                    }
+                }
+            }
         }
         // Item, not a lookup in `viewModel.highlights`: deleting from the sheet removes it there
         // first, which would blank the sheet while it slides away.
@@ -483,6 +510,13 @@ public struct ReaderView: View {
             } label: {
                 Label("Read Aloud Settings", systemImage: "speaker.wave.2")
             }
+            if case .loaded(let article) = viewModel.loadState {
+                Button {
+                    startSummary(article)
+                } label: {
+                    Label("Summary", systemImage: "sparkles")
+                }
+            }
             Divider()
             Button {
                 isLongExtraction = false
@@ -520,6 +554,21 @@ public struct ReaderView: View {
                 .readerBarTapTarget()
         }
         .accessibilityLabel("More actions")
+    }
+
+    /// Menu → Summary. Subscribers (and anyone with a summary already saved for this exact text)
+    /// see the sheet; others the paywall (the server re-checks every request).
+    private func startSummary(_ article: ReaderArticle) {
+        ensureSummaryModel(article)
+        let canRead = NaturalVoiceAccess.shared.isEntitled || summaryModel?.hasSavedSummary() == true
+        summarySheet = canRead ? .summary : .paywall
+    }
+
+    /// One model per article text: Reload Article can change the text, which needs a new model.
+    private func ensureSummaryModel(_ article: ReaderArticle) {
+        if summaryModel?.article != article {
+            summaryModel = ReaderSummaryModel(article: article, urlKey: viewModel.url.readerCanonicalKey)
+        }
     }
 
     /// Voices for the loaded article's language, for the Read Aloud settings' voice picker.

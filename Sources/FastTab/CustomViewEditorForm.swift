@@ -211,7 +211,7 @@ struct CustomViewEditorForm: View {
             row("Profiles") { profileMenu }
             row("Domains") { domainsField }
             row("Keywords") {
-                TextField("Words in the title or address", text: $draft.keywords)
+                TextField("Words, *wild*card or /regex/ in title or URL", text: $draft.keywords)
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedField, equals: .keywords)
             }
@@ -418,7 +418,7 @@ struct CustomViewEditorForm: View {
 
     private var domainsField: some View {
         VStack(alignment: .leading, spacing: 3) {
-            TextField("github.com, docs.rs", text: $draft.domainsText)
+            TextField("github.com, *.docs.*, /regex/", text: $draft.domainsText)
                 .textFieldStyle(.roundedBorder)
                 .focused($focusedField, equals: .domains)
             let invalid = draft.invalidDomains

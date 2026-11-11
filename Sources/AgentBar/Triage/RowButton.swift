@@ -246,6 +246,13 @@ enum RowButtons {
         specs.filter { $0.isBlockedAction || $0.button == .moreActions || keeping.contains($0.button) }
     }
 
+    /// Left-to-right drawing order of the strip: the red blocker button (Answer / Review / Open
+    /// terminal) is always last, at the row's far right, so hover-only buttons appear to its left and
+    /// it never moves when the row is hovered or selected.
+    static func drawingOrder(_ specs: [RowButtonSpec]) -> [RowButtonSpec] {
+        specs.filter { !$0.isBlockedAction } + specs.filter(\.isBlockedAction)
+    }
+
     /// The text buttons that used to be capsules (Peek, Park/Unpark, Open in Claude, Message…) and
     /// now open from the ⋯ menu, in their old left-to-right order.
     static func movedIntoMenu(_ specs: [RowButtonSpec]) -> [RowButtonSpec] {

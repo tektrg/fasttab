@@ -194,3 +194,22 @@ struct RowButtonsTests {
         #expect(RowButtonHighlight.reconciled(nil, in: both) == nil)
     }
 }
+
+/// Bug 2026-11-11: hovering a blocked row pushed its Answer button left as the hover buttons appeared.
+struct RowButtonDrawingOrderTests {
+    @Test func theRedButtonIsAlwaysLastSoItStaysAtTheFarRight() {
+        let agent = AnswerFixtures.blockedAgent("q", blocker: .question(AnswerFixtures.question()))
+        let all = RowButtons.available(for: agent)
+        let unselected = RowButtons.drawingOrder(RowButtons.stripSpecs(all).filter(\.isBlockedAction))
+        let selected = RowButtons.drawingOrder(RowButtons.stripSpecs(all) + [RowButtonSpec(button: .moreActions, disabledReason: nil)])
+        #expect(unselected.last?.isBlockedAction == true)
+        #expect(selected.last?.isBlockedAction == true)
+        #expect(selected.last?.button == unselected.last?.button)
+        #expect(selected.count > unselected.count)   // the extra hover buttons sit to its left
+    }
+
+    @Test func orderKeepsTheRestAsIs() {
+        let specs = [RowButtonSpec(button: .park, disabledReason: nil), RowButtonSpec(button: .moreActions, disabledReason: nil)]
+        #expect(RowButtons.drawingOrder(specs) == specs)
+    }
+}

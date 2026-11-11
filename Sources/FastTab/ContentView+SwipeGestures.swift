@@ -146,28 +146,31 @@ extension ContentView {
     /// Not resetting the swipe-reveal state (`clearKeyboardSwipe`/
     /// `resetPointerSwipe`) until this final step is what lets the content's
     /// offset continue smoothly into the exit slide instead of snapping back
-    /// to rest first. And setting `closingResultID` in its own call — not
+    /// to rest first. And starting `rowRemovalExit` in its own call — not
     /// bundled into the same transaction as removing the row from the data
     /// source — is what gives SwiftUI a real intermediate render to animate
     /// from; doing both at once would make the outgoing row's transition
-    /// play from a snapshot taken *before* `closingResultID` ever matched
+    /// play from a snapshot taken *before* `rowRemovalExit` ever matched
     /// it, and the confirmation icon would never render.
     func performRemove(_ result: BrowserSearchResult) {
         let resultID = result.id
-        if let pendingID = closingResultID, pendingID != resultID {
-            closingResultTask?.cancel()
+        // Restart the timer even for the same row, so a double click can't
+        // end its exit slide early.
+        closingResultTask?.cancel()
+        if let pendingID = rowRemovalExit.begin(resultID) {
             if let pendingResult = displayedResults.first(where: { $0.id == pendingID }) {
                 appState.browserService.remove(pendingResult)
             }
         }
-        closingResultID = resultID
         closingResultTask = Task {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                closingResultID = nil
                 clearKeyboardSwipe()
                 resetPointerSwipe(animated: false)
+                // The row stays in its exited position (`rowRemovalExit`)
+                // while it leaves the list. Clearing it here instead would
+                // slide it back to rest before it vanished.
                 // Matches the surface's own resize curve (ContentView's
                 // `.animation(.easeOut(duration: 0.12), value: surfaceSize)`)
                 // so the panel doesn't finish shrinking — clipping the list —
@@ -176,6 +179,14 @@ extension ContentView {
                 withAnimation(.spring(response: 0.16, dampingFraction: 0.92)) {
                     appState.browserService.remove(result)
                 }
+            }
+            // Let the collapse finish before releasing the row. If it is
+            // still listed (the close failed), releasing slides it back.
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                let stillListed = displayedResults.contains { $0.id == resultID }
+                rowRemovalExit.finish(resultID, stillListed: stillListed)
             }
         }
     }

@@ -39,6 +39,10 @@ extension SyncConsumer: CKSyncEngineDelegate {
                 self.fetchLatestChanges()
 
             case .fetchedRecordZoneChanges(let fetchedChanges):
+                if !fetchedChanges.modifications.isEmpty || !fetchedChanges.deletions.isEmpty {
+                    self.fetchedChangeGeneration += 1
+                    self.resetPollBackoff()
+                }
                 await self.applyFetchedChanges(
                     modifications: fetchedChanges.modifications.map(\.record),
                     deletions: fetchedChanges.deletions.map(\.recordID))

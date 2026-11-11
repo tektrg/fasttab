@@ -148,8 +148,12 @@ enum CustomViewFilter {
     struct Matcher {
         let types: Set<BrowserResultType>
         let profiles: Set<String>
+        /// Plain domains (host or subdomain) and `*wildcard*` / `/regex/` host patterns.
         let domains: [String]
+        let domainPatterns: [String]
         let keywordWords: [String]
+        /// Keywords typed as one `*wildcard*` or `/regex/` (`TextPattern`): matched against title or URL.
+        let keywordPattern: String?
         let rule: LastVisitedRule
         let pinned: PinnedRule
 
@@ -159,9 +163,19 @@ enum CustomViewFilter {
                 let p = $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return p.isEmpty ? nil : p
             })
+            let patternEntries = view.domains.filter(CustomViewDomain.isPattern)
+            domainPatterns = TextPattern.clean(patternEntries)
             var seen = Set<String>()
-            domains = view.domains.compactMap(CustomViewDomain.normalize).filter { seen.insert($0).inserted }
-            keywordWords = searchWords(in: view.keywords)
+            domains = view.domains.filter { !CustomViewDomain.isPattern($0) }
+                .compactMap(CustomViewDomain.normalize).filter { seen.insert($0).inserted }
+            let keywords = view.keywords.trimmingCharacters(in: .whitespacesAndNewlines)
+            if TextPattern.isPattern(keywords) {
+                keywordPattern = TextPattern.normalize(keywords) ?? "/(?!)/"  // broken regex: matches nothing
+                keywordWords = []
+            } else {
+                keywordPattern = nil
+                keywordWords = searchWords(in: view.keywords)
+            }
             rule = view.lastVisited
             pinned = view.pinned
         }
@@ -173,11 +187,14 @@ enum CustomViewFilter {
                 guard let profile = item.profileName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                       profiles.contains(profile) else { return false }
             }
-            if !domains.isEmpty {
+            if !domains.isEmpty || !domainPatterns.isEmpty {
                 guard let host = CustomViewDomain.host(ofURL: item.url),
-                      domains.contains(where: { CustomViewDomain.host(host, isWithin: $0) }) else { return false }
+                      domains.contains(where: { CustomViewDomain.host(host, isWithin: $0) })
+                        || TextPattern.matches(host, entries: domainPatterns) else { return false }
             }
-            if !keywordWords.isEmpty, !item.matches(words: keywordWords) { return false }
+            if let keywordPattern {
+                guard TextPattern.matches(anyOf: [item.title, item.url], entries: [keywordPattern]) else { return false }
+            } else if !keywordWords.isEmpty, !item.matches(words: keywordWords) { return false }
             return true
         }
 

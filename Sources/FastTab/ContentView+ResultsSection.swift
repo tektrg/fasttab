@@ -258,7 +258,7 @@ extension ContentView {
                 pointerEdge: pointerSwipe.rowID == result.id ? pointerSwipe.revealedEdge : nil,
                 pointerOffset: pointerSwipe.rowID == result.id ? pointerSwipe.offset : 0,
                 keyboardEdge: keyboardSwipe.rowID == result.id ? keyboardSwipe.edge : nil,
-                isConfirmingRemoval: closingResultID == result.id,
+                isConfirmingRemoval: rowRemovalExit.isExiting(result.id),
                 onHoverChange: { isHovering in
                     if isHovering {
                         hoveredResultID = result.id

@@ -70,6 +70,9 @@ struct SearchFieldView: View {
                         .foregroundStyle(.secondary)
                 }
                 field
+                if model.newWorker == nil, model.taggedAgentID == nil {
+                    FocusButton(count: model.focusCount, action: model.onOpenFocus)
+                }
                 if showsNewWorkerButton {
                     Button(action: model.enterNewWorkerMode) {
                         Image(systemName: "plus")

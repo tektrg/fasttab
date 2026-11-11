@@ -1925,6 +1925,30 @@ class BrowserTabService: ObservableObject {
         refreshCachesIfNeeded(force: cachedBookmarks.isEmpty && cachedHistory.isEmpty)
     }
 
+    /// Re-reads every browser's bookmarks after FastTab itself changed them
+    /// (folder delete), so the Settings tree and the synced copy on the phone
+    /// both catch up without waiting for the 30s interval.
+    func refreshBookmarkTreeAfterExternalChange() {
+        refreshCachesIfNeeded(force: true)
+    }
+
+    /// Deletes a whole folder off the main thread. Safari and other read-only
+    /// browsers answer `.readOnlyBrowser` without touching anything.
+    func deleteBookmarkFolderAsync(_ folder: BookmarkFolder) async -> BookmarkFolderDeleteOutcome {
+        guard BookmarkFolderDeleteAvailability.of(folder) == .allowed else {
+            logger.warning("deleteBookmarkFolderAsync: refused folder not deletable browser=\(folder.browserName, privacy: .public)")
+            return folder.isRoot ? .rootFolder : .readOnlyBrowser
+        }
+        guard let backend = backend(for: folder.browserName) else {
+            logger.warning("deleteBookmarkFolderAsync: no backend for browser=\(folder.browserName, privacy: .public)")
+            return .failed
+        }
+        let target = BookmarkFolderTarget(profileName: folder.profileName, locator: .id(folder.rawID))
+        return await Task.detached(priority: .userInitiated) {
+            backend.deleteBookmarkFolder(target)
+        }.value
+    }
+
     private func refreshCachesIfNeeded(force: Bool) {
         InstalledWebAppCatalog.shared.rescanIfNeeded()
 

@@ -10,11 +10,9 @@ struct HighlightThreadSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var threads = ReaderCommentThreads.shared
-    @State private var draft = ""
     @State private var isSending = false
     @State private var errorMessage: String?
     @State private var confirmsDelete = false
-    @FocusState private var isComposerFocused: Bool
 
     private var thread: CommentThread? { threads.thread(for: highlight) }
 
@@ -28,7 +26,14 @@ struct HighlightThreadSheet: View {
                 .dsListRow()
             }
             .dsListStyle()
-            .safeAreaInset(edge: .bottom) { composer }
+            .safeAreaInset(edge: .bottom) {
+                // Its own view holding the draft: a keystroke re-renders only the input bar,
+                // not this sheet's list (and the reader behind it).
+                HighlightCommentComposer(placeholder: thread == nil ? "Add a comment" : "Reply",
+                                         isBusy: isSending, focusOnAppear: thread == nil) { text in
+                    await post(text)
+                }
+            }
             .navigationTitle(thread?.state == .resolved ? "Comments · Resolved" : "Comments")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarButtons }
@@ -45,7 +50,6 @@ struct HighlightThreadSheet: View {
             }
             .onAppear {
                 threads.load([highlight])
-                if thread == nil { isComposerFocused = true }
             }
         }
         .presentationDetents([.medium, .large])
@@ -81,27 +85,6 @@ struct HighlightThreadSheet: View {
         }
     }
 
-    private var composer: some View {
-        HStack(alignment: .bottom, spacing: DS.Space.sm) {
-            TextField(thread == nil ? "Add a comment" : "Reply", text: $draft, axis: .vertical)
-                .lineLimit(1...5)
-                .focused($isComposerFocused)
-                .padding(.horizontal, DS.Space.md)
-                .padding(.vertical, DS.Space.sm)
-                .background(DS.Palette.surfaceMuted, in: RoundedRectangle(cornerRadius: 18))
-            Button {
-                send()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill").font(.title2)
-            }
-            .disabled(isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .accessibilityLabel("Send comment")
-        }
-        .padding(.horizontal, DS.Space.lg)
-        .padding(.vertical, DS.Space.sm)
-        .background(.bar)
-    }
-
     @ToolbarContentBuilder
     private var toolbarButtons: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
@@ -127,12 +110,16 @@ struct HighlightThreadSheet: View {
         }
     }
 
-    private func send() {
-        let text = draft
-        perform {
+    /// Returns whether the comment was saved (the composer clears its draft only then).
+    private func post(_ text: String) async -> Bool {
+        isSending = true
+        defer { isSending = false }
+        do {
             try await threads.post(text, on: highlight)
-            // Keep anything typed while it was sending.
-            if draft == text { draft = "" }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -150,6 +137,48 @@ struct HighlightThreadSheet: View {
         case .human: return "You"
         case .agent: return "Agent"
         case .external: return author.id
+        }
+    }
+}
+
+/// The comment input bar. Owns the draft so typing invalidates only this small view.
+struct HighlightCommentComposer: View {
+    let placeholder: String
+    let isBusy: Bool
+    /// A highlight with no comments yet opens straight into typing.
+    let focusOnAppear: Bool
+    let onSend: @MainActor (String) async -> Bool
+
+    @State private var draft = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: DS.Space.sm) {
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .lineLimit(1...5)
+                .focused($isFocused)
+                .padding(.horizontal, DS.Space.md)
+                .padding(.vertical, DS.Space.sm)
+                .background(DS.Palette.surfaceMuted, in: RoundedRectangle(cornerRadius: 18))
+            Button {
+                send()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill").font(.title2)
+            }
+            .disabled(isBusy || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("Send comment")
+        }
+        .padding(.horizontal, DS.Space.lg)
+        .padding(.vertical, DS.Space.sm)
+        .background(.bar)
+        .onAppear { if focusOnAppear { isFocused = true } }
+    }
+
+    private func send() {
+        let text = draft
+        Task {
+            // Keep anything typed while it was sending.
+            if await onSend(text), draft == text { draft = "" }
         }
     }
 }

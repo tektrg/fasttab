@@ -119,7 +119,7 @@ public struct BookmarkTreeView: View {
     /// `BookmarkSource.blobID`. Delete and move share this hidden set: either
     /// one hides the same underlying row while in flight.
     private var hiddenBookmarkIDs: Set<String> {
-        Set(trackedActions.filter { !$0.progress.isFailure }.map(\.action.hideKey))
+        Set(trackedActions.filter { !$0.progress.isFailure }.flatMap(\.action.hideKeys))
     }
 
     /// Every synced bookmark's current identity (`blobID#bookmarkID`). A
@@ -142,7 +142,7 @@ public struct BookmarkTreeView: View {
         let live = liveBookmarkIdentity
         pendingActions.removeAll { pending in
             guard let progress = progress(for: pending) else { return true }
-            return progress.stage == .succeeded && !live.contains(pending.hideKey)
+            return progress.stage == .succeeded && !pending.hideKeys.contains(where: live.contains)
         }
     }
 
@@ -379,8 +379,11 @@ public struct BookmarkTreeView: View {
         } message: { node in
             // A merged folder can span Macs; delete goes to every one, so the
             // confirmation's blast radius should name them correctly.
-            let macCount = Set(BookmarkTreeBuilder.collectLeaves(from: node).compactMap { $0.source?.deviceID }).count
-            Text("Delete \"\(node.title)\" and its \(node.totalCount) bookmark\(node.totalCount == 1 ? "" : "s") from your \(macCount > 1 ? "Macs" : "Mac")?")
+            Text(FolderDeletePlanner.confirmation(
+                folderName: node.title,
+                bookmarkCount: node.totalCount,
+                subfolderCount: FolderDeletePlanner.subfolderCount(of: node)
+            ))
         }
         .dsToast($toast, bottomInset: DS.Space.xl)
     }
@@ -482,20 +485,57 @@ public struct BookmarkTreeView: View {
         return action
     }
 
-    /// Swipe-to-delete on a folder: asks for confirmation first (the dialog
-    /// is driven by `pendingDeleteFolder`), then deletes every bookmark inside
-    /// it — one command per leaf, each aimed at that leaf's own Mac.
+    /// Swipe-to-delete on a folder, after the confirmation: ONE
+    /// `deleteBookmarkFolder` command per browser profile the folder lives in
+    /// (usually exactly one). The Mac removes the folder with every subfolder
+    /// and bookmark and answers once, so the strip shows one item per folder.
+    /// A Mac too old to know the command gets nothing — it would drop it
+    /// silently — and the user is told to update it instead.
     private func confirmDeleteFolder(_ node: BookmarkTreeNode) {
-        let leaves = BookmarkTreeBuilder.collectLeaves(from: node)
-        var issued = 0
-        for leaf in leaves {
-            if issueDeleteCommand(for: leaf) != nil { issued += 1 }
+        pendingDeleteFolder = nil
+        switch FolderDeletePlanner.plan(for: node, devices: localCache.state.devices) {
+        case .notDeletable(let reason):
+            showToast(message: reason)
+        case .macNeedsUpdate(let macName):
+            showToast(message: "Update FastTab on \(macName) to delete whole folders — nothing was deleted")
+        case .send(let requests):
+            var issued = 0
+            for request in requests where issueDeleteFolderCommand(request, title: node.title) != nil {
+                issued += 1
+            }
+            if issued == 0 {
+                showToast(message: "Couldn't queue that delete — the folder is still there")
+            } else {
+                showToast(message: folderActionAcknowledgement(node: node, leaves: BookmarkTreeBuilder.collectLeaves(from: node), verb: "Delete"))
+            }
         }
-        if issued == 0 {
-            showToast(message: "Couldn't queue that delete — the folder is still there")
-        } else {
-            showToast(message: folderActionAcknowledgement(node: node, leaves: leaves, verb: "Delete"))
+    }
+
+    @discardableResult
+    private func issueDeleteFolderCommand(_ request: FolderDeleteRequest, title: String) -> PendingBookmarkAction? {
+        let knownCommandIDs = Set(localCache.state.sentCommands.map(\.id))
+        SyncConsumer.shared.sendDeleteBookmarkFolder(
+            browserName: request.source.browserName,
+            profileName: request.source.profileName,
+            folderPath: request.folderPath,
+            targetDeviceID: request.source.deviceID
+        )
+        guard let issued = localCache.state.sentCommands.first(where: { !knownCommandIDs.contains($0.id) }) else {
+            return nil
         }
+        let action = PendingBookmarkAction(
+            blobID: request.source.blobID,
+            bookmarkID: "folder:" + request.folderPath.joined(separator: "/"),
+            commandID: issued.id,
+            bookmarkTitle: title,
+            kind: .delete,
+            coveredBookmarkIDs: request.bookmarkIDs
+        )
+        withAnimation(.easeInOut(duration: 0.2)) {
+            pendingActions.removeAll { $0.id == action.id }
+            pendingActions.append(action)
+        }
+        return action
     }
 
     /// Swipe-to-move on a folder: nests the folder (and everything inside it)

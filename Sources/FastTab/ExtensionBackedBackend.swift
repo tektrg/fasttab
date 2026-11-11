@@ -264,6 +264,39 @@ struct ExtensionBackedBackend<Inner: BrowserBackend & ChromiumProfileAccess>: Br
     func createBookmarkFolder(name: String, parentPath: [String], profileName: String) -> Bool {
         inner.createBookmarkFolder(name: name, parentPath: parentPath, profileName: profileName)
     }
+    func locateBookmarkFolder(_ target: BookmarkFolderTarget) -> BookmarkFolderLocateResult {
+        inner.locateBookmarkFolder(target)
+    }
+
+    /// The extension (`chrome.bookmarks.removeTree`) first, so the running
+    /// browser drops the folder right away; the `Bookmarks` file edit is the
+    /// fallback when the extension is absent, old, or refuses. The bridge is
+    /// not profile-aware, so the extension re-checks the folder's title and
+    /// ancestor names before removing anything — a same-id folder in another
+    /// profile is refused rather than deleted.
+    func deleteBookmarkFolder(_ target: BookmarkFolderTarget) -> BookmarkFolderDeleteOutcome {
+        let folder: LocatedBookmarkFolder
+        switch inner.locateBookmarkFolder(target) {
+        case .failed(let outcome):
+            extensionBackedBackendLogger.error("deleteBookmarkFolder: locate failed app=\(self.appName, privacy: .public) outcome=\(String(describing: outcome), privacy: .public)")
+            return outcome
+        case .found(let found):
+            folder = found
+        }
+        let payload: [String: Any] = [
+            "id": folder.id,
+            "title": folder.title,
+            "ancestorTitles": folder.ancestorTitles
+        ]
+        if bridge.sendBrowserCommand(appName: appName, type: "deleteBookmarkFolder", payload: payload, timeout: 3.0) {
+            extensionBackedBackendLogger.info("deleteBookmarkFolder via extension succeeded app=\(self.appName, privacy: .public) id=\(folder.id, privacy: .public)")
+            _ = inner.deleteBookmarkFolder(BookmarkFolderTarget(profileName: target.profileName, locator: .id(folder.id)))
+            return .deleted(bookmarkCount: folder.bookmarkCount, subfolderCount: folder.subfolderCount)
+        }
+        extensionBackedBackendLogger.info("deleteBookmarkFolder: extension unavailable, editing Bookmarks file app=\(self.appName, privacy: .public)")
+        return inner.deleteBookmarkFolder(BookmarkFolderTarget(profileName: target.profileName, locator: .id(folder.id)))
+    }
+
     func moveBookmark(id: String, parentId: String?, index: Int?) -> Bool {
         ExtensionBridge.shared.moveBookmark(appName: appName, id: id, parentId: parentId, index: index)
     }

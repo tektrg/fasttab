@@ -28,6 +28,17 @@ public struct SyncedDeviceKind: RawRepresentable, Codable, Hashable, Sendable {
     }
 }
 
+/// Sync command features a device's build understands. Published with the
+/// device record so a newer phone can tell an older Mac apart *before*
+/// sending a command that Mac would silently drop.
+public enum SyncedDeviceCapability {
+    /// Understands `SyncCommandKind.deleteBookmarkFolder`.
+    public static let deleteBookmarkFolder = "deleteBookmarkFolder"
+
+    /// Everything this build of the Mac app handles.
+    public static let currentMac: [String] = [deleteBookmarkFolder]
+}
+
 public struct SyncedDevice: Identifiable, Codable, Hashable, Sendable {
     public let id: String
     public let name: String
@@ -35,6 +46,8 @@ public struct SyncedDevice: Identifiable, Codable, Hashable, Sendable {
     public let lastSeenAt: Date
     public let appVersion: String
     public let kind: SyncedDeviceKind
+    /// See `SyncedDeviceCapability`. Empty for records from older builds.
+    public let capabilities: [String]
 
     public init(
         id: String,
@@ -42,7 +55,8 @@ public struct SyncedDevice: Identifiable, Codable, Hashable, Sendable {
         modelName: String,
         lastSeenAt: Date = Date(),
         appVersion: String,
-        kind: SyncedDeviceKind = .mac
+        kind: SyncedDeviceKind = .mac,
+        capabilities: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -50,12 +64,15 @@ public struct SyncedDevice: Identifiable, Codable, Hashable, Sendable {
         self.lastSeenAt = lastSeenAt
         self.appVersion = appVersion
         self.kind = kind
+        self.capabilities = capabilities
     }
+
+    public func supports(_ capability: String) -> Bool { capabilities.contains(capability) }
 
     public var isMac: Bool { kind == .mac }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, modelName, lastSeenAt, appVersion, kind
+        case id, name, modelName, lastSeenAt, appVersion, kind, capabilities
     }
 
     /// Hand-written so caches saved before `kind` existed still load: the
@@ -69,6 +86,7 @@ public struct SyncedDevice: Identifiable, Codable, Hashable, Sendable {
         self.lastSeenAt = try container.decode(Date.self, forKey: .lastSeenAt)
         self.appVersion = try container.decode(String.self, forKey: .appVersion)
         self.kind = try container.decodeIfPresent(SyncedDeviceKind.self, forKey: .kind) ?? .legacyDefault
+        self.capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
     }
 }
 
@@ -77,10 +95,12 @@ extension SyncedDevice {
 
     /// Additive field: old builds ignore it, and a record without it is a Mac.
     static let kindRecordKey = "deviceKind"
+    /// Additive field: old builds ignore it; a record without it supports nothing new.
+    static let capabilitiesRecordKey = "capabilities"
 
     /// Every field `init(from:)` reads: the `desiredKeys` a partial fetch
     /// must request to still decode a device.
-    public static let recordFieldKeys = ["name", "modelName", "lastSeenAt", "appVersion", kindRecordKey]
+    public static let recordFieldKeys = ["name", "modelName", "lastSeenAt", "appVersion", kindRecordKey, capabilitiesRecordKey]
 
     public init?(from record: CKRecord) {
         guard record.recordType == Self.recordType else { return nil }
@@ -96,6 +116,7 @@ extension SyncedDevice {
         self.lastSeenAt = lastSeenAt
         self.appVersion = appVersion
         self.kind = SyncedDeviceKind(recordValue: record[Self.kindRecordKey] as? String)
+        self.capabilities = record[Self.capabilitiesRecordKey] as? [String] ?? []
     }
 
     public func toRecord(zoneID: CKRecordZone.ID) -> CKRecord {
@@ -111,6 +132,8 @@ extension SyncedDevice {
         record["lastSeenAt"] = lastSeenAt as NSDate
         record["appVersion"] = appVersion as NSString
         record[Self.kindRecordKey] = kind.rawValue as NSString
+        // CloudKit rejects an empty list field, so an empty set is "absent".
+        record[Self.capabilitiesRecordKey] = capabilities.isEmpty ? nil : capabilities as NSArray
         return record
     }
 }

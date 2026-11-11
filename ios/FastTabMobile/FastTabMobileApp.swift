@@ -210,9 +210,9 @@ private extension FastTabMobileApp {
             showsDemoPaywall = true
         case .more, .highlights, .bookmarks: selectedTab = .more
         case .tabs: selectedTab = .tabs
-        case .reader, .listen:
+        case .reader, .listen, .listenSettings:
             selectedTab = .read
-            let article = AppStoreDemo.screen == .listen ? AppStoreDemo.listenArticle : AppStoreDemo.featured
+            let article = AppStoreDemo.screen == .reader ? AppStoreDemo.featured : AppStoreDemo.listenArticle
             if let url = URL(string: article.url) {
                 widgetReaderItem = ReaderNavigationItem(url: url, title: article.title, focusHighlightID: nil)
             }

@@ -81,6 +81,47 @@ extension SyncService {
             // Creates a brand-new bookmark folder or subfolder. Runs immediately
             // with no approval step.
             handleCreateFolderCommand(command)
+        case .deleteBookmarkFolder:
+            // One command removes the folder, its subfolders and bookmarks, and
+            // answers with one status. Root folders and read-only browsers
+            // (Safari) are refused with a reason the phone shows as-is.
+            handleDeleteFolderCommand(command)
+        }
+    }
+
+    private func handleDeleteFolderCommand(_ command: SyncCommand) {
+        var responseCmd = command
+        responseCmd.completedAt = Date()
+        guard let data = command.payloadJSON.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(DeleteBookmarkFolderPayload.self, from: data) else {
+            responseCmd.status = .refused
+            responseCmd.statusReason = "Invalid delete folder payload"
+            logger.error("deleteBookmarkFolder: undecodable payload id=\(command.id, privacy: .public)")
+            pushCommandResult(responseCmd)
+            return
+        }
+        let outcome: BookmarkFolderDeleteOutcome
+        if BookmarkFolderDeleteCopy.isSafari(payload.browserName) {
+            outcome = .readOnlyBrowser
+        } else if let backend = BrowserTabService.shared.backend(for: payload.browserName) {
+            outcome = backend.deleteBookmarkFolder(BookmarkFolderTarget(
+                profileName: payload.profileName,
+                locator: .path(payload.folderPath)
+            ))
+        } else {
+            responseCmd.status = .notFound
+            responseCmd.statusReason = "Browser \(payload.browserName) is not available"
+            logger.warning("deleteBookmarkFolder: unavailable browser=\(payload.browserName, privacy: .public)")
+            pushCommandResult(responseCmd)
+            return
+        }
+        let response = BookmarkFolderDeleteCopy.syncResponse(for: outcome, browserName: payload.browserName)
+        responseCmd.status = response.status
+        responseCmd.statusReason = response.reason
+        logger.info("deleteBookmarkFolder: id=\(command.id, privacy: .public) browser=\(payload.browserName, privacy: .public) depth=\(payload.folderPath.count) outcome=\(String(describing: outcome), privacy: .public)")
+        pushCommandResult(responseCmd)
+        if case .deleted = outcome {
+            Task { @MainActor in BrowserTabService.shared.refreshBookmarkTreeAfterExternalChange() }
         }
     }
 
@@ -358,6 +399,8 @@ extension SyncService {
         }
 
         var deleted = false
+        var failureReason = "Browser not available to delete from"
+        var failureStatus: SyncCommandStatus = .notFound
         switch command.kind {
         case .deleteBookmark:
             guard let payload = try? JSONDecoder().decode(DeleteBookmarkPayload.self, from: data) else {
@@ -375,7 +418,17 @@ extension SyncService {
                 bookmarkID: payload.bookmarkID,
                 profileName: payload.profileName
             )
-            deleted = executeDeletion(of: result, bookmarkID: payload.bookmarkID)
+            if BookmarkFolderDeleteCopy.isSafari(payload.browserName) {
+                // Safari is read-only: answer that plainly instead of the old
+                // false "Deleted on Mac".
+                failureStatus = .refused
+                failureReason = BookmarkFolderDeleteCopy.safariReadOnly
+            } else {
+                deleted = executeDeletion(of: result, bookmarkID: payload.bookmarkID)
+                if !deleted, BrowserTabService.shared.backend(for: payload.browserName) != nil {
+                    failureReason = "Your Mac couldn't delete that bookmark"
+                }
+            }
 
         case .deleteHistoryItem:
             guard let payload = try? JSONDecoder().decode(DeleteHistoryItemPayload.self, from: data) else {
@@ -400,8 +453,8 @@ extension SyncService {
         // An unavailable browser means the delete could not be applied at all —
         // say `.notFound`, not `.done`, or the phone would drop its copy and the
         // deletion would look successful when nothing on the Mac changed.
-        responseCmd.status = deleted ? .done : .notFound
-        responseCmd.statusReason = deleted ? "Deleted on Mac" : "Browser not available to delete from"
+        responseCmd.status = deleted ? .done : failureStatus
+        responseCmd.statusReason = deleted ? "Deleted on Mac" : failureReason
         pushCommandResult(responseCmd)
         logger.info("Executed delete command id=\(command.id, privacy: .public) kind=\(command.kind.rawValue, privacy: .public) status=\(responseCmd.status.rawValue, privacy: .public)")
     }
@@ -433,7 +486,9 @@ extension SyncService {
             return false
         }
         if result.type == .bookmark {
-            backend.deleteBookmark(result)
+            // Report what really happened: a backend that can't write
+            // bookmarks returns false, and the phone must hear a failure.
+            return backend.deleteBookmark(result)
         } else if result.type == .history {
             backend.deleteHistoryItem(result)
         }

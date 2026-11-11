@@ -168,6 +168,13 @@ protocol BrowserBackend: Sendable {
     /// Creates a new bookmark folder or subfolder in `profileName` under `parentPath`.
     /// Returns whether the folder was successfully created.
     func createBookmarkFolder(name: String, parentPath: [String], profileName: String) -> Bool
+    /// Finds a folder without changing anything (for counts and for the
+    /// extension path). Only Chromium-family backends can; others report
+    /// `.readOnlyBrowser`.
+    func locateBookmarkFolder(_ target: BookmarkFolderTarget) -> BookmarkFolderLocateResult
+    /// Permanently deletes a folder with every subfolder and bookmark inside.
+    /// Root folders are always refused.
+    func deleteBookmarkFolder(_ target: BookmarkFolderTarget) -> BookmarkFolderDeleteOutcome
 }
 
 extension BrowserBackend {
@@ -234,6 +241,8 @@ extension BrowserBackend {
     func removeBookmarkForMove(_ result: BrowserSearchResult) -> RemovedBookmarkNode? { nil }
     func insertBookmark(title: String, url: String, dateAdded: Date?, profileName: String, folderPath: [String]) -> Bool { false }
     func createBookmarkFolder(name: String, parentPath: [String], profileName: String) -> Bool { false }
+    func locateBookmarkFolder(_ target: BookmarkFolderTarget) -> BookmarkFolderLocateResult { .failed(.readOnlyBrowser) }
+    func deleteBookmarkFolder(_ target: BookmarkFolderTarget) -> BookmarkFolderDeleteOutcome { .readOnlyBrowser }
     func moveBookmark(id: String, parentId: String?, index: Int?) -> Bool { false }
     func updateBookmark(id: String, title: String?, url: String?) -> Bool { false }
 
@@ -260,7 +269,8 @@ extension BrowserBackend {
                 name: name,
                 browserName: appName,
                 profileName: items.first?.profileName ?? "Default",
-                children: items.map { .item($0) }
+                children: items.map { .item($0) },
+                isSynthesized: true
             )
         }
     }

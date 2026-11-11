@@ -23,7 +23,7 @@ enum AppStoreDemo {
     static var isEnabled: Bool { UserDefaults.standard.bool(forKey: "FastTabAppStoreDemo") }
 
     enum Screen: String {
-        case read, reader, highlights, more, shuffle, tabs, bookmarks, transcript, listen, swipe, paywall
+        case read, reader, highlights, more, shuffle, tabs, bookmarks, transcript, listen, listenSettings, swipe, paywall
     }
 
     static var screen: Screen {
@@ -300,6 +300,7 @@ enum AppStoreDemo {
                 windowIndex: 0, tabIndex: index, tabID: index + 1
             ))
         }
+        FaviconModel.shared.apply(SyncedFavicons(deviceID: mac.id, icons: demoFavicons(forURLs: tabs.map(\.2))))
         let bookmarks: [(String, String, String)] = [
             ("", "The art of the unhurried read", articles[0].url),
             ("", "Notes that compound: keeping ideas you can find again", articles[5].url),
@@ -320,6 +321,33 @@ enum AppStoreDemo {
                 bookmarks: browser == "Safari" ? items.filter { $0.folderPath == "Bookmarks Bar" } : items.filter { $0.folderPath != "Bookmarks Bar" }
             ))
         }
+    }
+
+    /// Made-up site icons for the demo tabs (the made-up sites have no real favicons): a coloured
+    /// rounded square with a symbol, 48 px like the Mac's synced icons (`SyncedFavicons.iconEdgePixels`).
+    static func demoFavicons(forURLs urls: [String]) -> [String: Data] {
+        let looks: [(String, UIColor)] = [
+            ("book.closed.fill", .systemOrange), ("textformat", .black), ("map.fill", .systemTeal),
+            ("lightbulb.fill", .systemPurple), ("square.grid.2x2.fill", .systemBlue), ("fork.knife", .systemRed),
+            ("sparkles", .systemIndigo), ("leaf.fill", .systemGreen)
+        ]
+        let edge = CGFloat(SyncedFavicons.iconEdgePixels)
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        var out: [(host: String, png: Data)] = []
+        for (index, url) in urls.enumerated() {
+            guard let host = SyncedFavicons.host(fromURL: url), !out.contains(where: { $0.host == host }) else { continue }
+            let look = looks[index % looks.count]
+            let png = UIGraphicsImageRenderer(size: CGSize(width: edge, height: edge), format: format).pngData { _ in
+                look.1.setFill()
+                UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: edge, height: edge), cornerRadius: edge * 0.22).fill()
+                let config = UIImage.SymbolConfiguration(pointSize: edge * 0.5, weight: .semibold)
+                if let symbol = UIImage(systemName: look.0, withConfiguration: config)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
+                    symbol.draw(at: CGPoint(x: (edge - symbol.size.width) / 2, y: (edge - symbol.size.height) / 2))
+                }
+            }
+            out.append((host, png))
+        }
+        return SyncedFavicons.select(out)
     }
 
     /// The reader's highlight anchor (`serializeRange` in reader_template.html): the passage's

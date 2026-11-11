@@ -5,6 +5,7 @@ struct ShortcutsSettingsView: View {
     @ObservedObject var settings: AgentBarSettings
     let actions: AgentBarSettingsActions
     @State private var problem: String?
+    @State private var focusProblem: String?
 
     var body: some View {
         Form {
@@ -36,6 +37,39 @@ struct ShortcutsSettingsView: View {
                         record(.standard)
                     }
                 }
+            }
+
+            Section("Focus mode") {
+                HStack {
+                    Text("Answer agents one by one")
+                    Spacer()
+                    ShortcutRecorderField(
+                        displayString: settings.focusHotkey.displayName,
+                        onRecord: { focusProblem = actions.changeFocusHotkey($0).message },
+                        onKeyWithoutModifier: {
+                            focusProblem = "Hold at least one of ⌘ ⌥ ⌃ ⇧ while pressing the key."
+                        },
+                        onRecordingChange: { isRecording in
+                            if isRecording { focusProblem = nil }
+                            actions.setHotkeyRecording(isRecording)
+                        }
+                    )
+                }
+                if let focusProblem {
+                    Text(focusProblem)
+                        .font(.avenir(size: 10))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if settings.focusHotkey != FocusHotkey.standard {
+                    Button("Reset to \(FocusHotkey.standard.displayName)") {
+                        focusProblem = actions.changeFocusHotkey(FocusHotkey.standard).message
+                    }
+                }
+                Text("Opens a full-screen card for each agent that needs you. ⌘F does the same while the panel is open.")
+                    .font(.avenir(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Switching") {

@@ -43,17 +43,31 @@ struct AgentHotkeyConfig: Equatable {
         lhs.keyCode == rhs.keyCode && lhs.modifiers == rhs.modifiers
     }
 
+    /// Where one shortcut lives in UserDefaults. The summon shortcut and Focus mode's each have their own.
+    struct DefaultsKeys: Equatable {
+        let keyCode: String
+        let modifiers: String
+        let keyName: String
+
+        static let summon = DefaultsKeys(keyCode: keyCodeDefaultsKey, modifiers: modifiersDefaultsKey, keyName: keyNameDefaultsKey)
+    }
+
     /// The configured shortcut, or ⌥Tab when unset or invalid.
     /// Pass `.standard` (UserDefaults) in the app.
     static func configured(defaults: UserDefaults = .standard) -> AgentHotkeyConfig {
-        guard let keyCode = defaults.object(forKey: keyCodeDefaultsKey) as? Int,
+        configured(defaults: defaults, keys: .summon, fallback: .standard)
+    }
+
+    /// The shortcut stored under `keys`, or `fallback` when unset or invalid.
+    static func configured(defaults: UserDefaults, keys: DefaultsKeys, fallback: AgentHotkeyConfig) -> AgentHotkeyConfig {
+        guard let keyCode = defaults.object(forKey: keys.keyCode) as? Int,
               (0...maxKeyCode).contains(keyCode),
-              let modifierBits = defaults.object(forKey: modifiersDefaultsKey) as? Int,
+              let modifierBits = defaults.object(forKey: keys.modifiers) as? Int,
               let modifiers = modifiers(fromBits: modifierBits)
-        else { return .standard }
+        else { return fallback }
         return AgentHotkeyConfig(
             keyCode: UInt16(keyCode), modifiers: modifiers,
-            keyName: defaults.string(forKey: keyNameDefaultsKey)
+            keyName: defaults.string(forKey: keys.keyName)
         )
     }
 
@@ -67,13 +81,18 @@ struct AgentHotkeyConfig: Equatable {
     /// Persists this shortcut; `.standard` is stored by removing the keys, so a
     /// reset leaves the defaults domain as if it were never customised.
     func save(to defaults: UserDefaults = .standard) {
-        guard self != .standard else {
-            [Self.keyCodeDefaultsKey, Self.modifiersDefaultsKey, Self.keyNameDefaultsKey].forEach(defaults.removeObject(forKey:))
+        save(to: defaults, keys: .summon, standard: .standard)
+    }
+
+    /// Persists under `keys`; `standard` is stored by removing them.
+    func save(to defaults: UserDefaults, keys: DefaultsKeys, standard: AgentHotkeyConfig) {
+        guard self != standard else {
+            [keys.keyCode, keys.modifiers, keys.keyName].forEach(defaults.removeObject(forKey:))
             return
         }
-        defaults.set(Int(keyCode), forKey: Self.keyCodeDefaultsKey)
-        defaults.set(modifierBits, forKey: Self.modifiersDefaultsKey)
-        defaults.set(keyName, forKey: Self.keyNameDefaultsKey)
+        defaults.set(Int(keyCode), forKey: keys.keyCode)
+        defaults.set(modifierBits, forKey: keys.modifiers)
+        defaults.set(keyName, forKey: keys.keyName)
     }
 
     /// Same key plus ⇧, for cycling backward. Nil when ⇧ is already part of the

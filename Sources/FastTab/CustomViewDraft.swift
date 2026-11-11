@@ -1,4 +1,5 @@
 import Foundation
+import IndieSearch
 
 /// The view builder's working copy of a `CustomView` (bar inline editor and
 /// Settings › Views sheet share it). Differs from the saved model where the
@@ -102,7 +103,9 @@ struct CustomViewDraft: Equatable {
 
     /// `CustomViewDomain.normalize`, plus a character check so typos that
     /// can't be a host are reported instead of silently matching nothing.
+    /// `*wildcard*` / `/regex/` host patterns are kept as typed (a broken regex is invalid).
     static func normalizedDomain(_ raw: String) -> String? {
+        if CustomViewDomain.isPattern(raw) { return TextPattern.normalize(raw) }
         guard let host = CustomViewDomain.normalize(raw) else { return nil }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._[]:"))
         guard host.unicodeScalars.allSatisfy(allowed.contains),

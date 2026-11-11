@@ -293,7 +293,8 @@ final class SyncService: NSObject, ObservableObject {
             modelName: deviceModel,
             lastSeenAt: publishedAt,
             appVersion: appVersion,
-            kind: .mac
+            kind: .mac,
+            capabilities: SyncedDeviceCapability.currentMac
         )
 
         let recordID = CKRecord.ID(recordName: device.id, zoneID: SyncConstants.stateZoneID)

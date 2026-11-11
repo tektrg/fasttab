@@ -11,6 +11,9 @@ struct MessageCardView: View {
     var copiedAgentID: String?
     var onCopy: () -> Void = {}
     var onOpen: () -> Void = {}
+    /// False in Focus mode, whose left column already shows the last message: the text box then
+    /// takes the whole card height instead of the fixed `fieldHeight`.
+    var showsLastMessage = true
 
     static let fieldHeight: CGFloat = 78
 
@@ -23,11 +26,14 @@ struct MessageCardView: View {
                         message.pressWrapUpAction($0)
                     }
                 }
-                ScrollView {
-                    LastMessageSection(message: card.message)
-                        .padding(.bottom, 4)
+                if showsLastMessage {
+                    ScrollView {
+                        LastMessageSection(message: card.message)
+                            .padding(.bottom, 4)
+                    }
                 }
                 composer(card)
+                    .frame(maxHeight: showsLastMessage ? nil : .infinity)
                 bottomBar(card)
             }
             .frame(height: bodyHeight)
@@ -75,7 +81,7 @@ struct MessageCardView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .frame(height: Self.fieldHeight)
+            .frame(minHeight: Self.fieldHeight, maxHeight: showsLastMessage ? Self.fieldHeight : .infinity)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.07)))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.15)))
             if !card.images.isEmpty {

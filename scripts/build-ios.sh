@@ -9,7 +9,9 @@ set -euo pipefail
 # plugged in).
 #
 # Usage:
-#   scripts/build-ios.sh [--release] [--clean] [--wait] [--device <id>]
+#   scripts/build-ios.sh [--release] [--clean] [--wait] [--device <id>] [--check-only]
+#   --check-only: only confirm the target iPhone is paired + reachable, then exit
+#   (prod-push.sh uses it as a preflight before touching any Mac app).
 #
 # Checks the phone is reachable (unlocked, tunnel up) before building.
 #
@@ -19,7 +21,7 @@ set -euo pipefail
 #                        device is paired).
 
 # Resolve script location even if invoked via symlink
-source_file="${BASH_SOURCE[0]}"
+source_file="${BASH_SOURCE[0]:-$0}"   # $0 when streamed via `bash -s` (run from scripts/)
 while [[ -L "${source_file}" ]]; do
   link_dir="$(cd -P "$(dirname "${source_file}")" && pwd)"
   source_file="$(readlink "${source_file}")"
@@ -33,6 +35,7 @@ CONFIG="Debug"
 CLEAN_BUILD=false
 DEVICE_OVERRIDE="${FASTTAB_IOS_DEVICE:-}"
 WAIT_FOR_DEVICE=false
+CHECK_ONLY=false
 WAIT_SECONDS=120
 
 while [[ $# -gt 0 ]]; do
@@ -52,6 +55,10 @@ while [[ $# -gt 0 ]]; do
     --device)
       DEVICE_OVERRIDE="$2"
       shift 2
+      ;;
+    --check-only)
+      CHECK_ONLY=true
+      shift
       ;;
     -h|--help)
       echo "Usage: $0 [--release] [--clean] [--wait] [--device <identifier>]"
@@ -164,6 +171,7 @@ DEVICE_NAME="$(echo "${device_info}" | cut -f2)"
 DEVICE_MODEL="$(echo "${device_info}" | cut -f3)"
 echo "    target: ${DEVICE_NAME} (${DEVICE_MODEL})"
 echo "    device: ${DEVICE_ID}"
+[[ "${CHECK_ONLY}" == true ]] && exit 0
 
 echo "==> xcodegen generate"
 xcodegen generate

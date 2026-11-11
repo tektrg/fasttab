@@ -4,6 +4,7 @@ import Testing
 
 // Serialized: the decorator tests flip `ExtensionBetaPreference`, a global
 // UserDefaults value, so they must not run concurrently.
+extension ExtensionBetaPreferenceSerial {
 @Suite(.serialized) struct ExtensionBridgeTests {
 
     // MARK: - Test doubles
@@ -678,4 +679,5 @@ import Testing
         #expect(!ExtensionBridge.isNoSuchTabError("timeout"))
         #expect(!ExtensionBridge.isNoSuchTabError("port closed"))
     }
-}
+}}
+

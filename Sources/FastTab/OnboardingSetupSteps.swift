@@ -21,7 +21,7 @@ struct ExtensionInstallStep: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 12)
+            Spacer(minLength: 4)
 
             OnboardingHeroExtension(state: ExtensionHeroState(setupState: permissions.extensionSetupState))
                 .padding(.bottom, 10)
@@ -64,7 +64,7 @@ struct ExtensionInstallStep: View {
                     .foregroundStyle(.secondary)
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 4)
         }
         .onAppear {
             scheduleAutoAdvanceIfConnected()

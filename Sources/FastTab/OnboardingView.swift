@@ -455,7 +455,7 @@ struct SourcePickerStep: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 20)
+            Spacer(minLength: 12)
 
             OnboardingHeroSources(state: SourcesHeroState(enabled: store.enabled))
                 .padding(.bottom, 14)
@@ -502,7 +502,7 @@ struct SourcePickerStep: View {
                     .padding(.top, 8)
             }
 
-            Spacer(minLength: 16)
+            Spacer(minLength: 12)
         }
     }
 }

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import FastTab
 
+extension ExtensionBetaPreferenceSerial {
 @Suite("Recent Sort Repro Tests", .serialized)
 struct RecentSortReproTests {
 
@@ -322,4 +323,5 @@ struct RecentSortReproTests {
         #expect(sortQuickOpenResults(sentLinks + [activeTab]).map(\.url) == ["https://example.com/active"])
         #expect(sortQuickOpenResults(sentLinks).isEmpty)
     }
-}
+}}
+

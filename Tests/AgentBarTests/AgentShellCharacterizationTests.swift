@@ -70,6 +70,13 @@ struct AgentShellCharacterizationTests {
         #expect(H.text(for: .init(isTagged: true)) == "↩ send   tab retag   esc untag")
     }
 
+    @Test func footerHintsSplitIntoSharedKeyTokens() {
+        let tokens = PanelFooterHints.guidance(for: .init()).tokens
+        #expect(tokens.map(\.glyph) == ["↑↓", "←→", "space", "↩", "esc"])
+        #expect(tokens.map(\.label) == ["select", "actions", "peek", "switch", "close"])
+        #expect(PanelFooterHints.guidance(for: .init(hasDismissibleNotice: true)).tokens == [GuidanceToken(glyph: "esc", label: "dismiss notice")])
+    }
+
     // MARK: Pages
 
     @Test func pageTabsTitlesIconsAndNumbers() {

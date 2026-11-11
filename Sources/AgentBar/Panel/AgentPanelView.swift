@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import IndieCommandBar
 
 /// Panel content: the list or a status message, the optional stale-board note, then the search
 /// field and the footer (a failure notice floats above it). Total height is dictated by
@@ -54,11 +56,15 @@ struct AgentPanelView: View {
                 onOpenSettings: onOpenSettings
             )
         }
+        .overlay(alignment: .top) { CopiedToast(copier: model.copier) }
         .frame(width: AgentPanelMetrics.width)
         .frame(maxHeight: .infinity, alignment: .bottom)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(0.12)))
+        // Fast Tab's look: the shared glass, corner radius and theme. Agent Bar sets only its accent and icon.
+        .background(CommandBarFrostedBackground())
+        .clipShape(RoundedRectangle(cornerRadius: CommandBarLayout.surfaceCornerRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: CommandBarLayout.surfaceCornerRadius, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+        .environment(\.commandBarTheme, AgentBarTheme.current)
+        .tint(AgentBarTheme.current.accentColor)
         .confirmationDialog(
             "Attach across projects?",
             isPresented: Binding(get: { model.treeModel.pendingConfirm != nil }, set: { if !$0 { model.treeModel.cancelPendingAttach() } }),
@@ -216,5 +222,29 @@ struct AgentPanelView: View {
                 onNewWorker: model.enterNewWorkerMode
             )
         }
+    }
+}
+
+/// Agent Bar's only look settings on the shared shell: its accent colour and app icon.
+enum AgentBarTheme {
+    @MainActor static var current: CommandBarTheme {
+        CommandBarTheme(accentColor: .accentColor, appIcon: NSApp.applicationIconImage)
+    }
+}
+
+/// The shared "copied" toast at the top of the panel while a ⌘C / copy button's feedback lasts.
+private struct CopiedToast: View {
+    @ObservedObject var copier: IdentityCopier
+
+    var body: some View {
+        ZStack {
+            if copier.copiedAgentID != nil {
+                CommandBarToast(message: "Agent details copied")
+                    .padding(.top, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: copier.copiedAgentID)
+        .allowsHitTesting(false)
     }
 }

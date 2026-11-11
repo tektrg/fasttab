@@ -50,6 +50,17 @@ enum PanelFooterHints {
         }
     }
 
+    /// The hint line as shared key hints (keycap + label), split from `text(for:)`:
+    /// hints are separated by three spaces, the key is everything before the first space.
+    static func guidance(for context: Context) -> GuidanceHint {
+        GuidanceHint(tokens: text(for: context).components(separatedBy: "   ").compactMap { part in
+            let part = part.trimmingCharacters(in: .whitespaces)
+            guard !part.isEmpty else { return nil }
+            guard let space = part.firstIndex(of: " ") else { return GuidanceToken(glyph: part, label: "") }
+            return GuidanceToken(glyph: String(part[..<space]), label: String(part[part.index(after: space)...]))
+        })
+    }
+
     static func text(for context: Context) -> String {
         if context.hasDismissibleNotice { return "esc dismiss notice" }
         if let routingMode = context.routingMode { return routingText(for: routingMode) }

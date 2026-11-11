@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 /// "Air" for a node/agent running on the `air-m1` machine; nothing is shown for `local` (the badge
 /// is simply omitted). Was `Tree/AgentTreeRowView.swift`'s `MachineBadgeView`, moved here once the
@@ -10,12 +11,8 @@ struct MachineBadgeView: View {
     var tint: Color = .secondary
 
     var body: some View {
-        Text(text)
-            .font(.avenir(size: 9, weight: .bold))
+        // The shared row badge: grey tag, or a status badge (tint + dot) for e.g. "limit".
+        CommandBarBadge(text: text, tint: tint == .secondary ? nil : tint)
             .lineLimit(1)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(tint.opacity(0.15)))
-            .foregroundStyle(tint)
     }
 }

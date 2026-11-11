@@ -133,8 +133,8 @@ struct FocusTextFitTests {
     }
 
     @Test func questionSizeEnds() {
-        #expect(FocusTextFit.questionSize(forBody: 22) == 26)
-        #expect(FocusTextFit.questionSize(forBody: 15) == 18)
+        #expect(FocusTextFit.questionSize(forBody: 22) == 23)
+        #expect(FocusTextFit.questionSize(forBody: 15) == 17)
     }
 
     @Test func leftAndRightIndependent() {
@@ -162,4 +162,10 @@ struct FocusHotkeyTests {
         FocusHotkey.save(FocusHotkey.standard, to: defaults)
         #expect(defaults.object(forKey: FocusHotkey.keys.keyCode) == nil)
     }
+}
+
+@Test func focusLongQuestionUsesBodySize() {
+    let fit = FocusTextFit.base
+    #expect(FocusTextFit.questionSize(for: "Ship it?", fit: fit) == fit.question)
+    #expect(FocusTextFit.questionSize(for: String(repeating: "x", count: 200), fit: fit) == fit.body)
 }

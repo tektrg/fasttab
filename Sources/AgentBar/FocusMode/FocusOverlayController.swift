@@ -10,9 +10,9 @@ import CommandBarKit
 /// so the keys below work; a text box appearing activates the app through the shared
 /// `TextInputActivation` (gotcha 12), same as the panel and the corner card.
 ///
-/// Keys (a local monitor, so a text box keeps every key except ⌘↩ while it has the keyboard):
-/// ↑/↓ options · 1–9 pick · ↩ answer · ⌘←/⌘→ agents · ⌘↩ open terminal · Esc exit (a text box
-/// takes the first Esc itself, closing the Other field).
+/// Keys (a local monitor): ↑/↓ options · 1–9 pick · ↩ answer · ⌘←/⌘→ agents · ⌘↩ open terminal ·
+/// Esc exit. Esc, ⌘←/⌘→ and ⌘↩ work even while a text box has the keyboard; everything else
+/// (↩ sends, arrows, digits) is the box's while typing.
 @MainActor
 final class FocusOverlayController {
     static let level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
@@ -212,11 +212,14 @@ struct FocusKey: Equatable {
     }
 
     /// Nil = not Focus mode's: the key goes on to the window (a text box, a button).
-    /// While a text box has the keyboard only ⌘↩ is taken (Esc, arrows and ↩ are the box's).
+    /// While a text box has the keyboard only Esc, ⌘←/⌘→ and ⌘↩ are taken (↩, arrows, digits are the box's).
     static func action(for key: FocusKey, isTyping: Bool) -> Action? {
         let isReturn = key.keyCode == returnKeyCode || key.keyCode == keypadEnterKeyCode
+        // Focus mode's own keys win in EVERY state, a focused text box included: a Message card
+        // opens with its box focused, and handing it Esc / ⌘← / ⌘→ left the overlay stuck (Esc
+        // closed the card, which Focus mode reopened at once; ⌘←/⌘→ only moved the caret).
         if isReturn, key.modifiers == .command { return .openTerminal }
-        if isTyping { return nil }
+        if key.keyCode == escapeKeyCode, key.modifiers.subtracting(.shift).isEmpty { return .exit }
         if key.modifiers == .command {
             switch key.keyCode {
             case leftKeyCode: return .previousAgent
@@ -224,9 +227,9 @@ struct FocusKey: Equatable {
             default: return nil
             }
         }
+        if isTyping { return nil }   // plain ↩ (send), arrows, digits: the box's
         guard key.modifiers.subtracting(.shift).isEmpty else { return nil }
         switch key.keyCode {
-        case escapeKeyCode: return .exit
         case upKeyCode: return .move(-1)
         case downKeyCode: return .move(1)
         case spaceKeyCode: return .space

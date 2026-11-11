@@ -39,7 +39,7 @@ struct FocusAskView: View {
         case .message:
             VStack(alignment: .leading, spacing: 14) {
                 reusedCard { height in
-                    MessageCardView(message: message, bodyHeight: height, onOpen: session.openTerminal)
+                    MessageCardView(message: message, bodyHeight: height, onOpen: session.openTerminal, showsLastMessage: false)
                 }
                 HStack(spacing: 10) {
                     Button("Park", action: session.park)
@@ -65,7 +65,8 @@ struct FocusAskView: View {
                 .kerning(0.8)
                 .foregroundStyle(FocusPalette.mute)
             Text(state.question.displayQuestion)
-                .font(.avenir(size: fit.question, weight: .semibold))
+                .font(.avenir(size: FocusTextFit.questionSize(for: state.question.displayQuestion, fit: fit),
+                              weight: .semibold))
                 .foregroundStyle(FocusPalette.ink)
             VStack(spacing: fit.body * 0.35) {
                 ForEach(Array(state.question.options.enumerated()), id: \.offset) { position, option in

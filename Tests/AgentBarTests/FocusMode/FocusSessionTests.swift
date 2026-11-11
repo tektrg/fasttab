@@ -94,11 +94,18 @@ struct FocusKeyTests {
         #expect(FocusKey.action(for: key(0, "a"), isTyping: false) == nil)
     }
 
-    @Test func aTextBoxKeepsItsKeysExceptCommandReturn() {
-        #expect(FocusKey.action(for: key(FocusKey.escapeKeyCode), isTyping: true) == nil)   // first Esc closes Other
-        #expect(FocusKey.action(for: key(FocusKey.returnKeyCode), isTyping: true) == nil)
-        #expect(FocusKey.action(for: key(FocusKey.leftKeyCode, "", .command), isTyping: true) == nil)
-        #expect(FocusKey.action(for: key(18, "1"), isTyping: true) == nil)
+    /// Regression (2026-11-11): a Message card opens with its text box focused; Esc, ⌘←/⌘→ went to
+    /// the box and Focus mode looked frozen. Focus's own keys must win while typing.
+    @Test func focusKeysWorkWhileTypingButTheBoxKeepsTheRest() {
+        #expect(FocusKey.action(for: key(FocusKey.escapeKeyCode), isTyping: true) == .exit)
+        #expect(FocusKey.action(for: key(FocusKey.leftKeyCode, "", .command), isTyping: true) == .previousAgent)
+        #expect(FocusKey.action(for: key(FocusKey.rightKeyCode, "", .command), isTyping: true) == .nextAgent)
         #expect(FocusKey.action(for: key(FocusKey.returnKeyCode, "", .command), isTyping: true) == .openTerminal)
+        #expect(FocusKey.action(for: key(FocusKey.keypadEnterKeyCode, "", .command), isTyping: true) == .openTerminal)
+        #expect(FocusKey.action(for: key(FocusKey.returnKeyCode), isTyping: true) == nil)   // the box sends
+        #expect(FocusKey.action(for: key(FocusKey.returnKeyCode, "", .shift), isTyping: true) == nil)   // line break
+        #expect(FocusKey.action(for: key(FocusKey.leftKeyCode), isTyping: true) == nil)
+        #expect(FocusKey.action(for: key(FocusKey.upKeyCode), isTyping: true) == nil)
+        #expect(FocusKey.action(for: key(18, "1"), isTyping: true) == nil)
     }
 }

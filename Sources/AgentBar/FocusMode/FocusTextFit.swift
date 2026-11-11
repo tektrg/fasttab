@@ -1,16 +1,16 @@
 import CoreGraphics
 
 /// Picks Focus mode's text sizes from the room a panel has (pure, unit-tested). Base 22pt body /
-/// 26pt question; steps down 1pt at a time to the floor 15 / 18; below that the panel scrolls.
+/// 23pt question; steps down 1pt at a time to the floor 15 / 17; below that the panel scrolls.
 /// The left (context) and right (question) panels each run this on their own.
 ///
 /// Height is estimated from one measurement at the base size: wrapped text grows with the square
 /// of the size (more lines AND taller lines at a fixed width).
 struct FocusTextFit: Equatable {
     static let baseBody: CGFloat = 22
-    static let baseQuestion: CGFloat = 26
+    static let baseQuestion: CGFloat = 23
     static let floorBody: CGFloat = 15
-    static let floorQuestion: CGFloat = 18
+    static let floorQuestion: CGFloat = 17
 
     let body: CGFloat
     let question: CGFloat
@@ -37,5 +37,11 @@ struct FocusTextFit: Equatable {
     static func questionSize(forBody body: CGFloat) -> CGFloat {
         let t = (body - floorBody) / (baseBody - floorBody)
         return (floorQuestion + t * (baseQuestion - floorQuestion)).rounded()
+    }
+
+    /// A long question (a paragraph, not a line) drops to the body size so the options below stay in view.
+    static let longQuestionChars = 140
+    static func questionSize(for text: String, fit: FocusTextFit) -> CGFloat {
+        text.count > longQuestionChars ? fit.body : fit.question
     }
 }

@@ -689,6 +689,8 @@ final class AgentPanelModel: ObservableObject {
     /// cycling). The host closes the panel and switches to the agent; frecency
     /// is recorded later, by `recordSwitch`, once the switch worked.
     var onActivate: (AgentSnapshot) -> Void = { _ in }
+    /// The panel's Focus button / ⌘F: the coordinator opens Focus mode (`FocusMode/`).
+    var onOpenFocus: () -> Void = {}
 
     /// Called when an agent enters Needs you (see `NeedsYouArrivalDetector`);
     /// the host shows the corner tab.
@@ -1518,6 +1520,20 @@ final class AgentPanelModel: ObservableObject {
     private func refreshFooterNotice() {
         footerNotice = PanelFooterNotice.resolve(failure: failureNotice, hotkeyIssue: hotkeyIssue)
     }
+
+    /// Focus mode (`FocusMode/`): every agent in Needs you (blocked or generic idle), in the list's
+    /// display order with an empty search. Empty without a trustworthy reading.
+    func focusCandidates() -> [AgentSnapshot] {
+        guard let needsYou = AgentListBuilder.needsYouAgents(snapshot: snapshot, settings: listSettings, triage: triage) else { return [] }
+        let display = AgentListBuilder.presentation(
+            snapshot: snapshot, query: "", frecency: frecency, now: now(), settings: listSettings, triage: triage
+        ).agents.map(\.id)
+        let byID = Dictionary(needsYou.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return FocusQueue.listOrder(needsYou: needsYou.map(\.id), displayOrder: display).compactMap { byID[$0] }
+    }
+
+    /// The Focus button's badge: agents in Needs you as the list shows them.
+    var focusCount: Int { presentation.agents.filter { $0.section == .needsYou }.count }
 
     /// What the corner tab says when the pointer rests in the corner.
     func needsYouSummary() -> CornerTabContent {

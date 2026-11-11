@@ -5,11 +5,13 @@ import SwiftUI
 /// (`.textSelection` on the container reaches every `Text` inside).
 struct MarkdownBlocksView: View {
     let blocks: [MarkdownBlock]
+    /// Prose size; headings and code scale with it. 12 on the cards, larger in Focus mode.
+    var bodySize: CGFloat = 12
 
-    private static let bodySize: CGFloat = 12
+    private var scale: CGFloat { bodySize / 12 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 5 * scale) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 blockView(block)
             }
@@ -21,27 +23,27 @@ struct MarkdownBlocksView: View {
         switch block {
         case .heading(let level, let text):
             Text(Self.styled(text))
-                .font(.avenir(size: Self.headingSize(level), weight: .semibold))
+                .font(.avenir(size: Self.headingSize(level) * scale, weight: .semibold))
                 .padding(.top, 3)
                 .proseLayout()
         case .paragraph(let text):
             Text(Self.styled(text))
-                .font(.avenir(size: Self.bodySize))
+                .font(.avenir(size: bodySize))
                 .proseLayout()
         case .listItem(let depth, let marker, let text):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(Self.markerText(marker))
-                    .font(.avenirMono(size: Self.bodySize))
+                    .font(.avenirMono(size: bodySize))
                     .foregroundStyle(.secondary)
                 Text(Self.styled(text))
-                    .font(.avenir(size: Self.bodySize))
+                    .font(.avenir(size: bodySize))
                     .proseLayout()
             }
             .padding(.leading, CGFloat(min(depth, 5)) * 16)
         case .codeBlock(let language, let code):
             codeTile(language: language, code: code)
         case .quote(let inner):
-            MarkdownBlocksView(blocks: inner)
+            MarkdownBlocksView(blocks: inner, bodySize: bodySize)
                 .foregroundStyle(.secondary)
                 .padding(.leading, 11)
                 .overlay(alignment: .leading) {   // an overlay, so the bar is as tall as the text and no taller
@@ -58,11 +60,11 @@ struct MarkdownBlocksView: View {
         VStack(alignment: .leading, spacing: 3) {
             if let language {
                 Text(language)
-                    .font(.avenir(size: 9, weight: .semibold))
+                    .font(.avenir(size: 9 * scale, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
             Text(verbatim: code)
-                .font(.avenirMono(size: 11))
+                .font(.avenirMono(size: 11 * scale))
                 .proseLayout()
         }
         .padding(8)
@@ -89,7 +91,7 @@ struct MarkdownBlocksView: View {
 
     private func tableCell(_ text: String) -> some View {
         Text(Self.styled(text))
-            .font(.avenir(size: Self.bodySize))
+            .font(.avenir(size: bodySize))
             .fixedSize(horizontal: false, vertical: true)
     }
 

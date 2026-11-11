@@ -16,10 +16,14 @@ enum CycleDirection: Equatable {
 final class AgentHotkeys {
     static let forwardHotkeyID: UInt32 = 1
     static let backwardHotkeyID: UInt32 = 2
+    /// Focus mode's own system-wide shortcut (`FocusMode/`).
+    static let focusHotkeyID: UInt32 = 3
     static let logSubsystem = AgentBarIdentity.bundleIdentifier
 
     /// Called for every press of either shortcut.
     var onPressed: (@MainActor @Sendable (CycleDirection) -> Void)?
+    /// Called for every press of the Focus mode shortcut.
+    var onFocusPressed: (@MainActor @Sendable () -> Void)?
 
     private let service = GlobalHotkeyService(
         signature: GlobalHotkeyService.fourCharCode("ABAR"),
@@ -33,15 +37,34 @@ final class AgentHotkeys {
         service.unregisterAll()
     }
 
+    private func installPressHandler() {
+        service.onHotKeyPressed = { [weak self] id in
+            if id == Self.focusHotkeyID {
+                self?.onFocusPressed?()
+                return
+            }
+            let direction: CycleDirection = id == Self.backwardHotkeyID ? .backward : .forward
+            self?.onPressed?(direction)
+        }
+    }
+
+    /// Registers (or replaces) the Focus mode shortcut. Returns a plain-English problem, nil on success.
+    func registerFocus(_ config: AgentHotkeyConfig) -> String? {
+        installPressHandler()
+        let result = service.registerShortcut(id: Self.focusHotkeyID, keyCode: config.keyCode, modifiers: config.modifiers)
+        let issue = result.userMessage(appName: "AgentBar")
+        if let issue {
+            logger.error("Focus hotkey \(config.displayName, privacy: .public) unavailable: \(issue, privacy: .public)")
+        }
+        return issue
+    }
+
     /// Registers the shortcuts, replacing any registered before (so it doubles
     /// as "change shortcut"). Returns a plain-English problem when the main one
     /// could not be taken (the panel then stays reachable by re-launching the
     /// app); nil on success. A missing backward shortcut is only logged.
     func register(_ config: AgentHotkeyConfig) -> String? {
-        service.onHotKeyPressed = { [weak self] id in
-            let direction: CycleDirection = id == Self.backwardHotkeyID ? .backward : .forward
-            self?.onPressed?(direction)
-        }
+        installPressHandler()
 
         let forward = service.registerShortcut(id: Self.forwardHotkeyID, keyCode: config.keyCode, modifiers: config.modifiers)
         let issue = forward.userMessage(appName: "AgentBar")

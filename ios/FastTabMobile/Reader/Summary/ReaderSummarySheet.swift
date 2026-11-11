@@ -7,6 +7,8 @@ struct ReaderSummarySheet: View {
     var onNeedsPaywall: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
+    /// The reader's own text settings: the summary follows them live (size and typeface).
+    @ObservedObject private var readingSettings = ReaderReadingSettingsStore.shared
 
     var body: some View {
         NavigationStack {
@@ -57,6 +59,10 @@ struct ReaderSummarySheet: View {
 
     private func summaryBody(_ result: ReaderSummaryResult) -> some View {
         VStack(alignment: .leading, spacing: DS.Space.md) {
+            if result.truncated {
+                Label("This summary hit the length limit and may end early.", systemImage: "scissors")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             if result.madeWithOtherPrompt {
                 Label("Written with your previous prompt. Regenerate to use the new one.", systemImage: "info.circle")
                     .font(.footnote).foregroundStyle(.secondary)
@@ -95,15 +101,18 @@ struct ReaderSummarySheet: View {
 
     @ViewBuilder
     private func blockView(_ block: SummaryMarkdown.Block) -> some View {
+        let sizes = SummaryTextStyle.sizes(readerFontSize: readingSettings.settings.fontSize)
+        let family = readingSettings.settings.fontFamily
         switch block {
         case .heading(let text):
-            Text(SummaryMarkdown.attributed(text)).font(.headline).accessibilityAddTraits(.isHeader)
+            Text(SummaryMarkdown.attributed(text)).font(family.swiftUIFont(size: sizes.heading).bold())
+                .accessibilityAddTraits(.isHeader)
         case .paragraph(let text):
-            Text(SummaryMarkdown.attributed(text)).font(.body)
+            Text(SummaryMarkdown.attributed(text)).font(family.swiftUIFont(size: sizes.body))
         case .bullet(let level, let text):
             HStack(alignment: .firstTextBaseline, spacing: DS.Space.sm) {
                 Text("•").foregroundStyle(.secondary).accessibilityHidden(true)
-                Text(SummaryMarkdown.attributed(text)).font(.callout)
+                Text(SummaryMarkdown.attributed(text)).font(family.swiftUIFont(size: sizes.bullet))
             }
             .padding(.leading, CGFloat(level) * DS.Space.lg)
         }

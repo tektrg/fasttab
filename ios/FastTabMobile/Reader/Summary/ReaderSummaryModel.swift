@@ -58,6 +58,8 @@ struct ReaderSummaryResult: Equatable {
     let fromCache: Bool
     /// The person edited the prompt after this was written; it stays until they Regenerate.
     var madeWithOtherPrompt = false
+    /// The summary hit the server's length limit and may end early.
+    var truncated = false
 }
 
 /// One article's Summary: cache first (never pay twice), then the one-time consent, then the server.
@@ -129,7 +131,8 @@ final class ReaderSummaryModel {
             if let hit = store.anyRecord(urlKey: urlKey, textDigest: ReaderSummaryStore.digest(prepared.text)) {
                 state = .ready(ReaderSummaryResult(text: hit.summary, model: hit.model,
                                                    createdAt: hit.createdAt, fromCache: true,
-                                                   madeWithOtherPrompt: hit.instructionHash != instructionHash))
+                                                   madeWithOtherPrompt: hit.instructionHash != instructionHash,
+                                                   truncated: hit.truncated ?? false))
             } else if consent.isGranted {
                 generate()
             } else {
@@ -175,10 +178,12 @@ final class ReaderSummaryModel {
                     let record = ReaderSummaryRecord(textDigest: digest, instructionHash: instructionHash,
                                                      summary: response.summary, model: response.model,
                                                      createdAt: now(),
-                                                     defaultInstructionVersion: response.defaultInstructionVersion)
+                                                     defaultInstructionVersion: response.defaultInstructionVersion,
+                                                     truncated: response.truncated)
                     store.save(record, urlKey: urlKey)
                     return State.ready(ReaderSummaryResult(text: record.summary, model: record.model,
-                                                           createdAt: record.createdAt, fromCache: false))
+                                                           createdAt: record.createdAt, fromCache: false,
+                                                           truncated: response.truncated ?? false))
                 } catch let error as ReaderSummaryError {
                     return State.failed(ReaderSummaryFailure(error))
                 } catch {

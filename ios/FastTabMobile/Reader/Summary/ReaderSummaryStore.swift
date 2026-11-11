@@ -14,6 +14,8 @@ struct ReaderSummaryRecord: Codable, Equatable {
     var createdAt: Date
     /// Server's default-prompt version when made (informational; a newer default never invalidates it).
     var defaultInstructionVersion: Int?
+    /// The server said the summary hit its length limit; shown with a note. nil on older records.
+    var truncated: Bool?
 }
 
 /// Saved summaries, one JSON file per article in Application Support (not Caches: a summary costs

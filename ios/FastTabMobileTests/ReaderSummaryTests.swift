@@ -26,8 +26,10 @@ private final class FakeSummaryServer: @unchecked Sendable {
         return (body, response)
     }
 
-    static func ok(_ summary: String = "**Gist** A short summary.\n**Takeaway**\n  - Detail") -> Result<(Int, Data), Error> {
-        let json = #"{"summary":\#(jsonString(summary)),"model":"deepseek/test","promptVersion":1,"defaultInstructionVersion":1,"usage":{"remaining":42}}"#
+    static func ok(_ summary: String = "**Gist** A short summary.\n**Takeaway**\n  - Detail",
+                   truncated: Bool? = nil) -> Result<(Int, Data), Error> {
+        let flag = truncated.map { #","truncated":\#($0)"# } ?? ""
+        let json = #"{"summary":\#(jsonString(summary)),"model":"deepseek/test","promptVersion":1,"defaultInstructionVersion":1\#(flag),"usage":{"remaining":42}}"#
         return .success((200, Data(json.utf8)))
     }
 
@@ -227,6 +229,34 @@ final class SummaryMarkdownTests: XCTestCase {
     func testAttributedFallsBackToPlainTextOnBrokenMarkdown() {
         XCTAssertEqual(String(SummaryMarkdown.attributed("plain **bold** text").characters), "plain bold text")
         XCTAssertFalse(String(SummaryMarkdown.attributed("[broken](").characters).isEmpty)
+    }
+}
+
+// MARK: - Text size follows the reader
+
+final class SummaryTextStyleTests: XCTestCase {
+    func testBodyAndBulletsUseTheReadersSizeAndHeadingsAreSlightlyLarger() {
+        XCTAssertEqual(SummaryTextStyle.sizes(readerFontSize: 18), SummaryTextStyle.Sizes(body: 18, bullet: 18, heading: 20))
+        XCTAssertEqual(SummaryTextStyle.sizes(readerFontSize: 14), SummaryTextStyle.Sizes(body: 14, bullet: 14, heading: 15))
+    }
+
+    func testFollowsTheReadersWholeSizeRange() {
+        for size in ReaderReadingSettings.fontSizeRange {
+            let sizes = SummaryTextStyle.sizes(readerFontSize: size)
+            XCTAssertEqual(sizes.body, CGFloat(size)) // never smaller than the article text
+            XCTAssertGreaterThanOrEqual(sizes.heading, sizes.body)
+        }
+    }
+
+    @MainActor
+    func testTheSummaryReadsTheReadersLiveSettings() {
+        // The sheet observes this store, so a size change in Reading Settings reaches it at once.
+        let store = ReaderReadingSettingsStore(local: UserDefaults(suiteName: "SummaryTextStyleTests-\(UUID())")!,
+                                               cloud: nil, isCloudSyncEnabled: false)
+        store.setFontSize(22)
+        XCTAssertEqual(SummaryTextStyle.sizes(readerFontSize: store.settings.fontSize).body, 22)
+        store.setFontSize(16)
+        XCTAssertEqual(SummaryTextStyle.sizes(readerFontSize: store.settings.fontSize).body, 16)
     }
 }
 
@@ -491,6 +521,32 @@ final class ReaderSummaryModelTests: XCTestCase {
         XCTAssertTrue(result.madeWithOtherPrompt) // shown, marked; Regenerate uses the new prompt
         guard case .ready(let original) = first.state else { return XCTFail("expected ready") }
         XCTAssertFalse(original.madeWithOtherPrompt)
+    }
+
+    func testATruncatedSummaryIsFlaggedAndStaysFlaggedFromTheCache() async {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Cut", truncated: true)])
+        let first = model(server)
+        first.open(); await settle(first)
+        guard case .ready(let fresh) = first.state else { return XCTFail("expected ready") }
+        XCTAssertTrue(fresh.truncated)
+        let reopened = model(server)
+        reopened.open()
+        guard case .ready(let cached) = reopened.state else { return XCTFail("expected cached") }
+        XCTAssertTrue(cached.truncated)
+        XCTAssertEqual(server.callCount, 1)
+    }
+
+    func testOlderServersAndOlderSavedSummariesCountAsNotTruncated() async {
+        let server = FakeSummaryServer([FakeSummaryServer.ok("**Gist** Whole")]) // no `truncated` field
+        let model = model(server)
+        model.open(); await settle(model)
+        guard case .ready(let result) = model.state else { return XCTFail("expected ready") }
+        XCTAssertFalse(result.truncated)
+        // A record saved before the field existed decodes with truncated == nil.
+        let old = #"{"textDigest":"d","instructionHash":"","summary":"S","model":"m","createdAt":1,"defaultInstructionVersion":1}"#
+        let decoded = try? JSONDecoder().decode(ReaderSummaryRecord.self, from: Data(old.utf8))
+        XCTAssertNotNil(decoded)
+        XCTAssertNil(decoded?.truncated)
     }
 }
 

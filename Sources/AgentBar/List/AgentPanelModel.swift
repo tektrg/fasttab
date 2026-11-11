@@ -23,6 +23,10 @@ final class AgentPanelModel: ObservableObject {
     /// Republishes through this model (same shape as `answer`/`permission`/`message`) so the panel
     /// view needs only observe `AgentPanelModel`.
     let treeModel: AgentTreeModel
+    /// The page strip above the list: All or a saved view, and the saved-view editor
+    /// (`AgentPanelModel+Pages`).
+    let pages: AgentPagesModel
+    var pagesObservation: AnyCancellable?
     /// The row the mouse last hovered into selection. `AgentListView`
     /// skips auto-scroll then: the row is already under the cursor, and scrolling to a nested
     /// worker's chief anchor mid-scroll yanked the list back up ("scroll stuck", 2026-09-29).
@@ -743,6 +747,7 @@ final class AgentPanelModel: ObservableObject {
         recapExpander: RecapExpander = RecapExpander(),
         directSendRetryDelays: [TimeInterval] = [5, 10],
         treeModel: AgentTreeModel = AgentTreeModel(),
+        pages: AgentPagesModel = AgentPagesModel(),
         loadPeekMessage: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript,
         now: @escaping () -> Date = { Date() }
     ) {
@@ -755,6 +760,7 @@ final class AgentPanelModel: ObservableObject {
         self.recapExpander = recapExpander
         self.directSendRetryDelays = directSendRetryDelays
         self.treeModel = treeModel
+        self.pages = pages
         self.store = store
         self.triageStore = triageStore
         self.routedNoteStore = routedNoteStore
@@ -771,6 +777,7 @@ final class AgentPanelModel: ObservableObject {
         wireBlockerProbe()
         recapExpander.onChange = { [weak self] in if let received = self?.lastReceived { self?.receive(received) } }
         wireTreeModel()
+        wirePages()
         copierObservation = copier.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
@@ -1590,9 +1597,23 @@ final class AgentPanelModel: ObservableObject {
         onNeedsYouReading(reportingArrivals ? arrivals : [], needsYou)
     }
 
-    private func rebuild() {
+    /// Agents `view` would show right now, search ignored; nil without a trustworthy reading.
+    func agentCount(in view: AgentSavedView) -> Int? {
+        guard let snapshot, !snapshot.health.isDown else { return nil }
+        return view.filter(AgentListBuilder.shownAgents(in: snapshot, settings: listSettings, triage: triage)).count
+    }
+
+    /// The shown page changed (`AgentPanelModel+Pages`): re-filter, selection to the first row.
+    func pageDidChange() {
+        closePeek()
+        rebuild()
+        selectedAgentID = presentation.selectableAgentIDs.first
+    }
+
+    func rebuild() {
         presentation = AgentListBuilder.presentation(
-            snapshot: snapshot, query: query, frecency: frecency, now: now(), settings: listSettings, triage: triage
+            snapshot: snapshot, query: query, frecency: frecency, now: now(), settings: listSettings, triage: triage,
+            view: pages.activeView
         )
     }
 }

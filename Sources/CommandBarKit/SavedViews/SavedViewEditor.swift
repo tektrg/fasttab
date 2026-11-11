@@ -63,6 +63,8 @@ public struct SavedViewEditorFields<Filters: View, AfterKeywords: View, Trailing
     let isAIAvailable: Bool
     /// Under the AI field: what it does (available) or why it can't be used.
     let aiHint: String
+    /// False hides the AI filter row (an app that can't evaluate prompts yet).
+    let showsAIFilter: Bool
     let filters: Filters
     let afterKeywords: AfterKeywords
     let trailing: Trailing
@@ -84,6 +86,7 @@ public struct SavedViewEditorFields<Filters: View, AfterKeywords: View, Trailing
         promptPlaceholder: String,
         isAIAvailable: Bool,
         aiHint: String,
+        showsAIFilter: Bool = true,
         @ViewBuilder filters: () -> Filters,
         @ViewBuilder afterKeywords: () -> AfterKeywords,
         @ViewBuilder trailing: () -> Trailing
@@ -98,6 +101,7 @@ public struct SavedViewEditorFields<Filters: View, AfterKeywords: View, Trailing
         self.promptPlaceholder = promptPlaceholder
         self.isAIAvailable = isAIAvailable
         self.aiHint = aiHint
+        self.showsAIFilter = showsAIFilter
         self.filters = filters()
         self.afterKeywords = afterKeywords()
         self.trailing = trailing()
@@ -118,7 +122,9 @@ public struct SavedViewEditorFields<Filters: View, AfterKeywords: View, Trailing
                     .focused($focusedField, equals: .keywords)
             }
             afterKeywords
-            SavedViewFormRow("AI filter") { aiField }
+            if showsAIFilter {
+                SavedViewFormRow("AI filter") { aiField }
+            }
             trailing
         }
         .onAppear {

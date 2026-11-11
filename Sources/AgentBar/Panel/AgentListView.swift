@@ -29,7 +29,9 @@ struct AgentListView: View {
     private func rowView(_ row: AgentListRow) -> some View {
         switch row {
         case .header(let section):
-            SectionHeaderView(section: section)
+            SectionHeaderView(title: section.title)
+        case .groupHeader(_, let title):
+            SectionHeaderView(title: title)
         case .chiefPlaceholder(let node, _, let needsYouHint, _):
             ChiefPlaceholderRowView(node: node, needsYouHint: needsYouHint)
                 .modifier(TreeDropTarget(agentID: node.id, isChief: true, treeModel: model.treeModel))

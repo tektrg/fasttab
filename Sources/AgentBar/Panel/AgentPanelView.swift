@@ -15,6 +15,10 @@ struct AgentPanelView: View {
             // Search sits at the bottom, just above the footer: the panel is anchored to the screen's
             // bottom edge and grows upward (`AgentPanelPlacement`), so the box never moves as the list filters.
             VStack(spacing: 0) {
+                if model.showsPageStrip {
+                    AgentPageStripView(pages: model.pages)
+                    Divider().opacity(0.5)
+                }
                 bodyContent
                 // Hidden whenever the body collapses (`AgentPanelMetrics.height(isComposing:)`).
                 if model.presentation.showsBoardNote, model.taggedAgentID == nil, model.newWorker?.isComposing != true {
@@ -92,6 +96,13 @@ struct AgentPanelView: View {
                         Button("Stop reporting", action: model.treeModel.outdentSelected).keyboardShortcut(.delete, modifiers: .command)
                     }
                 }
+                // ⌘1…⌘9: the Nth page of the strip (All = ⌘1), like Fast Tab's views.
+                if model.canSwitchPages {
+                    ForEach(1...9, id: \.self) { number in
+                        Button("Page \(number)") { model.pages.selectNumbered(number) }
+                            .keyboardShortcut(KeyEquivalent(Character(String(number))), modifiers: .command)
+                    }
+                }
             }
             .hidden()
         }
@@ -121,7 +132,15 @@ struct AgentPanelView: View {
 
     @ViewBuilder
     private var bodyContent: some View {
-        if model.answer.isOpen {
+        if model.pages.editor != nil {
+            AgentViewEditorView(
+                pages: model.pages,
+                projectOptions: model.projectOptions,
+                bodyHeight: AgentPanelMetrics.fullBodyHeight(
+                    maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
+                )
+            )
+        } else if model.answer.isOpen {
             AnswerCardView(
                 answer: model.answer,
                 bodyHeight: AgentPanelMetrics.fullBodyHeight(

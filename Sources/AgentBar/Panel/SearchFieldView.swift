@@ -83,8 +83,12 @@ struct SearchFieldView: View {
                     }
                     .buttonStyle(.plain)
                     .focusable(false)
-                    .help("New worker (/new)")
+                    .help("New worker (/new) · right-click: New view (/view)")
                     .accessibilityLabel("New worker")
+                    .contextMenu {
+                        Button("New worker", action: model.enterNewWorkerMode)
+                        Button("New view", action: model.beginNewView)
+                    }
                 }
             }
             .frame(height: fieldRowHeight)

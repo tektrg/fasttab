@@ -1,4 +1,5 @@
 import Foundation
+import IndieSavedViews
 
 struct CustomViewSection: Identifiable, Hashable, Sendable {
     /// Stable across refreshes (e.g. "lastVisited.today", "domain.github.com"),
@@ -34,46 +35,16 @@ enum CustomViewGrouping {
 
     // MARK: Last visited
 
-    enum VisitBucket: String, CaseIterable, Sendable {
-        case today, yesterday, thisWeek, thisMonth, older, unknown
+    /// Shared calendar-day buckets (`DayBucket`: Today … Older, Unknown).
+    typealias VisitBucket = DayBucket
 
-        var title: String {
-            switch self {
-            case .today: return "Today"
-            case .yesterday: return "Yesterday"
-            case .thisWeek: return "This Week"
-            case .thisMonth: return "This Month"
-            case .older: return "Older"
-            case .unknown: return "Unknown"
-            }
-        }
-    }
-
-    /// Calendar-day buckets relative to `now`: Today (since local midnight,
-    /// including anything stamped slightly in the future), Yesterday, This
-    /// Week (the 7 days before today), This Month (the 30 days before
-    /// today), Older, Unknown (no last visit).
     static func bucket(for visit: Date?, now: Date, calendar: Calendar) -> VisitBucket {
-        guard let visit else { return .unknown }
-        let startOfToday = calendar.startOfDay(for: now)
-        if visit >= startOfToday { return .today }
-        func daysBack(_ n: Int) -> Date {
-            calendar.date(byAdding: .day, value: -n, to: startOfToday) ?? startOfToday.addingTimeInterval(-Double(n) * 86_400)
-        }
-        if visit >= daysBack(1) { return .yesterday }
-        if visit >= daysBack(7) { return .thisWeek }
-        if visit >= daysBack(30) { return .thisMonth }
-        return .older
+        DayBucket.bucket(for: visit, now: now, calendar: calendar)
     }
 
     private static func lastVisitedSections(items: [CustomViewItem], now: Date, calendar: Calendar) -> [CustomViewSection] {
-        var buckets: [VisitBucket: [CustomViewItem]] = [:]
-        for item in items {
-            buckets[bucket(for: item.lastVisit, now: now, calendar: calendar), default: []].append(item)
-        }
-        return VisitBucket.allCases.compactMap { bucket in
-            guard let members = buckets[bucket], !members.isEmpty else { return nil }
-            return CustomViewSection(id: "lastVisited.\(bucket.rawValue)", title: bucket.title, items: members)
+        DayBucket.group(items, now: now, calendar: calendar, date: \.lastVisit).map {
+            CustomViewSection(id: "lastVisited.\($0.bucket.rawValue)", title: $0.bucket.title, items: $0.items)
         }
     }
 

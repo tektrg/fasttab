@@ -22,6 +22,8 @@ enum AgentRowNesting: Equatable {
 /// anchoring a chief's children in a section that isn't the chief's own — see `AgentListGrouping`.
 enum AgentListRow: Equatable, Identifiable {
     case header(AgentSection)
+    /// A saved view's group header (project name, "Today", …); `key` keeps ids unique.
+    case groupHeader(key: String, title: String)
     case agent(AgentSnapshot, nesting: AgentRowNesting)
     /// A non-interactive stand-in for `node` (a chief) in `section`, shown only because at least one
     /// of the chief's children is in `section` while the chief's own row is shown elsewhere (or not
@@ -34,6 +36,7 @@ enum AgentListRow: Equatable, Identifiable {
     var id: String {
         switch self {
         case .header(let section): "section-\(section.rawValue)"
+        case .groupHeader(let key, _): "group-\(key)"
         case .agent(let agent, _): "agent-\(agent.id)"
         case .chiefPlaceholder(let node, let section, _, let anchorsWaitingMembers):
             "chief-placeholder-\(section.rawValue)-\(node.id)" + (anchorsWaitingMembers ? "-waiting" : "")

@@ -1,10 +1,10 @@
 import SwiftUI
 
 struct SectionHeaderView: View {
-    let section: AgentSection
+    let title: String
 
     var body: some View {
-        Text(section.title.uppercased())
+        Text(title.uppercased())
             .font(.avenir(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 22)

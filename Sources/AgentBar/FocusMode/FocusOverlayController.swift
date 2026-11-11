@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
 /// Focus mode's window: one borderless panel covering the screen under the pointer ONLY (other
 /// screens untouched), above every window and full-screen app (`.canJoinAllSpaces`,

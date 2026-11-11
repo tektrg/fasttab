@@ -1,3 +1,4 @@
+import IndieAgentSessions
 import AppKit
 import Combine
 
@@ -16,6 +17,7 @@ final class AgentBarCoordinator {
     private let switchCoordinator: AgentSwitchCoordinator
     private let cornerTab: CornerTabController
     private let arrivalSounds: ArrivalSoundController
+    private let focusOverlay: FocusOverlayController
     private var feedTask: Task<Void, Never>?
     private var settingsSubscriptions: Set<AnyCancellable> = []
 
@@ -24,7 +26,8 @@ final class AgentBarCoordinator {
             settings: settings,
             actions: AgentBarSettingsActions(
                 changeHotkey: { [unowned self] requested in changeHotkey(to: requested) },
-                setHotkeyRecording: { [unowned self] isRecording in setHotkeyRecording(isRecording) }
+                setHotkeyRecording: { [unowned self] isRecording in setHotkeyRecording(isRecording) },
+                changeFocusHotkey: { [unowned self] requested in changeFocusHotkey(to: requested) }
             ),
             connectionTester: DashboardConnectionTester()
         )
@@ -91,6 +94,7 @@ final class AgentBarCoordinator {
             activation: textInputActivation
         )
         arrivalSounds = ArrivalSoundController(settings: { [settings] in settings.sounds })
+        focusOverlay = FocusOverlayController(model: model, activation: textInputActivation)
         wire()
         observeSettings()
     }
@@ -105,6 +109,14 @@ final class AgentBarCoordinator {
     /// the fallback when the global shortcut could not be registered.
     func showPanel() {
         panelController.show()
+    }
+
+    /// `agentbar://session/<rowId>` (another app asking to show a session): the panel opens as on a
+    /// summon, with that row selected so the user can answer, message or approve it.
+    func openSessionLink(_ url: URL) {
+        guard let sessionID = AgentSessionLink().sessionID(from: url) else { return }
+        panelController.show()
+        model.revealSession(id: sessionID)
     }
 
     func showSettings() {
@@ -133,10 +145,13 @@ final class AgentBarCoordinator {
                 cycleController.panelClosed()
             }
         }
-        hotkeys.onPressed = { [cycleController] direction in
+        hotkeys.onPressed = { [cycleController, focusOverlay] direction in
+            // The panel and Focus mode share the answer cards: never both at once.
+            if focusOverlay.isVisible { focusOverlay.hide(restoringFocus: false) }
             cycleController.hotkeyPressed(direction, currentModifiers: NSEvent.modifierFlags)
         }
         reportHotkeyIssue(hotkeys.register(settings.hotkey), for: settings.hotkey)
+        wireFocusMode()
     }
 
     /// Settings edits reach the running app here. `dropFirst` skips the value
@@ -194,11 +209,46 @@ final class AgentBarCoordinator {
         beginFeed(from: source)
     }
 
+    // MARK: - Focus mode
+
+    private func wireFocusMode() {
+        model.onOpenFocus = { [unowned self] in openFocusMode() }
+        hotkeys.onFocusPressed = { [unowned self] in toggleFocusMode() }
+        focusOverlay.onOpenTerminal = { [model] agent in model.onActivate(agent) }
+        focusOverlay.onVisibilityChange = { [cornerTab] isVisible in cornerTab.panelVisibilityChanged(isVisible) }
+        _ = hotkeys.registerFocus(settings.focusHotkey)
+    }
+
+    /// Panel button / ⌘F / the Focus shortcut: the panel steps aside for the overlay.
+    private func openFocusMode() {
+        if panelController.isVisible { panelController.hide(restoringFocus: false) }
+        focusOverlay.show()
+    }
+
+    private func toggleFocusMode() {
+        if focusOverlay.isVisible { focusOverlay.hide() } else { openFocusMode() }
+    }
+
+    private func changeFocusHotkey(to requested: AgentHotkeyConfig) -> HotkeyChangeOutcome {
+        let previous = settings.focusHotkey
+        if let refused = FocusHotkey.resolveChange(previous: previous, requested: requested, summon: settings.hotkey) {
+            return refused
+        }
+        let issue = hotkeys.registerFocus(requested)
+        let outcome = HotkeyChangeOutcome.resolve(previous: previous, requested: requested, registrationIssue: issue)
+        if case .reverted = outcome { _ = hotkeys.registerFocus(previous) }
+        settings.commitFocusHotkey(outcome.active)
+        return outcome
+    }
+
     // MARK: - Hotkey
 
     /// Registers `requested`; if macOS refuses it, puts the previous shortcut back.
     private func changeHotkey(to requested: AgentHotkeyConfig) -> HotkeyChangeOutcome {
         let previous = settings.hotkey
+        if let clash = FocusHotkey.clashMessage(focus: settings.focusHotkey, summon: requested) {
+            return .reverted(active: previous, message: "\(clash) Still using \(previous.displayName).")
+        }
         let issue = hotkeys.register(requested)
         let outcome = HotkeyChangeOutcome.resolve(previous: previous, requested: requested, registrationIssue: issue)
         if case .reverted = outcome {
@@ -218,6 +268,7 @@ final class AgentBarCoordinator {
             hotkeys.suspend()
         } else {
             reportHotkeyIssue(hotkeys.register(settings.hotkey), for: settings.hotkey)
+            _ = hotkeys.registerFocus(settings.focusHotkey)
         }
     }
 

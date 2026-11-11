@@ -1,5 +1,5 @@
 import Foundation
-import CommandBarKit
+import IndieCommandBar
 import IndieSearch
 
 struct PendingSlotClose: Codable, Equatable, Sendable {

@@ -43,7 +43,7 @@ enum AgentListScrollTarget {
                 if case .chief = nesting { return rows[i].id }
                 if case .child = nesting { i -= 1; continue }
                 return nil
-            case .header:
+            case .header, .groupHeader:
                 return nil
             }
         }

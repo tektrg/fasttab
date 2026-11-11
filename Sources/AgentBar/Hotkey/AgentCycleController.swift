@@ -1,5 +1,5 @@
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
 /// Turns hotkey presses and modifier changes into panel decisions: open, move
 /// the selection either way, or commit on release. The kit's `CycleSession`

@@ -6,4 +6,6 @@ struct AgentBarSettingsActions {
     var changeHotkey: @MainActor (AgentHotkeyConfig) -> HotkeyChangeOutcome
     /// The recorder is capturing keys: the global shortcut must be off meanwhile.
     var setHotkeyRecording: @MainActor (Bool) -> Void
+    /// Same as `changeHotkey`, for Focus mode's shortcut.
+    var changeFocusHotkey: @MainActor (AgentHotkeyConfig) -> HotkeyChangeOutcome = { .applied($0) }
 }

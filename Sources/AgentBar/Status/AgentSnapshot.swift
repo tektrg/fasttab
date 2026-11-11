@@ -16,7 +16,7 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     /// row to `.parked` (`TriageState.applying`).
     private(set) var section: AgentSection
     /// Short, single-line description of what the agent is doing / asking.
-    let statusText: String
+    private(set) var statusText: String
     /// Seconds the agent has been in its current status, as of the server's
     /// clock at fetch time. Nil when unknown. UI may add `now - fetchedAt`.
     let secondsInStatus: TimeInterval?
@@ -134,6 +134,15 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     func placed(in newSection: AgentSection) -> AgentSnapshot {
         var copy = self
         copy.section = newSection
+        return copy
+    }
+}
+
+extension AgentSnapshot {
+    /// The same row with a different status line (`RecapExpander` puts a squeezed recap back whole).
+    func withStatusText(_ text: String) -> AgentSnapshot {
+        var copy = self
+        copy.statusText = text
         return copy
     }
 }

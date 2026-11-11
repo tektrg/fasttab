@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 /// One agent row. The selected row (hover or keyboard) reveals its buttons in
 /// place of the age; a row waiting for a confirming press shows why, in red.
@@ -41,8 +42,9 @@ struct AgentRowView: View {
         }
         .padding(.leading, indent)
         .padding(.horizontal, 12)
-        .frame(height: AgentPanelMetrics.rowHeight)
-        .background(RoundedRectangle(cornerRadius: 8).fill(isSelected ? Color.accentColor.opacity(0.22) : .clear))
+        .padding(.vertical, 3)
+        .frame(minHeight: AgentPanelMetrics.rowHeight)   // grows with a wrapped status line
+        .commandBarRowHighlight(isSelected: isSelected)   // the shared selected-row look
         .padding(.horizontal, 10)
         .opacity(dimming)
         .contentShape(Rectangle())
@@ -147,14 +149,19 @@ struct AgentRowView: View {
         }
     }
 
+    /// Everything this row offers (the full list the keyboard and the model gate on).
     private var buttons: [RowButtonSpec] {
         var specs = RowButtons.available(for: agent)
-        guard !treeMenuItems.isEmpty, !specs.contains(where: { $0.button == .moreActions }) else { return specs }
+        guard !menuItems.isEmpty, !specs.contains(where: { $0.button == .moreActions }) else { return specs }
         specs.append(RowButtonSpec(button: .moreActions, disabledReason: nil))
         return specs
     }
 
-    private var menuItems: [RowButtonSpec] { RowButtons.menuItems(for: agent) + treeMenuItems }
+    /// The ⋯ menu: the text buttons that no longer draw as capsules (Peek, Park, Message…), then the
+    /// menu's own items (Done, Compact…), then the tree items.
+    private var menuItems: [RowButtonSpec] {
+        RowButtons.movedIntoMenu(RowButtons.available(for: agent)) + RowButtons.menuItems(for: agent) + treeMenuItems
+    }
 
     /// Done/Close pane live in the ⋯ menu normally, but a press that needs a second look (or is
     /// mid-flight, or just finished) must not vanish the moment the menu closes: this pulls that
@@ -180,7 +187,13 @@ struct AgentRowView: View {
     /// Selected (or settling): every button, with a busy/confirming/just-finished menu item
     /// (`activeMenuItemSpec`) swapped in for the ⋯ trigger. Otherwise only the blocked row's red one.
     private var visibleButtons: [RowButtonSpec] {
-        let base = isSelected || actionState != nil ? buttons : buttons.filter { showsQuestionButton && $0.isBlockedAction }
+        // Only the red blocker button and ⋯ draw; a button the keyboard is on (or that is mid-press)
+        // is drawn too, so it never acts unseen. Everything else is in the ⋯ menu.
+        var keeping: Set<RowButton> = []
+        if let highlightedButton { keeping.insert(highlightedButton) }
+        if let pressed = actionState?.button { keeping.insert(pressed) }
+        let strip = RowButtons.stripSpecs(buttons, keeping: keeping)
+        let base = isSelected || actionState != nil ? strip : strip.filter { showsQuestionButton && $0.isBlockedAction }
         guard let activeMenuItemSpec else { return base }
         return base.map { $0.button == .moreActions ? activeMenuItemSpec : $0 }
     }
@@ -210,11 +223,11 @@ struct AgentRowView: View {
     }
 
     private var detailLine: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Text(detailText)
                 .font(.avenir(size: 12))
                 .foregroundStyle(isConfirming ? Color.red : .secondary)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)   // wraps, never cut with an ellipsis
             Spacer(minLength: 8)
             if !routedNotes.isEmpty {
                 RoutedNoteBadgeView(notes: routedNotes, onClear: onClearRoutedNote)

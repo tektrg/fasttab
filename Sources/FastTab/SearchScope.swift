@@ -1,4 +1,5 @@
 import Foundation
+import IndieCommandBar
 
 // MARK: - Model
 
@@ -127,32 +128,15 @@ enum ScopeSuggestionParser {
     /// Examines the current search input and returns the dropdown mode.
     /// Only fires when `@` (or `@Bookmarks:` / `@History:`) appears as a
     /// fresh token at the start of input or after whitespace.
-    static func mode(for text: String) -> ScopeSuggestionMode {
-        // Find the last token (after the last whitespace).
-        let tokenStart: String.Index
-        if let lastSpace = text.lastIndex(where: { $0.isWhitespace }) {
-            tokenStart = text.index(after: lastSpace)
-        } else {
-            tokenStart = text.startIndex
-        }
-        let token = text[tokenStart...]
-        let lower = token.lowercased()
+    static let triggers = ["@bookmarks:", "@history:", "@"]
 
-        if lower.hasPrefix("@bookmarks:") {
-            let dropCount = "@bookmarks:".count
-            let prefix = String(token.dropFirst(dropCount))
-            return .bookmarks(prefix: prefix, tokenRange: tokenStart..<text.endIndex)
+    static func mode(for text: String) -> ScopeSuggestionMode {
+        guard let token = CommandBarScopeToken.match(in: text, triggers: triggers) else { return .hidden }
+        switch token.trigger {
+        case "@bookmarks:": return .bookmarks(prefix: token.prefix, tokenRange: token.range)
+        case "@history:": return .history(prefix: token.prefix, tokenRange: token.range)
+        default: return .root(prefix: token.prefix, tokenRange: token.range)
         }
-        if lower.hasPrefix("@history:") {
-            let dropCount = "@history:".count
-            let prefix = String(token.dropFirst(dropCount))
-            return .history(prefix: prefix, tokenRange: tokenStart..<text.endIndex)
-        }
-        if lower.hasPrefix("@") {
-            let prefix = String(token.dropFirst(1))
-            return .root(prefix: prefix, tokenRange: tokenStart..<text.endIndex)
-        }
-        return .hidden
     }
 }
 
@@ -227,6 +211,11 @@ enum ScopeSuggestion: Equatable, Hashable {
         case .bookmarkFolder(let ref): return ref.folderPath
         case .historyTime: return nil
         }
+    }
+
+    /// The shared dropdown's row model.
+    var commandBarScope: CommandBarScope {
+        CommandBarScope(id: String(describing: self), title: label, symbol: symbol, detail: detail)
     }
 
     var symbol: String {

@@ -50,10 +50,11 @@ public final class ReaderCommentThreads: ObservableObject {
 
     /// Reads the threads of `highlights` (one small local file per article). Every highlight
     /// is looked at, not only linked ones: an agent's thread carries no link.
-    public func load(_ highlights: [ReaderHighlight]) {
+    @discardableResult
+    public func load(_ highlights: [ReaderHighlight]) -> Task<Void, Never> {
         let commented = highlights
         let startedAt = changeCount
-        Task {
+        return Task {
             var loaded: [String: CommentThread] = [:]
             for (urlKey, group) in Dictionary(grouping: commented, by: \.urlKey) {
                 let threads = (try? await store.threads(docId: Self.docId(urlKey: urlKey), text: "")) ?? []
@@ -64,8 +65,10 @@ public final class ReaderCommentThreads: ObservableObject {
             }
             // A post/resolve/delete that landed while this read ran is newer: keep it.
             let ids = Set(commented.map(\.id)).filter { (changedAt[$0] ?? 0) <= startedAt }
-            threadsByHighlightID = threadsByHighlightID.filter { !ids.contains($0.key) }
+            let next = threadsByHighlightID.filter { !ids.contains($0.key) }
                 .merging(loaded.filter { ids.contains($0.key) }) { $1 }
+            // Reloads run on every sync tick; an equal result must not re-render the reader.
+            if next != threadsByHighlightID { threadsByHighlightID = next }
         }
     }
 

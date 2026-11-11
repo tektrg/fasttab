@@ -1,4 +1,5 @@
 import Foundation
+import IndieSavedViews
 import IndieSearch
 
 /// One row of a custom view: the result plus its resolved last-visit time
@@ -148,8 +149,11 @@ enum CustomViewFilter {
     struct Matcher {
         let types: Set<BrowserResultType>
         let profiles: Set<String>
+        /// Plain domains (host or subdomain) and `*wildcard*` / `/regex/` host patterns.
         let domains: [String]
-        let keywordWords: [String]
+        let domainPatterns: TextPattern.Compiled
+        /// Plain words (all must appear) or one `*wildcard*` / `/regex/`, against title or URL.
+        let keywords: SavedViewKeywords
         let rule: LastVisitedRule
         let pinned: PinnedRule
 
@@ -159,9 +163,12 @@ enum CustomViewFilter {
                 let p = $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return p.isEmpty ? nil : p
             })
+            let patternEntries = view.domains.filter(CustomViewDomain.isPattern)
+            domainPatterns = TextPattern.Compiled(TextPattern.clean(patternEntries))
             var seen = Set<String>()
-            domains = view.domains.compactMap(CustomViewDomain.normalize).filter { seen.insert($0).inserted }
-            keywordWords = searchWords(in: view.keywords)
+            domains = view.domains.filter { !CustomViewDomain.isPattern($0) }
+                .compactMap(CustomViewDomain.normalize).filter { seen.insert($0).inserted }
+            keywords = SavedViewKeywords(view.keywords)
             rule = view.lastVisited
             pinned = view.pinned
         }
@@ -173,12 +180,13 @@ enum CustomViewFilter {
                 guard let profile = item.profileName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                       profiles.contains(profile) else { return false }
             }
-            if !domains.isEmpty {
+            if !domains.isEmpty || !domainPatterns.isEmpty {
                 guard let host = CustomViewDomain.host(ofURL: item.url),
-                      domains.contains(where: { CustomViewDomain.host(host, isWithin: $0) }) else { return false }
+                      domains.contains(where: { CustomViewDomain.host(host, isWithin: $0) })
+                        || domainPatterns.matches(host) else { return false }
             }
-            if !keywordWords.isEmpty, !item.matches(words: keywordWords) { return false }
-            return true
+            return keywords.matches(texts: [item.title, item.url],
+                                    foldedKeys: [item.normalizedTitleKey, item.normalizedURLKey])
         }
 
         func matchesTime(_ visit: Date?, now: Date) -> Bool {

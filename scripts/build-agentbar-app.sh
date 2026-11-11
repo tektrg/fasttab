@@ -11,6 +11,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
+rm -f "dist/AgentBar.app.commit"   # a failed build must not leave the old stamp on a half-built bundle
 
 APP="dist/AgentBar.app"
 BUNDLE_ID="com.trungluong.AgentBar"
@@ -104,6 +105,13 @@ cat > "${APP}/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>${BUNDLE_ID}.session</string>
+      <key>CFBundleURLSchemes</key><array><string>agentbar</string></array>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST
@@ -120,6 +128,7 @@ fi
 echo "==> Verifying signature"
 codesign --verify --strict --verbose=2 "${APP}"
 echo "==> Done. ${APP} created"
+scripts/deploy-stamp.sh write AgentBar   # which commit this bundle is (deploy guard)
 
 if [[ "${1:-}" != "--no-open" ]]; then
   echo "==> Launching app"

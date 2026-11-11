@@ -154,7 +154,13 @@ struct WrappingRowsLayout: Layout {
         var cursor = CGPoint.zero
         var lineHeight: CGFloat = 0
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            var size = subview.sizeThatFits(.unspecified)
+            // Never wider than the row: a long chip truncates instead of spilling out (narrow
+            // gallery cards on iPhone).
+            if maxWidth.isFinite, maxWidth > 0, size.width > maxWidth {
+                size = subview.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
+                size.width = min(size.width, maxWidth)
+            }
             if cursor.x > 0, cursor.x + size.width > maxWidth {
                 cursor = CGPoint(x: 0, y: cursor.y + lineHeight + lineSpacing)
                 lineHeight = 0

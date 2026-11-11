@@ -187,29 +187,6 @@ struct StatusOnlyRowActionTests {
     }
 }
 
-@MainActor
-struct ClaudeDesktopOpenerTests {
-    @Test func theSessionLinkWinsAndTheAppIsTheFallback() {
-        var calls: [String] = []
-        func opener(linkOpens: Bool, appOpens: Bool = true) -> ClaudeDesktopOpener {
-            ClaudeDesktopOpener(
-                openURL: { calls.append("url:\($0.absoluteString)"); return linkOpens },
-                activateApp: { calls.append("app:\($0)"); return appOpens }
-            )
-        }
-        let link = URL(string: StatusOnlyFixtures.openUrl)!
-        #expect(opener(linkOpens: true).openSession(link))
-        #expect(calls == ["url:\(StatusOnlyFixtures.openUrl)"])
-        calls = []
-        #expect(opener(linkOpens: false).openSession(link))
-        #expect(calls == ["url:\(StatusOnlyFixtures.openUrl)", "app:com.anthropic.claudefordesktop"])
-        calls = []
-        #expect(opener(linkOpens: true).openSession(nil))
-        #expect(calls == ["app:com.anthropic.claudefordesktop"])
-        #expect(!opener(linkOpens: false, appOpens: false).openSession(link))
-    }
-}
-
 struct StatusOnlyEndedRowTests {
     /// The board keeps a status-only session's old id as an "ended" row with no pane — after it
     /// exits, and also after /clear or a resume while the SAME process still runs (new session id,

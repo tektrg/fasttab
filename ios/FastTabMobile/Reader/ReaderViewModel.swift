@@ -277,6 +277,12 @@ public final class ReaderViewModel: ObservableObject {
     // MARK: - Scroll Progress
 
     private var pendingPersistTask: Task<Void, Never>?
+    /// Scrolling persists progress at most this often (trailing write of the latest value).
+    /// Each persist rewrites the progress store, the recents and the FastTab List, publishes
+    /// the list (re-rendering the reader) and queues a CloudKit send — per 300 ms debounce or
+    /// per finished flick that kept the phone busy (and warm) for a whole reading session.
+    /// Leaving the reader or the app still flushes immediately.
+    var progressPersistInterval: Duration = .seconds(3)
 
     public func updateScrollProgress(_ progress: Double, immediate: Bool = false) {
         scrollProgress = progress
@@ -284,24 +290,24 @@ public final class ReaderViewModel: ObservableObject {
             ReaderReadCounts.shared.increment(url)
             SavedOnIPhoneStore.shared.recordFinishedRead(url: url)
         }
-        if immediate {
-            // `immediate` is a finished scroll gesture, not the reader closing: stats still
-            // batch small gains until a real flush.
+        if immediate && progress >= 0.999 {
+            // Reached the end: record it now. Other finished gestures coalesce like scrolling;
+            // stats still batch small gains until a real flush.
             persistProgressNow(statsFlush: false)
         } else {
-            schedulePersist(progress: progress)
+            schedulePersist()
         }
     }
 
-    private func schedulePersist(progress: Double) {
-        pendingPersistTask?.cancel()
-        pendingPersistTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
-            guard !Task.isCancelled else { return }
-            progressStore.set(progress: progress, for: url)
-            LastOpenedStore.shared.updateProgress(url: url, progress: progress)
-            SavedOnIPhoneStore.shared.recordProgress(url: url, progress: progress)
-            recordReadingStats(progress: progress, isFlush: false)
+    /// Throttle, not debounce: a pending write is kept (it persists the newest `scrollProgress`
+    /// when it fires), so continuous scrolling still saves every `progressPersistInterval`.
+    private func schedulePersist() {
+        guard pendingPersistTask == nil else { return }
+        let interval = progressPersistInterval
+        pendingPersistTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: interval)
+            guard !Task.isCancelled, let self else { return }
+            self.persistProgressNow(statsFlush: false)
         }
     }
 
@@ -334,7 +340,7 @@ public final class ReaderViewModel: ObservableObject {
     private func persistProgressNow(statsFlush: Bool) {
         pendingPersistTask?.cancel()
         pendingPersistTask = nil
-        progressStore.set(progress: scrollProgress, for: url)
+        progressStore.set(progress: scrollProgress, for: url, title: title)
         LastOpenedStore.shared.updateProgress(url: url, progress: scrollProgress)
         SavedOnIPhoneStore.shared.recordProgress(url: url, progress: scrollProgress)
         recordReadingStats(progress: scrollProgress, isFlush: statsFlush)

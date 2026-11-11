@@ -1,6 +1,6 @@
 import Foundation
 import Combine
-import CommandBarKit
+import IndieCommandBar
 
 /// Observable state behind the panel: the latest snapshot, the search text,
 /// the selection, the user's frecency and parked agents, and the row buttons
@@ -23,6 +23,10 @@ final class AgentPanelModel: ObservableObject {
     /// Republishes through this model (same shape as `answer`/`permission`/`message`) so the panel
     /// view needs only observe `AgentPanelModel`.
     let treeModel: AgentTreeModel
+    /// The page strip above the list: All or a saved view, and the saved-view editor
+    /// (`AgentPanelModel+Pages`).
+    let pages: AgentPagesModel
+    var pagesObservation: AnyCancellable?
     /// The row the mouse last hovered into selection. `AgentListView`
     /// skips auto-scroll then: the row is already under the cursor, and scrolling to a nested
     /// worker's chief anchor mid-scroll yanked the list back up ("scroll stuck", 2026-09-29).
@@ -149,7 +153,7 @@ final class AgentPanelModel: ObservableObject {
     /// `/new` enters New worker mode instead, same as a plain Return.
     func startRouting() {
         guard !isCardOpen, routingState == nil, taggedAgentID == nil, newWorker == nil else { return }
-        if enterNewWorkerIfCommand() { return }   // `/new` is a command, never a message for Jev
+        if enterNewWorkerIfCommand() || beginNewViewIfCommand() { return }   // commands, never a message for Jev
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard let apiKey = routingAPIKeyStore?.get(), !apiKey.isEmpty else {
@@ -689,6 +693,8 @@ final class AgentPanelModel: ObservableObject {
     /// cycling). The host closes the panel and switches to the agent; frecency
     /// is recorded later, by `recordSwitch`, once the switch worked.
     var onActivate: (AgentSnapshot) -> Void = { _ in }
+    /// The panel's Focus button / ⌘F: the coordinator opens Focus mode (`FocusMode/`).
+    var onOpenFocus: () -> Void = {}
 
     /// Called when an agent enters Needs you (see `NeedsYouArrivalDetector`);
     /// the host shows the corner tab.
@@ -716,6 +722,8 @@ final class AgentPanelModel: ObservableObject {
     private var arrivalDetector = NeedsYouArrivalDetector()
     private var blockerMemory = BlockerMemory()
     private let blockerProbe: BlockerProbe
+    /// Puts a squeezed `※ recap` line back to its full text (read from the transcript).
+    private let recapExpander: RecapExpander
     /// The latest reading as the dashboard sent it, to derive the shown rows again when the probe learns something.
     private var lastReceived: StatusSnapshot?
     private var answerObservation: AnyCancellable?
@@ -738,8 +746,10 @@ final class AgentPanelModel: ObservableObject {
         message: MessageCardModel = MessageCardModel(),
         copier: IdentityCopier = IdentityCopier(),
         blockerProbe: BlockerProbe = BlockerProbe(),
+        recapExpander: RecapExpander = RecapExpander(),
         directSendRetryDelays: [TimeInterval] = [5, 10],
         treeModel: AgentTreeModel = AgentTreeModel(),
+        pages: AgentPagesModel = AgentPagesModel(),
         loadPeekMessage: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript,
         now: @escaping () -> Date = { Date() }
     ) {
@@ -749,8 +759,10 @@ final class AgentPanelModel: ObservableObject {
         self.message = message
         self.copier = copier
         self.blockerProbe = blockerProbe
+        self.recapExpander = recapExpander
         self.directSendRetryDelays = directSendRetryDelays
         self.treeModel = treeModel
+        self.pages = pages
         self.store = store
         self.triageStore = triageStore
         self.routedNoteStore = routedNoteStore
@@ -765,7 +777,9 @@ final class AgentPanelModel: ObservableObject {
         wirePermissionCard()
         wireMessageCard()
         wireBlockerProbe()
+        recapExpander.onChange = { [weak self] in if let received = self?.lastReceived { self?.receive(received) } }
         wireTreeModel()
+        wirePages()
         copierObservation = copier.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
@@ -843,7 +857,7 @@ final class AgentPanelModel: ObservableObject {
 
     func receive(_ received: StatusSnapshot) {
         lastReceived = received
-        let snapshot = received.replacingAgents(shownBlockers(received.agents))
+        let snapshot = received.replacingAgents(recapExpander.expanded(shownBlockers(received.agents)))
         self.snapshot = snapshot
         treeModel.receive(received)
         // A dead feed shows no agents; that must not read as "they all went away".
@@ -854,6 +868,7 @@ final class AgentPanelModel: ObservableObject {
         settleRowActions()
         closePeekUnlessStillSelected()
         reconcileAnswerCard()
+        if let pendingSessionLinkID { revealSession(id: pendingSessionLinkID) }
         // Same care `pruneRoutedNotes`/`blockerProbe.observe` already take below: a dead feed's
         // `agents` is contractually empty (`StatusSnapshot.health.isDown`), so reconciling the tag
         // against it unconditionally would misread "feed blipped" as "the agent left" and clear a
@@ -1056,7 +1071,7 @@ final class AgentPanelModel: ObservableObject {
             message.pressSend()
             return
         }
-        if handleNewWorkerReturn() || enterNewWorkerIfCommand() { return }
+        if handleNewWorkerReturn() || enterNewWorkerIfCommand() || beginNewViewIfCommand() { return }
         if sendToTaggedIfPending() { return }
         guard let selectedAgentID else { return }
         if let highlightedButton {
@@ -1380,6 +1395,33 @@ final class AgentPanelModel: ObservableObject {
         showFailureNotice(.switchFailed(message))
     }
 
+    // MARK: - Session link (`agentbar://session/<rowId>`)
+
+    static let sessionNotRunningNotice = "That session isn't running."
+
+    /// A session link asked for this row, before the first status reading arrived.
+    private var pendingSessionLinkID: String?
+
+    /// Selects the row a session link names (its dashboard `rowId`, or the row's own id), exactly
+    /// as if the user had arrowed to it in a freshly summoned panel. Before the first status reading
+    /// the request waits for it; a row that isn't listed shows "That session isn't running."
+    func revealSession(id: String) {
+        guard snapshot != nil else {
+            pendingSessionLinkID = id
+            return
+        }
+        pendingSessionLinkID = nil
+        let selectable = presentation.selectableAgentIDs
+        let match = (snapshot?.agents ?? []).first { $0.rowId == id && selectable.contains($0.id) }?.id
+            ?? (selectable.contains(id) ? id : nil)
+        guard let match else {
+            showFailureNotice(.actionFailed(Self.sessionNotRunningNotice))
+            return
+        }
+        hoverSelectedAgentID = nil
+        selectedAgentID = match
+    }
+
     /// The buttons the keyboard and mouse can use on `agent`'s row: none while its answer or decision is on its way.
     private func usableButtons(for agent: AgentSnapshot) -> [RowButton] {
         guard sendingLabel(for: agent) == nil, sentLabel(for: agent) == nil else { return [] }
@@ -1486,6 +1528,20 @@ final class AgentPanelModel: ObservableObject {
         footerNotice = PanelFooterNotice.resolve(failure: failureNotice, hotkeyIssue: hotkeyIssue)
     }
 
+    /// Focus mode (`FocusMode/`): every agent in Needs you (blocked or generic idle), in the list's
+    /// display order with an empty search. Empty without a trustworthy reading.
+    func focusCandidates() -> [AgentSnapshot] {
+        guard let needsYou = AgentListBuilder.needsYouAgents(snapshot: snapshot, settings: listSettings, triage: triage) else { return [] }
+        let display = AgentListBuilder.presentation(
+            snapshot: snapshot, query: "", frecency: frecency, now: now(), settings: listSettings, triage: triage
+        ).agents.map(\.id)
+        let byID = Dictionary(needsYou.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return FocusQueue.listOrder(needsYou: needsYou.map(\.id), displayOrder: display).compactMap { byID[$0] }
+    }
+
+    /// The Focus button's badge: agents in Needs you as the list shows them.
+    var focusCount: Int { presentation.agents.filter { $0.section == .needsYou }.count }
+
     /// What the corner tab says when the pointer rests in the corner.
     func needsYouSummary() -> CornerTabContent {
         CornerTabContent.summary(of: AgentListBuilder.needsYouAgents(snapshot: snapshot, settings: listSettings, triage: triage))
@@ -1557,9 +1613,23 @@ final class AgentPanelModel: ObservableObject {
         onNeedsYouReading(reportingArrivals ? arrivals : [], needsYou)
     }
 
-    private func rebuild() {
+    /// Agents `view` would show right now, search ignored; nil without a trustworthy reading.
+    func agentCount(in view: AgentSavedView) -> Int? {
+        guard let snapshot, !snapshot.health.isDown else { return nil }
+        return view.filter(AgentListBuilder.shownAgents(in: snapshot, settings: listSettings, triage: triage)).count
+    }
+
+    /// The shown page changed (`AgentPanelModel+Pages`): re-filter, selection to the first row.
+    func pageDidChange() {
+        closePeek()
+        rebuild()
+        selectedAgentID = presentation.selectableAgentIDs.first
+    }
+
+    func rebuild() {
         presentation = AgentListBuilder.presentation(
-            snapshot: snapshot, query: query, frecency: frecency, now: now(), settings: listSettings, triage: triage
+            snapshot: snapshot, query: query, frecency: frecency, now: now(), settings: listSettings, triage: triage,
+            view: pages.activeView
         )
     }
 }

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import FastTab
-import CommandBarKit
+import IndieCommandBar
 import IndieEdgeReveal
 
 /// The hover-trigger setting moved to IndieLibKit's `EdgeRevealStyle`; users'

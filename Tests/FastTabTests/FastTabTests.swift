@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import FastTab
-import CommandBarKit
+import IndieCommandBar
 import IndieEdgeReveal
 
 @Test func searchResultsSortByTypePriorityBeforeRecency() async throws {

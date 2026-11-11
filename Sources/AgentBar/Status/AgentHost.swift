@@ -1,4 +1,5 @@
 import Foundation
+import IndieAgentSessions
 
 /// Where a live agent runs, from the dashboard row's `source`. Only herdr agents have a
 /// pane AgentBar can read, type into, answer or focus through the dashboard. The other two are
@@ -13,7 +14,7 @@ enum AgentHost: Equatable, Sendable {
     /// The Claude CLI outside herdr (e.g. in tmux). `tmuxTarget` ("session:@w.%p") when known.
     case claudeCLI(tmuxTarget: String?)
 
-    static let claudeDesktopBundleIdentifier = "com.anthropic.claudefordesktop"
+    static let claudeDesktopBundleIdentifier = AgentSessionHost.claudeDesktopBundleIdentifier
 
     /// Reads the wire fields; nil for a `source` this build does not know (the row is then
     /// treated as herdr when it has a pane, dropped otherwise — see `LiveAgentMapper`).
@@ -22,22 +23,16 @@ enum AgentHost: Equatable, Sendable {
         case nil, "herdr":
             self = .herdr
         case "claude-desktop":
-            self = .claudeDesktop(openURL: Self.claudeDesktopSessionURL(openUrl))
+            self = .claudeDesktop(openURL: AgentSessionHost.claudeDesktopSessionURL(openUrl))
         case "claude-cli":
-            self = .claudeCLI(tmuxTarget: tmuxTarget.flatMap { $0.isEmpty ? nil : $0 })
+            self = .claudeCLI(tmuxTarget: AgentSessionHost.tmuxTarget(tmuxTarget))
         default:
             return nil
         }
     }
 
-    /// Only Claude.app's own session link is ever opened: Enter hands this URL to NSWorkspace, so
-    /// anything else from the dashboard (another scheme, a file, a web page) falls back to just
-    /// activating Claude.app.
-    private static func claudeDesktopSessionURL(_ text: String?) -> URL? {
-        guard let text, let url = URL(string: text),
-              url.scheme == "claude", url.host == "code", url.path == "/continue" else { return nil }
-        return url
-    }
+    // Which Claude Desktop links are opened is decided by `AgentSessionHost.claudeDesktopSessionURL`
+    // (IndieAgentSessions): only `claude://code/continue…`; anything else falls back to the app.
 
     var isHerdr: Bool { self == .herdr }
 

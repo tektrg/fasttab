@@ -70,6 +70,9 @@ struct SearchFieldView: View {
                         .foregroundStyle(.secondary)
                 }
                 field
+                if model.newWorker == nil, model.taggedAgentID == nil {
+                    FocusButton(count: model.focusCount, action: model.onOpenFocus)
+                }
                 if showsNewWorkerButton {
                     Button(action: model.enterNewWorkerMode) {
                         Image(systemName: "plus")
@@ -80,8 +83,12 @@ struct SearchFieldView: View {
                     }
                     .buttonStyle(.plain)
                     .focusable(false)
-                    .help("New worker (/new)")
+                    .help("New worker (/new) · right-click: New view (/view)")
                     .accessibilityLabel("New worker")
+                    .contextMenu {
+                        Button("New worker", action: model.enterNewWorkerMode)
+                        Button("New view", action: model.beginNewView)
+                    }
                 }
             }
             .frame(height: fieldRowHeight)
@@ -160,19 +167,17 @@ struct SearchFieldView: View {
     /// option, other characters are dropped. Arrows, space, return and escape have
     /// their own handlers, and shortcuts (⌘,) pass through.
     private func answerCardKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        let navigation: Set<KeyEquivalent> = [.upArrow, .downArrow, .leftArrow, .rightArrow, .space, .return, .escape, .tab]
+        switch AgentPanelKeys.cardKey(
+            characters: press.characters, modifiers: press.modifiers,
+            isNavigationKey: navigation.contains(press.key), isCardOpen: model.isCardOpen
+        ) {
+        case .ignored: return .ignored
         // ⌘C copies the agent's details. This handler only runs while the search box has the
         // keyboard, so a text field or a selection elsewhere in the card keeps its own copy.
-        if model.isCardOpen, press.modifiers == .command, press.characters == "c" {
-            return model.copyOpenCardIdentity() ? .handled : .ignored
-        }
-        guard model.isCardOpen, press.modifiers.subtracting(.shift).isEmpty else { return .ignored }
-        switch press.key {
-        case .upArrow, .downArrow, .leftArrow, .rightArrow, .space, .return, .escape, .tab:
-            return .ignored
-        default:
-            if let number = Int(press.characters), (1...9).contains(number) { model.handleCardDigit(number) }
-            else { model.handleCardStrayKey() }
-            return .handled
+        case .copyIdentity: return model.copyOpenCardIdentity() ? .handled : .ignored
+        case .pickOption(let number): model.handleCardDigit(number); return .handled
+        case .dropStray: model.handleCardStrayKey(); return .handled
         }
     }
 
@@ -198,10 +203,9 @@ struct SearchFieldView: View {
                 // free text starts Jev routing, unless a card already owns the keyboard; every
                 // other Return presses the highlighted button / switches to the agent, exactly
                 // as `.onSubmit` used to.
-                if !model.isCardOpen, press.modifiers.contains(.shift) {
-                    model.startRouting()
-                } else {
-                    model.activateSelected(isKeyRepeat: NSApp.currentEvent?.isARepeat ?? false)
+                switch AgentPanelKeys.returnAction(shift: press.modifiers.contains(.shift), isCardOpen: model.isCardOpen) {
+                case .startRouting: model.startRouting()
+                case .activateSelected: model.activateSelected(isKeyRepeat: NSApp.currentEvent?.isARepeat ?? false)
                 }
                 return .handled
             }
@@ -231,9 +235,16 @@ struct SearchFieldView: View {
             }
             .onKeyPress(phases: .down) { press in answerCardKeyPress(press) }
             .onExitCommand {
-                if model.dismissFooterNotice() { return }   // a failure notice goes first, then esc does its usual job
-                if model.backOutOfButtons() { return }
-                if model.peek != nil { model.closePeek() } else { onClose() }
+                // A failure notice goes first, then the button highlight, the peek, the panel.
+                switch AgentPanelKeys.escape(
+                    dismissNotice: { model.dismissFooterNotice() },
+                    backOutOfButtons: { model.backOutOfButtons() },
+                    hasPeek: model.peek != nil
+                ) {
+                case .dismissedNotice, .backedOutOfButtons: break
+                case .closedPeek: model.closePeek()
+                case .closePanel: onClose()
+                }
             }
             .simultaneousGesture(TapGesture().onEnded {
                 NotificationCenter.default.post(name: Self.didReceiveClickNotification, object: nil)
@@ -258,7 +269,7 @@ struct SearchFieldView: View {
 
 /// The tagged agent, inline in the search bar. Recreates FastTab's search-alias chip
 /// (`SearchAliasBadge` in `CommandBarChrome.swift`) — same capsule, same accent tint, same ✕ —
-/// since AgentBar and FastTab share only `CommandBarKit`, which has no such component to reuse.
+/// since AgentBar and FastTab share only `IndieCommandBar`, which has no such component to reuse.
 private struct TagChipView: View {
     let label: String
     let onRemove: () -> Void

@@ -1,21 +1,20 @@
 import Foundation
+import IndieCommandBar
 
+/// Fast Tab's view flick: the shared `CommandBarViewFlick` over
+/// `CommandBarView` pages.
 struct ViewSwitchFlickDetector {
-    static let threshold: CGFloat = 60.0
+    static let threshold: CGFloat = CommandBarViewFlick.threshold
 
-    private(set) var accumulator: CGFloat = 0
-    private(set) var isSuppressed: Bool = false
+    private var flick = CommandBarViewFlick()
 
-    mutating func reset() {
-        accumulator = 0
-        isSuppressed = false
-    }
+    var accumulator: CGFloat { flick.accumulator }
+    var isSuppressed: Bool { flick.isSuppressed }
 
-    /// Processes horizontal scroll delta with vertical scroll safety.
-    /// Returns the target view to switch to if a flick triggered, or nil.
+    mutating func reset() { flick.reset() }
+
     /// `orderedViews` is the swipe order (`CommandBarViewStore.availableViews`);
-    /// a leftward flick (negative delta) moves one page forward, rightward
-    /// one page back, clamped at both ends.
+    /// a leftward flick moves one page forward, rightward one back, clamped.
     mutating func handleScroll(
         deltaX: CGFloat,
         deltaY: CGFloat = 0,
@@ -24,41 +23,20 @@ struct ViewSwitchFlickDetector {
         currentView: CommandBarView,
         orderedViews: [CommandBarView] = CommandBarView.builtins
     ) -> CommandBarView? {
-        if isEnded {
-            accumulator = 0
-            isSuppressed = false
-            return nil
-        }
+        flick.handleScroll(
+            deltaX: deltaX, deltaY: deltaY, isEnded: isEnded, isMomentum: isMomentum,
+            current: currentView, ordered: orderedViews
+        )
+    }
 
-        guard !isSuppressed, !isMomentum else { return nil }
-
-        // If the scroll is predominantly vertical, reset horizontal accumulation
-        // so vertical list scrolling never triggers an accidental view switch.
-        let absX = abs(deltaX)
-        let absY = abs(deltaY)
-        if absY > absX {
-            accumulator = 0
-            return nil
-        }
-
-        // Filter sub-pixel jitter
-        guard absX >= 1.5 else { return nil }
-
-        // Direction clamping: cannot flick further than edges
-        let step = deltaX < 0 ? 1 : -1
-        guard let target = CommandBarView.neighbor(of: currentView, step: step, in: orderedViews) else {
-            accumulator = 0
-            return nil
-        }
-
-        accumulator += deltaX
-
-        if abs(accumulator) >= Self.threshold {
-            isSuppressed = true
-            accumulator = 0
-            return target
-        }
-
-        return nil
+    mutating func handleEvent(
+        deltaX: CGFloat, deltaY: CGFloat, began: Bool, touchEnded: Bool, momentumEnded: Bool,
+        cancelled: Bool, isMomentum: Bool, currentView: CommandBarView, orderedViews: [CommandBarView]
+    ) -> (target: CommandBarView?, consumed: Bool) {
+        flick.handleEvent(
+            deltaX: deltaX, deltaY: deltaY, began: began, touchEnded: touchEnded,
+            momentumEnded: momentumEnded, cancelled: cancelled, isMomentum: isMomentum,
+            current: currentView, ordered: orderedViews
+        )
     }
 }

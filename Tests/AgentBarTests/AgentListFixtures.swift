@@ -1,5 +1,5 @@
 import Foundation
-import CommandBarKit
+import IndieCommandBar
 @testable import AgentBar
 
 /// Hand-built agents and snapshots for list logic tests.
@@ -10,6 +10,7 @@ enum AgentListFixtures {
         _ id: String,
         label: String? = nil,
         project: String? = nil,
+        cwd: String? = nil,
         section: AgentSection = .needsYou,
         statusText: String = "waiting",
         excerpt: String? = nil,
@@ -23,7 +24,7 @@ enum AgentListFixtures {
             id: id,
             label: label ?? id,
             projectName: project,
-            cwd: nil,
+            cwd: cwd,
             paneId: paneId ?? "w1:\(id)",
             section: section,
             statusText: statusText,

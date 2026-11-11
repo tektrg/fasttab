@@ -1,9 +1,11 @@
 import SwiftUI
+import IndieGallery
 
-/// Every saved highlight in one flat feed, newest first, each shown in full with chips for
-/// its tags, its bookmark folder and its article. Tapping a chip filters the feed (chips AND
-/// together, a parent tag covers its children); search matches text, article, tag names and
-/// comments. Each highlight's comment thread opens from its swipe or context menu.
+/// Every saved highlight as a two-column card gallery (IndieGallery), newest first. Each card
+/// shows the article, the highlight and chips for its tags and bookmark folder. Tapping a chip
+/// filters the feed (chips AND together, a parent tag covers its children); search matches text,
+/// article, tag names and comments. Tap opens the article at the highlight; long-press (and the
+/// VoiceOver actions) offer Comments, Edit Tags, This Article Only and Delete.
 /// Filtering lives in `HighlightFeedModel`. Reached from the Read tab's "See all" and from
 /// More → Highlights.
 public struct HighlightsListView: View {
@@ -78,31 +80,54 @@ public struct HighlightsListView: View {
             emptyState("No matching highlights", systemImage: "magnifyingglass",
                        message: "Try another search, or remove a filter.")
         } else {
-            List {
-                ForEach(visibleEntries) { entry in
-                    feedRow(entry)
+            ScrollView {
+                IndieGallery(visibleEntries, estimatedHeight: HighlightGalleryCard.estimatedHeight) { entry in
+                    galleryCard(entry)
                 }
-                .dsListRow()
+                .padding(.horizontal, DS.Space.gutter)
+                .padding(.vertical, DS.Space.md)
             }
-            .dsListStyle()
+            .indieGalleryStyle(.fastTab)
+            .dsCanvas()
         }
     }
 
-    private func feedRow(_ entry: HighlightFeedEntry) -> some View {
-        HighlightFeedRow(entry: entry, filter: $filter) { open(entry.highlight) }
-            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                Button(role: .destructive) { delete(entry) } label: { Label("Delete", systemImage: "trash") }
-            }
-            .swipeActions(edge: .leading) {
-                Button { taggingEntry = entry } label: { Label("Tags", systemImage: "tag") }
-                    .tint(DS.Tint.action)
-                Button { commentingEntry = entry } label: { Label("Comments", systemImage: "text.bubble") }
+    private func galleryCard(_ entry: HighlightFeedEntry) -> some View {
+        HighlightGalleryCard(entry: entry, filter: $filter) { commentingEntry = entry }
+            .onTapGesture { open(entry.highlight) }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityValue(entry.comments.last.map { "Latest comment: \($0)" } ?? "")
+            .accessibilityAction { open(entry.highlight) }
+            .accessibilityAction(named: "Comments") { commentingEntry = entry }
+            .accessibilityAction(named: "Edit Tags") { taggingEntry = entry }
+            .accessibilityAction(named: articleFilterLabel(entry)) { toggleArticle(entry) }
+            .accessibilityAction(named: "Delete") { delete(entry) }
+            .accessibilityActions {
+                // The tag chips are hidden from VoiceOver inside the combined card; one action each.
+                ForEach(entry.allTags, id: \.normalizedPath) { tag in
+                    Button(filter.tagFilter.covers(tag) ? "Remove filter \(tag.displayPath)" : "Filter by \(tag.displayPath)") {
+                        withAnimation(DS.Motion.quick) { filter.tagFilter.toggleCovering(tag) }
+                    }
+                }
             }
             .contextMenu {
                 Button { commentingEntry = entry } label: { Label("Comments", systemImage: "text.bubble") }
                 Button { taggingEntry = entry } label: { Label("Edit Tags", systemImage: "tag") }
+                Button { toggleArticle(entry) } label: { Label(articleFilterLabel(entry), systemImage: "doc.text") }
                 Button(role: .destructive) { delete(entry) } label: { Label("Delete", systemImage: "trash") }
             }
+    }
+
+    /// The article chip moved off the card (its title names the article), so narrowing the feed
+    /// to one article lives in the long-press menu.
+    private func articleFilterLabel(_ entry: HighlightFeedEntry) -> String {
+        filter.isArticleSelected(entry.highlight.urlKey) ? "Show All Articles" : "This Article Only"
+    }
+
+    private func toggleArticle(_ entry: HighlightFeedEntry) {
+        withAnimation(DS.Motion.quick) {
+            filter.toggleArticle(urlKey: entry.highlight.urlKey, title: entry.articleTitle)
+        }
     }
 
     private func emptyState(_ title: String, systemImage: String, message: String) -> some View {

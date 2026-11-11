@@ -1,16 +1,18 @@
 import SwiftUI
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
+/// A result row inside the shared swipe container. Fast Tab draws the row
+/// (`ResultRowView`); `IndieCommandBar` handles offset, tail icon and removal.
 struct SwipeableResultRow: View {
     let result: BrowserSearchResult
     let isSelected: Bool
     let faviconImage: NSImage?
     let showWindowName: Bool
     let showProfileName: Bool
-    let pointerAction: ResultSwipeAction?
+    let pointerEdge: CommandBarSwipeEdge?
     let pointerOffset: CGFloat
-    let keyboardAction: ResultSwipeAction?
+    let keyboardEdge: CommandBarSwipeEdge?
     let isConfirmingRemoval: Bool
     let onHoverChange: (Bool) -> Void
     let onSelect: () -> Void
@@ -22,41 +24,16 @@ struct SwipeableResultRow: View {
 
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
 
-    private var visibleAction: ResultSwipeAction? {
-        pointerAction ?? keyboardAction ?? action(for: pointerOffset)
-    }
-
-    private var visibleOffset: CGFloat {
-        if abs(pointerOffset) > 0 {
-            return pointerOffset
-        }
-
-        if let keyboardAction {
-            return keyboardAction.sign * ResultSwipeMetrics.revealDistance
-        }
-
-        return 0
-    }
-
-    private var tailIconOpacity: Double {
-        guard visibleAction != nil else { return 0 }
-        let visibleSpace = abs(visibleOffset)
-        let minimumSpace = ResultSwipeMetrics.actionIconSize(for: rowStyle) + (ResultSwipeMetrics.actionIconInset * 2)
-        guard visibleSpace >= minimumSpace else { return 0 }
-
-        let progress = (visibleSpace - minimumSpace) / (ResultSwipeMetrics.revealDistance - minimumSpace)
-        return min(1, max(0, Double(progress)))
-    }
-
-    /// Once removal is confirmed, the content keeps sliding in the same
-    /// direction it was already swiping — continuing the gesture instead of
-    /// snapping back to rest before the row collapses.
-    private var contentOffset: CGFloat {
-        isConfirmingRemoval ? -ResultSwipeMetrics.removalExitDistance : visibleOffset
-    }
-
     var body: some View {
-        ZStack {
+        CommandBarSwipeRow(
+            pointerEdge: pointerEdge,
+            pointerOffset: pointerOffset,
+            keyboardEdge: keyboardEdge,
+            isConfirmingRemoval: isConfirmingRemoval,
+            iconSize: ResultSwipeMetrics.actionIconSize(for: rowStyle),
+            action: FastTabSwipeActions.action(for:),
+            onHoverChange: onHoverChange
+        ) {
             ResultRowView(
                 result: result,
                 isSelected: isSelected,
@@ -69,103 +46,7 @@ struct SwipeableResultRow: View {
                 onPin: onPin,
                 onFastTabListBridge: onFastTabListBridge
             )
-            .offset(x: contentOffset)
-            .animation(.spring(response: 0.24, dampingFraction: 0.88), value: keyboardAction)
-            .animation(.spring(response: 0.24, dampingFraction: 0.88), value: pointerAction)
-            .animation(.easeOut(duration: 0.22), value: isConfirmingRemoval)
-
-            if let visibleAction {
-                // While confirming, the checkmark already on screen from the
-                // swipe reveal takes over the flourish in place — swapping to
-                // a *different* icon view here would be an invisible no-op at
-                // the handoff instant (both render as the same green
-                // checkmark circle), so there's no pop, just a continuation.
-                Group {
-                    if isConfirmingRemoval {
-                        RemovalConfirmationIcon(size: ResultSwipeMetrics.actionIconSize(for: rowStyle))
-                    } else {
-                        TailSwipeActionIcon(action: visibleAction, size: ResultSwipeMetrics.actionIconSize(for: rowStyle))
-                            .opacity(tailIconOpacity)
-                            .scaleEffect(0.86 + (0.14 * CGFloat(tailIconOpacity)))
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: visibleAction.tailAlignment)
-                .padding(.horizontal, ResultSwipeMetrics.actionIconInset)
-                .allowsHitTesting(false)
-                .animation(.spring(response: 0.24, dampingFraction: 0.88), value: keyboardAction)
-                .animation(.spring(response: 0.24, dampingFraction: 0.88), value: pointerAction)
-            }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .onHover(perform: onHoverChange)
-    }
-
-    private func action(for offset: CGFloat) -> ResultSwipeAction? {
-        if offset <= -1 { return .delete }
-        if offset >= 1 { return .copy }
-        return nil
-    }
-}
-
-private extension ResultSwipeAction {
-    var tailAlignment: Alignment {
-        switch self {
-        case .delete: return .trailing
-        case .copy: return .leading
-        }
-    }
-}
-
-private struct TailSwipeActionIcon: View {
-    let action: ResultSwipeAction
-    let size: CGFloat
-
-    var body: some View {
-        Image(systemName: action.iconName)
-            .font(.system(size: size * 0.5, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(
-                Circle()
-                    .fill(action.tint)
-                    .shadow(color: action.tint.opacity(0.28), radius: 8, y: 3)
-            )
-    }
-}
-
-/// One-shot "removed" flourish: takes over from the resting swipe-reveal
-/// checkmark (same size/color, so the handoff is invisible), briefly follows
-/// the row's exit slide, then zooms in a touch and fades. Purely decorative
-/// (no hit testing) — starts at the tail icon's own resting scale/opacity so
-/// there's no pop at the moment it takes over.
-private struct RemovalConfirmationIcon: View {
-    let size: CGFloat
-
-    @State private var scale: CGFloat = 1
-    @State private var opacity: Double = 1
-
-    var body: some View {
-        Circle()
-            .fill(Color.green)
-            .frame(width: size, height: size)
-            .overlay(
-                Image(systemName: "checkmark")
-                    .font(.system(size: size * 0.5, weight: .bold))
-                    .foregroundStyle(.white)
-            )
-            .scaleEffect(scale)
-            .opacity(opacity)
-            .onAppear {
-                // Delayed slightly so the checkmark reads as "following" the
-                // content's exit slide rather than firing the instant it's
-                // confirmed.
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.62).delay(0.08)) {
-                    scale = 1.3
-                }
-                withAnimation(.easeOut(duration: 0.22).delay(0.14)) {
-                    opacity = 0
-                }
-            }
     }
 }
 
@@ -189,7 +70,9 @@ private struct ResultRowView: View {
         result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName)
     }
 
-    private var isActionsVisible: Bool { isHovering || isSelected }
+    private var isActionsVisible: Bool {
+        CommandBarRowOverlayPolicy.isVisible(.hoverOrSelection, isHovering: isHovering, isSelected: isSelected)
+    }
 
     /// Trailing clearance reserved while the action overlay is visible, so the
     /// minimal one-line title truncates before the buttons.
@@ -198,8 +81,9 @@ private struct ResultRowView: View {
     /// backdrop) covers it on hover. Reserving on hover re-wrapped the text and changed the
     /// row height; reserving always left a blank column beside every row.
     private var actionReserveWidth: CGFloat {
-        guard rowStyle == .minimal, isActionsVisible else { return 0 }
-        return RowActionOverlay<EmptyView>.reservedWidth(
+        CommandBarRowOverlayPolicy.reservedWidth(
+            isVisible: isActionsVisible,
+            isCompact: rowStyle == .minimal,
             buttonCount: 2,
             leadingFadeWidth: 0,
             trailingPadding: 0
@@ -243,7 +127,7 @@ private struct ResultRowView: View {
             RowActionOverlay(
                 isSelected: isSelected,
                 isHovering: isHovering,
-                isVisible: isHovering || isSelected,
+                isVisible: isActionsVisible,
                 leadingFadeWidth: 4,
                 trailingPadding: 10
             ) {
@@ -583,27 +467,5 @@ enum BrowserIconCache {
         sized.size = NSSize(width: size, height: size)
         iconStore[key] = sized
         return sized
-    }
-}
-
-struct CommandBarToast: View {
-    let message: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-
-            Text(message)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.primary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            Capsule(style: .continuous)
-                .fill(.regularMaterial)
-                .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
-        )
     }
 }

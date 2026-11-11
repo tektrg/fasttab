@@ -15,24 +15,27 @@ enum CustomViewEditorKeyRoute {
     /// Belongs to the focused field (typing, arrows, Return, Tab, ⌘A…):
     /// deliver it untouched, skipping the bar's own bindings.
     case passThrough
-}
 
-extension ContentView {
-    /// Called first for every keyDown while the bar is visible
-    /// (`setupLocalMonitor`). Esc closes the builder (or backs out of a
-    /// delete confirmation) — never the whole bar; ⌘Return saves.
-    func routeCustomViewEditorKey(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> CustomViewEditorKeyRoute {
-        let presenter = CustomViewEditorPresenter.shared
-        guard presenter.holdsBar(on: viewStore.activeView) else { return .notInvolved }
+    /// Pure apart from the presenter calls it makes (Esc cancels, ⌘Return
+    /// saves) — pinned by `FastTabKeyRoutingTests`.
+    @MainActor
+    static func route(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        presenter: CustomViewEditorPresenter,
+        activeView: CommandBarView,
+        beep: () -> Void = { NSSound.beep() }
+    ) -> CustomViewEditorKeyRoute {
+        guard presenter.holdsBar(on: activeView) else { return .notInvolved }
 
-        if event.keyCode == kEscapeKeyCode, modifiers.isEmpty {
+        if keyCode == kEscapeKeyCode, modifiers.isEmpty {
             presenter.cancelTopmost()
             return .consume
         }
-        if presenter.isEditing(on: viewStore.activeView) {
-            let isReturn = event.keyCode == kEnterKeyCode || event.keyCode == kKeypadEnterKeyCode
+        if presenter.isEditing(on: activeView) {
+            let isReturn = keyCode == kEnterKeyCode || keyCode == kKeypadEnterKeyCode
             if isReturn, modifiers == [.command] {
-                if presenter.pendingDeleteID == nil, !presenter.save() { NSSound.beep() }
+                if presenter.pendingDeleteID == nil, !presenter.save() { beep() }
                 return .consume
             }
             return .passThrough
@@ -41,17 +44,31 @@ extension ContentView {
         // list underneath; ⌘ shortcuts (menus) still work.
         return modifiers.contains(.command) ? .passThrough : .consume
     }
+}
+
+extension ContentView {
+    /// Called first for every keyDown while the bar is visible
+    /// (`setupLocalMonitor`). Esc closes the builder (or backs out of a
+    /// delete confirmation) — never the whole bar; ⌘Return saves.
+    func routeCustomViewEditorKey(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> CustomViewEditorKeyRoute {
+        CustomViewEditorKeyRoute.route(
+            keyCode: event.keyCode,
+            modifiers: modifiers,
+            presenter: env.customViewEditor,
+            activeView: viewStore.activeView
+        )
+    }
 
     /// The builder / confirm card is on the active page: scroll events are
     /// the form's (no page swipes) and focus must not jump to the search field.
     var customViewEditorHoldsBar: Bool {
-        CustomViewEditorPresenter.shared.holdsBar(on: viewStore.activeView)
+        env.customViewEditor.holdsBar(on: viewStore.activeView)
     }
 
     /// Drops the builder / confirmation when the bar hides or the page
     /// changes (see `CustomViewEditorPresenter.syncWith`).
     func syncCustomViewEditor() {
-        CustomViewEditorPresenter.shared.syncWith(activeView: viewStore.activeView, isBarVisible: appState.isVisible)
+        env.customViewEditor.syncWith(activeView: viewStore.activeView, isBarVisible: appState.isVisible)
     }
 }
 
@@ -60,9 +77,9 @@ extension ContentView {
 /// Observes the presenter itself so `ContentView` doesn't have to.
 struct CustomViewEditorSlot<Content: View>: View {
     let page: CommandBarView
+    @ObservedObject var presenter: CustomViewEditorPresenter
     @ViewBuilder let content: () -> Content
 
-    @ObservedObject private var presenter = CustomViewEditorPresenter.shared
     @ObservedObject private var store = CustomViewStore.shared
 
     var body: some View {

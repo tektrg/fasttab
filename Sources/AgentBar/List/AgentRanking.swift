@@ -1,5 +1,5 @@
 import Foundation
-import CommandBarKit
+import IndieCommandBar
 
 /// Order of agents inside one section.
 enum AgentRanking {

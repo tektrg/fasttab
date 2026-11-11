@@ -1,5 +1,5 @@
 import SwiftUI
-import CommandBarKit
+import IndieCommandBar
 
 /// "Appearance" tab of Settings: how the command bar looks and how much it shows.
 struct AppearanceSettingsView: View {

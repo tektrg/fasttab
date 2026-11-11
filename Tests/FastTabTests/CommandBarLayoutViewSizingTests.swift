@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 import Testing
 @testable import FastTab
-import CommandBarKit
+import IndieCommandBar
 
 struct CommandBarLayoutViewSizingTests {
     @Test func outsideClickBoxAlwaysContainsOutsideHoverBox() {

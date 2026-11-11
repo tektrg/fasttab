@@ -10,6 +10,9 @@ struct BookmarksSettingsView: View {
 
     @State private var filterText = ""
     @State private var errorMessage: String? = nil
+    /// The folder awaiting the "Delete folder…?" confirmation.
+    @State private var pendingFolderDelete: BookmarkFolder? = nil
+    @State private var deletingFolderIDs: Set<String> = []
 
     private var rows: [BookmarkDisplayRow] {
         let all = bookmarkTreeStore.flattenedRows(liveTabs: appState.browserService.cachedLiveTabs)
@@ -98,6 +101,12 @@ struct BookmarksSettingsView: View {
                                     if case .bookmark(_, _, let liveTab, _, _) = row, let liveTab {
                                         appState.browserService.remove(liveTab)
                                     }
+                                },
+                                folderDelete: folderDeleteAvailability(for: row),
+                                onDeleteFolder: {
+                                    if case .folder(let id, _, _, _, _, _) = row {
+                                        pendingFolderDelete = bookmarkTreeStore.folder(withID: id)
+                                    }
                                 }
                             )
                             .padding(.horizontal, 8)
@@ -108,6 +117,62 @@ struct BookmarksSettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .alert(
+            "Delete Folder?",
+            isPresented: Binding(
+                get: { pendingFolderDelete != nil },
+                set: { if !$0 { pendingFolderDelete = nil } }
+            ),
+            presenting: pendingFolderDelete
+        ) { folder in
+            Button("Delete Folder", role: .destructive) {
+                deleteFolderConfirmed(folder)
+            }
+            Button("Cancel", role: .cancel) {
+                pendingFolderDelete = nil
+            }
+        } message: { folder in
+            Text(BookmarkFolderDeleteCopy.confirmation(
+                folderName: folder.name,
+                bookmarkCount: folder.totalBookmarkCount,
+                subfolderCount: folder.totalSubfolderCount
+            ))
+        }
+    }
+
+    private func folderDeleteAvailability(for row: BookmarkDisplayRow) -> BookmarkFolderDeleteAvailability {
+        guard case .folder(let id, _, _, _, _, _) = row,
+              !deletingFolderIDs.contains(id),
+              let folder = bookmarkTreeStore.folder(withID: id) else { return .hidden }
+        return BookmarkFolderDeleteAvailability.of(folder)
+    }
+
+    private func deleteFolderConfirmed(_ folder: BookmarkFolder) {
+        pendingFolderDelete = nil
+        deletingFolderIDs.insert(folder.id)
+        errorMessage = nil
+        Task {
+            let outcome = await appState.browserService.deleteBookmarkFolderAsync(folder)
+            await MainActor.run {
+                deletingFolderIDs.remove(folder.id)
+                switch outcome {
+                case .deleted:
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        _ = bookmarkTreeStore.removeFolder(id: folder.id)
+                    }
+                    appState.browserService.refreshBookmarkTreeAfterExternalChange()
+                case .readOnlyBrowser:
+                    errorMessage = BookmarkFolderDeleteCopy.readOnlyReason(browserName: folder.browserName)
+                case .rootFolder:
+                    errorMessage = "Built-in bookmark folders can't be deleted."
+                case .notFound:
+                    errorMessage = "\"\(folder.name)\" is no longer in \(folder.browserName)."
+                    appState.browserService.refreshBookmarkTreeAfterExternalChange()
+                case .ambiguous, .failed:
+                    errorMessage = "Could not delete folder \"\(folder.name)\" from \(folder.browserName)."
+                }
+            }
+        }
     }
 
     private var header: some View {

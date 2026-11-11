@@ -3,6 +3,8 @@
 import PackageDescription
 
 let indieSearch: Target.Dependency = .product(name: "IndieSearch", package: "IndieLibKit")
+// Saved views (model, store, day buckets, keyword matcher) shared by Fast Tab and Agent Bar.
+let indieSavedViews: Target.Dependency = .product(name: "IndieSavedViews", package: "IndieLibKit")
 let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "IndieLibKit")
 let indieMotion: Target.Dependency = .product(name: "IndieMotion", package: "IndieLibKit")
 let indieEdgeReveal: Target.Dependency = .product(name: "IndieEdgeReveal", package: "IndieLibKit")
@@ -14,6 +16,8 @@ let indieTable: Target.Dependency = .product(name: "IndieTable", package: "Indie
 let indieMCP: Target.Dependency = .product(name: "IndieMCP", package: "IndieLibKit")
 let indieSharing: Target.Dependency = .product(name: "IndieSharing", package: "IndieLibKit")
 let indieAccount: Target.Dependency = .product(name: "IndieAccount", package: "IndieLibKit")
+let indieAgentSessions: Target.Dependency = .product(name: "IndieAgentSessions", package: "IndieLibKit")
+let indieCommandBar: Target.Dependency = .product(name: "IndieCommandBar", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -36,7 +40,9 @@ let package = Package(
         // `IndieEdgeReveal` (notch/edge/corner hover trigger) + `IndieEdgeRevealUI` (the black
         // edge-hugging surface and its grow-out motion).
         // `IndieFeedback`/`IndieFeedbackUI` (Settings > About > Chat with the Creator…).
-        .package(path: "../IndieLibKit")
+        .package(path: "../IndieLibKit"),
+        // The reading connector's search index (FTS5). Same package IndieLibKit already pulls in.
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0")
     ],
     targets: [
         .target(
@@ -57,18 +63,19 @@ let package = Package(
             name: "FastTabWebReader",
             dependencies: ["FastTabSync", indieSharing]
         ),
-        // Stdio MCP server bundled in the app (Contents/MacOS/fasttab-mcp): comment tools over
-        // the reader mirror.
+        // The reading connector's engine (read-only): the List, the phone's reading activity,
+        // highlights + threads. Shared by the fasttab-mcp tools and the `fasttab` CLI.
+        .target(
+            name: "ReadingConnector",
+            dependencies: ["FastTabSync", "FastTabReader", indieComments, indieMCP,
+                           .product(name: "GRDB", package: "GRDB.swift")]
+        ),
+        // Stdio MCP server bundled in the app (Contents/MacOS/fasttab-mcp): the read-only
+        // reading connector + comment-thread tools. Also the `fasttab` CLI (`fasttab-mcp cli …`,
+        // or symlinked as `fasttab`).
         .executableTarget(
             name: "FastTabMCP",
-            dependencies: ["FastTabReader", indieComments, indieMCP]
-        ),
-        // Reusable command-bar building blocks shared with future apps.
-        // Only static-library dependencies and no resources on purpose: it links
-        // into the app binary, so `build-app.sh` keeps copying a single executable.
-        .target(
-            name: "CommandBarKit",
-            dependencies: [indieEdgeReveal, indieEdgeRevealUI]
+            dependencies: ["FastTabReader", "ReadingConnector", indieComments, indieMCP]
         ),
         .executableTarget(
             name: "FastTab",
@@ -77,8 +84,11 @@ let package = Package(
                 "FastTabSync",
                 "FastTabReader",
                 "FastTabWebReader",
-                "CommandBarKit",
+                "ReadingConnector",
+                indieMCP,
+                indieCommandBar,
                 indieSearch,
+                indieSavedViews,
                 indieSharing,
                 indieAccount,
                 indieMetrics,
@@ -93,24 +103,21 @@ let package = Package(
         .executableTarget(
             name: "FastTabNativeHost"
         ),
-        // Read-only agent switcher. Standalone app: no Sparkle, no FastTabSync.
+        // Agent switcher (⌥Tab panel). Standalone app: no Sparkle, no FastTabSync.
         .executableTarget(
             name: "AgentBar",
-            dependencies: ["CommandBarKit", indieSearch],
+            dependencies: [indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions],
             path: "Sources/AgentBar"
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", indieSharing, "CommandBarKit", indieSearch, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP]
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, indieCommandBar, indieSearch, indieSavedViews, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP,
+                           .product(name: "GRDB", package: "GRDB.swift")]
         ),
         .testTarget(
             name: "AgentBarTests",
-            dependencies: ["AgentBar", "CommandBarKit"],
+            dependencies: ["AgentBar", indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions],
             resources: [.copy("Fixtures")]
-        ),
-        .testTarget(
-            name: "CommandBarKitTests",
-            dependencies: ["CommandBarKit", indieEdgeReveal, indieEdgeRevealUI]
         )
     ]
 )

@@ -134,6 +134,7 @@ struct CommandProgress: Equatable {
         case .moveBookmark: return "Bookmark moved on your Mac"
         case .addBookmark: return "Bookmark saved on your Mac"
         case .createFolder: return "Folder created on your Mac"
+        case .deleteBookmarkFolder: return "Folder deleted on your Mac"
         }
     }
 
@@ -146,6 +147,7 @@ struct CommandProgress: Equatable {
         case .moveBookmark: return "Your Mac couldn't find that bookmark"
         case .addBookmark: return "Your Mac couldn't save that bookmark"
         case .createFolder: return "Your Mac couldn't create that folder"
+        case .deleteBookmarkFolder: return "Your Mac couldn't find that folder"
         }
     }
 }

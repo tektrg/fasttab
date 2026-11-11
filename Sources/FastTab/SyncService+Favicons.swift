@@ -180,10 +180,12 @@ extension SyncService {
         }
         let backends = BrowserTabService.shared.backends
 
-        let resolved: [String: Data] = missing.isEmpty ? [:] : await Task.detached(priority: .utility) {
+        let lookup: (icons: [String: Data], rawFetched: Int) = missing.isEmpty ? ([:], 0) : await Task.detached(priority: .utility) {
             Self.resolveFavicons(missing, backends: backends)
         }.value
+        let resolved = lookup.icons
         guard !Task.isCancelled else { return }
+        logger.info("Favicon pass: hosts=\(candidates.count) retained=\(retained.count) looked-up=\(missing.count) browser-returned=\(lookup.rawFetched) resolved=\(resolved.count)")
 
         for candidate in missing {
             if resolved[candidate.host] != nil {
@@ -208,23 +210,25 @@ extension SyncService {
     nonisolated private static func resolveFavicons(
         _ candidates: [FaviconCandidate],
         backends: [any BrowserBackend]
-    ) -> [String: Data] {
+    ) -> (icons: [String: Data], rawFetched: Int) {
         var out: [String: Data] = [:]
+        var rawFetched = 0
         let rounds = candidates.map { $0.sources.count }.max() ?? 0
         for round in 0..<rounds {
             let lookups = faviconLookups(for: candidates, round: round, resolved: Set(out.keys))
             for (browserName, group) in Dictionary(grouping: lookups, by: { $0.source.browserName }) {
-                if Task.isCancelled { return out }
+                if Task.isCancelled { return (out, rawFetched) }
                 guard let backend = backends.first(where: { $0.appName == browserName }) else { continue }
                 let byURL = backend.fetchFaviconsBatch(pageURLs: group.map(\.source.url))
                 for lookup in group {
-                    guard let raw = byURL[lookup.source.url],
-                          let png = FaviconImage.compactPNG(from: raw) else { continue }
+                    guard let raw = byURL[lookup.source.url] else { continue }
+                    rawFetched += 1
+                    guard let png = FaviconImage.compactPNG(from: raw) else { continue }
                     out[lookup.host] = png
                 }
             }
         }
-        return out
+        return (out, rawFetched)
     }
 
     private func queueFaviconsPublish(icons: [String: Data]) {

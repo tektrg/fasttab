@@ -172,6 +172,13 @@ public struct ReaderView: View {
             viewModel.loadInitialState()
             viewModel.readerDidOpen()
             await viewModel.extractIfNeeded()
+            #if DEBUG
+            // App Store screenshots: the `listenSettings` screen opens the Read Aloud settings sheet.
+            if AppStoreDemo.isEnabled, AppStoreDemo.screen == .listenSettings {
+                try? await Task.sleep(for: .seconds(1.5))
+                showReadAloudSettings = true
+            }
+            #endif
         }
         .onDisappear {
             readAloud.stop()
@@ -179,7 +186,9 @@ public struct ReaderView: View {
             viewModel.readerDidClose()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .background {
+            // `.inactive` too: the app switcher is inactive-only, and a kill from it never
+            // reaches `.background` — a throttled (up to 3 s) position would be lost.
+            if newPhase != .active {
                 viewModel.flushPendingProgress()
             }
         }

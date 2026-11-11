@@ -13,6 +13,8 @@ struct RowActionButtonView: View {
         Button(action: onPress) {
             Text(state == nil ? spec.label : RowActionText.title(of: spec.button, state: state))
                 .font(.avenir(size: 11, weight: .medium))
+                .lineLimit(1)
+                .fixedSize()   // a label never wraps ("Answe / r"): the row makes room, the title gives way
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
                 .foregroundStyle(foreground)

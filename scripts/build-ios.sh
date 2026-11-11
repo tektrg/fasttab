@@ -9,7 +9,9 @@ set -euo pipefail
 # plugged in).
 #
 # Usage:
-#   scripts/build-ios.sh [--release] [--clean] [--wait] [--device <id>]
+#   scripts/build-ios.sh [--release] [--clean] [--wait] [--device <id>] [--check-only]
+#   --check-only: only confirm the target iPhone is paired + reachable, then exit
+#   (prod-push.sh uses it as a preflight before touching any Mac app).
 #
 # Checks the phone is reachable (unlocked, tunnel up) before building.
 #
@@ -19,7 +21,7 @@ set -euo pipefail
 #                        device is paired).
 
 # Resolve script location even if invoked via symlink
-source_file="${BASH_SOURCE[0]}"
+source_file="${BASH_SOURCE[0]:-$0}"   # $0 when streamed via `bash -s` (run from scripts/)
 while [[ -L "${source_file}" ]]; do
   link_dir="$(cd -P "$(dirname "${source_file}")" && pwd)"
   source_file="$(readlink "${source_file}")"
@@ -33,6 +35,7 @@ CONFIG="Debug"
 CLEAN_BUILD=false
 DEVICE_OVERRIDE="${FASTTAB_IOS_DEVICE:-}"
 WAIT_FOR_DEVICE=false
+CHECK_ONLY=false
 WAIT_SECONDS=120
 
 while [[ $# -gt 0 ]]; do
@@ -53,14 +56,19 @@ while [[ $# -gt 0 ]]; do
       DEVICE_OVERRIDE="$2"
       shift 2
       ;;
+    --check-only)
+      CHECK_ONLY=true
+      shift
+      ;;
     -h|--help)
-      echo "Usage: $0 [--release] [--clean] [--wait] [--device <identifier>]"
+      echo "Usage: $0 [--release] [--clean] [--wait] [--device <identifier>] [--check-only]"
       echo ""
       echo "Options:"
       echo "  --release   Build with Release configuration (default: Debug)"
       echo "  --clean     Wipe build artifacts before building"
       echo "  --wait      If the iPhone isn't reachable, poll up to 2 min before giving up"
       echo "  --device    Specific device identifier/name to target"
+      echo "  --check-only  Only confirm the iPhone is paired + reachable, then exit"
       exit 0
       ;;
     *)
@@ -164,6 +172,7 @@ DEVICE_NAME="$(echo "${device_info}" | cut -f2)"
 DEVICE_MODEL="$(echo "${device_info}" | cut -f3)"
 echo "    target: ${DEVICE_NAME} (${DEVICE_MODEL})"
 echo "    device: ${DEVICE_ID}"
+[[ "${CHECK_ONLY}" == true ]] && exit 0
 
 echo "==> xcodegen generate"
 xcodegen generate
@@ -193,10 +202,12 @@ if ! xcrun devicectl device install app --device "${DEVICE_ID}" "${APP_PATH}"; t
   echo "    install failed, retrying in 10s (keep the phone unlocked)"
   sleep 10
   xcrun devicectl device install app --device "${DEVICE_ID}" "${APP_PATH}" \
-    || { echo "${UNREACHABLE_MSG}" >&2; exit 1; }
+    || { echo "build-ios: INSTALL FAILED on ${DEVICE_NAME} — see the devicectl error above (locked/unreachable phone, or a signing error)" >&2; exit 1; }
 fi
 
 echo "==> Launching"
-xcrun devicectl device process launch --device "${DEVICE_ID}" --terminate-existing "${BUNDLE_ID}"
+# Installed is what matters; a locked phone only blocks the launch.
+xcrun devicectl device process launch --device "${DEVICE_ID}" --terminate-existing "${BUNDLE_ID}" \
+  || echo "    installed, but could not launch (phone locked?) — open FastTab on the phone"
 
 echo "==> Done"

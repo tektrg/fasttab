@@ -1,4 +1,5 @@
 import Foundation
+import IndieCommandBar
 
 /// The key hints in the footer (the answer and permission cards have their own; while a failure
 /// notice is showing the only hint is that esc dismisses it, since esc then no longer closes
@@ -48,6 +49,17 @@ enum PanelFooterHints {
             case (false, false): self = .confirmingPersonaMachines
             }
         }
+    }
+
+    /// The hint line as shared key hints (keycap + label), split from `text(for:)`:
+    /// hints are separated by three spaces, the key is everything before the first space.
+    static func guidance(for context: Context) -> GuidanceHint {
+        GuidanceHint(tokens: text(for: context).components(separatedBy: "   ").compactMap { part in
+            let part = part.trimmingCharacters(in: .whitespaces)
+            guard !part.isEmpty else { return nil }
+            guard let space = part.firstIndex(of: " ") else { return GuidanceToken(glyph: part, label: "") }
+            return GuidanceToken(glyph: String(part[..<space]), label: String(part[part.index(after: space)...]))
+        })
     }
 
     static func text(for context: Context) -> String {

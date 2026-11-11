@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 /// Strip at the bottom of the panel, always present: key hints (or, in their
 /// place, the orange shortcut-problem notice) and the settings button. Failure
@@ -38,9 +39,13 @@ struct PanelFooterView: View {
                 .truncationMode(.tail)
                 .help(stripNotice.text)
         } else {
-            Text(PanelFooterHints.text(for: hintContext))
-                .font(.avenir(size: 11))
-                .foregroundStyle(.tertiary)
+            // Shared keycap hints, one line (the footer has a fixed height).
+            HStack(spacing: 8) {
+                ForEach(Array(PanelFooterHints.guidance(for: hintContext).tokens.enumerated()), id: \.offset) { _, token in
+                    GuidanceTokenView(token: token)
+                }
+            }
+            .lineLimit(1)
         }
     }
 

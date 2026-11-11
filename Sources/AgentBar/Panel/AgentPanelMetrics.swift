@@ -22,6 +22,8 @@ enum AgentPanelMetrics {
     /// The always-present footer: hints, any notice (failed switch / shortcut
     /// problem) and the settings button.
     static let footerHeight: CGFloat = 30
+    /// The saved-view page strip above the list (`AgentPageStripView`), shown unless composing.
+    static let pageStripHeight: CGFloat = 44
 
     /// Tab-tagged: the icon + `TagChipView` get their own row above the field (`SearchFieldView`),
     /// instead of sharing the field's row — a long agent name would otherwise squeeze the field's
@@ -101,7 +103,8 @@ enum AgentPanelMetrics {
         /// footer.
         isComposing: Bool = false,
         searchFieldLineCount: Int = 1,
-        showsRoutingRow: Bool = false
+        showsRoutingRow: Bool = false,
+        showsPageStrip: Bool = false
     ) -> CGFloat {
         let note = (presentation.showsBoardNote && !isComposing) ? noteHeight : 0
         let fieldHeight = searchFieldHeight(forLineCount: searchFieldLineCount)
@@ -117,7 +120,8 @@ enum AgentPanelMetrics {
         // area's usual budget — not carved out of it, unlike `tagRowHeight` — so it must be added
         // here explicitly or the window falls a few points short and the field's bottom clips.
         let tagChipPadding = isComposing ? tagChipTopPadding : 0
-        return fieldHeight + routingRow + dividerHeight + body + note + footerHeight + tagChipPadding
+        let strip = showsPageStrip ? pageStripHeight : 0
+        return strip + fieldHeight + routingRow + dividerHeight + body + note + footerHeight + tagChipPadding
     }
 
     /// A peek or an answer card replaces the list at the list's full height, so
@@ -146,8 +150,9 @@ enum AgentPanelMetrics {
     static func listContentHeight(for rows: [AgentListRow]) -> CGFloat {
         let content = rows.reduce(CGFloat(0)) { total, row in
             switch row {
-            case .header: total + headerHeight
-            case .agent, .chiefPlaceholder: total + rowHeight
+            case .header, .groupHeader: total + headerHeight
+            case .agent(let agent, let nesting): total + AgentRowMetrics.height(of: agent, nesting: nesting)
+            case .chiefPlaceholder: total + rowHeight
             }
         }
         return content + listVerticalPadding * 2

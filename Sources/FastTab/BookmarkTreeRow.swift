@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
 struct BookmarkTreeRow: View {
     let row: BookmarkDisplayRow
@@ -10,6 +10,9 @@ struct BookmarkTreeRow: View {
     let onCopy: () -> Void
     let onRemove: () -> Void
     var onCloseTab: (() -> Void)? = nil
+    /// Folder rows only: whether Delete is offered, and what it does.
+    var folderDelete: BookmarkFolderDeleteAvailability = .hidden
+    var onDeleteFolder: (() -> Void)? = nil
 
     @State private var isHovered = false
 
@@ -62,6 +65,42 @@ struct BookmarkTreeRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
+            folderDeleteControl
+        }
+    }
+
+    @ViewBuilder
+    private var folderDeleteControl: some View {
+        switch folderDelete {
+        case .hidden:
+            EmptyView()
+        case .disabled(let reason):
+            if isHovered {
+                // Not a Button: a disabled button won't show its tooltip.
+                Image(systemName: "trash")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(Color.primary.opacity(0.03)))
+                    .help(reason)
+                    .accessibilityLabel("Delete folder unavailable")
+                    .accessibilityHint(reason)
+            }
+        case .allowed:
+            if isHovered || isSelected, let onDeleteFolder {
+                Button(action: onDeleteFolder) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.primary.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+                .help("Delete folder…")
+                .accessibilityLabel("Delete folder")
+            }
+        }
     }
 
     @ViewBuilder

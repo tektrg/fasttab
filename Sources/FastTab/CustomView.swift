@@ -1,8 +1,12 @@
 import Foundation
+import IndieSavedViews
+import IndieSearch
 
 /// A user-defined, swipeable page in the command bar (after Recent and Stack):
 /// a saved set of filters over open tabs, bookmarks and history, plus how to
-/// group what matches.
+/// group what matches. The shared `SavedView` holds id, name, icon, keywords,
+/// AI prompt and group-by; `WebViewCriteria` holds Fast Tab's own filters
+/// (read and written directly, e.g. `view.domains`).
 ///
 /// Filter semantics (owner decision 2026-11-06): **AND across fields, OR
 /// within a field** — e.g. `domains: ["github.com", "gitlab.com"]` with
@@ -10,19 +14,19 @@ import Foundation
 /// constrains nothing. Evaluation lives in `CustomViewFilter`; grouping in
 /// `CustomViewGrouping`.
 ///
-/// Persisted as JSON (`CustomViewStore`). Decoding tolerates missing and
-/// unknown keys/values so the schema can grow (and later sync to iPhone)
-/// without wiping a user's saved views.
-struct CustomView: Codable, Identifiable, Equatable, Hashable, Sendable {
+/// Persisted as one flat JSON object per view (`CustomViewStore`, key
+/// `FastTab.customViews.v1`); the format predates the shared model and must
+/// not change. Decoding tolerates missing and unknown keys/values.
+typealias CustomView = SavedView<WebViewCriteria>
+
+/// Fast Tab's custom-view filters over open tabs, bookmarks and history.
+struct WebViewCriteria: SavedViewCriteria {
+    typealias GroupBy = CustomViewGroupBy
     static let defaultIconName = "square.stack.3d.up"
     /// The only result kinds a custom view can show. Sent links and FastTab
     /// List items have their own surfaces.
     static let allowedTypes: Set<BrowserResultType> = [.tab, .bookmark, .history]
 
-    var id: UUID
-    var name: String
-    /// SF Symbol name shown on the page indicator / builder.
-    var iconName: String
     /// Subset of `allowedTypes`; empty = all three. Anything outside
     /// `allowedTypes` is dropped on assignment and on decode.
     var types: Set<BrowserResultType> {
@@ -35,23 +39,65 @@ struct CustomView: Codable, Identifiable, Equatable, Hashable, Sendable {
     /// `CustomViewDomain.normalize` (so "https://www.GitHub.com/x" and
     /// "*.github.com" both mean `github.com` + its subdomains). Empty = any.
     var domains: [String]
-    /// Free text; every word must appear in the title or URL (same folding as
-    /// the command bar search). Empty = no constraint.
-    var keywords: String
     var lastVisited: LastVisitedRule
     /// Browser-pinned tab flag (`BrowserSearchResult.isPinned`). `.only`
     /// admits pinned tabs alone (bookmarks/history are never pinned);
     /// `.exclude` drops pinned tabs. `.any` when absent from older JSON.
     var pinned: PinnedRule
-    /// Natural-language "AI filter" (Foundation Models). Empty = off. Stored
-    /// only — `CustomViewFilter` does not evaluate it.
-    var semanticPrompt: String
-    var groupBy: CustomViewGroupBy
+
+    init() { self.init(types: []) }
+
+    init(
+        types: Set<BrowserResultType> = [],
+        profiles: [String] = [],
+        domains: [String] = [],
+        lastVisited: LastVisitedRule = .any,
+        pinned: PinnedRule = .any
+    ) {
+        self.types = types.intersection(Self.allowedTypes)
+        self.profiles = profiles
+        self.domains = domains
+        self.lastVisited = lastVisited
+        self.pinned = pinned
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case types, profiles, domains, lastVisited, pinned
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Unknown type strings (a kind added by a newer build) are skipped,
+        // not fatal.
+        let rawTypes = (try? c.decodeIfPresent([String].self, forKey: .types)) ?? nil
+        self.init(
+            types: Set((rawTypes ?? []).compactMap(BrowserResultType.init(rawValue:))),
+            profiles: (try? c.decodeIfPresent([String].self, forKey: .profiles)) ?? [],
+            domains: (try? c.decodeIfPresent([String].self, forKey: .domains)) ?? [],
+            lastVisited: (try? c.decodeIfPresent(LastVisitedRule.self, forKey: .lastVisited)) ?? .any,
+            pinned: (try? c.decodeIfPresent(PinnedRule.self, forKey: .pinned)) ?? .any
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        // Sorted so the stored JSON is deterministic (diffable, sync-friendly).
+        try c.encode(types.map(\.rawValue).sorted(), forKey: .types)
+        try c.encode(profiles, forKey: .profiles)
+        try c.encode(domains, forKey: .domains)
+        try c.encode(lastVisited, forKey: .lastVisited)
+        try c.encode(pinned, forKey: .pinned)
+    }
+}
+
+extension SavedView where Criteria == WebViewCriteria {
+    static var defaultIconName: String { WebViewCriteria.defaultIconName }
+    static var allowedTypes: Set<BrowserResultType> { WebViewCriteria.allowedTypes }
 
     init(
         id: UUID = UUID(),
         name: String,
-        iconName: String = CustomView.defaultIconName,
+        iconName: String = WebViewCriteria.defaultIconName,
         types: Set<BrowserResultType> = [],
         profiles: [String] = [],
         domains: [String] = [],
@@ -61,68 +107,17 @@ struct CustomView: Codable, Identifiable, Equatable, Hashable, Sendable {
         semanticPrompt: String = "",
         groupBy: CustomViewGroupBy = .none
     ) {
-        self.id = id
-        self.name = name
-        self.iconName = iconName
-        self.types = types.intersection(Self.allowedTypes)
-        self.profiles = profiles
-        self.domains = domains
-        self.keywords = keywords
-        self.lastVisited = lastVisited
-        self.pinned = pinned
-        self.semanticPrompt = semanticPrompt
-        self.groupBy = groupBy
+        self.init(
+            id: id, name: name, iconName: iconName, keywords: keywords,
+            semanticPrompt: semanticPrompt, groupBy: groupBy,
+            criteria: WebViewCriteria(types: types, profiles: profiles, domains: domains,
+                                      lastVisited: lastVisited, pinned: pinned)
+        )
     }
 
     /// The types this view actually admits (`types`, or all allowed when empty).
     var effectiveTypes: Set<BrowserResultType> {
-        types.isEmpty ? Self.allowedTypes : types
-    }
-
-    var hasSemanticFilter: Bool {
-        !semanticPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    // MARK: Codable
-
-    private enum CodingKeys: String, CodingKey {
-        case id, name, iconName, types, profiles, domains, keywords, lastVisited, pinned, semanticPrompt, groupBy
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        // Unknown type strings (a kind added by a newer build) are skipped,
-        // not fatal.
-        let rawTypes = (try? c.decodeIfPresent([String].self, forKey: .types)) ?? nil
-        self.init(
-            id: (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID(),
-            name: (try? c.decodeIfPresent(String.self, forKey: .name)) ?? "",
-            iconName: (try? c.decodeIfPresent(String.self, forKey: .iconName)) ?? Self.defaultIconName,
-            types: Set((rawTypes ?? []).compactMap(BrowserResultType.init(rawValue:))),
-            profiles: (try? c.decodeIfPresent([String].self, forKey: .profiles)) ?? [],
-            domains: (try? c.decodeIfPresent([String].self, forKey: .domains)) ?? [],
-            keywords: (try? c.decodeIfPresent(String.self, forKey: .keywords)) ?? "",
-            lastVisited: (try? c.decodeIfPresent(LastVisitedRule.self, forKey: .lastVisited)) ?? .any,
-            pinned: (try? c.decodeIfPresent(PinnedRule.self, forKey: .pinned)) ?? .any,
-            semanticPrompt: (try? c.decodeIfPresent(String.self, forKey: .semanticPrompt)) ?? "",
-            groupBy: (try? c.decodeIfPresent(CustomViewGroupBy.self, forKey: .groupBy)) ?? .none
-        )
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encode(name, forKey: .name)
-        try c.encode(iconName, forKey: .iconName)
-        // Sorted so the stored JSON is deterministic (diffable, sync-friendly).
-        try c.encode(types.map(\.rawValue).sorted(), forKey: .types)
-        try c.encode(profiles, forKey: .profiles)
-        try c.encode(domains, forKey: .domains)
-        try c.encode(keywords, forKey: .keywords)
-        try c.encode(lastVisited, forKey: .lastVisited)
-        try c.encode(pinned, forKey: .pinned)
-        try c.encode(semanticPrompt, forKey: .semanticPrompt)
-        try c.encode(groupBy, forKey: .groupBy)
+        self.types.isEmpty ? Self.allowedTypes : self.types
     }
 }
 
@@ -246,7 +241,9 @@ enum PinnedRule: String, Codable, CaseIterable, Hashable, Sendable {
 
 // MARK: - Group by
 
-enum CustomViewGroupBy: String, Codable, CaseIterable, Hashable, Sendable {
+enum CustomViewGroupBy: String, SavedViewGroupBy, CaseIterable {
+    static var defaultValue: CustomViewGroupBy { .none }
+
     case none
     case lastVisited
     case domain
@@ -269,6 +266,15 @@ enum CustomViewGroupBy: String, Codable, CaseIterable, Hashable, Sendable {
 // MARK: - Domain normalization
 
 enum CustomViewDomain {
+    /// A `*wildcard*` or `/regex/` host pattern (shared `TextPattern`), matched against the bare host.
+    /// A leading `*.` alone is not a pattern: `*.github.com` still means github.com + subdomains.
+    static func isPattern(_ raw: String) -> Bool {
+        var s = Substring(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        if TextPattern.isRegex(String(s)) { return true }
+        while s.hasPrefix("*.") { s = s.dropFirst(2) }
+        return TextPattern.isWildcard(String(s))
+    }
+
     /// Bare lowercase host from whatever the user typed: strips scheme, path,
     /// query, port, credentials, leading `*.` / `.` and `www.`.
     /// "https://www.GitHub.com/x" → "github.com", "*.google.com" →

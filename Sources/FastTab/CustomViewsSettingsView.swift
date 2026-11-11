@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 /// Settings › Views: the user's custom views (the swipeable pages after
 /// Recent and Stack) — reorder by dragging, edit / create in a sheet that
@@ -17,11 +18,15 @@ struct CustomViewsSettingsView: View {
     }
 
     var body: some View {
+        // No `.fixedSize(vertical:)` on anything here: this page is not in a
+        // ScrollView, so its ideal height reaches the split view, which sizes
+        // itself to it at a narrow measuring width (~1,900pt) and gets centred
+        // in the fixed 420pt window: blank sidebar + blank page. Guarded by
+        // SettingsWindowLayoutTests.
         VStack(alignment: .leading, spacing: 10) {
             Text("Your own pages in the command bar, after Recent and Stack: open tabs, bookmarks and history filtered your way. Drag to change the swipe order.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             if store.views.isEmpty {
                 emptyState

@@ -30,12 +30,21 @@ struct PendingBookmarkAction: Identifiable, Equatable {
     let commandID: String
     let bookmarkTitle: String
     let kind: BookmarkActionKind
+    /// A whole-folder delete: every bookmark id it covers (all in `blobID`).
+    /// Nil for a single-bookmark action, where `bookmarkID` is the bookmark.
+    var coveredBookmarkIDs: [String]? = nil
 
     var id: String { "\(kind)|\(blobID)#\(bookmarkID)" }
 
     /// The row-hiding key: delete and move both hide the same underlying
     /// bookmark row while in flight, regardless of which kind is pending.
     var hideKey: String { "\(blobID)#\(bookmarkID)" }
+
+    /// Every row this action hides — one for a bookmark, all leaves for a folder.
+    var hideKeys: [String] { (coveredBookmarkIDs ?? [bookmarkID]).map { "\(blobID)#\($0)" } }
+
+    /// How many bookmarks this action carries, for the "Deleting N" summary.
+    var bookmarkCount: Int { coveredBookmarkIDs?.count ?? 1 }
 }
 
 /// A request paired with its current, freshly-read outcome.
@@ -156,7 +165,8 @@ struct PendingBookmarkActionStrip: View {
                 return nil
             }
             let verb = kind == .delete ? "Deleting" : "Moving"
-            let subject = items.count == 1 ? "1 bookmark" : "\(items.count) bookmarks"
+            let count = items.reduce(0) { $0 + $1.action.bookmarkCount }
+            let subject = count == 1 ? "1 bookmark" : "\(count) bookmarks"
             return UnfinishedSummary(kind: kind, text: "\(verb) \(subject) — \(slowest.label.lowercasedFirstWord)")
         }
     }

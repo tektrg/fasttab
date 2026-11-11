@@ -2,11 +2,13 @@ import SwiftUI
 import IndieTags
 
 /// The chips under one highlight in the Highlights feed: its user tags, its bookmark-folder
-/// tags (folder icon, bookmark tint) and its article. Tapping one narrows the feed to it;
+/// tags (folder icon, bookmark tint) and (list row only) its article. Tapping one narrows the feed to it;
 /// tapping a lit one (selected, or under a selected parent) turns it off again.
 struct HighlightRowChips: View {
     let entry: HighlightFeedEntry
     @Binding var filter: HighlightFeedFilter
+    /// The gallery card hides the article chip: its title already names the article.
+    var showsArticle = true
 
     var body: some View {
         WrappingRowsLayout(spacing: DS.Space.xs, lineSpacing: DS.Space.xs) {
@@ -16,7 +18,7 @@ struct HighlightRowChips: View {
             ForEach(entry.folderTags, id: \.normalizedPath) { tag in
                 tagChip(tag, systemImage: "folder", tint: DS.Tint.bookmark)
             }
-            articleChip
+            if showsArticle { articleChip }
         }
     }
 

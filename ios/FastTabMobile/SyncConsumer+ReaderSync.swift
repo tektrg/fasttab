@@ -9,6 +9,9 @@ import FastTabSync
 extension SyncConsumer {
     static let readerLedgerFileName = "ios_reader_sync_ledger.json"
     static let fastTabListLedgerFileName = "ios_fasttab_list_sync_ledger.json"
+    static let readingActivityLedgerFileName = "ios_reading_activity_sync_ledger.json"
+    /// Reading activity moves with every scroll: send at most this often.
+    static let readingActivitySendDebounce: Duration = .seconds(10)
     /// List changes come in bursts (reader progress while scrolling): send at most this often.
     static let fastTabListSendDebounce: Duration = .seconds(3)
 
@@ -35,7 +38,9 @@ extension SyncConsumer {
         guard let syncEngine else { Self.readerTrace("queue: no engine"); return }
         let readerPending = await readerSync.pendingChanges()
         let listPending = listSync.pendingChanges()
-        let pending = (saves: readerPending.saves + listPending.saves, deletes: readerPending.deletes + listPending.deletes)
+        let activitySaves = activitySync.pendingSaves()
+        let pending = (saves: readerPending.saves + listPending.saves + activitySaves,
+                       deletes: readerPending.deletes + listPending.deletes)
         Self.readerTrace("queue: saves=\(pending.saves.count) list=\(listPending.saves.count) deletes=\(pending.deletes.map(\.recordName)) armedTotal=\(syncEngine.state.pendingRecordZoneChanges.count)")
         guard !pending.saves.isEmpty || !pending.deletes.isEmpty else { return }
         let armed = Self.armedSaveIDs(in: syncEngine.state.pendingRecordZoneChanges)
@@ -60,6 +65,7 @@ extension SyncConsumer {
         let readerDeletions = deletions.filter { $0.zoneID == SyncConstants.readerZoneID }
         listSync.absorb(records.filter { FastTabListSyncBridge.handles($0.recordType) })
         listSync.absorbDeletions(readerDeletions)
+        activitySync.absorb(records.filter { ReadingActivitySyncBridge.handles($0.recordType) })
         guard !readerRecords.isEmpty || !readerDeletions.isEmpty else { return }
         Self.readerTrace("fetched: \(readerRecords.map(\.recordID.recordName)) deleted: \(readerDeletions.map(\.recordName))")
         await readerSync.absorb(readerRecords)
@@ -74,6 +80,7 @@ extension SyncConsumer {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                self.resetPollBackoff()
                 self.readerSendTask?.cancel()
                 self.readerSendTask = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(500))
@@ -87,9 +94,24 @@ extension SyncConsumer {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                self.resetPollBackoff()
                 self.listSendTask?.cancel()
                 self.listSendTask = Task { @MainActor in
                     try? await Task.sleep(for: Self.fastTabListSendDebounce)
+                    guard !Task.isCancelled else { return }
+                    await self.queueReaderChanges()
+                }
+            }
+        }
+        activityChangeObserver = NotificationCenter.default.addObserver(
+            forName: .readingActivityDidChangeLocally, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.resetPollBackoff()
+                self.activitySendTask?.cancel()
+                self.activitySendTask = Task { @MainActor in
+                    try? await Task.sleep(for: Self.readingActivitySendDebounce)
                     guard !Task.isCancelled else { return }
                     await self.queueReaderChanges()
                 }

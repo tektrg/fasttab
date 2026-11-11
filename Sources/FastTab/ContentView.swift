@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import CommandBarKit
+import IndieCommandBar
 
 private struct SearchHeaderFrameKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
@@ -28,8 +28,19 @@ struct ContentView: View {
     /// each is driven by its own spring (see `playRevealAnimation`).
     @State var revealDepthProgress: Double = 1
     @State var revealSpreadProgress: Double = 1
-    @State var searchText = ""
+    /// The search query. Owned by IndieCommandBar's `CommandBarController`
+    /// (`appState.commandBar.query`); kept under this name for Fast Tab's
+    /// many readers.
+    var searchText: String {
+        get { appState.commandBar.query }
+        nonmutating set { appState.commandBar.query = newValue }
+    }
+    var searchTextBinding: Binding<String> {
+        Binding(get: { appState.commandBar.query }, set: { appState.commandBar.query = $0 })
+    }
     @State var scopeChips: [ScopeChip] = []
+    /// Bumped to scroll the results list back to its first row.
+    @State var listScrollToTop = CommandBarScrollToTop()
     /// Non-nil while the command bar is in alias mode: the keyword has been
     /// consumed, `searchText` now holds the query destined for that alias.
     @State var activeSearchAlias: SearchAlias? = nil
@@ -39,7 +50,14 @@ struct ContentView: View {
     /// A keyword the user just backed out of. Suppresses re-committing the same
     /// one so backing out and continuing to type can't loop.
     @State var rejectedAliasKeyword: String? = nil
-    @ObservedObject var searchAliasStore = SearchAliasStore.shared
+    @ObservedObject var searchAliasStore: SearchAliasStore
+    /// App services handed in by `FastTabApp` (see `CommandBarEnvironment`).
+    let env: CommandBarEnvironment
+
+    init(env: CommandBarEnvironment) {
+        self.env = env
+        self.searchAliasStore = env.searchAliasStore
+    }
     @State var scopeSuggestionMode: ScopeSuggestionMode = .hidden
     @State var scopeDropdownSelectedIndex: Int = 0
     /// When set, the named chip is keyboard-focused; the next backspace removes
@@ -54,19 +72,13 @@ struct ContentView: View {
     @State var faviconPrefetchDebounceTask: Task<Void, Never>?
     @State var suppressNextSearchChange = false
     @State private var lastActiveRefreshAt: Date = .distantPast
-    @State var keyboardSwipeResultID: String?
-    @State var keyboardSwipeAction: ResultSwipeAction?
-    @State var closingResultID: String?
+    @State var keyboardSwipe = CommandBarKeyboardSwipe()
+    @State var rowRemovalExit = RowRemovalExit()
     @State var closingResultTask: Task<Void, Never>?
     @State var toastMessage: String?
     @State var toastDismissTask: Task<Void, Never>?
     @State var hoveredResultID: String?
-    @State var pointerSwipeResultID: String?
-    @State var pointerSwipeOffset: CGFloat = 0
-    @State var pointerSwipeAction: ResultSwipeAction?
-    @State var didConfirmPointerSwipe = false
-    @State var isPointerSwipeGestureActive = false
-    @State var suppressPointerSwipeUntilGestureEnds = false
+    @State var pointerSwipe = CommandBarPointerSwipe()
     @State var pointerSwipeSuppressionTask: Task<Void, Never>?
     @State var flickDetector = ViewSwitchFlickDetector()
     @State var isShowingAllOpenTabs = false
@@ -162,24 +174,19 @@ struct ContentView: View {
                 break
             }
         }
-        var items = displayedResults.map(CommandBarDisplayItem.result)
-        if !isSearchActive, quickOpenState.includesShowAllTabsItem {
-            items.append(.showAllTabs(count: filteredResults.count))
-        }
-        if !searchText.isEmpty, filteredResults.isEmpty, activeSearchAlias == nil {
-            items.append(.searchTheWeb(query: searchText))
-        }
-        if let activeSearchAlias {
-            // Top of the list, so it is the default Enter target: the user
-            // explicitly committed to this alias, and anything typed since is
-            // meant for it rather than for the local index.
-            items.insert(.searchAliasQuery(alias: activeSearchAlias, query: searchText), at: 0)
-        } else if let hintedAlias = searchAliasHint {
-            // Bottom, and never auto-selected — a plain search for a word that
-            // happens to be a keyword must not be hijacked.
-            items.append(.searchAliasHint(hintedAlias))
-        }
-        return items
+        return extraRows.extraRows(for: CommandBarListState(
+            query: searchText,
+            isSearchActive: isSearchActive,
+            matchCount: filteredResults.count
+        )).assembled(around: displayedResults.map(CommandBarDisplayItem.result))
+    }
+
+    var extraRows: FastTabExtraRows {
+        FastTabExtraRows(
+            includesShowAllTabs: quickOpenState.includesShowAllTabsItem,
+            activeSearchAlias: activeSearchAlias,
+            hintedSearchAlias: searchAliasHint
+        )
     }
 
     var displayedItems: [CommandBarDisplayItem] {
@@ -325,7 +332,7 @@ struct ContentView: View {
     /// same applies to `handleSearchTextChange`/`handleAppDidBecomeActive`
     /// below: the combined chain of adjacent modifier closures was too much
     /// for the checker even after any single one shrank.
-    private func handleActiveViewChange(proxy: ScrollViewProxy) {
+    private func handleActiveViewChange() {
         // Preserve the search query (text, chips, alias) across view
         // switches: the search field only lives in Recents, but both views
         // render the same filtered results while a search is active — so
@@ -337,18 +344,11 @@ struct ContentView: View {
         scopeSuggestionMode = .hidden
         scopeDropdownSelectedIndex = 0
         appState.selectedIndex = 0
-        scrollResultsToTop(proxy)
+        listScrollToTop.request()
         syncCustomViewPage()
     }
 
-    private func handleSelectedIndexChange(proxy: ScrollViewProxy) {
-        guard !isSearchFocused else { return }
-        withAnimation(.easeInOut(duration: 0.14)) {
-            scrollSelectedResultIntoView(proxy)
-        }
-    }
-
-    private func handleSearchTextChange(proxy: ScrollViewProxy) {
+    private func handleSearchTextChange() {
         if suppressNextSearchChange {
             suppressNextSearchChange = false
             return
@@ -382,11 +382,11 @@ struct ContentView: View {
         // Not animated: on the first character this coincides with the
         // quick-open → search branch swap, and an animation here made
         // SwiftUI interpolate that whole layout change while typing.
-        scrollResultsToTop(proxy)
+        listScrollToTop.request()
         scheduleSearchFetch()
     }
 
-    private func handleCommandBarVisibilityChange(_ visible: Bool, proxy: ScrollViewProxy) {
+    private func handleCommandBarVisibilityChange(_ visible: Bool) {
         if visible {
             wasOpenedByHover = appState.wasOpenedByHover
             wasOpenedByMouse = appState.wasOpenedByMouse
@@ -399,9 +399,7 @@ struct ContentView: View {
             syncCustomViewPage()
             DispatchQueue.main.async {
                 isSearchFocused = true
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
-                    scrollResultsToTop(proxy)
-                }
+                listScrollToTop.request(animation: .spring(response: 0.3, dampingFraction: 0.88))
             }
         } else {
             wasOpenedByHover = false
@@ -411,7 +409,7 @@ struct ContentView: View {
         }
     }
 
-    private func handleAppDidBecomeActive(proxy: ScrollViewProxy) {
+    private func handleAppDidBecomeActive() {
         guard appState.isVisible else { return }
 
         let now = Date()
@@ -419,9 +417,7 @@ struct ContentView: View {
         lastActiveRefreshAt = now
 
         triggerFetch()
-        withAnimation(.easeInOut(duration: 0.18)) {
-            scrollResultsToTop(proxy)
-        }
+        listScrollToTop.request(animation: .easeInOut(duration: 0.18))
     }
 
     var body: some View {
@@ -512,7 +508,7 @@ struct ContentView: View {
                             // expression (call + trailing closures + background
                             // GeometryReader) overwhelmed the type-checker.
                             let searchHeader = SearchHeader(
-                                searchText: $searchText,
+                                searchText: searchTextBinding,
                                 isSearchFocused: $isSearchFocused,
                                 scopeChips: scopeChips,
                                 activeAlias: activeSearchAlias,
@@ -550,7 +546,9 @@ struct ContentView: View {
                                 },
                                 activeView: viewStore.activeView,
                                 viewTabs: headerViewTabs,
-                                onSelectView: { viewStore.selectView($0) }
+                                onSelectView: { viewStore.selectView($0) },
+                                onEditView: { env.customViewEditor.presentEdit(id: $0) },
+                                onDeleteView: { env.customViewEditor.requestDelete(id: $0) }
                             )
                             searchHeader
                                 .background(
@@ -581,12 +579,12 @@ struct ContentView: View {
                                 .overlay(alignment: .topLeading) {
                                     if isScopeDropdownVisible {
                                         let suggestions = currentScopeSuggestions()
-                                        ScopeSuggestionDropdown(
-                                            suggestions: suggestions,
+                                        CommandBarScopeDropdown(
+                                            scopes: suggestions.map(\.commandBarScope),
                                             selectedIndex: scopeDropdownSelectedIndex,
                                             emptyStateText: scopeDropdownEmptyStateText,
                                             onHover: { idx in scopeDropdownSelectedIndex = idx },
-                                            onPick: { commitScopeSuggestion($0) }
+                                            onPick: { commitScopeSuggestion(suggestions[$0]) }
                                         )
                                         // Clamped to the surface: 420pt overflows
                                         // the half-width edge-anchored size.
@@ -598,47 +596,39 @@ struct ContentView: View {
                                 .zIndex(100)
                                 .allowsHitTesting(isScopeDropdownVisible)
 
-                            ScrollViewReader { proxy in
-                                // Each modifier is erased to AnyView and split
-                                // into its own statement — stacking all four on
-                                // one expression (even a plain, unannotated
-                                // `let`) overwhelmed the type-checker ("unable
-                                // to type-check this expression in reasonable
-                                // time"); AnyView gives each statement a hard
-                                // type boundary so inference doesn't have to
-                                // carry the whole opaque chain forward.
+                            // The shared list owns scrolling (follow the
+                            // selection, scroll-to-top on request). Each
+                            // modifier is erased to AnyView in its own
+                            // statement: one long chain overwhelmed the
+                            // type-checker ("unable to type-check this
+                            // expression in reasonable time").
+                            Group {
                                 let withVisibilityChange: AnyView = AnyView(
-                                    resultsSection(proxy: proxy)
+                                    resultsSection()
                                         .onChange(of: appState.isVisible) { _, visible in
-                                            handleCommandBarVisibilityChange(visible, proxy: proxy)
+                                            handleCommandBarVisibilityChange(visible)
                                         }
                                 )
                                 let withSearchTextChange: AnyView = AnyView(
                                     withVisibilityChange
                                         .onChange(of: searchText) {
-                                            handleSearchTextChange(proxy: proxy)
+                                            handleSearchTextChange()
                                         }
                                 )
                                 let withAppActiveReceive: AnyView = AnyView(
                                     withSearchTextChange
                                         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                                            handleAppDidBecomeActive(proxy: proxy)
+                                            handleAppDidBecomeActive()
                                         }
                                 )
-                                let withActiveViewChange: AnyView = AnyView(
-                                    withAppActiveReceive
-                                        .onChange(of: viewStore.activeView) { _, _ in
-                                            handleActiveViewChange(proxy: proxy)
-                                        }
-                                )
-                                withActiveViewChange
-                                    .onChange(of: appState.selectedIndex) { _, _ in
-                                        handleSelectedIndexChange(proxy: proxy)
+                                withAppActiveReceive
+                                    .onChange(of: viewStore.activeView) { _, _ in
+                                        handleActiveViewChange()
                                     }
                             }
 
                             if showHelperPanel {
-                                FooterShortcutBar {
+                                CommandBarFooterBar {
                                     // Stacks at the narrow edge-anchored width,
                                     // where the hints and the shortcut recorder
                                     // can't sit side by side without clipping.
@@ -769,6 +759,8 @@ struct ContentView: View {
                         }
                 }
                 .environment(\.isCompactCommandBar, isCompact(anchor))
+                // Fast Tab's look: system accent and its own icon (today's values).
+                .environment(\.commandBarTheme, CommandBarTheme(accentColor: .accentColor, appIcon: NSApp.applicationIconImage))
                 .scaleEffect(
                     x: revealScale(for: anchor, surfaceSize: surfaceSize).width,
                     y: revealScale(for: anchor, surfaceSize: surfaceSize).height,
@@ -915,7 +907,7 @@ struct ContentView: View {
     /// surface (the caller aligns it against the same edge), so it needs no
     /// knowledge of the canvas — only the direction to lean away from the edge.
     private func ambientShadow(anchor: CommandBarAnchor, surfaceSize: CGSize) -> some View {
-        let shadowColor = commandBarFullScreenShadowColor(for: colorScheme)
+        let shadowColor = CommandBarLayout.fullScreenShadowColor(for: colorScheme)
         let shift = CommandBarLayout.shadowShiftVector(for: anchor)
         let scale = revealScale(for: anchor, surfaceSize: surfaceSize)
         let anchorPoint = CommandBarLayout.revealAnchorUnitPoint(for: anchor)

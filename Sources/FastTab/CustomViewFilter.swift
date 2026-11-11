@@ -151,7 +151,7 @@ enum CustomViewFilter {
         let profiles: Set<String>
         /// Plain domains (host or subdomain) and `*wildcard*` / `/regex/` host patterns.
         let domains: [String]
-        let domainPatterns: [String]
+        let domainPatterns: TextPattern.Compiled
         /// Plain words (all must appear) or one `*wildcard*` / `/regex/`, against title or URL.
         let keywords: SavedViewKeywords
         let rule: LastVisitedRule
@@ -164,7 +164,7 @@ enum CustomViewFilter {
                 return p.isEmpty ? nil : p
             })
             let patternEntries = view.domains.filter(CustomViewDomain.isPattern)
-            domainPatterns = TextPattern.clean(patternEntries)
+            domainPatterns = TextPattern.Compiled(TextPattern.clean(patternEntries))
             var seen = Set<String>()
             domains = view.domains.filter { !CustomViewDomain.isPattern($0) }
                 .compactMap(CustomViewDomain.normalize).filter { seen.insert($0).inserted }
@@ -183,7 +183,7 @@ enum CustomViewFilter {
             if !domains.isEmpty || !domainPatterns.isEmpty {
                 guard let host = CustomViewDomain.host(ofURL: item.url),
                       domains.contains(where: { CustomViewDomain.host(host, isWithin: $0) })
-                        || TextPattern.matches(host, entries: domainPatterns) else { return false }
+                        || domainPatterns.matches(host) else { return false }
             }
             return keywords.matches(texts: [item.title, item.url],
                                     foldedKeys: [item.normalizedTitleKey, item.normalizedURLKey])

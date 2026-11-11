@@ -62,8 +62,11 @@ struct AgentViewCriteria: SavedViewCriteria {
 
     var isEmpty: Bool { self == Self() }
 
-    func matches(_ agent: AgentSnapshot) -> Bool {
-        if !names.isEmpty, !TextPattern.matches(anyOf: [agent.label, agent.cwd], entries: names) { return false }
+    func matches(_ agent: AgentSnapshot) -> Bool { matches(agent, names: TextPattern.Compiled(names)) }
+
+    /// `names` precompiled once by a caller filtering many agents.
+    func matches(_ agent: AgentSnapshot, names compiled: TextPattern.Compiled) -> Bool {
+        if !compiled.isEmpty, !compiled.matches(anyOf: [agent.label, agent.cwd]) { return false }
         if !projects.isEmpty {
             guard let project = agent.projectName,
                   projects.contains(where: { $0.caseInsensitiveCompare(project) == .orderedSame })
@@ -123,8 +126,9 @@ extension AgentSavedView {
     /// `*/aptusfit*` works there.
     func filter(_ agents: [AgentSnapshot]) -> [AgentSnapshot] {
         let words = SavedViewKeywords(keywords)
+        let names = TextPattern.Compiled(criteria.names)
         return agents.filter { agent in
-            criteria.matches(agent)
+            criteria.matches(agent, names: names)
                 && words.matches(texts: [agent.label, agent.projectName, agent.cwd, agent.promptExcerpt])
         }
     }

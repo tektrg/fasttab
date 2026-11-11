@@ -84,11 +84,9 @@ enum AgentListBuilder {
     static func agents(_ agents: [AgentSnapshot], matching query: String) -> [AgentSnapshot] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if TextPattern.isPattern(trimmed) {
-            let entry = TextPattern.normalize(trimmed)
-            return agents.filter { agent in
-                guard let entry else { return false }   // a broken regex matches nothing
-                return TextPattern.matches(anyOf: searchTexts(of: agent), entries: [entry])
-            }
+            // A broken regex normalizes to nil: no entries, matches nothing.
+            let pattern = TextPattern.Compiled(TextPattern.normalize(trimmed).map { [$0] } ?? [])
+            return agents.filter { pattern.matches(anyOf: searchTexts(of: $0)) }
         }
         let words = searchWords(in: query)
         guard !words.isEmpty else { return agents }

@@ -389,6 +389,11 @@ struct CustomViewPageModelTests {
         model.activate(viewID: view.id)
         try await Task.sleep(nanoseconds: 300_000_000)
         await model.refreshTask?.value
+        // Under a loaded parallel run the grace timer can fire late; poll (bounded).
+        for _ in 0..<500 where model.snapshot?.items.isEmpty != true {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            await model.refreshTask?.value
+        }
         #expect(model.snapshot?.items.isEmpty == true)
     }
 

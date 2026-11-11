@@ -91,7 +91,8 @@ struct MacReaderTests {
         var commits: [Double] = []
         let sink = MacReaderProgressSink(delay: .milliseconds(20)) { commits.append($0) }
         sink.receive(progress: 0.6, immediate: false)
-        try await Task.sleep(for: .milliseconds(200))
+        // Bounded poll, not a fixed sleep: a loaded parallel run can starve the timer.
+        for _ in 0..<500 where commits.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
         #expect(commits == [0.6])
     }
 

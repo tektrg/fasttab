@@ -744,9 +744,14 @@ struct MyOrderReconcilerTests {
             pendingCloses: []
         )
 
-        #expect(result.slots.count == 1)
+        // Slot A re-binds to 102 and stays first; tab 101 (now at B) is a
+        // genuine live tab, so it gets its own appended slot rather than
+        // being swallowed by the stale ID.
+        #expect(result.slots.count == 2)
         #expect(result.slots[0].boundTabID == 102)
         #expect(result.slots[0].url == "https://a.com/page")
+        #expect(result.slots[1].boundTabID == 101)
+        #expect(result.slots[1].url == "https://b.com/other")
     }
 
     @Test func rung1StillBindsWhenIDAndURLAgree() {

@@ -64,7 +64,7 @@ struct OnboardingIPhoneStep: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 12)
+            Spacer(minLength: 6)
 
             // Same 30s re-check as the actions below, so a phone that checks in
             // while this step is on screen plays the "connected" beat.
@@ -106,7 +106,7 @@ struct OnboardingIPhoneStep: View {
                 }
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 6)
         }
     }
 

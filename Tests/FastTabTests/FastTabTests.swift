@@ -767,7 +767,7 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     let startedAt = clock.now
     let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient(), initialLoadTimeout: .milliseconds(20))
     #expect(clock.now - startedAt < .milliseconds(100))
-    for _ in 0..<50 {
+    for _ in 0..<500 { // bounded poll; generous for loaded parallel runs
         if service.snapshot.lastErrorMessage != nil { break }
         try await Task.sleep(for: .milliseconds(10))
     }
@@ -795,13 +795,13 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
         initialLoadTimeout: .milliseconds(20)
     )
 
-    for _ in 0..<50 {
+    for _ in 0..<500 { // bounded poll; generous for loaded parallel runs
         if service.snapshot.lastErrorMessage != nil { break }
         try await Task.sleep(for: .milliseconds(10))
     }
     #expect(service.snapshot.lastErrorMessage == "License storage is unavailable.")
 
-    for _ in 0..<50 {
+    for _ in 0..<500 { // bounded poll; generous for loaded parallel runs
         if service.snapshot.access == .licensed(.personal) { break }
         try await Task.sleep(for: .milliseconds(10))
     }
@@ -852,10 +852,13 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     let stored = makeStoredLicense(tier: .personal, status: .granted, licensedMajorVersion: 1, lastValidatedAt: .distantPast)
     let validated = PolarLicenseKey(id: "license-id", benefitID: "personal-benefit", displayKey: "****-KEY", status: .granted, limitActivations: 5, usage: 1, lastValidatedAt: Date())
     let storage = InMemoryLicenseStorage(license: stored)
-    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: TestPolarLicenseClient(validatedLicense: validated, validationDelay: .milliseconds(80)))
-    try await Task.sleep(for: .milliseconds(20))
+    let client = TestPolarLicenseClient(validatedLicense: validated, validationDelay: .milliseconds(80))
+    let service = LicenseService(configuration: testPaymentConfiguration(), storage: storage, client: client)
+    // Wait for the initial load, then for the revalidation to be in flight, so
+    // the clear lands mid-validation regardless of machine load.
+    for _ in 0..<500 where service.snapshot.license == nil { try await Task.sleep(for: .milliseconds(10)) }
     service.validateCachedLicenseIfNeeded(force: true)
-    try await Task.sleep(for: .milliseconds(10))
+    for _ in 0..<500 where client.validationCount == 0 { try await Task.sleep(for: .milliseconds(10)) }
     service.clearLicense()
     try await Task.sleep(for: .milliseconds(120))
     #expect(await storage.license == nil)

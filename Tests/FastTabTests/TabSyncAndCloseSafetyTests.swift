@@ -270,7 +270,7 @@ struct TabSyncAndCloseSafetyTests {
         }
     }
 
-    @Test func liveDiagnosisFinderTabs() {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["FASTTAB_LIVE_FINDER_TESTS"] == "1", "Drives the real Finder; needs Automation permission")) func liveDiagnosisFinderTabs() {
         let backend = FinderBackend()
         var activeTimes: [String: Date] = [:]
         let tabs = backend.fetchLiveTabs(fetchStart: Date(), activeTimes: &activeTimes, currentFlowSourceAppBundleIdentifier: nil)
@@ -281,7 +281,7 @@ struct TabSyncAndCloseSafetyTests {
         #expect(tabs.count > 0)
     }
 
-    @Test func liveCloseTemporaryFinderWindow() {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["FASTTAB_LIVE_FINDER_TESTS"] == "1", "Drives the real Finder; needs Automation permission")) func liveCloseTemporaryFinderWindow() {
         let scriptOpen = "tell application \"Finder\" to open POSIX file \"/private/tmp\""
         _ = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", scriptOpen])
         Thread.sleep(forTimeInterval: 0.5)
@@ -299,7 +299,7 @@ struct TabSyncAndCloseSafetyTests {
         #expect(closeResult == .closed)
     }
 
-    @Test func liveCloseTemporaryFinderWindowWithoutTabID() {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["FASTTAB_LIVE_FINDER_TESTS"] == "1", "Drives the real Finder; needs Automation permission")) func liveCloseTemporaryFinderWindowWithoutTabID() {
         let scriptOpen = "tell application \"Finder\" to open POSIX file \"/private/var/tmp\""
         _ = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", scriptOpen])
         Thread.sleep(forTimeInterval: 0.5)

@@ -21,4 +21,21 @@ enum FocusHotkey {
     static func save(_ config: AgentHotkeyConfig, to defaults: UserDefaults = .standard) {
         config.save(to: defaults, keys: keys, standard: standard)
     }
+
+    /// Plain-English problem when `focus` would take the summon shortcut or its ⇧ backward twin
+    /// (one press would then fire both); nil when they are distinct.
+    static func clashMessage(focus: AgentHotkeyConfig, summon: AgentHotkeyConfig) -> String? {
+        let takesSummon = focus == summon
+        let takesBackward = summon.backwardModifiers.map {
+            focus == AgentHotkeyConfig(keyCode: summon.keyCode, modifiers: $0, keyName: summon.keyName)
+        } ?? false
+        guard takesSummon || takesBackward else { return nil }
+        return "\(focus.displayName) is already AgentBar's switch shortcut. Pick another key."
+    }
+
+    /// A change refused before touching macOS because of a clash; nil = go ahead and register.
+    static func resolveChange(previous: AgentHotkeyConfig, requested: AgentHotkeyConfig, summon: AgentHotkeyConfig) -> HotkeyChangeOutcome? {
+        guard let clash = clashMessage(focus: requested, summon: summon) else { return nil }
+        return .reverted(active: previous, message: "\(clash) Still using \(previous.displayName).")
+    }
 }

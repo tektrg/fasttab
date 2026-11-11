@@ -145,7 +145,9 @@ final class AgentBarCoordinator {
                 cycleController.panelClosed()
             }
         }
-        hotkeys.onPressed = { [cycleController] direction in
+        hotkeys.onPressed = { [cycleController, focusOverlay] direction in
+            // The panel and Focus mode share the answer cards: never both at once.
+            if focusOverlay.isVisible { focusOverlay.hide(restoringFocus: false) }
             cycleController.hotkeyPressed(direction, currentModifiers: NSEvent.modifierFlags)
         }
         reportHotkeyIssue(hotkeys.register(settings.hotkey), for: settings.hotkey)
@@ -229,6 +231,9 @@ final class AgentBarCoordinator {
 
     private func changeFocusHotkey(to requested: AgentHotkeyConfig) -> HotkeyChangeOutcome {
         let previous = settings.focusHotkey
+        if let refused = FocusHotkey.resolveChange(previous: previous, requested: requested, summon: settings.hotkey) {
+            return refused
+        }
         let issue = hotkeys.registerFocus(requested)
         let outcome = HotkeyChangeOutcome.resolve(previous: previous, requested: requested, registrationIssue: issue)
         if case .reverted = outcome { _ = hotkeys.registerFocus(previous) }
@@ -241,6 +246,9 @@ final class AgentBarCoordinator {
     /// Registers `requested`; if macOS refuses it, puts the previous shortcut back.
     private func changeHotkey(to requested: AgentHotkeyConfig) -> HotkeyChangeOutcome {
         let previous = settings.hotkey
+        if let clash = FocusHotkey.clashMessage(focus: settings.focusHotkey, summon: requested) {
+            return .reverted(active: previous, message: "\(clash) Still using \(previous.displayName).")
+        }
         let issue = hotkeys.register(requested)
         let outcome = HotkeyChangeOutcome.resolve(previous: previous, requested: requested, registrationIssue: issue)
         if case .reverted = outcome {

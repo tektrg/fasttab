@@ -1,0 +1,16 @@
+{
+  "slug": "fasttab-reader",
+  "name": "{slug}-hero",
+  "bg": "#1F5EF0",
+  "template": "hand-iphone-template.png",
+  "screen": "1-tabs",
+  "cards": [
+    {"shot": "1-tabs", "crop": [60, 660, 1050, 555], "label": "Mac tabs", "frame": true},
+    {"shot": "6-bookmarks", "crop": [60, 660, 1050, 760], "label": "Bookmarks", "frame": true}
+  ],
+  "layout": {
+    "header": {"cap": [240, 200, 1700, 1246], "font": 150, "phone": [1900, 150, 1880], "cards": [[2080, 330, 860, -5], [3000, 700, 720, 5]]},
+    "search": {"cap": [190, 500, 1450, 1560], "font": 155, "phone": [1560, 330, 2300], "cards": [[2000, 560, 960, -5], [2880, 1480, 780, 5]]}
+  },
+  "text": {"en": {"headline": "Your Mac’s|*tabs & bookmarks,*|on your iPhone"}}
+}

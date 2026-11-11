@@ -76,14 +76,16 @@ struct AgentRowView: View {
                 sendingIndicator(sendingLabel)
             } else if let sentLabel {
                 sentIndicator(sentLabel)
-            } else if showsButtons {
-                buttonStrip
-            } else if agent.section != .sleeping {   // a sleeping row says its age in the status line
-                AgentAgeView(agent: agent, fetchedAt: fetchedAt)
-            }
-            // Only on the hovered / selected row, after the buttons, so it never crowds the red one.
-            if isSelected, sendingLabel == nil, sentLabel == nil {
-                CopyIdentityButton(isCopied: isCopied, onCopy: onCopy)
+            } else {
+                // Only on the hovered / selected row, BEFORE the buttons: the red button stays at the far right.
+                if isSelected {
+                    CopyIdentityButton(isCopied: isCopied, onCopy: onCopy)
+                }
+                if showsButtons {
+                    buttonStrip
+                } else if agent.section != .sleeping {   // a sleeping row says its age in the status line
+                    AgentAgeView(agent: agent, fetchedAt: fetchedAt)
+                }
             }
         }
     }
@@ -204,7 +206,7 @@ struct AgentRowView: View {
             isSelected: isSelected, isHovering: false, leadingFadeWidth: 0, trailingPadding: 0,
             spacing: 6, showsBackground: false
         ) {
-            ForEach(visibleButtons, id: \.button.title) { spec in
+            ForEach(RowButtons.drawingOrder(visibleButtons), id: \.button.title) { spec in
                 if spec.button == .moreActions {
                     RowMoreMenuView(
                         items: menuItems,

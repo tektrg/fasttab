@@ -68,7 +68,7 @@ struct SharedRowButtonsAndAppearanceTests {
         let frame = AgentPanelPlacement.frame(size: size, in: screen)
         #expect(frame == CGRect(x: 1440 - 20 - size.width, y: 20, width: size.width, height: 300))
         let top = AgentPanelPlacement.frame(size: size, in: screen, placement: .topCenter)
-        #expect(top.maxY == 900 - 20)
+        #expect(top.maxY == 900 - 20, "\(top)")
     }
 
     @Test func fixedHeightAlwaysUsesTheFullListHeight() {

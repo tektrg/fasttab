@@ -424,6 +424,13 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         foldedKeys([normalizedTitleKey, normalizedURLKey], containAllWordsOf: words)
     }
 
+    /// The search box's match (IndieSearch `SearchBoxQuery`, prepared once per query):
+    /// plain words as `matches(words:)`; a `*wildcard*` or `/regex/` against the raw
+    /// title or URL.
+    func matches(_ query: SearchBoxQuery) -> Bool {
+        query.matches(foldedKeys: [normalizedTitleKey, normalizedURLKey], rawTexts: { [title, url] })
+    }
+
     /// Short relative-time label ("2m", "3h", "Yest", "3d", "Mar 14") for the
     /// last-visit (history) or last-active (tab) timestamp. Returns nil when
     /// the timestamp is unset (epoch ~0) or the type doesn't carry a meaningful

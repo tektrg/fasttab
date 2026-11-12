@@ -28,7 +28,6 @@ final class AgentCycleController {
     private var session: CycleSession
     private var shortcutModifiers: NSEvent.ModifierFlags
     private let actions: Actions
-    private var pendingStep = 1
 
     /// `shortcutModifiers` are the modifiers whose release commits (⌥ by default).
     init(shortcutModifiers: NSEvent.ModifierFlags, actions: Actions) {
@@ -50,7 +49,7 @@ final class AgentCycleController {
 
     private func attachCallbacks() {
         let actions = actions
-        session.onAdvance = { [unowned self] in actions.moveSelection(pendingStep) }
+        session.onAdvance = { direction in actions.moveSelection(direction == .backward ? -1 : 1) }
         session.onCommit = { actions.commitSelection() }
     }
 
@@ -63,8 +62,7 @@ final class AgentCycleController {
             return
         }
         session.isModifierHeld = isShortcutModifierDown(in: currentModifiers)
-        pendingStep = direction.step
-        session.advance()
+        session.advance(direction == .backward ? .backward : .forward)
     }
 
     /// Feed the live keyboard state while the panel is visible; a release after

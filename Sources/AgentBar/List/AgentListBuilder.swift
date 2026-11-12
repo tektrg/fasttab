@@ -73,26 +73,19 @@ enum AgentListBuilder {
 
     /// A query that filters: any words, or a `*wildcard*` / `/regex/` (`TextPattern`).
     static func isSearchQuery(_ query: String) -> Bool {
-        TextPattern.isPattern(query.trimmingCharacters(in: .whitespacesAndNewlines)) || !searchWords(in: query).isEmpty
+        !SearchBoxQuery(query).isEverything
     }
 
-    /// A blank query matches all. A whole-query `*wildcard*` or `/regex/` (`TextPattern`) must
-    /// match the label, project, folder, prompt excerpt or status text; otherwise every query word
-    /// must appear in one of them (accent- and case-insensitive).
+    /// The shared search-box match (IndieSearch `SearchBoxQuery`, prepared once per query):
+    /// a blank query matches all; a whole-query `*wildcard*` or `/regex/` must match the label,
+    /// project, folder, prompt excerpt or status text; otherwise every query word must appear
+    /// in one of them (accent- and case-insensitive).
     /// A sleeping row's status text is only its age ("Sleeping · 2d ago"), so just "Sleeping"
     /// is searched: otherwise "ag" (…agentbar) or "d" would match every sleeping session via "ago".
     static func agents(_ agents: [AgentSnapshot], matching query: String) -> [AgentSnapshot] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if TextPattern.isPattern(trimmed) {
-            // A broken regex normalizes to nil: no entries, matches nothing.
-            let pattern = TextPattern.Compiled(TextPattern.normalize(trimmed).map { [$0] } ?? [])
-            return agents.filter { pattern.matches(anyOf: searchTexts(of: $0)) }
-        }
-        let words = searchWords(in: query)
-        guard !words.isEmpty else { return agents }
-        return agents.filter { agent in
-            foldedKeys(searchTexts(of: agent).compactMap { $0 }.map(foldForMatching), containAllWordsOf: words)
-        }
+        let searchQuery = SearchBoxQuery(query)
+        guard !searchQuery.isEverything else { return agents }
+        return agents.filter { searchQuery.matches(searchTexts(of: $0)) }
     }
 
     private static func searchTexts(of agent: AgentSnapshot) -> [String?] {

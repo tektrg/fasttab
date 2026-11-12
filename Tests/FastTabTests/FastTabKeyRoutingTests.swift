@@ -325,4 +325,24 @@ struct FastTabKeyRoutingTests {
         #expect(CustomViewEditorKeyRoute.route(keyCode: R.escapeKeyCode, modifiers: [], presenter: presenter, activeView: active) == .consume)
         #expect(presenter.pendingDeleteID == nil)
     }
+
+    // MARK: ⇧ + summon cycles back (gap 5)
+
+    @Test func shiftPlusSummonCyclesBackward() {
+        var c = onRow(2)
+        c.cycleShortcuts = [.init(keyCode: 49, modifiers: [.option])]  // ⌥Space
+        #expect(route(49, [.option, .shift], c) == .cycleBackward)
+        #expect(route(49, [.option, .shift], { var e = Ctx(); e.cycleShortcuts = c.cycleShortcuts; return e }()) == .cycleBackward)
+        // Without ⇧ the tap is the global hotkey's (forward), not the bar's.
+        #expect(route(49, [.option], c) == .passThrough)
+        // Plain ⇧Space keeps its old meaning.
+        var empty = Ctx(); empty.selectedIndex = 2; empty.cycleShortcuts = c.cycleShortcuts
+        #expect(route(49, [.shift], empty) == .moveSelection(forward: false, via: .space))
+    }
+
+    @Test func noBackwardTwinWhenSummonHasShift() {
+        var c = onRow(2)
+        c.cycleShortcuts = [.init(keyCode: 40, modifiers: [.command, .shift])]
+        #expect(route(40, [.command, .shift], c) != .cycleBackward)
+    }
 }

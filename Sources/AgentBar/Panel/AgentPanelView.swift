@@ -7,34 +7,57 @@ import IndieCommandBar
 /// `AgentPanelMetrics`. Tab-tagged (`AgentPanelModel.taggedAgentID`): the list/status message and the
 /// board note are both hidden — the target is already chosen (shown as a chip in the search field
 /// itself), so there's nothing left to pick from, and showing it anyway would just be clutter.
+///
+/// `corner` set = the corner card (`Corner/`): the same panel, compact — a slim "Waiting for your
+/// answer" bar (expand / ✕) instead of the page strip, only the open Answer/Review card as body, no
+/// search field, no board note, no window-wide shortcuts.
 struct AgentPanelView: View {
+    /// The corner card's two extra actions.
+    struct CornerChrome {
+        let onExpand: () -> Void
+        let onDismiss: () -> Void
+    }
+
     @ObservedObject var model: AgentPanelModel
     let onClose: () -> Void
     let onOpenSettings: () -> Void
+    var corner: CornerChrome?
+
+    private var bodyHeight: CGFloat {
+        guard corner == nil else { return AgentPanelMetrics.fullBodyHeight() }
+        return AgentPanelMetrics.fullBodyHeight(
+            maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             // Search sits at the bottom, just above the footer: the panel is anchored to the screen's
             // bottom edge and grows upward (`AgentPanelPlacement`), so the box never moves as the list filters.
             VStack(spacing: 0) {
-                if model.showsPageStrip {
+                if let corner {
+                    CornerCardBar(chrome: corner)
+                    Divider()
+                } else if model.showsPageStrip {
                     AgentPageStripView(pages: model.pages)
                     Divider().opacity(0.5)
                 }
                 bodyContent
                 // Hidden whenever the body collapses (`AgentPanelMetrics.height(isComposing:)`).
-                if model.presentation.showsBoardNote, model.taggedAgentID == nil, model.newWorker?.isComposing != true {
+                if corner == nil, model.presentation.showsBoardNote, model.taggedAgentID == nil, model.newWorker?.isComposing != true {
                     BoardNoteView()
                 }
             }
             .overlay(alignment: .bottom) { failureNotice }
-            .overlay(alignment: .top) { fallbackApproval }
-            Divider()
-            SearchFieldView(model: model, onClose: onClose)
+            .overlay(alignment: .top) { if corner == nil { fallbackApproval } }
+            if corner == nil {
+                Divider()
+                SearchFieldView(model: model, onClose: onClose)
+            }
             PanelFooterView(
                 notice: model.footerNotice,
                 hintContext: .init(
-                    isPeeking: model.peek != nil,
+                    isPeeking: corner == nil && model.peek != nil,
                     hasHighlightedButton: model.highlightedButton != nil,
                     searchIsEmpty: model.query.isEmpty,
                     answerMode: model.answer.card?.hintMode,
@@ -92,7 +115,7 @@ struct AgentPanelView: View {
         // Agent Hierarchy window used; List row selection keeps this working without a competing
         // handler since nothing else claims ⌘]/⌘[/⌘⌫).
         .background {
-            let keys = AgentPanelKeys.shortcuts(
+            let keys = corner != nil ? [] : AgentPanelKeys.shortcuts(
                 isNewWorker: model.newWorker != nil, focusCount: model.focusCount,
                 queryIsEmpty: model.query.isEmpty, canSwitchPages: model.canSwitchPages
             )
@@ -152,16 +175,12 @@ struct AgentPanelView: View {
             AgentViewEditorView(
                 pages: model.pages,
                 projectOptions: model.projectOptions,
-                bodyHeight: AgentPanelMetrics.fullBodyHeight(
-                    maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
-                )
+                bodyHeight: bodyHeight
             )
         } else if model.answer.isOpen {
             AnswerCardView(
                 answer: model.answer,
-                bodyHeight: AgentPanelMetrics.fullBodyHeight(
-                    maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
-                ),
+                bodyHeight: bodyHeight,
                 copiedAgentID: model.copier.copiedAgentID,
                 onCopy: { model.copyOpenCardIdentity() },
                 onOpen: { model.openCardAgent() }
@@ -169,19 +188,19 @@ struct AgentPanelView: View {
         } else if model.permission.isOpen {
             PermissionCardView(
                 permission: model.permission,
-                bodyHeight: AgentPanelMetrics.fullBodyHeight(
-                    maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
-                ),
+                bodyHeight: bodyHeight,
                 copiedAgentID: model.copier.copiedAgentID,
                 onCopy: { model.copyOpenCardIdentity() },
                 onOpen: { model.openCardAgent() }
             )
+        } else if corner != nil {
+            // The blocker resolved between the corner's effect and this redraw (the controller drops
+            // back to the pill on the next change); nothing to show for the instant between.
+            Color.clear.frame(height: bodyHeight)
         } else if model.message.isOpen {
             MessageCardView(
                 message: model.message,
-                bodyHeight: AgentPanelMetrics.fullBodyHeight(
-                    maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
-                ),
+                bodyHeight: bodyHeight,
                 copiedAgentID: model.copier.copiedAgentID,
                 onCopy: { model.copyOpenCardIdentity() },
                 onOpen: { model.openCardAgent() }
@@ -199,9 +218,7 @@ struct AgentPanelView: View {
             if !newWorker.isComposing {
                 NewWorkerFolderListView(
                     model: model,
-                    bodyHeight: AgentPanelMetrics.fullBodyHeight(
-                        maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
-                    )
+                    bodyHeight: bodyHeight
                 )
             }
         } else if model.taggedAgentID != nil {
@@ -251,5 +268,30 @@ private struct CopiedToast: View {
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: copier.copiedAgentID)
         .allowsHitTesting(false)
+    }
+}
+
+/// The corner card's slim top bar: red dot, "Waiting for your answer", expand (opens the full
+/// panel; so does a click on the bar) and ✕ (hide for now).
+private struct CornerCardBar: View {
+    let chrome: AgentPanelView.CornerChrome
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle().fill(Color.red).frame(width: 9, height: 9)
+            Text("Waiting for your answer").font(.avenir(size: 13, weight: .semibold))
+            Spacer(minLength: 0)
+            Button(action: chrome.onExpand) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right").font(.avenir(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Open the full switcher")
+            .accessibilityLabel("Open AgentBar")
+            CornerDismissButton(action: chrome.onDismiss)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: CornerTabPlacement.cardHeaderHeight)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: chrome.onExpand)
     }
 }

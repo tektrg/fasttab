@@ -14,7 +14,7 @@ extension CommandBarAnchor {
     /// hover trigger itself is off, since the bar still needs an anchor.
     @MainActor
     static var current: CommandBarAnchor {
-        CommandBarAnchor(revealStyle: EdgeRevealStore.shared.style)
+        CommandBarAnchor(revealStyle: EdgeRevealStore.shared.style, position: CommandBarAppearance.load().position)
     }
 }
 
@@ -77,6 +77,14 @@ final class CommandBarRevealTrigger: ObservableObject {
     func fire(anchor: CommandBarAnchor) {
         self.anchor = anchor
         token += 1
+    }
+
+    /// Bumped when a floating card opens without hover (shortcut, menu bar), so it fades in
+    /// too. Separate from `token`, which also switches the bar into its hover-open state.
+    @Published private(set) var fadeInToken: Int = 0
+
+    func fireFadeIn() {
+        fadeInToken += 1
     }
 }
 

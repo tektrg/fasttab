@@ -167,6 +167,16 @@ class AppState: ObservableObject {
         return commandWindow.isVisible && commandWindow.isKeyWindow
     }
 
+    /// Padding that keeps a floating bar inside its display's usable area (clear of the
+    /// menu bar and Dock), from the canvas window the bar is drawn in.
+    func commandBarFloatingPadding() -> EdgeInsets {
+        guard let commandWindow, let screen = commandWindow.screen ?? NSScreen.main else {
+            let m = CommandBarLayout.floatingMargin
+            return EdgeInsets(top: m, leading: m, bottom: m, trailing: m)
+        }
+        return CommandBarLayout.floatingPadding(canvasFrame: commandWindow.frame, visibleFrame: screen.visibleFrame)
+    }
+
     var commandWindowDebugState: String {
         guard let commandWindow else { return "window=nil" }
         return "visible=\(commandWindow.isVisible) key=\(commandWindow.isKeyWindow) main=\(commandWindow.isMainWindow) appActive=\(NSApp.isActive)"
@@ -227,6 +237,9 @@ class AppState: ObservableObject {
             CommandBarPanelController.shared.playRevealAnimation(from: revealStyle)
         } else {
             wasOpenedByHover = false
+            if CommandBarAnchor.current.isFloating {
+                CommandBarRevealTrigger.shared.fireFadeIn()
+            }
             if openedBy == .shortcut {
                 CommandBarPanelController.shared.armShortcutOpenGracePeriod()
             }
@@ -688,7 +701,8 @@ private final class CommandBarPanelController: NSObject {
             return CommandBarLayout.shouldDismissClick(
                 at: screenLocation,
                 in: panel.frame,
-                anchor: CommandBarAnchor.current
+                anchor: CommandBarAnchor.current,
+                visibleFrame: panel.screen?.visibleFrame
             )
         }
         panel.onDismiss = { AppState.shared.hideCommandBar() }
@@ -835,7 +849,10 @@ private final class CommandBarPanelController: NSObject {
     func evaluateHoverDismiss() {
         // An open view builder / delete confirmation is work in progress:
         // leaving the bar must not throw it away.
-        guard AppState.shared.isVisible, AppState.shared.isSearchTextEmpty,
+        // A floating card does not grow from where the pointer is (it may open at the
+        // hover edge and sit in the centre), so leaving it never closes it: click
+        // outside or Esc does, as for Agent Bar.
+        guard !CommandBarAnchor.current.isFloating, AppState.shared.isVisible, AppState.shared.isSearchTextEmpty,
               !CustomViewEditorPresenter.shared.holdsBar, panel != nil else {
             pendingHoverDismiss?.cancel()
             pendingHoverDismiss = nil
@@ -902,7 +919,8 @@ private final class CommandBarPanelController: NSObject {
             anchor: CommandBarAnchor.current,
             rowStyle: rowStyle,
             maxRows: maxRows,
-            showFooter: showFooter
+            showFooter: showFooter,
+            visibleFrame: panel.screen?.visibleFrame
         )
         return !surface.insetBy(dx: -Self.hoverDismissOutset, dy: -Self.hoverDismissOutset)
             .contains(NSEvent.mouseLocation)

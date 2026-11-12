@@ -220,6 +220,9 @@ enum FastTabKeyRouting {
             return .clearSelection
         case .close:
             return .hideBar
+        case .togglePreview, .closePreview:
+            // Fast Tab supplies no row previews (the state above never offers one).
+            return .passThrough
         }
     }
 

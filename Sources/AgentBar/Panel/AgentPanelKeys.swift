@@ -67,10 +67,13 @@ enum AgentPanelKeys {
     enum EscapeStep: Equatable { case dismissedNotice, backedOutOfButtons, closedPeek, closePanel }
 
     /// Esc peels one layer: a failure notice, then the row-button highlight, then the peek, then the panel.
+    /// The peek step is the shared preview slot's rule (Esc closes a showing preview first).
     static func escape(dismissNotice: () -> Bool, backOutOfButtons: () -> Bool, hasPeek: Bool) -> EscapeStep {
         if dismissNotice() { return .dismissedNotice }
         if backOutOfButtons() { return .backedOutOfButtons }
-        return hasPeek ? .closedPeek : .closePanel
+        let state = CommandBarKeyState(selectedIndex: -1, queryIsEmpty: true, preview: hasPeek ? .open : .unavailable)
+        return CommandBarKeyRouter.intent(for: CommandBarKeyPress(keyCode: 53, modifiers: []), state: state) == .closePreview
+            ? .closedPeek : .closePanel
     }
 
     enum Shortcut: Hashable { case focus, reportTo, stopReporting, stopReportingDelete, page(Int) }

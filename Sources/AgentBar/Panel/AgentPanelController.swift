@@ -47,7 +47,7 @@ final class AgentPanelController {
         sizeSubscription = Publishers.CombineLatest4(
             model.$presentation,
             model.$listSettings,
-            model.$peek.map { $0 != nil }.removeDuplicates(),
+            model.$preview.map(\.isOpen).removeDuplicates(),
             Publishers.CombineLatest4(
                 model.answer.$card.map { $0 != nil },
                 model.permission.$card.map { $0 != nil },

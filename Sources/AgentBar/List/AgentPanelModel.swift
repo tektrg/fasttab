@@ -56,8 +56,12 @@ final class AgentPanelModel: ObservableObject {
     /// Set only from that extension.
     @Published var newWorker: NewWorkerMode?
 
-    /// The pane-screen peek (Space), or nil while the list shows.
-    @Published private(set) var peek: PanePeek?
+    /// The pane-screen peek (Space) on the shared preview slot (IndieCommandBar
+    /// `CommandBarPreviewSlot`): which agent it belongs to, open/closed, Space/Esc rules.
+    @Published private(set) var preview = CommandBarPreviewSlot<String, PanePeek>()
+
+    /// The peek showing, or nil while the list shows.
+    var peek: PanePeek? { preview.content }
 
     /// Where a peek reads the pane screen from; set by the host, and replaced
     /// when the user points AgentBar at another dashboard.
@@ -997,10 +1001,15 @@ final class AgentPanelModel: ObservableObject {
         // right after tagging, before anything is typed, `query` is still empty and this would
         // otherwise open the pane peek on the very first keystroke).
         guard taggedAgentID == nil, newWorker == nil, query.isEmpty else { return false }
-        if peek != nil {
-            closePeek()
-        } else {
-            openPeekOnSelected()
+        // Every agent row has a peek (an ended or unreadable one says why), so the shared
+        // rule only declines with nothing highlighted: Space is still consumed there.
+        let state = CommandBarKeyState(
+            selectedIndex: selectedAgentID == nil ? -1 : 0,
+            queryIsEmpty: true,
+            preview: preview.keyState(selectedRowHasPreview: selectedAgentID != nil)
+        )
+        if CommandBarKeyRouter.intent(for: CommandBarKeyPress(keyCode: 49, modifiers: []), state: state) == .togglePreview {
+            if preview.isOpen { closePeek() } else { openPeekOnSelected() }
         }
         return true
     }
@@ -1008,7 +1017,7 @@ final class AgentPanelModel: ObservableObject {
     func closePeek() {
         peekLoader.cancel()
         peekMessageLoader.cancel()
-        peek = nil
+        preview.close()
     }
 
     private func openPeekOnSelected() {
@@ -1022,17 +1031,17 @@ final class AgentPanelModel: ObservableObject {
         }
         guard let paneId = agent.paneId, !paneId.isEmpty else {
             opened.content = .unavailable(PanePeek.endedAgentMessage)
-            peek = opened
+            preview.open(rowID: opened.agentID, content: opened)
             return
         }
         guard let statusSource else {
             opened.content = .unavailable(PanePeek.noSourceMessage)
-            peek = opened
+            preview.open(rowID: opened.agentID, content: opened)
             return
         }
-        peek = opened
+        preview.open(rowID: opened.agentID, content: opened)
         peekLoader.load({ await statusSource.paneScreen(paneId: paneId) }) { [weak self] result in
-            self?.peek?.content = PanePeek.content(from: result)
+            self?.preview.updateContent(for: opened.agentID) { $0.content = PanePeek.content(from: result) }
         }
     }
 
@@ -1040,16 +1049,17 @@ final class AgentPanelModel: ObservableObject {
     private func openLatestMessagePeek(_ opened: PanePeek, sessionId: String) {
         var opened = opened
         opened.content = .loadingLatestMessage
-        peek = opened
+        preview.open(rowID: opened.agentID, content: opened)
         let load = loadPeekMessage
         peekMessageLoader.load({ await load(sessionId) }) { [weak self] context in
-            guard self?.peek?.agentID == opened.agentID else { return }
-            self?.peek?.content = PanePeek.content(fromLatestMessage: context.latestMessage)
+            self?.preview.updateContent(for: opened.agentID) {
+                $0.content = PanePeek.content(fromLatestMessage: context.latestMessage)
+            }
         }
     }
 
     private func closePeekUnlessStillSelected() {
-        if peek?.agentID != selectedAgentID { closePeek() }
+        if preview.isOpen, preview.rowID != selectedAgentID { closePeek() }
     }
 
     /// Enter: presses the highlighted button, or with none highlighted switches to the agent.

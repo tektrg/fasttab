@@ -18,6 +18,8 @@ let indieSharing: Target.Dependency = .product(name: "IndieSharing", package: "I
 let indieAccount: Target.Dependency = .product(name: "IndieAccount", package: "IndieLibKit")
 let indieAgentSessions: Target.Dependency = .product(name: "IndieAgentSessions", package: "IndieLibKit")
 let indieCommandBar: Target.Dependency = .product(name: "IndieCommandBar", package: "IndieLibKit")
+// Browser profiles (Chromium profile list, Local State names, window-title profile), shared with MacLanes.
+let indieBrowserTabs: Target.Dependency = .product(name: "IndieBrowserTabs", package: "IndieLibKit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -87,6 +89,7 @@ let package = Package(
                 "ReadingConnector",
                 indieMCP,
                 indieCommandBar,
+                indieBrowserTabs,
                 indieSearch,
                 indieSavedViews,
                 indieSharing,

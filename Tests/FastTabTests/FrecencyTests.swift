@@ -55,18 +55,6 @@ import IndieCommandBar
 
 // MARK: - Window-title profile extraction
 
-@Test func profileFromWindowTitleExtractsChromeSuffix() async throws {
-    #expect(Frecency.profileFromWindowTitle("Inbox (12) - Trung (Work)") == "Trung (Work)")
-}
-
-@Test func profileFromWindowTitleSkipsAppName() async throws {
-    #expect(Frecency.profileFromWindowTitle("Some Page - Google Chrome") == nil)
-}
-
-@Test func profileFromWindowTitleReturnsNilWhenNoSeparator() async throws {
-    #expect(Frecency.profileFromWindowTitle("Plain Title") == nil)
-}
-
 // MARK: - Frecency-aware sort integration
 
 @Test func sortPrefersHigherFrecencyAmongTabs() async throws {

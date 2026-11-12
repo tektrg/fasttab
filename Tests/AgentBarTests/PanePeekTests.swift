@@ -83,8 +83,23 @@ struct PanePeekTests {
     @Test func spaceWithNothingSelectedDoesNothing() {
         let (model, _) = makeRig()
         model.receive(F.snapshot([], health: .down(reason: "x"), boardIsCurrent: false))
-        model.togglePeek()
+        #expect(model.togglePeek())   // still consumed: Space never types into an empty box
         #expect(model.peek == nil)
+    }
+
+    @Test func spaceWhileTaggedTypesASpaceInsteadOfPeeking() {
+        let (model, _) = makeRig()
+        model.tagSelected()
+        #expect(model.togglePeek() == false)
+        #expect(model.peek == nil)
+    }
+
+    @Test func spaceTwiceReopensOnTheSameAgent() {
+        let (model, _) = makeRig()
+        #expect(model.togglePeek())
+        #expect(model.togglePeek())
+        #expect(model.togglePeek())
+        #expect(model.peek?.agentID == "a")
     }
 
     @Test func anAgentWithoutAPaneShowsTheEndedMessageAndReadsNothing() async {

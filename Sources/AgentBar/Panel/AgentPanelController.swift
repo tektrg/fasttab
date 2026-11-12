@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Combine
 import IndieCommandBar
+import IndieEdgeReveal
 
 /// Owns the floating panel: builds it, places it on the screen the cursor is
 /// on, keeps its height in step with the content, and hides it on Esc or a
@@ -20,6 +21,11 @@ final class AgentPanelController {
     private var flick = CommandBarViewFlick()
     private let activation: TextInputActivation
     private var focusObservers: [NSObjectProtocol] = []
+    /// Set while the panel was opened from the corner tab (gap 9): grow-from-corner + pointer-leave close.
+    private var cornerZone: CGRect?
+    private var leaveMonitor: CommandBarPointerLeaveMonitor?
+    private var leaveGateSubscription: AnyCancellable?
+    private var leaveTypingSubscription: AnyCancellable?
 
     /// Fires with true after the panel is shown and false after it is hidden,
     /// however that happened (Esc, outside click, a switch).
@@ -129,11 +135,25 @@ final class AgentPanelController {
         scrollMonitor = nil
     }
 
-    func show() {
+    /// `fromCorner`: opened by clicking the corner tab. The panel grows out of the bottom-right
+    /// corner (shared `EdgeRevealAnimator`) and closes when the pointer leaves it while the search
+    /// box is blank and nothing holds it (`holdsPanelAgainstPointerLeave`, open menus). Any other
+    /// open (shortcut, menu bar, link) keeps today's behaviour.
+    func show(fromCorner: Bool = false) {
+        EdgeRevealAnimator.interrupt(panel)
         model.resetForShow()
         placementFrame = SummonScreen.visibleFrame(fallback: placementFrame)
         applyCurrentSize()
-        panel.makeKeyAndOrderFront(nil)
+        stopLeaveMonitor()
+        if fromCorner, let display = NSScreen.containing(NSEvent.mouseLocation) ?? NSScreen.main {
+            let zone = CornerPanelLeave.cornerZone(displayFrame: display.frame)
+            cornerZone = zone
+            let frame = panel.frame
+            EdgeRevealAnimator.reveal(panel, to: frame, from: EdgeRevealGeometry.revealStartFrame(panelFrame: frame, zone: zone))
+            startLeaveMonitor()
+        } else {
+            panel.makeKeyAndOrderFront(nil)
+        }
         startOutsideClickMonitor()
         startScrollMonitor()
         startFocusObservers()
@@ -147,12 +167,59 @@ final class AgentPanelController {
     /// still handed back correctly (`TextInputActivation`).
     func hide(restoringFocus: Bool = true, isAgentSwitch: Bool = false) {
         let wasVisible = panel.isVisible
+        stopLeaveMonitor()
         stopOutsideClickMonitor()
         stopScrollMonitor()
         stopFocusObservers()
+        EdgeRevealAnimator.interrupt(panel)
         panel.orderOut(nil)
         activation.panelDidHide(restoringFocus: restoringFocus, handingOffToAgentSwitch: isAgentSwitch)
         if wasVisible { onVisibilityChange?(false) }
+    }
+
+    // MARK: - Corner open: pointer-leave close (gap 9)
+
+    private func startLeaveMonitor() {
+        let monitor = CommandBarPointerLeaveMonitor(hooks: .init(
+            isSearchEmpty: { [model] in model.isSearchBoxEmptyForPointerLeave },
+            isHeld: { [model] in model.holdsPanelAgainstPointerLeave },
+            isPointerOutside: { [weak self] pointer in
+                guard let self, let zone = self.cornerZone else { return false }
+                return EdgeRevealGeometry.pointerHasLeft(pointer, panelFrame: self.panel.frame, zone: zone)
+            },
+            close: { [weak self] in self?.retreatToCorner() }
+        ))
+        leaveMonitor = monitor
+        monitor.start()
+        // Typing stretches the wait; a gate opening (card closed, box cleared) re-checks at once.
+        leaveGateSubscription = model.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak monitor] _ in MainActor.assumeIsolated { monitor?.evaluate() } }
+        leaveTypingSubscription = model.$query.dropFirst().removeDuplicates()
+            .sink { [weak monitor] _ in MainActor.assumeIsolated { monitor?.noteTyping() } }
+    }
+
+    private func stopLeaveMonitor() {
+        leaveMonitor?.stop()
+        leaveMonitor = nil
+        leaveGateSubscription = nil
+        leaveTypingSubscription = nil
+        cornerZone = nil
+    }
+
+    /// The pointer left: slide back into the corner, then finish hiding as any other close does.
+    private func retreatToCorner() {
+        guard panel.isVisible, let zone = cornerZone else { return }
+        stopLeaveMonitor()
+        stopOutsideClickMonitor()
+        stopScrollMonitor()
+        stopFocusObservers()
+        let start = EdgeRevealGeometry.revealStartFrame(panelFrame: panel.frame, zone: zone)
+        EdgeRevealAnimator.retreat(panel, to: start) { [weak self] in
+            guard let self else { return }
+            self.activation.panelDidHide(restoringFocus: true, handingOffToAgentSwitch: false)
+            self.onVisibilityChange?(false)
+        }
     }
 
     private func applySize(

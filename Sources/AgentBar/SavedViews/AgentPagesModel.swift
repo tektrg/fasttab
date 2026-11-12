@@ -57,7 +57,7 @@ final class AgentPagesModel: ObservableObject {
 
     /// `/view` (any case, surrounding spaces ignored).
     static func isNewViewCommand(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == newViewCommand
+        AgentBarCommands.exact(text) == AgentBarCommands.newView
     }
 
     /// The strip and page switching (⌘1…⌘9, swipe) exist only once a view is saved.

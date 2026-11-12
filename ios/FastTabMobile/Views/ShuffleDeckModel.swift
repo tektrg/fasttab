@@ -80,6 +80,15 @@ final class ShuffleDeckModel: ObservableObject {
         deal(makeDeck(), context: context)
     }
 
+    /// Drops cards of highlights no longer saved (deleted in the reader, on the Highlights screen,
+    /// or synced away); every other card keeps its place.
+    func pruneHighlights(existing highlightIDs: Set<String>) {
+        remove { card in
+            guard case .highlight(let highlight) = card.source else { return false }
+            return !highlightIDs.contains(highlight.id)
+        }
+    }
+
     func remove(where shouldRemove: (RandomCardItem) -> Bool) {
         cards.removeAll(where: shouldRemove)
     }

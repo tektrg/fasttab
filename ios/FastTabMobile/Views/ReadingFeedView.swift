@@ -412,6 +412,8 @@ public struct ReadingFeedView: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.dsTinted(DS.Tint.emerging))
+                // The toolbar has a "Refresh" too; VoiceOver tells the two apart.
+                .accessibilityLabel("Refresh Emerging")
             }
 
             if emergingProvider.items.isEmpty {

@@ -193,8 +193,14 @@ struct RandomLinksView: View {
                 .disabled(!hasAnySourceData)
             }
         }
-        // First visit deals; coming back continues the same deck (Home keeps it for the session).
-        .onAppear { deck.dealIfNeeded(context: dealContext, makeDeck) }
+        // First visit deals; coming back continues the same deck (Home keeps it for the session),
+        // minus any highlight deleted meanwhile.
+        .onAppear {
+            deck.dealIfNeeded(context: dealContext, makeDeck)
+            deck.pruneHighlights(existing: savedHighlightIDs)
+        }
+        // A highlight deleted while the deck is open (e.g. in the reader opened from a card).
+        .onChange(of: savedHighlightIDs) { _, ids in deck.pruneHighlights(existing: ids) }
         // Reader only and Mac draw from different Home pools.
         .onChange(of: appMode.mode) { _, _ in
             if case .home = source { reshuffle() }
@@ -494,6 +500,10 @@ struct RandomLinksView: View {
         toast = message
     }
 
+    private var savedHighlightIDs: Set<String> {
+        Set(highlightStore.allHighlightsNewestFirst().map(\.id))
+    }
+
     private var isHighlightsDeck: Bool {
         if case .highlights = source { return true }
         return false
@@ -524,7 +534,7 @@ struct RandomLinksView: View {
 
     /// The Highlights screen's pool minus any deleted since (here or elsewhere), for a reshuffle.
     private func liveHighlights(_ entries: [HighlightFeedEntry]) -> [HighlightFeedEntry] {
-        let liveIDs = Set(highlightStore.allHighlightsNewestFirst().map(\.id))
+        let liveIDs = savedHighlightIDs
         return entries.filter { liveIDs.contains($0.highlight.id) }
     }
 

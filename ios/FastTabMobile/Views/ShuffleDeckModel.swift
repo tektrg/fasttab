@@ -46,11 +46,12 @@ final class ShuffleDeckModel: ObservableObject {
 
     init(
         source: ShuffleSource,
-        skipStore: RandomFeedSkipStore = .shared,
+        skipStore: RandomFeedSkipStore? = nil,
         widget: @escaping WidgetSink = { WidgetSnapshotPublisher.shared.shuffleTopCardChanged($0) }
     ) {
         self.source = source
-        self.skipStore = skipStore
+        // Resolved here, not as a default argument: `.shared` is main-actor isolated.
+        self.skipStore = skipStore ?? .shared
         self.widget = widget
     }
 

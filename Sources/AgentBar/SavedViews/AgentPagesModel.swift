@@ -53,7 +53,7 @@ final class AgentPagesModel: ObservableObject {
 
     /// Typed in the search box + Return: opens the editor for a new view. With no saved views yet
     /// this is how the first one is made (the strip, and its "+ New view" tab, only shows once one exists).
-    static let newViewCommand = "/view"
+    static let newViewCommand = AgentBarCommands.newView.trigger
 
     /// `/view` (any case, surrounding spaces ignored).
     static func isNewViewCommand(_ text: String) -> Bool {

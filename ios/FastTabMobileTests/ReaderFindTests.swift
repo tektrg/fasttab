@@ -155,4 +155,31 @@ final class ReaderFindTests: XCTestCase {
         find.pageTextChanged() // closed: no search, nothing painted
         XCTAssertEqual(find.state.countLabel, "")
     }
+
+    // MARK: VoiceOver + Read Aloud auto-scroll while Find is open
+
+    func testVoiceOverAnnouncementFollowsCountLabelButNotEmptyQuery() {
+        var state = ReaderFindState()
+        XCTAssertNil(state.voiceOverAnnouncement)
+        state.query = "the"
+        state.setResults(count: 3)
+        XCTAssertEqual(state.voiceOverAnnouncement, "1 of 3")
+        state.setResults(count: 0)
+        XCTAssertEqual(state.voiceOverAnnouncement, "No matches")
+        // Debounced so typing doesn't speak every keystroke.
+        XCTAssertGreaterThan(ReaderFindState.announcementDelay, .milliseconds(300))
+    }
+
+    func testAutoScrollStaysOffForTheWholeTimeFindIsOpen() {
+        // Playback started/resumed during Find resets the user pause; Find must still hold it.
+        XCTAssertFalse(ReaderFindAutoScroll.isEnabled(userPaused: false, findOpen: true))
+        XCTAssertFalse(ReaderFindAutoScroll.isEnabled(userPaused: true, findOpen: false))
+        XCTAssertTrue(ReaderFindAutoScroll.isEnabled(userPaused: false, findOpen: false))
+    }
+
+    func testDoneLeavesBackToReadingWhenReadAloudIsActive() {
+        XCTAssertTrue(ReaderFindAutoScroll.pausedAfterClose(userPaused: false, readAloudActive: true))
+        XCTAssertTrue(ReaderFindAutoScroll.pausedAfterClose(userPaused: true, readAloudActive: false))
+        XCTAssertFalse(ReaderFindAutoScroll.pausedAfterClose(userPaused: false, readAloudActive: false))
+    }
 }

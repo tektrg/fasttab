@@ -193,6 +193,45 @@ final class ShuffleDeckTests: XCTestCase {
         XCTAssertEqual(model.cards.map(\.id), ["mac"], "reader-only and Mac decks draw from different pools")
     }
 
+    // MARK: - Deleted highlights
+
+    private func linkCard(_ id: String) -> RandomCardItem {
+        let link = SavedOnIPhoneLink(id: id, url: "https://example.com/\(id)", title: id, savedAt: Date())
+        return RandomCardItem(id: "saved|\(id)", title: id, url: URL(string: link.url)!, source: .savedLink(link))
+    }
+
+    /// Deleted in the reader (or anywhere) while the deck is open: its card leaves the deck,
+    /// everything else stays in order, and the top card only changes if it was the deleted one.
+    func testDeletedHighlightLeavesTheDeckInPlace() {
+        var tops: [String?] = []
+        let model = ShuffleDeckModel(source: .home, widget: { tops.append($0?.id) })
+        model.deal([card("h1"), linkCard("l1"), card("h2"), card("h3")], context: AppMode.mac)
+
+        model.pruneHighlights(existing: ["h1", "h3"])
+        XCTAssertEqual(model.cards.map(\.id), ["h1", "saved|l1", "h3"], "link cards are never pruned")
+        XCTAssertEqual(tops, ["h1"], "top card unchanged")
+
+        model.pruneHighlights(existing: ["h3"])
+        XCTAssertEqual(model.cards.map(\.id), ["saved|l1", "h3"])
+        XCTAssertEqual(tops, ["h1", "saved|l1"], "the deleted top card gives way to the next")
+    }
+
+    func testHighlightsDeckPrunesDeletedHighlightsToo() {
+        let model = ShuffleDeckModel(source: .highlights(tenHighlights), widget: { _ in })
+        let dealt = deal(tenHighlights)
+        model.deal(dealt, context: "highlights")
+        let gone = dealt[4]
+        guard case .highlight(let goneHighlight) = gone.source else { return XCTFail("not a highlight card") }
+        let remaining = Set(tenHighlights.map(\.highlight.id)).subtracting([goneHighlight.id])
+
+        model.pruneHighlights(existing: remaining)
+        XCTAssertEqual(model.cards.map(\.id), dealt.map(\.id).filter { $0 != gone.id })
+        XCTAssertEqual(model.cards.first?.id, dealt[0].id)
+
+        model.pruneHighlights(existing: remaining)
+        XCTAssertEqual(model.cards.count, 9, "nothing else to prune")
+    }
+
     // MARK: - Shuffle widget
 
     func testOnlyTheHomeDeckFeedsTheShuffleWidget() {

@@ -89,6 +89,36 @@ enum ShuffleDeck {
             .prefix(maxSize - dealt.count)
         return shuffle(dealt + rest)
     }
+
+    /// The Highlights screen's deck: one card per highlight in `entries` (the ones the screen
+    /// shows), shuffled, no Read Again links and no cap. Same card id as Home's Mac deck
+    /// (`highlight|<id>`), so skips and "Don't Surface" carry over both ways.
+    static func buildHighlights<G: RandomNumberGenerator>(
+        _ entries: [HighlightFeedEntry],
+        isSkipped: (String) -> Bool,
+        isHidden: (URL) -> Bool,
+        using generator: inout G
+    ) -> [RandomCardItem] {
+        var seen = Set<String>()
+        var cards: [RandomCardItem] = entries.compactMap { entry in
+            let highlight = entry.highlight
+            let id = "highlight|\(highlight.id)"
+            guard let url = highlight.articleURL, !isSkipped(id), !isHidden(url),
+                  seen.insert(id).inserted else { return nil }
+            return RandomCardItem(id: id, title: entry.articleTitle, url: url, source: .highlight(highlight))
+        }
+        cards.shuffle(using: &generator)
+        return cards
+    }
+
+    static func buildHighlights(
+        _ entries: [HighlightFeedEntry],
+        isSkipped: (String) -> Bool,
+        isHidden: (URL) -> Bool
+    ) -> [RandomCardItem] {
+        var generator = SystemRandomNumberGenerator()
+        return buildHighlights(entries, isSkipped: isSkipped, isHidden: isHidden, using: &generator)
+    }
 }
 
 enum RandomCardDecision {
@@ -114,7 +144,11 @@ enum RandomCardMenuAction {
     case toggleReadAgain
 }
 
-public struct RandomLinksView: View {
+/// The Shuffle deck: one card at a time, swipe left to skip until tomorrow, right (or tap) to
+/// move/save a bookmark or tab, or open a link or highlight in the reader; long-press for more.
+/// `ShuffleSource` picks the pool: Read's Shuffle button pushes the Home deck (kept for the
+/// session by the app), the Highlights screen's pushes a highlights-only deck.
+struct RandomLinksView: View {
     @ObservedObject private var localCache = LocalCache.shared
     @ObservedObject private var skipStore = RandomFeedSkipStore.shared
     @ObservedObject private var highlightStore = ReaderHighlightStore.shared
@@ -123,8 +157,7 @@ public struct RandomLinksView: View {
     @ObservedObject private var appMode = AppModeModel.shared
     private let shuffleSwipeTip = ShuffleSwipeTip()
 
-    @State private var deck: [RandomCardItem] = []
-    @State private var hasBuiltInitialDeck = false
+    @StateObject private var deck: ShuffleDeckModel
     @State private var readerItem: ReaderNavigationItem?
     @State private var moveRequest: RandomCardItem?
     @State private var toast: String?
@@ -134,11 +167,16 @@ public struct RandomLinksView: View {
     private static let maxDeckSize = 40
     private static let visibleCardCount = 3
 
-    public init() {}
+    /// `deck` is read once per view identity: the app's Home deck, or a fresh Highlights deck.
+    init(deck: @autoclosure @escaping () -> ShuffleDeckModel) {
+        _deck = StateObject(wrappedValue: deck())
+    }
 
-    public var body: some View {
+    private var source: ShuffleSource { deck.source }
+
+    var body: some View {
         VStack {
-            if deck.isEmpty {
+            if deck.cards.isEmpty {
                 emptyState
             } else {
                 TipView(shuffleSwipeTip)
@@ -149,7 +187,7 @@ public struct RandomLinksView: View {
             }
         }
         .dsCanvas()
-        .navigationTitle("Shuffle")
+        .navigationTitle(navigationTitle)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -160,13 +198,12 @@ public struct RandomLinksView: View {
                 .disabled(!hasAnySourceData)
             }
         }
-        .onAppear {
-            guard !hasBuiltInitialDeck else { return }
-            hasBuiltInitialDeck = true
-            reshuffle()
+        // First visit deals; coming back continues the same deck (Home keeps it for the session).
+        .onAppear { deck.dealIfNeeded(context: dealContext, makeDeck) }
+        // Reader only and Mac draw from different Home pools.
+        .onChange(of: appMode.mode) { _, _ in
+            if case .home = source { reshuffle() }
         }
-        // Reader only and Mac draw from different pools.
-        .onChange(of: appMode.mode) { _, _ in reshuffle() }
         .readerPresentation(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
         }
@@ -200,9 +237,12 @@ public struct RandomLinksView: View {
             }
         }
         .dsToast($toast)
-        // The Shuffle widget mirrors whatever card is on top here.
-        .onChange(of: deck.first?.id) { _, _ in
-            WidgetSnapshotPublisher.shared.shuffleTopCardChanged(deck.first)
+    }
+
+    private var navigationTitle: String {
+        switch source {
+        case .home: return "Shuffle"
+        case .highlights: return "Shuffle Highlights"
         }
     }
 
@@ -212,7 +252,7 @@ public struct RandomLinksView: View {
             let deckWidth = geometry.size.width
             let deckHeight = geometry.size.height
             ZStack {
-                ForEach(Array(deck.prefix(Self.visibleCardCount).enumerated()).reversed(), id: \.element.id) { index, item in
+                ForEach(Array(deck.cards.prefix(Self.visibleCardCount).enumerated()).reversed(), id: \.element.id) { index, item in
                     let isTarget = expandingItemID == item.id
                     let isTop = index == 0
                     let scaleTarget = (isTarget && isExpanding)
@@ -280,6 +320,7 @@ public struct RandomLinksView: View {
     }
 
     private var hasAnySourceData: Bool {
+        if case .highlights(let entries) = source { return !liveHighlights(entries).isEmpty }
         if appMode.isStandalone { return !savedStore.items.isEmpty }
         return !localCache.state.bookmarkBlobs.isEmpty || !localCache.state.tabs.isEmpty
             || !highlightStore.allHighlightsNewestFirst().isEmpty || !savedStore.readAgainItems.isEmpty
@@ -300,7 +341,9 @@ public struct RandomLinksView: View {
                 DSEmptyState(
                     "You've been through today's picks",
                     systemImage: "checkmark.circle",
-                    message: "Skipped links come back tomorrow — or right now."
+                    message: isHighlightsDeck
+                        ? "Skipped highlights come back tomorrow — or right now."
+                        : "Skipped links come back tomorrow — or right now."
                 ) {
                     Button("Shuffle again") {
                         skipStore.resetToday()
@@ -308,6 +351,12 @@ public struct RandomLinksView: View {
                     }
                     .buttonStyle(.dsPrimary)
                 }
+            } else if isHighlightsDeck {
+                DSEmptyState(
+                    "No highlights to shuffle",
+                    systemImage: "highlighter",
+                    message: "Long-press any text in the article reader to add a highlight."
+                )
             } else {
                 DSEmptyState(
                     "Nothing to shuffle yet",
@@ -338,7 +387,7 @@ public struct RandomLinksView: View {
             }
         case .skip:
             skipStore.skip(item.id)
-            deck.removeAll { $0.id == item.id }
+            deck.remove { $0.id == item.id }
         }
     }
 
@@ -361,12 +410,12 @@ public struct RandomLinksView: View {
                 targetDeviceID: source.deviceID
             )
             presentToast("Queued delete — confirm on your Mac")
-            deck.removeAll { $0.id == item.id }
+            deck.remove { $0.id == item.id }
         case .closeTab:
             guard case .openTab(let tab) = item.source else { return }
             SyncConsumer.shared.sendCloseTab(tab)
             presentToast("Queued close — confirm on your Mac")
-            deck.removeAll { $0.id == item.id }
+            deck.remove { $0.id == item.id }
         case .openOnMac:
             guard case .openTab(let tab) = item.source else { return }
             SyncConsumer.shared.sendOpenOnMac(url: tab.url, title: tab.title.isEmpty ? nil : tab.title)
@@ -385,24 +434,24 @@ public struct RandomLinksView: View {
         case .hideLink:
             hiddenStore.hide(url: item.url)
             presentToast("Won't surface this link again")
-            deck.removeAll { hiddenStore.isHidden(url: $0.url) }
+            deck.remove { hiddenStore.isHidden(url: $0.url) }
         case .hideFolder:
             guard let key = item.source.hiddenFolderKey else { return }
             hiddenStore.hide(folderKey: key)
             presentToast("Won't surface this folder again")
-            deck.removeAll { $0.source.hiddenFolderKey.map(hiddenStore.isHidden(folderKey:)) ?? false }
+            deck.remove { $0.source.hiddenFolderKey.map(hiddenStore.isHidden(folderKey:)) ?? false }
         case .toggleReadAgain:
             presentToast(LinkReadState(saved: savedStore).toggleReadAgain(url: item.url, title: item.title))
         case .deleteSavedLink:
             guard case .savedLink(let link) = item.source else { return }
             savedStore.remove(id: link.id)
             presentToast("Moved to Trash")
-            deck.removeAll { $0.id == item.id }
+            deck.remove { $0.id == item.id }
         case .deleteHighlight:
             guard case .highlight(let highlight) = item.source else { return }
             highlightStore.remove(highlight)
             presentToast("Highlight deleted")
-            deck.removeAll { $0.id == item.id }
+            deck.remove { $0.id == item.id }
         }
     }
 
@@ -422,7 +471,7 @@ public struct RandomLinksView: View {
             targetDeviceID: source.deviceID
         )
         presentToast("Queued move — confirm on your Mac")
-        deck.removeAll { $0.id == item.id }
+        deck.remove { $0.id == item.id }
     }
 
     private func performSave(
@@ -443,17 +492,46 @@ public struct RandomLinksView: View {
         )
         let deviceName = localCache.state.devices.first { $0.id == deviceID }?.name ?? "your Mac"
         presentToast("Save queued for \(deviceName)")
-        deck.removeAll { $0.id == item.id }
+        deck.remove { $0.id == item.id }
     }
 
     private func presentToast(_ message: String) {
         toast = message
     }
 
+    private var isHighlightsDeck: Bool {
+        if case .highlights = source { return true }
+        return false
+    }
+
+    /// Home re-deals when the app mode changes; a Highlights deck never needs to.
+    private var dealContext: AnyHashable {
+        switch source {
+        case .home: return AnyHashable(appMode.mode)
+        case .highlights: return AnyHashable("highlights")
+        }
+    }
+
     private func reshuffle() {
-        let readAgain = ShuffleDeck.readAgainCards(savedStore.readAgainItems, isSkipped: skipStore.isSkipped)
-            .filter(isSurfaceable)
-        deck = ShuffleDeck.build(pool: buildPool(), readAgain: readAgain, maxSize: Self.maxDeckSize)
+        deck.deal(makeDeck(), context: dealContext)
+    }
+
+    private func makeDeck() -> [RandomCardItem] {
+        switch source {
+        case .home:
+            let readAgain = ShuffleDeck.readAgainCards(savedStore.readAgainItems, isSkipped: skipStore.isSkipped)
+                .filter(isSurfaceable)
+            return ShuffleDeck.build(pool: buildPool(), readAgain: readAgain, maxSize: Self.maxDeckSize)
+        case .highlights(let entries):
+            return ShuffleDeck.buildHighlights(liveHighlights(entries), isSkipped: skipStore.isSkipped,
+                                               isHidden: hiddenStore.isHidden(url:))
+        }
+    }
+
+    /// The Highlights screen's pool minus any deleted since (here or elsewhere), for a reshuffle.
+    private func liveHighlights(_ entries: [HighlightFeedEntry]) -> [HighlightFeedEntry] {
+        let liveIDs = Set(highlightStore.allHighlightsNewestFirst().map(\.id))
+        return entries.filter { liveIDs.contains($0.highlight.id) }
     }
 
     private func buildPool() -> [RandomCardItem] {

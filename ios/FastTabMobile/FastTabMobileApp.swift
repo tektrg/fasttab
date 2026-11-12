@@ -14,6 +14,11 @@ public struct FastTabMobileApp: App {
     /// Its keychain slot is the one `YouTubeTranscriptLoader` reads the token from.
     @State private var accountSession = AccountSession.live(configuration: .fastTab, deviceName: UIDevice.current.name)
     @State private var selectedTab = AppTab.read
+    /// Read's Shuffle deck, kept for the whole app session: back to Read, then Shuffle again,
+    /// continues the same deck. The only deck the Shuffle widget mirrors.
+    @StateObject private var homeShuffle = ShuffleDeckModel(source: .home)
+    /// Read's Shuffle screen is pushed (Read's Shuffle button, or the App Store demo).
+    @State private var showsHomeShuffle = false
     /// An article a widget tap asked to open (`WidgetDeepLink.read`).
     @State private var widgetReaderItem: ReaderNavigationItem?
     #if DEBUG
@@ -36,7 +41,11 @@ public struct FastTabMobileApp: App {
         WindowGroup {
             TabView(selection: $selectedTab) {
                 NavigationStack {
-                    ReadingFeedView()
+                    ReadingFeedView(
+                        homeShuffle: homeShuffle,
+                        showsShuffle: $showsHomeShuffle,
+                        showAllHighlights: { selectedTab = .highlights }
+                    )
                 }
                 .tabItem {
                     Label("Read", systemImage: "newspaper")
@@ -55,18 +64,16 @@ public struct FastTabMobileApp: App {
                 }
 
                 NavigationStack {
-                    RandomLinksView()
+                    HighlightsListView()
                 }
                 .tabItem {
-                    Label("Shuffle", systemImage: "shuffle")
+                    Label("Highlights", systemImage: "highlighter")
                 }
-                .tag(AppTab.shuffle)
+                .tag(AppTab.highlights)
 
                 NavigationStack {
                     #if DEBUG
-                    if AppStoreDemo.isEnabled && AppStoreDemo.screen == .highlights {
-                        HighlightsListView()
-                    } else if AppStoreDemo.isEnabled && AppStoreDemo.screen == .bookmarks {
+                    if AppStoreDemo.isEnabled && AppStoreDemo.screen == .bookmarks {
                         BookmarkTreeView(device: nil)
                             .navigationTitle("Bookmarks")
                     } else {
@@ -204,11 +211,14 @@ private extension FastTabMobileApp {
         EmergingContentProvider.shared.refresh()
         switch AppStoreDemo.screen {
         case .read: selectedTab = .read
-        case .shuffle, .swipe: selectedTab = .shuffle
+        case .shuffle, .swipe:
+            selectedTab = .read
+            showsHomeShuffle = true
         case .paywall:
             selectedTab = .read
             showsDemoPaywall = true
-        case .more, .highlights, .bookmarks: selectedTab = .more
+        case .highlights: selectedTab = .highlights
+        case .more, .bookmarks: selectedTab = .more
         case .tabs: selectedTab = .tabs
         case .reader, .listen, .listenSettings:
             selectedTab = .read
@@ -248,7 +258,7 @@ private extension FastTabMobileApp {
 
 /// The root tab bar's tabs, so a widget deep link or the finished guide can switch between them.
 enum AppTab: Hashable, CaseIterable {
-    case read, tabs, shuffle, more
+    case read, tabs, highlights, more
 
     /// Reader-only phones have no Mac tabs to show. Undecided users see everything.
     static func visible(for mode: AppMode?) -> [AppTab] {

@@ -65,7 +65,7 @@ struct EmergingLanesTip: FastTabTip {
     var image: Image? { Image(systemName: "sparkles") }
 }
 
-/// Shuffle tab, first time the deck has a card (`RandomLinksView`).
+/// Shuffle (Read's top-left button, or Highlights'), first time the deck has a card (`RandomLinksView`).
 struct ShuffleSwipeTip: FastTabTip {
     var title: Text { Text("Swipe to sort") }
     var message: Text? {

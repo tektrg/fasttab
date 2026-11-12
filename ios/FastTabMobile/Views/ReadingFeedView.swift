@@ -24,7 +24,17 @@ public struct ReadingFeedView: View {
     @State private var showingListTrash = false
     @State private var showingViewAll = false
 
-    public init() {}
+    /// The app's session-long Shuffle deck, pushed by the top-left Shuffle button.
+    private let homeShuffle: ShuffleDeckModel
+    @Binding private var showsShuffle: Bool
+    /// "Recent Highlights → See all": switches to the Highlights tab.
+    private let showAllHighlights: () -> Void
+
+    init(homeShuffle: ShuffleDeckModel, showsShuffle: Binding<Bool>, showAllHighlights: @escaping () -> Void) {
+        self.homeShuffle = homeShuffle
+        _showsShuffle = showsShuffle
+        self.showAllHighlights = showAllHighlights
+    }
 
     /// The shelf: finished reads (99%+) live only in "View all" → Read (`LinkShelves`).
     private var displayRecentItems: [RecentAddedItem] {
@@ -155,6 +165,14 @@ public struct ReadingFeedView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showsShuffle = true
+                } label: {
+                    Image(systemName: "shuffle")
+                }
+                .accessibilityLabel("Shuffle")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     addLinksFromClipboard()
@@ -174,6 +192,10 @@ public struct ReadingFeedView: View {
         }
         .refreshable {
             await refreshAllAsync()
+        }
+        // Pushed, so the tab bar stays; the deck itself lives in the app (`homeShuffle`).
+        .navigationDestination(isPresented: $showsShuffle) {
+            RandomLinksView(deck: homeShuffle)
         }
         .readerPresentation(item: $readerItem) { item in
             ReaderView(url: item.url, title: item.title, focusHighlightID: item.focusHighlightID)
@@ -387,7 +409,7 @@ public struct ReadingFeedView: View {
                         emergingProvider.refresh()
                     }
                 } label: {
-                    Label("Shuffle", systemImage: "shuffle")
+                    Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.dsTinted(DS.Tint.emerging))
             }
@@ -507,16 +529,13 @@ public struct ReadingFeedView: View {
 
     // MARK: - Section 4: Recent Highlights
 
-    /// Newest 12 highlights across every article. "See all" pushes the full,
-    /// article-grouped list onto this tab's own `NavigationStack`.
+    /// Newest 12 highlights across every article. "See all" switches to the Highlights tab.
     private var recentHighlightsSection: some View {
         let recent = Array(highlightStore.allHighlightsNewestFirst().prefix(12))
 
         return VStack(alignment: .leading, spacing: DS.Space.xs) {
             DSSectionHeader("Recent Highlights") {
-                NavigationLink {
-                    HighlightsListView()
-                } label: {
+                Button(action: showAllHighlights) {
                     HStack(spacing: 2) {
                         Text("See all")
                         Image(systemName: "chevron.right")

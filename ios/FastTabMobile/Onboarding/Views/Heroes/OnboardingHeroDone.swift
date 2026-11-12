@@ -2,7 +2,7 @@ import SwiftUI
 import IndieMotion
 
 /// Step 5: a seal and its checkmark draw, then a mini tab bar rises and lights
-/// Read, Tabs, Shuffle and More in turn, matching the tour rows below. Loops.
+/// Read, Tabs, Highlights and More in turn, matching the tour rows below. Loops.
 struct OnboardingHeroDone: View {
     static let playback = MotionPlayback.loop(period: 4.0, restAt: 3.0)
 
@@ -10,7 +10,7 @@ struct OnboardingHeroDone: View {
     private static let tabs: [(symbol: String, tint: Color)] = [
         ("newspaper", HeroInk.palette.lavender.ink),
         ("macwindow.on.rectangle", HeroInk.palette.accent.ink),
-        ("shuffle", HeroInk.palette.accent.ink),
+        ("highlighter", HeroInk.palette.accent.ink),
         ("ellipsis.circle", HeroInk.palette.accent.ink),
     ]
     private static let sealCenter = CGPoint(x: 90, y: 38)

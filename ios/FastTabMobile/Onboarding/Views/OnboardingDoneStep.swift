@@ -31,18 +31,18 @@ struct OnboardingDoneStep: View {
                     )
                 }
                 OnboardingFeatureRow(
-                    systemImage: "shuffle",
+                    systemImage: "highlighter",
                     tint: DS.Tint.action,
-                    title: "Shuffle",
+                    title: "Highlights",
                     detail: isReaderOnly
-                        ? "Random cards from your saved links, for a quick rediscovery."
-                        : "Random cards from your tabs and bookmarks, for a quick rediscovery."
+                        ? "Every passage you've highlighted. Shuffle, at the top of Read, deals random cards from your saved links."
+                        : "Every passage you've highlighted. Shuffle, at the top of Read, deals random cards from your tabs and bookmarks."
                 )
                 OnboardingFeatureRow(
                     systemImage: "ellipsis.circle",
                     tint: .secondary,
                     title: "More",
-                    detail: "Bookmarks, history, highlights and this guide, any time."
+                    detail: "Bookmarks, history and this guide, any time."
                 )
             }
             .dsCard()

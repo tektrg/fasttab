@@ -8,9 +8,9 @@ import WidgetKit
 ///
 /// Sources: synced tabs (`LocalCache`), saved links (`RecentAddedProvider`), reading progress,
 /// the reading log (reloaded when the recorder's writes land) and the Shuffle deck's top card
-/// (pushed by `RandomLinksView`). Bursts of changes are coalesced into one write + one reload
-/// (`debounceInterval`), and an unchanged snapshot is never rewritten, so a sync storm costs
-/// WidgetKit's reload budget nothing.
+/// (pushed by Read's Shuffle deck, `ShuffleDeckModel`; never by a Highlights deck). Bursts of
+/// changes are coalesced into one write + one reload (`debounceInterval`), and an unchanged
+/// snapshot is never rewritten, so a sync storm costs WidgetKit's reload budget nothing.
 @MainActor
 final class WidgetSnapshotPublisher {
     static let shared = WidgetSnapshotPublisher()

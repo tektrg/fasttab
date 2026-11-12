@@ -6,8 +6,9 @@ import IndieGallery
 /// filters the feed (chips AND together, a parent tag covers its children); search matches text,
 /// article, tag names and comments. Tap opens the article at the highlight; long-press (and the
 /// VoiceOver actions) offer Comments, Edit Tags, This Article Only and Delete.
-/// Filtering lives in `HighlightFeedModel`. Reached from the Read tab's "See all" and from
-/// More → Highlights.
+/// Filtering lives in `HighlightFeedModel`. Root of the Highlights tab (Read's "See all" switches
+/// to it). The top-left Shuffle button pushes a one-card-at-a-time deck of the highlights on
+/// screen (`RandomLinksView`, `ShuffleSource.highlights`).
 public struct HighlightsListView: View {
     @ObservedObject private var store = ReaderHighlightStore.shared
     @ObservedObject private var localCache = LocalCache.shared
@@ -17,6 +18,8 @@ public struct HighlightsListView: View {
     @State private var readerItem: ReaderNavigationItem? = nil
     @State private var taggingEntry: HighlightFeedEntry? = nil
     @State private var commentingEntry: HighlightFeedEntry? = nil
+    /// Set by the Shuffle button; pushes a fresh deal of these highlights.
+    @State private var shufflePool: HighlightShufflePool? = nil
 
     public init() {}
 
@@ -47,6 +50,20 @@ public struct HighlightsListView: View {
             .navigationTitle("Highlights")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "Search highlights, articles, tags")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        shufflePool = HighlightShufflePool(entries: visibleEntries)
+                    } label: {
+                        Image(systemName: "shuffle")
+                    }
+                    .accessibilityLabel("Shuffle")
+                    .disabled(visibleEntries.isEmpty)
+                }
+            }
+            .navigationDestination(item: $shufflePool) { pool in
+                RandomLinksView(deck: ShuffleDeckModel(source: .highlights(pool.entries)))
+            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if HighlightFeedModel.showsActiveFilterBar(filter: filter, entries: entries) {
                     HighlightActiveFilterBar(filter: $filter)
@@ -146,4 +163,15 @@ public struct HighlightsListView: View {
         LastOpenedStore.shared.recordOpened(url: url, title: title)
         readerItem = ReaderNavigationItem(url: url, title: title, focusHighlightID: highlight.id)
     }
+}
+
+/// The highlights on screen when Shuffle was tapped (filter and search applied): one deal's pool.
+/// Each tap is a new value, so each push is a fresh deck.
+private struct HighlightShufflePool: Hashable {
+    let id = UUID()
+    let entries: [HighlightFeedEntry]
+
+    // By identity only: no need to hash every entry on each navigation update.
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }

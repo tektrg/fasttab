@@ -122,8 +122,9 @@ public struct MoreView: View {
                 .dsListRow()
             }
 
-            Section(appMode.isStandalone ? "Highlights" : "Bookmarks & History") {
-                if !appMode.isStandalone {
+            // Highlights has its own tab; reader-only phones have nothing synced to list here.
+            if !appMode.isStandalone {
+                Section("Bookmarks & History") {
                     NavigationLink {
                         BookmarkTreeView(device: nil)
                             .navigationTitle("Bookmarks")
@@ -152,19 +153,8 @@ public struct MoreView: View {
                         )
                     }
                 }
-
-                NavigationLink {
-                    HighlightsListView()
-                } label: {
-                    MoreRowLabel(
-                        systemImage: "highlighter",
-                        tint: DS.Tint.warning,
-                        title: "Highlights",
-                        subtitle: "Text you've highlighted while reading"
-                    )
-                }
+                .dsListRow()
             }
-            .dsListRow()
 
             Section("Account") {
                 NavigationLink {

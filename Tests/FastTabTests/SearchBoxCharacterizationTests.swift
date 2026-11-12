@@ -28,7 +28,7 @@ struct SearchBoxCharacterizationTests {
         r("Pull request 7 · tektrg/indielibkit", "https://github.com/tektrg/indielibkit/pull/7", .tab, ago: 120, browser: "Safari"),
     ]
 
-    static let frecency: (BrowserSearchResult) -> Double = { result in
+    static func frecency(_ result: BrowserSearchResult) -> Double {
         result.url.contains("github") ? 5 : (result.url.contains("127.0.0.1") ? 9 : 1)
     }
 

@@ -94,7 +94,7 @@ final class ReaderFindTests: XCTestCase {
 
     func testShowJSIsAJSONPayloadOfNumbers() {
         let js = ReaderFindJS.show(ranges: [NSRange(location: 3, length: 7)], current: 0)
-        XCTAssertEqual(js, "window.ftFindShow ? ftFindShow({\"ranges\":[[3,7]],\"current\":0}) : 'missing';")
+        XCTAssertEqual(js, "window.ftFindShow ? ftFindShow({\"current\":0,\"ranges\":[[3,7]]}) : 'missing';")
     }
 
     // MARK: ••• menu

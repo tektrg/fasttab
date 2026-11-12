@@ -111,7 +111,9 @@ enum ReaderFindJS {
     static func show(ranges: [NSRange], current: Int?) -> String {
         struct Payload: Encodable { let ranges: [[Int]]; let current: Int }
         let payload = Payload(ranges: ranges.map { [$0.location, $0.length] }, current: current ?? -1)
-        let json = (try? JSONEncoder().encode(payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{\"ranges\":[],\"current\":-1}"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let json = (try? encoder.encode(payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{\"current\":-1,\"ranges\":[]}"
         return "window.ftFindShow ? ftFindShow(\(json)) : 'missing';"
     }
 }

@@ -116,7 +116,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentBarTests",
-            dependencies: ["AgentBar", indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions],
+            dependencies: ["AgentBar", indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions, indieEdgeReveal],
             resources: [.copy("Fixtures")]
         )
     ]

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import IndieEdgeReveal
 @testable import AgentBar
 
 struct CornerTabMachineTests {
@@ -92,15 +93,27 @@ struct CornerTabMachineTests {
 
     // MARK: - Hovering the corner (any time)
 
-    @Test func restingInTheCornerBringsTheSummaryTabInAfterTheDwell() {
+    @Test func restingInTheCornerOpensThePanelAfterTheDwell() {
         var machine = machine()
         #expect(machine.handle(.mouse(isOverCornerOrTab: true), now: at(0)) == [])
         #expect(machine.phase == .dwelling(showAt: at(0.3)))
         #expect(machine.nextDeadline == at(0.3))
         #expect(machine.wantsCornerWatch)
         #expect(machine.handle(.deadlineReached, now: at(0.29)) == [])
-        #expect(machine.handle(.deadlineReached, now: at(0.3)) == [.showSummaryTab])
-        #expect(machine.phase == .tab(hideAt: nil))   // the pointer is still in the corner
+        #expect(machine.handle(.deadlineReached, now: at(0.3)) == [.openPanel])
+        #expect(machine.phase == .idle)
+    }
+
+    @Test func passingQuicklyThroughTheCornerOpensNothing() {
+        var machine = machine()
+        _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(0))
+        #expect(machine.handle(.mouse(isOverCornerOrTab: false), now: at(0.1)) == [])
+        #expect(machine.handle(.deadlineReached, now: at(0.3)) == [])
+        #expect(machine.phase == .idle)
+    }
+
+    @Test func standardDwellIsTheSharedEdgeRevealCornerDwell() {
+        #expect(CornerTabTiming.standard.hoverDwellSeconds == EdgeRevealStyle.bottomRightCorner.dwellDelay)
     }
 
     @Test func passingThroughTheCornerShowsNothing() {
@@ -322,7 +335,7 @@ struct CornerTabMachineTests {
         _ = machine.handle(.needsYouChanged(blockedOne, hasNewBlocker: false), now: at(0))   // baseline: no tab
         #expect(machine.phase == .idle)
         _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(1))
-        #expect(machine.handle(.deadlineReached, now: at(1.3)) == [.showSummaryTab])
+        #expect(machine.handle(.deadlineReached, now: at(1.3)) == [.openPanel])   // hover opens the panel (2026-11-12)
         _ = machine.handle(.mouse(isOverCornerOrTab: false), now: at(2))
         #expect(machine.nextDeadline == nil)
     }
@@ -503,9 +516,11 @@ struct CornerTabMachineCardModeTests {
         _ = machine.handle(.arrival(cardable), now: at(0))
         _ = machine.handle(.dismissed(cardAgentID: "a"), now: at(1))
         _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(2))
-        #expect(machine.handle(.deadlineReached, now: at(2.5)) == [.showSummaryTab])
-        // The summon cleared the dismissal, so the next reading keeps (not replaces) the card.
-        #expect(machine.handle(.needsYouChanged(cardable, hasNewBlocker: false), now: at(3)) == [.updateCard(agentID: "a")])
+        #expect(machine.handle(.deadlineReached, now: at(2.5)) == [.openPanel])
+        // The summon cleared the dismissal: once the panel closes, a new reading may show the card again.
+        _ = machine.handle(.panelVisibility(true), now: at(3))
+        _ = machine.handle(.panelVisibility(false), now: at(4))
+        #expect(machine.handle(.needsYouChanged(cardable, hasNewBlocker: true), now: at(5)) == [.showCard(agentID: "a")])
     }
 
     @Test func aBlockerThatArrivesAfterADismissalIsACardAgainOnceItIsTheOnlyOne() {

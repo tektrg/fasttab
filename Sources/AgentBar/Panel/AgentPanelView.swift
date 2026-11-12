@@ -209,6 +209,8 @@ struct AgentPanelView: View {
             // list/status below has nothing left to contribute — matches
             // `AgentPanelMetrics.height(isComposing:)` collapsing this area to zero height.
             EmptyView()
+        } else if !model.commandRows.isEmpty {
+            CommandRowsView(model: model)
         } else if model.presentation.state == .list {
             AgentListView(
                 model: model,

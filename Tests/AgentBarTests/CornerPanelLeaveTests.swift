@@ -43,4 +43,54 @@ struct CornerPanelLeaveTests {
         #expect(AgentBarCommands.exact("/regex/") == nil)
         #expect(CommandBarCommandRows.matching("/", in: AgentBarCommands.all).count == 2)
     }
+
+    @Test func typingSlashShowsCommandRowsThatNarrow() {
+        let model = makeModel()
+        model.query = "/"
+        #expect(model.commandRows.map(\.id) == ["new", "view"])
+        model.query = "/v"
+        #expect(model.commandRows.map(\.id) == ["view"])
+        model.query = "/regex/"
+        #expect(model.commandRows.isEmpty)
+        model.query = "new"
+        #expect(model.commandRows.isEmpty)
+    }
+
+    @Test func arrowsMoveTheHighlightAndReturnRunsIt() {
+        let model = makeModel()
+        model.query = "/"
+        #expect(model.highlightedCommand?.id == "new")
+        #expect(model.moveCommandHighlight(by: 1))
+        #expect(model.highlightedCommand?.id == "view")
+        #expect(model.moveCommandHighlight(by: 1))   // wraps
+        #expect(model.highlightedCommand?.id == "new")
+        model.moveSelectionOrAnswerHighlight(by: -1)
+        #expect(model.highlightedCommand?.id == "view")
+        model.activateSelected()
+        #expect(model.pages.editor != nil)   // /view ran: the new-view editor is open
+        #expect(model.commandRows.isEmpty)
+    }
+
+    @Test func pickingNewRunsNewWorkerMode() {
+        let model = makeModel()
+        model.query = "/n"
+        model.run(model.commandRows[0])
+        #expect(model.newWorker != nil)
+        #expect(model.commandRows.isEmpty)
+    }
+
+    @Test func exactTextAndReturnStillWorks() {
+        let model = makeModel()
+        model.query = " /VIEW "
+        model.activateSelected()
+        #expect(model.pages.editor != nil)
+    }
+
+    @Test func noRowsWhileTagOrEditorOwnsTheBox() {
+        let model = makeModel()
+        model.pages.beginNew()
+        model.query = "/"
+        #expect(model.commandRows.isEmpty)
+    }
 }
+

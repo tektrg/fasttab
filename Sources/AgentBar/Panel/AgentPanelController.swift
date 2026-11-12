@@ -92,6 +92,8 @@ final class AgentPanelController {
             .merge(with: model.$newWorker.map { $0 != nil }.removeDuplicates().map { _ in () })
             // First view saved / last deleted: the strip appears or goes, so the height changes too.
             .merge(with: model.pages.store.$views.map(\.isEmpty).removeDuplicates().map { _ in () })
+            // Slash-command rows appear / narrow as "/" is typed (read live in `applySize`).
+            .merge(with: model.$query.map { _ in () })
         pagesSubscription = changes.receive(on: DispatchQueue.main).sink { [weak self] in self?.applyCurrentSize() }
     }
 
@@ -239,7 +241,8 @@ final class AgentPanelController {
             isAnswering: isAnswering || model.pages.editor != nil,
             isComposing: isComposing, searchFieldLineCount: searchFieldLineCount, showsRoutingRow: showsRoutingRow,
             showsPageStrip: !isComposing && model.showsPageStrip,
-            fitsContent: listSettings.fitsContent
+            fitsContent: listSettings.fitsContent,
+            commandRowCount: model.commandRows.count
         )
         let size = CGSize(width: AgentPanelMetrics.width, height: height)
         panel.setFrame(AgentPanelPlacement.frame(size: size, in: placementFrame, placement: listSettings.placement), display: panel.isVisible, animate: false)

@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import OSLog
 import IndieCommandBar
+import IndieBrowserTabs
 
 struct ChromiumProfile: Sendable {
     let browserAppName: String
@@ -152,7 +153,7 @@ struct ChromiumBackend: BrowserBackend {
                     windowIndex: winIdx,
                     tabIndex: tabIdx,
                     windowName: windowName,
-                    profileName: Frecency.profileFromWindowTitle(windowTitle),
+                    profileName: BrowserWindowProfile.guess(fromTitle: windowTitle),
                     isCurrentFlowActiveTab: isCurrentFlowActiveTab,
                     hasMediaIndicator: hasMediaIndicator
                 )
@@ -871,7 +872,7 @@ struct ChromiumBackend: BrowserBackend {
         guard let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]),
               output.hasPrefix("title:") else { return false }
         guard let ghostProfile = result.profileName, !ghostProfile.isEmpty else { return true }
-        guard let windowProfile = Frecency.profileFromWindowTitle(String(output.dropFirst("title:".count))) else { return false }
+        guard let windowProfile = BrowserWindowProfile.guess(fromTitle: String(output.dropFirst("title:".count))) else { return false }
         let resolve = { Self.resolveProfileDirectory(supportDirectory: self.supportDirectory, profileName: $0) ?? $0 }
         return resolve(ghostProfile).caseInsensitiveCompare(resolve(windowProfile)) == .orderedSame
     }
@@ -1551,27 +1552,10 @@ struct ChromiumBackend: BrowserBackend {
     // MARK: - Profile helpers
 
     func profiles() -> [ChromiumProfile] {
-        let basePath = (supportDirectory as NSString).expandingTildeInPath
-        let baseURL = URL(fileURLWithPath: basePath, isDirectory: true)
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: baseURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
+        let base = URL(fileURLWithPath: (supportDirectory as NSString).expandingTildeInPath, isDirectory: true)
+        return ChromiumProfiles.list(base: base).map {
+            ChromiumProfile(browserAppName: appName, name: $0.directory, directoryURL: base.appendingPathComponent($0.directory))
         }
-
-        return urls
-            .filter { url in
-                (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            }
-            .compactMap { url in
-                let bookmarksExists = FileManager.default.fileExists(atPath: url.appendingPathComponent("Bookmarks").path)
-                let historyExists = FileManager.default.fileExists(atPath: url.appendingPathComponent("History").path)
-                guard bookmarksExists || historyExists else { return nil }
-                return ChromiumProfile(browserAppName: appName, name: url.lastPathComponent, directoryURL: url)
-            }
-            .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 
     private func profile(for result: BrowserSearchResult) -> ChromiumProfile? {
@@ -1590,35 +1574,8 @@ struct ChromiumBackend: BrowserBackend {
     /// resolve via the browser's Local State `profile.info_cache`. Returns
     /// nil when nothing matches — callers fall back to window-targeted open.
     static func resolveProfileDirectory(supportDirectory: String, profileName: String) -> String? {
-        let trimmed = profileName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let basePath = (supportDirectory as NSString).expandingTildeInPath
-        var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: (basePath as NSString).appendingPathComponent(trimmed), isDirectory: &isDir), isDir.boolValue {
-            return trimmed
-        }
-        if let mapped = Self.displayNameToDirectory(basePath: basePath, displayName: trimmed) {
-            return mapped
-        }
-        return nil
-    }
-
-    private static func displayNameToDirectory(basePath: String, displayName: String) -> String? {
-        let localStateURL = URL(fileURLWithPath: basePath, isDirectory: true).appendingPathComponent("Local State")
-        guard let data = try? Data(contentsOf: localStateURL),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let profile = root["profile"] as? [String: Any],
-              let infoCache = profile["info_cache"] as? [String: Any] else {
-            return nil
-        }
-        for (directory, info) in infoCache {
-            if let infoDict = info as? [String: Any],
-               let name = infoDict["name"] as? String,
-               name.trimmingCharacters(in: .whitespacesAndNewlines) == displayName {
-                return directory
-            }
-        }
-        return nil
+        let base = URL(fileURLWithPath: (supportDirectory as NSString).expandingTildeInPath, isDirectory: true)
+        return ChromiumProfiles.resolveDirectory(base: base, profileName: profileName)
     }
 
     /// Profile directory names the browser currently has open, detected via

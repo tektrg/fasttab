@@ -42,30 +42,4 @@ extension Frecency {
         }()
         return "\(browser)|\(prof)|\(normalizeURL(url))"
     }
-
-    /// Best-effort profile parse from a Chromium-style window title.
-    /// Chrome window titles end with " - <ProfileName>" when multiple profiles
-    /// exist. Returns nil when the pattern doesn't match — caller falls back
-    /// to the collapsed `(browser, URL)` key.
-    static func profileFromWindowTitle(_ windowTitle: String?) -> String? {
-        guard let raw = windowTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty else { return nil }
-        guard let range = raw.range(of: " - ", options: .backwards) else { return nil }
-        let candidate = raw[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-        // Skip suffixes that are obviously not a profile name (e.g. browser
-        // app name itself, or a page title fragment with no profile semantics).
-        guard !candidate.isEmpty, candidate.count <= 64 else { return nil }
-        let lower = candidate.lowercased()
-        let appSuffixes: Set<String> = [
-            "google chrome",
-            "chrome",
-            "microsoft edge",
-            "edge",
-            "brave",
-            "arc",
-            "safari"
-        ]
-        if appSuffixes.contains(lower) { return nil }
-        return candidate
-    }
 }

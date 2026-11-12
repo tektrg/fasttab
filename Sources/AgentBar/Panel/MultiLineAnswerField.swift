@@ -115,7 +115,14 @@ final class AnswerTextView: NSTextView {
         super.viewDidMoveToWindow()
         guard let window else { return }
         NotificationCenter.default.post(name: Self.didAppearNotification, object: self)
-        DispatchQueue.main.async { window.makeFirstResponder(self) }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window === window else { return }
+            // The box owns the keyboard: its window must be key too. The corner card's window becomes key only
+            // when a control demands it (`becomesKeyOnlyIfNeeded`), and a click on the "Other" ROW is not such a
+            // control, so the box showed a caret while every typed key went to another window (2026-11-12).
+            if !window.isKeyWindow, window.canBecomeKey { window.makeKey() }
+            window.makeFirstResponder(self)
+        }
     }
 
     override func keyDown(with event: NSEvent) {

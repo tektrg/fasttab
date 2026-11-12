@@ -4,8 +4,8 @@ import IndieTags
 @testable import FastTabMobile
 
 /// Shuffle after it left the tab bar: the Home deck lives for the app session and feeds the
-/// Shuffle widget; the Highlights screen deals its visible highlights, one card each, and
-/// never touches the widget.
+/// Shuffle widget; the Highlights screen deals every visible highlight, one card each, and
+/// never touches the widget or the shared day-skips.
 @MainActor
 final class ShuffleDeckTests: XCTestCase {
 
@@ -21,11 +21,17 @@ final class ShuffleDeckTests: XCTestCase {
         HighlightFeedModel.entries(from: highlights, articleTitle: { "Article \($0.urlKey)" }, folderTags: { _ in [] })
     }
 
-    private func deal(_ entries: [HighlightFeedEntry], seed: UInt64 = 1,
-                      isSkipped: (String) -> Bool = { _ in false },
-                      isHidden: (URL) -> Bool = { _ in false }) -> [RandomCardItem] {
+    private func deal(_ entries: [HighlightFeedEntry], seed: UInt64 = 1) -> [RandomCardItem] {
         var rng = SplitMix64(seed: seed)
-        return ShuffleDeck.buildHighlights(entries, isSkipped: isSkipped, isHidden: isHidden, using: &rng)
+        return ShuffleDeck.buildHighlights(entries, using: &rng)
+    }
+
+    /// Day-skip and "Don't Surface" stores in a throwaway folder, never the app's own.
+    private func makeStores() -> (skips: RandomFeedSkipStore, hidden: RandomFeedHiddenStore) {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ShuffleDeckTests-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        return (RandomFeedSkipStore(customFileURL: dir.appendingPathComponent("skips.json")),
+                RandomFeedHiddenStore(customFileURL: dir.appendingPathComponent("hidden.json")))
     }
 
     private func card(_ id: String) -> RandomCardItem {
@@ -64,10 +70,71 @@ final class ShuffleDeckTests: XCTestCase {
         XCTAssertFalse(deck.contains { $0.id.hasPrefix("saved|") }, "no Read Again link cards")
     }
 
-    func testHiddenArticlesAndTodaysSkipsAreLeftOut() {
-        let pool = entries([highlight("keep"), highlight("hidden", url: "https://hidden.com/x"), highlight("skipped")])
-        let deck = deal(pool, isSkipped: { $0 == "highlight|skipped" }, isHidden: { $0.host == "hidden.com" })
-        XCTAssertEqual(deck.map(\.id), ["highlight|keep"])
+    /// Every highlight on screen is dealt, even one skipped today (in either deck) or from an
+    /// article set to "Don't Surface": those filter Home's deck only.
+    func testSkippedAndHiddenHighlightsStillAppear() {
+        let stores = makeStores()
+        stores.skips.skip("highlight|skipped")
+        let hiddenURL = URL(string: "https://hidden.com/x")!
+        stores.hidden.hide(url: hiddenURL)
+        XCTAssertTrue(stores.skips.isSkipped("highlight|skipped"))
+        XCTAssertTrue(stores.hidden.isHidden(url: hiddenURL))
+
+        let pool = entries([highlight("keep"), highlight("hidden", url: hiddenURL.absoluteString), highlight("skipped")])
+        let model = ShuffleDeckModel(source: .highlights(pool), skipStore: stores.skips, widget: { _ in })
+        model.dealIfNeeded(context: "highlights") { deal(pool) }
+        XCTAssertEqual(Set(model.cards.map(\.id)), ["highlight|keep", "highlight|hidden", "highlight|skipped"])
+    }
+
+    func testLeftSwipeInTheHighlightsDeckIsNotADaySkip() {
+        let stores = makeStores()
+        let model = ShuffleDeckModel(source: .highlights(tenHighlights), skipStore: stores.skips, widget: { _ in })
+        model.deal(deal(tenHighlights), context: "highlights")
+        let top = model.cards[0]
+        model.skip(top)
+        XCTAssertFalse(model.cards.contains(top), "moves past it in this deal")
+        XCTAssertFalse(stores.skips.isSkipped(top.id), "Home's deck keeps it")
+    }
+
+    func testHomeLeftSwipeIsStillADaySkip() {
+        let stores = makeStores()
+        let model = ShuffleDeckModel(source: .home, skipStore: stores.skips, widget: { _ in })
+        model.deal([card("a"), card("b")], context: AppMode.mac)
+        model.skip(card("a"))
+        XCTAssertEqual(model.cards.map(\.id), ["b"])
+        XCTAssertTrue(stores.skips.isSkipped("a"))
+    }
+
+    func testExhaustedHighlightsDeckRedealsEveryHighlightWithoutTouchingDaySkips() {
+        let stores = makeStores()
+        stores.skips.skip("bookmark|from-home") // a Home skip made earlier today
+        let model = ShuffleDeckModel(source: .highlights(tenHighlights), skipStore: stores.skips, widget: { _ in })
+        model.deal(deal(tenHighlights), context: "highlights")
+        for card in model.cards { model.skip(card) }
+        XCTAssertTrue(model.cards.isEmpty)
+
+        model.shuffleAgain(context: "highlights") { deal(tenHighlights, seed: 9) }
+        XCTAssertEqual(model.cards.count, 10)
+        XCTAssertEqual(Set(model.cards.map(\.id)), Set((0..<10).map { "highlight|h\($0)" }))
+        XCTAssertTrue(stores.skips.isSkipped("bookmark|from-home"), "Home's skips survive")
+        XCTAssertFalse((0..<10).contains { stores.skips.isSkipped("highlight|h\($0)") })
+    }
+
+    func testHomeShuffleAgainStillBringsBackTodaysSkips() {
+        let stores = makeStores()
+        let model = ShuffleDeckModel(source: .home, skipStore: stores.skips, widget: { _ in })
+        model.deal([card("a")], context: AppMode.mac)
+        model.skip(card("a"))
+        model.shuffleAgain(context: AppMode.mac) { [card("a")] }
+        XCTAssertFalse(stores.skips.isSkipped("a"))
+        XCTAssertEqual(model.cards.map(\.id), ["a"])
+    }
+
+    func testOnlyTheHomeDeckShowsTheSwipeTipAndDontSurface() {
+        XCTAssertTrue(ShuffleSource.home.showsSwipeTip)
+        XCTAssertTrue(ShuffleSource.home.offersDontSurface)
+        XCTAssertFalse(ShuffleSource.highlights(tenHighlights).showsSwipeTip, "swiping right opens, not moves")
+        XCTAssertFalse(ShuffleSource.highlights(tenHighlights).offersDontSurface, "the deck ignores Don't Surface")
     }
 
     func testEmptyAndSingleHighlightDecks() {

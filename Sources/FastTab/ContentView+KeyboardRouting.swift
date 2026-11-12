@@ -249,6 +249,8 @@ extension ContentView {
                 // text fields — e.g. the Views sheet — need Space/arrows/Return).
                 guard appState.isVisible else { return event }
                 appState.recordTypingActivity()
+                // Esc closes a showing error notice first, before any other Esc job.
+                if event.keyCode == 53, dismissErrorNotice() { return nil }
                 let action = FastTabKeyRouting.route(
                     keyCode: event.keyCode,
                     characters: event.charactersIgnoringModifiers ?? "",

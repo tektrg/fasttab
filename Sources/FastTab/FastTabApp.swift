@@ -69,6 +69,9 @@ class AppState: ObservableObject {
         get { commandBar.selectedIndex }
         set { commandBar.selectedIndex = newValue }
     }
+    /// Where the error notice is drawn (window coordinates), nil when none: it hangs outside the
+    /// bar, so clicks and the pointer over it must not close the bar.
+    var errorNoticeFrameInWindow: CGRect?
     @Published var isRecordingShortcut: Bool = false
     @Published var wasOpenedByHover: Bool = false
     @Published var wasOpenedByMouse: Bool = false
@@ -680,6 +683,9 @@ private final class CommandBarPanelController: NSObject {
         )
         panel.shouldDismissClick = { [weak panel] screenLocation in
             guard let panel else { return false }
+            if FastTabErrorNoticeHit.contains(
+                screenLocation, noticeInWindow: AppState.shared.errorNoticeFrameInWindow, windowFrame: panel.frame
+            ) { return false }
             return CommandBarLayout.shouldDismissClick(
                 at: screenLocation,
                 in: panel.frame,
@@ -831,6 +837,9 @@ private final class CommandBarPanelController: NSObject {
     /// dismiss early.
     private func isCursorOutsideSurface(_ location: CGPoint) -> Bool {
         guard let panel else { return true }
+        if FastTabErrorNoticeHit.contains(
+            location, noticeInWindow: AppState.shared.errorNoticeFrameInWindow, windowFrame: panel.frame
+        ) { return false }
         let defaults = UserDefaults.standard
         let rowStyle = ResultRowStyle(rawValue: defaults.string(forKey: CommandBarAppearance.resultRowStyleKey) ?? "") ?? .minimal
         let showFooter = defaults.object(forKey: CommandBarAppearance.helperPanelVisibleKey) as? Bool ?? true

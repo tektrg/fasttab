@@ -219,6 +219,29 @@ extension ContentView {
         }
     }
 
+    /// A success flashes as a toast; a failure stays in the persistent error notice (✕ / Esc).
+    func showFeedback(_ feedback: FastTabRowFeedback) {
+        switch feedback {
+        case .toast(let message): showToast(message)
+        case .error(let message): showErrorNotice(message)
+        }
+    }
+
+    func showErrorNotice(_ message: String) {
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+            errorNotice.show(message)
+        }
+    }
+
+    /// ✕ / Esc. False when none is showing, so Esc goes on to its other jobs.
+    @discardableResult
+    func dismissErrorNotice() -> Bool {
+        guard errorNotice.notice != nil else { return false }
+        withAnimation(.easeOut(duration: 0.16)) { _ = errorNotice.dismiss() }
+        appState.errorNoticeFrameInWindow = nil
+        return true
+    }
+
     func showToast(_ message: String, duration: Duration = .milliseconds(1500)) {
         toastDismissTask?.cancel()
         withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {

@@ -77,6 +77,8 @@ struct ContentView: View {
     @State var closingResultTask: Task<Void, Never>?
     @State var toastMessage: String?
     @State var toastDismissTask: Task<Void, Never>?
+    /// Shared persistent error slot: a failed row action stays at the toast's spot until ✕ or Esc.
+    @State var errorNotice = CommandBarErrorNoticeSlot<String>()
     @State var hoveredResultID: String?
     @State var pointerSwipe = CommandBarPointerSwipe()
     @State var pointerSwipeSuppressionTask: Task<Void, Never>?
@@ -790,6 +792,24 @@ struct ContentView: View {
                     CommandBarToast(message: toastMessage)
                         .fixedSize()
                         .offset(y: ((surfaceSize.height / 2) + 24) * (toastBelow ? 1 : -1))
+                        .frame(width: surfaceSize.width, height: surfaceSize.height)
+                        .padding(floatingPadding)
+                        .transition(.move(edge: toastBelow ? .bottom : .top).combined(with: .opacity))
+                }
+            }
+            // A failure: same spot as the toast, red, stays until ✕ or Esc. Its frame is
+            // reported so clicks and the pointer over it do not count as leaving the bar.
+            .overlay(alignment: alignment) {
+                if let notice = errorNotice.notice {
+                    CommandBarErrorNotice(text: notice) { dismissErrorNotice() }
+                        .frame(width: 360)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .shadow(color: Color.black.opacity(0.18), radius: 18, y: 10)
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                            appState.errorNoticeFrameInWindow = $0
+                        }
+                        .offset(y: ((surfaceSize.height / 2) + 24 + (toastMessage == nil ? 0 : 48)) * (toastBelow ? 1 : -1))
                         .frame(width: surfaceSize.width, height: surfaceSize.height)
                         .padding(floatingPadding)
                         .transition(.move(edge: toastBelow ? .bottom : .top).combined(with: .opacity))

@@ -631,31 +631,20 @@ private final class CommandBarPanelController: NSObject {
     private var panel: CommandBarPanel?
     private weak var observedWindow: NSWindow?
     private var globalMouseDownMonitor: Any?
-    private var globalMouseMovedMonitor: Any?
-    private var localMouseMovedMonitor: Any?
-    private var pendingHoverDismiss: DispatchWorkItem?
-    private var lastTypingDate: Date?
-    /// Set when the bar opens from the keyboard shortcut/menu-bar icon, i.e.
-    /// with no guarantee the cursor is anywhere near the surface. Hover-dismiss
-    /// stays fully disarmed until this passes, so a cursor that happens to be
-    /// resting outside the surface at open time can't start the dismiss dwell
-    /// before the user has even looked at the bar. Hover-triggered opens
-    /// (`EdgeRevealCoordinator`) skip this — the cursor is already on the surface
-    /// there, so there's nothing to guard against.
-    private var hoverDismissArmDeadline: Date?
-
-    /// How far the cursor must clear the surface before it counts as "left" —
-    /// stops the dwell arming from sub-pixel jitter right at the edge.
-    private static let hoverDismissOutset: CGFloat = 6
-    /// Long enough that glancing away for a moment doesn't collapse the bar,
-    /// short enough that leaving it read as intentional. Slightly longer than
-    /// the hover trigger's reveal dwell since a false collapse is more
-    /// disruptive than a delayed reveal.
-    private static let hoverDismissDwell: TimeInterval = 0.35
-    /// Grace window after a shortcut/menu-bar open before hover-dismiss can
-    /// arm at all — gives the user time to reach for the keyboard and start
-    /// typing before an incidentally-outside cursor counts against them.
-    private static let shortcutOpenGraceDuration: TimeInterval = 1.0
+    /// Closes the bar when the pointer leaves it while the search box is empty (shared rule:
+    /// `CommandBarPointerLeaveMonitor`). Open menus are ignored here, as before the move.
+    private lazy var pointerLeaveMonitor = CommandBarPointerLeaveMonitor(hooks: .init(
+        isSearchEmpty: { AppState.shared.isSearchTextEmpty },
+        isHeld: { [weak self] in
+            FastTabPointerLeaveGates.isHeld(
+                isFloating: CommandBarAnchor.current.isFloating, isVisible: AppState.shared.isVisible,
+                editorHoldsBar: CustomViewEditorPresenter.shared.holdsBar, hasPanel: self?.panel != nil
+            )
+        },
+        isPointerOutside: { [weak self] location in self?.isCursorOutsideSurface(location) ?? true },
+        close: { AppState.shared.hideCommandBar() },
+        holdsWhileMenuOpen: false
+    ))
 
     func prepare() {
         _ = commandPanel
@@ -663,24 +652,17 @@ private final class CommandBarPanelController: NSObject {
 
     /// Called from `AppState.showCommandBar` for shortcut/menu-bar opens
     /// (not hover reveals) to start the grace window before hover-dismiss
-    /// can arm — see `hoverDismissArmDeadline`.
+    /// can arm (`FastTabPointerLeaveGates.shortcutOpenGrace`).
     func armShortcutOpenGracePeriod() {
-        hoverDismissArmDeadline = Date().addingTimeInterval(Self.shortcutOpenGraceDuration)
+        pointerLeaveMonitor.delayArming(until: Date().addingTimeInterval(FastTabPointerLeaveGates.shortcutOpenGrace))
     }
 
     func recordTypingActivity() {
-        lastTypingDate = Date()
-        pendingHoverDismiss?.cancel()
-        pendingHoverDismiss = nil
-        if AppState.shared.isVisible, AppState.shared.isSearchTextEmpty {
-            evaluateHoverDismiss()
-        }
+        pointerLeaveMonitor.noteTyping(restartingPendingClose: true)
     }
 
     func resetTypingActivity() {
-        lastTypingDate = nil
-        pendingHoverDismiss?.cancel()
-        pendingHoverDismiss = nil
+        pointerLeaveMonitor.resetTyping()
     }
 
     private var commandPanel: CommandBarPanel {
@@ -816,71 +798,20 @@ private final class CommandBarPanelController: NSObject {
     /// of our own windows is frontmost, which is exactly when this needs to
     /// keep tracking the cursor leaving that window.
     func startHoverDismissMonitoring() {
-        guard globalMouseMovedMonitor == nil else { return }
-
-        globalMouseMovedMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
-            DispatchQueue.main.async { self?.evaluateHoverDismiss() }
-        }
-        localMouseMovedMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
-            self?.evaluateHoverDismiss()
-            return event
-        }
+        guard !pointerLeaveMonitor.isRunning else { return }
+        // Hover opens need no grace (the pointer is on the bar); shortcut opens arm one
+        // via `armShortcutOpenGracePeriod` before this runs.
+        pointerLeaveMonitor.start(openGrace: 0)
     }
 
     func stopHoverDismissMonitoring() {
-        if let monitor = globalMouseMovedMonitor {
-            NSEvent.removeMonitor(monitor)
-            globalMouseMovedMonitor = nil
-        }
-        if let monitor = localMouseMovedMonitor {
-            NSEvent.removeMonitor(monitor)
-            localMouseMovedMonitor = nil
-        }
-        pendingHoverDismiss?.cancel()
-        pendingHoverDismiss = nil
-        hoverDismissArmDeadline = nil
-        lastTypingDate = nil
+        pointerLeaveMonitor.stop()
     }
 
-    /// Re-checked on every mouse move and every time the search field's
-    /// empty/non-empty state flips, so it reacts to the search being cleared
-    /// while the cursor is already outside just as readily as to the cursor
-    /// leaving while already empty.
+    /// Re-check now: called when the search box empties/fills or the list expands, so it reacts
+    /// to the search being cleared while the cursor is already outside.
     func evaluateHoverDismiss() {
-        // An open view builder / delete confirmation is work in progress:
-        // leaving the bar must not throw it away.
-        // A floating card does not grow from where the pointer is (it may open at the
-        // hover edge and sit in the centre), so leaving it never closes it: click
-        // outside or Esc does, as for Agent Bar.
-        guard !CommandBarAnchor.current.isFloating, AppState.shared.isVisible, AppState.shared.isSearchTextEmpty,
-              !CustomViewEditorPresenter.shared.holdsBar, panel != nil else {
-            pendingHoverDismiss?.cancel()
-            pendingHoverDismiss = nil
-            return
-        }
-
-        if let armDeadline = hoverDismissArmDeadline {
-            guard Date() >= armDeadline else { return }
-            hoverDismissArmDeadline = nil
-        }
-
-        guard isCursorOutsideSurface() else {
-            pendingHoverDismiss?.cancel()
-            pendingHoverDismiss = nil
-            return
-        }
-        guard pendingHoverDismiss == nil else { return }
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.pendingHoverDismiss = nil
-            guard AppState.shared.isVisible, AppState.shared.isSearchTextEmpty,
-                  !CustomViewEditorPresenter.shared.holdsBar,
-                  self?.isCursorOutsideSurface() == true else { return }
-            AppState.shared.hideCommandBar()
-        }
-        pendingHoverDismiss = work
-        let delay = CommandBarLayout.hoverDismissDelay(lastTypingDate: lastTypingDate)
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        pointerLeaveMonitor.evaluate()
     }
 
     /// Bounds this against the user's *actual* configured row cap
@@ -898,7 +829,7 @@ private final class CommandBarPanelController: NSObject {
     /// rendered (taller) panel, so leaving the panel by crossing out of that
     /// undersized box (while still visibly over the expanded list) fired the
     /// dismiss early.
-    private func isCursorOutsideSurface() -> Bool {
+    private func isCursorOutsideSurface(_ location: CGPoint) -> Bool {
         guard let panel else { return true }
         let defaults = UserDefaults.standard
         let rowStyle = ResultRowStyle(rawValue: defaults.string(forKey: CommandBarAppearance.resultRowStyleKey) ?? "") ?? .minimal
@@ -922,8 +853,8 @@ private final class CommandBarPanelController: NSObject {
             showFooter: showFooter,
             visibleFrame: panel.screen?.visibleFrame
         )
-        return !surface.insetBy(dx: -Self.hoverDismissOutset, dy: -Self.hoverDismissOutset)
-            .contains(NSEvent.mouseLocation)
+        return !surface.insetBy(dx: -FastTabPointerLeaveGates.outset, dy: -FastTabPointerLeaveGates.outset)
+            .contains(location)
     }
 }
 

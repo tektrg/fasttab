@@ -721,7 +721,8 @@ final class AgentPanelModel: ObservableObject {
     private let completedHoldSeconds: TimeInterval
     private var frecency: [String: FrecencyEntry]
     private var triage: TriageState
-    private var failureNotice: PanelFooterNotice?
+    /// Shared persistent error slot: newer replaces, Esc/✕ closes it first.
+    private var failureNotice = CommandBarErrorNoticeSlot<PanelFooterNotice>()
     private var hotkeyIssue: String?
     private let peekLoader = LatestResultLoader<PaneScreenResult>()
     /// Peek on a status-only row (no pane): reads the session transcript's latest message.
@@ -1536,7 +1537,7 @@ final class AgentPanelModel: ObservableObject {
     /// A failure to show in the panel: it stays, whether or not the panel is on screen, until
     /// the user dismisses it or a newer failure replaces it.
     private func showFailureNotice(_ notice: PanelFooterNotice) {
-        failureNotice = notice
+        failureNotice.show(notice)
         refreshFooterNotice()
     }
 
@@ -1550,14 +1551,13 @@ final class AgentPanelModel: ObservableObject {
     /// its other jobs (the shortcut warning is not closable; it goes when the shortcut works).
     @discardableResult
     func dismissFooterNotice() -> Bool {
-        guard failureNotice != nil else { return false }
-        failureNotice = nil
+        guard failureNotice.dismiss() else { return false }
         refreshFooterNotice()
         return true
     }
 
     private func refreshFooterNotice() {
-        footerNotice = PanelFooterNotice.resolve(failure: failureNotice, hotkeyIssue: hotkeyIssue)
+        footerNotice = PanelFooterNotice.resolve(failure: failureNotice.notice, hotkeyIssue: hotkeyIssue)
     }
 
     /// Focus mode (`FocusMode/`): every agent in Needs you (blocked or generic idle), in the list's

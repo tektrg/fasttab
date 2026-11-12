@@ -10,18 +10,18 @@ extension ContentView {
         switch FastTabListRowBridge.forResult(result) {
         case .sendToList:
             let saved = appState.browserService.readLater(result)
-            showToast(saved ? "Sent to FastTab List" : "Can't add this link")
+            showFeedback(.sendToList(saved: saved))
         case .sendToListAndClose:
             // Close only once the link is safely in the list.
             guard appState.browserService.readLater(result) else {
-                showToast("Can't add this link")
+                showFeedback(.cannotAddLink)
                 return
             }
-            showToast("Sent to FastTab List")
+            showFeedback(.sentToList)
             performRemove(result)
         case .moveToBookmarks:
             appState.browserService.moveFastTabListItemToBookmarks(result) { folderLabel in
-                showToast(folderLabel.map { "Moved to \($0)" } ?? "Couldn't add the bookmark")
+                showFeedback(.moveToBookmarks(folderLabel: folderLabel))
             }
         case nil:
             break
@@ -31,10 +31,10 @@ extension ContentView {
     /// Stack slot "Send to FastTab List & Close": saves the link, then closes the slot's tab.
     func sendStackSlotToFastTabList(_ slot: OrderedTabSlot) {
         guard FastTabListStore.shared.readLater(url: slot.url, title: slot.title) else {
-            showToast("Can't add this link")
+            showFeedback(.cannotAddLink)
             return
         }
-        showToast("Sent to FastTab List")
+        showFeedback(.sentToList)
         myOrderStore.closeSlot(slot.slotID)
     }
 

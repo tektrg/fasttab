@@ -66,7 +66,7 @@ struct PermissionPanelModelTests {
 
     @Test func enterOnTheHighlightedReviewButtonOpensTheCard() {
         let rig = makeRig([P.agent("a", P.bash)])
-        rig.model.moveButtonHighlight(by: 1)
+        for _ in 0..<3 { rig.model.moveButtonHighlight(by: 1) }   // Peek, Park, then Review at the far right
         #expect(rig.model.highlightedButton == .review)
         rig.model.activateSelected()
         #expect(rig.model.permission.isOpen)

@@ -328,7 +328,8 @@ public struct ReaderView: View {
             readAloud: ReadAloudPageState(
                 position: readAloud.spokenPosition,
                 chunks: readAloud.chunks,
-                autoScroll: !readAloud.isAutoScrollPaused,
+                autoScroll: ReaderFindAutoScroll.isEnabled(
+                    userPaused: readAloud.isAutoScrollPaused, findOpen: find.isOpen),
                 tapToJumpEnabled: readAloud.hasBeenUsed
             ),
             onUserBeganScrolling: {
@@ -611,16 +612,18 @@ public struct ReaderView: View {
 
     // MARK: - Find in Article
 
-    /// Read Aloud keeps playing but stops auto-scrolling; after Done, "Back to reading" resumes it.
+    /// Read Aloud keeps playing but stops auto-scrolling while Find is open (even if playback
+    /// starts or resumes meanwhile); after Done, "Back to reading" resumes it.
     private func openFind() {
         withAnimation { showHighlightBar = false }
-        if readAloud.state == .playing { readAloud.isAutoScrollPaused = true }
         withAnimation(.easeInOut(duration: 0.2)) { find.open() }
     }
 
     private func closeFind() {
         withAnimation(.easeInOut(duration: 0.2)) { find.close() }
         findQuery = ""
+        readAloud.isAutoScrollPaused = ReaderFindAutoScroll.pausedAfterClose(
+            userPaused: readAloud.isAutoScrollPaused, readAloudActive: readAloud.state != .idle)
     }
 
     private func refreshHasSavedSummary() {

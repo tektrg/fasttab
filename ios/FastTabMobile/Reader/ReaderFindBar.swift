@@ -57,5 +57,12 @@ struct ReaderFindBar: View {
         .padding(.bottom, DS.Space.md)
         .onChange(of: query) { _, newValue in find.setQuery(newValue) }
         .onAppear { isFocused = true }
+        .task(id: find.state.voiceOverAnnouncement) {
+            // Restarts on every change, so only the settled count is spoken.
+            guard let text = find.state.voiceOverAnnouncement else { return }
+            try? await Task.sleep(for: ReaderFindState.announcementDelay)
+            guard !Task.isCancelled else { return }
+            AccessibilityNotification.Announcement(text).post()
+        }
     }
 }

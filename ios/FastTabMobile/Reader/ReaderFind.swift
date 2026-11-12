@@ -96,6 +96,22 @@ struct ReaderFindState: Equatable {
         guard let current, matchCount > 0 else { return "No matches" }
         return "\(current + 1) of \(matchCount)"
     }
+
+    /// What VoiceOver speaks when the count changes; nil while the query is empty.
+    var voiceOverAnnouncement: String? { countLabel.isEmpty ? nil : countLabel }
+
+    /// Quiet time before announcing, so typing speaks the settled count, not every keystroke.
+    static let announcementDelay: Duration = .milliseconds(700)
+}
+
+/// Read Aloud auto-scroll while Find is open. Playing/resuming clears the user's pause, so Find
+/// holds its own: no auto-scroll the whole time it's open, and Done leaves "Back to reading".
+enum ReaderFindAutoScroll {
+    static func isEnabled(userPaused: Bool, findOpen: Bool) -> Bool { !userPaused && !findOpen }
+
+    static func pausedAfterClose(userPaused: Bool, readAloudActive: Bool) -> Bool {
+        userPaused || readAloudActive
+    }
 }
 
 // MARK: - Page bridge

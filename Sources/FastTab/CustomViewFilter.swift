@@ -81,7 +81,6 @@ enum CustomViewFilter {
         for (order, candidate) in candidates.enumerated() {
             guard matcher.matchesStructure(candidate) else { continue }
             let visit = lastVisit(for: candidate, historyIndex: historyIndex)
-            guard matcher.matchesTime(visit, now: now) else { continue }
             let item = CustomViewItem(result: candidate, lastVisit: visit)
             switch candidate.type {
             case .tab: tabs.append(item)
@@ -154,7 +153,6 @@ enum CustomViewFilter {
         let domainPatterns: TextPattern.Compiled
         /// Plain words (all must appear) or one `*wildcard*` / `/regex/`, against title or URL.
         let keywords: SavedViewKeywords
-        let rule: LastVisitedRule
         let pinned: PinnedRule
 
         init(view: CustomView) {
@@ -169,11 +167,10 @@ enum CustomViewFilter {
             domains = view.domains.filter { !CustomViewDomain.isPattern($0) }
                 .compactMap(CustomViewDomain.normalize).filter { seen.insert($0).inserted }
             keywords = SavedViewKeywords(view.keywords)
-            rule = view.lastVisited
             pinned = view.pinned
         }
 
-        /// Everything except the time rule (which needs the resolved visit).
+        /// All of the view's structured filters (the AI filter runs separately).
         func matchesStructure(_ item: BrowserSearchResult) -> Bool {
             guard types.contains(item.type), pinned.matches(item) else { return false }
             if !profiles.isEmpty {
@@ -187,19 +184,6 @@ enum CustomViewFilter {
             }
             return keywords.matches(texts: [item.title, item.url],
                                     foldedKeys: [item.normalizedTitleKey, item.normalizedURLKey])
-        }
-
-        func matchesTime(_ visit: Date?, now: Date) -> Bool {
-            switch rule {
-            case .any:
-                return true
-            case .within(let seconds):
-                guard let visit else { return false }
-                return now.timeIntervalSince(visit) <= seconds
-            case .olderThan(let seconds):
-                guard let visit else { return false }
-                return now.timeIntervalSince(visit) > seconds
-            }
         }
     }
 }

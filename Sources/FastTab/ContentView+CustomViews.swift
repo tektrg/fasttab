@@ -102,7 +102,6 @@ extension ContentView {
     private static func sectionIcon(groupBy: CustomViewGroupBy, sectionID: String) -> String {
         switch groupBy {
         case .none: return "square.stack.3d.up"
-        case .lastVisited: return sectionID == "lastVisited.unknown" ? "questionmark.circle" : "clock"
         case .domain: return "globe"
         }
     }
@@ -144,7 +143,7 @@ extension ContentView {
                 .foregroundStyle(.secondary)
             Text("New View")
                 .font(.headline)
-            Text("Save a page of your own: open tabs, bookmarks and history filtered by type, profile, domain, keyword or last visit, grouped the way you like.")
+            Text("Save a page of your own: open tabs, bookmarks and history filtered by type, profile, domain or keyword, grouped the way you like.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

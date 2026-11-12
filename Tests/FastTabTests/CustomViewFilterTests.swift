@@ -97,37 +97,22 @@ struct CustomViewFilterTests {
             Self.item(.tab, "https://github.com/b", title: "wrong profile", profile: "Home"),
             Self.item(.history, "https://github.com/c", title: "wrong type", profile: "Work"),
             Self.item(.tab, "https://gitlab.com/d", title: "wrong domain", profile: "Work"),
-            Self.item(.tab, "https://github.com/e", title: "too old", ago: 10 * Self.day, profile: "Work"),
         ]
-        let view = CustomView(
-            name: "v", types: [.tab], profiles: ["work"], domains: ["github.com"],
-            lastVisited: .within(7 * Self.day)
-        )
+        let view = CustomView(name: "v", types: [.tab], profiles: ["work"], domains: ["github.com"])
         #expect(titles(view, candidates) == ["match"])
     }
 
-    // MARK: Last visit
+    // MARK: Last visit (sort order only; the time filter was removed)
 
-    @Test func unknownLastVisitMatchesNeitherTimeRule() {
+    @Test func oldTimeFilterNoLongerNarrowsResults() throws {
+        let json = #"{"id":"0A9B8C7D-6E5F-4A3B-2C1D-0E9F8A7B6C5D","name":"Old","lastVisited":{"kind":"within","seconds":3600}}"#
+        let view = try JSONDecoder().decode(CustomView.self, from: Data(json.utf8))
         let candidates = [
-            Self.item(.tab, "https://a.com/never", title: "never activated", ago: nil),
-            Self.item(.tab, "https://a.com/1999", title: "pre-2000", ago: Self.now.timeIntervalSince1970 - 900_000_000),
-            Self.item(.bookmark, "https://a.com/bm", title: "unvisited bookmark", ago: nil),
-            Self.item(.tab, "https://a.com/recent", title: "recent", ago: Self.hour),
+            Self.item(.tab, "https://a.com/recent", title: "recent", ago: Self.hour / 2),
             Self.item(.tab, "https://a.com/old", title: "old", ago: 40 * Self.day),
+            Self.item(.tab, "https://a.com/never", title: "never activated", ago: nil),
         ]
-        #expect(titles(CustomView(name: "v", lastVisited: .within(Self.day)), candidates) == ["recent"])
-        #expect(titles(CustomView(name: "v", lastVisited: .olderThan(30 * Self.day)), candidates) == ["old"])
-        #expect(titles(CustomView(name: "v"), candidates).count == 5)
-    }
-
-    @Test func withinAndOlderThanBoundaries() {
-        let candidates = [
-            Self.item(.history, "https://a.com/exact", title: "exactly 1h", ago: Self.hour),
-            Self.item(.history, "https://a.com/past", title: "1h + 1s", ago: Self.hour + 1),
-        ]
-        #expect(titles(CustomView(name: "v", lastVisited: .within(Self.hour)), candidates) == ["exactly 1h"])
-        #expect(titles(CustomView(name: "v", lastVisited: .olderThan(Self.hour)), candidates) == ["1h + 1s"])
+        #expect(titles(view, candidates) == ["recent", "old", "never activated"])
     }
 
     @Test func bookmarkLastVisitComesFromNewestMatchingHistory() {
@@ -142,10 +127,6 @@ struct CustomViewFilterTests {
 
         let lonely = Self.item(.bookmark, "https://nowhere.com", ago: nil)
         #expect(CustomViewFilter.lastVisit(for: lonely, historyIndex: index) == nil)
-
-        // Bookmark joined via history passes a time rule; history itself is filtered out by type.
-        let view = CustomView(name: "v", types: [.bookmark], lastVisited: .within(3 * Self.day))
-        #expect(CustomViewFilter.evaluate(view, candidates: history + [bookmark, lonely], now: Self.now).map(\.result) == [bookmark])
     }
 
     @Test func tabAndHistoryUseOwnTimestamp() {
@@ -177,9 +158,6 @@ struct CustomViewFilterTests {
         #expect(Set(titles(CustomView(name: "v"), candidates)) == ["tab", "tab twin"])
         // When tabs are excluded by the view, the history row is kept.
         #expect(titles(CustomView(name: "v", types: [.history]), candidates) == ["hist"])
-        // An open tab filtered out by time doesn't suppress the history row
-        // either (the bookmark passes via its history-joined visit).
-        #expect(Set(titles(CustomView(name: "v", lastVisited: .within(Self.hour)), candidates)) == ["hist", "bm"])
     }
 
     @Test func openTabSuppressesSamePageBookmarkOnlyWhenTabsAreShown() {
@@ -221,7 +199,7 @@ struct CustomViewFilterTests {
             let url: String = "https://site\(i % 200).com/p/\(i)"
             return Self.item(types[i % 3], url, title: "Item \(i)", ago: Double(i) * 60)
         }
-        let view = CustomView(name: "v", domains: ["site1.com", "site2.com"], keywords: "item", lastVisited: .within(30 * Self.day))
+        let view = CustomView(name: "v", domains: ["site1.com", "site2.com"], keywords: "item")
         let start = Date()
         let result = CustomViewFilter.evaluate(view, candidates: candidates, now: Self.now)
         #expect(!result.isEmpty)

@@ -15,19 +15,12 @@ struct CustomViewModelTests {
             profiles: ["Work"],
             domains: ["github.com", "gitlab.com"],
             keywords: "pull request",
-            lastVisited: .olderThan(7 * 86_400),
             pinned: .exclude,
             semanticPrompt: "code reviews waiting on me",
             groupBy: .domain
         )
         let data = try JSONEncoder().encode(view)
         #expect(try JSONDecoder().decode(CustomView.self, from: data) == view)
-    }
-
-    @Test(arguments: [LastVisitedRule.any, .within(3_600), .olderThan(90 * 86_400)])
-    func lastVisitedRuleRoundTrips(rule: LastVisitedRule) throws {
-        let data = try JSONEncoder().encode(rule)
-        #expect(try JSONDecoder().decode(LastVisitedRule.self, from: data) == rule)
     }
 
     @Test func decodingMinimalJSONFillsDefaults() throws {
@@ -48,7 +41,6 @@ struct CustomViewModelTests {
         #expect(view.name == "Future")
         #expect(view.types == [.tab]) // unknown + disallowed types dropped
         #expect(view.groupBy == .none)
-        #expect(view.lastVisited == .any)
     }
 
     @Test func typesOutsideAllowedSetAreDropped() {
@@ -57,13 +49,6 @@ struct CustomViewModelTests {
         view.types = [.fastTabList]
         #expect(view.types.isEmpty)
         #expect(view.effectiveTypes == CustomView.allowedTypes)
-    }
-
-    @Test func displayNames() {
-        #expect(LastVisitedRule.any.displayName == "Any time")
-        #expect(LastVisitedRule.within(7 * 86_400).displayName == "Within 7 days")
-        #expect(LastVisitedRule.olderThan(3_600).displayName == "Older than 1 hour")
-        #expect(LastVisitedRule.presets.map(\.seconds) == [3_600, 86_400, 604_800, 2_592_000, 7_776_000])
     }
 
     // MARK: Domain normalization
@@ -109,7 +94,7 @@ struct CustomViewModelTests {
         let defaults = scratchDefaults()
         let store = CustomViewStore(defaults: defaults)
         let a = CustomView(name: "A", domains: ["github.com"])
-        let b = CustomView(name: "B", lastVisited: .within(3_600))
+        let b = CustomView(name: "B", pinned: .only)
         store.add(a)
         store.add(b)
         #expect(CustomViewStore(defaults: defaults).views == [a, b])

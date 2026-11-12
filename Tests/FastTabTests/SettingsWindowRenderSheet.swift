@@ -25,7 +25,7 @@ struct SettingsWindowRenderSheet {
         let samples = [
             CustomView(name: "Reading list", iconName: "book", types: [.tab, .bookmark], keywords: "article"),
             CustomView(name: "Work docs", iconName: "briefcase", types: [.tab], domains: ["docs.google.com", "notion.so"]),
-            CustomView(name: "Old tabs", iconName: "clock", types: [.tab], lastVisited: .olderThan(7 * 86_400)),
+            CustomView(name: "Pinned tabs", iconName: "pin", types: [.tab], pinned: .only),
         ]
         samples.forEach { store.add($0) }
         defer { samples.forEach { store.delete(id: $0.id) } }

@@ -3,7 +3,9 @@ import Testing
 @testable import FastTab
 
 /// Users' saved views (`FastTab.customViews.v1`, a flat JSON array written before the shared
-/// `SavedView` model) must keep loading, and re-encode to the same JSON.
+/// `SavedView` model) must keep loading. The "Last visited" filter and group-by were removed
+/// (2026-11-12, inaccurate data): old JSON still decodes, the filter is dropped silently and
+/// `groupBy: "lastVisited"` falls back to none; everything else re-encodes unchanged.
 @MainActor
 struct CustomViewStoredFormatTests {
     /// The exact shape the pre-`IndieSavedViews` `CustomView` encoder wrote.
@@ -39,20 +41,35 @@ struct CustomViewStoredFormatTests {
         #expect(work.profiles == ["Work"])
         #expect(work.domains == ["github.com", "*issue*"])
         #expect(work.keywords == "pull request")
-        #expect(work.lastVisited == .olderThan(604_800))
         #expect(work.pinned == .exclude)
         #expect(work.semanticPrompt == "code reviews")
         #expect(work.groupBy == .domain)
         #expect(views[1].keywords == #"/^PR-\d+/"#)
-        #expect(views[1].groupBy == .lastVisited)
+        #expect(views[1].groupBy == .none)
     }
 
-    @Test func reEncodesToTheSameJSON() throws {
+    /// The fixture as this build writes it back: no `lastVisited` key (an older build reads
+    /// that as "Any time"), and the removed group-by saved as "none".
+    static var expectedRewrite: NSArray {
+        let rows = (try! JSONSerialization.jsonObject(with: Data(fixture.utf8)) as! [[String: Any]]).map { row in
+            var row = row
+            row.removeValue(forKey: "lastVisited")
+            if row["groupBy"] as? String == "lastVisited" { row["groupBy"] = "none" }
+            return row
+        }
+        return rows as NSArray
+    }
+
+    @Test func reEncodesWithoutTheRemovedLastVisitedOption() throws {
         let views = try JSONDecoder().decode([CustomView].self, from: Data(Self.fixture.utf8))
-        let original = try JSONSerialization.jsonObject(with: Data(Self.fixture.utf8)) as? NSArray
         let reencoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(views)) as? NSArray
-        #expect(original != nil)
-        #expect(reencoded == original)
+        #expect(reencoded == Self.expectedRewrite)
+        let text = String(decoding: try JSONEncoder().encode(views), as: UTF8.self)
+        #expect(!text.contains("lastVisited"))
+    }
+
+    @Test func lastVisitedIsNoLongerAGroupByChoice() {
+        #expect(CustomViewGroupBy.allCases == [.none, .domain])
     }
 
     @Test func storeWritesTheSameFormat() throws {
@@ -62,7 +79,6 @@ struct CustomViewStoredFormatTests {
         store.move(fromOffsets: [1], toOffset: 0)
         store.move(fromOffsets: [1], toOffset: 0)  // back to the original order, persisted
         let written = try #require(defaults.data(forKey: "FastTab.customViews.v1"))
-        #expect(try JSONSerialization.jsonObject(with: written) as? NSArray
-            == JSONSerialization.jsonObject(with: Data(Self.fixture.utf8)) as? NSArray)
+        #expect(try JSONSerialization.jsonObject(with: written) as? NSArray == Self.expectedRewrite)
     }
 }

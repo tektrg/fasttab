@@ -28,8 +28,7 @@ struct CustomViewEditor: View {
         SavedViewEditorShell(isNew: isNew, style: style) {
             CustomViewEditorForm(
                 draft: $draft,
-                profileOptions: preview.profileOptions,
-                historyReachDays: preview.historyReachDays
+                profileOptions: preview.profileOptions
             )
         } footer: {
             CustomViewEditorFooter(
@@ -87,21 +86,16 @@ struct CustomViewEditorFooter: View {
 
 /// The builder's fields: the shared Name / Icon / Keywords / AI filter
 /// (`SavedViewEditorFields`) around Fast Tab's criteria rows. Reusable on its
-/// own; takes the draft, the profile names to offer, and how far back cached
-/// history reaches.
+/// own; takes the draft and the profile names to offer.
 struct CustomViewEditorForm: View {
     @Binding var draft: CustomViewDraft
     let profileOptions: [CustomViewProfileOption]
-    /// See `CustomViewDraft.historyReachDays`; nil = no history cached.
-    var historyReachDays: Int? = nil
 
     @State private var isAIAvailable = CustomViewAI.isAvailable
 
     /// Narrower than this (the edge-anchored bar), labels go above their
     /// fields so every field gets the full width.
     static var stackedLabelsBelowWidth: CGFloat { SavedViewFormRow<EmptyView>.stackedLabelsBelowWidth }
-    private static let defaultWithin: TimeInterval = 7 * 86_400
-    private static let defaultOlderThan: TimeInterval = 30 * 86_400
 
     var body: some View {
         SavedViewEditorFields(
@@ -123,7 +117,7 @@ struct CustomViewEditorForm: View {
             row("Profiles") { profileMenu }
             row("Domains") { domainsField }
         } afterKeywords: {
-            row("Last visited") { lastVisitedControls }
+            EmptyView()
         } trailing: {
             row("Group by") {
                 // Segmented when it fits, a menu otherwise.
@@ -300,101 +294,6 @@ struct CustomViewEditorForm: View {
         }
     }
 
-    // MARK: Last visited
-
-    private enum LastVisitedMode: Hashable {
-        case any, within, olderThan
-    }
-
-    private var lastVisitedMode: Binding<LastVisitedMode> {
-        Binding(
-            get: {
-                switch draft.lastVisited {
-                case .any: return .any
-                case .within: return .within
-                case .olderThan: return .olderThan
-                }
-            },
-            set: { mode in
-                switch mode {
-                case .any: draft.lastVisited = .any
-                case .within: draft.lastVisited = .within(draft.lastVisited.seconds ?? Self.defaultWithin)
-                case .olderThan: draft.lastVisited = .olderThan(draft.lastVisited.seconds ?? Self.defaultOlderThan)
-                }
-            }
-        )
-    }
-
-    private var lastVisitedSeconds: Binding<TimeInterval> {
-        Binding(
-            get: { draft.lastVisited.seconds ?? Self.defaultWithin },
-            set: { seconds in
-                switch draft.lastVisited {
-                case .any: break
-                case .within: draft.lastVisited = .within(seconds)
-                case .olderThan: draft.lastVisited = .olderThan(seconds)
-                }
-            }
-        )
-    }
-
-    /// Presets, plus the stored duration when it isn't one (an older or
-    /// synced value) so the menu can show it.
-    private var durationOptions: [LastVisitedPreset] {
-        var options = LastVisitedRule.presets
-        if let seconds = draft.lastVisited.seconds, !options.contains(where: { $0.seconds == seconds }) {
-            options.append(LastVisitedPreset(seconds: seconds, displayName: LastVisitedRule.durationName(seconds)))
-            options.sort { $0.seconds < $1.seconds }
-        }
-        return options
-    }
-
-    @ViewBuilder
-    private var lastVisitedControls: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) { lastVisitedModePicker; lastVisitedDurationPicker }
-            VStack(alignment: .leading, spacing: 4) { lastVisitedModePicker; lastVisitedDurationPicker }
-        }
-        if let hint = CustomViewDraft.lastVisitedHint(rule: draft.lastVisited, historyReachDays: historyReachDays) {
-            Text(hint)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var lastVisitedModePicker: some View {
-        Picker("Last visited", selection: lastVisitedMode) {
-            Text("Any").tag(LastVisitedMode.any)
-            Text("Within").tag(LastVisitedMode.within)
-            Text("More than").tag(LastVisitedMode.olderThan)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
-    }
-
-    @ViewBuilder
-    private var lastVisitedDurationPicker: some View {
-        if draft.lastVisited != .any {
-            HStack(spacing: 4) {
-                Picker("Duration", selection: lastVisitedSeconds) {
-                    ForEach(durationOptions) { preset in
-                        Text(preset.displayName).tag(preset.seconds)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .fixedSize()
-                if case .olderThan = draft.lastVisited {
-                    Text("ago")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
     /// The "Remove AI filter" button shows when the prompt field can't be
     /// edited (no Apple Intelligence) but holds a prompt.
     static func canRemoveAIFilter(draft: CustomViewDraft, isAIAvailable: Bool) -> Bool {
@@ -416,13 +315,10 @@ final class CustomViewEditorPreview: ObservableObject {
     /// Nil until the first count lands.
     @Published private(set) var matchCount: Int?
     @Published private(set) var profileOptions: [CustomViewProfileOption] = []
-    /// See `CustomViewDraft.historyReachDays`; refreshed with the sources.
-    @Published private(set) var historyReachDays: Int?
 
     private let candidates: @MainActor () -> [BrowserSearchResult]
     private let prepareSources: @MainActor () -> Void
     private let debounceNanoseconds: UInt64
-    private let now: () -> Date
     private var draft: CustomViewDraft?
     private var countTask: Task<Void, Never>?
     private var sourcesSubscription: AnyCancellable?
@@ -432,11 +328,9 @@ final class CustomViewEditorPreview: ObservableObject {
         candidates: @escaping @MainActor () -> [BrowserSearchResult],
         prepareSources: @escaping @MainActor () -> Void = {},
         sourcesDidChange: AnyPublisher<Void, Never>,
-        debounceNanoseconds: UInt64 = 250_000_000,
-        now: @escaping () -> Date = Date.init
+        debounceNanoseconds: UInt64 = 250_000_000
     ) {
         self.candidates = candidates
-        self.now = now
         self.prepareSources = prepareSources
         self.debounceNanoseconds = debounceNanoseconds
         sourcesSubscription = sourcesDidChange
@@ -480,7 +374,6 @@ final class CustomViewEditorPreview: ObservableObject {
         if !debounce {
             let current = candidates()
             profileOptions = CustomViewProfileOption.options(from: current, selected: draft.profiles)
-            historyReachDays = CustomViewDraft.historyReachDays(candidates: current, now: now())
         }
         generation += 1
         let gen = generation

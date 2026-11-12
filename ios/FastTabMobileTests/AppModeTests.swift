@@ -64,16 +64,26 @@ final class AppModeTests: XCTestCase {
 
     // MARK: - Root tabs
 
+    /// Shuffle is a button on Read (and on Highlights) now, not a tab; Highlights took its place.
     func testReaderOnlyHidesTabsTab() {
-        XCTAssertEqual(AppTab.visible(for: .standalone), [.read, .shuffle, .more])
-        XCTAssertEqual(AppTab.visible(for: .mac), [.read, .tabs, .shuffle, .more])
-        XCTAssertEqual(AppTab.visible(for: nil), [.read, .tabs, .shuffle, .more])
+        XCTAssertEqual(AppTab.visible(for: .standalone), [.read, .highlights, .more])
+        XCTAssertEqual(AppTab.visible(for: .mac), [.read, .tabs, .highlights, .more])
+        XCTAssertEqual(AppTab.visible(for: nil), [.read, .tabs, .highlights, .more])
     }
 
+    func testHighlightsTabShowsInBothModes() {
+        for mode in [AppMode.standalone, .mac, nil] {
+            XCTAssertTrue(AppTab.visible(for: mode).contains(.highlights))
+            XCTAssertEqual(AppTab.resolved(.highlights, for: mode), .highlights)
+        }
+    }
+
+    /// The selected tab is never persisted (every launch opens on Read), so the old Shuffle tab
+    /// cannot come back as a stale selection; a tab that disappears on a mode switch falls back to Read.
     func testHiddenTabFallsBackToRead() {
         XCTAssertEqual(AppTab.resolved(.tabs, for: .standalone), .read)
-        XCTAssertEqual(AppTab.resolved(.shuffle, for: .standalone), .shuffle)
         XCTAssertEqual(AppTab.resolved(.tabs, for: .mac), .tabs)
+        XCTAssertEqual(AppTab.resolved(.more, for: .standalone), .more)
     }
 
     // MARK: - Share sheet

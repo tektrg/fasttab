@@ -41,10 +41,9 @@ struct CustomViewEditorRenderSheet {
             profiles: profiles,
             domains: ["developer.apple.com", "docs.swift.org", "forums.swift.org", "github.com/apple/swift-evolution"],
             keywords: "concurrency actors sendable migration guide",
-            lastVisited: .olderThan(30 * 86_400),
             pinned: .exclude,
             semanticPrompt: "Long articles and design proposals I meant to read properly but only skimmed",
-            groupBy: .lastVisited
+            groupBy: .domain
         ))
         draft.domainsText = "developer.apple.com, docs.swift.org, forums.swift.org, github.com"
         return draft
@@ -84,8 +83,7 @@ struct CustomViewEditorRenderSheet {
         VStack(spacing: 0) {
             CustomViewEditorForm(
                 draft: .constant(draft),
-                profileOptions: profileOptions,
-                historyReachDays: 12
+                profileOptions: profileOptions
             )
             .padding(.horizontal, 14)
             .padding(.vertical, 10)

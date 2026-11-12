@@ -39,7 +39,6 @@ struct WebViewCriteria: SavedViewCriteria {
     /// `CustomViewDomain.normalize` (so "https://www.GitHub.com/x" and
     /// "*.github.com" both mean `github.com` + its subdomains). Empty = any.
     var domains: [String]
-    var lastVisited: LastVisitedRule
     /// Browser-pinned tab flag (`BrowserSearchResult.isPinned`). `.only`
     /// admits pinned tabs alone (bookmarks/history are never pinned);
     /// `.exclude` drops pinned tabs. `.any` when absent from older JSON.
@@ -51,18 +50,21 @@ struct WebViewCriteria: SavedViewCriteria {
         types: Set<BrowserResultType> = [],
         profiles: [String] = [],
         domains: [String] = [],
-        lastVisited: LastVisitedRule = .any,
         pinned: PinnedRule = .any
     ) {
         self.types = types.intersection(Self.allowedTypes)
         self.profiles = profiles
         self.domains = domains
-        self.lastVisited = lastVisited
         self.pinned = pinned
     }
 
+    // "Last visited" (a `{"kind","seconds"}` time filter under `lastVisited`) was removed
+    // 2026-11-12: last-visit data was inaccurate (Chromium tabs report no real time,
+    // bookmarks borrow history visits, the history cache is shallow). Old JSON still
+    // decodes — the key is ignored — and is no longer written, so an older build reads
+    // a re-saved view as "Any time".
     private enum CodingKeys: String, CodingKey {
-        case types, profiles, domains, lastVisited, pinned
+        case types, profiles, domains, pinned
     }
 
     init(from decoder: Decoder) throws {
@@ -74,7 +76,6 @@ struct WebViewCriteria: SavedViewCriteria {
             types: Set((rawTypes ?? []).compactMap(BrowserResultType.init(rawValue:))),
             profiles: (try? c.decodeIfPresent([String].self, forKey: .profiles)) ?? [],
             domains: (try? c.decodeIfPresent([String].self, forKey: .domains)) ?? [],
-            lastVisited: (try? c.decodeIfPresent(LastVisitedRule.self, forKey: .lastVisited)) ?? .any,
             pinned: (try? c.decodeIfPresent(PinnedRule.self, forKey: .pinned)) ?? .any
         )
     }
@@ -85,7 +86,6 @@ struct WebViewCriteria: SavedViewCriteria {
         try c.encode(types.map(\.rawValue).sorted(), forKey: .types)
         try c.encode(profiles, forKey: .profiles)
         try c.encode(domains, forKey: .domains)
-        try c.encode(lastVisited, forKey: .lastVisited)
         try c.encode(pinned, forKey: .pinned)
     }
 }
@@ -102,7 +102,6 @@ extension SavedView where Criteria == WebViewCriteria {
         profiles: [String] = [],
         domains: [String] = [],
         keywords: String = "",
-        lastVisited: LastVisitedRule = .any,
         pinned: PinnedRule = .any,
         semanticPrompt: String = "",
         groupBy: CustomViewGroupBy = .none
@@ -110,8 +109,7 @@ extension SavedView where Criteria == WebViewCriteria {
         self.init(
             id: id, name: name, iconName: iconName, keywords: keywords,
             semanticPrompt: semanticPrompt, groupBy: groupBy,
-            criteria: WebViewCriteria(types: types, profiles: profiles, domains: domains,
-                                      lastVisited: lastVisited, pinned: pinned)
+            criteria: WebViewCriteria(types: types, profiles: profiles, domains: domains, pinned: pinned)
         )
     }
 
@@ -119,88 +117,6 @@ extension SavedView where Criteria == WebViewCriteria {
     var effectiveTypes: Set<BrowserResultType> {
         self.types.isEmpty ? Self.allowedTypes : self.types
     }
-}
-
-// MARK: - Last visited
-
-/// Time filter on an item's last visit (see `CustomViewFilter.lastVisit`).
-/// Items whose last visit is unknown match **neither** `.within` nor
-/// `.olderThan` — only `.any`.
-enum LastVisitedRule: Codable, Hashable, Sendable {
-    case any
-    /// Visited no more than `seconds` ago.
-    case within(TimeInterval)
-    /// Last visited more than `seconds` ago.
-    case olderThan(TimeInterval)
-
-    /// Durations offered by the builder, in display order.
-    static let presets: [LastVisitedPreset] = [
-        LastVisitedPreset(seconds: 3_600, displayName: "1 hour"),
-        LastVisitedPreset(seconds: 86_400, displayName: "24 hours"),
-        LastVisitedPreset(seconds: 7 * 86_400, displayName: "7 days"),
-        LastVisitedPreset(seconds: 30 * 86_400, displayName: "30 days"),
-        LastVisitedPreset(seconds: 90 * 86_400, displayName: "90 days"),
-    ]
-
-    var seconds: TimeInterval? {
-        switch self {
-        case .any: return nil
-        case .within(let s), .olderThan(let s): return s
-        }
-    }
-
-    /// "Any time", "Within 7 days", "Older than 30 days".
-    var displayName: String {
-        switch self {
-        case .any: return "Any time"
-        case .within(let s): return "Within \(Self.durationName(s))"
-        case .olderThan(let s): return "Older than \(Self.durationName(s))"
-        }
-    }
-
-    static func durationName(_ seconds: TimeInterval) -> String {
-        if let preset = presets.first(where: { $0.seconds == seconds }) { return preset.displayName }
-        let formatter = DateComponentsFormatter()
-        formatter.unitsStyle = .full
-        formatter.maximumUnitCount = 1
-        formatter.allowedUnits = [.day, .hour, .minute]
-        return formatter.string(from: seconds) ?? "\(Int(seconds))s"
-    }
-
-    // Stored as `{"kind": "within", "seconds": 604800}` — stable and readable,
-    // unlike the synthesized `{"within": {"_0": …}}` shape.
-    private enum CodingKeys: String, CodingKey { case kind, seconds }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        let kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? "any"
-        let seconds = (try? c.decodeIfPresent(TimeInterval.self, forKey: .seconds)) ?? nil
-        switch (kind, seconds) {
-        case ("within", let s?) where s > 0: self = .within(s)
-        case ("olderThan", let s?) where s > 0: self = .olderThan(s)
-        default: self = .any
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .any:
-            try c.encode("any", forKey: .kind)
-        case .within(let s):
-            try c.encode("within", forKey: .kind)
-            try c.encode(s, forKey: .seconds)
-        case .olderThan(let s):
-            try c.encode("olderThan", forKey: .kind)
-            try c.encode(s, forKey: .seconds)
-        }
-    }
-}
-
-struct LastVisitedPreset: Hashable, Identifiable, Sendable {
-    let seconds: TimeInterval
-    let displayName: String
-    var id: TimeInterval { seconds }
 }
 
 // MARK: - Pinned
@@ -245,13 +161,13 @@ enum CustomViewGroupBy: String, SavedViewGroupBy, CaseIterable {
     static var defaultValue: CustomViewGroupBy { .none }
 
     case none
-    case lastVisited
+    // `lastVisited` (day buckets) was removed 2026-11-12 with the "Last visited"
+    // filter; stored "lastVisited" decodes to `.none` via the fallback below.
     case domain
 
     var displayName: String {
         switch self {
         case .none: return "None"
-        case .lastVisited: return "Last visited"
         case .domain: return "Domain"
         }
     }

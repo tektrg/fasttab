@@ -65,7 +65,6 @@ struct CustomViewEditorTests {
             profiles: ["Work", "work", " "],
             domains: ["jira.example.com"],
             keywords: " sprint ",
-            lastVisited: .within(7 * Self.day),
             pinned: .only,
             semanticPrompt: "tickets",
             groupBy: .domain
@@ -79,7 +78,6 @@ struct CustomViewEditorTests {
         #expect(resaved.id == saved.id)
         #expect(resaved.profiles == ["Work"])
         #expect(resaved.keywords == "sprint")
-        #expect(resaved.lastVisited == saved.lastVisited)
         #expect(resaved.groupBy == .domain)
         #expect(resaved.pinned == .only)
         #expect(resaved.semanticPrompt == "tickets")
@@ -103,20 +101,18 @@ struct CustomViewEditorTests {
             name: "Dev",
             types: [.tab],
             domains: ["https://www.github.com/x"],
-            lastVisited: .within(7 * Self.day),
             semanticPrompt: "code reviews"
         )
-        #expect(view.filterSummary == "Tabs · github.com · Within 7 days · AI")
+        #expect(view.filterSummary == "Tabs · github.com · AI")
 
         let busy = CustomView(
             name: "b",
             types: [.history, .bookmark],
             profiles: ["A", "B", "C"],
             domains: ["a.com", "b.com", "www.a.com"],
-            keywords: "rust async",
-            lastVisited: .olderThan(30 * Self.day)
+            keywords: "rust async"
         )
-        #expect(busy.filterSummary == "Bookmarks + History · 3 profiles · a.com +1 · “rust async” · Older than 30 days")
+        #expect(busy.filterSummary == "Bookmarks + History · 3 profiles · a.com +1 · “rust async”")
         #expect(CustomView(name: "c", profiles: ["Work", "Home"]).filterSummary == "Work, Home")
         #expect(CustomView(name: "p", types: [.tab], pinned: .only).filterSummary == "Tabs · Pinned")
         #expect(CustomView(name: "p", pinned: .exclude).filterSummary == "Not pinned")
@@ -222,66 +218,6 @@ struct CustomViewEditorTests {
         preview.update(draft: draft)
         await preview.pendingCount?.value
         #expect(preview.matchCount == 1)
-    }
-
-    // MARK: Last visited hint
-
-    @Test func historyReachIsTheShortestPerSourceRoundedDown() {
-        let now = CustomViewFilterTests.now
-        let candidates = [
-            // Chrome Work reaches 10.9 days, Chrome Personal 3.5, Safari 20.
-            item(.history, "https://a.com", profile: "Work"),
-            CustomViewFilterTests.item(.history, "https://b.com", ago: 10.9 * Self.day, profile: "Work"),
-            CustomViewFilterTests.item(.history, "https://c.com", ago: 3.5 * Self.day, profile: "Personal"),
-            CustomViewFilterTests.item(.history, "https://d.com", ago: 20 * Self.day, browser: "Safari"),
-            // Not history, or a sentinel timestamp: ignored.
-            CustomViewFilterTests.item(.bookmark, "https://e.com", ago: 1 * Self.day, profile: "Personal"),
-            CustomViewFilterTests.item(.tab, "https://f.com", ago: 0.5 * Self.day, browser: "Safari"),
-            CustomViewFilterTests.item(.history, "https://g.com", ago: nil, browser: "Arc"),
-        ]
-        #expect(CustomViewDraft.historyReachDays(candidates: candidates, now: now) == 3)
-
-        let withoutPersonal = candidates.filter { $0.profileName != "Personal" }
-        #expect(CustomViewDraft.historyReachDays(candidates: withoutPersonal, now: now) == 10)
-    }
-
-    @Test func historyReachIsAtLeastOneDayAndNilWithoutHistory() {
-        let now = CustomViewFilterTests.now
-        let fresh = [CustomViewFilterTests.item(.history, "https://a.com", ago: 3_600)]
-        #expect(CustomViewDraft.historyReachDays(candidates: fresh, now: now) == 1)
-        let noHistory = [item(.tab, "https://a.com"), item(.bookmark, "https://b.com")]
-        #expect(CustomViewDraft.historyReachDays(candidates: noHistory, now: now) == nil)
-        #expect(CustomViewDraft.historyReachDays(candidates: [], now: now) == nil)
-    }
-
-    @Test func lastVisitedHintText() {
-        #expect(CustomViewDraft.lastVisitedHint(rule: .any, historyReachDays: 5) == nil)
-        #expect(CustomViewDraft.lastVisitedHint(rule: .within(7 * Self.day), historyReachDays: 12)
-                == "Based on your recent history (about 12 days).")
-        #expect(CustomViewDraft.lastVisitedHint(rule: .within(Self.day), historyReachDays: 1)
-                == "Based on your recent history (about 1 day).")
-        #expect(CustomViewDraft.lastVisitedHint(rule: .within(Self.day), historyReachDays: nil)
-                == "Based on recent history.")
-        #expect(CustomViewDraft.lastVisitedHint(rule: .olderThan(30 * Self.day), historyReachDays: 12)
-                == "Based on your recent history (about 12 days). Bookmarks not opened in that time are left out.")
-        // The hint must describe what the filter does: an unknown last
-        // visit never matches a time rule (owner decision), so such a
-        // bookmark is excluded — not shown under "Unknown".
-        let bookmark = CustomViewFilterTests.item(.bookmark, "https://old.example", title: "Old", ago: nil)
-        #expect(CustomViewFilter.evaluate(CustomView(name: "Old", lastVisited: .olderThan(30 * Self.day)), candidates: [bookmark]).isEmpty)
-    }
-
-    @Test func previewPublishesHistoryReach() async {
-        let candidates = [CustomViewFilterTests.item(.history, "https://a.com", ago: 5 * Self.day)]
-        let preview = CustomViewEditorPreview(
-            candidates: { candidates },
-            sourcesDidChange: Empty().eraseToAnyPublisher(),
-            debounceNanoseconds: 1_000_000,
-            now: { CustomViewFilterTests.now }
-        )
-        #expect(preview.historyReachDays == nil)
-        preview.update(draft: CustomViewDraft())
-        #expect(preview.historyReachDays == 5)
     }
 
     // MARK: Presenter

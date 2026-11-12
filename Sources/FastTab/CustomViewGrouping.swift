@@ -2,7 +2,7 @@ import Foundation
 import IndieSavedViews
 
 struct CustomViewSection: Identifiable, Hashable, Sendable {
-    /// Stable across refreshes (e.g. "lastVisited.today", "domain.github.com"),
+    /// Stable across refreshes (e.g. "all", "domain.github.com"),
     /// so SwiftUI keeps section identity while items change.
     let id: String
     /// Empty for the single section of `.none`.
@@ -26,25 +26,8 @@ enum CustomViewGrouping {
         switch groupBy {
         case .none:
             return [CustomViewSection(id: "all", title: "", items: items)]
-        case .lastVisited:
-            return lastVisitedSections(items: items, now: now, calendar: calendar)
         case .domain:
             return domainSections(items: items)
-        }
-    }
-
-    // MARK: Last visited
-
-    /// Shared calendar-day buckets (`DayBucket`: Today … Older, Unknown).
-    typealias VisitBucket = DayBucket
-
-    static func bucket(for visit: Date?, now: Date, calendar: Calendar) -> VisitBucket {
-        DayBucket.bucket(for: visit, now: now, calendar: calendar)
-    }
-
-    private static func lastVisitedSections(items: [CustomViewItem], now: Date, calendar: Calendar) -> [CustomViewSection] {
-        DayBucket.group(items, now: now, calendar: calendar, date: \.lastVisit).map {
-            CustomViewSection(id: "lastVisited.\($0.bucket.rawValue)", title: $0.bucket.title, items: $0.items)
         }
     }
 

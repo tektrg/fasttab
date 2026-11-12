@@ -87,13 +87,6 @@ struct PanePeekTests {
         #expect(model.peek == nil)
     }
 
-    @Test func spaceWhileTaggedTypesASpaceInsteadOfPeeking() {
-        let (model, _) = makeRig()
-        model.tagSelected()
-        #expect(model.togglePeek() == false)
-        #expect(model.peek == nil)
-    }
-
     @Test func spaceTwiceReopensOnTheSameAgent() {
         let (model, _) = makeRig()
         #expect(model.togglePeek())

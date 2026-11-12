@@ -131,4 +131,28 @@ final class ReaderFindTests: XCTestCase {
             .item(.saveToBookmarkFolder), .item(.deleteLink),
         ])
     }
+
+    // MARK: Controller: page text changing while Find is open
+
+    @MainActor
+    func testTranscriptSwitchWhileOpenRematchesAgainstNewText() async throws {
+        var pageText = "the cat sat"
+        let find = ReaderFindController()
+        find.evaluate = { js, done in
+            done(js == ReaderFindJS.fetchText ? pageText : "ok")
+        }
+        find.open()
+        find.setQuery("cat")
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(find.state.countLabel, "1 of 1")
+
+        // Clean/original transcript switch replaces the paragraph text in place.
+        pageText = "a cat and a cat and $(echo INJECTED) cat"
+        find.pageTextChanged()
+        XCTAssertEqual(find.state.countLabel, "1 of 3")
+
+        find.close()
+        find.pageTextChanged() // closed: no search, nothing painted
+        XCTAssertEqual(find.state.countLabel, "")
+    }
 }

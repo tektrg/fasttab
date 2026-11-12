@@ -167,6 +167,8 @@ final class ReaderFindController: ObservableObject {
     @Published private(set) var isOpen = false
     @Published private(set) var state = ReaderFindState()
     weak var webView: WKWebView?
+    /// Runs page JS; defaults to `webView` (tests inject a fake page).
+    var evaluate: ((String, @escaping (Any?) -> Void) -> Void)?
     /// Fetching the text rebuilds the page's shared text map (Read Aloud's locator must follow).
     var onPageMapRebuilt: (() -> Void)?
 
@@ -185,7 +187,21 @@ final class ReaderFindController: ObservableObject {
         state = ReaderFindState()
         ranges = []
         matcher = nil // the page may change (highlights, reload) before the next Find
-        webView?.evaluateJavaScript(ReaderFindJS.clear, completionHandler: nil)
+        run(ReaderFindJS.clear) { _ in }
+    }
+
+    /// The page's text changed in place (transcript clean/original switch, cleaned paragraphs
+    /// arriving): drop the old text and rematch so the count and paint follow the new text.
+    func pageTextChanged() {
+        matcher = nil
+        guard isOpen else { return }
+        searchTask?.cancel()
+        search()
+    }
+
+    private func run(_ js: String, _ completion: @escaping (Any?) -> Void) {
+        if let evaluate { evaluate(js, completion); return }
+        webView?.evaluateJavaScript(js) { result, _ in completion(result) }
     }
 
     /// Live search: runs ~150 ms after the last keystroke.
@@ -212,7 +228,7 @@ final class ReaderFindController: ObservableObject {
     }
 
     private func fetchText(then: @escaping () -> Void) {
-        webView?.evaluateJavaScript(ReaderFindJS.fetchText) { [weak self] result, _ in
+        run(ReaderFindJS.fetchText) { [weak self] result in
             guard let self, self.isOpen else { return }
             self.onPageMapRebuilt?()
             self.matcher = ReaderFindMatcher(text: result as? String ?? "")
@@ -223,7 +239,7 @@ final class ReaderFindController: ObservableObject {
     private func show(retry: Bool) {
         guard isOpen else { return }
         let js = ReaderFindJS.show(ranges: ranges, current: state.current)
-        webView?.evaluateJavaScript(js) { [weak self] result, _ in
+        run(js) { [weak self] result in
             // The page changed under its text map (new highlight, reload): rematch once.
             guard retry, let self, let status = result as? String, status == "stale" || status == "unmapped" else { return }
             let current = self.state.current

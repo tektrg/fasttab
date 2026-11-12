@@ -211,6 +211,7 @@ public struct ReaderWebView: UIViewRepresentable {
             context.coordinator.pushedTranscriptRevision = cleanup.revision
             let changed = cleanup.shownTexts.filter { context.coordinator.pushedTranscript[$0.i] != $0 }
             context.coordinator.pushTranscript(changed)
+            if !changed.isEmpty { findController?.pageTextChanged() }
         }
 
         // If viewModel requests a new highlight, apply it safely via JSON payload

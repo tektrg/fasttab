@@ -1451,6 +1451,14 @@ final class AgentPanelModel: ObservableObject {
         copier.copy(agent.identityText, for: agent.id)
     }
 
+    /// ⌘C with no card open: the highlighted row's agent details. False when no row is highlighted.
+    @discardableResult
+    func copySelectedIdentity() -> Bool {
+        guard let agent = selectedAgent else { return false }
+        copyIdentity(of: agent)
+        return true
+    }
+
     /// The card's copy button or ⌘C. False when no card is open (the key is then left alone).
     @discardableResult
     func copyOpenCardIdentity() -> Bool {

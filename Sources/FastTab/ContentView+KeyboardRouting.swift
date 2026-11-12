@@ -251,6 +251,7 @@ extension ContentView {
                 appState.recordTypingActivity()
                 let action = FastTabKeyRouting.route(
                     keyCode: event.keyCode,
+                    characters: event.charactersIgnoringModifiers ?? "",
                     modifiers: event.modifierFlags,
                     context: keyRoutingContext(keyCode: event.keyCode),
                     hooks: keyRoutingHooks(event)
@@ -288,7 +289,8 @@ extension ContentView {
             isChipFocused: focusedChipID != nil,
             isStackActive: viewStore.activeView == .stack,
             stackPinnedCount: stackPinnedSlots.count,
-            cycleShortcuts: cycleShortcuts()
+            cycleShortcuts: cycleShortcuts(),
+            hasTextSelection: CommandBarKeyRouter.keyWindowHasTextSelection()
         )
     }
 
@@ -364,6 +366,15 @@ extension ContentView {
             hideBarFromEscape()
         case .cycleBackward:
             cycleSession.advance(.backward)
+        case .copySelection:
+            switch selected {
+            case .result(let result)?: performCopyLink(result)
+            case .orderedEntry(let slot)?: performCopySlotURL(slot)
+            default: return false
+            }
+        case .openSettings:
+            // Same as the bar's gear button.
+            openSettings()
         }
         return true
     }

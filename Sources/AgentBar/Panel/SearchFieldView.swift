@@ -169,6 +169,12 @@ struct SearchFieldView: View {
     /// their own handlers, and shortcuts (⌘,) pass through.
     private func answerCardKeyPress(_ press: KeyPress) -> KeyPress.Result {
         let navigation: Set<KeyEquivalent> = [.upArrow, .downArrow, .leftArrow, .rightArrow, .space, .return, .escape, .tab]
+        if AgentPanelKeys.copiesSelectedRow(
+            characters: press.characters, modifiers: press.modifiers, isCardOpen: model.isCardOpen,
+            hasTextSelection: CommandBarKeyRouter.keyWindowHasTextSelection()
+        ) {
+            return model.copySelectedIdentity() ? .handled : .ignored
+        }
         switch AgentPanelKeys.cardKey(
             characters: press.characters, modifiers: press.modifiers,
             isNavigationKey: navigation.contains(press.key), isCardOpen: model.isCardOpen,

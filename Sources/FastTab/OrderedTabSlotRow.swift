@@ -20,6 +20,8 @@ struct OrderedTabSlotRow: View {
     var reorderUpperBound: Int? = nil
     /// "Send to FastTab List & Close"; offered only on live web tabs (see `forStackSlot`).
     var onSendToFastTabList: (() -> Void)? = nil
+    /// ⋯ › Copy URL (same action as ⌘C).
+    var onCopy: () -> Void = {}
 
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
@@ -198,38 +200,31 @@ struct OrderedTabSlotRow: View {
         return host
     }
 
-    private var openActionTitle: String {
-        let name = slot.browserName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if isGhost { return name.isEmpty ? "Reopen Tab" : "Reopen in \(name)" }
-        if isFrozen { return "Open Link" }
-        return name.isEmpty ? "Switch to Tab" : "Open in \(name)"
-    }
-
     private var closeActionTitle: String {
         if isGhost { return "Remove Permanently" }
         return slot.isPinned ? "Close Tab (Keeps Ghost)" : "Close Tab"
     }
 
+    private var menuActions: [CommandBarRowAction] {
+        FastTabRowMenu.actions(
+            for: slot,
+            bridge: onSendToFastTabList == nil ? nil : FastTabListRowBridge.forStackSlot(slot)
+        )
+    }
+
+    private func perform(_ action: CommandBarRowAction) {
+        switch action.id {
+        case FastTabRowMenu.openID: isGhost ? onReopen() : onSelect()
+        case FastTabRowMenu.listBridgeID: onSendToFastTabList?()
+        case FastTabRowMenu.pinID: onTogglePin()
+        case CommandBarRowAction.copyID: onCopy()
+        default: break
+        }
+    }
+
     @ViewBuilder
     private var actionButtonCluster: some View {
-        RowActionsMenu {
-            Button(openActionTitle) {
-                if isGhost {
-                    onReopen()
-                } else {
-                    onSelect()
-                }
-            }
-            if let onSendToFastTabList,
-               let bridge = FastTabListRowBridge.forStackSlot(slot) {
-                Button("\(bridge.title) (⌘S)", action: onSendToFastTabList)
-            }
-            Button(slot.isPinned ? "Unpin Tab" : "Pin Tab", action: onTogglePin)
-            Button("Copy URL") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(slot.url, forType: .string)
-            }
-        }
+        RowActionMenu(actions: menuActions, font: .system(size: 11, weight: .semibold), style: .circle, onSelect: perform)
         RowCloseButton(
             keepsGhost: slot.isPinned && !isGhost,
             help: closeActionTitle,

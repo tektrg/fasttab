@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 /// The search box's key decisions, kept pure so tests pin them (the view only calls these).
 /// Agent-only keys: Shift+Return routing, card digits, ⌘C on a card, Esc's layers, and the
@@ -40,10 +41,27 @@ enum AgentPanelKeys {
             else { return .ignored }
             return .typeIntoCardText(characters)
         }
-        if modifiers == .command, characters == "c" { return .copyIdentity }
+        if shellCommand(characters: characters, modifiers: modifiers) == .copy { return .copyIdentity }
         guard modifiers.subtracting(.shift).isEmpty, !isNavigationKey else { return .ignored }
         if let number = Int(characters), (1...9).contains(number) { return .pickOption(number) }
         return .dropStray
+    }
+
+    /// ⌘C with no card open: copy the highlighted row's agent details (the shared shell copy),
+    /// unless the search box has selected text (then the text is copied as usual).
+    static func copiesSelectedRow(characters: String, modifiers: EventModifiers, isCardOpen: Bool, hasTextSelection: Bool) -> Bool {
+        guard !isCardOpen else { return false }
+        return shellCommand(characters: characters, modifiers: modifiers, hasTextSelection: hasTextSelection) == .copy
+    }
+
+    /// The shared shell keys (IndieCommandBar): ⌘C copy, ⌘, Settings.
+    static func shellCommand(characters: String, modifiers: EventModifiers, hasTextSelection: Bool = false) -> CommandBarShellCommand? {
+        var mods: CommandBarModifiers = []
+        if modifiers.contains(.command) { mods.insert(.command) }
+        if modifiers.contains(.option) { mods.insert(.option) }
+        if modifiers.contains(.control) { mods.insert(.control) }
+        if modifiers.contains(.shift) { mods.insert(.shift) }
+        return CommandBarKeyRouter.shellCommand(characters: characters, modifiers: mods, hasTextSelection: hasTextSelection)
     }
 
     enum EscapeStep: Equatable { case dismissedNotice, backedOutOfButtons, closedPeek, closePanel }

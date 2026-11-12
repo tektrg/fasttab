@@ -108,4 +108,41 @@ struct AgentIdentityCopyTests {
         model.resetForShow()
         #expect(model.copier.copiedAgentID == nil)
     }
+
+    // MARK: - ⌘C on a row (gap 7: the shared shell copy)
+
+    @Test func commandCWithNoCardCopiesTheHighlightedRow() {
+        let pasteboard = Pasteboard()
+        let model = makeRig([F.agent("a", label: "alpha", project: "proj"), F.agent("b")], pasteboard: pasteboard)
+        #expect(model.copySelectedIdentity())
+        #expect(pasteboard.writes == ["Agent: alpha\nPane: w1:a\nProject: proj"])
+        #expect(model.copier.copiedAgentID == "a")   // drives the "Agent details copied" toast
+    }
+
+    @Test func commandCWithNoRowsCopiesNothing() {
+        let pasteboard = Pasteboard()
+        let model = makeRig([], pasteboard: pasteboard)
+        #expect(!model.copySelectedIdentity())
+        #expect(pasteboard.writes.isEmpty)
+    }
+
+    @Test func rowCopyKeyNeedsCommandCNoCardAndNoSelectedText() {
+        typealias K = AgentPanelKeys
+        #expect(K.copiesSelectedRow(characters: "c", modifiers: .command, isCardOpen: false, hasTextSelection: false))
+        #expect(!K.copiesSelectedRow(characters: "c", modifiers: .command, isCardOpen: true, hasTextSelection: false))
+        #expect(!K.copiesSelectedRow(characters: "c", modifiers: .command, isCardOpen: false, hasTextSelection: true))
+        #expect(!K.copiesSelectedRow(characters: "c", modifiers: [.command, .shift], isCardOpen: false, hasTextSelection: false))
+        #expect(!K.copiesSelectedRow(characters: "v", modifiers: .command, isCardOpen: false, hasTextSelection: false))
+    }
+
+    @Test func cardCommandCIsUnchanged() {
+        // Characterization (8b): with a card open ⌘C copies the card's agent, digits pick.
+        #expect(AgentPanelKeys.cardKey(characters: "c", modifiers: .command, isNavigationKey: false, isCardOpen: true) == .copyIdentity)
+        #expect(AgentPanelKeys.cardKey(characters: "c", modifiers: .command, isNavigationKey: false, isCardOpen: false) == .ignored)
+        #expect(AgentPanelKeys.cardKey(characters: "2", modifiers: [], isNavigationKey: false, isCardOpen: true) == .pickOption(2))
+    }
+
+    @Test func commandCommaIsTheSharedSettingsKey() {
+        #expect(AgentPanelKeys.shellCommand(characters: ",", modifiers: .command) == .openSettings)
+    }
 }

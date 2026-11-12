@@ -1,7 +1,8 @@
 import SwiftUI
 import IndieCommandBar
 
-/// The row's "⋯" overflow menu — first of its kind in AgentBar (2026-09-22); a future control
+/// The row's "⋯" overflow menu, drawn by the shared IndieCommandBar `RowActionMenu` since gap 7
+/// (2026-11-12) — first of its kind in AgentBar (2026-09-22); a future control
 /// that needs somewhere to put secondary/housekeeping actions should follow this same shape
 /// rather than invent another one. Holds whatever `RowButtons.menuItems` currently offers this
 /// row: Done and/or Close pane (still routed through `AgentPanelModel.press`, so the existing
@@ -54,39 +55,52 @@ struct RowMoreMenuView: View, Equatable {
     nonisolated static func == (lhs: RowMoreMenuView, rhs: RowMoreMenuView) -> Bool { lhs.menuContent == rhs.menuContent }
 
     var body: some View {
-        // The shared ⋯ trigger (IndieCommandBar); the items stay Agent Bar's own.
-        RowActionMoreMenu(isHighlighted: isHighlighted, font: .avenir(size: 11)) {
-            ForEach(items, id: \.button.title) { spec in
-                if spec.button == .reportTo {
-                    reportToSubmenu
-                } else {
-                    Button(spec.label) { onSelect(spec.button) }
-                        .disabled(!spec.isEnabled)
-                        .help(spec.disabledReason ?? spec.hint ?? "")   // same "why" tooltip a disabled capsule gives via RowActionButtonView
-                }
+        // The shared ⋯ menu (IndieCommandBar `RowActionMenu`), fed Agent Bar's items as row actions.
+        RowActionMenu(actions: Self.actions(for: menuContent), isHighlighted: isHighlighted, font: .avenir(size: 11)) { action in
+            if let targetID = Self.reportTargetID(action.id) {
+                onReportTo(targetID)
+            } else if let spec = items.first(where: { $0.button.title == action.id }) {
+                onSelect(spec.button)
             }
         }
     }
 
-    private var reportToSubmenu: some View {
-        let content = menuContent
-        return Menu("Report to") {
+    nonisolated static let reportToPrefix = "reportTo:"
+
+    /// The menu as shared row actions: one per item (id = the button's title, the disabled item's
+    /// "why" as its tooltip), "Report to" as a submenu of Chiefs / Workers.
+    nonisolated static func actions(for content: Content) -> [CommandBarRowAction] {
+        content.items.map { spec in
+            guard spec.button == .reportTo else {
+                return CommandBarRowAction(
+                    id: spec.button.title, title: spec.label, symbol: "",
+                    isEnabled: spec.isEnabled, help: spec.disabledReason ?? spec.hint
+                )
+            }
+            var sections: [CommandBarRowActionSection] = []
             if content.chiefTargets.isEmpty && content.workerTargets.isEmpty {
-                Button("No one to report to") {}.disabled(true)
+                sections.append(CommandBarRowActionSection(actions: [
+                    CommandBarRowAction(id: reportToPrefix, title: "No one to report to", symbol: "", isEnabled: false)
+                ]))
             }
             if !content.chiefTargets.isEmpty {
-                Section("Chiefs") { targetButtons(content.chiefTargets) }
+                sections.append(CommandBarRowActionSection(title: "Chiefs", actions: content.chiefTargets.map(reportAction)))
             }
             if !content.workerTargets.isEmpty {
-                Section("Workers") { targetButtons(content.workerTargets) }
+                sections.append(CommandBarRowActionSection(title: "Workers", actions: content.workerTargets.map(reportAction)))
             }
+            return CommandBarRowAction(id: spec.button.title, title: "Report to", symbol: "", submenu: sections)
         }
     }
 
-    private func targetButtons(_ targets: [Target]) -> some View {
-        ForEach(targets) { target in
-            Button(target.title) { onReportTo(target.id) }
-        }
+    nonisolated private static func reportAction(_ target: Target) -> CommandBarRowAction {
+        CommandBarRowAction(id: reportToPrefix + target.id, title: target.title, symbol: "")
+    }
+
+    /// The agent a "Report to" item names, or nil for any other item.
+    nonisolated static func reportTargetID(_ actionID: String) -> String? {
+        guard actionID.hasPrefix(reportToPrefix), actionID.count > reportToPrefix.count else { return nil }
+        return String(actionID.dropFirst(reportToPrefix.count))
     }
 
     nonisolated private static func target(_ node: AgentTreeNode) -> Target { Target(id: node.id, title: targetTitle(node)) }

@@ -135,6 +135,13 @@ extension ContentView {
         showToastAndDismiss(FastTabSwipeActions.copiedToastText)
     }
 
+    /// A Stack slot's copy action (⋯ › Copy URL, ⌘C): same toast as a result row.
+    func performCopySlotURL(_ slot: OrderedTabSlot) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(slot.url, forType: .string)
+        showToastAndDismiss(FastTabSwipeActions.copiedToastText)
+    }
+
     /// Choreographed in three overlapping beats: the content keeps sliding
     /// in the swipe's direction (`SwipeableResultRow.contentOffset`), the
     /// checkmark already on screen follows a beat behind and zooms/fades

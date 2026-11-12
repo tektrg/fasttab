@@ -111,18 +111,52 @@ final class AnswerTextView: NSTextView {
     /// the frontmost app while one is on screen (`TextInputActivation`), so dictation tools can type into it.
     static let didAppearNotification = Notification.Name("AgentBar.AnswerTextView.didAppear")
 
+    /// Every card text box (answer Other, form Other, plan feedback, Message) takes the keyboard through
+    /// this one path. Only a box the user can SEE does: every AgentBar window (main panel, corner card,
+    /// Focus mode) draws the same model, so a hidden one builds its own copy of the box — the main panel,
+    /// ordered out but still following the model, did whenever the corner card opened "Other". Its copy
+    /// made the hidden panel key, and every typed key went to a window nobody could see (2026-11-12,
+    /// reported three times; `CrossAppKeyboardTests`). A box also takes the keyboard back when its
+    /// window becomes key or AgentBar becomes active, in case another window grabbed it in between.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        keyboardObservers.forEach(NotificationCenter.default.removeObserver)
+        keyboardObservers = []
         guard let window else { return }
         NotificationCenter.default.post(name: Self.didAppearNotification, object: self)
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.window === window else { return }
-            // The box owns the keyboard: its window must be key too. The corner card's window becomes key only
-            // when a control demands it (`becomesKeyOnlyIfNeeded`), and a click on the "Other" ROW is not such a
-            // control, so the box showed a caret while every typed key went to another window (2026-11-12).
-            if !window.isKeyWindow, window.canBecomeKey { window.makeKey() }
-            window.makeFirstResponder(self)
+        let center = NotificationCenter.default
+        let reclaim: @Sendable (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated { self?.takeKeyboardSoon() }
         }
+        keyboardObservers = [
+            center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main, using: reclaim),
+            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: reclaim),
+        ]
+        takeKeyboardSoon()
+    }
+
+    private var keyboardObservers: [NSObjectProtocol] = []
+
+    /// Next turn of the main queue, so it lands after SwiftUI's own focus pass for the same change.
+    private func takeKeyboardSoon() {
+        DispatchQueue.main.async { [weak self] in self?.takeKeyboard() }
+    }
+
+    /// Off by default: `defaults write com.trungluong.AgentBar keyboardDebugLog -bool YES`, then
+    /// `log stream --predicate 'eventMessage CONTAINS "AgentBar keyboard"'` while reproducing.
+    private static var logsKeyboard: Bool { UserDefaults.standard.bool(forKey: "keyboardDebugLog") }
+
+    private func takeKeyboard() {
+        if Self.logsKeyboard, let window {
+            NSLog("AgentBar keyboard: box in %@ visible=%d key=%d appActive=%d keyWindow=%@ firstResponder=%@",
+                  window.title, window.isVisible, window.isKeyWindow, NSApp.isActive,
+                  NSApp.keyWindow?.title ?? "none", window.firstResponder.map { String(describing: type(of: $0)) } ?? "none")
+        }
+        guard let window, window.isVisible else { return }
+        // The corner card's window is `becomesKeyOnlyIfNeeded`, so a click on the "Other" ROW (not a text
+        // control) leaves it non-key; the box makes it key itself.
+        if !window.isKeyWindow, window.canBecomeKey { window.makeKey() }
+        if window.firstResponder !== self { window.makeFirstResponder(self) }
     }
 
     override func keyDown(with event: NSEvent) {

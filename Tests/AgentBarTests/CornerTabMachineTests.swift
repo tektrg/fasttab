@@ -22,11 +22,12 @@ struct CornerTabMachineTests {
         return machine
     }
 
-    /// A machine whose pointer rested in the corner and brought the tab in at 0.3s.
+    /// A machine showing an arrival's tab with the pointer resting on it. (Resting in the corner
+    /// itself now opens the panel — user decision 2026-11-12 — so a hovered tab is an arrival tab.)
     private func showingHoverTab() -> CornerTabMachine {
         var machine = machine()
-        _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(0))
-        _ = machine.handle(.deadlineReached, now: at(0.3))
+        _ = machine.handle(.arrival(one), now: at(0))
+        _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(0.3))
         return machine
     }
 

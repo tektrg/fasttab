@@ -87,7 +87,7 @@ final class AgentBarCoordinator {
         cornerTab = CornerTabController(
             isEnabled: settings.showsCornerTab,
             panel: .init(
-                open: { panelController.show() },
+                open: { panelController.show(fromCorner: true) },   // grows from the corner, closes on pointer leave
                 summary: { [model] in model.needsYouSummary() }
             ),
             model: model,

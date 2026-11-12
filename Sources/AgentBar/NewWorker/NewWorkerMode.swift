@@ -35,7 +35,7 @@ struct NewWorkerMode: Equatable {
 
     /// `/new` (any case, surrounding spaces ignored) typed in the search box.
     static func isEntryCommand(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == command
+        AgentBarCommands.exact(text) == AgentBarCommands.newWorker
     }
 
     var isComposing: Bool { composingPick != nil }

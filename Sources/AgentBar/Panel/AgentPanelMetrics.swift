@@ -106,7 +106,9 @@ enum AgentPanelMetrics {
         showsRoutingRow: Bool = false,
         showsPageStrip: Bool = false,
         /// False ("Fixed height" in Settings › Appearance): the list area is always `maxListHeight`.
-        fitsContent: Bool = true
+        fitsContent: Bool = true,
+        /// Slash-command rows showing in place of the list (`AgentPanelModel.commandRows`).
+        commandRowCount: Int = 0
     ) -> CGFloat {
         let note = (presentation.showsBoardNote && !isComposing) ? noteHeight : 0
         let fieldHeight = searchFieldHeight(forLineCount: searchFieldLineCount)
@@ -116,7 +118,9 @@ enum AgentPanelMetrics {
             ? 0
             : isPeeking || isAnswering
                 ? fullBodyHeight(maxListHeight: maxListHeight)
-                : fitsContent ? bodyHeight(for: presentation, maxListHeight: maxListHeight) : fullBodyHeight(maxListHeight: maxListHeight)
+                : commandRowCount > 0 && fitsContent
+                    ? CGFloat(commandRowCount) * rowHeight + listVerticalPadding * 2
+                    : fitsContent ? bodyHeight(for: presentation, maxListHeight: maxListHeight) : fullBodyHeight(maxListHeight: maxListHeight)
         let body = max(0, naturalBody - growth)
         // The chip row's own top padding (`tagChipTopPadding`) is extra, on top of the field
         // area's usual budget — not carved out of it, unlike `tagRowHeight` — so it must be added

@@ -106,7 +106,7 @@ let package = Package(
         // Agent switcher (⌥Tab panel). Standalone app: no Sparkle, no FastTabSync.
         .executableTarget(
             name: "AgentBar",
-            dependencies: [indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions],
+            dependencies: [indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions, indieEdgeReveal],
             path: "Sources/AgentBar"
         ),
         .testTarget(
@@ -116,7 +116,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AgentBarTests",
-            dependencies: ["AgentBar", indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions],
+            dependencies: ["AgentBar", indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions, indieEdgeReveal],
             resources: [.copy("Fixtures")]
         )
     ]

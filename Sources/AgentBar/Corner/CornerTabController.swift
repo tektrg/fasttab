@@ -6,7 +6,7 @@ import Combine
 /// main panel. Thin glue; the rules live in the machine.
 ///
 /// The pointer is followed by a global mouse-moved monitor (no Accessibility permission needed;
-/// it sees moves over other apps), which is how a rest in the bottom-right corner is noticed
+/// it sees moves over other apps), which is how a rest in the bottom-right corner (it opens the panel) is noticed
 /// while nothing is showing. While the tab is up the pointer is polled instead, since moves
 /// over AgentBar's own window are not reported to a global monitor. Neither steals focus.
 ///
@@ -90,8 +90,6 @@ final class CornerTabController {
         case .showTab(let content):
             closeCardIfNeeded()
             window.show(content)
-        case .showSummaryTab:
-            showSummary()
         case .updateTab(let content):
             // Another agent blocking too must not pull the card out from under the user mid-answer.
             if let agentID = cardOpenAgentID, content.cardableAgentIDs.contains(agentID), openCard(agentID) {
@@ -120,18 +118,6 @@ final class CornerTabController {
             window.removeNow()
         case .openPanel:
             panel.open()
-        }
-    }
-
-    /// The pointer rested in the corner: the summary can itself name a sole cardable agent
-    /// (one already blocked before the machine ever announced it, e.g. at launch).
-    private func showSummary() {
-        let summary = panel.summary()
-        if let agentID = summary.soleCardableAgentID, openCard(agentID) {
-            window.showCard()
-        } else {
-            closeCardIfNeeded()
-            window.show(summary)
         }
     }
 

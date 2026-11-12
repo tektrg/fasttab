@@ -46,11 +46,15 @@ final class AgentPanelModel: ObservableObject {
         didSet {
             guard query != oldValue else { return }
             if newWorker?.isComposing == false { newWorker?.selectedFolderName = nil }
+            commandHighlightIndex = 0
             rebuild()
             selectedAgentID = presentation.selectableAgentIDs.first
             closePeek()
         }
     }
+
+    /// Which slash-command row is highlighted (`AgentPanelModel+Commands`); back to the first on every keystroke.
+    @Published var commandHighlightIndex = 0
 
     /// New worker mode (`NewWorker/NewWorkerMode`, driven by `AgentPanelModel+NewWorker`), or nil.
     /// Set only from that extension.
@@ -970,6 +974,7 @@ final class AgentPanelModel: ObservableObject {
         // stay with the text caret. Up = previous chip, Down = next.
         if movePersonaMachine(by: step) { return }
         if moveNewWorkerSelection(by: step) { return }
+        if moveCommandHighlight(by: step) { return }
         if answer.isOpen {
             answer.handle(step < 0 ? .up : .down)
         } else if permission.isOpen {
@@ -1081,7 +1086,7 @@ final class AgentPanelModel: ObservableObject {
             message.pressSend()
             return
         }
-        if handleNewWorkerReturn() || enterNewWorkerIfCommand() || beginNewViewIfCommand() { return }
+        if handleNewWorkerReturn() || runHighlightedCommandRow() || enterNewWorkerIfCommand() || beginNewViewIfCommand() { return }
         if sendToTaggedIfPending() { return }
         guard let selectedAgentID else { return }
         if let highlightedButton {

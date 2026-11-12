@@ -1,16 +1,18 @@
 import Foundation
+import IndieEdgeReveal
 
 /// How long the corner tab waits and stays.
 struct CornerTabTiming: Equatable, Sendable {
     /// How long an arrival's tab stays when the pointer is not on it.
     var visibleSeconds: TimeInterval
-    /// How long the pointer must rest in the corner before the tab slides in, so passing
-    /// through the corner (or dragging something past it) shows nothing.
+    /// How long the pointer must rest in the corner before the panel opens, so passing
+    /// through the corner (or dragging something past it) opens nothing. The shared
+    /// IndieEdgeReveal corner dwell, same as Fast Tab's hover edges.
     var hoverDwellSeconds: TimeInterval
     /// How long the tab stays after the pointer leaves it and the corner.
     var leaveGraceSeconds: TimeInterval
 
-    static let standard = CornerTabTiming(visibleSeconds: 5, hoverDwellSeconds: 0.3, leaveGraceSeconds: 0.7)
+    static let standard = CornerTabTiming(visibleSeconds: 5, hoverDwellSeconds: EdgeRevealStyle.bottomRightCorner.dwellDelay, leaveGraceSeconds: 0.7)
 }
 
 enum CornerTabEvent: Equatable, Sendable {
@@ -37,8 +39,6 @@ enum CornerTabEvent: Equatable, Sendable {
 enum CornerTabEffect: Equatable, Sendable {
     /// Slide the tab in with this content (an arrival).
     case showTab(CornerTabContent)
-    /// Slide the tab in with the current Needs-you summary (the pointer rested in the corner).
-    case showSummaryTab
     case updateTab(CornerTabContent)
     /// Slide in the sole blocked agent's live card in place of the tab (`content.soleCardableAgentID`).
     case showCard(agentID: String)
@@ -55,14 +55,14 @@ enum CornerTabEffect: Equatable, Sendable {
 ///     idle --arrival--> tab                       (stays while the pointer is on it)
 ///     idle --an agent becomes blocked--> tab
 ///     tab --deadline--> idle                      (slides out; never while an agent is blocked)
-///     idle --pointer in the corner--> dwelling --rests a moment--> tab
+///     idle --pointer in the corner--> dwelling --rests a moment--> idle + open panel (gap 9, user 2026-11-12)
 ///     dwelling --pointer leaves--> idle
 ///     tab --pointer leaves the tab and corner--> tab (hides after a short grace)
 ///     tab --click--> idle                         (opens the panel like the shortcut)
 ///     tab --✕--> idle                             (slides out; the blocker stays in Needs you, not re-announced)
 ///
-/// Hovering never opens the panel; only a click does. Nothing shows while the panel is
-/// open or the setting is off.
+/// Resting in the corner opens the panel (grown from the corner, closes on pointer leave); so does
+/// clicking a tab an arrival brought in. Nothing shows while the panel is open or the setting is off.
 ///
 /// **Sticky**: while any agent in Needs you is blocked on the user, the tab has no timer and no
 /// leave-grace: it stays until the panel opens, it is clicked, the setting goes off, or the last
@@ -246,10 +246,11 @@ struct CornerTabMachine: Equatable, Sendable {
     private mutating func deadlineReached(now: Date) -> [CornerTabEffect] {
         switch phase {
         case .dwelling(let showAt) where now >= showAt:
-            phase = .tab(hideAt: pointerIsOver || isSticky ? nil : now.addingTimeInterval(timing.visibleSeconds))
+            // The user asked for the panel by resting the pointer here (decision 2026-11-12: hover opens).
+            phase = .idle
             shownContent = nil
-            dismissedCardAgentID = nil   // the user asked for it by resting the pointer here
-            return [.showSummaryTab]
+            dismissedCardAgentID = nil
+            return [.openPanel]
         case .tab(let hideAt?) where now >= hideAt:
             phase = .idle
             return [.slideTabOut]

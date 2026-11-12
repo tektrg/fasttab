@@ -195,6 +195,20 @@ private struct SearchAliasBadge: View {
 
 /// Fast Tab's appearance preference keys. The first three are Fast Tab's copy of the shared
 /// appearance model (IndieCommandBar `CommandBarAppearanceSettings`, keys `.fastTab`, names unchanged).
+extension CommandBarAppearanceKeys {
+    /// Fast Tab's keys. The first three predate the shared model and keep their old
+    /// names so stored choices survive (pinned by `AppearanceSettingsMigrationTests`).
+    static let fastTab = CommandBarAppearanceKeys(
+        background: "FastTab.appearance.outerGlassPanel",
+        rowStyle: "FastTab.appearance.resultRowStyle",
+        rowLimit: "FastTab.appearance.quickOpenItemLimit",
+        placement: "FastTab.appearance.placement",
+        fitsContent: "FastTab.appearance.fitsContent",
+        accent: "FastTab.appearance.accent",
+        followsEdge: "FastTab.appearance.followsEdge"
+    )
+}
+
 enum CommandBarAppearance {
     static let keys = CommandBarAppearanceKeys.fastTab
     static let outerPanelKey = keys.background
@@ -202,9 +216,12 @@ enum CommandBarAppearance {
     static let quickOpenItemLimitKey = keys.rowLimit
     /// Accent colour (slice 8c). Missing = `.system`, the look before the setting existed.
     static let accentKey = keys.accent
-    /// Fast Tab's defaults: background on, Minimal rows, 5 quick-open items. Position comes from
-    /// the hover-to-open edge (General), so Fast Tab does not offer the shared Position/Size pickers.
-    static let standard = CommandBarAppearanceSettings(background: true, rowStyle: .minimal, rowLimit: 5)
+    /// Position (slice 10): follow the hover edge (default, missing key) or a floating card at `placementKey`.
+    static let followsEdgeKey = keys.followsEdge
+    static let placementKey = keys.placement
+    /// Fast Tab's defaults: background on, Minimal rows, 5 quick-open items, Position = follow
+    /// the hover-to-open edge (General). No Size picker: the bar sizes itself.
+    static let standard = CommandBarAppearanceSettings(background: true, rowStyle: .minimal, rowLimit: 5, followsEdge: true)
 
     static func load(from defaults: UserDefaults = .standard) -> CommandBarAppearanceSettings {
         CommandBarAppearanceSettings.load(

@@ -81,7 +81,7 @@ struct OnboardingHeroTrigger: View {
         case .rightEdge:
             return HotSpot(pill: CGRect(x: width - 6, y: 28, width: 6, height: 32), pointerTarget: CGPoint(x: width - 7, y: 40),
                            bar: CGRect(x: width - 84, y: 8, width: 84, height: 72), barAnchor: .trailing, barEdge: .trailing, barRows: 3, growsVertically: false)
-        case .notch:
+        case .notch, .floating:  // onboarding only shows the hover edges
             return HotSpot(pill: CGRect(x: (width - 36) / 2, y: 0, width: 36, height: 10), pointerTarget: CGPoint(x: width / 2 - 1, y: 6),
                            bar: CGRect(x: (width - 112) / 2, y: 0, width: 112, height: 60), barAnchor: .top, barEdge: .top, barRows: 2, growsVertically: true)
         }
@@ -145,7 +145,7 @@ struct HeroEdgePill: View {
     private static func corners(for style: CommandBarAnchor, radius: CGFloat)
         -> (topLeading: CGFloat, bottomLeading: CGFloat, bottomTrailing: CGFloat, topTrailing: CGFloat) {
         switch style {
-        case .notch: return (0, radius, radius, 0)
+        case .notch, .floating: return (0, radius, radius, 0)
         case .leftEdge: return (0, 0, radius, radius)
         case .rightEdge: return (radius, radius, 0, 0)
         }

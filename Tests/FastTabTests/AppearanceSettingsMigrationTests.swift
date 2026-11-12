@@ -46,4 +46,23 @@ struct AppearanceSettingsMigrationTests {
         defaults.set("orange", forKey: "FastTab.appearance.accent")
         #expect(CommandBarAppearance.load(from: defaults).accent == .orange)
     }
+
+    // Slice 10: Position picker. Default (and every store from before it) = follow the hover edge.
+    @Test func positionDefaultsToFollowingTheHoverEdge() {
+        #expect(CommandBarAppearance.followsEdgeKey == "FastTab.appearance.followsEdge")
+        #expect(CommandBarAppearance.placementKey == "FastTab.appearance.placement")
+        #expect(CommandBarAppearance.load(from: scratch()).position == nil)
+        // An older build may have saved a placement it never showed: still the edge.
+        let defaults = scratch()
+        defaults.set("bottomRight", forKey: "FastTab.appearance.placement")
+        #expect(CommandBarAppearance.load(from: defaults).position == nil)
+        defaults.set(false, forKey: "FastTab.appearance.followsEdge")
+        #expect(CommandBarAppearance.load(from: defaults).position == .bottomRight)
+    }
+
+    @Test func positionPicksTheAnchor() {
+        #expect(CommandBarAnchor(revealStyle: .notch, position: CommandBarAppearance.standard.position) == .notch)
+        #expect(CommandBarAnchor(revealStyle: .leftEdge, position: CommandBarAppearance.standard.position) == .leftEdge)
+        #expect(CommandBarAnchor(revealStyle: .notch, position: .center) == .floating(.center))
+    }
 }

@@ -106,6 +106,9 @@ struct ContentView: View {
     /// which passes it down to every section background inside it.
     @AppStorage(CommandBarAppearance.outerPanelKey) var outerPanelEnabled: Bool = true
     @AppStorage(CommandBarAppearance.accentKey) var accent: CommandBarAccent = .system
+    /// Settings › Appearance › Position (slice 10). Missing key = follow the hover edge (old look).
+    @AppStorage(CommandBarAppearance.followsEdgeKey) var followsEdge: Bool = true
+    @AppStorage(CommandBarAppearance.placementKey) var floatingPlacement: CommandBarPlacement = .topCenter
     /// User's preferred quick-open ("recent tabs") item count. Read through
     /// `effectiveQuickOpenLimit`, never used directly — it may exceed what the
     /// current screen can actually fit.
@@ -318,7 +321,7 @@ struct ContentView: View {
     }
 
     var commandBarAnchor: CommandBarAnchor {
-        CommandBarAnchor(revealStyle: edgeRevealStore.style)
+        CommandBarAnchor(revealStyle: edgeRevealStore.style, position: followsEdge ? nil : floatingPlacement)
     }
 
     /// Narrow (half-width) edge-anchored surface — content wraps instead of
@@ -428,6 +431,14 @@ struct ContentView: View {
         let maxRows = resultsMaxRows
         let surfaceSize = CommandBarLayout.surfaceSize(for: anchor, rowStyle: rowStyle, rowCount: rowCount, maxRows: maxRows, showFooter: showHelperPanel)
         let alignment = CommandBarLayout.surfaceAlignment(for: anchor)
+        // A floating card sits inside the usable screen area (clear of menu bar and Dock);
+        // the edge layouts sit flush against the canvas edge, so no padding.
+        let floatingPadding = anchor.isFloating ? appState.commandBarFloatingPadding() : EdgeInsets()
+        // The toast hangs below the bar, or above it when the card sits at the bottom.
+        let toastBelow: Bool = {
+            if case .floating(let p) = anchor, p == .bottomLeft || p == .bottomRight { return false }
+            return true
+        }()
 
         // Everything is positioned by aligning it against the canvas edge the
         // anchor hugs — never by measuring the canvas. See
@@ -451,6 +462,7 @@ struct ContentView: View {
                     // at full strength under a dissolving panel would be the
                     // last thing left on screen.
                     .opacity(revealSurfaceOpacity)
+                    .padding(floatingPadding)
             }
             .overlay(alignment: alignment) {
                 CommandBarSurface(anchor: anchor, outerPanelEnabled: outerPanelEnabled) {
@@ -768,6 +780,7 @@ struct ContentView: View {
                     anchor: CommandBarLayout.revealAnchorUnitPoint(for: anchor)
                 )
                 .opacity(revealSurfaceOpacity)
+                .padding(floatingPadding)
             }
             // Centred on the surface, then pushed 24pt past its bottom edge —
             // `fixedSize` so the surface-sized positioning box can't squeeze the
@@ -776,9 +789,10 @@ struct ContentView: View {
                 if let toastMessage {
                     CommandBarToast(message: toastMessage)
                         .fixedSize()
-                        .offset(y: (surfaceSize.height / 2) + 24)
+                        .offset(y: ((surfaceSize.height / 2) + 24) * (toastBelow ? 1 : -1))
                         .frame(width: surfaceSize.width, height: surfaceSize.height)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .padding(floatingPadding)
+                        .transition(.move(edge: toastBelow ? .bottom : .top).combined(with: .opacity))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -839,6 +853,10 @@ struct ContentView: View {
                     appState.wasOpenedByMouse = true
                     appState.isShowingAllOpenTabs = true
                     viewStore.resetForHoverOpen()
+                    playRevealAnimation()
+                }
+                // Floating card opened by shortcut / menu bar: fade in (hover opens use the token above).
+                .onChange(of: revealTrigger.fadeInToken) { _, _ in
                     playRevealAnimation()
                 }
                 .onChange(of: dismissTrigger.token) { _, _ in

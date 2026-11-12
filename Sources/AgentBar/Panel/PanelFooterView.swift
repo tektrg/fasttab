@@ -19,7 +19,7 @@ struct PanelFooterView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(",", modifiers: .command)
+            .keyboardShortcut(CommandBarShellCommand.openSettings.keyboardShortcut)   // shared ⌘,
             .help("Settings (⌘,)")
             .accessibilityLabel("Open Settings")
         }

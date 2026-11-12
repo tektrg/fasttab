@@ -311,6 +311,9 @@ extension ContentView {
                 reorderUpperBound: stackPinnedSlots.count,
                 onSendToFastTabList: {
                     sendStackSlotToFastTabList(slot)
+                },
+                onCopy: {
+                    performCopySlotURL(slot)
                 }
             )
             .contentShape(Rectangle())

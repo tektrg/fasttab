@@ -152,13 +152,6 @@ private struct ResultRowView: View {
         }
     }
 
-    private var openActionTitle: String {
-        let name = result.browserName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if result.isGhost { return name.isEmpty ? "Reopen Tab" : "Reopen in \(name)" }
-        if result.type == .tab { return name.isEmpty ? "Switch to Tab" : "Open in \(name)" }
-        return name.isEmpty ? "Open Link" : "Open in \(name)"
-    }
-
     /// Only pinned live tabs close into a ghost — everything else
     /// (unpinned tabs, sent links, bookmarks, history, and ghosts
     /// themselves) just closes/removes.
@@ -178,22 +171,27 @@ private struct ResultRowView: View {
         onFastTabListBridge == nil ? nil : FastTabListRowBridge.forResult(result)
     }
 
-    private var fastTabListShortcutHint: String {
-        fastTabListBridge == .moveToBookmarks ? "⌘D" : "⌘S"
+    private var menuActions: [CommandBarRowAction] {
+        FastTabRowMenu.actions(
+            for: result,
+            bridge: onFastTabListBridge == nil ? nil : fastTabListBridge,
+            offersPin: onPin != nil
+        )
+    }
+
+    private func perform(_ action: CommandBarRowAction) {
+        switch action.id {
+        case FastTabRowMenu.openID: onSelect()
+        case FastTabRowMenu.listBridgeID: onFastTabListBridge?()
+        case FastTabRowMenu.pinID: onPin?()
+        case CommandBarRowAction.copyID: onCopy()
+        default: break
+        }
     }
 
     @ViewBuilder
     private var actionButtonCluster: some View {
-        RowActionsMenu {
-            Button(openActionTitle, action: onSelect)
-            if let bridge = fastTabListBridge, let onFastTabListBridge {
-                Button("\(bridge.title) (\(fastTabListShortcutHint))", action: onFastTabListBridge)
-            }
-            if result.type == .tab, let onPin {
-                Button(result.isPinned ? "Unpin Tab" : "Pin Tab", action: onPin)
-            }
-            Button("Copy Link", action: onCopy)
-        }
+        RowActionMenu(actions: menuActions, font: .system(size: 11, weight: .semibold), style: .circle, onSelect: perform)
         RowCloseButton(
             keepsGhost: result.type == .tab && result.isPinned && !result.isGhost,
             help: closeActionTitle,

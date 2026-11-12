@@ -47,6 +47,8 @@ enum FastTabKeyRouting {
         /// Global shortcuts whose tap cycles the open bar (the summon shortcut, plus the
         /// Recents/Stack one while that view is showing): with ⇧ added they cycle back.
         var cycleShortcuts: [CycleShortcut] = []
+        /// The search field has selected text: ⌘C copies that text, not the row.
+        var hasTextSelection = false
     }
 
     struct CycleShortcut: Equatable {
@@ -88,9 +90,16 @@ enum FastTabKeyRouting {
         case clearSelection
         /// Esc on the search field: hide the bar.
         case hideBar
+        /// ⌘C on a row (shared `CommandBarShellCommand.copy`): run its copy action (the URL).
+        case copySelection
+        /// ⌘, (shared `CommandBarShellCommand.openSettings`): open Settings.
+        case openSettings
     }
 
-    static func route(keyCode: UInt16, modifiers: NSEvent.ModifierFlags, context c: Context, hooks: Hooks = Hooks()) -> Action {
+    /// `characters` = the event's `charactersIgnoringModifiers` (⌘C / ⌘, follow the keyboard layout).
+    static func route(
+        keyCode: UInt16, characters: String = "", modifiers: NSEvent.ModifierFlags, context c: Context, hooks: Hooks = Hooks()
+    ) -> Action {
         guard c.isVisible else { return .passThrough }
         let userModifiers = modifiers.intersection(.deviceIndependentFlagsMask)
             .intersection([.command, .option, .control, .shift])
@@ -110,6 +119,19 @@ enum FastTabKeyRouting {
             CommandBarKeyRouter.isBackwardCycle(press, summonKeyCode: $0.keyCode, summonModifiers: CommandBarModifiers($0.modifiers))
         }) {
             return .cycleBackward
+        }
+
+        // Shell keys every command bar shares: ⌘C copies the highlighted row, ⌘, opens Settings.
+        switch CommandBarKeyRouter.shellCommand(
+            characters: characters, modifiers: CommandBarModifiers(modifiers), hasTextSelection: c.hasTextSelection
+        ) {
+        case .openSettings: return .openSettings
+        case .copy:
+            switch c.selectedRow {
+            case .stackSlot, .liveTab, .otherResult: return .copySelection
+            case .none, .other: break
+            }
+        case nil: break
         }
 
         // ⌘1…⌘9 view switching.

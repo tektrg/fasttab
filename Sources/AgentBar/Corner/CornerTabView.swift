@@ -18,7 +18,7 @@ final class CornerTabViewState: ObservableObject {
 /// The corner window's content: either the pill (an orange dot, "3 need you", and the newest
 /// arrival's name; a grey dot and "Nothing needs you · AgentBar" when nobody needs the user; a red
 /// dot and "waiting for your answer" while someone is blocked, and then the tab stays), or, once
-/// exactly one agent is blocked with something answerable, that agent's live card (`CornerCardView`)
+/// exactly one agent is blocked with something answerable, that agent's live card (the compact `AgentPanelView`)
 /// in its place. Same material and outline as the panel. Slides in from the display's right edge;
 /// the window clips it.
 struct CornerTabView: View {
@@ -50,7 +50,13 @@ struct CornerTabView: View {
     private var content: some View {
         switch state.mode {
         case .pill: pill
-        case .card: CornerCardView(model: model, onExpand: onOpenPanel, onDismiss: onDismiss, onOpenSettings: onOpenSettings)
+        case .card:
+            // The main panel itself, compact (`AgentPanelView.corner`): same glass, card and footer.
+            AgentPanelView(
+                model: model, onClose: onDismiss, onOpenSettings: onOpenSettings,
+                corner: .init(onExpand: onOpenPanel, onDismiss: onDismiss)
+            )
+            .frame(height: CornerTabPlacement.cardHeight)
         }
     }
 
@@ -84,5 +90,24 @@ struct CornerTabView: View {
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.12)))
         .contentShape(RoundedRectangle(cornerRadius: 14))
         .onTapGesture(perform: onOpenPanel)
+    }
+}
+
+/// The ✕ shared by the pill and the card header: hides the corner for now (the agent stays blocked
+/// in the panel; only a new blocker or resting the pointer in the corner brings it back).
+struct CornerDismissButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.avenir(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Hide for now")
+        .accessibilityLabel("Dismiss")
     }
 }

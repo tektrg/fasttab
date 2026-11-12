@@ -25,6 +25,13 @@ public struct ReaderView: View {
 
     @StateObject private var viewModel: ReaderViewModel
     @StateObject private var readAloud = ReadAloudController()
+    /// Find in Article (••• menu): its bar replaces the bottom control bar while open.
+    @StateObject private var find = ReaderFindController()
+    @State private var findQuery = ""
+    /// A summary is saved for this article (shown without the paywall: no "Plus" caption).
+    @State private var hasSavedSummary = false
+    /// The original-page fallback's web view, for the system find panel (toolbar magnifier).
+    @State private var fallbackPage = ReaderFallbackPage()
     /// Read Again state for the End of Article button (marked here or synced in).
     @ObservedObject private var savedStore = SavedOnIPhoneStore.shared
     @Environment(\.dismiss) private var dismiss
@@ -144,7 +151,7 @@ public struct ReaderView: View {
             .accessibilityAction(.escape) { handleBack() }
             .overlay(alignment: .bottom) {
                 VStack(spacing: DS.Space.sm) {
-                    if showHighlightBar {
+                    if showHighlightBar, !find.isOpen {
                         ReaderHighlightBar(
                             selectedText: selectedText,
                             onSelectColor: { color in
@@ -158,11 +165,16 @@ public struct ReaderView: View {
                         .zIndex(10)
                     }
                     ReadAloudNoticeView(notice: readAloud.engineNotice)
-                    if readAloud.isAutoScrollPaused, readAloud.state != .idle {
+                    if readAloud.isAutoScrollPaused, readAloud.state != .idle, !find.isOpen {
                         ReadAloudBackToReadingButton { readAloud.isAutoScrollPaused = false }
                             .transition(.opacity)
                     }
-                    if isLoaded {
+                    if find.isOpen, isLoaded {
+                        // Keyboard-aware: this overlay keeps the keyboard safe area (only the
+                        // web view ignores it), so the bar rides above the keyboard.
+                        ReaderFindBar(find: find, query: $findQuery, onDone: closeFind)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else if isLoaded {
                         bottomControlBar
                     }
                 }
@@ -180,7 +192,11 @@ public struct ReaderView: View {
             }
             #endif
         }
+        .onChange(of: isLoaded) { _, loaded in
+            if loaded { refreshHasSavedSummary() } else if find.isOpen { closeFind() }
+        }
         .onDisappear {
+            if find.isOpen { closeFind() }
             readAloud.stop()
             viewModel.flushPendingProgress()
             viewModel.readerDidClose()
@@ -206,6 +222,7 @@ public struct ReaderView: View {
             highlightsSheet
         }
         .sheet(item: $summarySheet, onDismiss: {
+            refreshHasSavedSummary()
             if let next = summaryNext {
                 summaryNext = nil
                 summarySheet = next
@@ -311,7 +328,8 @@ public struct ReaderView: View {
             readAloud: ReadAloudPageState(
                 position: readAloud.spokenPosition,
                 chunks: readAloud.chunks,
-                autoScroll: !readAloud.isAutoScrollPaused,
+                autoScroll: ReaderFindAutoScroll.isEnabled(
+                    userPaused: readAloud.isAutoScrollPaused, findOpen: find.isOpen),
                 tapToJumpEnabled: readAloud.hasBeenUsed
             ),
             onUserBeganScrolling: {
@@ -322,7 +340,8 @@ public struct ReaderView: View {
             },
             onReadAloudPageReady: { page in
                 if readAloud.page !== page { readAloud.page = page }
-            }
+            },
+            findController: find
         )
         .ignoresSafeArea(edges: .bottom)
     }
@@ -336,7 +355,7 @@ public struct ReaderView: View {
     }
 
     private var inAppWebView: some View {
-        ReaderInAppFallbackView(url: viewModel.url, viewModel: viewModel)
+        ReaderInAppFallbackView(url: viewModel.url, viewModel: viewModel, page: fallbackPage)
             .ignoresSafeArea(edges: .bottom)
     }
 
@@ -366,6 +385,15 @@ public struct ReaderView: View {
         }
 
         ToolbarItemGroup(placement: .topBarTrailing) {
+            // Original page (not Safari Reader / transcript failure): the system find panel.
+            if !viewModel.needsSafariReader, viewModel.transcriptFailure == nil {
+                Button {
+                    fallbackPage.webView?.findInteraction?.presentFindNavigator(showingReplace: false)
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Find on Page")
+            }
             ShareLink(item: viewModel.url) {
                 Image(systemName: "square.and.arrow.up")
             }
@@ -497,56 +525,25 @@ public struct ReaderView: View {
         }
     }
 
-    /// More actions: reading / Read Aloud settings, reload, share, Safari, bookmark, delete.
+    /// More actions, in the order `ReaderMoreMenu.entries` gives (tested in ReaderFindTests).
     private var moreActionsMenu: some View {
-        Menu {
-            Button {
-                showReadingSettings = true
-            } label: {
-                Label("Reading Settings", systemImage: "textformat.size")
-            }
-            Button {
-                showReadAloudSettings = true
-            } label: {
-                Label("Read Aloud Settings", systemImage: "speaker.wave.2")
-            }
-            if case .loaded(let article) = viewModel.loadState {
-                Button {
-                    startSummary(article)
-                } label: {
-                    Label("Summary", systemImage: "sparkles")
-                }
-            }
-            Divider()
-            Button {
-                isLongExtraction = false
-                Task { await viewModel.reloadArticle() }
-            } label: {
-                Label("Reload Article", systemImage: "arrow.clockwise")
-            }
-            ShareLink(item: viewModel.url) {
-                Label("Share Link", systemImage: "square.and.arrow.up")
-            }
-            Button {
-                UIApplication.shared.open(viewModel.url)
-            } label: {
-                Label("Open in Safari", systemImage: "safari")
-            }
-            Divider()
-            Button {
-                showBookmarkPicker = true
-            } label: {
-                Label("Save to Bookmark Folder…", systemImage: "folder.badge.plus")
-            }
-            Button(role: .destructive) {
-                deleteCurrentLink()
-            } label: {
-                Label("Delete Link", systemImage: "trash")
-            }
-            if let cleanup = viewModel.transcriptCleanup, cleanup.isAvailable {
-                Divider()
-                Toggle(isOn: Binding(get: { cleanup.isEnabled }, set: { cleanup.setEnabled($0) })) {
-                    Label("Clean Up Transcript (Experimental)", systemImage: "wand.and.sparkles")
+        let cleanup = viewModel.transcriptCleanup
+        let entries = ReaderMoreMenu.entries(
+            isLoaded: isLoaded, isEntitled: NaturalVoiceAccess.shared.isEntitled,
+            hasSavedSummary: hasSavedSummary, cleanupAvailable: cleanup?.isAvailable == true)
+        return Menu {
+            ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                switch entry {
+                case .item(let action):
+                    moreMenuButton(action)
+                case .section(let title, let actions):
+                    Section(title) {
+                        ForEach(Array(actions.enumerated()), id: \.offset) { _, action in
+                            moreMenuButton(action)
+                        }
+                    }
+                case .divider:
+                    Divider()
                 }
             }
         } label: {
@@ -554,6 +551,85 @@ public struct ReaderView: View {
                 .readerBarTapTarget()
         }
         .accessibilityLabel("More actions")
+    }
+
+    @ViewBuilder
+    private func moreMenuButton(_ action: ReaderMoreMenuAction) -> some View {
+        switch action {
+        case .readingSettings:
+            Button { showReadingSettings = true } label: {
+                Label("Reading Settings", systemImage: "textformat.size")
+            }
+        case .readAloudSettings:
+            Button { showReadAloudSettings = true } label: {
+                Label("Read Aloud Settings", systemImage: "speaker.wave.2")
+            }
+        case .summary(let showsPlus):
+            Button {
+                if case .loaded(let article) = viewModel.loadState { startSummary(article) }
+            } label: {
+                // A second Text is the menu row's subtitle.
+                Text("Summary")
+                if showsPlus { Text("Plus") }
+                Image(systemName: "sparkles")
+            }
+        case .cleanUpTranscript:
+            if let cleanup = viewModel.transcriptCleanup {
+                Toggle(isOn: Binding(get: { cleanup.isEnabled }, set: { cleanup.setEnabled($0) })) {
+                    Label("Clean Up Transcript (Experimental)", systemImage: "wand.and.sparkles")
+                }
+            }
+        case .findInArticle:
+            Button { openFind() } label: {
+                Label("Find in Article", systemImage: "magnifyingglass")
+            }
+        case .reload:
+            Button {
+                if find.isOpen { closeFind() }
+                isLongExtraction = false
+                Task { await viewModel.reloadArticle() }
+            } label: {
+                Label("Reload Article", systemImage: "arrow.clockwise")
+            }
+        case .shareLink:
+            ShareLink(item: viewModel.url) {
+                Label("Share Link", systemImage: "square.and.arrow.up")
+            }
+        case .openInSafari:
+            Button { UIApplication.shared.open(viewModel.url) } label: {
+                Label("Open in Safari", systemImage: "safari")
+            }
+        case .saveToBookmarkFolder:
+            Button { showBookmarkPicker = true } label: {
+                Label("Save to Bookmark Folder…", systemImage: "folder.badge.plus")
+            }
+        case .deleteLink:
+            Button(role: .destructive) { deleteCurrentLink() } label: {
+                Label("Delete Link", systemImage: "trash")
+            }
+        }
+    }
+
+    // MARK: - Find in Article
+
+    /// Read Aloud keeps playing but stops auto-scrolling while Find is open (even if playback
+    /// starts or resumes meanwhile); after Done, "Back to reading" resumes it.
+    private func openFind() {
+        withAnimation { showHighlightBar = false }
+        withAnimation(.easeInOut(duration: 0.2)) { find.open() }
+    }
+
+    private func closeFind() {
+        withAnimation(.easeInOut(duration: 0.2)) { find.close() }
+        findQuery = ""
+        readAloud.isAutoScrollPaused = ReaderFindAutoScroll.pausedAfterClose(
+            userPaused: readAloud.isAutoScrollPaused, readAloudActive: readAloud.state != .idle)
+    }
+
+    private func refreshHasSavedSummary() {
+        guard case .loaded(let article) = viewModel.loadState else { hasSavedSummary = false; return }
+        ensureSummaryModel(article)
+        hasSavedSummary = summaryModel?.hasSavedSummary() == true
     }
 
     /// Menu → Summary. Subscribers (and anyone with a summary already saved for this exact text)
@@ -846,9 +922,15 @@ private final class ScreenEdgeSwipeBackViewController: UIViewController, UIGestu
 
 // MARK: - In-App Fallback Web View
 
+/// Holds the fallback page's web view so the toolbar can open its find panel.
+final class ReaderFallbackPage {
+    weak var webView: WKWebView?
+}
+
 private struct ReaderInAppFallbackView: UIViewRepresentable {
     let url: URL
     let viewModel: ReaderViewModel
+    let page: ReaderFallbackPage
 
     func makeCoordinator() -> Coordinator {
         Coordinator(viewModel: viewModel)
@@ -860,6 +942,9 @@ private struct ReaderInAppFallbackView: UIViewRepresentable {
         wv.navigationDelegate = context.coordinator
         wv.scrollView.delegate = context.coordinator
         context.coordinator.webView = wv
+        // System Find (Cmd-F on a keyboard; the toolbar magnifier opens it on touch).
+        wv.isFindInteractionEnabled = true
+        page.webView = wv
         wv.load(URLRequest(url: url))
         return wv
     }

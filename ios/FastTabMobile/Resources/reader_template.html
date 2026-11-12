@@ -358,6 +358,9 @@
 /* Read Aloud: CSS Custom Highlight API (no DOM rewrite). --link follows the reader theme. */
 ::highlight(ft-read-para) { background-color: color-mix(in srgb, var(--link) 10%, transparent); }
 ::highlight(ft-read-word) { background-color: color-mix(in srgb, var(--link) 38%, transparent); }
+/* Find in Article: all matches pale yellow, the current one orange (never saved). */
+::highlight(ft-find) { background-color: rgba(255, 214, 10, 0.45); }
+::highlight(ft-find-current) { background-color: rgba(255, 149, 0, 0.85); color: #000; }
 
   /* ── End of Article Actions ────────────────────────────── */
   #reader-end-actions {
@@ -1488,6 +1491,46 @@ function ftAnchorAt(start, len, bounds) {
   };
 
   window.ftReadAloudClear = clearHighlights;
+
+  // Find in Article (ReaderFind.swift): Swift matches against ftReadAloudText() and sends
+  // { ranges: [[start, length]...], current: i } in that text's offsets. Painted with CSS
+  // Custom Highlights only: the DOM is never touched, so saved highlights (and their
+  // anchors) are unaffected and nothing is persisted. ftFindClear() removes it all.
+  var findAll = supportsHighlights ? new Highlight() : null;
+  var findCurrent = supportsHighlights ? new Highlight() : null;
+  if (supportsHighlights) {
+    findCurrent.priority = 1;
+    CSS.highlights.set('ft-find', findAll);
+    CSS.highlights.set('ft-find-current', findCurrent);
+  }
+  window.ftFindShow = function(data) {
+    window.ftFindClear();
+    var ranges = (data && data.ranges) || [], currentRange = null;
+    try {
+      for (var i = 0; i < ranges.length; i++) {
+        var r = domRange(ranges[i][0], ranges[i][1]);
+        if (!r) continue;
+        if (i === data.current) currentRange = r;
+        if (supportsHighlights) (i === data.current ? findCurrent : findAll).add(r);
+      }
+    } catch (e) {
+      window.ftFindClear();
+      return 'stale';
+    }
+    if (currentRange) {
+      var rect = currentRange.getBoundingClientRect(), h = window.innerHeight;
+      // Keep it in the upper part of the screen: the find bar and keyboard cover the bottom.
+      if (rect.top < h * 0.12 || rect.bottom > h * 0.45) {
+        window.scrollBy({ top: rect.top - h * 0.25, behavior: 'smooth' });
+      }
+    }
+    return ranges.length && !currentRange && data.current >= 0 ? 'unmapped' : 'ok';
+  };
+  window.ftFindClear = function() {
+    if (!supportsHighlights) return;
+    findAll.clear();
+    findCurrent.clear();
+  };
 
   // Where Play should start: first/last character offsets (in the text map) on screen,
   // and whether the page is scrolled to the very top. Binary search over the map, since

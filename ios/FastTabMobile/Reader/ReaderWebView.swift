@@ -59,6 +59,8 @@ public struct ReaderWebView: UIViewRepresentable {
     var onReadAloudTap: ((String, Int) -> Void)?
     /// Hands the page's Read Aloud bridge to its owner (for "start where I am").
     var onReadAloudPageReady: ((ReadAloudPageSync) -> Void)?
+    /// Find in Article: gets this page's web view (ReaderFind.swift).
+    var findController: ReaderFindController?
 
     init(
         viewModel: ReaderViewModel,
@@ -77,7 +79,8 @@ public struct ReaderWebView: UIViewRepresentable {
         readAloud: ReadAloudPageState? = nil,
         onUserBeganScrolling: (() -> Void)? = nil,
         onReadAloudTap: ((String, Int) -> Void)? = nil,
-        onReadAloudPageReady: ((ReadAloudPageSync) -> Void)? = nil
+        onReadAloudPageReady: ((ReadAloudPageSync) -> Void)? = nil,
+        findController: ReaderFindController? = nil
     ) {
         self.viewModel = viewModel
         self.article = article
@@ -96,6 +99,7 @@ public struct ReaderWebView: UIViewRepresentable {
         self.onUserBeganScrolling = onUserBeganScrolling
         self.onReadAloudTap = onReadAloudTap
         self.onReadAloudPageReady = onReadAloudPageReady
+        self.findController = findController
     }
 
     // MARK: - UIViewRepresentable
@@ -179,6 +183,12 @@ public struct ReaderWebView: UIViewRepresentable {
         }
 
         context.coordinator.onEdgeSwipe = onEdgeSwipe
+        if let findController, findController.webView !== webView {
+            findController.webView = webView
+            findController.onPageMapRebuilt = { [weak coordinator = context.coordinator] in
+                coordinator?.readAloudSync.invalidateLocator()
+            }
+        }
         context.coordinator.onUserBeganScrolling = onUserBeganScrolling
         context.coordinator.onReadAloudTap = onReadAloudTap
         context.coordinator.onReachedEndChanged = onReachedEndChanged
@@ -201,6 +211,7 @@ public struct ReaderWebView: UIViewRepresentable {
             context.coordinator.pushedTranscriptRevision = cleanup.revision
             let changed = cleanup.shownTexts.filter { context.coordinator.pushedTranscript[$0.i] != $0 }
             context.coordinator.pushTranscript(changed)
+            if !changed.isEmpty { findController?.pageTextChanged() }
         }
 
         // If viewModel requests a new highlight, apply it safely via JSON payload

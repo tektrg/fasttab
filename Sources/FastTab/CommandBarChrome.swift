@@ -162,6 +162,7 @@ struct SearchHeader: View {
 }
 
 private struct SearchAliasBadge: View {
+    @Environment(\.commandBarTheme) private var theme
     let alias: SearchAlias
     let onRemove: () -> Void
 
@@ -183,10 +184,10 @@ private struct SearchAliasBadge: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
-            Capsule().fill(Color.accentColor.opacity(0.18))
+            Capsule().fill(theme.accentColor.opacity(0.18))
         )
         .overlay(
-            Capsule().strokeBorder(Color.accentColor.opacity(0.32), lineWidth: 1)
+            Capsule().strokeBorder(theme.accentColor.opacity(0.32), lineWidth: 1)
         )
         .fixedSize()
     }
@@ -199,6 +200,8 @@ enum CommandBarAppearance {
     static let outerPanelKey = keys.background
     static let resultRowStyleKey = keys.rowStyle
     static let quickOpenItemLimitKey = keys.rowLimit
+    /// Accent colour (slice 8c). Missing = `.system`, the look before the setting existed.
+    static let accentKey = keys.accent
     /// Fast Tab's defaults: background on, Minimal rows, 5 quick-open items. Position comes from
     /// the hover-to-open edge (General), so Fast Tab does not offer the shared Position/Size pickers.
     static let standard = CommandBarAppearanceSettings(background: true, rowStyle: .minimal, rowLimit: 5)

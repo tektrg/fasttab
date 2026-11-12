@@ -50,7 +50,7 @@ struct PermissionPanelModelTests {
     @Test func aReviewableRowShowsReviewAndParkAndReviewOpensTheCard() {
         let rig = makeRig([F.agent("done"), P.agent("a", P.bash)])
         #expect(rig.model.presentation.agents.map(\.id) == ["a", "done"])
-        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.review, .peek, .park])
+        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.peek, .park, .review])
         rig.model.press(.review, on: "a")
         #expect(rig.model.permission.card?.agentID == "a")
         #expect(rig.model.isCardOpen)
@@ -61,12 +61,12 @@ struct PermissionPanelModelTests {
         let rig = makeRig([P.agent("a", nil)])
         rig.model.press(.review, on: "a")   // not offered: nothing happens
         #expect(!rig.model.isCardOpen)
-        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.openTerminal, .peek, .park])
+        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.peek, .park, .openTerminal])
     }
 
     @Test func enterOnTheHighlightedReviewButtonOpensTheCard() {
         let rig = makeRig([P.agent("a", P.bash)])
-        rig.model.moveButtonHighlight(by: 1)
+        for _ in 0..<3 { rig.model.moveButtonHighlight(by: 1) }   // Peek, Park, then Review at the far right
         #expect(rig.model.highlightedButton == .review)
         rig.model.activateSelected()
         #expect(rig.model.permission.isOpen)
@@ -180,7 +180,7 @@ struct PermissionPanelModelTests {
         await waitUntil { rig.model.footerNotice != nil }
         #expect(rig.model.footerNotice == .actionFailed("Approval not sent: permission prompt changed or gone — re-check the pane"))
         #expect(rig.model.sendingLabel(for: rig.model.presentation.agents[0]) == nil)
-        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.review, .peek, .park])
+        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.peek, .park, .review])
     }
 
     @Test func aDecidedBoxCannotBeReopenedWhileTheDashboardCatchesUp() async {
@@ -192,7 +192,7 @@ struct PermissionPanelModelTests {
         // A feed update that still shows the same box (up to ~15s behind the pane).
         rig.model.receive(F.snapshot([P.agent("a", P.bash)]))
         #expect(rig.model.sendingLabel(for: rig.model.presentation.agents[0]) == "Sending approval…")
-        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.review, .peek, .park])
+        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.peek, .park, .review])
         rig.model.press(.review, on: "a")
         #expect(!rig.model.permission.isOpen)
         // The dashboard catches up: the row leaves Needs you.
@@ -206,7 +206,7 @@ struct PermissionPanelModelTests {
         let rig = makeRig([P.agent("a", P.bash)])
         rig.model.receive(F.snapshot([P.agent("a", nil)]))
         #expect(rig.model.presentation.agents.first?.blockedOnYou == .permissionReview(P.bash))
-        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.review, .peek, .park])
+        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.peek, .park, .review])
         rig.model.receive(F.snapshot([P.agent("a", P.bash)]))
         #expect(rig.model.presentation.agents.first?.blockedOnYou == .permissionReview(P.bash))
     }
@@ -214,7 +214,7 @@ struct PermissionPanelModelTests {
     @Test func aRowThatWasNeverParsedNeverGrowsAReviewButton() {
         let rig = makeRig([P.agent("a", nil)])
         rig.model.receive(F.snapshot([P.agent("a", nil)]))
-        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.openTerminal, .peek, .park])
+        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.peek, .park, .openTerminal])
     }
 
     @Test func reviewGoesAwayOnceTheAgentIsNoLongerBlocked() {
@@ -238,13 +238,13 @@ struct PermissionPanelModelTests {
         }
         #expect(sentence.contains("not found"))
         #expect(sentence.contains("Open terminal"))
-        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.openTerminal, .peek, .park])
+        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.peek, .park, .openTerminal])
         // The feed keeps saying it is parseable: still terminal only, until the memory lapses.
         rig.model.receive(F.snapshot([P.agent("a", P.bash)]))
-        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.openTerminal, .peek, .park])
+        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.peek, .park, .openTerminal])
         rig.clock.now += PermissionCardModel.endpointMissingSeconds + 1
         rig.model.receive(F.snapshot([P.agent("a", P.bash)]))
-        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.review, .peek, .park])
+        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.peek, .park, .review])
     }
 
     @Test func aNewDashboardAddressForgetsThatTheOldOneLackedTheEndpoint() async {
@@ -255,7 +255,7 @@ struct PermissionPanelModelTests {
         await waitUntil { rig.model.footerNotice != nil }
         rig.model.useDashboard(address: "127.0.0.1:47999")
         rig.model.receive(F.snapshot([P.agent("a", P.bash)]))
-        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.review, .peek, .park])
+        #expect(RowButtons.usableButtons(for: rig.model.presentation.agents[0]) == [.peek, .park, .review])
     }
 
     // MARK: - Footer hints

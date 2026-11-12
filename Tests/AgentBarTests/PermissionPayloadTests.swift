@@ -71,7 +71,7 @@ struct PermissionPayloadTests {
 
     @Test func aReviewableBoxOffersReviewAndParkInsteadOfOpenTerminal() {
         #expect(buttons(P.agent("a", P.bash)) == [.review, .peek, .park])
-        #expect(RowButtons.usableButtons(for: P.agent("a", P.bash)) == [.review, .peek, .park])
+        #expect(RowButtons.usableButtons(for: P.agent("a", P.bash)) == [.peek, .park, .review])
     }
 
     @Test func aPlainBlockedRowKeepsOpenTerminal() {

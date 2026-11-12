@@ -335,6 +335,7 @@ extension ContentView {
 }
 
 private struct AudibleTabRow: View {
+    @Environment(\.commandBarTheme) private var theme
     let result: BrowserSearchResult
     let faviconImage: NSImage?
     let onSelect: () -> Void
@@ -362,7 +363,7 @@ private struct AudibleTabRow: View {
                 HStack(spacing: 5) {
                     Image(systemName: "speaker.wave.2.fill")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(theme.accentColor)
 
                     Text(result.title)
                         .font(.system(size: 13, weight: .regular, design: .default))
@@ -385,7 +386,7 @@ private struct AudibleTabRow: View {
                 isSelected: false,
                 isHovering: isHovering,
                 isVisible: isActionsVisible,
-                accentTint: Color.accentColor.opacity(0.12),
+                accentTint: theme.accentColor.opacity(0.12),
                 trailingPadding: 10
             ) {
                 Button(action: onMute) {
@@ -405,7 +406,7 @@ private struct AudibleTabRow: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.accentColor.opacity(isHovering ? 0.12 : 0.08))
+                .fill(theme.accentColor.opacity(isHovering ? 0.12 : 0.08))
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onHover { isHovering = $0 }

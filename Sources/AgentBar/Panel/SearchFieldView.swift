@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieCommandBar
 
 /// Search box at the top of the panel; grabs keyboard focus on every show.
 /// ←/→ walk the selected row's buttons, but only while the box is empty (with
@@ -278,6 +279,7 @@ struct SearchFieldView: View {
 /// (`SearchAliasBadge` in `CommandBarChrome.swift`) — same capsule, same accent tint, same ✕ —
 /// since AgentBar and FastTab share only `IndieCommandBar`, which has no such component to reuse.
 private struct TagChipView: View {
+    @Environment(\.commandBarTheme) private var theme
     let label: String
     let onRemove: () -> Void
 
@@ -298,8 +300,8 @@ private struct TagChipView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Capsule().fill(Color.accentColor.opacity(0.18)))
-        .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.32), lineWidth: 1))
+        .background(Capsule().fill(theme.accentColor.opacity(0.18)))
+        .overlay(Capsule().strokeBorder(theme.accentColor.opacity(0.32), lineWidth: 1))
         .fixedSize()
     }
 }

@@ -105,6 +105,7 @@ struct ContentView: View {
     /// The "Background" appearance setting — handed to `CommandBarSurface`,
     /// which passes it down to every section background inside it.
     @AppStorage(CommandBarAppearance.outerPanelKey) var outerPanelEnabled: Bool = true
+    @AppStorage(CommandBarAppearance.accentKey) var accent: CommandBarAccent = .system
     /// User's preferred quick-open ("recent tabs") item count. Read through
     /// `effectiveQuickOpenLimit`, never used directly — it may exceed what the
     /// current screen can actually fit.
@@ -759,8 +760,8 @@ struct ContentView: View {
                         }
                 }
                 .environment(\.isCompactCommandBar, isCompact(anchor))
-                // Fast Tab's look: system accent and its own icon (today's values).
-                .environment(\.commandBarTheme, CommandBarTheme(accentColor: .accentColor, appIcon: NSApp.applicationIconImage))
+                // Fast Tab's look: the accent picked in Settings › Appearance (default System) and its own icon.
+                .environment(\.commandBarTheme, CommandBarTheme(accent: accent, appIcon: NSApp.applicationIconImage))
                 .scaleEffect(
                     x: revealScale(for: anchor, surfaceSize: surfaceSize).width,
                     y: revealScale(for: anchor, surfaceSize: surfaceSize).height,

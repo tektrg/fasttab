@@ -51,6 +51,7 @@ struct SwipeableResultRow: View {
 }
 
 private struct ResultRowView: View {
+    @Environment(\.commandBarTheme) private var theme
     let result: BrowserSearchResult
     let isSelected: Bool
     let faviconImage: NSImage?
@@ -137,10 +138,10 @@ private struct ResultRowView: View {
         .opacity(result.type.dimmingOpacity)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.17) : (isHovering ? Color.primary.opacity(0.04) : Color.clear))
+                .fill(isSelected ? theme.accentColor.opacity(0.17) : (isHovering ? Color.primary.opacity(0.04) : Color.clear))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : .clear, lineWidth: 1)
+                        .strokeBorder(isSelected ? theme.accentColor.opacity(0.3) : .clear, lineWidth: 1)
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

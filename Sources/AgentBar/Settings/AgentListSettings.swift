@@ -49,6 +49,8 @@ struct AgentListSettings: Equatable, Sendable {
     var placement: CommandBarPlacement = .bottomRight
     /// True (default): the panel is only as tall as its rows, up to `maxVisibleRows`. False: always that tall.
     var fitsContent: Bool = true
+    /// The panel's accent colour (shared appearance choice; `.system` = the Mac's accent, the old look).
+    var accent: CommandBarAccent = .system
 
     /// Agent Bar's appearance keys. Rows-before-scrolling keeps its older key.
     static let appearanceKeys: CommandBarAppearanceKeys = {
@@ -60,11 +62,12 @@ struct AgentListSettings: Equatable, Sendable {
     /// The shared appearance model's view of these settings (what the shared settings section edits).
     /// Agent Bar draws neither a background toggle nor Minimal rows yet, so those stay at their defaults.
     var appearance: CommandBarAppearanceSettings {
-        get { CommandBarAppearanceSettings(rowLimit: maxVisibleRows, placement: placement, fitsContent: fitsContent) }
+        get { CommandBarAppearanceSettings(rowLimit: maxVisibleRows, placement: placement, fitsContent: fitsContent, accent: accent) }
         set {
             maxVisibleRows = newValue.rowLimit
             placement = newValue.placement
             fitsContent = newValue.fitsContent
+            accent = newValue.accent
         }
     }
 
@@ -89,7 +92,8 @@ struct AgentListSettings: Equatable, Sendable {
             sleepingListDays: choice(defaults, sleepingListDaysKey, in: sleepingListDaysChoices, fallback: standard.sleepingListDays),
             sleepingSearchDays: choice(defaults, sleepingSearchDaysKey, in: sleepingSearchDaysChoices, fallback: standard.sleepingSearchDays),
             placement: appearance.placement,
-            fitsContent: appearance.fitsContent
+            fitsContent: appearance.fitsContent,
+            accent: appearance.accent
         )
     }
 
@@ -103,6 +107,7 @@ struct AgentListSettings: Equatable, Sendable {
         defaults.set(sleepingSearchDays, forKey: Self.sleepingSearchDaysKey)
         defaults.set(placement.rawValue, forKey: Self.appearanceKeys.placement)
         defaults.set(fitsContent, forKey: Self.appearanceKeys.fitsContent)
+        defaults.set(accent.rawValue, forKey: Self.appearanceKeys.accent)
     }
 
     /// The agents that pass these settings, order kept. Ended rows arrive newest

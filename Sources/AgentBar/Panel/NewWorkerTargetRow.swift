@@ -1,9 +1,11 @@
 import SwiftUI
+import IndieCommandBar
 
 /// New worker step 2's row above the search box: the chosen persona (its ✕ goes back to the folder
 /// list, same as Esc) and the machine chips when it can run on 2+ machines. Fits
 /// `AgentPanelMetrics.tagRowHeight`, the Tab-tag chip row's slot.
 struct NewWorkerTargetRow: View {
+    @Environment(\.commandBarTheme) private var theme
     let pick: PersonaPick
     let onBack: () -> Void
 
@@ -28,8 +30,8 @@ struct NewWorkerTargetRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(Capsule().fill(Color.accentColor.opacity(0.18)))
-            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.32), lineWidth: 1))
+            .background(Capsule().fill(theme.accentColor.opacity(0.18)))
+            .overlay(Capsule().strokeBorder(theme.accentColor.opacity(0.32), lineWidth: 1))
             .fixedSize()
             PersonaMachineChips(chips: pick.machineChips, selectedID: pick.machineID)
         }

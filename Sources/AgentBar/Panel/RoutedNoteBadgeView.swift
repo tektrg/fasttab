@@ -1,9 +1,11 @@
 import SwiftUI
+import IndieCommandBar
 
 /// The newest routed message a row is still holding (see `AgentPanelModel.routedNotesByAgentID`).
 /// Same shape as `UnpushedBadgeView` — a small capsule that fits the row's fixed height, older
 /// notes riding along as a "+N" and the tooltip; the ✕ is the only way one goes away.
 struct RoutedNoteBadgeView: View {
+    @Environment(\.commandBarTheme) private var theme
     let notes: [RoutedNote]
     var onClear: (UUID) -> Void = { _ in }
 
@@ -28,7 +30,7 @@ struct RoutedNoteBadgeView: View {
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+            .background(Capsule().fill(theme.accentColor.opacity(0.15)))
             .frame(maxWidth: 160, alignment: .trailing)
             .help(notes.map(\.text).joined(separator: "\n\n"))
         }

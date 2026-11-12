@@ -60,7 +60,8 @@ struct AnswerPanelModelTests {
 
     @Test func rightArrowThenEnterOpensTheCardFromTheKeyboard() {
         let (model, _, _) = makeRig([blockedQuestion])
-        #expect(model.moveButtonHighlight(by: 1))
+        // Answer is drawn at the far right (after Peek, Park), so → reaches it third (slice 8c).
+        for _ in 0..<3 { #expect(model.moveButtonHighlight(by: 1)) }
         #expect(model.highlightedButton == .answer)
         model.activateSelected()
         #expect(model.answer.isOpen)
@@ -150,7 +151,7 @@ struct AnswerPanelModelTests {
         #expect(model.moveButtonHighlight(by: 1))
         #expect(model.highlightedButton == nil)
         model.select(agentID: "r")
-        #expect(model.moveButtonHighlight(by: 1))
+        for _ in 0..<3 { #expect(model.moveButtonHighlight(by: 1)) }
         #expect(model.highlightedButton == .openTerminal)
     }
 

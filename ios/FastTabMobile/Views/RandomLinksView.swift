@@ -91,33 +91,26 @@ enum ShuffleDeck {
     }
 
     /// The Highlights screen's deck: one card per highlight in `entries` (the ones the screen
-    /// shows), shuffled, no Read Again links and no cap. Same card id as Home's Mac deck
-    /// (`highlight|<id>`), so skips and "Don't Surface" carry over both ways.
+    /// shows), shuffled, no Read Again links and no cap. Deliberately no skip or "Don't Surface"
+    /// filter: every visible highlight is dealt. Card id as in Home's Mac deck (`highlight|<id>`).
     static func buildHighlights<G: RandomNumberGenerator>(
         _ entries: [HighlightFeedEntry],
-        isSkipped: (String) -> Bool,
-        isHidden: (URL) -> Bool,
         using generator: inout G
     ) -> [RandomCardItem] {
         var seen = Set<String>()
         var cards: [RandomCardItem] = entries.compactMap { entry in
             let highlight = entry.highlight
             let id = "highlight|\(highlight.id)"
-            guard let url = highlight.articleURL, !isSkipped(id), !isHidden(url),
-                  seen.insert(id).inserted else { return nil }
+            guard let url = highlight.articleURL, seen.insert(id).inserted else { return nil }
             return RandomCardItem(id: id, title: entry.articleTitle, url: url, source: .highlight(highlight))
         }
         cards.shuffle(using: &generator)
         return cards
     }
 
-    static func buildHighlights(
-        _ entries: [HighlightFeedEntry],
-        isSkipped: (String) -> Bool,
-        isHidden: (URL) -> Bool
-    ) -> [RandomCardItem] {
+    static func buildHighlights(_ entries: [HighlightFeedEntry]) -> [RandomCardItem] {
         var generator = SystemRandomNumberGenerator()
-        return buildHighlights(entries, isSkipped: isSkipped, isHidden: isHidden, using: &generator)
+        return buildHighlights(entries, using: &generator)
     }
 }
 
@@ -144,7 +137,7 @@ enum RandomCardMenuAction {
     case toggleReadAgain
 }
 
-/// The Shuffle deck: one card at a time, swipe left to skip until tomorrow, right (or tap) to
+/// The Shuffle deck: one card at a time, swipe left to skip (Home: until tomorrow), right (or tap) to
 /// move/save a bookmark or tab, or open a link or highlight in the reader; long-press for more.
 /// `ShuffleSource` picks the pool: Read's Shuffle button pushes the Home deck (kept for the
 /// session by the app), the Highlights screen's pushes a highlights-only deck.
@@ -179,9 +172,11 @@ struct RandomLinksView: View {
             if deck.cards.isEmpty {
                 emptyState
             } else {
-                TipView(shuffleSwipeTip)
-                    .fastTabTipStyle()
-                    .padding([.horizontal, .top], DS.Space.gutter)
+                if source.showsSwipeTip {
+                    TipView(shuffleSwipeTip)
+                        .fastTabTipStyle()
+                        .padding([.horizontal, .top], DS.Space.gutter)
+                }
                 deckStack
                     .padding(DS.Space.gutter)
             }
@@ -266,6 +261,7 @@ struct RandomLinksView: View {
                     RandomCardView(
                         item: item,
                         isReadAgain: savedStore.isReadAgain(item.url),
+                        offersDontSurface: source.offersDontSurface,
                         isTop: isTop,
                         cardSize: cardSize,
                         isExpanding: isTarget && isExpanding,
@@ -339,15 +335,14 @@ struct RandomLinksView: View {
         Group {
             if hasAnySourceData {
                 DSEmptyState(
-                    "You've been through today's picks",
+                    isHighlightsDeck ? "You've been through these highlights" : "You've been through today's picks",
                     systemImage: "checkmark.circle",
                     message: isHighlightsDeck
-                        ? "Skipped highlights come back tomorrow — or right now."
+                        ? "Shuffle again to go through them once more."
                         : "Skipped links come back tomorrow — or right now."
                 ) {
                     Button("Shuffle again") {
-                        skipStore.resetToday()
-                        reshuffle()
+                        deck.shuffleAgain(context: dealContext, makeDeck)
                     }
                     .buttonStyle(.dsPrimary)
                 }
@@ -377,7 +372,8 @@ struct RandomLinksView: View {
     }
 
     private func handle(_ decision: RandomCardDecision, for item: RandomCardItem) {
-        shuffleSwipeTip.invalidate(reason: .actionPerformed)
+        // The tip is Home's; a Highlights swipe must not retire it unseen.
+        if source.showsSwipeTip { shuffleSwipeTip.invalidate(reason: .actionPerformed) }
         switch decision {
         case .moveTo:
             if item.source.opensOnSwipeRight {
@@ -386,8 +382,7 @@ struct RandomLinksView: View {
                 moveRequest = item
             }
         case .skip:
-            skipStore.skip(item.id)
-            deck.remove { $0.id == item.id }
+            deck.skip(item)
         }
     }
 
@@ -523,8 +518,7 @@ struct RandomLinksView: View {
                 .filter(isSurfaceable)
             return ShuffleDeck.build(pool: buildPool(), readAgain: readAgain, maxSize: Self.maxDeckSize)
         case .highlights(let entries):
-            return ShuffleDeck.buildHighlights(liveHighlights(entries), isSkipped: skipStore.isSkipped,
-                                               isHidden: hiddenStore.isHidden(url:))
+            return ShuffleDeck.buildHighlights(liveHighlights(entries))
         }
     }
 
@@ -610,6 +604,8 @@ private struct RandomCardView: View {
     let item: RandomCardItem
     /// Marked Read Again (live): badge says so, menu offers "Remove from Read Again".
     let isReadAgain: Bool
+    /// "Don't Surface…" in the menu: off on a Highlights deck, which ignores it.
+    let offersDontSurface: Bool
     let isTop: Bool
     let cardSize: CGSize
     let isExpanding: Bool
@@ -755,21 +751,23 @@ private struct RandomCardView: View {
             Label(ReadAgainLabel.title(isReadAgain: isReadAgain), systemImage: ReadAgainLabel.icon(isReadAgain: isReadAgain))
         }
 
-        Menu {
-            Button {
-                onMenuAction(.hideLink)
-            } label: {
-                Label(isHighlight ? "This Article" : "This Link", systemImage: "link")
-            }
-            if let folderPath = (item.source.hiddenFolderKey != nil) ? item.source.badgeText : nil {
+        if offersDontSurface {
+            Menu {
                 Button {
-                    onMenuAction(.hideFolder)
+                    onMenuAction(.hideLink)
                 } label: {
-                    Label("Folder “\(folderPath)”", systemImage: "folder")
+                    Label(isHighlight ? "This Article" : "This Link", systemImage: "link")
                 }
+                if let folderPath = (item.source.hiddenFolderKey != nil) ? item.source.badgeText : nil {
+                    Button {
+                        onMenuAction(.hideFolder)
+                    } label: {
+                        Label("Folder “\(folderPath)”", systemImage: "folder")
+                    }
+                }
+            } label: {
+                Label("Don't Surface…", systemImage: "eye.slash")
             }
-        } label: {
-            Label("Don't Surface…", systemImage: "eye.slash")
         }
 
         switch item.source {

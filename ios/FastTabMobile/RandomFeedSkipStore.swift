@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-/// Which links the Shuffle tab has swiped past today.
+/// Which cards the Shuffle decks (Read's and Highlights') have swiped past today.
 ///
 /// Deliberately resets every calendar day and is never synced to the Mac: a
 /// skip only means "not interested right now," not "remove this bookmark," so

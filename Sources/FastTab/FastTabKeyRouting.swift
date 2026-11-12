@@ -44,6 +44,14 @@ enum FastTabKeyRouting {
         var isChipFocused = false
         var isStackActive = false
         var stackPinnedCount = 0
+        /// Global shortcuts whose tap cycles the open bar (the summon shortcut, plus the
+        /// Recents/Stack one while that view is showing): with ⇧ added they cycle back.
+        var cycleShortcuts: [CycleShortcut] = []
+    }
+
+    struct CycleShortcut: Equatable {
+        var keyCode: UInt16
+        var modifiers: NSEvent.ModifierFlags
     }
 
     /// Side-effecting checks the decision depends on. Each returns whether it
@@ -72,6 +80,8 @@ enum FastTabKeyRouting {
         case unfocusChip
         case moveScopeSuggestion(by: Int)
         case moveSelection(forward: Bool, via: LastInteractionKey)
+        /// ⇧ + a cycling shortcut while its modifiers are held: one row back.
+        case cycleBackward
         case keyboardSwipe(CommandBarSwipeEdge)
         case activateSelection
         /// Esc with a row highlighted: back to the search field.
@@ -92,6 +102,14 @@ enum FastTabKeyRouting {
         case .consume: return .consumed
         case .passThrough: return .passThrough
         case .notInvolved: break
+        }
+
+        // ⇧ + the summon shortcut: cycle back (shared `CommandBarKeyRouter.isBackwardCycle`).
+        let press = CommandBarKeyPress(keyCode: keyCode, flags: modifiers)
+        if c.cycleShortcuts.contains(where: {
+            CommandBarKeyRouter.isBackwardCycle(press, summonKeyCode: $0.keyCode, summonModifiers: CommandBarModifiers($0.modifiers))
+        }) {
+            return .cycleBackward
         }
 
         // ⌘1…⌘9 view switching.
@@ -167,7 +185,6 @@ enum FastTabKeyRouting {
         }
 
         // Everything else is the shared bar's generic routing.
-        let press = CommandBarKeyPress(keyCode: keyCode, flags: modifiers)
         let state = CommandBarKeyState(selectedIndex: c.selectedIndex, queryIsEmpty: c.searchTextIsEmpty)
         guard let intent = CommandBarKeyRouter.intent(for: press, state: state) else { return .passThrough }
         switch intent {

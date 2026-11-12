@@ -202,10 +202,10 @@ extension ContentView {
     }
 
     /// Connects the shared cycle session to this view: each hotkey tap moves the
-    /// selection, releasing the modifier activates it.
+    /// selection (⇧ + hotkey moves back), releasing the modifier activates it.
     func wireCycleSession() {
-        cycleSession.onAdvance = {
-            moveSelectionForward(includeSearchField: true)
+        cycleSession.onAdvance = { direction in
+            moveSelection(forward: direction == .forward, includeSearchField: true)
             return appState.selectedIndex != -1
         }
         cycleSession.onCommit = {
@@ -287,8 +287,22 @@ extension ContentView {
             isScopeDropdownVisible: isScopeDropdownVisible,
             isChipFocused: focusedChipID != nil,
             isStackActive: viewStore.activeView == .stack,
-            stackPinnedCount: stackPinnedSlots.count
+            stackPinnedCount: stackPinnedSlots.count,
+            cycleShortcuts: cycleShortcuts()
         )
+    }
+
+    /// Mirrors `AppDelegate.handleGlobalShortcut`: which global shortcuts' taps cycle right now.
+    private func cycleShortcuts() -> [FastTabKeyRouting.CycleShortcut] {
+        let store = ShortcutStore.shared
+        var shortcuts = [FastTabKeyRouting.CycleShortcut(keyCode: store.keyCode, modifiers: store.modifiers)]
+        if viewStore.activeView == .recents, let recents = store.recentsShortcut {
+            shortcuts.append(.init(keyCode: recents.keyCode, modifiers: recents.modifierFlags))
+        }
+        if viewStore.activeView == .stack, let stack = store.stackShortcut {
+            shortcuts.append(.init(keyCode: stack.keyCode, modifiers: stack.modifierFlags))
+        }
+        return shortcuts
     }
 
     private func keyRoutingHooks(_ event: NSEvent) -> FastTabKeyRouting.Hooks {
@@ -348,6 +362,8 @@ extension ContentView {
             clearSelectionFromEscape()
         case .hideBar:
             hideBarFromEscape()
+        case .cycleBackward:
+            cycleSession.advance(.backward)
         }
         return true
     }

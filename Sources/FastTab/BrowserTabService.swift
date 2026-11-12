@@ -615,6 +615,8 @@ class BrowserTabService: ObservableObject {
         fetchTask?.cancel()
 
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Prepared once per query (words folded, wildcard/regex compiled), not per row.
+        let searchQuery = SearchBoxQuery(normalizedQuery)
         lastIssuedQuery = normalizedQuery
 
         guard filter.isSatisfiable else {
@@ -704,7 +706,7 @@ class BrowserTabService: ObservableObject {
 
             case .history:
                 let collected = await HistorySearchExpansion.search(
-                    query: normalizedQuery,
+                    query: searchQuery.prefilterText,
                     backends: backends,
                     perBackendLimit: historySearchPerBackendLimit,
                     since: filter.historySince,
@@ -740,8 +742,7 @@ class BrowserTabService: ObservableObject {
                     var earlyTabs = sortBrowserSearchResults(candidateTabs, frecencyScore: frecencyLookup)
                         .filter { filter.matches($0) }
                     if !normalizedQuery.isEmpty {
-                        let queryWords = searchWords(in: normalizedQuery)
-                        earlyTabs = earlyTabs.filter { $0.matches(words: queryWords) || $0.isPinnedAudibleTab }
+                        earlyTabs = earlyTabs.filter { $0.matches(searchQuery) || $0.isPinnedAudibleTab }
                     }
                     await MainActor.run {
                         guard let self, generation == self.fetchGeneration else { return }
@@ -749,7 +750,7 @@ class BrowserTabService: ObservableObject {
                         self.isLoading = false
                     }
                     let history = await HistorySearchExpansion.search(
-                        query: normalizedQuery,
+                        query: searchQuery.prefilterText,
                         backends: backends,
                         perBackendLimit: historySearchPerBackendLimit,
                         since: nil,
@@ -766,12 +767,12 @@ class BrowserTabService: ObservableObject {
                 }
             }
 
-            // Apply free-text filter (history is already query-filtered at SQL).
+            // Apply free-text filter (word history is already query-filtered at SQL;
+            // a wildcard/regex was only pre-filtered there by its literal text).
             // A pinned-audible tab always survives the filter, even if it
             // doesn't match what's typed — it stays pinned regardless of query.
-            if !normalizedQuery.isEmpty, requiredType != .history {
-                let queryWords = searchWords(in: normalizedQuery)
-                produced = produced.filter { $0.matches(words: queryWords) || $0.isPinnedAudibleTab }
+            if !normalizedQuery.isEmpty, requiredType != .history || searchQuery.isPattern {
+                produced = produced.filter { $0.matches(searchQuery) || $0.isPinnedAudibleTab }
             }
             let unreadableBrowsers = fetchedUnreadableBrowsers
 
@@ -936,29 +937,29 @@ class BrowserTabService: ObservableObject {
                 return
             }
 
-            // Fold the typed query once and reuse it across every candidate
-            // below — sent links, live tabs, and bookmarks can together number
-            // in the hundreds, and re-folding the same query per candidate
-            // (Unicode case/accent/width folding) was measurable per keystroke.
-            let queryWords = searchWords(in: normalizedQuery)
+            // Prepare the typed query once (fold words, compile a wildcard/regex)
+            // and reuse it across every candidate below — sent links, live tabs,
+            // and bookmarks can together number in the hundreds, and re-folding
+            // the same query per candidate was measurable per keystroke.
+            let searchQuery = SearchBoxQuery(normalizedQuery)
 
             let sentMatches = await MainActor.run {
-                SentLinkInbox.shared.asSearchResults().filter { $0.matches(words: queryWords) }
+                SentLinkInbox.shared.asSearchResults().filter { $0.matches(searchQuery) }
             }
             let fastTabListMatches = await MainActor.run {
-                self?.currentFastTabListResults().filter { $0.matches(words: queryWords) } ?? []
+                self?.currentFastTabListResults().filter { $0.matches(searchQuery) } ?? []
             }
 
             let ghostPinnedTabs = slotSnapshot.compactMap { slot -> BrowserSearchResult? in
                 guard slot.isPinned, slot.state == .ghost else { return nil }
                 return slot.asSearchResult
             }
-            let ghostPinnedMatches = ghostPinnedTabs.filter { $0.matches(words: queryWords) }
+            let ghostPinnedMatches = ghostPinnedTabs.filter { $0.matches(searchQuery) }
 
             // A pinned-audible tab always survives the filter, even if it
             // doesn't match what's typed — it stays pinned regardless of query.
-            let tabMatches = sortedLiveTabs.filter { $0.matches(words: queryWords) || $0.isPinnedAudibleTab }
-            let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(words: queryWords) }
+            let tabMatches = sortedLiveTabs.filter { $0.matches(searchQuery) || $0.isPinnedAudibleTab }
+            let bookmarkMatches = bookmarkSnapshot.filter { $0.matches(searchQuery) }
 
             // Phase 1: publish sent links + tabs + ghost pinned tabs + bookmarks immediately so UI isn't blocked by history DB I/O
             let phase1Deduped = deduplicatingSamePages(sentMatches + tabMatches + ghostPinnedMatches + fastTabListMatches + bookmarkMatches, frecencyScore: frecencyLookup)
@@ -1010,13 +1011,15 @@ class BrowserTabService: ObservableObject {
                 try? await Task.sleep(for: historyDelay)
                 guard !Task.isCancelled else { return }
             }
+            // Words are filtered inside the history database; a wildcard/regex is
+            // only pre-filtered there by its literal text, so check it here.
             let historyMatches = await HistorySearchExpansion.search(
-                query: normalizedQuery,
+                query: searchQuery.prefilterText,
                 backends: backends,
                 perBackendLimit: historySearchPerBackendLimit,
                 since: nil,
                 before: nil
-            )
+            ).filter { !searchQuery.isPattern || $0.matches(searchQuery) }
 
             let mergedDeduped = deduplicatingSamePages(sentMatches + tabMatches + ghostPinnedMatches + fastTabListMatches + bookmarkMatches + historyMatches, frecencyScore: frecencyLookup)
             let mergedResults = sortBrowserSearchResults(mergedDeduped, frecencyScore: frecencyLookup)

@@ -3,36 +3,59 @@ import Combine
 import Testing
 @testable import FastTab
 
+@MainActor
 @Suite struct RowRemovalExitTests {
+    static let a = CustomViewFilterTests.item(.tab, "https://a.example", title: "A")
+    static let b = CustomViewFilterTests.item(.tab, "https://b.example", title: "B")
+
     @Test func dismissedRowStaysOffscreenUntilFinished() {
         var exit = RowRemovalExit()
-        #expect(exit.begin("a") == nil)
-        #expect(exit.isExiting("a"))
-        // Removing the row from the list must not bring it back: still exiting.
-        #expect(exit.isExiting("a"))
-        #expect(exit.finish("a", stillListed: false) == false)
-        #expect(!exit.isExiting("a"))
+        #expect(exit.begin(Self.a) == nil)
+        #expect(exit.isExiting(Self.a.id))
+        #expect(exit.finish(Self.a.id, stillListed: false) == false)
+        #expect(!exit.isExiting(Self.a.id))
     }
 
-    @Test func failedCloseSlidesRowBack() {
+    /// Only reachable once the hide has run out with the row still listed.
+    @Test func rowStillDrawnAtReleaseSlidesBack() {
         var exit = RowRemovalExit()
-        _ = exit.begin("a")
-        #expect(exit.finish("a", stillListed: true) == true)
-        #expect(!exit.isExiting("a"))
+        _ = exit.begin(Self.a)
+        #expect(exit.finish(Self.a.id, stillListed: true) == true)
+        #expect(!exit.isExiting(Self.a.id))
     }
 
     @Test func newerRemovalSupersedesAndIsNotClearedByOldTask() {
         var exit = RowRemovalExit()
-        _ = exit.begin("a")
-        #expect(exit.begin("b") == "a")
-        #expect(exit.finish("a", stillListed: false) == false)
-        #expect(exit.isExiting("b"))
+        _ = exit.begin(Self.a)
+        #expect(exit.begin(Self.b) == Self.a)
+        #expect(exit.finish(Self.a.id, stillListed: false) == false)
+        #expect(exit.isExiting(Self.b.id))
+    }
+
+    /// The superseded row comes back as itself, so its close still happens
+    /// even if the user switched to a page that doesn't draw it.
+    @Test func supersededRowIsReturnedWholeNotLookedUp() {
+        var exit = RowRemovalExit()
+        _ = exit.begin(Self.a)
+        let superseded = exit.begin(Self.b)
+        #expect(superseded?.url == "https://a.example")
     }
 
     @Test func sameRowAgainIsNotSuperseded() {
         var exit = RowRemovalExit()
-        _ = exit.begin("a")
-        #expect(exit.begin("a") == nil)
+        _ = exit.begin(Self.a)
+        #expect(exit.begin(Self.a) == nil)
+    }
+
+    /// Clearing expired hides is a state change, so the page redraws and a
+    /// row whose close really failed shows again by itself.
+    @Test func expiringHidesClearsThemAndReportsAChange() {
+        var exit = RowRemovalExit()
+        let start = Date()
+        exit.hide("x", now: start)
+        #expect(exit.expireHides(now: start.addingTimeInterval(1)) == false)
+        #expect(exit.expireHides(now: start.addingTimeInterval(RowRemovalExit.hideDuration)) == true)
+        #expect(exit.hiddenIDs.isEmpty)
     }
 }
 
@@ -51,7 +74,7 @@ import Testing
         var exit = RowRemovalExit()
         let items = (1...3).map { CommandBarDisplayItem.result(Self.row($0)) } + [.showAllTabs(count: 9)]
         let now = Date()
-        _ = exit.begin(Self.row(2).id)
+        _ = exit.begin(Self.row(2))
         exit.hide(Self.row(2).id, now: now)
         #expect(exit.visible(items, now: now).map(\.id) == [Self.row(1).id, Self.row(3).id, "command-bar-show-all-tabs"])
     }
@@ -121,7 +144,7 @@ import Testing
         }
 
         var exit = RowRemovalExit()
-        _ = exit.begin(removed.id)
+        _ = exit.begin(removed)
         // What `BrowserTabService.remove` does to the page's sources.
         results.removeAll { $0.id == removed.id }
         changed.send()

@@ -55,7 +55,7 @@ extension ContentView {
                     CustomViewSemanticStatusLine(status: semanticStatus)
                 }
                 if let snapshot {
-                    if snapshot.items.isEmpty {
+                    if snapshot.items.allSatisfy({ rowRemovalExit.isHidden($0.result.id, now: now) }) {
                         if case .sorting = semanticStatus {
                             // First AI batches still running: not "no items" yet.
                             Color.clear

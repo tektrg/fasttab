@@ -16,19 +16,22 @@ import Foundation
 struct RowRemovalExit: Equatable {
     /// How long a removed row stays hidden while its page's list catches up.
     /// A row still listed after this is a close that really failed: it shows
-    /// again.
+    /// again, at rest (`expireHides` triggers the redraw).
     static let hideDuration: TimeInterval = 5
 
-    private(set) var exitingID: String?
+    /// The row playing its exit slide, kept whole so a removal it supersedes
+    /// still knows what to close (it may not be on the page showing now).
+    private(set) var exiting: BrowserSearchResult?
     private var hiddenAt: [String: Date] = [:]
 
+    var exitingID: String? { exiting?.id }
     var hiddenIDs: Set<String> { Set(hiddenAt.keys) }
 
-    /// Starts the exit slide for `id`. Returns a different row whose exit was
+    /// Starts the exit slide for `row`. Returns a different row whose exit was
     /// still pending, so the caller can remove it right away.
-    mutating func begin(_ id: String) -> String? {
-        let superseded = exitingID == id ? nil : exitingID
-        exitingID = id
+    mutating func begin(_ row: BrowserSearchResult) -> BrowserSearchResult? {
+        let superseded = exiting?.id == row.id ? nil : exiting
+        exiting = row
         return superseded
     }
 
@@ -36,8 +39,17 @@ struct RowRemovalExit: Equatable {
 
     /// Takes the row off every page now, in the same step as its removal.
     mutating func hide(_ id: String, now: Date) {
-        hiddenAt = hiddenAt.filter { now.timeIntervalSince($0.value) < Self.hideDuration }
+        expireHides(now: now)
         hiddenAt[id] = now
+    }
+
+    /// Drops hides that ran out. Returns whether any did.
+    @discardableResult
+    mutating func expireHides(now: Date) -> Bool {
+        let live = hiddenAt.filter { now.timeIntervalSince($0.value) < Self.hideDuration }
+        guard live.count != hiddenAt.count else { return false }
+        hiddenAt = live
+        return true
     }
 
     /// Whether the result row `id` was removed within `hideDuration`.
@@ -57,12 +69,13 @@ struct RowRemovalExit: Equatable {
     }
 
     /// Ends the exit for `id` once removal has played out. Returns `true` when
-    /// the row is still listed (the close failed), meaning it slides back into
-    /// place. A stale call for a row that a newer removal replaced is ignored.
+    /// the row is still drawn, meaning it slides back into place — only once
+    /// its hide has run out, since a hidden row is never drawn. A stale call
+    /// for a row that a newer removal replaced is ignored.
     @discardableResult
     mutating func finish(_ id: String, stillListed: Bool) -> Bool {
         guard exitingID == id else { return false }
-        exitingID = nil
+        exiting = nil
         return stillListed
     }
 }

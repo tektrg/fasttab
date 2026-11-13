@@ -166,11 +166,9 @@ extension ContentView {
         // Restart the timer even for the same row, so a double click can't
         // end its exit slide early.
         closingResultTask?.cancel()
-        if let pendingID = rowRemovalExit.begin(resultID) {
-            if let pendingResult = displayedItems.drawnResult(id: pendingID) {
-                rowRemovalExit.hide(pendingID, now: Date())
-                appState.browserService.remove(pendingResult)
-            }
+        if let pending = rowRemovalExit.begin(result) {
+            rowRemovalExit.hide(pending.id, now: Date())
+            appState.browserService.remove(pending)
         }
         closingResultTask = Task {
             try? await Task.sleep(for: .milliseconds(300))
@@ -206,6 +204,10 @@ extension ContentView {
                 let stillListed = displayedItems.drawnResult(id: resultID) != nil
                 rowRemovalExit.finish(resultID, stillListed: stillListed)
             }
+            // When the hide runs out, redraw: a row whose close failed shows again.
+            try? await Task.sleep(for: .seconds(RowRemovalExit.hideDuration))
+            guard !Task.isCancelled else { return }
+            await MainActor.run { _ = rowRemovalExit.expireHides(now: Date()) }
         }
     }
 

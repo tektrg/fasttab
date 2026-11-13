@@ -67,7 +67,7 @@ struct RowRemovalFrameSheet {
         }
 
         func remove(_ row: BrowserSearchResult) async {
-            _ = exit.begin(row.id)
+            _ = exit.begin(row)
             try? await Task.sleep(for: .milliseconds(300))
             pointerRowID = nil; pointerEdge = nil; pointerOffset = 0
             withAnimation(.spring(response: 0.16, dampingFraction: 0.92)) {

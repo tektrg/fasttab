@@ -67,7 +67,9 @@ extension ContentView {
             withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) { pointerSwipe.settle() }
             return true
         case .confirm(let rowID, let edge):
-            guard let result = displayedResults.first(where: { $0.id == rowID }) else {
+            // The row as the active page draws it (Stack's sent links and
+            // custom views aren't in `displayedResults`).
+            guard let result = displayedItems.drawnResult(id: rowID) else {
                 pointerSwipe.liftSuppression()
                 resetPointerSwipe(animated: true)
                 return true
@@ -164,10 +166,9 @@ extension ContentView {
         // Restart the timer even for the same row, so a double click can't
         // end its exit slide early.
         closingResultTask?.cancel()
-        if let pendingID = rowRemovalExit.begin(resultID) {
-            if let pendingResult = displayedResults.first(where: { $0.id == pendingID }) {
-                appState.browserService.remove(pendingResult)
-            }
+        if let pending = rowRemovalExit.begin(result) {
+            rowRemovalExit.hide(pending.id, now: Date())
+            appState.browserService.remove(pending)
         }
         closingResultTask = Task {
             try? await Task.sleep(for: .milliseconds(300))
@@ -183,18 +184,30 @@ extension ContentView {
                 // so the panel doesn't finish shrinking — clipping the list —
                 // before the rows below the deleted one finish sliding up to
                 // fill the gap.
+                //
+                // Hiding the row (here, in ContentView's own state) is what
+                // takes it off the page inside this animation, on every page:
+                // the service's change reaches the view a beat later, and a
+                // custom view re-evaluates its list later still.
                 withAnimation(.spring(response: 0.16, dampingFraction: 0.92)) {
+                    rowRemovalExit.hide(resultID, now: Date())
                     appState.browserService.remove(result)
                 }
             }
-            // Let the collapse finish before releasing the row. If it is
-            // still listed (the close failed), releasing slides it back.
+            // Let the collapse finish before releasing the row. It is hidden
+            // by now, so the release can't slide it back; a close that really
+            // failed shows the row again at rest once the hide runs out
+            // (`RowRemovalExit.hideDuration`).
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                let stillListed = displayedResults.contains { $0.id == resultID }
+                let stillListed = displayedItems.drawnResult(id: resultID) != nil
                 rowRemovalExit.finish(resultID, stillListed: stillListed)
             }
+            // When the hide runs out, redraw: a row whose close failed shows again.
+            try? await Task.sleep(for: .seconds(RowRemovalExit.hideDuration))
+            guard !Task.isCancelled else { return }
+            await MainActor.run { _ = rowRemovalExit.expireHides(now: Date()) }
         }
     }
 

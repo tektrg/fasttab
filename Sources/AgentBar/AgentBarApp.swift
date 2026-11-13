@@ -14,6 +14,7 @@ final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu-bar-less background app: no dock icon, no menu bar.
         NSApp.setActivationPolicy(.accessory)
+        KeyboardDebugLog.start()
 
         let coordinator = AgentBarCoordinator()
         self.coordinator = coordinator

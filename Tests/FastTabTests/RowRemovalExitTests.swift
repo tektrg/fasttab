@@ -65,7 +65,7 @@ import Testing
     }
 
     /// A close that really failed: the row is still in its page's list after
-    /// the hold, so it shows again (and the exit release slides it back).
+    /// the hide runs out, so it shows again, at rest.
     @Test func rowStillListedAfterTheHoldComesBack() {
         var exit = RowRemovalExit()
         let items = [CommandBarDisplayItem.result(Self.row(1))]

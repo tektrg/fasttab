@@ -196,8 +196,10 @@ extension ContentView {
                     appState.browserService.remove(result)
                 }
             }
-            // Let the collapse finish before releasing the row. If it is
-            // still drawn (the close failed), releasing slides it back.
+            // Let the collapse finish before releasing the row. It is hidden
+            // by now, so the release can't slide it back; a close that really
+            // failed shows the row again at rest once the hide runs out
+            // (`RowRemovalExit.hideDuration`).
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             await MainActor.run {

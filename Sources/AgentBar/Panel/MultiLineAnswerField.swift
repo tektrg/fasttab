@@ -122,6 +122,7 @@ final class AnswerTextView: NSTextView {
         super.viewDidMoveToWindow()
         keyboardObservers.forEach(NotificationCenter.default.removeObserver)
         keyboardObservers = []
+        KeyboardDebugLog.log("box moved to window \(KeyboardDebugLog.describe(window))", window: window)
         guard let window else { return }
         NotificationCenter.default.post(name: Self.didAppearNotification, object: self)
         let center = NotificationCenter.default
@@ -142,16 +143,8 @@ final class AnswerTextView: NSTextView {
         DispatchQueue.main.async { [weak self] in self?.takeKeyboard() }
     }
 
-    /// Off by default: `defaults write com.trungluong.AgentBar keyboardDebugLog -bool YES`, then
-    /// `log stream --predicate 'eventMessage CONTAINS "AgentBar keyboard"'` while reproducing.
-    private static var logsKeyboard: Bool { UserDefaults.standard.bool(forKey: "keyboardDebugLog") }
-
     private func takeKeyboard() {
-        if Self.logsKeyboard, let window {
-            NSLog("AgentBar keyboard: box in %@ visible=%d key=%d appActive=%d keyWindow=%@ firstResponder=%@",
-                  window.title, window.isVisible, window.isKeyWindow, NSApp.isActive,
-                  NSApp.keyWindow?.title ?? "none", window.firstResponder.map { String(describing: type(of: $0)) } ?? "none")
-        }
+        KeyboardDebugLog.log("box take-keyboard in \(KeyboardDebugLog.describe(window)) boxFR=\(window?.firstResponder === self)", window: window)
         guard let window, window.isVisible else { return }
         // The corner card's window is `becomesKeyOnlyIfNeeded`, so a click on the "Other" ROW (not a text
         // control) leaves it non-key; the box makes it key itself.
@@ -160,6 +153,7 @@ final class AnswerTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        KeyboardDebugLog.log("box got keyDown '\(event.charactersIgnoringModifiers ?? "")'", window: window)
         if Self.returnKeyCodes.contains(event.keyCode) {
             // A held Return would send text the moment the box opens (Return on the row opened it), before it is read.
             if event.isARepeat { return }

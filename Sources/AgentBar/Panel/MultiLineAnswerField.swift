@@ -39,7 +39,27 @@ struct MultiLineAnswerField: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scroll.documentView as? AnswerTextView else { return }
         syncImageHandler(textView, context: context)
+        Self.apply(modelText: text, to: textView, coordinator: context.coordinator)
+    }
+
+    /// Writes the model's text into the box only when it is a real outside change (a cleared box after
+    /// Send, a restored draft). Never while an input method is composing (marked text), and never for an
+    /// echo of something the box itself reported earlier: SwiftUI hands the binding back a render late, and
+    /// Vietnamese Telex tools (OpenKey) type Backspace + the accented letter faster than that, so writing
+    /// the late echo back threw away what was just typed.
+    static func apply(modelText text: String, to textView: AnswerTextView, coordinator: Coordinator) {
+        if textView.hasMarkedText() {
+            KeyboardDebugLog.log("binding write skipped: composing", window: textView.window)
+            return
+        }
+        if let echo = coordinator.reported.firstIndex(of: text) {
+            coordinator.reported.removeFirst(echo + 1)   // it and older echoes are used up
+            if textView.string != text { KeyboardDebugLog.log("binding write skipped: late echo", window: textView.window) }
+            return
+        }
         guard textView.string != text else { return }
+        KeyboardDebugLog.log("binding write: box \(textView.string.debugDescription) -> \(text.debugDescription)", window: textView.window)
+        coordinator.reported = []
         textView.string = text
     }
 
@@ -55,10 +75,15 @@ struct MultiLineAnswerField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MultiLineAnswerField
+        /// What the box has told the binding, oldest first, until the binding echoes it back.
+        var reported: [String] = []
         init(_ parent: MultiLineAnswerField) { self.parent = parent }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            KeyboardDebugLog.log("box text changed to \(textView.string.debugDescription) marked=\(textView.hasMarkedText())", window: textView.window)
+            reported.append(textView.string)
+            if reported.count > 64 { reported.removeFirst(reported.count - 64) }
             parent.text = textView.string
         }
     }
@@ -169,6 +194,28 @@ final class AnswerTextView: NSTextView {
             if event.keyCode == Self.downArrowKeyCode, caretIsOnLastLine { onLeaveDown(); return }
         }
         super.keyDown(with: event)
+    }
+
+    // MARK: - Input-method trace (keyboardDebugLog flag)
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        KeyboardDebugLog.log("box insertText \(String(describing: string).debugDescription) replace=\(replacementRange)", window: window)
+        super.insertText(string, replacementRange: replacementRange)
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        KeyboardDebugLog.log("box setMarkedText \(String(describing: string).debugDescription) replace=\(replacementRange)", window: window)
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+    }
+
+    override func unmarkText() {
+        KeyboardDebugLog.log("box unmarkText", window: window)
+        super.unmarkText()
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        KeyboardDebugLog.log("box deleteBackward", window: window)
+        super.deleteBackward(sender)
     }
 
     // MARK: - Images

@@ -67,7 +67,9 @@ extension ContentView {
             withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) { pointerSwipe.settle() }
             return true
         case .confirm(let rowID, let edge):
-            guard let result = displayedResults.first(where: { $0.id == rowID }) else {
+            // The row as the active page draws it (Stack's sent links and
+            // custom views aren't in `displayedResults`).
+            guard let result = displayedItems.drawnResult(id: rowID) else {
                 pointerSwipe.liftSuppression()
                 resetPointerSwipe(animated: true)
                 return true
@@ -165,7 +167,8 @@ extension ContentView {
         // end its exit slide early.
         closingResultTask?.cancel()
         if let pendingID = rowRemovalExit.begin(resultID) {
-            if let pendingResult = displayedResults.first(where: { $0.id == pendingID }) {
+            if let pendingResult = displayedItems.drawnResult(id: pendingID) {
+                rowRemovalExit.hide(pendingID, now: Date())
                 appState.browserService.remove(pendingResult)
             }
         }
@@ -183,16 +186,22 @@ extension ContentView {
                 // so the panel doesn't finish shrinking — clipping the list —
                 // before the rows below the deleted one finish sliding up to
                 // fill the gap.
+                //
+                // Hiding the row (here, in ContentView's own state) is what
+                // takes it off the page inside this animation, on every page:
+                // the service's change reaches the view a beat later, and a
+                // custom view re-evaluates its list later still.
                 withAnimation(.spring(response: 0.16, dampingFraction: 0.92)) {
+                    rowRemovalExit.hide(resultID, now: Date())
                     appState.browserService.remove(result)
                 }
             }
             // Let the collapse finish before releasing the row. If it is
-            // still listed (the close failed), releasing slides it back.
+            // still drawn (the close failed), releasing slides it back.
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                let stillListed = displayedResults.contains { $0.id == resultID }
+                let stillListed = displayedItems.drawnResult(id: resultID) != nil
                 rowRemovalExit.finish(resultID, stillListed: stillListed)
             }
         }

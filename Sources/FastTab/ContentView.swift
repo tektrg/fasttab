@@ -155,7 +155,10 @@ struct ContentView: View {
     /// Unopened iPhone-sent links ("Send to Mac"), newest first. The Stack
     /// view's bottom section; they stay out of Recents.
     var stackSentLinks: [BrowserSearchResult] {
-        sentLinkInbox.asSearchResults().sorted { $0.timestamp > $1.timestamp }
+        let now = Date()
+        return sentLinkInbox.asSearchResults()
+            .filter { !rowRemovalExit.isHidden($0.id, now: now) }
+            .sorted { $0.timestamp > $1.timestamp }
     }
 
     /// Rows ahead of the sent-links section in the Stack list. 0 outside the
@@ -167,7 +170,13 @@ struct ContentView: View {
         return stackPinnedSlots.count
     }
 
+    /// The rows `view` draws, minus a just-removed row whose source list
+    /// hasn't caught up yet (`RowRemovalExit.visible`).
     func displayItems(for view: CommandBarView) -> [CommandBarDisplayItem] {
+        rowRemovalExit.visible(listedItems(for: view), now: Date())
+    }
+
+    private func listedItems(for view: CommandBarView) -> [CommandBarDisplayItem] {
         if view.isCustomPage {
             return customPageDisplayItems(for: view)
         }

@@ -47,6 +47,7 @@ extension ContentView {
         let groupBy = customViewStore.view(id: viewID)?.groupBy ?? .none
         // The inline builder replaces the rows while editing this view.
         let semanticStatus = snapshot == nil ? nil : customViewPage.semanticStatus
+        let now = Date()
         CustomViewEditorSlot(page: .custom(viewID), presenter: env.customViewEditor) {
             VStack(spacing: 0) {
                 // Inside the page's fixed height: the rows below give way.
@@ -69,7 +70,8 @@ extension ContentView {
                                     id: section.id,
                                     title: section.title.isEmpty ? nil : section.title.uppercased(),
                                     symbol: Self.sectionIcon(groupBy: groupBy, sectionID: section.id),
-                                    rows: section.items
+                                    // Same rows as `displayItems` (selection indices).
+                                    rows: section.items.filter { !rowRemovalExit.isHidden($0.result.id, now: now) }
                                 )
                             },
                             selectedIndex: appState.selectedIndex,

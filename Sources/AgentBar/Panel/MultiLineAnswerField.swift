@@ -24,6 +24,7 @@ struct MultiLineAnswerField: NSViewRepresentable {
         syncImageHandler(textView, context: context)
         textView.delegate = context.coordinator
         textView.string = text
+        context.coordinator.lastModelText = text
         textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))   // typing continues where it was left
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -47,7 +48,13 @@ struct MultiLineAnswerField: NSViewRepresentable {
     /// echo of something the box itself reported earlier: SwiftUI hands the binding back a render late, and
     /// Vietnamese Telex tools (OpenKey) type Backspace + the accented letter faster than that, so writing
     /// the late echo back threw away what was just typed.
+    ///
+    /// The binding can also lag a whole key behind (live trace 2026-11-13: every key wrote the PREVIOUS
+    /// text back, "s" -> "", "d" -> "s"). So only a change of the model's own value counts as outside news;
+    /// a value equal to the last one seen, or one the box reported, is never written.
     static func apply(modelText text: String, to textView: AnswerTextView, coordinator: Coordinator) {
+        guard text != coordinator.lastModelText else { return }
+        coordinator.lastModelText = text
         if textView.hasMarkedText() {
             KeyboardDebugLog.log("binding write skipped: composing", window: textView.window)
             return
@@ -77,6 +84,8 @@ struct MultiLineAnswerField: NSViewRepresentable {
         var parent: MultiLineAnswerField
         /// What the box has told the binding, oldest first, until the binding echoes it back.
         var reported: [String] = []
+        /// The model's value at the last render: a write happens only when it changes.
+        var lastModelText = ""
         init(_ parent: MultiLineAnswerField) { self.parent = parent }
 
         func textDidChange(_ notification: Notification) {

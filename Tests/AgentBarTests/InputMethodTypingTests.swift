@@ -77,4 +77,20 @@ struct InputMethodTypingTests {
         #expect(box.string == "abc")
         #expect(coordinator.reported.isEmpty)
     }
+
+    /// Live trace 2026-11-13 (plain US keyboard): every render carried the text from ONE KEY EARLIER,
+    /// and the box was overwritten each time ("s" -> "", "d" -> "s"), so letters vanished.
+    @Test func aBindingOneKeyBehindLosesNoLetters() {
+        let (box, coordinator) = makeBox()
+        var previous = ""
+        for letter in "sdf asf" {
+            type(String(letter), into: box)
+            MultiLineAnswerField.apply(modelText: previous, to: box, coordinator: coordinator)
+            previous = box.string
+        }
+        #expect(box.string == "sdf asf")
+        MultiLineAnswerField.apply(modelText: "sdf asf", to: box, coordinator: coordinator)
+        MultiLineAnswerField.apply(modelText: "", to: box, coordinator: coordinator)   // cleared after Send
+        #expect(box.string == "")
+    }
 }

@@ -933,6 +933,7 @@ final class AgentPanelModel: ObservableObject {
 
     /// Fresh start for each summon: empty search, first row selected.
     func resetForShow() {
+        keyMenu = nil
         closePeek()
         answer.close()
         permission.close()
@@ -1172,6 +1173,40 @@ final class AgentPanelModel: ObservableObject {
     /// A press on `button` of agent `agentID` (mouse, or Enter on the highlight).
     /// Park / Unpark act at once; Done / Close pane ask the dashboard, and the
     /// returned task ends when it has answered (tests await it).
+    // MARK: - ⌘K keyboard ⋯ menu
+
+    /// The selected row's ⋯ menu as a keyboard menu (⌘K), or nil. See `RowKeyMenu`.
+    @Published private(set) var keyMenu: RowKeyMenu?
+
+    /// ⌘K: opens the selected row's ⋯ items (same list as the mouse menu); ⌘K again closes. Never over a card.
+    func toggleKeyMenu() {
+        if keyMenu != nil { keyMenu = nil; return }
+        guard !isCardOpen, peek == nil, let agent = selectedAgent else { return }
+        keyMenu = RowKeyMenu(agentID: agent.id, items: AgentActionList.menuItems(for: agent, tree: treeModel.tree))
+    }
+
+    /// A key while the ⌘K menu is open; true = the menu used it (the panel's key monitor then drops the event).
+    @discardableResult
+    func handleKeyMenu(_ key: RowKeyMenu.Key) -> Bool {
+        guard var menu = keyMenu else { return false }
+        let effect = menu.handle(key)
+        switch effect {
+        case .none: keyMenu = menu
+        case .close: keyMenu = nil
+        case .activate(let button):
+            keyMenu = nil
+            press(button, on: menu.agentID)
+        }
+        return true
+    }
+
+    /// A click on one of the ⌘K menu's items.
+    func chooseKeyMenuItem(at index: Int) {
+        guard let menu = keyMenu, menu.items.indices.contains(index), menu.items[index].isEnabled else { return }
+        keyMenu = nil
+        press(menu.items[index].button, on: menu.agentID)
+    }
+
     @discardableResult
     /// The row ⋯ menu's "Report to" submenu: attach `agentID` under the picked `targetID` (a chief
     /// or an Unassigned worker, `AgentTree.reportTargets`). Same gate as pressing "Report to…".

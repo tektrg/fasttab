@@ -49,6 +49,7 @@ struct AgentPanelView: View {
                 }
             }
             .overlay(alignment: .bottom) { failureNotice }
+            .overlay(alignment: .bottomTrailing) { keyMenu }
             .overlay(alignment: .top) { if corner == nil { fallbackApproval } }
             if corner == nil {
                 Divider()
@@ -122,6 +123,11 @@ struct AgentPanelView: View {
             Group {
                 // None in New worker mode: the agent list (and its selection) is hidden there.
                 // Focus mode (`FocusMode/`): answer every agent that needs you, one big card at a time.
+                // ⌘K: the selected row's ⋯ menu as a numbered keyboard menu (`RowKeyMenu`). Works while
+                // typing in search; while it is open the panel's key monitor routes keys to it.
+                if corner == nil {
+                    Button("Row actions", action: model.toggleKeyMenu).keyboardShortcut("k", modifiers: .command)
+                }
                 if keys.contains(.focus) {
                     Button("Focus", action: model.onOpenFocus).keyboardShortcut("f", modifiers: .command)
                 }
@@ -152,6 +158,19 @@ struct AgentPanelView: View {
     private func chiefPickerLabel(_ chief: AgentTreeNode) -> String {
         let project = chief.project.isEmpty ? chief.label : chief.project
         return chief.machineBadge.map { "\(project) (\($0))" } ?? project
+    }
+
+    /// ⌘K's numbered menu of the selected row's ⋯ items (`RowKeyMenu`).
+    @ViewBuilder
+    private var keyMenu: some View {
+        if corner == nil, let menu = model.keyMenu {
+            RowKeyMenuView(
+                menu: menu,
+                agentLabel: model.presentation.agents.first { $0.id == menu.agentID }?.label ?? "",
+                onChoose: { model.chooseKeyMenuItem(at: $0) }
+            )
+            .padding(12)
+        }
     }
 
     /// A failure stays over the bottom of the body, above the search field, until dismissed.

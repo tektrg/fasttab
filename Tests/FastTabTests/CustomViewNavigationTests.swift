@@ -226,9 +226,10 @@ struct CustomViewNavigationTests {
                 #expect(rows(.newView) == tall)
                 #expect(rows(.custom(UUID()), searching: true) == tall)
                 // Recents on an empty search is the same tall list (no quick-open cap);
-                // only a live search shrinks it.
+                // only a live search at a top-hugging position shrinks it.
                 #expect(rows(.recents) == tall)
-                #expect(rows(.recents, searching: true) == 5)
+                #expect(rows(.recents, searching: true)
+                    == (CommandBarLayout.searchShrinksPanel(at: anchor) ? 5 : tall))
             }
         }
     }

@@ -61,7 +61,7 @@ extension CommandBarLayout {
     /// and AppKit pointer hit testing (`hoverDismissMaxRows`).
     /// Every open — shortcut or mouse — lists every tab: an empty search, Stack and the
     /// custom views are all the tall list (`expandedAllTabsMaxRows`, scrolls past it). Only a
-    /// live search on Recents is the short `visibleResultRows` panel.
+    /// live search on Recents at a top-hugging position is the short `visibleResultRows` panel.
     static func surfaceMaxRows(
         view: CommandBarView,
         isSearching: Bool,
@@ -69,10 +69,21 @@ extension CommandBarLayout {
         rowStyle: ResultRowStyle,
         showFooter: Bool
     ) -> Int {
-        if isSearching, !view.isTall {
+        if isSearching, !view.isTall, searchShrinksPanel(at: anchor) {
             return Int(visibleResultRows)
         }
         return expandedAllTabsMaxRows(for: anchor, rowStyle: rowStyle, showFooter: showFooter)
+    }
+
+    /// Whether a live search may shrink the tall list to the short results panel. Only where
+    /// the panel hugs the top (notch, top floating positions): the search box stays still.
+    /// Side edges, centre and bottom corners are vertically centred/bottom-aligned, so
+    /// shrinking would jump the search box under the cursor — they stay tall (owner, 2026-11-14).
+    static func searchShrinksPanel(at anchor: CommandBarAnchor) -> Bool {
+        switch anchor {
+        case .notch, .floating(.topCenter), .floating(.topLeft), .floating(.topRight): true
+        case .leftEdge, .rightEdge, .floating(.center), .floating(.bottomLeft), .floating(.bottomRight): false
+        }
     }
 
     /// Rows of the hover-dismiss box ("stay inside or the bar closes"). Hover-dismiss only runs

@@ -43,12 +43,32 @@ struct ShortcutOpenShowsAllTabsTests {
                         view: .recents, isSearching: false, anchor: anchor, rowStyle: rowStyle, showFooter: showFooter
                     )
                     #expect(rows == tall)
-                    // Typing a search keeps today's short results panel.
-                    #expect(CommandBarLayout.surfaceMaxRows(
+                    // Typing a search shrinks to the short results panel only where the
+                    // search box stays put (top-hugging positions); elsewhere it stays tall.
+                    let searching = CommandBarLayout.surfaceMaxRows(
                         view: .recents, isSearching: true, anchor: anchor, rowStyle: rowStyle, showFooter: showFooter
-                    ) == Int(CommandBarLayout.visibleResultRows))
+                    )
+                    #expect(searching == (CommandBarLayout.searchShrinksPanel(at: anchor)
+                        ? Int(CommandBarLayout.visibleResultRows) : tall))
                 }
             }
+        }
+    }
+
+    /// Owner decision 2026-11-14: a search shrinks the panel only where it hugs the top
+    /// (the search box stays still); at the side edges, centre and bottom corners the panel
+    /// stays tall so the search box doesn't jump on the first keystroke.
+    @Test func searchShrinksThePanelOnlyAtTopHuggingPositions() {
+        let shrinks: [CommandBarAnchor] = [.notch, .floating(.topCenter), .floating(.topLeft), .floating(.topRight)]
+        let staysTall: [CommandBarAnchor] = [.leftEdge, .rightEdge, .floating(.center), .floating(.bottomLeft), .floating(.bottomRight)]
+        #expect(Set(shrinks + staysTall) == Set(CommandBarAnchor.allCases))
+        for anchor in shrinks { #expect(CommandBarLayout.searchShrinksPanel(at: anchor)) }
+        for anchor in staysTall {
+            #expect(!CommandBarLayout.searchShrinksPanel(at: anchor))
+            let tall = CommandBarLayout.expandedAllTabsMaxRows(for: anchor, rowStyle: .minimal, showFooter: true)
+            #expect(CommandBarLayout.surfaceMaxRows(
+                view: .recents, isSearching: true, anchor: anchor, rowStyle: .minimal, showFooter: true
+            ) == tall)
         }
     }
 

@@ -46,25 +46,6 @@ struct AnswerCardView: View {
     }
 
     @ViewBuilder
-    private func messageSection(_ card: AnswerCard) -> some View {
-        switch card.message {
-        case .loading:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Reading the agent's last message…")
-            }
-            .font(.avenir(size: 12))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 18)
-            .padding(.bottom, 8)
-        case .text(let text):
-            LastMessageView(text: text)
-        case .none:
-            EmptyView()
-        }
-    }
-
-    @ViewBuilder
     private func planLink(_ card: AnswerCard) -> some View {
         if let planFile = card.planFile {
             Button(action: { answer.openPlan() }) {
@@ -85,7 +66,7 @@ struct AnswerCardView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    messageSection(card)
+                    LastMessageSection(message: card.message)
                     planLink(card)
                     if let form = card.form {
                         AnswerFormView(answer: answer, form: form)

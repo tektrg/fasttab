@@ -155,6 +155,7 @@ struct PlanCardView: View {
                     Button(plan.actionTitle) { permission.pressSend() }
                         .disabled(!plan.canSend)
                         .tint(plan.isConfirmingPrivilege ? .red : nil)
+                        .keepsColorWhenInactive()
                 }
             }
         }

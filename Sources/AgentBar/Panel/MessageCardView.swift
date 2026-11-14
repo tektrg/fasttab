@@ -125,6 +125,7 @@ struct MessageCardView: View {
             Button(card.sendTitle) { message.pressSend() }
                 .disabled(!card.canSend)
                 .tint(card.isConfirming ? .orange : nil)
+                .keepsColorWhenInactive()
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 6)

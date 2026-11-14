@@ -215,9 +215,20 @@ enum CommandBarAppearance {
     /// Position (slice 10): follow the hover edge (default, missing key) or a floating card at `placementKey`.
     static let followsEdgeKey = keys.followsEdge
     static let placementKey = keys.placement
+    /// Position = Notch / Left edge / Right edge, independent of the hover edge (shared anchor).
+    static let edgeAnchorKey = keys.edgeAnchor
     /// Fast Tab's defaults: background on, Minimal rows, Position = follow the hover-to-open
     /// edge (General). No Size picker: the bar sizes itself. `rowLimit` is unused (no row cap).
     static let standard = CommandBarAppearanceSettings(background: true, rowStyle: .minimal, rowLimit: 5, followsEdge: true)
+
+    /// Settings › Appearance through the shared section: Accent, Position (follow the hover edge,
+    /// Notch, Left/Right edge, or a floating spot), Background, Result rows. No Size picker (the
+    /// bar sizes itself) and no row count (every open lists every tab).
+    static let options = CommandBarAppearanceOptions(
+        offersFitsContent: false, offersEdgeAnchors: true, offersRowLimit: false,
+        rowLimitRange: CommandBarLayout.minQuickOpenItemLimit...CommandBarLayout.maxQuickOpenItemLimit,
+        followEdgeTitle: "Follow hover edge"
+    )
 
     static func load(from defaults: UserDefaults = .standard) -> CommandBarAppearanceSettings {
         CommandBarAppearanceSettings.load(

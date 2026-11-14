@@ -14,7 +14,7 @@ extension CommandBarAnchor {
     /// hover trigger itself is off, since the bar still needs an anchor.
     @MainActor
     static var current: CommandBarAnchor {
-        CommandBarAnchor(revealStyle: EdgeRevealStore.shared.style, position: CommandBarAppearance.load().position)
+        CommandBarAppearance.load().resolvedAnchor(hoverStyle: EdgeRevealStore.shared.style)
     }
 }
 

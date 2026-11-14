@@ -68,7 +68,10 @@ struct PanePeekTests {
     @Test func spaceWithEmptySearchOpensALoadingPeekOnTheSelectedAgent() async {
         let (model, source) = makeRig()
         #expect(model.togglePeek())
-        #expect(model.peek == PanePeek(agentID: "a", label: "alpha", projectName: "proj", content: .loading))
+        #expect(model.peek?.agentID == "a")
+        #expect(model.peek?.label == "alpha")
+        #expect(model.peek?.content == .loading)
+        #expect(model.peek?.tab == .lastMessage)   // Last message is the default tab (2026-11-14)
         await waitForRequests(source, count: 1)
         #expect(source.requestedPaneIds == ["w1:a"])
     }

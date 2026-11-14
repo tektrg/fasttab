@@ -226,11 +226,11 @@ struct AgentPanelView: View {
             )
         } else if let peek = model.peek {
             PanePeekView(
+                model: model,
                 peek: peek,
                 bodyHeight: AgentPanelMetrics.peekBodyHeight(
                     maxListHeight: AgentPanelMetrics.maxListHeight(visibleRows: model.listSettings.maxVisibleRows)
-                ),
-                onOpen: { model.openPeekAgent() }
+                )
             )
         } else if let newWorker = model.newWorker {
             // Step 2 collapses the body like a Tab-tag compose (the target is the chip above the box).

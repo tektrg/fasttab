@@ -18,7 +18,7 @@ final class AgentPanelController {
     private var sizeSubscription: AnyCancellable?
     private var pagesSubscription: AnyCancellable?
     private var scrollMonitor: Any?
-    /// Keys for the ⌘K menu while it is open (`RowKeyMenu`), before the search field sees them.
+    /// Keys for the ⌘K menu while it is open (`RowKeyMenu`) and Tab for the peek tabs, before any text field sees them.
     private var keyMenuMonitor: Any?
     private var flick = CommandBarViewFlick()
     private let activation: TextInputActivation
@@ -138,7 +138,14 @@ final class AgentPanelController {
     private func startKeyMenuMonitor() {
         guard keyMenuMonitor == nil else { return }
         keyMenuMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === self.panel, self.model.keyMenu != nil else { return event }
+            guard let self, event.window === self.panel else { return event }
+            // Peek: Tab (no modifiers) switches Last message / Terminal, from the search box or the peek's message box.
+            if self.model.keyMenu == nil, self.model.peek != nil, event.keyCode == 48,
+               event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
+                self.model.togglePeekTab()
+                return nil
+            }
+            guard self.model.keyMenu != nil else { return event }
             let command = event.modifierFlags.contains(.command)
             let key = RowKeyMenu.key(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers ?? "", command: command)
             if command && key == .other { return event }

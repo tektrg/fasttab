@@ -1036,6 +1036,7 @@ final class AgentPanelModel: ObservableObject {
             openLatestMessagePeek(opened, sessionId: sessionId)
             return
         }
+        if agent.section == .ended || agent.sessionId == nil { opened.message = .unavailable(PanePeek.noTranscriptMessage) }
         guard let paneId = agent.paneId, !paneId.isEmpty else {
             opened.content = .unavailable(PanePeek.endedAgentMessage)
             preview.open(rowID: opened.agentID, content: opened)
@@ -1050,9 +1051,19 @@ final class AgentPanelModel: ObservableObject {
         peekLoader.load({ await statusSource.paneScreen(paneId: paneId) }) { [weak self] result in
             self?.preview.updateContent(for: opened.agentID) { $0.content = PanePeek.content(from: result) }
         }
+        if let sessionId = agent.sessionId, opened.message == .loadingLatestMessage { loadPeekLastMessage(for: opened.agentID, sessionId: sessionId) }
     }
 
-    /// A status-only row has no pane to read: the peek is its transcript's latest message.
+    /// The Last message tab of a herdr row: the session transcript's latest message.
+    private func loadPeekLastMessage(for agentID: String, sessionId: String) {
+        let load = loadPeekMessage
+        peekMessageLoader.load({ await load(sessionId) }) { [weak self] context in
+            self?.preview.updateContent(for: agentID) { $0.message = PanePeek.content(fromLatestMessage: context.latestMessage) }
+        }
+    }
+
+    /// A status-only row has no pane to read: both its old peek and its Last message tab are the
+    /// transcript's latest message; its Terminal tab says there is none.
     private func openLatestMessagePeek(_ opened: PanePeek, sessionId: String) {
         var opened = opened
         opened.content = .loadingLatestMessage
@@ -1061,8 +1072,46 @@ final class AgentPanelModel: ObservableObject {
         peekMessageLoader.load({ await load(sessionId) }) { [weak self] context in
             self?.preview.updateContent(for: opened.agentID) {
                 $0.content = PanePeek.content(fromLatestMessage: context.latestMessage)
+                $0.message = $0.content
             }
         }
+    }
+
+    /// Click on a peek tab.
+    func selectPeekTab(_ tab: PanePeek.Tab) {
+        guard let agentID = peek?.agentID else { return }
+        preview.updateContent(for: agentID) { $0.tab = tab }
+    }
+
+    /// Tab while peeking: the other tab.
+    func togglePeekTab() {
+        guard let tab = peek?.tab else { return }
+        selectPeekTab(tab == .lastMessage ? .terminal : .lastMessage)
+    }
+
+    /// The peeked agent, if still listed.
+    var peekAgent: AgentSnapshot? {
+        guard let agentID = peek?.agentID else { return nil }
+        return presentation.agents.first { $0.id == agentID }
+    }
+
+    /// Why the peek's message box cannot send, nil when it can (same gate as `MessageCardModel.sendDirect`).
+    var peekMessageRefusal: String? {
+        guard let agent = peekAgent else { return "This agent left the list." }
+        return RowButtons.usableButtons(for: agent).contains(.message) ? nil : "This agent can't take a message right now."
+    }
+
+    /// Return in the peek's message box: the Tab-tag compose path (`MessageDraftValidator`, then
+    /// `sendDirectMessage` → `MessageCardModel.sendDirect`). True = sent off (the box clears).
+    @discardableResult
+    func sendFromPeek(_ draft: String) -> Bool {
+        guard let agent = peekAgent else { return false }
+        let verdict = MessageDraftValidator.check(draft)
+        guard case .ready(let text) = verdict else {
+            showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
+            return false
+        }
+        return sendDirectMessage(to: agent, text: text)
     }
 
     private func closePeekUnlessStillSelected() {

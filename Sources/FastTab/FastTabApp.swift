@@ -621,7 +621,11 @@ private final class CommandBarPanelController: NSObject {
         isHeld: { [weak self] in
             FastTabPointerLeaveGates.isHeld(
                 isFloating: CommandBarAnchor.current.isFloating, isVisible: AppState.shared.isVisible,
-                editorHoldsBar: CustomViewEditorPresenter.shared.holdsBar, hasPanel: self?.panel != nil
+                editorHoldsBar: CustomViewEditorPresenter.shared.holdsBar, hasPanel: self?.panel != nil,
+                // Live keyboard state, not the cycle session's cached flag: a missed key-up can't
+                // leave the bar stuck open. A close already queued re-checks this when it fires,
+                // so holding the modifier also cancels it.
+                isShortcutModifierHeld: ShortcutStore.shared.isAnyShortcutModifierHeld(in: NSEvent.modifierFlags)
             )
         },
         isPointerOutside: { [weak self] location in self?.isCursorOutsideSurface(location) ?? true },

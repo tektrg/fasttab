@@ -10,8 +10,11 @@ enum FastTabPointerLeaveGates {
 
     /// What holds the bar open whatever the pointer does: a floating card (it may sit away from the
     /// edge that opened it; click outside / Esc close it), a hidden bar, an open view builder or
-    /// delete confirmation (work in progress), or no panel yet.
-    static func isHeld(isFloating: Bool, isVisible: Bool, editorHoldsBar: Bool, hasPanel: Bool) -> Bool {
-        isFloating || !isVisible || editorHoldsBar || !hasPanel
+    /// delete confirmation (work in progress), no panel yet, or a shortcut modifier held down (a
+    /// keyboard cycle is in progress — ⌥ of ⌥Q; the pointer rests anywhere, usually outside).
+    static func isHeld(
+        isFloating: Bool, isVisible: Bool, editorHoldsBar: Bool, hasPanel: Bool, isShortcutModifierHeld: Bool = false
+    ) -> Bool {
+        isFloating || !isVisible || editorHoldsBar || !hasPanel || isShortcutModifierHeld
     }
 }

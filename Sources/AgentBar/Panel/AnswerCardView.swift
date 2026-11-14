@@ -160,6 +160,7 @@ struct AnswerCardView: View {
                 Spacer(minLength: 0)
                 Button("Submit", action: { answer.pressSend() })
                     .disabled(!form.canSubmit)
+                    .keepsColorWhenInactive()
             case .sending(let question):
                 ProgressView().controlSize(.small)
                 Text("Sending \(question + 1) of \(form.form.questions.count)…")
@@ -193,6 +194,7 @@ struct AnswerCardView: View {
             }
             Spacer(minLength: 0)
             Button(sendTitle(card.state.question), action: { answer.pressSend() })
+                .keepsColorWhenInactive()
                 .disabled(card.state.readyChoice == nil)
         }
         .padding(.horizontal, 18)

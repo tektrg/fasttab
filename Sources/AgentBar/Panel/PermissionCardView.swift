@@ -200,6 +200,7 @@ struct PermissionCardView: View {
                     Button(card.state.actionTitle) { permission.pressSend() }
                         .disabled(!card.state.canSend)
                         .tint(card.state.isConfirmingAlways ? .red : nil)
+                        .keepsColorWhenInactive()
                 }
             }
         }

@@ -198,6 +198,8 @@ private struct SearchAliasBadge: View {
 extension CommandBarAppearanceKeys {
     /// Fast Tab's keys. The first three predate the shared model and keep their old
     /// names so stored choices survive (pinned by `AppearanceSettingsMigrationTests`).
+    /// `.rowLimit` is the retired "Quick-open items" setting: still loaded and saved by the
+    /// shared model under its old name, read by nothing (every open lists every tab).
     static let fastTab = CommandBarAppearanceKeys(prefix: "FastTab", renamed: [
         .background: "FastTab.appearance.outerGlassPanel",
         .rowLimit: "FastTab.appearance.quickOpenItemLimit",
@@ -208,14 +210,13 @@ enum CommandBarAppearance {
     static let keys = CommandBarAppearanceKeys.fastTab
     static let outerPanelKey = keys.background
     static let resultRowStyleKey = keys.rowStyle
-    static let quickOpenItemLimitKey = keys.rowLimit
     /// Accent colour (slice 8c). Missing = `.system`, the look before the setting existed.
     static let accentKey = keys.accent
     /// Position (slice 10): follow the hover edge (default, missing key) or a floating card at `placementKey`.
     static let followsEdgeKey = keys.followsEdge
     static let placementKey = keys.placement
-    /// Fast Tab's defaults: background on, Minimal rows, 5 quick-open items, Position = follow
-    /// the hover-to-open edge (General). No Size picker: the bar sizes itself.
+    /// Fast Tab's defaults: background on, Minimal rows, Position = follow the hover-to-open
+    /// edge (General). No Size picker: the bar sizes itself. `rowLimit` is unused (no row cap).
     static let standard = CommandBarAppearanceSettings(background: true, rowStyle: .minimal, rowLimit: 5, followsEdge: true)
 
     static func load(from defaults: UserDefaults = .standard) -> CommandBarAppearanceSettings {

@@ -5,12 +5,11 @@ extension ContentView {
     func scheduleFaviconPrefetch(for results: [BrowserSearchResult]) {
         faviconPrefetchDebounceTask?.cancel()
         let snapshot = results
-        // Expanding "show all tabs" reveals rows beyond the collapsed-view cap;
-        // fetch every one of them instead of leaving the tail without favicons.
-        // Chip/alias-only searches (empty text) are still searches — prefetch
-        // the live-search count, not the quick-open cap.
+        // An empty search lists every tab (no cap, any open), so fetch every
+        // row's favicon rather than leaving the tail blank. Chip/alias-only
+        // searches (empty text) are still searches — prefetch the live-search count.
         let searching = !searchText.isEmpty || !scopeChips.isEmpty || activeSearchAlias != nil
-        let prefetchLimit = isShowingAllOpenTabs ? results.count : (searching ? 12 : effectiveQuickOpenLimit)
+        let prefetchLimit = searching ? 12 : results.count
 
         faviconPrefetchDebounceTask = Task {
             try? await Task.sleep(for: .milliseconds(220))
@@ -339,7 +338,6 @@ extension ContentView {
         searchDebounceTask?.cancel()
         suppressNextSearchChange = true
         searchText = ""
-        isShowingAllOpenTabs = appState.wasOpenedByMouse
         activeSearchAlias = nil
         consumedAliasKeyword = ""
         rejectedAliasKeyword = nil

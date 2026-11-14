@@ -17,18 +17,35 @@ class ShortcutStore: ObservableObject {
 
     private let defaults: UserDefaults
 
+    /// The summon shortcut a new install gets: ⌃Tab (owner decision 2026-11-14). Its ⇧ twin
+    /// (⌃⇧Tab) steps back while the bar is open, which ⌘⇧Space could never offer.
+    static let newInstallDefault = ViewShortcut(
+        keyCode: 48, modifiers: NSEvent.ModifierFlags.control.rawValue, keyName: ViewShortcut.keyName(keyCode: 48, characters: nil)
+    )
+    /// The default every build before 2026-11-14 registered (never stored): ⌘⇧Space.
+    static let legacyDefault = ViewShortcut(
+        keyCode: 49, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, keyName: "Space"
+    )
+    /// Written when onboarding finishes, by every build since onboarding shipped (May 2026) —
+    /// the same "existing user" signal `EdgeRevealStore` and `CommandBarViewStore` use.
+    static let onboardingCompletedKey = "onboarding.v1.completed"
+    /// Written on first launch by every build up to 1.3 (`LaunchAtLoginService` started with the
+    /// app then; now it starts only with Settings › General, after this pin has run). Catches
+    /// installs from before onboarding (they may never have finished it). A 1.4+ install whose
+    /// onboarding was never finished counts only if Settings › General was opened.
+    static let launchAtLoginInitializedKey = "launchAtLogin.didInitialize"
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
-        defaults.register(defaults: [
-            "shortcut.keyCode": 49,
-            "shortcut.modifiers": Int(NSEvent.ModifierFlags([.command, .shift]).rawValue),
-            "shortcut.keyName": "Space"
-        ])
-
-        keyCode = UInt16(defaults.integer(forKey: "shortcut.keyCode"))
-        modifiers = NSEvent.ModifierFlags(rawValue: UInt(defaults.integer(forKey: "shortcut.modifiers")))
-        keyDisplayName = defaults.string(forKey: "shortcut.keyName") ?? "Space"
+        // No `register(defaults:)` for these keys: the registration domain is process-wide and
+        // would make `pinDefaultShortcut` see a value that was never stored. It always stores
+        // one, so the fallbacks below are only a safety net.
+        Self.pinDefaultShortcut(in: defaults)
+        let fallback = Self.newInstallDefault
+        keyCode = (defaults.object(forKey: "shortcut.keyCode") as? Int).map { UInt16($0) } ?? fallback.keyCode
+        modifiers = NSEvent.ModifierFlags(rawValue: (defaults.object(forKey: "shortcut.modifiers") as? Int).map { UInt($0) } ?? fallback.modifiers)
+        keyDisplayName = defaults.string(forKey: "shortcut.keyName") ?? fallback.keyName
 
         recentsShortcut = Self.loadViewShortcut(prefix: "shortcut.recents", from: defaults)
         stackShortcut = Self.loadViewShortcut(prefix: "shortcut.stack", from: defaults)
@@ -100,6 +117,22 @@ class ShortcutStore: ObservableObject {
 
     var displayString: String {
         modifierSymbols + keyDisplayName
+    }
+
+    /// One-time: an install with no stored summon shortcut gets one written down, so changing the new-install default never moves anyone.
+    /// Onboarding already finished, or a pre-onboarding build ran here (`launchAtLoginInitializedKey`)
+    /// → this Mac used the old unstored ⌘⇧Space, keep it. Otherwise
+    /// it is a fresh install → ⌃Tab, stored now so finishing onboarding later cannot flip it.
+    /// A shortcut the user recorded is stored already and untouched. Nothing may
+    /// `register(defaults:)` these keys: `object(forKey:)` would see the registered value.
+    static func pinDefaultShortcut(in defaults: UserDefaults) {
+        guard defaults.object(forKey: "shortcut.keyCode") == nil else { return }
+        let isExistingInstall = defaults.bool(forKey: onboardingCompletedKey)
+            || defaults.object(forKey: launchAtLoginInitializedKey) != nil
+        let pinned = isExistingInstall ? legacyDefault : newInstallDefault
+        defaults.set(Int(pinned.keyCode), forKey: "shortcut.keyCode")
+        defaults.set(Int(pinned.modifiers), forKey: "shortcut.modifiers")
+        defaults.set(pinned.keyName, forKey: "shortcut.keyName")
     }
 
     private static func loadViewShortcut(prefix: String, from defaults: UserDefaults) -> ViewShortcut? {

@@ -816,10 +816,6 @@ private func isPreferredDuplicate(
     return candidate.timestamp > current.timestamp
 }
 
-func quickOpenVisibleTabs(from results: [BrowserSearchResult], limit: Int) -> [BrowserSearchResult] {
-    Array(results.prefix(max(0, limit)))
-}
-
 /// Sorts tabs strictly by raw recency for Quick Open / Recents view (⌘1 / empty query).
 /// Empty query (quick-open) must rank by raw recency so the tab you *just* used
 /// is always at the top — a hard UX guarantee that frecency or tab pinning
@@ -868,37 +864,4 @@ func sortQuickOpenResults(_ items: [BrowserSearchResult]) -> [BrowserSearchResul
 
 func allQuickOpenTabs(from results: [BrowserSearchResult]) -> [BrowserSearchResult] {
     sortQuickOpenTabs(results)
-}
-
-struct QuickOpenDisplayState: Equatable {
-    let results: [BrowserSearchResult]
-    let includesShowAllTabsItem: Bool
-}
-
-func quickOpenDisplayState(
-    from results: [BrowserSearchResult],
-    limit: Int,
-    isShowingAllOpenTabs: Bool
-) -> QuickOpenDisplayState {
-    let cappedLimit = max(0, limit)
-    guard cappedLimit > 0 else {
-        return QuickOpenDisplayState(results: [], includesShowAllTabsItem: false)
-    }
-
-    if isShowingAllOpenTabs {
-        return QuickOpenDisplayState(results: results, includesShowAllTabsItem: false)
-    }
-
-    let previewLimit = max(0, cappedLimit - 1)
-    if results.count > previewLimit {
-        return QuickOpenDisplayState(
-            results: Array(results.prefix(previewLimit)),
-            includesShowAllTabsItem: true
-        )
-    }
-
-    return QuickOpenDisplayState(
-        results: Array(results.prefix(cappedLimit)),
-        includesShowAllTabsItem: false
-    )
 }

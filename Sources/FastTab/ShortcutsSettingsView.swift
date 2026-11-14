@@ -18,6 +18,10 @@ struct ShortcutsSettingsView: View {
                     ShortcutRecorderView(store: shortcutStore)
                 }
 
+                Text(Self.backStepCaption(modifiers: shortcutStore.modifiers, keyName: shortcutStore.keyDisplayName))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 if let issue = appState.globalShortcutRegistrationIssue {
                     Text(issue)
                         .font(.caption)
@@ -44,6 +48,16 @@ struct ShortcutsSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// While the bar is open, ⇧ + the summon shortcut steps back one row
+    /// (`CommandBarKeyRouter.isBackwardCycle`). A shortcut that already has ⇧ has no ⇧ twin.
+    static func backStepCaption(modifiers: NSEvent.ModifierFlags, keyName: String) -> String {
+        guard !modifiers.contains(.shift) else {
+            return "Going back (⇧ + shortcut) needs a shortcut without ⇧."
+        }
+        let chord = ViewShortcut.modifierSymbols(for: modifiers.union(.shift)) + keyName
+        return "Press ⇧ + shortcut (\(chord)) to go back."
     }
 
     @ViewBuilder

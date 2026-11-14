@@ -12,8 +12,9 @@ struct ShortcutStoreTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let store = ShortcutStore(defaults: defaults)
-        #expect(store.keyCode == 49)
-        #expect(store.keyDisplayName == "Space")
+        // Fresh install: ⌃Tab (ShortcutDefaultMigrationTests covers existing installs).
+        #expect(store.keyCode == 48)
+        #expect(store.keyDisplayName == "⇥")
 
         store.update(keyCode: 18, modifiers: [.command], keyName: "1")
         #expect(defaults.integer(forKey: "shortcut.keyCode") == 18)
@@ -69,15 +70,15 @@ struct ShortcutStoreTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let store = ShortcutStore(defaults: defaults)
-        // Primary is ⌘⇧Space
-        #expect(store.isAnyShortcutModifierHeld(in: [.command]))
-        #expect(store.isAnyShortcutModifierHeld(in: [.shift]))
-        #expect(!store.isAnyShortcutModifierHeld(in: [.control]))
+        // Primary is ⌃Tab (fresh install)
+        #expect(store.isAnyShortcutModifierHeld(in: [.control]))
+        #expect(!store.isAnyShortcutModifierHeld(in: [.command]))
+        #expect(!store.isAnyShortcutModifierHeld(in: [.shift]))
 
-        // Add ⌃S for Stack
-        let stack = ViewShortcut(keyCode: 1, modifiers: NSEvent.ModifierFlags.control.rawValue, keyName: "S")
+        // Add ⌥S for Stack
+        let stack = ViewShortcut(keyCode: 1, modifiers: NSEvent.ModifierFlags.option.rawValue, keyName: "S")
         store.updateViewShortcut(for: .stack, shortcut: stack)
 
-        #expect(store.isAnyShortcutModifierHeld(in: [.control]))
+        #expect(store.isAnyShortcutModifierHeld(in: [.option]))
     }
 }

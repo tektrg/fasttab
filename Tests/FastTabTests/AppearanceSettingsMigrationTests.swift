@@ -16,7 +16,8 @@ struct AppearanceSettingsMigrationTests {
     @Test func keysAreTheOldOnes() {
         #expect(CommandBarAppearance.outerPanelKey == "FastTab.appearance.outerGlassPanel")
         #expect(CommandBarAppearance.resultRowStyleKey == "FastTab.appearance.resultRowStyle")
-        #expect(CommandBarAppearance.quickOpenItemLimitKey == "FastTab.appearance.quickOpenItemLimit")
+        // The retired "Quick-open items" setting keeps its old key name (loaded, never read).
+        #expect(CommandBarAppearance.keys.rowLimit == "FastTab.appearance.quickOpenItemLimit")
     }
 
     @Test func oldStoredSettingsStillLoad() {

@@ -9,12 +9,11 @@ import IndieEdgeReveal
 private let appLogger = Logger(subsystem: "com.trungluong.FastTab", category: "AppDelegate")
 let fastTabPresentLicenseActivationNotification = Notification.Name("FastTabPresentLicenseActivation")
 
+/// How the bar was opened. Both list every tab; they differ only in the hover grace
+/// period (`armShortcutOpenGracePeriod`) and, for hover reveals, the hover default view.
 public enum CommandBarOpenTrigger: Sendable, Equatable {
     case shortcut
     case mouse
-
-    public var isMouse: Bool { self == .mouse }
-    public var shouldExpandAllTabs: Bool { self == .mouse }
 }
 
 @MainActor
@@ -55,16 +54,6 @@ class AppState: ObservableObject {
             CommandBarPanelController.shared.evaluateHoverDismiss()
         }
     }
-    /// Mirrors `ContentView`'s `isShowingAllOpenTabs` so AppKit-side code (no
-    /// view access) can read it — `CommandBarPanelController.isCursorOutsideSurface`
-    /// sizes the hover-dismiss box off this flag so it matches the taller
-    /// expanded panel instead of the small quick-open cap.
-    @Published var isShowingAllOpenTabs: Bool = false {
-        didSet {
-            guard isShowingAllOpenTabs != oldValue, isVisible else { return }
-            CommandBarPanelController.shared.evaluateHoverDismiss()
-        }
-    }
     var selectedIndex: Int {
         get { commandBar.selectedIndex }
         set { commandBar.selectedIndex = newValue }
@@ -74,7 +63,6 @@ class AppState: ObservableObject {
     var errorNoticeFrameInWindow: CGRect?
     @Published var isRecordingShortcut: Bool = false
     @Published var wasOpenedByHover: Bool = false
-    @Published var wasOpenedByMouse: Bool = false
     @Published var pendingInitialView: CommandBarView? = nil
     @Published var globalShortcutRegistrationIssue: String?
     let browserService = BrowserTabService()
@@ -192,18 +180,13 @@ class AppState: ObservableObject {
         if next != isVisible { isVisible = next }
     }
 
-    func setOpenTrigger(_ trigger: CommandBarOpenTrigger) {
-        wasOpenedByMouse = trigger.isMouse
-        isShowingAllOpenTabs = trigger.shouldExpandAllTabs
-    }
-
     /// - Parameter revealStyle: non-nil when this open was triggered by the
     ///   notch/edge hover reveal (`EdgeRevealCoordinator`), rather than the
     ///   keyboard shortcut or menu-bar icon. Plays a brief grow-from-that-side
     ///   animation instead of appearing instantly.
     /// - Parameter openedBy: Whether triggered via keyboard shortcut or mouse
-    ///   (hover, menu bar click, dock icon). Mouse opens expand to the full list of tabs;
-    ///   the 5-tab quick-open limit only applies to shortcut opens.
+    ///   (hover, menu bar click, dock icon). Both list every tab; a shortcut open
+    ///   also arms the hover-dismiss grace period.
     func showCommandBar(
         revealStyle: EdgeRevealStyle? = nil,
         initialView: CommandBarView? = nil,
@@ -212,7 +195,6 @@ class AppState: ObservableObject {
         pendingInitialView = initialView
         pendingRevealStyle = revealStyle
         pendingOpenTrigger = openedBy
-        setOpenTrigger(openedBy)
         LicenseService.shared.refreshTimeSensitiveState()
         SyncService.shared.fetchLatestChanges()
         SentLinkInbox.shared.reloadFromDisk()
@@ -267,8 +249,6 @@ class AppState: ObservableObject {
         commandWindow?.orderOut(nil)
         isVisible = false
         wasOpenedByHover = false
-        wasOpenedByMouse = false
-        isShowingAllOpenTabs = false
         pendingInitialView = nil
         pendingRevealStyle = nil
         pendingOpenTrigger = .mouse
@@ -814,44 +794,32 @@ private final class CommandBarPanelController: NSObject {
         pointerLeaveMonitor.stop()
     }
 
-    /// Re-check now: called when the search box empties/fills or the list expands, so it reacts
+    /// Re-check now: called when the search box empties/fills, so it reacts
     /// to the search being cleared while the cursor is already outside.
     func evaluateHoverDismiss() {
         pointerLeaveMonitor.evaluate()
     }
 
-    /// Bounds this against the user's *actual* configured row cap
-    /// (`CommandBarAppearance.quickOpenItemLimitKey`), not the global ceiling
-    /// `surfaceFrame` defaults to for the click-dismiss test — hover-dismiss
-    /// only ever runs while the search field is empty, when the panel can
-    /// never grow past that setting, so using the global ceiling there made
-    /// the box tall enough to swallow most of the screen's vertical middle,
-    /// and leaving the bar by moving straight up or down never registered as
-    /// "outside."
-    ///
-    /// When `AppState.isShowingAllOpenTabs` is set, the panel has expanded
-    /// past that configured cap to `expandedAllTabsMaxRows` — using the small
-    /// quick-open cap here would draw the box shorter than the actually
-    /// rendered (taller) panel, so leaving the panel by crossing out of that
-    /// undersized box (while still visibly over the expanded list) fired the
-    /// dismiss early.
+    /// Bounds this against the panel's real height on an empty search
+    /// (`CommandBarLayout.hoverDismissMaxRows`: the tall every-tab list), not the
+    /// global ceiling `surfaceFrame` defaults to for the click-dismiss test —
+    /// that ceiling made the box tall enough to swallow most of the screen's
+    /// vertical middle, so leaving the bar by moving straight up or down never
+    /// registered as "outside." Hover-dismiss only runs on an empty search, and
+    /// the box must never be shorter than the drawn panel, or crossing out of it
+    /// while still over the list fires the dismiss early.
     private func isCursorOutsideSurface(_ location: CGPoint) -> Bool {
         guard let panel else { return true }
         if FastTabErrorNoticeHit.contains(
             location, noticeInWindow: AppState.shared.errorNoticeFrameInWindow, windowFrame: panel.frame
         ) { return false }
         let defaults = UserDefaults.standard
-        let rowStyle = ResultRowStyle(rawValue: defaults.string(forKey: CommandBarAppearance.resultRowStyleKey) ?? "") ?? .minimal
-        let showFooter = defaults.object(forKey: CommandBarAppearance.helperPanelVisibleKey) as? Bool ?? true
-        let limitSetting = defaults.object(forKey: CommandBarAppearance.quickOpenItemLimitKey) as? Int ?? 5
-        let maxRows = CommandBarLayout.surfaceMaxRows(
+        let rowStyle = CommandBarLayout.storedRowStyle(in: defaults)
+        let showFooter = CommandBarLayout.storedShowFooter(in: defaults)
+        let maxRows = CommandBarLayout.hoverDismissMaxRows(
             view: CommandBarViewStore.shared.activeView,
-            isShowingAllOpenTabs: AppState.shared.isShowingAllOpenTabs,
-            isSearching: false,
             anchor: CommandBarAnchor.current,
-            rowStyle: rowStyle,
-            showFooter: showFooter,
-            quickOpenLimit: limitSetting
+            defaults: defaults
         )
 
         let surface = CommandBarLayout.surfaceFrame(

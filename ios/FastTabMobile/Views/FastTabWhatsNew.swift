@@ -76,9 +76,16 @@ struct WhatsNewCardSlot: View {
         }
         .whatsNewFlow(model: whatsNew, text: FastTabWhatsNew.text, appStoreID: FastTabWhatsNew.appStoreID,
                       requestReview: { requestReview() }) {
-            FeedbackChatView(client: FeedbackClient(configuration: FastTabWhatsNew.feedbackConfiguration))
-                .navigationTitle("Chat with the Creator")
-                .navigationBarTitleDisplayMode(.inline)
+            FastTabFeedbackChat()
         }
+    }
+}
+
+/// This iPhone's creator chat: "Send feedback" on the review step and More > Chat with the Creator.
+struct FastTabFeedbackChat: View {
+    var body: some View {
+        FeedbackChatView(client: FeedbackClient(configuration: FastTabWhatsNew.feedbackConfiguration))
+            .navigationTitle("Chat with the Creator")
+            .navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -8,6 +8,8 @@ struct FocusOverlayView: View {
     @ObservedObject var session: FocusSession
     let reduceMotion: Bool
     let onExit: () -> Void
+    /// Offscreen renders: skip the fade-in (`onAppear` animations never run without a window).
+    var startsAppeared = false
     @Environment(\.colorScheme) private var colorScheme
     @State private var appeared = false
     @State private var bumpOffset: CGFloat = 0
@@ -30,7 +32,7 @@ struct FocusOverlayView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 22))
                     .shadow(color: .black.opacity(0.35), radius: 40, y: 12)
                     .scaleEffect(appeared || reduceMotion ? 1 : 0.98)
-                    .opacity(appeared ? 1 : 0)
+                    .opacity(appeared || startsAppeared ? 1 : 0)
                     .offset(x: bumpOffset)
             }
         }

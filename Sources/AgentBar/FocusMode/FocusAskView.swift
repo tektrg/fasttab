@@ -23,7 +23,10 @@ struct FocusAskView: View {
         switch session.ask {
         case .answer:
             if let card = answer.card, let form = card.form {
-                FocusFittedPanel(maxBody: FocusTextFit.rightMaxBody) { fit in bigForm(form, fit: fit) }
+                VStack(spacing: 14) {
+                    FocusFittedPanel(maxBody: FocusTextFit.rightMaxBody) { fit in bigForm(form, fit: fit) }
+                    formFooter(form)   // pinned: Submit never scrolls away or sits on the bottom edge
+                }
             } else if let card = answer.card {
                 FocusFittedPanel(maxBody: FocusTextFit.rightMaxBody) { fit in bigQuestion(card.state, fit: fit) }
             }
@@ -116,6 +119,7 @@ struct FocusAskView: View {
         let count = form.form.questions.count
         return VStack(alignment: .leading, spacing: fit.body * 1.0) {
             ForEach(Array(form.form.questions.enumerated()), id: \.offset) { index, question in
+                let _ = count
                 VStack(alignment: .leading, spacing: fit.body * 0.45) {
                     HStack(spacing: 8) {
                         Text("\(index + 1) OF \(count)\(question.header.isEmpty ? "" : " · " + question.header.uppercased())\(question.isMultiSelect ? " · PICK ANY" : "")")
@@ -151,20 +155,25 @@ struct FocusAskView: View {
                 }
             }
             if let report = form.report { errorLine(report, fit: fit) }
-            HStack(spacing: 12) {
-                Text("\(form.answeredCount) of \(count) answered")
-                    .font(.avenir(size: max(12, fit.body * 0.7), weight: .medium))
-                    .foregroundStyle(form.isComplete ? FocusPalette.ok : FocusPalette.mute)
-                Text("↑↓ · 1–9 · Space/↩ choose")
-                    .font(.avenir(size: max(11, fit.body * 0.55)))
-                    .foregroundStyle(FocusPalette.mute)
-                Spacer()
-                Button("Submit ↩") { answer.handle(.enter) }
-                    .controlSize(.large)
-                    .disabled(!form.canSubmit)
-            }
-            .padding(.bottom, fit.body * 0.6)   // never on the panel's bottom edge
         }
+    }
+
+    private func formFooter(_ form: AnswerFormState) -> some View {
+        HStack(spacing: 12) {
+            Text("\(form.answeredCount) of \(form.form.questions.count) answered")
+                .font(.avenir(size: 16, weight: .medium))
+                .foregroundStyle(form.isComplete ? FocusPalette.ok : FocusPalette.mute)
+            Text("↑↓ · 1–9 · Space/↩ choose")
+                .font(.avenir(size: 13))
+                .foregroundStyle(FocusPalette.mute)
+            Spacer()
+            Button("Submit ↩") { answer.handle(.enter) }
+                .controlSize(.large)
+                .disabled(!form.canSubmit)
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+        .overlay(alignment: .top) { Divider().overlay(FocusPalette.line) }
     }
 
     /// Other: a big row until it is chosen, then the panel's own (small) text box for typing.

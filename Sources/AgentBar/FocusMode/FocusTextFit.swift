@@ -29,9 +29,11 @@ struct FocusTextFit: Equatable {
 
     /// `heightAtBase`: the content's natural height drawn at the base sizes.
     /// `maxBody` above `baseBody` lets a panel with spare room grow its text (the right panel: 28).
-    static func fit(heightAtBase: CGFloat, available: CGFloat, maxBody: CGFloat = baseBody) -> FocusTextFit {
+    /// `shrink`: points to take off the start size after the drawn content was seen to overflow anyway
+    /// (the square-law estimate is only an estimate).
+    static func fit(heightAtBase: CGFloat, available: CGFloat, maxBody: CGFloat = baseBody, shrink: CGFloat = 0) -> FocusTextFit {
         guard heightAtBase > 0, available > 0 else { return base }
-        var body = max(baseBody, maxBody)
+        var body = max(floorBody, max(baseBody, maxBody) - shrink)
         while body >= floorBody {
             let ratio = body / baseBody
             // Growing past base keeps a margin: the square-law estimate is rougher the further it reaches.

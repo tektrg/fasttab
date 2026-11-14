@@ -198,15 +198,10 @@ private struct SearchAliasBadge: View {
 extension CommandBarAppearanceKeys {
     /// Fast Tab's keys. The first three predate the shared model and keep their old
     /// names so stored choices survive (pinned by `AppearanceSettingsMigrationTests`).
-    static let fastTab = CommandBarAppearanceKeys(
-        background: "FastTab.appearance.outerGlassPanel",
-        rowStyle: "FastTab.appearance.resultRowStyle",
-        rowLimit: "FastTab.appearance.quickOpenItemLimit",
-        placement: "FastTab.appearance.placement",
-        fitsContent: "FastTab.appearance.fitsContent",
-        accent: "FastTab.appearance.accent",
-        followsEdge: "FastTab.appearance.followsEdge"
-    )
+    static let fastTab = CommandBarAppearanceKeys(prefix: "FastTab", renamed: [
+        .background: "FastTab.appearance.outerGlassPanel",
+        .rowLimit: "FastTab.appearance.quickOpenItemLimit",
+    ])
 }
 
 enum CommandBarAppearance {

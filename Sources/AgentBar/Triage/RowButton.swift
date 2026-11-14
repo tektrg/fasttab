@@ -10,7 +10,7 @@ import Foundation
 /// see `RowButtons.menuItems`). Done, Close pane, Compact and Clear never appear as their own
 /// capsule; they live inside the `.moreActions` (⋯) menu (`RowMoreMenuView`), which is what
 /// actually shows in the row's button strip and the ←/→ keyboard order.
-enum RowButton: Equatable, Sendable {
+enum RowButton: Hashable, Sendable {
     case answer
     case review
     case openTerminal

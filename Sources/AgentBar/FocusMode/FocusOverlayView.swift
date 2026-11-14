@@ -154,9 +154,41 @@ struct FocusOverlayView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(FocusPalette.panel)
             Divider().overlay(FocusPalette.line)
-            FocusAskView(session: session)
-                .padding(32)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 0) {
+                FocusAskView(session: session)
+                    .padding(32)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider().overlay(FocusPalette.line)
+                AgentActionRow(
+                    items: actionItems(agent),
+                    actionState: session.model.rowActionStates[agent.id],
+                    fontSize: 15, spacing: 8,
+                    onAction: { perform($0, on: agent) }
+                )
+                .padding(.horizontal, 32)
+                .frame(height: 56)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// The shared action row's items here: Peek and Message are left out (the overlay has no peek
+    /// surface, and the ask column already is the Message box for a waiting agent).
+    private func actionItems(_ agent: AgentSnapshot) -> [AgentActionItem] {
+        AgentActionList.items(
+            for: agent, tree: session.model.treeModel.tree,
+            goToDisabledReason: session.destination.flatMap { $0.isEnabled ? nil : ($0.reason ?? FocusDestination.noHomeReason) },
+            hiding: Self.hiddenActions
+        )
+    }
+
+    static let hiddenActions: Set<RowButton> = [.peek, .message]
+
+    private func perform(_ action: AgentAction, on agent: AgentSnapshot) {
+        switch action {
+        case .close: onExit()
+        case .goToAgent: session.goToAgent()
+        case .row(let button): session.model.press(button, on: agent.id)
         }
     }
 

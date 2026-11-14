@@ -253,8 +253,8 @@ public struct MoreView: View {
                 }
                 .foregroundStyle(.primary)
                 #if DEBUG
-                Button("Show Rating Popup (Debug)") {
-                    RatingPromptCoordinator.shared.forceShow()
+                Button("Show What's New Card (Debug)") {
+                    FastTabWhatsNew.showSampleCard()
                 }
                 #endif
             }

@@ -265,10 +265,7 @@ public struct TabListView: View {
         .onChange(of: localCache.state.tabs.count) {
             pruneFinishedCloses()
         }
-        .fullScreenCover(item: $selectedBrowserURL, onDismiss: {
-            // Opened from search and back: a calm moment to count (and maybe ask for a rating).
-            if !searchText.isEmpty { RatingPromptCoordinator.shared.searchResultVisitEnded() }
-        }) { url in
+        .fullScreenCover(item: $selectedBrowserURL) { url in
             InAppBrowserView(url: url)
                 .ignoresSafeArea()
         }

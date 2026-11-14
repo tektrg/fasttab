@@ -142,9 +142,13 @@ public struct ReadingFeedView: View {
             .padding(.bottom, unfinishedReads.isEmpty ? 24 : DS.Space.floatingBarClearance)
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            // "No Mac connected" is the normal state of a reader-only phone, not a warning.
-            if offersMacActions {
-                SyncWarningBanner()
+            VStack(spacing: 0) {
+                // "No Mac connected" is the normal state of a reader-only phone, not a warning.
+                if offersMacActions {
+                    SyncWarningBanner()
+                }
+                // After a release the owner flagged big: a dismissible What's New card (never a pop-up).
+                WhatsNewCardSlot()
             }
         }
         .dsCanvas()

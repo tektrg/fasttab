@@ -7,7 +7,7 @@ struct AnswerCard: Equatable, Sendable {
     enum Message: Equatable, Sendable {
         case loading
         case text(String)
-        /// Nothing to show: the section is left out.
+        /// Nothing to show: the (always drawn) fold says so when opened.
         case none
     }
 

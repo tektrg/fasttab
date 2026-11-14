@@ -5,6 +5,8 @@ import SwiftUI
 /// drawn message is taller, so it never takes the room the question needs.
 struct LastMessageView: View {
     let text: String
+    /// False when a fold above already carries the "Last message" title (`LastMessageSection`).
+    var showsTitle = true
     private let blocks: [MarkdownBlock]
     @State private var isExpanded = false
     @State private var naturalHeight: CGFloat = 0
@@ -12,8 +14,9 @@ struct LastMessageView: View {
     /// About five lines of 12pt text.
     static let collapsedHeight: CGFloat = 80
 
-    init(text: String) {
+    init(text: String, showsTitle: Bool = true) {
         self.text = text
+        self.showsTitle = showsTitle
         self.blocks = MarkdownParser.parse(text)
     }
 
@@ -21,9 +24,11 @@ struct LastMessageView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("LAST MESSAGE")
-                .font(.avenir(size: 10, weight: .semibold))
-                .foregroundStyle(.tertiary)
+            if showsTitle {
+                Text("LAST MESSAGE")
+                    .font(.avenir(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
             MarkdownBlocksView(blocks: blocks)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)

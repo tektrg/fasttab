@@ -50,31 +50,12 @@ struct PermissionCardView: View {
         .frame(height: AgentPanelMetrics.answerHeaderHeight)
     }
 
-    @ViewBuilder
-    private func messageSection(_ card: PermissionCard) -> some View {
-        switch card.message {
-        case .loading:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Reading the agent's last message…")
-            }
-            .font(.avenir(size: 12))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 18)
-            .padding(.bottom, 8)
-        case .text(let text):
-            LastMessageView(text: text)
-        case .none:
-            EmptyView()
-        }
-    }
-
     /// Everything between the header and the action bar scrolls together, so a long command is
     /// shown whole instead of being cut.
     private func scrollingBody(_ card: PermissionCard) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                messageSection(card)
+                LastMessageSection(message: card.message)
                 request(card.state.prompt)
                 if let note = card.state.changedNote { noteLine(note) }
                 choicesSection(card.state)

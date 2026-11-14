@@ -89,9 +89,10 @@ struct ShortcutOpenShowsAllTabsTests {
         }
     }
 
-    /// The hover-dismiss box ("stay inside or the bar closes") must always contain the drawn
-    /// panel, or leaving the box while still over the list closes the bar.
-    @Test func hoverDismissBoxAlwaysContainsTheDrawnSurface() {
+    /// The pointer box (leave close, "has visited", mouse takeover) is the panel as drawn: the
+    /// rows it shows for this page and search state — never shorter (leaving the box while still
+    /// over the list would close the bar), never taller (empty screen would count as the bar).
+    @Test func pointerBoxIsTheDrawnSurface() {
         let canvas = CGRect(x: 0, y: 0, width: 1920, height: 1080)
         let views: [CommandBarView] = [.recents, .stack, .custom(UUID()), .newView]
         for anchor in CommandBarAnchor.allCases {
@@ -101,12 +102,14 @@ struct ShortcutOpenShowsAllTabsTests {
                     defaults.set(rowStyle.rawValue, forKey: CommandBarAppearance.resultRowStyleKey)
                     defaults.set(showFooter, forKey: CommandBarAppearance.helperPanelVisibleKey)
                     for view in views {
-                        let box = CommandBarLayout.surfaceFrame(
-                            in: canvas, anchor: anchor, rowStyle: rowStyle,
-                            maxRows: CommandBarLayout.hoverDismissMaxRows(view: view, anchor: anchor, defaults: defaults),
-                            showFooter: showFooter
-                        )
                         for searching in [false, true] {
+                            let box = CommandBarLayout.surfaceFrame(
+                                in: canvas, anchor: anchor, rowStyle: rowStyle,
+                                maxRows: CommandBarLayout.drawnSurfaceMaxRows(
+                                    view: view, isSearching: searching, anchor: anchor, defaults: defaults
+                                ),
+                                showFooter: showFooter
+                            )
                             let drawn = CommandBarLayout.surfaceFrame(
                                 in: canvas, anchor: anchor, rowStyle: rowStyle,
                                 maxRows: CommandBarLayout.surfaceMaxRows(
@@ -114,8 +117,8 @@ struct ShortcutOpenShowsAllTabsTests {
                                 ),
                                 showFooter: showFooter
                             )
-                            #expect(box.insetBy(dx: -0.5, dy: -0.5).contains(drawn),
-                                    "box \(box) misses drawn \(drawn): \(anchor) \(view) \(rowStyle) footer=\(showFooter) searching=\(searching)")
+                            #expect(box == drawn,
+                                    "box \(box) is not drawn \(drawn): \(anchor) \(view) \(rowStyle) footer=\(showFooter) searching=\(searching)")
                         }
                     }
                 }
@@ -131,7 +134,7 @@ struct ShortcutOpenShowsAllTabsTests {
         defaults.set(stored, forKey: "FastTab.appearance.quickOpenItemLimit")
         _ = CommandBarAppearance.load(from: defaults)
         let tall = CommandBarLayout.expandedAllTabsMaxRows(for: .notch, rowStyle: .minimal, showFooter: true)
-        #expect(CommandBarLayout.hoverDismissMaxRows(view: .recents, anchor: .notch, defaults: defaults) == tall)
+        #expect(CommandBarLayout.drawnSurfaceMaxRows(view: .recents, isSearching: false, anchor: .notch, defaults: defaults) == tall)
     }
 
     static func scratch() -> UserDefaults {

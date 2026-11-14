@@ -836,38 +836,20 @@ private final class CommandBarPanelController: NSObject {
         pointerLeaveMonitor.evaluate()
     }
 
-    /// Bounds this against the panel's real height on an empty search
-    /// (`CommandBarLayout.hoverDismissMaxRows`: the tall every-tab list), not the
-    /// global ceiling `surfaceFrame` defaults to for the click-dismiss test —
-    /// that ceiling made the box tall enough to swallow most of the screen's
-    /// vertical middle, so leaving the bar by moving straight up or down never
-    /// registered as "outside." Hover-dismiss only runs on an empty search, and
-    /// the box must never be shorter than the drawn panel, or crossing out of it
-    /// while still over the list fires the dismiss early.
+    /// Off the bar as drawn (`FastTabPointerLeaveGates.isOutsideDrawnBar`), for the leave close,
+    /// its has-visited check and the mouse takeover alike. A live search at a top position draws
+    /// the short panel, so the empty screen below it is off the bar.
     private func isCursorOutsideSurface(_ location: CGPoint) -> Bool {
         guard let panel else { return true }
-        if FastTabErrorNoticeHit.contains(
-            location, noticeInWindow: AppState.shared.errorNoticeFrameInWindow, windowFrame: panel.frame
-        ) { return false }
-        let defaults = UserDefaults.standard
-        let rowStyle = CommandBarLayout.storedRowStyle(in: defaults)
-        let showFooter = CommandBarLayout.storedShowFooter(in: defaults)
-        let maxRows = CommandBarLayout.hoverDismissMaxRows(
+        return FastTabPointerLeaveGates.isOutsideDrawnBar(
+            location,
+            panelFrame: panel.frame,
+            visibleFrame: panel.screen?.visibleFrame,
+            anchor: CommandBarAnchor.current,
             view: CommandBarViewStore.shared.activeView,
-            anchor: CommandBarAnchor.current,
-            defaults: defaults
+            isSearching: !AppState.shared.isSearchTextEmpty,
+            errorNoticeInWindow: AppState.shared.errorNoticeFrameInWindow
         )
-
-        let surface = CommandBarLayout.surfaceFrame(
-            in: panel.frame,
-            anchor: CommandBarAnchor.current,
-            rowStyle: rowStyle,
-            maxRows: maxRows,
-            showFooter: showFooter,
-            visibleFrame: panel.screen?.visibleFrame
-        )
-        return !surface.insetBy(dx: -FastTabPointerLeaveGates.outset, dy: -FastTabPointerLeaveGates.outset)
-            .contains(location)
     }
 }
 

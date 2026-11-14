@@ -35,6 +35,8 @@ public struct FastTabMobileApp: App {
         if AppStoreDemo.isEnabled { AppStoreDemo.hideTips() }
         #endif
         FastTabTips.configure(onboardingCompleted: OnboardingCompletionStore().isCompleted)
+        // Before the guide can finish: tells a returning user from a new install (What's New card).
+        FastTabWhatsNew.noteLaunch()
     }
 
     public var body: some Scene {
@@ -98,7 +100,6 @@ public struct FastTabMobileApp: App {
                 guard oldMacID == nil, newMacID != nil, appMode.macAppeared() else { return }
                 rootToast = "Mac found — Tabs added"
             }
-            .ratingPrompt()
             .task { await accountSession.restoreIfNeeded() }
             // Natural Voice subscription: the one StoreKit listener, started at launch.
             .task { NaturalVoiceAccess.shared.start() }

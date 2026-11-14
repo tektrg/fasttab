@@ -7,7 +7,7 @@ import SwiftUI
 /// FastTab's "What's New → review" (IndieLibKit `IndieWhatsNew`, portfolio standard 2026-11-14).
 /// Replaces the old after-browser-close rating popup: after a release the owner flagged big on
 /// theindie-api, returning users get a dismissible card at the top of Read. Tap → the release
-/// notes → Apple's stars, "Send feedback" (the creator chat) under them. Never a pop-up.
+/// notes → Apple's stars, "Chat with the Creator" under them. Never a pop-up.
 @MainActor
 enum FastTabWhatsNew {
     /// FastTab Reader on the App Store, for "Write a review".
@@ -81,7 +81,7 @@ struct WhatsNewCardSlot: View {
     }
 }
 
-/// This iPhone's creator chat: "Send feedback" on the review step and More > Chat with the Creator.
+/// This iPhone's creator chat: the link on the review step and More > Chat with the Creator.
 struct FastTabFeedbackChat: View {
     var body: some View {
         FeedbackChatView(client: FeedbackClient(configuration: FastTabWhatsNew.feedbackConfiguration))

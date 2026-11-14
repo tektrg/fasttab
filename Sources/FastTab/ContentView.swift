@@ -106,6 +106,8 @@ struct ContentView: View {
     /// Settings › Appearance › Position (slice 10). Missing key = follow the hover edge (old look).
     @AppStorage(CommandBarAppearance.followsEdgeKey) var followsEdge: Bool = true
     @AppStorage(CommandBarAppearance.placementKey) var floatingPlacement: CommandBarPlacement = .topCenter
+    /// Position = Notch / Left / Right edge (shared anchor). Empty = floating at `floatingPlacement`.
+    @AppStorage(CommandBarAppearance.edgeAnchorKey) var edgeAnchor: String = ""
 
     var filteredResults: [BrowserSearchResult] {
         appState.browserService.results
@@ -301,7 +303,9 @@ struct ContentView: View {
     }
 
     var commandBarAnchor: CommandBarAnchor {
-        CommandBarAnchor(revealStyle: edgeRevealStore.style, position: followsEdge ? nil : floatingPlacement)
+        CommandBarAppearanceSettings(rowLimit: 0, placement: floatingPlacement, followsEdge: followsEdge,
+                                     edgeAnchor: CommandBarEdgeAnchor(rawValue: edgeAnchor))
+            .resolvedAnchor(hoverStyle: edgeRevealStore.style)
     }
 
     /// Narrow (half-width) edge-anchored surface — content wraps instead of

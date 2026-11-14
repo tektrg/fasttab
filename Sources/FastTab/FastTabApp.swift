@@ -758,7 +758,7 @@ private final class CommandBarPanelController: NSObject {
     /// expanding from the edge, since the anchor was applied to the entire
     /// canvas rather than just the visible surface within it.
     func playRevealAnimation(from style: EdgeRevealStyle) {
-        CommandBarRevealTrigger.shared.fire(anchor: CommandBarAnchor(revealStyle: style))
+        CommandBarRevealTrigger.shared.fire(anchor: CommandBarAppearance.load().resolvedAnchor(hoverStyle: style))
     }
 
     func startOutsideClickMonitoring() {

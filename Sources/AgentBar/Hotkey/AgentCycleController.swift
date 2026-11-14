@@ -71,6 +71,12 @@ final class AgentCycleController {
         session.handleFlagsChanged(currentModifiers)
     }
 
+    /// The mouse took control (a real move inside the panel): releasing the modifier no longer
+    /// switches; the next shortcut press arms it again.
+    func pointerTookOver() {
+        session.pointerTookOver()
+    }
+
     /// The panel closed by any route: forget the cycle so a stale one cannot commit.
     func panelClosed() {
         session.reset()

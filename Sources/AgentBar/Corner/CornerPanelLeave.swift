@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 
 /// Gap 9: the panel opened from the corner tab grows out of the bottom-right corner and closes
 /// when the pointer leaves it (shared `CommandBarPointerLeaveMonitor`). Opened by the shortcut,
@@ -9,6 +9,13 @@ enum CornerPanelLeave {
     static func cornerZone(displayFrame: CGRect) -> CGRect {
         let side = CornerHotZone.size * 2
         return CGRect(x: displayFrame.maxX - side, y: displayFrame.minY, width: side, height: side)
+    }
+
+    /// One of the summon shortcut's modifiers is down (⌥ of ⌥Tab): holds the panel (shared leave
+    /// rule's `isShortcutModifierHeld` hook), and letting go re-checks at once.
+    static func isShortcutModifierHeld(_ flags: NSEvent.ModifierFlags, shortcutModifiers: NSEvent.ModifierFlags) -> Bool {
+        let held = shortcutModifiers.intersection([.command, .option, .control, .shift])
+        return !flags.intersection(.deviceIndependentFlagsMask).intersection(held).isEmpty
     }
 }
 

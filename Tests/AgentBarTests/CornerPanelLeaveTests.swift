@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import IndieCommandBar
@@ -17,6 +18,24 @@ struct CornerPanelLeaveTests {
     @Test func cornerZoneIsTheDisplaysBottomRight() {
         let zone = CornerPanelLeave.cornerZone(displayFrame: CGRect(x: 0, y: 0, width: 1000, height: 800))
         #expect(zone.maxX == 1000 && zone.minY == 0 && zone.width == CornerHotZone.size * 2)
+    }
+
+    /// Holding the summon shortcut's modifier (⌥ of ⌥Tab) holds a corner-opened panel through the
+    /// shared leave rule's modifier hook; other modifiers don't.
+    @Test func theSummonModifierHoldsACornerOpenedPanel() {
+        let option = AgentHotkeyConfig.standard.modifiers
+        #expect(CornerPanelLeave.isShortcutModifierHeld([.option], shortcutModifiers: option))
+        #expect(CornerPanelLeave.isShortcutModifierHeld([.option, .shift], shortcutModifiers: option))
+        #expect(!CornerPanelLeave.isShortcutModifierHeld([.shift], shortcutModifiers: option))
+        #expect(!CornerPanelLeave.isShortcutModifierHeld([], shortcutModifiers: option))
+        #expect(CornerPanelLeave.isShortcutModifierHeld([.command], shortcutModifiers: [.command, .option]))
+        #expect(!CornerPanelLeave.isShortcutModifierHeld([.option, .capsLock], shortcutModifiers: []))
+        // Feeding the shared gate: held → the panel may not close.
+        let mayClose = CommandBarPointerLeaveClose.mayClose(
+            isSearchEmpty: true, isHeld: false, isMenuOpen: false,
+            isShortcutModifierHeld: CornerPanelLeave.isShortcutModifierHeld([.option], shortcutModifiers: option)
+        )
+        #expect(!mayClose)
     }
 
     @Test func idlePanelMayCloseButTypingAndEditorsHoldIt() {

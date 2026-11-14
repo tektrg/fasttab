@@ -42,42 +42,46 @@ final class AgentSwitchCoordinator {
         self.tmuxSwitcher = tmuxSwitcher
     }
 
-    func switchTo(_ agent: AgentSnapshot) async {
+    enum Outcome: Equatable, Sendable {
+        case switched
+        case failed(String)
+    }
+
+    /// `surfacesFailure` false (Focus mode): a failure is only returned, the panel is not brought back
+    /// with the red notice — the caller shows it where the user is looking.
+    @discardableResult
+    func switchTo(_ agent: AgentSnapshot, surfacesFailure: Bool = true) async -> Outcome {
+        let outcome: Outcome
         switch agent.host {
         case .herdr:
-            await focusPane(of: agent)
+            outcome = await focusPane(of: agent)
         case .claudeDesktop(let openURL):
             panel.hide()
-            if desktopOpener.openSession(openURL) {
-                model.recordSwitch(to: agent.id)
-            } else {
-                surface(failure: "Claude Desktop could not be opened.")
-            }
+            outcome = desktopOpener.openSession(openURL) ? .switched : .failed("Claude Desktop could not be opened.")
         case .claudeCLI(let tmuxTarget?):
             panel.hide()
             switch await tmuxSwitcher.switchTo(tmuxTarget: tmuxTarget, cwd: agent.cwd) {
-            case .switched: model.recordSwitch(to: agent.id)
-            case .failed(let message): surface(failure: message)
+            case .switched: outcome = .switched
+            case .failed(let message): outcome = .failed(message)
             }
         case .claudeCLI(nil):
-            model.reportSwitchFailure(Self.untrackedCliSessionMessage)
+            if surfacesFailure { model.reportSwitchFailure(Self.untrackedCliSessionMessage) }
+            return .failed(Self.untrackedCliSessionMessage)
         }
+        switch outcome {
+        case .switched: model.recordSwitch(to: agent.id)
+        case .failed(let message): if surfacesFailure { surface(failure: message) }
+        }
+        return outcome
     }
 
     static let untrackedCliSessionMessage = AgentTerminalJumper.untrackedCliSessionMessage
 
-    private func focusPane(of agent: AgentSnapshot) async {
+    private func focusPane(of agent: AgentSnapshot) async -> Outcome {
         panel.hide()
-        guard let paneId = agent.paneId else {
-            surface(failure: "this agent has no terminal pane.")
-            return
-        }
+        guard let paneId = agent.paneId else { return .failed("this agent has no terminal pane.") }
         let result = await statusSource.focus(paneId: paneId)
-        if result.succeeded {
-            model.recordSwitch(to: agent.id)
-        } else {
-            surface(failure: result.errorMessage ?? "the dashboard could not focus that agent.")
-        }
+        return result.succeeded ? .switched : .failed(result.errorMessage ?? "the dashboard could not focus that agent.")
     }
 
     private func surface(failure message: String) {

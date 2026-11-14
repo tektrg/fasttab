@@ -24,30 +24,29 @@ struct FocusAskView: View {
         case .answer:
             if let card = answer.card, let form = card.form {
                 FocusFittedPanel(maxBody: FocusTextFit.rightMaxBody) { fit in bigForm(form, fit: fit) }
-            } else if let card = answer.card, card.state.phase == .choosing {
+            } else if let card = answer.card {
                 FocusFittedPanel(maxBody: FocusTextFit.rightMaxBody) { fit in bigQuestion(card.state, fit: fit) }
-            } else {
-                reusedCard { height in
-                    AnswerCardView(answer: answer, bodyHeight: height, onOpen: session.openTerminal)
-                }
             }
         case .permission:
-            if let card = permission.card, card.plan == nil {
+            if let card = permission.card, let plan = card.plan {
+                bigPlan(card, plan)
+            } else if let card = permission.card {
                 FocusFittedPanel(maxBody: FocusTextFit.rightMaxBody) { fit in bigPermission(card.state, fit: fit) }
-            } else {
-                reusedCard { height in
-                    PermissionCardView(permission: permission, bodyHeight: height, onOpen: session.openTerminal)
-                }
             }
         case .message:
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("MESSAGE · THIS AGENT IS WAITING FOR YOU")
+                    .font(.avenir(size: 12, weight: .semibold))
+                    .kerning(0.8)
+                    .foregroundStyle(FocusPalette.mute)
                 reusedCard { height in
-                    MessageCardView(message: message, bodyHeight: height, onOpen: session.openTerminal, showsLastMessage: false)
+                    MessageCardView(message: message, bodyHeight: height, showsLastMessage: false,
+                                    largeTextSize: FocusTextFit.baseBody)
                 }
                 HStack(spacing: 10) {
                     Button("Park", action: session.park)
                         .help("Set this agent aside: it leaves Needs you")
-                    Button("Open terminal ⌘↩", action: session.openTerminal)
+                    FocusGoToButton(session: session)
                     Spacer()
                 }
                 .controlSize(.large)
@@ -82,6 +81,13 @@ struct FocusAskView: View {
                         isCheckbox: state.question.isMultiSelect && !option.isOther,
                         fit: fit
                     ) { answer.clickOption(at: position) }
+                    if option.isOther, state.phase == .typingOther {
+                        bigTextBox(
+                            text: Binding(get: { answer.card?.state.otherText ?? "" }, set: { answer.setOtherText($0) }),
+                            note: state.otherTextNote, fit: fit,
+                            onSubmit: { answer.handle(.enter) }, onLeave: { answer.handle(.escape) }
+                        )
+                    }
                 }
             }
             if let error = state.errorText { errorLine(error, fit: fit) }
@@ -96,6 +102,7 @@ struct FocusAskView: View {
                     .controlSize(.large)
                     .disabled(state.readyChoice == nil)
             }
+            .padding(.bottom, fit.body * 0.6)
         }
     }
 
@@ -156,6 +163,7 @@ struct FocusAskView: View {
                     .controlSize(.large)
                     .disabled(!form.canSubmit)
             }
+            .padding(.bottom, fit.body * 0.6)   // never on the panel's bottom edge
         }
     }
 
@@ -170,20 +178,11 @@ struct FocusAskView: View {
             isChecked: form.isChecked(row: row, of: index), isRadio: true, fit: fit
         ) { session.clickForm(row: row, of: index) }
         if typing {
-            if fit.isMeasuring {
-                Color.clear.frame(height: AnswerOptionRowView.textHeight)
-            } else {
-                AnswerOptionRowView(
-                    option: .init(index: row + 1, label: "Other (type your own answer)", description: "", isOther: true),
-                    isMultiSelect: false, isHighlighted: false, isChecked: true, isTypingHere: true,
-                    choiceMarker: nil,
-                    typedTextNote: OtherAnswerText.note(for: form.drafts[index].otherText),
-                    otherText: Binding(get: { form.drafts[index].otherText }, set: { answer.setFormOtherText($0, of: index) }),
-                    onSubmitText: { answer.handle(.enter) },
-                    onLeaveText: { answer.releaseFormTextField() }
-                )
-                .background(RoundedRectangle(cornerRadius: 10).fill(FocusPalette.panel))
-            }
+            bigTextBox(
+                text: Binding(get: { answer.card?.form?.drafts[index].otherText ?? "" }, set: { answer.setFormOtherText($0, of: index) }),
+                note: OtherAnswerText.note(for: form.drafts[index].otherText), fit: fit,
+                onSubmit: { answer.handle(.enter) }, onLeave: { answer.releaseFormTextField() }
+            )
         }
     }
 
@@ -241,7 +240,7 @@ struct FocusAskView: View {
                 .foregroundStyle(FocusPalette.mute)
             case .unavailable(let reason):
                 errorLine(reason, fit: fit)
-                Button("Open terminal ⌘↩", action: session.openTerminal).controlSize(.large)
+                FocusGoToButton(session: session).controlSize(.large)
             case .ready:
                 VStack(spacing: fit.body * 0.35) {
                     ForEach(Array(state.choices.enumerated()), id: \.offset) { position, choice in
@@ -258,6 +257,155 @@ struct FocusAskView: View {
                         .controlSize(.large)
                         .disabled(!state.canSend)
                 }
+                .padding(.bottom, fit.body * 0.6)
+            }
+        }
+    }
+
+    // MARK: - Large plan
+
+    /// A plan-approval box, big: the plan (Markdown, scrolls) in its box, then — fixed below it — the box's
+    /// question, its own rows verbatim, the feedback box when that row is chosen, and the action button.
+    /// Every click / send is `PermissionCardModel`'s (`clickPlanOption`, `setFeedbackText`, `pressSend`).
+    private func bigPlan(_ card: PermissionCard, _ plan: PlanCardState) -> some View {
+        let fit = FocusTextFit.base
+        return VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Text("PLAN")
+                        .font(.avenir(size: 13, weight: .semibold))
+                        .kerning(0.8)
+                        .foregroundStyle(FocusPalette.mute)
+                    if let path = plan.prompt.planPath {
+                        Text(path)
+                            .font(.avenirMono(size: 12))
+                            .foregroundStyle(FocusPalette.mute)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                }
+                ScrollView {
+                    planText(card.planFile)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 8)
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 12).fill(FocusPalette.panel))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(FocusPalette.accent.opacity(0.35)))
+            .layoutPriority(0)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(plan.prompt.title)
+                    .font(.avenir(size: fit.question, weight: .semibold))
+                    .foregroundStyle(FocusPalette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let note = plan.changedNote { errorLine(note, fit: fit) }
+                if let warning = card.sentWarning {
+                    Text(warning).font(.avenir(size: 15, weight: .medium)).foregroundStyle(WarningTextColor.color)
+                }
+                switch plan.phase {
+                case .checking:
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Checking the terminal's prompt before you answer…")
+                    }
+                    .font(.avenir(size: 16))
+                    .foregroundStyle(FocusPalette.mute)
+                case .unavailable(let reason):
+                    errorLine(reason, fit: fit)
+                    FocusGoToButton(session: session).controlSize(.large)
+                case .ready:
+                    VStack(spacing: 6) {
+                        ForEach(plan.options, id: \.index) { option in
+                            optionRow(
+                                number: option.index, title: option.label, detail: "",
+                                isHighlighted: plan.highlightedIndex == option.index, isChecked: false, fit: fit
+                            ) { permission.clickPlanOption(index: option.index) }
+                        }
+                    }
+                    if plan.isTypingFeedback {
+                        bigTextBox(
+                            text: Binding(get: { permission.card?.plan?.feedbackText ?? "" }, set: { permission.setFeedbackText($0) }),
+                            note: plan.isFeedbackTooLong ? PlanCardState.feedbackTooLongNote : PlanCardState.feedbackNote,
+                            fit: fit, onSubmit: { permission.pressSend() }, onLeave: { permission.handle(.escape) }
+                        )
+                    }
+                }
+                if let confirm = plan.confirmText { errorLine(confirm, fit: fit) }
+                HStack {
+                    Spacer()
+                    if !Self.isUnavailable(plan.phase) {
+                        Button("\(plan.actionTitle) ↩") { permission.pressSend() }
+                            .controlSize(.large)
+                            .disabled(!plan.canSend)
+                            .tint(plan.isConfirmingPrivilege ? .red : nil)
+                    }
+                }
+                .padding(.bottom, 12)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .layoutPriority(1)
+        }
+    }
+
+    private static func isUnavailable(_ phase: PlanCardState.Phase) -> Bool {
+        if case .unavailable = phase { return true }
+        return false
+    }
+
+    @ViewBuilder
+    private func planText(_ file: PlanFile) -> some View {
+        switch file {
+        case .loading:
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Reading the plan…") }
+                .font(.avenir(size: 17)).foregroundStyle(FocusPalette.mute)
+        case .noPath:
+            Text("The terminal does not name the plan file, so it cannot be shown here. You can still answer below.")
+                .font(.avenir(size: 17)).foregroundStyle(FocusPalette.mute)
+        case .unreadable(let reason):
+            Text("The plan cannot be shown here. \(reason) You can still answer below.")
+                .font(.avenir(size: 17)).foregroundStyle(FocusPalette.mute)
+        case .text(let text, let truncated):
+            MarkdownBlocksView(blocks: MarkdownParser.parse(text), bodySize: 18)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .id(text)
+            if truncated {
+                Text("The plan is longer than \(PlanFileReader.maxBytes / 1024) KB: the rest is not shown.")
+                    .font(.avenir(size: 15)).foregroundStyle(FocusPalette.mute)
+            }
+        }
+    }
+
+    /// A typed answer box in large type (Other, plan feedback): the shared `MultiLineAnswerField`
+    /// (↩ sends, ⇧↩ line, Esc back to the rows). The hidden measuring copy gets a spacer, never a box.
+    @ViewBuilder
+    private func bigTextBox(text: Binding<String>, note: String?, fit: FocusTextFit,
+                            onSubmit: @escaping () -> Void, onLeave: @escaping () -> Void) -> some View {
+        let height = fit.body * 3.4
+        VStack(alignment: .leading, spacing: 6) {
+            if fit.isMeasuring {
+                Color.clear.frame(height: height)
+            } else {
+                ZStack(alignment: .topLeading) {
+                    MultiLineAnswerField(text: text, onSubmit: onSubmit, onLeave: onLeave, fontSize: fit.body * 0.9)
+                    if text.wrappedValue.isEmpty {
+                        Text("Type your answer   ↩ sends")
+                            .font(.avenir(size: fit.body * 0.9))
+                            .foregroundStyle(FocusPalette.mute)
+                            .padding(.leading, 5)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .frame(height: height)
+                .background(RoundedRectangle(cornerRadius: 12).fill(FocusPalette.panel))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(FocusPalette.accent.opacity(0.4)))
+            }
+            if let note, !note.isEmpty {
+                Text(note).font(.avenir(size: max(12, fit.body * 0.6))).foregroundStyle(FocusPalette.mute)
             }
         }
     }
@@ -327,8 +475,25 @@ struct FocusAskView: View {
                 .font(.avenir(size: 20))
                 .foregroundStyle(FocusPalette.ink)
                 .multilineTextAlignment(.center)
-            Button("Open terminal ⌘↩", action: session.openTerminal).controlSize(.large)
+            FocusGoToButton(session: session).controlSize(.large)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// "Go to <home> ⌘↩" (`FocusDestination`): pauses Focus mode and switches to the agent. A home that
+/// cannot be reached shows a disabled button whose title is the reason ("Runs on Air", "No known home").
+struct FocusGoToButton: View {
+    @ObservedObject var session: FocusSession
+
+    var body: some View {
+        if let destination = session.destination {
+            Button(action: session.goToAgent) {
+                Label(destination.isEnabled ? "\(destination.buttonTitle)  ⌘↩" : destination.buttonTitle,
+                      systemImage: destination.isEnabled ? "arrow.up.forward.app" : "nosign")
+            }
+            .disabled(!destination.isEnabled)
+            .help(destination.reason ?? "Switch to this agent; Focus mode pauses (⌥⇧F resumes)")
+        }
     }
 }

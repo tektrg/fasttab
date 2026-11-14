@@ -214,7 +214,7 @@ final class AgentBarCoordinator {
     private func wireFocusMode() {
         model.onOpenFocus = { [unowned self] in openFocusMode() }
         hotkeys.onFocusPressed = { [unowned self] in toggleFocusMode() }
-        focusOverlay.onOpenTerminal = { [model] agent in model.onActivate(agent) }
+        focusOverlay.onGoTo = { [switchCoordinator] agent in await switchCoordinator.switchTo(agent, surfacesFailure: false) }
         focusOverlay.onVisibilityChange = { [cornerTab] isVisible in cornerTab.panelVisibilityChanged(isVisible) }
         _ = hotkeys.registerFocus(settings.focusHotkey)
     }

@@ -14,13 +14,16 @@ struct MessageCardView: View {
     /// False in Focus mode, whose left column already shows the last message: the text box then
     /// takes the whole card height instead of the fixed `fieldHeight`.
     var showsLastMessage = true
+    /// Focus mode: the box, placeholder, notes and Send in large type, and no small header (Focus
+    /// mode's own header names the agent). Nil = the panel card.
+    var largeTextSize: CGFloat?
 
     static let fieldHeight: CGFloat = 78
 
     var body: some View {
         if let card = message.card {
             VStack(alignment: .leading, spacing: 0) {
-                header(card)
+                if largeTextSize == nil { header(card) }
                 if let question = card.wrapUpQuestion {
                     WrapUpQuestionSection(question: question, isEnabled: card.phase == .editing) {
                         message.pressWrapUpAction($0)
@@ -69,11 +72,12 @@ struct MessageCardView: View {
                     text: Binding(get: { card.draft }, set: { message.setDraft($0) }),
                     onSubmit: { message.pressSend() },
                     onLeave: { message.handleEscape() },
-                    onImages: card.acceptsImages ? { message.addImages($0) } : nil
+                    onImages: card.acceptsImages ? { message.addImages($0) } : nil,
+                    fontSize: largeTextSize
                 )
                 if card.draft.isEmpty {
                     Text(card.placeholder)
-                        .font(.avenir(size: 13))
+                        .font(.avenir(size: largeTextSize ?? 13))
                         .foregroundStyle(.tertiary)
                         .padding(.top, 2)
                         .allowsHitTesting(false)
@@ -114,7 +118,7 @@ struct MessageCardView: View {
                     .monospacedDigit()
             }
         }
-        .font(.avenir(size: 11, weight: .medium))
+        .font(.avenir(size: largeTextSize.map { $0 * 0.62 } ?? 11, weight: .medium))
         .frame(minHeight: 14)
     }
 
@@ -126,9 +130,10 @@ struct MessageCardView: View {
                 .disabled(!card.canSend)
                 .tint(card.isConfirming ? .orange : nil)
                 .keepsColorWhenInactive()
+                .controlSize(largeTextSize == nil ? .regular : .large)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 6)
+        .padding(.vertical, largeTextSize == nil ? 6 : 12)
         .frame(minHeight: AgentPanelMetrics.answerBottomBarHeight)
         .background(Color.primary.opacity(0.04))
     }

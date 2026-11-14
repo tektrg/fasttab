@@ -14,6 +14,8 @@ struct FocusOverlayView: View {
     /// +1 moving forward, -1 back: which edge the next card slides in from.
     @State private var direction = 1
     @State private var shownID: String?
+    /// The header dot that just joined the queue: pulses once.
+    @State private var pulsingDot: Int?
 
     var body: some View {
         GeometryReader { geometry in
@@ -41,6 +43,14 @@ struct FocusOverlayView: View {
             direction = (old.flatMap(ids.firstIndex) ?? -1) > (new.flatMap(ids.firstIndex) ?? -1) ? -1 : 1
             withAnimation(reduceMotion ? .easeInOut(duration: 0.18) : .easeOut(duration: 0.22)) { shownID = new }
         }
+        .onChange(of: session.queue.count) { old, new in
+            guard new > old, !reduceMotion else { return }
+            pulsingDot = new - 1
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.9))
+                pulsingDot = nil
+            }
+        }
         .onChange(of: session.bumps) { _, _ in
             guard !reduceMotion else { return }
             withAnimation(.easeOut(duration: 0.08)) { bumpOffset = 8 }
@@ -66,6 +76,7 @@ struct FocusOverlayView: View {
                 hints
             }
             .overlay { if session.phase == .sent { sentBadge } }
+            .overlay(alignment: .top) { toast }
             .overlay(alignment: .bottom) { failureStrip }
         } else {
             Color.clear
@@ -100,6 +111,15 @@ struct FocusOverlayView: View {
                         Circle()
                             .fill(index + 1 == position ? FocusPalette.accent : FocusPalette.line)
                             .frame(width: 8, height: 8)
+                            .background {
+                                Circle()
+                                    .stroke(FocusPalette.accent, lineWidth: 2)
+                                    .scaleEffect(pulsingDot == index ? 2.4 : 1)
+                                    .opacity(pulsingDot == index ? 0 : (pulsingDot == nil ? 0 : 0.9))
+                                    .animation(.easeOut(duration: 0.8), value: pulsingDot)
+                            }
+                            .scaleEffect(pulsingDot == index ? 1.35 : 1)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.5), value: pulsingDot)
                     }
                 }
                 Text("\(position) of \(session.queue.count)")
@@ -107,6 +127,9 @@ struct FocusOverlayView: View {
                     .foregroundStyle(FocusPalette.mute)
                     .monospacedDigit()
             }
+            FocusGoToButton(session: session)
+                .controlSize(.large)
+                .padding(.leading, 8)
         }
         .padding(.horizontal, 32)
         .frame(height: 72)
@@ -141,12 +164,32 @@ struct FocusOverlayView: View {
             hint("1–9", "pick")
             hint("↩", "answer")
             hint("⌘← ⌘→", "agents")
-            hint("⌘↩", "open terminal")
+            hint("⌘↩", goToHint)
             hint("esc", "exit")
             Spacer()
         }
         .padding(.horizontal, 32)
         .frame(height: 48)
+    }
+
+    private var goToHint: String {
+        guard let destination = session.destination else { return "go to agent" }
+        return destination.isEnabled ? "go to agent (pauses Focus)" : destination.reason ?? FocusDestination.noHomeReason
+    }
+
+    @ViewBuilder
+    private var toast: some View {
+        if let text = session.toast {
+            Text(text)
+                .font(.avenir(size: 16, weight: .medium))
+                .foregroundStyle(FocusPalette.ink)
+                .padding(.horizontal, 18).padding(.vertical, 9)
+                .background(Capsule().fill(FocusPalette.panel))
+                .overlay(Capsule().strokeBorder(FocusPalette.line))
+                .padding(.top, 84)
+                .transition(.opacity)
+                .animation(.easeOut(duration: 0.2), value: session.toast)
+        }
     }
 
     private func hint(_ key: String, _ label: String) -> some View {

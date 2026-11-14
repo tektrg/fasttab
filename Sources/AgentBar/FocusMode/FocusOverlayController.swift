@@ -10,7 +10,7 @@ import IndieCommandBar
 /// so the keys below work; a text box appearing activates the app through the shared
 /// `TextInputActivation` (gotcha 12), same as the panel and the corner card.
 ///
-/// Keys (a local monitor): ↑/↓ options · 1–9 pick · ↩ answer · ⌘←/⌘→ agents · ⌘↩ open terminal ·
+/// Keys (a local monitor): ↑/↓ options · 1–9 pick · ↩ answer · ⌘←/⌘→ agents · ⌘↩ go to agent (pauses) ·
 /// Esc exit. Esc, ⌘←/⌘→ and ⌘↩ work even while a text box has the keyboard; everything else
 /// (↩ sends, arrows, digits) is the box's while typing.
 @MainActor
@@ -27,8 +27,10 @@ final class FocusOverlayController {
 
     /// Called with true when Focus mode opens and false when it closes (the corner tab steps aside).
     var onVisibilityChange: (Bool) -> Void = { _ in }
-    /// ⌘↩ / Open terminal: switch to the agent (Focus mode closes first).
-    var onOpenTerminal: (AgentSnapshot) -> Void = { _ in }
+    /// ⌘↩ / Go to: switch to the agent through the list's path (`AgentSwitchCoordinator`), failures
+    /// returned rather than surfaced in the panel. Focus mode pauses first.
+    var onGoTo: (AgentSnapshot) async -> AgentSwitchCoordinator.Outcome = { _ in .switched }
+    private var pauseExpiry: Task<Void, Never>?
 
     init(model: AgentPanelModel, activation: TextInputActivation) {
         self.model = model
@@ -36,18 +38,35 @@ final class FocusOverlayController {
     }
 
     var isVisible: Bool { panel != nil }
+    /// Hidden by Go to agent, resumable (`show()` brings it back on the same agent, or the next).
+    var isPaused: Bool { panel == nil && session?.isPaused == true }
 
-    /// Opens Focus mode. With nothing in the queue it shows "All clear" briefly and closes.
+    /// Opens Focus mode: resumes a paused visit (younger than `FocusSession.pauseExpirySeconds`), else a
+    /// fresh one. With nothing in the queue it shows "All clear" briefly and closes.
     func show() {
         guard panel == nil else { return }
+        pauseExpiry?.cancel()
+        if let paused = session, paused.isPaused, !paused.isPauseExpired(at: Date()) {
+            paused.resume()
+            present(paused)
+            return
+        }
+        session?.end()
         model.resetForShow()
         let session = FocusSession(model: model)
         session.onExit = { [weak self] in self?.hide() }
-        session.onOpenTerminal = { [weak self] agent in
-            self?.hide(restoringFocus: false, isAgentSwitch: true)
-            self?.onOpenTerminal(agent)
+        session.onPause = { [weak self] in self?.pauseForJump() }
+        session.onGoTo = { [weak self] agent in await self?.onGoTo(agent) ?? .switched }
+        session.onGoToFailed = { [weak self] in
+            guard let self, let session = self.session, self.panel == nil else { return }
+            self.pauseExpiry?.cancel()
+            self.present(session)
         }
         self.session = session
+        present(session)
+    }
+
+    private func present(_ session: FocusSession) {
 
         let screen = Self.screenUnderPointer()
         let panel = Self.makePanel(frame: screen.frame)
@@ -78,6 +97,7 @@ final class FocusOverlayController {
 
     func hide(restoringFocus: Bool = true, isAgentSwitch: Bool = false) {
         guard let panel else { return }
+        pauseExpiry?.cancel()
         self.panel = nil
         stopKeyMonitor()
         stopObservers()
@@ -91,6 +111,24 @@ final class FocusOverlayController {
         })
         activation.panelDidHide(restoringFocus: restoringFocus, handingOffToAgentSwitch: isAgentSwitch)
         onVisibilityChange(false)
+    }
+
+    /// Go to agent: the window goes, the session stays (paused) until resumed or it expires.
+    private func pauseForJump() {
+        guard let panel else { return }
+        self.panel = nil
+        stopKeyMonitor()
+        stopObservers()
+        panel.orderOut(nil)   // at once: the agent's app must not come up under the overlay
+        activation.panelDidHide(restoringFocus: false, handingOffToAgentSwitch: true)
+        onVisibilityChange(false)
+        pauseExpiry?.cancel()
+        pauseExpiry = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(FocusSession.pauseExpirySeconds))
+            guard !Task.isCancelled, let self, self.panel == nil else { return }
+            self.session?.end()
+            self.session = nil
+        }
     }
 
     // MARK: - Keys
@@ -122,7 +160,7 @@ final class FocusOverlayController {
         case .exit:
             hide()
         case .openTerminal:
-            session.openTerminal()
+            session.goToAgent()
         case .previousAgent:
             session.moveBack()
         case .nextAgent:

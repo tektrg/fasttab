@@ -12,6 +12,8 @@ struct MultiLineAnswerField: NSViewRepresentable {
     var onLeaveDown: () -> Void = {}
     /// Set by boxes that take images (the message card): ⌘V / drop of an image goes here instead of the text.
     var onImages: (([NSImage]) -> Void)?
+    /// Nil = the cards' 13pt; Focus mode passes its large body size.
+    var fontSize: CGFloat?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -22,6 +24,7 @@ struct MultiLineAnswerField: NSViewRepresentable {
         textView.onLeaveUp = { context.coordinator.parent.onLeaveUp() }
         textView.onLeaveDown = { context.coordinator.parent.onLeaveDown() }
         syncImageHandler(textView, context: context)
+        if let fontSize { textView.font = .systemFont(ofSize: fontSize) }
         textView.delegate = context.coordinator
         textView.string = text
         context.coordinator.lastModelText = text
@@ -40,6 +43,7 @@ struct MultiLineAnswerField: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scroll.documentView as? AnswerTextView else { return }
         syncImageHandler(textView, context: context)
+        if let fontSize, textView.font?.pointSize != fontSize { textView.font = .systemFont(ofSize: fontSize) }
         Self.apply(modelText: text, to: textView, coordinator: context.coordinator)
     }
 

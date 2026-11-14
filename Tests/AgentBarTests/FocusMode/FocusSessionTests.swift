@@ -11,7 +11,7 @@ struct FocusSessionTests {
     typealias P = PermissionFixtures
     typealias F = AgentListFixtures
 
-    private func makeRig(_ agents: [AgentSnapshot]) -> (model: AgentPanelModel, session: FocusSession) {
+    private func makeRig(_ agents: [AgentSnapshot], now: @escaping () -> Date = Date.init) -> (model: AgentPanelModel, session: FocusSession) {
         let defaults = makeScratchDefaults("focus-session")
         let model = AgentPanelModel(
             store: FrecencyStore(defaults: defaults),
@@ -24,7 +24,7 @@ struct FocusSessionTests {
         source.screen = .screen(lines: P.screen(for: P.bash), readAt: F.now)
         model.statusSource = source
         model.receive(F.snapshot(agents))
-        let session = FocusSession(model: model, loadContext: { _ in FocusContext(lastMessage: "hi", hasTranscript: true) })
+        let session = FocusSession(model: model, loadContext: { _ in FocusContext(lastMessage: "hi", hasTranscript: true) }, now: now)
         return (model, session)
     }
 
@@ -72,6 +72,83 @@ struct FocusSessionTests {
         let (_, session) = makeRig([A.blockedAgent("q", blocker: .question(A.question()))])
         await waitUntil { session.contexts["q"] != nil }
         #expect(session.contexts["q"]?.lastMessage == "hi")
+    }
+
+    // MARK: - Go to agent (pause / resume)
+
+    @Test func goToPausesKeepsTheCardAndResumesOnTheSameAgent() async {
+        let (model, session) = makeRig([A.blockedAgent("q", blocker: .question(A.question())), A.blockedAgent("r", blocker: .question(A.question()))])
+        session.moveForward()
+        let current = session.queue.currentID
+        var paused = 0
+        var jumpedTo: String?
+        session.onPause = { paused += 1 }
+        session.onGoTo = { agent in jumpedTo = agent.id; return .switched }
+        session.goToAgent()
+        #expect(session.isPaused)
+        #expect(paused == 1)
+        await waitUntil { jumpedTo != nil }
+        #expect(jumpedTo == current)
+        #expect(model.answer.card?.agentID == current)   // the card (and its draft) stays open
+        session.resume()
+        #expect(!session.isPaused)
+        #expect(session.queue.currentID == current)
+        #expect(model.answer.card?.agentID == current)
+    }
+
+    @Test func resumeMovesOnWhenThePausedAgentNoLongerNeedsYou() async {
+        let (model, session) = makeRig([A.blockedAgent("q", blocker: .question(A.question())), A.blockedAgent("r", blocker: .question(A.question()))])
+        let first = session.queue.currentID!
+        let other = session.queue.agentIDs.last!
+        session.goToAgent()
+        model.receive(F.snapshot([A.blockedAgent(other, blocker: .question(A.question()))]))
+        await waitUntil { session.queue.currentID == other }
+        #expect(session.isPaused)
+        #expect(session.toast == nil)   // nothing shown while paused
+        session.resume()
+        #expect(session.queue.currentID == other)
+        #expect(session.queue.currentID != first)
+        await waitUntil { model.answer.card?.agentID == other }
+    }
+
+    @Test func aFailedJumpResumesWithTheSwitchFailureText() async {
+        let (model, session) = makeRig([A.blockedAgent("q", blocker: .question(A.question()))])
+        var failedBack = false
+        session.onGoTo = { _ in .failed("the pane is gone.") }
+        session.onGoToFailed = { failedBack = true }
+        session.goToAgent()
+        await waitUntil { failedBack }
+        #expect(!session.isPaused)
+        #expect(model.footerNotice == .switchFailed("the pane is gone."))
+    }
+
+    @Test func anUnreachableHomeSaysWhyAndDoesNotPause() {
+        let (_, session) = makeRig([A.blockedAgent("q", blocker: .question(A.question()), paneId: "air-m1:w1:p1")])
+        var jumped = false
+        session.onGoTo = { _ in jumped = true; return .switched }
+        let bumps = session.bumps
+        session.goToAgent()
+        #expect(!session.isPaused)
+        #expect(!jumped)
+        #expect(session.bumps == bumps + 1)
+        #expect(session.toast == FocusDestination.otherMacReason)
+    }
+
+    @Test func aPauseExpiresAfterTenMinutes() {
+        var clock = F.now
+        let (_, session) = makeRig([A.blockedAgent("q", blocker: .question(A.question()))], now: { clock })
+        session.pause()
+        #expect(!session.isPauseExpired(at: clock.addingTimeInterval(9 * 60)))
+        #expect(session.isPauseExpired(at: clock.addingTimeInterval(10 * 60)))
+        clock = clock.addingTimeInterval(1)
+    }
+
+    @Test func theCurrentAgentLeavingUnansweredShowsAnsweredElsewhere() async {
+        let (model, session) = makeRig([A.blockedAgent("q", blocker: .question(A.question())), A.blockedAgent("r", blocker: .question(A.question()))])
+        let other = session.queue.agentIDs.last!
+        model.receive(F.snapshot([A.blockedAgent(other, blocker: .question(A.question()))]))
+        await waitUntil { session.queue.currentID == other }
+        #expect(session.toast == FocusSession.answeredElsewhereToast)
     }
 }
 

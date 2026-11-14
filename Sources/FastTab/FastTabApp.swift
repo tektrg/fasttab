@@ -39,9 +39,11 @@ class AppState: ObservableObject {
             if newValue {
                 CommandBarPanelController.shared.startOutsideClickMonitoring()
                 CommandBarPanelController.shared.startHoverDismissMonitoring()
+                CommandBarPanelController.shared.startPointerTakeoverMonitoring()
             } else {
                 CommandBarPanelController.shared.stopOutsideClickMonitoring()
                 CommandBarPanelController.shared.stopHoverDismissMonitoring()
+                CommandBarPanelController.shared.stopPointerTakeoverMonitoring()
             }
         }
     }
@@ -67,9 +69,13 @@ class AppState: ObservableObject {
     @Published var globalShortcutRegistrationIssue: String?
     let browserService = BrowserTabService()
     /// Hold-modifier-and-tap cycling; the hotkey handler advances it, ContentView commits it.
-    let cycleSession = CycleSession(isShortcutModifierHeld: { flags in
-        ShortcutStore.shared.isAnyShortcutModifierHeld(in: flags)
-    })
+    /// A real mouse move inside the bar ends it (`startPointerTakeoverMonitoring`).
+    let cycleSession = AppState.makeCycleSession(store: .shared)
+
+    /// Releasing any configured shortcut's modifier commits the cycled row.
+    static func makeCycleSession(store: ShortcutStore) -> CycleSession {
+        CycleSession(isShortcutModifierHeld: { flags in store.isAnyShortcutModifierHeld(in: flags) })
+    }
 
     func recordTypingActivity() {
         CommandBarPanelController.shared.recordTypingActivity()
@@ -213,6 +219,12 @@ class AppState: ObservableObject {
         browserService.updateCurrentFlowSourceApp(bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
         commandWindow.configureCommandBarOverlayBehavior()
         commandWindow.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
+
+        // Keyboard / menu-bar opens: the pointer rests anywhere, so closing on leave waits for it to
+        // have been on the bar first. Before ordering front: the monitor starts with the window.
+        if FastTabPointerLeaveGates.requiresPointerVisit(isHoverReveal: revealStyle != nil) {
+            CommandBarPanelController.shared.requirePointerVisitBeforeLeaveClose()
+        }
 
         // Arm the grow animation before the window is ordered front: it must
         // already be in its shrunk presentation state for the first rendered
@@ -621,27 +633,38 @@ private final class CommandBarPanelController: NSObject {
         isHeld: { [weak self] in
             FastTabPointerLeaveGates.isHeld(
                 isFloating: CommandBarAnchor.current.isFloating, isVisible: AppState.shared.isVisible,
-                editorHoldsBar: CustomViewEditorPresenter.shared.holdsBar, hasPanel: self?.panel != nil,
-                // Live keyboard state, not the cycle session's cached flag: a missed key-up can't
-                // leave the bar stuck open. A close already queued re-checks this when it fires,
-                // so holding the modifier also cancels it.
-                isShortcutModifierHeld: ShortcutStore.shared.isAnyShortcutModifierHeld(in: NSEvent.modifierFlags)
+                editorHoldsBar: CustomViewEditorPresenter.shared.holdsBar, hasPanel: self?.panel != nil
             )
         },
         isPointerOutside: { [weak self] location in self?.isCursorOutsideSurface(location) ?? true },
         close: { AppState.shared.hideCommandBar() },
-        holdsWhileMenuOpen: false
+        holdsWhileMenuOpen: false,
+        // A held shortcut modifier (keyboard cycle) holds the bar; the monitor reads the live
+        // keyboard state, so a missed key-up can't leave the bar stuck open, and a release re-checks.
+        isShortcutModifierHeld: { ShortcutStore.shared.isAnyShortcutModifierHeld(in: $0) }
     ))
+    /// A real mouse move inside the bar ends a keyboard cycle: releasing the modifier then no longer
+    /// opens the highlighted row (shared `CommandBarPointerTakeoverMonitor`).
+    private lazy var pointerTakeoverMonitor = CommandBarPointerTakeoverMonitor(
+        isPointerInside: { [weak self] location in !(self?.isCursorOutsideSurface(location) ?? true) },
+        onTakeover: { AppState.shared.cycleSession.pointerTookOver() }
+    )
 
     func prepare() {
         _ = commandPanel
     }
 
-    /// Called from `AppState.showCommandBar` for shortcut/menu-bar opens
+    /// Called from `AppState.showCommandBar` for shortcut opens
     /// (not hover reveals) to start the grace window before hover-dismiss
     /// can arm (`FastTabPointerLeaveGates.shortcutOpenGrace`).
     func armShortcutOpenGracePeriod() {
         pointerLeaveMonitor.delayArming(until: Date().addingTimeInterval(FastTabPointerLeaveGates.shortcutOpenGrace))
+    }
+
+    /// Called from `AppState.showCommandBar` for every open except a hover reveal: no close on
+    /// leave until the pointer has been on the bar (`FastTabPointerLeaveGates.requiresPointerVisit`).
+    func requirePointerVisitBeforeLeaveClose() {
+        pointerLeaveMonitor.requirePointerVisit()
     }
 
     func recordTypingActivity() {
@@ -796,6 +819,15 @@ private final class CommandBarPanelController: NSObject {
 
     func stopHoverDismissMonitoring() {
         pointerLeaveMonitor.stop()
+    }
+
+    func startPointerTakeoverMonitoring() {
+        guard !pointerTakeoverMonitor.isRunning else { return }
+        pointerTakeoverMonitor.start()
+    }
+
+    func stopPointerTakeoverMonitoring() {
+        pointerTakeoverMonitor.stop()
     }
 
     /// Re-check now: called when the search box empties/fills, so it reacts

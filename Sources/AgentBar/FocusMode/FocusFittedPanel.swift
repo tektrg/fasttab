@@ -4,12 +4,13 @@ import SwiftUI
 /// base sizes to measure it, the visible one is drawn at the size that fits, and a scroll view
 /// (with a fade at the bottom edge) takes over once even the floor does not fit.
 struct FocusFittedPanel<Content: View>: View {
+    var maxBody: CGFloat = FocusTextFit.baseBody
     @ViewBuilder let content: (FocusTextFit) -> Content
     @State private var heightAtBase: CGFloat = 0
 
     var body: some View {
         GeometryReader { geometry in
-            let fit = FocusTextFit.fit(heightAtBase: heightAtBase, available: geometry.size.height)
+            let fit = FocusTextFit.fit(heightAtBase: heightAtBase, available: geometry.size.height, maxBody: maxBody)
             ScrollView(.vertical) {
                 content(fit)
                     .frame(width: geometry.size.width, alignment: .leading)
@@ -25,7 +26,7 @@ struct FocusFittedPanel<Content: View>: View {
                 }
             }
             .background(alignment: .topLeading) {
-                content(.base)
+                content(.measuring)
                     .frame(width: geometry.size.width, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .hidden()

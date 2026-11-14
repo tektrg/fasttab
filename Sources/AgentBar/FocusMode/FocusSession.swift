@@ -42,6 +42,8 @@ final class FocusSession: ObservableObject {
     /// Bumped by an inert ⌘← / ⌘→ (at either end): the view nudges the card.
     @Published private(set) var bumps = 0
     private(set) var agentsByID: [String: AgentSnapshot] = [:]
+    /// The keyboard highlight in a multi-question form (`FocusFormCursor`); Focus-only, the panel's form is mouse-only.
+    @Published private(set) var formCursor: FocusFormCursor?
 
     var onExit: () -> Void = {}
     var onOpenTerminal: (AgentSnapshot) -> Void = { _ in }
@@ -208,5 +210,56 @@ final class FocusSession: ObservableObject {
             guard !Task.isCancelled else { return }
             action()
         }
+    }
+
+    // MARK: - Form keys
+
+    /// The open answer card's form, when it is one.
+    var openForm: AnswerFormState? { model.answer.card?.form }
+
+    /// The highlight for the open form (top of the form until a key moves it).
+    func cursor(for form: AnswerFormState) -> FocusFormCursor { FocusFormCursor.current(formCursor, for: form) }
+
+    /// A Focus key while a form card is up. False when no form is open (the caller handles the key).
+    @discardableResult
+    func handleFormKey(_ action: FocusKey.Action) -> Bool {
+        guard let form = openForm else { return false }
+        var cursor = cursor(for: form)
+        let effect: FocusFormCursor.Effect
+        switch action {
+        case .move(let step):
+            cursor.move(by: step, in: form)
+            effect = .none
+        case .pick(let number):
+            effect = cursor.pick(number, in: form)
+        case .space:
+            effect = cursor.space(in: form)
+        case .enter:
+            effect = cursor.enter(in: form)
+            if effect == .none { cursor.advanceAfterChoice(in: form) }
+        default:
+            return false
+        }
+        switch effect {
+        case .none:
+            break
+        case .click(let row, let question):
+            model.answer.clickFormRow(row, of: question)
+            if let updated = openForm, action != .space { cursor.advanceAfterChoice(in: updated) }
+        case .submit:
+            model.answer.handle(.enter)
+        }
+        formCursor = cursor
+        return true
+    }
+
+    /// A mouse click on a form row: the highlight follows it, then the card's model takes the click.
+    func clickForm(row: Int, of question: Int) {
+        guard let form = openForm else { return }
+        var cursor = cursor(for: form)
+        cursor.question = question
+        cursor.row = row
+        formCursor = cursor
+        model.answer.clickFormRow(row, of: question)
     }
 }

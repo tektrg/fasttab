@@ -117,9 +117,8 @@ final class FocusOverlayController {
         let key = FocusKey(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers ?? "",
                            modifiers: event.modifierFlags.intersection([.command, .option, .control, .shift]))
         let isTyping = panel.firstResponder is NSTextView
-        switch FocusKey.action(for: key, isTyping: isTyping) {
-        case nil:
-            return false
+        guard let action = FocusKey.action(for: key, isTyping: isTyping) else { return false }
+        switch action {
         case .exit:
             hide()
         case .openTerminal:
@@ -128,6 +127,19 @@ final class FocusOverlayController {
             session.moveBack()
         case .nextAgent:
             session.moveForward()
+        case .move, .pick, .space, .enter:
+            if session.phase != .allClear, session.openForm != nil {
+                if action == .enter, event.isARepeat { return true }
+                session.handleFormKey(action)
+                return true
+            }
+            return handleCardKey(action, event: event, session: session)
+        }
+        return true
+    }
+
+    private func handleCardKey(_ action: FocusKey.Action, event: NSEvent, session: FocusSession) -> Bool {
+        switch action {
         case .move(let step):
             if session.phase == .allClear { return true }
             if model.answer.isOpen || model.permission.isOpen { model.moveSelectionOrAnswerHighlight(by: step) }
@@ -138,6 +150,8 @@ final class FocusOverlayController {
         case .enter:
             if session.phase == .allClear { hide(); return true }
             if model.isCardOpen, !event.isARepeat { model.activateSelected() }
+        default:
+            break
         }
         return true
     }

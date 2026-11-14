@@ -137,6 +137,24 @@ struct FocusTextFitTests {
         #expect(FocusTextFit.questionSize(forBody: 15) == 17)
     }
 
+    @Test func growsPastBaseWhenAllowedAndRoomy() {
+        // 28pt: 200 * (28/22)^2 ≈ 324 ≤ 1000 * 0.94.
+        let fit = FocusTextFit.fit(heightAtBase: 200, available: 1_000, maxBody: FocusTextFit.rightMaxBody)
+        #expect(fit.body == 28)
+        #expect(fit.question >= fit.body)
+        #expect(!fit.scrolls)
+    }
+
+    @Test func growsOnlyAsFarAsTheRoomAllows() {
+        // 25pt: 400 * (25/22)^2 ≈ 516.5 ≤ 564; 26pt ≈ 558.7 ≤ 564; 27pt ≈ 602.5 > 564.
+        let fit = FocusTextFit.fit(heightAtBase: 400, available: 600, maxBody: FocusTextFit.rightMaxBody)
+        #expect(fit.body == 26)
+    }
+
+    @Test func withoutMaxBodyNeverGrows() {
+        #expect(FocusTextFit.fit(heightAtBase: 100, available: 1_000) == .base)
+    }
+
     @Test func leftAndRightIndependent() {
         let left = FocusTextFit.fit(heightAtBase: 2_000, available: 500)
         let right = FocusTextFit.fit(heightAtBase: 200, available: 500)

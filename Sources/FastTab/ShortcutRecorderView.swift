@@ -101,17 +101,37 @@ struct ShortcutRecorderView: View {
     private func startRecording() {
         isRecording = true
         appState.isRecordingShortcut = true
+        // A local monitor sees every keyDown before the window does, so Tab combos (⌃Tab,
+        // ⌃⇧Tab) reach it instead of moving keyboard focus.
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if event.keyCode == 53 { // Escape — cancel
+            switch Self.outcome(keyCode: event.keyCode, modifiers: event.modifierFlags, characters: event.charactersIgnoringModifiers) {
+            case .cancel:
                 stopRecording()
-                return nil
+            case .ignore:
+                break
+            case .record(let keyCode, let mods, let name):
+                onRecord(keyCode, mods, name)
+                stopRecording()
             }
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard ViewShortcut.isValid(modifiers: mods) else { return nil }
-            onRecord(event.keyCode, mods, ViewShortcut.keyName(for: event))
-            stopRecording()
             return nil
         }
+    }
+
+    enum RecordOutcome: Equatable {
+        /// Esc: stop recording, keep the old shortcut.
+        case cancel
+        /// No ⌘⇧⌥⌃: not a global shortcut, keep waiting.
+        case ignore
+        case record(UInt16, NSEvent.ModifierFlags, String)
+    }
+
+    /// What one key press does while recording. Only ⌘⇧⌥⌃ are kept (caps lock, fn and
+    /// device bits would otherwise be stored with the shortcut).
+    static func outcome(keyCode: UInt16, modifiers: NSEvent.ModifierFlags, characters: String?) -> RecordOutcome {
+        if keyCode == 53 { return .cancel }
+        let mods = modifiers.intersection([.command, .shift, .option, .control])
+        guard ViewShortcut.isValid(modifiers: mods) else { return .ignore }
+        return .record(keyCode, mods, ViewShortcut.keyName(keyCode: keyCode, characters: characters))
     }
 
     private func stopRecording() {

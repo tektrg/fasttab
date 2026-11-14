@@ -69,12 +69,54 @@ class AppState: ObservableObject {
     @Published var globalShortcutRegistrationIssue: String?
     let browserService = BrowserTabService()
     /// Hold-modifier-and-tap cycling; the hotkey handler advances it, ContentView commits it.
-    /// A real mouse move inside the bar ends it (`startPointerTakeoverMonitoring`).
+    /// A real mouse move inside the bar ends it (`pointerTookOver`).
     let cycleSession = AppState.makeCycleSession(store: .shared)
 
     /// Releasing any configured shortcut's modifier commits the cycled row.
     static func makeCycleSession(store: ShortcutStore) -> CycleSession {
         CycleSession(isShortcutModifierHeld: { flags in store.isAnyShortcutModifierHeld(in: flags) })
+    }
+
+    /// Mouse vs keyboard control of the highlighted row (`FastTabPointerSelection`).
+    private var pointerSelection = FastTabPointerSelection()
+    /// Published mirror of `pointerSelection.pointerHasControl`: while the mouse drives the
+    /// selection the list doesn't scroll to follow it (that would slide rows under the pointer).
+    @Published private(set) var pointerHasControl = false
+    /// Set by `ContentView`: a listed row's id → its selection index (nil = not listed).
+    var indexOfDisplayedRow: (String) -> Int? = { _ in nil }
+
+    /// A real mouse move inside the bar (`CommandBarPointerTakeoverMonitor`): ends a keyboard cycle
+    /// (releasing the modifier no longer opens the highlighted row) and gives the mouse the
+    /// selection — the row under the pointer becomes the highlighted one.
+    func pointerTookOver() {
+        cycleSession.pointerTookOver()
+        let index = pointerSelection.pointerMoved(selectedIndex: selectedIndex, indexOfRow: indexOfDisplayedRow)
+        syncPointerHasControl()
+        if let index { selectedIndex = index }
+    }
+
+    /// The pointer entered or left a listed row; while the mouse has control, entering selects it.
+    func pointerHoverChanged(rowID: String, index: Int, isHovering: Bool) {
+        if let next = pointerSelection.rowHoverChanged(rowID, index: index, isHovering: isHovering, selectedIndex: selectedIndex) {
+            selectedIndex = next
+        }
+    }
+
+    /// A key press or shortcut tap: the keyboard drives the highlight again.
+    func keyboardTookControl() {
+        pointerSelection.keyboardTookControl()
+        syncPointerHasControl()
+    }
+
+    private func resetPointerSelection() {
+        pointerSelection = FastTabPointerSelection()
+        syncPointerHasControl()
+    }
+
+    private func syncPointerHasControl() {
+        if pointerHasControl != pointerSelection.pointerHasControl {
+            pointerHasControl = pointerSelection.pointerHasControl
+        }
     }
 
     func recordTypingActivity() {
@@ -216,6 +258,9 @@ class AppState: ObservableObject {
         }
 
         selectedIndex = -1
+        // Each open starts keyboard-driven: a row under the resting pointer doesn't steal the
+        // selection until the mouse really moves.
+        resetPointerSelection()
         browserService.updateCurrentFlowSourceApp(bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
         commandWindow.configureCommandBarOverlayBehavior()
         commandWindow.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
@@ -643,11 +688,12 @@ private final class CommandBarPanelController: NSObject {
         // keyboard state, so a missed key-up can't leave the bar stuck open, and a release re-checks.
         isShortcutModifierHeld: { ShortcutStore.shared.isAnyShortcutModifierHeld(in: $0) }
     ))
-    /// A real mouse move inside the bar ends a keyboard cycle: releasing the modifier then no longer
-    /// opens the highlighted row (shared `CommandBarPointerTakeoverMonitor`).
+    /// A real mouse move inside the bar takes control from the keyboard: it ends a keyboard cycle
+    /// and the hovered row becomes the selection (shared `CommandBarPointerTakeoverMonitor`,
+    /// `AppState.pointerTookOver`).
     private lazy var pointerTakeoverMonitor = CommandBarPointerTakeoverMonitor(
         isPointerInside: { [weak self] location in !(self?.isCursorOutsideSurface(location) ?? true) },
-        onTakeover: { AppState.shared.cycleSession.pointerTookOver() }
+        onTakeover: { AppState.shared.pointerTookOver() }
     )
 
     func prepare() {

@@ -90,7 +90,7 @@ extension ContentView {
                         CommandBarSectionedList(
                             sections: [CommandBarSection(id: "results", rows: displayedItems)],
                             selectedIndex: appState.selectedIndex,
-                            followsSelection: !isSearchFocused,
+                            followsSelection: listFollowsSelection,
                             followAnimation: Self.selectionFollowAnimation,
                             scrollToTop: listScrollToTop
                         ) { item, index in
@@ -155,7 +155,7 @@ extension ContentView {
                     CommandBarSection(id: "sent", title: "SENT TO MAC", symbol: "iphone", rows: sentItems),
                 ],
                 selectedIndex: appState.selectedIndex,
-                followsSelection: !isSearchFocused,
+                followsSelection: listFollowsSelection,
                 followAnimation: Self.selectionFollowAnimation,
                 scrollToTop: listScrollToTop
             ) { item, index in
@@ -179,7 +179,7 @@ extension ContentView {
             CommandBarSectionedList(
                 sections: [CommandBarSection(id: "items", rows: items)],
                 selectedIndex: viewStore.activeView == view ? appState.selectedIndex : nil,
-                followsSelection: !isSearchFocused,
+                followsSelection: listFollowsSelection,
                 followAnimation: Self.selectionFollowAnimation,
                 scrollToTop: listScrollToTop
             ) { item, index in
@@ -239,8 +239,33 @@ extension ContentView {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ViewBuilder
+    /// The list scrolls to keep the selection in view only when the keyboard moves it: a
+    /// focused search box types, and a mouse-driven selection (`AppState.pointerHasControl`)
+    /// would otherwise slide rows under the pointer.
+    var listFollowsSelection: Bool {
+        !isSearchFocused && !appState.pointerHasControl
+    }
+
+    /// One listed row. Hovering it makes it the selection once the mouse has control
+    /// (`AppState.pointerHoverChanged`), for every row kind (tab, Stack slot, action row).
     func displayItemRow(
+        item: CommandBarDisplayItem,
+        index: Int,
+        isSelected: Bool,
+        showWindowName: Bool,
+        showProfileName: Bool
+    ) -> some View {
+        displayItemRowContent(
+            item: item, index: index, isSelected: isSelected,
+            showWindowName: showWindowName, showProfileName: showProfileName
+        )
+        .onHover { isHovering in
+            appState.pointerHoverChanged(rowID: item.id, index: index, isHovering: isHovering)
+        }
+    }
+
+    @ViewBuilder
+    private func displayItemRowContent(
         item: CommandBarDisplayItem,
         index: Int,
         isSelected: Bool,

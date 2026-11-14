@@ -75,7 +75,7 @@ extension ContentView {
                                 )
                             },
                             selectedIndex: appState.selectedIndex,
-                            followsSelection: !isSearchFocused,
+                            followsSelection: listFollowsSelection,
                             followAnimation: Self.selectionFollowAnimation,
                             scrollToTop: listScrollToTop
                         ) { item, index in

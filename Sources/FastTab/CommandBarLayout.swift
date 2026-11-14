@@ -22,9 +22,13 @@ extension CommandBarSizing {
         minimalResultRowHeight: 40,
         visibleResultRows: 5,
         compactGearRowHeight: 16,
+        // No user row cap any more (the "Quick-open items" setting is gone): these
+        // two only feed the shared math — the tall list's row floor, and the
+        // canvas floor / outside-click box ceiling.
         minQuickOpenItemLimit: 3,
         maxQuickOpenItemLimit: 15,
-        // "Show all tabs" ceiling; rows past it scroll.
+        // Height ceiling of the empty-search list (every open), Stack and custom
+        // views; rows past it scroll.
         expandedMaxHeight: 600
     )
 }
@@ -43,10 +47,6 @@ extension CommandBarLayout {
         sizing.maxQuickOpenRows(fittingScreenHeight: screenHeight, rowStyle: rowStyle, reservedTopInset: reservedTopInset)
     }
 
-    static func maxQuickOpenRowsFittingScreen(rowStyle: ResultRowStyle) -> Int {
-        sizing.maxQuickOpenRowsFittingScreen(rowStyle: rowStyle)
-    }
-
     static var minimumCanvasSize: CGSize { sizing.minimumCanvasSize }
 
     static func minimumCanvasSize(fittingScreenHeight: CGFloat, reservedTopInset: CGFloat) -> CGSize {
@@ -58,24 +58,42 @@ extension CommandBarLayout {
     }
 
     /// Single source of truth for row-cap branching across both SwiftUI view sizing (ContentView)
-    /// and AppKit pointer hit testing (FastTabApp.isCursorOutsideSurface).
-    /// The tall Stack view and the "show all tabs" expansion both resolve to expandedAllTabsMaxRows.
+    /// and AppKit pointer hit testing (`hoverDismissMaxRows`).
+    /// Every open — shortcut or mouse — lists every tab: an empty search, Stack and the
+    /// custom views are all the tall list (`expandedAllTabsMaxRows`, scrolls past it). Only a
+    /// live search on Recents is the short `visibleResultRows` panel.
     static func surfaceMaxRows(
         view: CommandBarView,
-        isShowingAllOpenTabs: Bool,
         isSearching: Bool,
         anchor: CommandBarAnchor,
         rowStyle: ResultRowStyle,
-        showFooter: Bool,
-        quickOpenLimit: Int
+        showFooter: Bool
     ) -> Int {
-        if view.isTall || isShowingAllOpenTabs {
-            return expandedAllTabsMaxRows(for: anchor, rowStyle: rowStyle, showFooter: showFooter)
-        }
-        if isSearching {
+        if isSearching, !view.isTall {
             return Int(visibleResultRows)
         }
-        return min(max(quickOpenLimit, minQuickOpenItemLimit), maxQuickOpenItemLimit)
+        return expandedAllTabsMaxRows(for: anchor, rowStyle: rowStyle, showFooter: showFooter)
+    }
+
+    /// Rows of the hover-dismiss box ("stay inside or the bar closes"). Hover-dismiss only runs
+    /// on an empty search, so this is the tall list — never shorter than the drawn panel
+    /// (pinned by `ShortcutOpenShowsAllTabsTests`). Reads the live appearance from `defaults`.
+    static func hoverDismissMaxRows(view: CommandBarView, anchor: CommandBarAnchor, defaults: UserDefaults = .standard) -> Int {
+        surfaceMaxRows(
+            view: view,
+            isSearching: false,
+            anchor: anchor,
+            rowStyle: storedRowStyle(in: defaults),
+            showFooter: storedShowFooter(in: defaults)
+        )
+    }
+
+    static func storedRowStyle(in defaults: UserDefaults) -> ResultRowStyle {
+        ResultRowStyle(rawValue: defaults.string(forKey: CommandBarAppearance.resultRowStyleKey) ?? "") ?? .minimal
+    }
+
+    static func storedShowFooter(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: CommandBarAppearance.helperPanelVisibleKey) as? Bool ?? true
     }
 
     static func resultsHeight(for anchor: CommandBarAnchor, rowStyle: ResultRowStyle = .full, rowCount: Int = Int.max, maxRows: Int = Int(CommandBarSizing.fastTab.visibleResultRows)) -> CGFloat {
@@ -95,7 +113,7 @@ extension CommandBarLayout {
     }
 
     /// Defaults to the largest the panel can be (the outside-click test);
-    /// the hover-dismiss monitor passes the user's real row cap.
+    /// the hover-dismiss monitor passes `hoverDismissMaxRows`.
     static func surfaceFrame(in canvasFrame: CGRect, anchor: CommandBarAnchor, rowStyle: ResultRowStyle = .full, maxRows: Int = CommandBarSizing.fastTab.maxQuickOpenItemLimit, showFooter: Bool = true, visibleFrame: CGRect? = nil) -> CGRect {
         sizing.surfaceFrame(in: canvasFrame, anchor: anchor, rowStyle: rowStyle, maxRows: maxRows, showFooter: showFooter, visibleFrame: visibleFrame)
     }

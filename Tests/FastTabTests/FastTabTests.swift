@@ -113,45 +113,6 @@ import IndieEdgeReveal
     #expect(normalizedBrowserWindowName("Shared audio window \u{1F50A}") == "Shared audio window")
 }
 
-@Test func quickOpenVisibleTabsIncludesCurrentFlowActiveTab() async throws {
-    let now = Date()
-    let activeTab = BrowserSearchResult(
-        title: "Active tab",
-        url: "https://example.com/active",
-        browserName: "Microsoft Edge",
-        type: .tab,
-        timestamp: now,
-        isCurrentFlowActiveTab: true
-    )
-    let previousTab = BrowserSearchResult(
-        title: "Previous tab",
-        url: "https://example.com/previous",
-        browserName: "Microsoft Edge",
-        type: .tab,
-        timestamp: now.addingTimeInterval(-10)
-    )
-    let olderTab = BrowserSearchResult(
-        title: "Older tab",
-        url: "https://example.com/older",
-        browserName: "Microsoft Edge",
-        type: .tab,
-        timestamp: now.addingTimeInterval(-20)
-    )
-
-    let visibleTabs = quickOpenVisibleTabs(from: [activeTab, previousTab, olderTab], limit: 2)
-
-    #expect(visibleTabs.map(\.title) == ["Active tab", "Previous tab"])
-}
-
-@Test func quickOpenDisplayStateUsesFifthSlotForShowAllTabs() async throws {
-    let tabs = makeQuickOpenTabs(count: 6)
-
-    let state = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: false)
-
-    #expect(state.results.map(\.title) == ["Tab 1", "Tab 2", "Tab 3", "Tab 4"])
-    #expect(state.includesShowAllTabsItem)
-}
-
 @Test func allQuickOpenTabsSortsFullLiveSnapshotByRecencyAndIncludesCurrentFlowTab() async throws {
     let now = Date()
     let activeTab = BrowserSearchResult(
@@ -180,130 +141,6 @@ import IndieEdgeReveal
     let tabs = allQuickOpenTabs(from: [activeTab, olderTab, newerTab])
 
     #expect(tabs.map(\.title) == ["Current tab", "Newer tab", "Older tab"])
-}
-
-@Test func quickOpenDisplayStateShowsAllTabsWhenExpanded() async throws {
-    let tabs = makeQuickOpenTabs(count: 6)
-
-    let state = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: true)
-
-    #expect(state.results.map(\.title) == tabs.map(\.title))
-    #expect(!state.includesShowAllTabsItem)
-}
-
-@Test func quickOpenDisplayStateDoesNotShowSentinelWhenFourOrFewerTabs() async throws {
-    let tabs = makeQuickOpenTabs(count: 4)
-
-    let state = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: false)
-
-    #expect(state.results.map(\.title) == tabs.map(\.title))
-    #expect(!state.includesShowAllTabsItem)
-}
-
-@Test func quickOpenDisplayStateUsesSentinelWhenExactlyFiveTabs() async throws {
-    let tabs = makeQuickOpenTabs(count: 5)
-
-    let state = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: false)
-
-    #expect(state.results.map(\.title) == ["Tab 1", "Tab 2", "Tab 3", "Tab 4"])
-    #expect(state.includesShowAllTabsItem)
-}
-
-@Test func quickOpenDisplayStateUsesSentinelAtMinimumConfigurableLimit() async throws {
-    let tabs = makeQuickOpenTabs(count: 4)
-
-    let state = quickOpenDisplayState(from: tabs, limit: CommandBarLayout.minQuickOpenItemLimit, isShowingAllOpenTabs: false)
-
-    #expect(state.results.map(\.title) == ["Tab 1", "Tab 2"])
-    #expect(state.includesShowAllTabsItem)
-}
-
-@Test func quickOpenDisplayStateUsesSentinelAtMaximumConfigurableLimit() async throws {
-    let tabs = makeQuickOpenTabs(count: 20)
-
-    let state = quickOpenDisplayState(from: tabs, limit: CommandBarLayout.maxQuickOpenItemLimit, isShowingAllOpenTabs: false)
-
-    #expect(state.results.count == CommandBarLayout.maxQuickOpenItemLimit - 1)
-    #expect(state.includesShowAllTabsItem)
-}
-
-@Test func mouseOpenSetsAllTabsWhileShortcutCapsAtQuickOpenLimit() async throws {
-    // Shortcut trigger caps at quick open limit with "Show all tabs..." sentinel
-    let shortcutTrigger = CommandBarOpenTrigger.shortcut
-    #expect(!shortcutTrigger.isMouse)
-    #expect(!shortcutTrigger.shouldExpandAllTabs)
-
-    let tabs = makeQuickOpenTabs(count: 8)
-    let shortcutDisplayState = quickOpenDisplayState(
-        from: tabs,
-        limit: 5,
-        isShowingAllOpenTabs: shortcutTrigger.shouldExpandAllTabs
-    )
-    #expect(shortcutDisplayState.results.count == 4)
-    #expect(shortcutDisplayState.includesShowAllTabsItem)
-
-    // Mouse trigger expands to show all tabs immediately
-    let mouseTrigger = CommandBarOpenTrigger.mouse
-    #expect(mouseTrigger.isMouse)
-    #expect(mouseTrigger.shouldExpandAllTabs)
-
-    let mouseDisplayState = quickOpenDisplayState(
-        from: tabs,
-        limit: 5,
-        isShowingAllOpenTabs: mouseTrigger.shouldExpandAllTabs
-    )
-    #expect(mouseDisplayState.results.count == 8)
-    #expect(!mouseDisplayState.includesShowAllTabsItem)
-}
-
-@Test func openTriggerContextPreservedAcrossViewSwitchAndSearchClear() async throws {
-    let tabs = makeQuickOpenTabs(count: 8)
-
-    // 1. Mouse open flow:
-    // When opened by mouse, wasOpenedByMouse is true, isShowingAllOpenTabs starts true.
-    let mouseWasOpenedByMouse = CommandBarOpenTrigger.mouse.isMouse
-    var mouseIsShowingAllOpenTabs = CommandBarOpenTrigger.mouse.shouldExpandAllTabs
-    #expect(mouseWasOpenedByMouse)
-    #expect(mouseIsShowingAllOpenTabs)
-
-    // Switching views resets isShowingAllOpenTabs to wasOpenedByMouse
-    mouseIsShowingAllOpenTabs = mouseWasOpenedByMouse
-    var displayState = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: mouseIsShowingAllOpenTabs)
-    #expect(displayState.results.count == 8)
-    #expect(!displayState.includesShowAllTabsItem)
-
-    // Typing search sets isShowingAllOpenTabs to false
-    mouseIsShowingAllOpenTabs = false
-    // Clearing search restores isShowingAllOpenTabs = true because wasOpenedByMouse is true
-    if mouseWasOpenedByMouse {
-        mouseIsShowingAllOpenTabs = true
-    }
-    displayState = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: mouseIsShowingAllOpenTabs)
-    #expect(displayState.results.count == 8)
-    #expect(!displayState.includesShowAllTabsItem)
-
-    // 2. Shortcut open flow:
-    // When opened by shortcut, wasOpenedByMouse is false, isShowingAllOpenTabs starts false.
-    let shortcutWasOpenedByMouse = CommandBarOpenTrigger.shortcut.isMouse
-    var shortcutIsShowingAllOpenTabs = CommandBarOpenTrigger.shortcut.shouldExpandAllTabs
-    #expect(!shortcutWasOpenedByMouse)
-    #expect(!shortcutIsShowingAllOpenTabs)
-
-    // Switching views resets isShowingAllOpenTabs to wasOpenedByMouse (false)
-    shortcutIsShowingAllOpenTabs = shortcutWasOpenedByMouse
-    displayState = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: shortcutIsShowingAllOpenTabs)
-    #expect(displayState.results.count == 4)
-    #expect(displayState.includesShowAllTabsItem)
-
-    // Typing search sets isShowingAllOpenTabs to false
-    shortcutIsShowingAllOpenTabs = false
-    // Clearing search keeps isShowingAllOpenTabs = false because wasOpenedByMouse is false
-    if shortcutWasOpenedByMouse {
-        shortcutIsShowingAllOpenTabs = true
-    }
-    displayState = quickOpenDisplayState(from: tabs, limit: 5, isShowingAllOpenTabs: shortcutIsShowingAllOpenTabs)
-    #expect(displayState.results.count == 4)
-    #expect(displayState.includesShowAllTabsItem)
 }
 
 @Test func tabRecencyKeyDistinguishesDuplicateURLsByTabSlot() async throws {
@@ -335,20 +172,6 @@ import IndieEdgeReveal
     ))
 }
 
-private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
-    (1...count).map { index in
-        BrowserSearchResult(
-            title: "Tab \(index)",
-            url: "https://example.com/\(index)",
-            browserName: "Google Chrome",
-            type: .tab,
-            timestamp: Date(timeIntervalSince1970: TimeInterval(1_000 - index)),
-            windowIndex: 1,
-            tabIndex: index
-        )
-    }
-}
-
 @Test func commandBarCanvasExpandsToLargeDisplay() async throws {
     let displayFrame = CGRect(x: -1920, y: 0, width: 2560, height: 1440)
 
@@ -363,12 +186,12 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
 
     // The canvas floor is sized to the tallest the panel can ever get on
-    // *this* screen (the quick-open row count clamped to what actually fits),
+    // *this* screen (the shared row ceiling clamped to what actually fits),
     // not the raw configurable ceiling — that unclamped max is taller than
     // most real displays' logical height, which centered the canvas (and so
     // the notch-flush panel) above the display's real top edge instead of
     // flush against it.
-    #expect(canvasFrame.size == CommandBarLayout.surfaceSize(for: .notch, maxRows: CommandBarLayout.maxQuickOpenRowsFittingScreen(rowStyle: .full)))
+    #expect(canvasFrame.size == CommandBarLayout.surfaceSize(for: .notch, maxRows: CommandBarSizing.fastTab.maxQuickOpenRowsFittingScreen(rowStyle: .full)))
     #expect(canvasFrame.midX == displayFrame.midX)
     #expect(canvasFrame.midY == displayFrame.midY)
 }
@@ -461,47 +284,6 @@ private func makeQuickOpenTabs(count: Int) -> [BrowserSearchResult] {
     let rightFrame = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .rightEdge)
     #expect(rightFrame.maxX == canvasFrame.maxX)
     #expect(rightFrame.minX > canvasFrame.minX)
-}
-
-@Test func expandedAllTabsSurfaceCoversHeaderAndFooterThatQuickOpenBoxMissed() async throws {
-    // Regression: hover-dismiss used to bound the cursor against a box sized
-    // for the quick-open list even when a hover reveal had expanded the panel
-    // to show all tabs. On an edge anchor the taller expanded panel is
-    // vertically centred, so its search header (top) and helper bar (bottom)
-    // stuck out past that box — moving the cursor into either collapsed the
-    // bar. A hover reveal always expands, so the box must be the expanded one.
-    let displayFrame = CGRect(x: 0, y: 0, width: 2560, height: 1440)
-    let canvasFrame = CommandBarLayout.canvasFrame(for: displayFrame)
-
-    let expandedMaxRows = CommandBarLayout.expandedAllTabsMaxRows(for: .leftEdge, rowStyle: .minimal, showFooter: true)
-    let quickOpenMaxRows = CommandBarLayout.minQuickOpenItemLimit
-
-    #expect(expandedMaxRows > quickOpenMaxRows)
-
-    let expanded = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .leftEdge, rowStyle: .minimal, maxRows: expandedMaxRows, showFooter: true)
-    let quickOpen = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .leftEdge, rowStyle: .minimal, maxRows: quickOpenMaxRows, showFooter: true)
-
-    #expect(expanded.height > quickOpen.height)
-
-    // Search header: top strip of the expanded panel.
-    let headerPoint = CGPoint(x: expanded.midX, y: expanded.maxY - 8)
-    #expect(expanded.contains(headerPoint))
-    #expect(!quickOpen.contains(headerPoint))
-
-    // Helper bar: bottom strip of the expanded panel.
-    let footerPoint = CGPoint(x: expanded.midX, y: expanded.minY + 8)
-    #expect(expanded.contains(footerPoint))
-    #expect(!quickOpen.contains(footerPoint))
-
-    // Notch anchor: both boxes are top-flush, so it's the helper bar at the
-    // bottom that the taller expanded panel pushes past the quick-open box.
-    let expandedNotch = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .notch, rowStyle: .minimal, maxRows: expandedMaxRows, showFooter: true)
-    let quickOpenNotch = CommandBarLayout.surfaceFrame(in: canvasFrame, anchor: .notch, rowStyle: .minimal, maxRows: quickOpenMaxRows, showFooter: true)
-    #expect(expandedNotch.height > quickOpenNotch.height)
-    #expect(expandedNotch.maxY == quickOpenNotch.maxY) // both flush to the top
-    let notchFooterPoint = CGPoint(x: expandedNotch.midX, y: expandedNotch.minY + 8)
-    #expect(expandedNotch.contains(notchFooterPoint))
-    #expect(!quickOpenNotch.contains(notchFooterPoint))
 }
 
 @Test func commandBarSurfaceSizeHalvesWidthForEdgeAnchors() async throws {

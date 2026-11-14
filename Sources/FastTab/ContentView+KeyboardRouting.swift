@@ -50,7 +50,7 @@ extension ContentView {
             activateAndHide(result)
         case .orderedEntry(let slot):
             activateOrderedSlot(slot)
-        case .showAllTabs, .searchTheWeb, .searchAliasHint, .searchAliasQuery:
+        case .searchTheWeb, .searchAliasHint, .searchAliasQuery:
             activateExtraRow(item)
         }
     }
@@ -60,8 +60,6 @@ extension ContentView {
         switch item {
         case .result, .orderedEntry:
             return
-        case .showAllTabs:
-            expandAllOpenTabs()
         case .searchTheWeb(let query):
             activateSearchTheWeb(query: query)
         case .searchAliasHint(let alias):
@@ -154,16 +152,6 @@ extension ContentView {
         // Don't re-grab a keyword the user just backed out of.
         guard searchText.lowercased() != rejectedAliasKeyword else { return nil }
         return store.alias(committedBy: searchText)
-    }
-
-    func expandAllOpenTabs() {
-        guard searchText.isEmpty else { return }
-        clearKeyboardSwipe()
-        resetPointerSwipe(animated: false)
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-            isShowingAllOpenTabs = true
-        }
-        scheduleFaviconPrefetch(for: displayedResults)
     }
 
     func dismissCommandBar() {

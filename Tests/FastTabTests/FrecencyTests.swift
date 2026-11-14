@@ -528,32 +528,6 @@ import IndieCommandBar
     #expect(deduped.first?.tabID == 484804868)
 }
 
-@Test func quickOpenVisibleTabsRetainsActiveTabs() async throws {
-    let now = Date()
-    let activePinnedTab = BrowserSearchResult(
-        title: "Active Pinned",
-        url: "https://active-pinned.example.com",
-        browserName: "Google Chrome",
-        type: .tab,
-        timestamp: now,
-        isCurrentFlowActiveTab: true,
-        isPinned: true
-    )
-    let activeUnpinnedTab = BrowserSearchResult(
-        title: "Active Unpinned",
-        url: "https://active-unpinned.example.com",
-        browserName: "Google Chrome",
-        type: .tab,
-        timestamp: now,
-        isCurrentFlowActiveTab: true,
-        isPinned: false
-    )
-
-    let visible = quickOpenVisibleTabs(from: [activePinnedTab, activeUnpinnedTab], limit: 5)
-    #expect(visible.contains(where: { $0.url == "https://active-pinned.example.com" }))
-    #expect(visible.contains(where: { $0.url == "https://active-unpinned.example.com" }))
-}
-
 @Test func overlayPinStatusPreservesNativeBrowserPinnedTabEvenWhenSlotWasUnpinned() async throws {
     let slot = OrderedTabSlot(
         slotID: UUID(),

@@ -8,7 +8,9 @@ extension ContentView {
         trailingVerb: "delete",
         leadingVerb: "copy",
         leadingVerbLong: "copy link",
-        extraRowVerb: "show all",
+        // Unused: Fast Tab never marks an extra row focused (`isExtraRowFocused`)
+        // since the "Show all tabs…" row left (2026-11-14).
+        extraRowVerb: "open",
         scopeGlyph: "@"
     )
 
@@ -27,8 +29,6 @@ extension ContentView {
         state.selectedIndex = selectedIndex
         state.hasResults = !displayedItems.isEmpty
         state.queryIsEmpty = searchText.isEmpty
-        state.isExtraRowFocused = displayedItems.indices.contains(selectedIndex)
-            && displayedItems[selectedIndex].isShowAllTabs
         state.lastInteraction = lastInteractionKey
         state.hasDiscoveredSwipe = hasDiscoveredSwipe
         state.isHoveringRow = hoveredResultID != nil

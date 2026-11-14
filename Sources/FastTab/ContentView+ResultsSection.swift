@@ -318,7 +318,7 @@ extension ContentView {
             )
             .contentShape(Rectangle())
             .padding(.horizontal, 8)
-        case .showAllTabs, .searchTheWeb, .searchAliasHint, .searchAliasQuery:
+        case .searchTheWeb, .searchAliasHint, .searchAliasQuery:
             if let row = item.actionRow(
                 webSearchBrowserName: appState.browserService.webSearchTargetBrowserName,
                 aliasTriggerKeys: searchAliasStore.triggerKeys

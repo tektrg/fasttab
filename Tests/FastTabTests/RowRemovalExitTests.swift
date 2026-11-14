@@ -72,11 +72,11 @@ import Testing
 
     @Test func removedRowLeavesEveryPageAtOnce() {
         var exit = RowRemovalExit()
-        let items = (1...3).map { CommandBarDisplayItem.result(Self.row($0)) } + [.showAllTabs(count: 9)]
+        let items = (1...3).map { CommandBarDisplayItem.result(Self.row($0)) } + [.searchTheWeb(query: "q")]
         let now = Date()
         _ = exit.begin(Self.row(2))
         exit.hide(Self.row(2).id, now: now)
-        #expect(exit.visible(items, now: now).map(\.id) == [Self.row(1).id, Self.row(3).id, "command-bar-show-all-tabs"])
+        #expect(exit.visible(items, now: now).map(\.id) == [Self.row(1).id, Self.row(3).id, "command-bar-search-the-web"])
     }
 
     @Test func pinnedStackSlotsAreNeverHidden() {

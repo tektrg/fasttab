@@ -3,7 +3,6 @@ import Foundation
 enum CommandBarDisplayItem: Identifiable {
     case result(BrowserSearchResult)
     case orderedEntry(OrderedTabSlot)
-    case showAllTabs(count: Int)
     case searchTheWeb(query: String)
     /// Offered when the typed text exactly names a search alias but the user
     /// hasn't committed to it yet — the discoverable half of "type a keyword,
@@ -19,8 +18,6 @@ enum CommandBarDisplayItem: Identifiable {
             return result.id
         case .orderedEntry(let slot):
             return "ordered_\(slot.slotID.uuidString)"
-        case .showAllTabs:
-            return "command-bar-show-all-tabs"
         case .searchTheWeb:
             return "command-bar-search-the-web"
         case .searchAliasHint:
@@ -39,10 +36,5 @@ enum CommandBarDisplayItem: Identifiable {
         default:
             return nil
         }
-    }
-
-    var isShowAllTabs: Bool {
-        if case .showAllTabs = self { return true }
-        return false
     }
 }

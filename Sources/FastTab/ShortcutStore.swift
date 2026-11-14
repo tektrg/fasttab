@@ -29,6 +29,11 @@ class ShortcutStore: ObservableObject {
     /// Written when onboarding finishes, by every build since onboarding shipped (May 2026) —
     /// the same "existing user" signal `EdgeRevealStore` and `CommandBarViewStore` use.
     static let onboardingCompletedKey = "onboarding.v1.completed"
+    /// Written on first launch by every build up to 1.3 (`LaunchAtLoginService` started with the
+    /// app then; now it starts only with Settings › General, after this pin has run). Catches
+    /// installs from before onboarding (they may never have finished it). A 1.4+ install whose
+    /// onboarding was never finished counts only if Settings › General was opened.
+    static let launchAtLoginInitializedKey = "launchAtLogin.didInitialize"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -115,13 +120,16 @@ class ShortcutStore: ObservableObject {
     }
 
     /// One-time: an install with no stored summon shortcut gets one written down, so changing the new-install default never moves anyone.
-    /// Onboarding already finished → this Mac used the old unstored ⌘⇧Space, keep it. Otherwise
+    /// Onboarding already finished, or a pre-onboarding build ran here (`launchAtLoginInitializedKey`)
+    /// → this Mac used the old unstored ⌘⇧Space, keep it. Otherwise
     /// it is a fresh install → ⌃Tab, stored now so finishing onboarding later cannot flip it.
     /// A shortcut the user recorded is stored already and untouched. Nothing may
     /// `register(defaults:)` these keys: `object(forKey:)` would see the registered value.
     static func pinDefaultShortcut(in defaults: UserDefaults) {
         guard defaults.object(forKey: "shortcut.keyCode") == nil else { return }
-        let pinned = defaults.bool(forKey: onboardingCompletedKey) ? legacyDefault : newInstallDefault
+        let isExistingInstall = defaults.bool(forKey: onboardingCompletedKey)
+            || defaults.object(forKey: launchAtLoginInitializedKey) != nil
+        let pinned = isExistingInstall ? legacyDefault : newInstallDefault
         defaults.set(Int(pinned.keyCode), forKey: "shortcut.keyCode")
         defaults.set(Int(pinned.modifiers), forKey: "shortcut.modifiers")
         defaults.set(pinned.keyName, forKey: "shortcut.keyName")

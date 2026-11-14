@@ -57,6 +57,19 @@ struct ShortcutDefaultMigrationTests {
         #expect(persisted.string(forKey: "shortcut.keyName") == "Space")
     }
 
+    /// Builds before onboarding (1.2–1.3, Apr–May 2026) never wrote `onboarding.v1.completed`,
+    /// and a 1.4+ install whose onboarding was quit mid-way never did either — but both ran on
+    /// ⌘⇧Space. Every build up to 1.3 wrote `launchAtLogin.didInitialize` on its first launch.
+    @Test func preOnboardingInstallKeepsCommandShiftSpace() {
+        defer { cleanUp() }
+        let defaults = scratch()
+        defaults.set(true, forKey: "launchAtLogin.didInitialize")
+        let store = ShortcutStore(defaults: defaults)
+        #expect(store.keyCode == 49)
+        #expect(store.modifiers == [.command, .shift])
+        #expect(stored().object(forKey: "shortcut.keyCode") as? Int == 49)
+    }
+
     @Test(arguments: [true, false])
     func explicitlyStoredShortcutIsUntouched(onboarded: Bool) {
         defer { cleanUp() }

@@ -34,6 +34,10 @@ final class FocusSession: ObservableObject {
 
     static let sentDisplaySeconds: TimeInterval = 0.7
     static let allClearSeconds: TimeInterval = 2
+    /// A pause (after Go to agent) older than this is dropped: the next open starts fresh.
+    static let pauseExpirySeconds: TimeInterval = 10 * 60
+    static let toastSeconds: TimeInterval = 2.5
+    static let answeredElsewhereToast = "Answered elsewhere"
 
     let model: AgentPanelModel
     @Published private(set) var queue = FocusQueue()
@@ -42,20 +46,38 @@ final class FocusSession: ObservableObject {
     /// Bumped by an inert ⌘← / ⌘→ (at either end): the view nudges the card.
     @Published private(set) var bumps = 0
     private(set) var agentsByID: [String: AgentSnapshot] = [:]
+    /// The keyboard highlight in a multi-question form (`FocusFormCursor`); Focus-only, the panel's form is mouse-only.
+    @Published private(set) var formCursor: FocusFormCursor?
+
+    /// Paused by Go to agent: the overlay is hidden, the queue keeps following the feed, the open card
+    /// (and what is typed in it) stays; `resume()` brings the overlay back on the same agent, or the next.
+    @Published private(set) var isPaused = false
+    private(set) var pausedAt: Date?
+    /// A quiet one-liner over the card ("Answered elsewhere", a disabled Go to's reason); clears itself.
+    @Published private(set) var toast: String?
 
     var onExit: () -> Void = {}
-    var onOpenTerminal: (AgentSnapshot) -> Void = { _ in }
+    /// Go to agent: hide the overlay (the session stays, paused).
+    var onPause: () -> Void = {}
+    /// The jump: the list's Return path (`AgentSwitchCoordinator.switchTo`, failures not surfaced in
+    /// the panel). A failure brings the overlay back with the switch coordinator's text.
+    var onGoTo: (AgentSnapshot) async -> AgentSwitchCoordinator.Outcome = { _ in .switched }
+    var onGoToFailed: () -> Void = {}
 
     private let loadContext: @Sendable (String) async -> FocusContext
     private var openedForID: String?
     private var subscriptions: Set<AnyCancellable> = []
     private var timer: Task<Void, Never>?
+    private var toastTimer: Task<Void, Never>?
+    private let now: () -> Date
 
     init(
         model: AgentPanelModel,
-        loadContext: @escaping @Sendable (String) async -> FocusContext = FocusSession.readContext
+        loadContext: @escaping @Sendable (String) async -> FocusContext = FocusSession.readContext,
+        now: @escaping () -> Date = Date.init
     ) {
         self.model = model
+        self.now = now
         self.loadContext = loadContext
         let initial = model.focusCandidates()
         agentsByID = Dictionary(initial.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -112,9 +134,58 @@ final class FocusSession: ObservableObject {
         reconcile()
     }
 
-    func openTerminal() {
-        guard let agent = currentAgent else { return }
-        onOpenTerminal(agent)
+    /// The current agent's home, for the Go to button; nil when no agent is up.
+    var destination: FocusDestination? { currentAgent.map(FocusDestination.init(agent:)) }
+
+    /// ⌘↩ / the Go to button: pause Focus mode and switch to the agent's home. A home that cannot be
+    /// reached is said (toast + bump), never a silent no-op; a failed switch resumes with the red notice.
+    func goToAgent() {
+        guard phase == .showing, !isPaused, let agent = currentAgent else { return }
+        let destination = FocusDestination(agent: agent)
+        guard destination.isEnabled else {
+            bumps += 1
+            showToast(destination.reason ?? FocusDestination.noHomeReason)
+            return
+        }
+        pause()
+        onPause()
+        Task { [weak self] in
+            guard let self else { return }
+            if case .failed(let message) = await self.onGoTo(agent) {
+                self.model.reportSwitchFailure(message)
+                self.resume()
+                self.onGoToFailed()
+            }
+        }
+    }
+
+    func pause() {
+        isPaused = true
+        pausedAt = now()
+        timer?.cancel()
+        if phase == .sent { phase = .showing }
+    }
+
+    func resume() {
+        guard isPaused else { return }
+        isPaused = false
+        pausedAt = nil
+        reconcile()
+    }
+
+    func isPauseExpired(at date: Date) -> Bool {
+        guard isPaused, let pausedAt else { return false }
+        return date.timeIntervalSince(pausedAt) >= Self.pauseExpirySeconds
+    }
+
+    private func showToast(_ text: String) {
+        toast = text
+        toastTimer?.cancel()
+        toastTimer = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.toastSeconds))
+            guard !Task.isCancelled else { return }
+            self?.toast = nil
+        }
     }
 
     func park() {
@@ -124,6 +195,7 @@ final class FocusSession: ObservableObject {
 
     func end() {
         timer?.cancel()
+        toastTimer?.cancel()
         subscriptions.removeAll()
         closeCards()
     }
@@ -131,10 +203,19 @@ final class FocusSession: ObservableObject {
     // MARK: - Following the feed and the cards
 
     func reconcile() {
+        // A dead (or not-yet-arrived) feed shows no agents; that is not "they all went away":
+        // keep the queue, the card and the position until the feed is back (no false All clear).
+        guard model.isStatusFeedLive || queue.isAllClear else { return }
         let candidates = model.focusCandidates()
+        let shownAgent = queue.currentID.flatMap { agentsByID[$0] }
         agentsByID = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         queue.update(listOrder: candidates.map(\.id))
+        if isPaused { return }   // only the queue follows the feed; resume() reopens
         if phase == .sent { return }   // the timer moves on
+        if phase == .showing, let shownAgent, agentsByID[shownAgent.id] == nil, !queue.isAllClear,
+           model.sendingLabel(for: shownAgent) == nil {
+            showToast(Self.answeredElsewhereToast)
+        }
         if let id = openedForID, id == queue.currentID, !isCardOpen(for: id),
            let agent = agentsByID[id], model.sendingLabel(for: agent) != nil {
             showSent(for: id)
@@ -208,5 +289,56 @@ final class FocusSession: ObservableObject {
             guard !Task.isCancelled else { return }
             action()
         }
+    }
+
+    // MARK: - Form keys
+
+    /// The open answer card's form, when it is one.
+    var openForm: AnswerFormState? { model.answer.card?.form }
+
+    /// The highlight for the open form (top of the form until a key moves it).
+    func cursor(for form: AnswerFormState) -> FocusFormCursor { FocusFormCursor.current(formCursor, for: form) }
+
+    /// A Focus key while a form card is up. False when no form is open (the caller handles the key).
+    @discardableResult
+    func handleFormKey(_ action: FocusKey.Action) -> Bool {
+        guard let form = openForm else { return false }
+        var cursor = cursor(for: form)
+        let effect: FocusFormCursor.Effect
+        switch action {
+        case .move(let step):
+            cursor.move(by: step, in: form)
+            effect = .none
+        case .pick(let number):
+            effect = cursor.pick(number, in: form)
+        case .space:
+            effect = cursor.space(in: form)
+        case .enter:
+            effect = cursor.enter(in: form)
+            if effect == .none { cursor.advanceAfterChoice(in: form) }
+        default:
+            return false
+        }
+        switch effect {
+        case .none:
+            break
+        case .click(let row, let question):
+            model.answer.clickFormRow(row, of: question)
+            if let updated = openForm, action != .space { cursor.advanceAfterChoice(in: updated) }
+        case .submit:
+            model.answer.handle(.enter)
+        }
+        formCursor = cursor
+        return true
+    }
+
+    /// A mouse click on a form row: the highlight follows it, then the card's model takes the click.
+    func clickForm(row: Int, of question: Int) {
+        guard let form = openForm else { return }
+        var cursor = cursor(for: form)
+        cursor.question = question
+        cursor.row = row
+        formCursor = cursor
+        model.answer.clickFormRow(row, of: question)
     }
 }

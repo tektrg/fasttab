@@ -4,16 +4,23 @@ import SwiftUI
 /// base sizes to measure it, the visible one is drawn at the size that fits, and a scroll view
 /// (with a fade at the bottom edge) takes over once even the floor does not fit.
 struct FocusFittedPanel<Content: View>: View {
+    var maxBody: CGFloat = FocusTextFit.baseBody
     @ViewBuilder let content: (FocusTextFit) -> Content
     @State private var heightAtBase: CGFloat = 0
+    /// Steps off the estimated size after the drawn content overflowed (`FocusTextFit.fit(shrink:)`).
+    @State private var shrink: CGFloat = 0
 
     var body: some View {
         GeometryReader { geometry in
-            let fit = FocusTextFit.fit(heightAtBase: heightAtBase, available: geometry.size.height)
+            let fit = FocusTextFit.fit(heightAtBase: heightAtBase, available: geometry.size.height, maxBody: maxBody, shrink: shrink)
             ScrollView(.vertical) {
                 content(fit)
+                    .padding(.vertical, 6)   // a large button's bezel draws past its frame: keep it off the clip edge
                     .frame(width: geometry.size.width, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
+                    .onContentHeightChange { drawn in
+                        if drawn > geometry.size.height + 1, !fit.scrolls { shrink += 1 }
+                    }
             }
             .scrollIndicators(fit.scrolls ? .automatic : .hidden)
             .mask {
@@ -25,12 +32,12 @@ struct FocusFittedPanel<Content: View>: View {
                 }
             }
             .background(alignment: .topLeading) {
-                content(.base)
+                content(.measuring)
                     .frame(width: geometry.size.width, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .hidden()
                     .allowsHitTesting(false)
-                    .onContentHeightChange { heightAtBase = $0 }
+                    .onContentHeightChange { heightAtBase = $0; shrink = 0 }
             }
         }
     }

@@ -21,10 +21,23 @@ struct PanePeek: Equatable {
         case unavailable(String)
     }
 
+    /// The peek's two tabs (2026-11-14): the agent's last message first, the raw pane screen second.
+    enum Tab: Equatable, CaseIterable {
+        case lastMessage, terminal
+        var title: String { self == .lastMessage ? "Last message" : "Terminal" }
+    }
+
+    static let noTranscriptMessage = "No Claude session transcript for this agent on this Mac."
+    static let noTerminalMessage = "No terminal: this session runs outside herdr."
+
     let agentID: String
     let label: String
     let projectName: String?
+    /// The Terminal tab: the pane screen (a status-only row: its latest message, the old single-view peek).
     var content: Content
+    /// The Last message tab: `.loadingLatestMessage` / `.latestMessage` / `.unavailable`.
+    var message: Content = .loadingLatestMessage
+    var tab: Tab = .lastMessage
 
     /// The dashboard's answer, cleaned for display.
     static func content(from result: PaneScreenResult) -> Content {

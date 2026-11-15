@@ -8,12 +8,16 @@ struct FocusOverlayView: View {
     @ObservedObject var session: FocusSession
     let reduceMotion: Bool
     let onExit: () -> Void
+    /// Offscreen renders: skip the fade-in (`onAppear` animations never run without a window).
+    var startsAppeared = false
     @Environment(\.colorScheme) private var colorScheme
     @State private var appeared = false
     @State private var bumpOffset: CGFloat = 0
     /// +1 moving forward, -1 back: which edge the next card slides in from.
     @State private var direction = 1
     @State private var shownID: String?
+    /// The header dot that just joined the queue: pulses once.
+    @State private var pulsingDot: Int?
 
     var body: some View {
         GeometryReader { geometry in
@@ -28,7 +32,7 @@ struct FocusOverlayView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 22))
                     .shadow(color: .black.opacity(0.35), radius: 40, y: 12)
                     .scaleEffect(appeared || reduceMotion ? 1 : 0.98)
-                    .opacity(appeared ? 1 : 0)
+                    .opacity(appeared || startsAppeared ? 1 : 0)
                     .offset(x: bumpOffset)
             }
         }
@@ -40,6 +44,14 @@ struct FocusOverlayView: View {
             let ids = session.queue.agentIDs
             direction = (old.flatMap(ids.firstIndex) ?? -1) > (new.flatMap(ids.firstIndex) ?? -1) ? -1 : 1
             withAnimation(reduceMotion ? .easeInOut(duration: 0.18) : .easeOut(duration: 0.22)) { shownID = new }
+        }
+        .onChange(of: session.queue.count) { old, new in
+            guard new > old, !reduceMotion else { return }
+            pulsingDot = new - 1
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.9))
+                pulsingDot = nil
+            }
         }
         .onChange(of: session.bumps) { _, _ in
             guard !reduceMotion else { return }
@@ -66,6 +78,7 @@ struct FocusOverlayView: View {
                 hints
             }
             .overlay { if session.phase == .sent { sentBadge } }
+            .overlay(alignment: .top) { toast }
             .overlay(alignment: .bottom) { failureStrip }
         } else {
             Color.clear
@@ -100,6 +113,15 @@ struct FocusOverlayView: View {
                         Circle()
                             .fill(index + 1 == position ? FocusPalette.accent : FocusPalette.line)
                             .frame(width: 8, height: 8)
+                            .background {
+                                Circle()
+                                    .stroke(FocusPalette.accent, lineWidth: 2)
+                                    .scaleEffect(pulsingDot == index ? 2.4 : 1)
+                                    .opacity(pulsingDot == index ? 0 : (pulsingDot == nil ? 0 : 0.9))
+                                    .animation(.easeOut(duration: 0.8), value: pulsingDot)
+                            }
+                            .scaleEffect(pulsingDot == index ? 1.35 : 1)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.5), value: pulsingDot)
                     }
                 }
                 Text("\(position) of \(session.queue.count)")
@@ -107,6 +129,9 @@ struct FocusOverlayView: View {
                     .foregroundStyle(FocusPalette.mute)
                     .monospacedDigit()
             }
+            FocusGoToButton(session: session)
+                .controlSize(.large)
+                .padding(.leading, 8)
         }
         .padding(.horizontal, 32)
         .frame(height: 72)
@@ -129,9 +154,41 @@ struct FocusOverlayView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(FocusPalette.panel)
             Divider().overlay(FocusPalette.line)
-            FocusAskView(session: session)
-                .padding(32)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 0) {
+                FocusAskView(session: session)
+                    .padding(32)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider().overlay(FocusPalette.line)
+                AgentActionRow(
+                    items: actionItems(agent),
+                    actionState: session.model.rowActionStates[agent.id],
+                    fontSize: 15, spacing: 8,
+                    onAction: { perform($0, on: agent) }
+                )
+                .padding(.horizontal, 32)
+                .frame(height: 56)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// The shared action row's items here: Peek and Message are left out (the overlay has no peek
+    /// surface, and the ask column already is the Message box for a waiting agent).
+    private func actionItems(_ agent: AgentSnapshot) -> [AgentActionItem] {
+        AgentActionList.items(
+            for: agent, tree: session.model.treeModel.tree,
+            goToDisabledReason: session.destination.flatMap { $0.isEnabled ? nil : ($0.reason ?? FocusDestination.noHomeReason) },
+            hiding: Self.hiddenActions
+        )
+    }
+
+    static let hiddenActions: Set<RowButton> = [.peek, .message]
+
+    private func perform(_ action: AgentAction, on agent: AgentSnapshot) {
+        switch action {
+        case .close: onExit()
+        case .goToAgent: session.goToAgent()
+        case .row(let button): session.model.press(button, on: agent.id)
         }
     }
 
@@ -141,12 +198,32 @@ struct FocusOverlayView: View {
             hint("1–9", "pick")
             hint("↩", "answer")
             hint("⌘← ⌘→", "agents")
-            hint("⌘↩", "open terminal")
+            hint("⌘↩", goToHint)
             hint("esc", "exit")
             Spacer()
         }
         .padding(.horizontal, 32)
         .frame(height: 48)
+    }
+
+    private var goToHint: String {
+        guard let destination = session.destination else { return "go to agent" }
+        return destination.isEnabled ? "go to agent (pauses Focus)" : destination.reason ?? FocusDestination.noHomeReason
+    }
+
+    @ViewBuilder
+    private var toast: some View {
+        if let text = session.toast {
+            Text(text)
+                .font(.avenir(size: 16, weight: .medium))
+                .foregroundStyle(FocusPalette.ink)
+                .padding(.horizontal, 18).padding(.vertical, 9)
+                .background(Capsule().fill(FocusPalette.panel))
+                .overlay(Capsule().strokeBorder(FocusPalette.line))
+                .padding(.top, 84)
+                .transition(.opacity)
+                .animation(.easeOut(duration: 0.2), value: session.toast)
+        }
     }
 
     private func hint(_ key: String, _ label: String) -> some View {

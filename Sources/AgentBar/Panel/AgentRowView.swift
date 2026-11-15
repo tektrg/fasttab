@@ -162,7 +162,7 @@ struct AgentRowView: View {
     /// The ⋯ menu: the text buttons that no longer draw as capsules (Peek, Park, Message…), then the
     /// menu's own items (Done, Compact…), then the tree items.
     private var menuItems: [RowButtonSpec] {
-        RowButtons.movedIntoMenu(RowButtons.available(for: agent)) + RowButtons.menuItems(for: agent) + treeMenuItems
+        AgentActionList.menuItems(for: agent, treeItems: treeMenuItems)
     }
 
     /// Done/Close pane live in the ⋯ menu normally, but a press that needs a second look (or is

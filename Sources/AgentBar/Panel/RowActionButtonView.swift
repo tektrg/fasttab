@@ -7,19 +7,22 @@ import IndieCommandBar
 /// Highlighted = the keyboard is on it; confirming = the second press is armed.
 struct RowActionButtonView: View {
     let spec: RowButtonSpec
+    /// The idle label instead of the button's own (the action row's Close / Go to agent).
+    var titleOverride: String? = nil
     let state: RowActionState?
     let isHighlighted: Bool
+    var fontSize: CGFloat = 11
     let onPress: () -> Void
 
     var body: some View {
         RowActionCapsuleButton(
-            titles: Self.titles(for: spec),
+            titles: titleOverride.map { RowActionButtonTitles(idle: $0, confirming: $0, busy: $0, done: $0) } ?? Self.titles(for: spec),
             phase: Self.phase(of: spec.button, state: state),
             isAlert: spec.isBlockedAction,
             isHighlighted: isHighlighted,
             isEnabled: spec.isEnabled,
             help: spec.disabledReason ?? spec.hint ?? "",
-            font: .avenir(size: 11, weight: .medium),
+            font: .avenir(size: fontSize, weight: .medium),
             action: onPress
         )
     }

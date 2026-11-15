@@ -18,6 +18,8 @@ final class AgentPanelController {
     private var sizeSubscription: AnyCancellable?
     private var pagesSubscription: AnyCancellable?
     private var scrollMonitor: Any?
+    /// Keys for the ⌘K menu while it is open (`RowKeyMenu`) and Tab for the peek tabs, before any text field sees them.
+    private var keyMenuMonitor: Any?
     private var flick = CommandBarViewFlick()
     private let activation: TextInputActivation
     private var focusObservers: [NSObjectProtocol] = []
@@ -131,6 +133,32 @@ final class AgentPanelController {
         }
     }
 
+    /// While the ⌘K menu is open every key in the panel goes to it (Esc closes only the menu); the
+    /// search field gets nothing until it closes. ⌘K itself toggles; other ⌘ shortcuts pass through.
+    private func startKeyMenuMonitor() {
+        guard keyMenuMonitor == nil else { return }
+        keyMenuMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.window === self.panel else { return event }
+            // Peek: Tab (no modifiers) switches Last message / Terminal, from the search box or the peek's message box.
+            if self.model.keyMenu == nil, self.model.peek != nil, event.keyCode == 48,
+               event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
+                self.model.togglePeekTab()
+                return nil
+            }
+            guard self.model.keyMenu != nil else { return event }
+            let command = event.modifierFlags.contains(.command)
+            let key = RowKeyMenu.key(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers ?? "", command: command)
+            if command && key == .other { return event }
+            self.model.handleKeyMenu(key)
+            return nil
+        }
+    }
+
+    private func stopKeyMenuMonitor() {
+        if let keyMenuMonitor { NSEvent.removeMonitor(keyMenuMonitor) }
+        keyMenuMonitor = nil
+    }
+
     private func stopScrollMonitor() {
         guard let monitor = scrollMonitor else { return }
         NSEvent.removeMonitor(monitor)
@@ -158,6 +186,7 @@ final class AgentPanelController {
         }
         startOutsideClickMonitor()
         startScrollMonitor()
+        startKeyMenuMonitor()
         startFocusObservers()
         activation.panelDidShow()
         onVisibilityChange?(true)
@@ -172,6 +201,7 @@ final class AgentPanelController {
         stopLeaveMonitor()
         stopOutsideClickMonitor()
         stopScrollMonitor()
+        stopKeyMenuMonitor()
         stopFocusObservers()
         EdgeRevealAnimator.interrupt(panel)
         panel.orderOut(nil)

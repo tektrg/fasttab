@@ -19,6 +19,7 @@ final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
         let coordinator = AgentBarCoordinator()
         self.coordinator = coordinator
         coordinator.start()
+        closeStraySettingsWindows()
         for url in pendingURLs { coordinator.openSessionLink(url) }
         pendingURLs = []
     }
@@ -37,6 +38,40 @@ final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
         coordinator?.showPanel()
         return false
     }
+
+    func showSettings() { coordinator?.showSettings() }
+
+    /// Belt and braces for `StraySettingsWindow`: if SwiftUI ever shows its own Settings window
+    /// again, it is closed as soon as it appears (it is never the real Settings).
+    private func closeStraySettingsWindows() {
+        let close: (Notification) -> Void = { note in
+            guard let window = note.object as? NSWindow,
+                  StraySettingsWindow.isStray(identifier: window.identifier?.rawValue) else { return }
+            DispatchQueue.main.async { window.close() }
+        }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didChangeOcclusionStateNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main, using: close)
+        }
+        for window in NSApp.windows where StraySettingsWindow.isStray(identifier: window.identifier?.rawValue) {
+            window.close()
+        }
+    }
+}
+
+/// SwiftUI's own `Settings` scene (window id `com_apple_SwiftUI_Settings_window`) is only a
+/// placeholder: the real Settings is `SettingsWindowController`'s window. Once AgentBar is
+/// frontmost (`TextInputActivation`, Focus mode, Settings) the app's main menu is live, so ⌘,
+/// or any `showSettingsWindow:` reached the placeholder and drew an empty "AgentBar Settings"
+/// window, and SwiftUI also showed it by itself at launch (observed on the Pro, every relaunch).
+/// The app therefore has no `Settings` scene at all (a never-inserted `MenuBarExtra` satisfies
+/// SwiftUI's one-scene rule); any window with this identifier is closed on sight.
+enum StraySettingsWindow {
+    static let swiftUISettingsIdentifierPrefix = "com_apple_SwiftUI_Settings_window"
+
+    static func isStray(identifier: String?) -> Bool {
+        guard let identifier else { return false }
+        return identifier.hasPrefix(swiftUISettingsIdentifierPrefix)
+    }
 }
 
 @main
@@ -44,7 +79,15 @@ struct AgentBarApp: App {
     @NSApplicationDelegateAdaptor(AgentBarAppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        // SwiftUI requires at least one scene; the real UI is the floating panel.
-        Settings { EmptyView() }
+        // SwiftUI requires one scene; a `Settings` scene here opened an empty window by itself
+        // (`StraySettingsWindow`). This one is never inserted, so it draws nothing.
+        // ⌘, / "Settings…" open the real Settings window.
+        MenuBarExtra("AgentBar", isInserted: .constant(false)) { EmptyView() }
+            .commands {
+                CommandGroup(replacing: .appSettings) {
+                    Button("Settings…") { appDelegate.showSettings() }
+                        .keyboardShortcut(",", modifiers: .command)
+                }
+            }
     }
 }

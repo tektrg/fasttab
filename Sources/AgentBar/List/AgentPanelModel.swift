@@ -933,6 +933,7 @@ final class AgentPanelModel: ObservableObject {
 
     /// Fresh start for each summon: empty search, first row selected.
     func resetForShow() {
+        keyMenu = nil
         closePeek()
         answer.close()
         permission.close()
@@ -1035,6 +1036,7 @@ final class AgentPanelModel: ObservableObject {
             openLatestMessagePeek(opened, sessionId: sessionId)
             return
         }
+        if agent.section == .ended || agent.sessionId == nil { opened.message = .unavailable(PanePeek.noTranscriptMessage) }
         guard let paneId = agent.paneId, !paneId.isEmpty else {
             opened.content = .unavailable(PanePeek.endedAgentMessage)
             preview.open(rowID: opened.agentID, content: opened)
@@ -1049,9 +1051,19 @@ final class AgentPanelModel: ObservableObject {
         peekLoader.load({ await statusSource.paneScreen(paneId: paneId) }) { [weak self] result in
             self?.preview.updateContent(for: opened.agentID) { $0.content = PanePeek.content(from: result) }
         }
+        if let sessionId = agent.sessionId, opened.message == .loadingLatestMessage { loadPeekLastMessage(for: opened.agentID, sessionId: sessionId) }
     }
 
-    /// A status-only row has no pane to read: the peek is its transcript's latest message.
+    /// The Last message tab of a herdr row: the session transcript's latest message.
+    private func loadPeekLastMessage(for agentID: String, sessionId: String) {
+        let load = loadPeekMessage
+        peekMessageLoader.load({ await load(sessionId) }) { [weak self] context in
+            self?.preview.updateContent(for: agentID) { $0.message = PanePeek.content(fromLatestMessage: context.latestMessage) }
+        }
+    }
+
+    /// A status-only row has no pane to read: both its old peek and its Last message tab are the
+    /// transcript's latest message; its Terminal tab says there is none.
     private func openLatestMessagePeek(_ opened: PanePeek, sessionId: String) {
         var opened = opened
         opened.content = .loadingLatestMessage
@@ -1060,8 +1072,46 @@ final class AgentPanelModel: ObservableObject {
         peekMessageLoader.load({ await load(sessionId) }) { [weak self] context in
             self?.preview.updateContent(for: opened.agentID) {
                 $0.content = PanePeek.content(fromLatestMessage: context.latestMessage)
+                $0.message = $0.content
             }
         }
+    }
+
+    /// Click on a peek tab.
+    func selectPeekTab(_ tab: PanePeek.Tab) {
+        guard let agentID = peek?.agentID else { return }
+        preview.updateContent(for: agentID) { $0.tab = tab }
+    }
+
+    /// Tab while peeking: the other tab.
+    func togglePeekTab() {
+        guard let tab = peek?.tab else { return }
+        selectPeekTab(tab == .lastMessage ? .terminal : .lastMessage)
+    }
+
+    /// The peeked agent, if still listed.
+    var peekAgent: AgentSnapshot? {
+        guard let agentID = peek?.agentID else { return nil }
+        return presentation.agents.first { $0.id == agentID }
+    }
+
+    /// Why the peek's message box cannot send, nil when it can (same gate as `MessageCardModel.sendDirect`).
+    var peekMessageRefusal: String? {
+        guard let agent = peekAgent else { return "This agent left the list." }
+        return RowButtons.usableButtons(for: agent).contains(.message) ? nil : "This agent can't take a message right now."
+    }
+
+    /// Return in the peek's message box: the Tab-tag compose path (`MessageDraftValidator`, then
+    /// `sendDirectMessage` → `MessageCardModel.sendDirect`). True = sent off (the box clears).
+    @discardableResult
+    func sendFromPeek(_ draft: String) -> Bool {
+        guard let agent = peekAgent else { return false }
+        let verdict = MessageDraftValidator.check(draft)
+        guard case .ready(let text) = verdict else {
+            showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
+            return false
+        }
+        return sendDirectMessage(to: agent, text: text)
     }
 
     private func closePeekUnlessStillSelected() {
@@ -1172,6 +1222,68 @@ final class AgentPanelModel: ObservableObject {
     /// A press on `button` of agent `agentID` (mouse, or Enter on the highlight).
     /// Park / Unpark act at once; Done / Close pane ask the dashboard, and the
     /// returned task ends when it has answered (tests await it).
+    // MARK: - ⌘K keyboard ⋯ menu
+
+    /// The selected row's ⋯ menu as a keyboard menu (⌘K), or nil. See `RowKeyMenu`.
+    @Published private(set) var keyMenu: RowKeyMenu?
+
+    /// ⌘K: opens the selected row's ⋯ items (same list as the mouse menu); ⌘K again closes. Never over a card.
+    func toggleKeyMenu() {
+        if keyMenu != nil { keyMenu = nil; return }
+        guard !isCardOpen, peek == nil, let agent = selectedAgent else { return }
+        var identity: QuestionIdentity?
+        if case .question(let question)? = agent.blockedOnYou { identity = question.identity }
+        keyMenu = RowKeyMenu(
+            agentID: agent.id,
+            answers: RowKeyMenu.answerEntries(for: agent, isAwaiting: answer.isAwaiting(agent)),
+            questionIdentity: identity,
+            items: AgentActionList.menuItems(for: agent, tree: treeModel.tree)
+        )
+    }
+
+    /// A ⌘K answer pick: opens the card exactly like the row's red Answer (`press(.answer)`), then
+    /// presses the option's digit in it — the card's own send path (pre-send pane read, tracker, one
+    /// send). The card stays open instead when it turned out to be a form, or is on another question
+    /// than the menu showed; the Other row leaves it open typing.
+    func answerFromKeyMenu(optionIndex: Int, agentID: String, question: QuestionIdentity?) {
+        press(.answer, on: agentID)
+        guard let card = answer.card, card.agentID == agentID, card.form == nil,
+              card.state.question.identity == question else { return }
+        answer.handle(.digit(optionIndex))
+    }
+
+    /// A key while the ⌘K menu is open; true = the menu used it (the panel's key monitor then drops the event).
+    @discardableResult
+    func handleKeyMenu(_ key: RowKeyMenu.Key) -> Bool {
+        guard var menu = keyMenu else { return false }
+        let effect = menu.handle(key)
+        switch effect {
+        case .none: keyMenu = menu
+        case .close: keyMenu = nil
+        case .activate(let button):
+            keyMenu = nil
+            press(button, on: menu.agentID)
+        case .answer(let optionIndex):
+            keyMenu = nil
+            answerFromKeyMenu(optionIndex: optionIndex, agentID: menu.agentID, question: menu.questionIdentity)
+        }
+        return true
+    }
+
+    /// A click on one of the ⌘K menu's items.
+    func chooseKeyMenuItem(at index: Int) {
+        guard let menu = keyMenu else { return }
+        switch menu.activate(index) {
+        case .none, .close: return
+        case .activate(let button):
+            keyMenu = nil
+            press(button, on: menu.agentID)
+        case .answer(let optionIndex):
+            keyMenu = nil
+            answerFromKeyMenu(optionIndex: optionIndex, agentID: menu.agentID, question: menu.questionIdentity)
+        }
+    }
+
     @discardableResult
     /// The row ⋯ menu's "Report to" submenu: attach `agentID` under the picked `targetID` (a chief
     /// or an Unassigned worker, `AgentTree.reportTargets`). Same gate as pressing "Report to…".
@@ -1562,6 +1674,9 @@ final class AgentPanelModel: ObservableObject {
 
     /// Focus mode (`FocusMode/`): every agent in Needs you (blocked or generic idle), in the list's
     /// display order with an empty search. Empty without a trustworthy reading.
+    /// The feed is up: an empty agent list then really means nobody needs you.
+    var isStatusFeedLive: Bool { snapshot.map { !$0.health.isDown } ?? false }
+
     func focusCandidates() -> [AgentSnapshot] {
         guard let needsYou = AgentListBuilder.needsYouAgents(snapshot: snapshot, settings: listSettings, triage: triage) else { return [] }
         let display = AgentListBuilder.presentation(

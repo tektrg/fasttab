@@ -15,6 +15,7 @@ final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
         // Menu-bar-less background app: no dock icon, no menu bar.
         NSApp.setActivationPolicy(.accessory)
         KeyboardDebugLog.start()
+        ClaudeWindowRaiser.warmUp()
 
         let coordinator = AgentBarCoordinator()
         self.coordinator = coordinator
@@ -25,6 +26,7 @@ final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
 
     /// `agentbar://session/<id>` links (scheme registered by `scripts/build-agentbar-app.sh`).
     func application(_ application: NSApplication, open urls: [URL]) {
+        if urls.contains(where: ClaudeAXDump.handles) { ClaudeAXDump.run(); return }
         guard let coordinator else {
             pendingURLs += urls   // a link that launched the app may arrive before launch finishes
             return

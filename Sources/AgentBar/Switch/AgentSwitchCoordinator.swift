@@ -32,7 +32,7 @@ final class AgentSwitchCoordinator {
         model: AgentPanelModel,
         statusSource: any AgentStatusSource,
         panel: PanelControls,
-        desktopOpener: any ClaudeDesktopOpening = ClaudeDesktopOpener(),
+        desktopOpener: any ClaudeDesktopOpening = ClaudeDesktopOpener(raiseWindowShowing: ClaudeWindowRaiser.raiseWindow(showing:)),
         tmuxSwitcher: any TmuxSessionSwitching = TmuxSessionSwitcher()
     ) {
         self.model = model
@@ -48,7 +48,7 @@ final class AgentSwitchCoordinator {
             await focusPane(of: agent)
         case .claudeDesktop(let openURL):
             panel.hide()
-            if desktopOpener.openSession(openURL) {
+            if desktopOpener.openSession(openURL, title: agent.label) {
                 model.recordSwitch(to: agent.id)
             } else {
                 surface(failure: "Claude Desktop could not be opened.")

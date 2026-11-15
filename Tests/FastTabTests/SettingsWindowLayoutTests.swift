@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import IndieSettings
 @testable import FastTab
 
 /// The Settings window is a fixed 680×420. A page whose content asks for more
@@ -11,7 +12,7 @@ import Testing
 struct SettingsWindowLayoutTests {
     /// Height the whole split view (sidebar + detail) is laid out at.
     static func splitViewHeight(for tab: SettingsTab) throws -> CGFloat {
-        SettingsNavigator.shared.requestedTab = tab
+        SettingsNavigator.shared.request(tab)
         // No AppState/LicenseService: their `shared` start CloudKit, which traps
         // in a test process. The pages checked here don't read them.
         let host = NSHostingView(rootView: SettingsView())

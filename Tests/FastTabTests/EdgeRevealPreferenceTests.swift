@@ -33,11 +33,12 @@ struct EdgeRevealPreferenceTests {
         #expect(EdgeRevealStore(defaults: scratchDefaults(["onboarding.v1.completed": true])).style == .off)
     }
 
-    @Test func eachTriggerSpotOpensTheBarOnTheNearestLayout() {
+    @Test func eachTriggerSpotOpensTheBarAtItsOwnLayout() {
         let expected: [EdgeRevealStyle: CommandBarAnchor] = [
-            .off: .notch, .notch: .notch, .bottomEdge: .notch,
-            .leftEdge: .leftEdge, .topLeftCorner: .leftEdge, .bottomLeftCorner: .leftEdge,
-            .rightEdge: .rightEdge, .topRightCorner: .rightEdge, .bottomRightCorner: .rightEdge,
+            .off: .notch, .notch: .notch, .bottomEdge: .bottomEdge,
+            .leftEdge: .leftEdge, .rightEdge: .rightEdge,
+            .topLeftCorner: .corner(.topLeft), .topRightCorner: .corner(.topRight),
+            .bottomLeftCorner: .corner(.bottomLeft), .bottomRightCorner: .corner(.bottomRight),
         ]
         #expect(Set(expected.keys) == Set(EdgeRevealStyle.allCases))
         for (style, anchor) in expected {

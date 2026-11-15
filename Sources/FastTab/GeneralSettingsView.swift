@@ -84,7 +84,7 @@ struct GeneralSettingsView: View {
                     }
                     .pickerStyle(.menu)
 
-                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab directly into \(viewStore.hoverDefaultView.displayName). Uses an invisible hover zone there, no background mouse tracking.")
+                    Text("Hover the \(edgeReveal.style.displayName.lowercased()) to open FastTab directly into \(viewStore.hoverDefaultView.displayName). Uses an invisible hover zone there, no background mouse tracking. The card opens at that spot; the position for shortcut opens is set separately in Appearance.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

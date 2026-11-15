@@ -168,6 +168,16 @@ class AppState: ObservableObject {
         return CommandBarLayout.floatingPadding(canvasFrame: commandWindow.frame, visibleFrame: screen.visibleFrame)
     }
 
+    /// SwiftUI offset that moves the card from its anchored spot to where the pointer puts it
+    /// (hover edges slide along the edge; "Follow the mouse" centres on the pointer).
+    func commandBarPointerOffset(position: CommandBarResolvedPosition, pointer: CGPoint?, surfaceSize: CGSize) -> CGSize {
+        guard position.followsMouse, let commandWindow else { return .zero }
+        return CommandBarLayout.pointerOffset(
+            position: position, pointer: pointer, surfaceSize: surfaceSize,
+            canvasFrame: commandWindow.frame, screen: commandWindow.screen ?? NSScreen.main
+        )
+    }
+
     var commandWindowDebugState: String {
         guard let commandWindow else { return "window=nil" }
         return "visible=\(commandWindow.isVisible) key=\(commandWindow.isKeyWindow) main=\(commandWindow.isMainWindow) appActive=\(NSApp.isActive)"
@@ -212,6 +222,8 @@ class AppState: ObservableObject {
         selectedIndex = -1
         browserService.updateCurrentFlowSourceApp(bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
         commandWindow.configureCommandBarOverlayBehavior()
+        // How this open was triggered + where the pointer is: the one input the card places itself from.
+        CommandBarOpenSession.shared.begin(revealStyle: revealStyle)
         commandWindow.fitCommandBarCanvasToVisibleScreen(preferMouseScreen: true)
 
         // Arm the grow animation before the window is ordered front: it must
@@ -219,10 +231,10 @@ class AppState: ObservableObject {
         // frame, or the bar flashes at full size for a frame before shrinking.
         if let revealStyle {
             wasOpenedByHover = true
-            CommandBarPanelController.shared.playRevealAnimation(from: revealStyle)
+            CommandBarPanelController.shared.playRevealAnimation()
         } else {
             wasOpenedByHover = false
-            if CommandBarAnchor.current.isFloating {
+            if CommandBarOpenSession.shared.position.anchor.isFloating {
                 CommandBarRevealTrigger.shared.fireFadeIn()
             }
             if openedBy == .shortcut {
@@ -620,7 +632,7 @@ private final class CommandBarPanelController: NSObject {
         isSearchEmpty: { AppState.shared.isSearchTextEmpty },
         isHeld: { [weak self] in
             FastTabPointerLeaveGates.isHeld(
-                isFloating: CommandBarAnchor.current.isFloating, isVisible: AppState.shared.isVisible,
+                isFloating: CommandBarOpenSession.shared.position.anchor.isFloating, isVisible: AppState.shared.isVisible,
                 editorHoldsBar: CustomViewEditorPresenter.shared.holdsBar, hasPanel: self?.panel != nil,
                 // Live keyboard state, not the cycle session's cached flag: a missed key-up can't
                 // leave the bar stuck open. A close already queued re-checks this when it fires,
@@ -673,7 +685,8 @@ private final class CommandBarPanelController: NSObject {
             return CommandBarLayout.shouldDismissClick(
                 at: screenLocation,
                 in: panel.frame,
-                anchor: CommandBarAnchor.current,
+                position: CommandBarOpenSession.shared.position,
+                pointer: CommandBarOpenSession.shared.pointer,
                 visibleFrame: panel.screen?.visibleFrame
             )
         }
@@ -757,8 +770,8 @@ private final class CommandBarPanelController: NSObject {
     /// content-view layer read as the bar sliding into place rather than
     /// expanding from the edge, since the anchor was applied to the entire
     /// canvas rather than just the visible surface within it.
-    func playRevealAnimation(from style: EdgeRevealStyle) {
-        CommandBarRevealTrigger.shared.fire(anchor: CommandBarAppearance.load().resolvedAnchor(hoverStyle: style))
+    func playRevealAnimation() {
+        CommandBarRevealTrigger.shared.fire()
     }
 
     func startOutsideClickMonitoring() {
@@ -818,17 +831,19 @@ private final class CommandBarPanelController: NSObject {
             location, noticeInWindow: AppState.shared.errorNoticeFrameInWindow, windowFrame: panel.frame
         ) { return false }
         let defaults = UserDefaults.standard
+        let position = CommandBarOpenSession.shared.position
         let rowStyle = CommandBarLayout.storedRowStyle(in: defaults)
         let showFooter = CommandBarLayout.storedShowFooter(in: defaults)
         let maxRows = CommandBarLayout.hoverDismissMaxRows(
             view: CommandBarViewStore.shared.activeView,
-            anchor: CommandBarAnchor.current,
+            anchor: position.anchor,
             defaults: defaults
         )
 
         let surface = CommandBarLayout.surfaceFrame(
             in: panel.frame,
-            anchor: CommandBarAnchor.current,
+            position: position,
+            pointer: CommandBarOpenSession.shared.pointer,
             rowStyle: rowStyle,
             maxRows: maxRows,
             showFooter: showFooter,

@@ -7,14 +7,35 @@ import IndieEdgeReveal
 /// `EdgeRevealStyle` itself lives in IndieLibKit (`IndieEdgeReveal`); its `rawValue` is the
 /// persisted `FastTab.edgeReveal.style` value (`off`/`notch`/`leftEdge`/`rightEdge` predate
 /// the move and are unchanged) — do not rename without a migration.
-extension CommandBarAnchor {
-    /// Which screen edge the command bar's shape/position hugs — always
-    /// follows the configured hover-trigger spot, even when the bar was
-    /// opened another way (keyboard shortcut, menu bar). `.notch` when the
-    /// hover trigger itself is off, since the bar still needs an anchor.
-    @MainActor
-    static var current: CommandBarAnchor {
-        CommandBarAppearance.load().resolvedAnchor(hoverStyle: EdgeRevealStore.shared.style)
+/// How the current open was triggered, and where the pointer was: the ONE owner of that state.
+/// `AppState.showCommandBar` sets it before the card is shown; the card (`ContentView`), the
+/// click-away test and the hover-dismiss box all read `position`, so they never disagree.
+/// - Hover open (`EdgeRevealCoordinator`): the hover spot's own anchor, placed at the pointer.
+/// - Shortcut / menu bar / dock open: the saved Position (Settings > Appearance), or a card on
+///   the pointer when "Follow the mouse" is chosen.
+@MainActor
+final class CommandBarOpenSession: ObservableObject {
+    static let shared = CommandBarOpenSession()
+
+    @Published private(set) var source: CommandBarOpenSource = .keyboard
+    /// Pointer (AppKit screen point, y up) when this open started.
+    @Published private(set) var pointer: CGPoint?
+
+    private init() {}
+
+    /// `revealStyle` non-nil = a hover open from that spot.
+    func begin(revealStyle: EdgeRevealStyle?, pointer: CGPoint = NSEvent.mouseLocation) {
+        source = Self.source(revealStyle: revealStyle)
+        self.pointer = pointer
+    }
+
+    nonisolated static func source(revealStyle: EdgeRevealStyle?) -> CommandBarOpenSource {
+        revealStyle.map { .hover($0) } ?? .keyboard
+    }
+
+    /// Anchor + follow-the-pointer flag for this open, from the settings saved now.
+    var position: CommandBarResolvedPosition {
+        CommandBarAppearance.load().resolvedAnchor(opening: source)
     }
 }
 
@@ -66,12 +87,10 @@ final class CommandBarRevealTrigger: ObservableObject {
     static let shared = CommandBarRevealTrigger()
 
     @Published private(set) var token: Int = 0
-    private(set) var anchor: CommandBarAnchor = .notch
 
     private init() {}
 
-    func fire(anchor: CommandBarAnchor) {
-        self.anchor = anchor
+    func fire() {
         token += 1
     }
 

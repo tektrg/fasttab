@@ -59,8 +59,8 @@ struct ShortcutOpenShowsAllTabsTests {
     /// (the search box stays still); at the side edges, centre and bottom corners the panel
     /// stays tall so the search box doesn't jump on the first keystroke.
     @Test func searchShrinksThePanelOnlyAtTopHuggingPositions() {
-        let shrinks: [CommandBarAnchor] = [.notch, .floating(.topCenter), .floating(.topLeft), .floating(.topRight)]
-        let staysTall: [CommandBarAnchor] = [.leftEdge, .rightEdge, .floating(.center), .floating(.bottomLeft), .floating(.bottomRight)]
+        let shrinks: [CommandBarAnchor] = [.notch, .corner(.topLeft), .corner(.topRight), .floating(.topCenter), .floating(.topLeft), .floating(.topRight)]
+        let staysTall: [CommandBarAnchor] = [.bottomEdge, .leftEdge, .rightEdge, .corner(.bottomLeft), .corner(.bottomRight), .floating(.center), .floating(.bottomLeft), .floating(.bottomRight)]
         #expect(Set(shrinks + staysTall) == Set(CommandBarAnchor.allCases))
         for anchor in shrinks { #expect(CommandBarLayout.searchShrinksPanel(at: anchor)) }
         for anchor in staysTall {

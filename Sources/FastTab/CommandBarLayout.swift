@@ -2,6 +2,7 @@ import CoreGraphics
 import SwiftUI
 import AppKit
 import IndieCommandBar
+import IndieEdgeReveal
 
 /// Fast Tab's command-bar sizes. The math lives in IndieCommandBar
 /// (`CommandBarSizing`); this file only holds the numbers and keeps the old
@@ -77,12 +78,14 @@ extension CommandBarLayout {
 
     /// Whether a live search may shrink the tall list to the short results panel. Only where
     /// the panel hugs the top (notch, top floating positions): the search box stays still.
-    /// Side edges, centre and bottom corners are vertically centred/bottom-aligned, so
+    /// Side edges, bottom edge, centre and bottom corners are vertically centred/bottom-aligned, so
     /// shrinking would jump the search box under the cursor — they stay tall (owner, 2026-11-14).
     static func searchShrinksPanel(at anchor: CommandBarAnchor) -> Bool {
         switch anchor {
-        case .notch, .floating(.topCenter), .floating(.topLeft), .floating(.topRight): true
-        case .leftEdge, .rightEdge, .floating(.center), .floating(.bottomLeft), .floating(.bottomRight): false
+        case .notch, .corner(.topLeft), .corner(.topRight),
+             .floating(.topCenter), .floating(.topLeft), .floating(.topRight): true
+        case .bottomEdge, .leftEdge, .rightEdge, .corner(.bottomLeft), .corner(.bottomRight),
+             .floating(.center), .floating(.bottomLeft), .floating(.bottomRight): false
         }
     }
 
@@ -123,13 +126,41 @@ extension CommandBarLayout {
         sizing.surfaceOffset(canvasSize: canvasSize, anchor: anchor, rowStyle: rowStyle, rowCount: rowCount, maxRows: maxRows, showFooter: showFooter)
     }
 
-    /// Defaults to the largest the panel can be (the outside-click test);
-    /// the hover-dismiss monitor passes `hoverDismissMaxRows`.
+    /// The anchored frame with no pointer (centred along the edge).
     static func surfaceFrame(in canvasFrame: CGRect, anchor: CommandBarAnchor, rowStyle: ResultRowStyle = .full, maxRows: Int = CommandBarSizing.fastTab.maxQuickOpenItemLimit, showFooter: Bool = true, visibleFrame: CGRect? = nil) -> CGRect {
         sizing.surfaceFrame(in: canvasFrame, anchor: anchor, rowStyle: rowStyle, maxRows: maxRows, showFooter: showFooter, visibleFrame: visibleFrame)
     }
 
+    /// Where the surface is for one open: the resolved anchor, slid to `pointer` for hover
+    /// edges (left/right: y, bottom: x), or a card centred on `pointer` for "Follow the mouse".
+    /// Defaults to the largest the panel can be (the outside-click test);
+    /// the hover-dismiss monitor passes `hoverDismissMaxRows`.
+    static func surfaceFrame(in canvasFrame: CGRect, position: CommandBarResolvedPosition, pointer: CGPoint?, rowStyle: ResultRowStyle = .full, maxRows: Int = CommandBarSizing.fastTab.maxQuickOpenItemLimit, showFooter: Bool = true, visibleFrame: CGRect? = nil) -> CGRect {
+        if position.followsMouse, position.anchor.isFloating, let pointer {
+            return sizing.followMouseSurfaceFrame(in: canvasFrame, rowStyle: rowStyle, maxRows: maxRows, showFooter: showFooter, visibleFrame: visibleFrame, pointer: pointer)
+        }
+        return sizing.surfaceFrame(in: canvasFrame, anchor: position.anchor, rowStyle: rowStyle, maxRows: maxRows, showFooter: showFooter, visibleFrame: visibleFrame, pointer: position.followsMouse ? pointer : nil)
+    }
+
     static func shouldDismissClick(at screenLocation: CGPoint, in canvasFrame: CGRect, anchor: CommandBarAnchor, visibleFrame: CGRect? = nil) -> Bool {
         sizing.shouldDismissClick(at: screenLocation, in: canvasFrame, anchor: anchor, visibleFrame: visibleFrame)
+    }
+
+    static func shouldDismissClick(at screenLocation: CGPoint, in canvasFrame: CGRect, position: CommandBarResolvedPosition, pointer: CGPoint?, visibleFrame: CGRect? = nil) -> Bool {
+        !surfaceFrame(in: canvasFrame, position: position, pointer: pointer, visibleFrame: visibleFrame).contains(screenLocation)
+    }
+
+    /// SwiftUI offset (y down) that moves a surface of `surfaceSize`, already aligned to its anchor
+    /// in the canvas, to where the pointer puts it. Zero for the notch, corners, and any open
+    /// that does not follow the pointer.
+    static func pointerOffset(position: CommandBarResolvedPosition, pointer: CGPoint?, surfaceSize: CGSize,
+                              canvasFrame: CGRect, screen: NSScreen?) -> CGSize {
+        guard position.followsMouse, let pointer, let screen else { return .zero }
+        let info = EdgeRevealScreenInfo(screen: screen)
+        let moved = panelGeometry(for: position, surfaceSize: surfaceSize, screen: info, pointer: pointer).frame
+        let rest = panelGeometry(for: position, surfaceSize: surfaceSize, screen: info, pointer: nil).frame
+        let a = canvasOffset(forSurfaceFrame: moved, in: canvasFrame)
+        let b = canvasOffset(forSurfaceFrame: rest, in: canvasFrame)
+        return CGSize(width: a.width - b.width, height: a.height - b.height)
     }
 }

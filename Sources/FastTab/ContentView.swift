@@ -22,6 +22,8 @@ struct ContentView: View {
     @ObservedObject var myOrderStore = MyOrderStore.shared
     @ObservedObject var sentLinkInbox = SentLinkInbox.shared
     @ObservedObject var revealTrigger = CommandBarRevealTrigger.shared
+    /// How this open was triggered + the pointer then (hover spot / shortcut): see `CommandBarOpenSession`.
+    @ObservedObject var openSession = CommandBarOpenSession.shared
     @ObservedObject var dismissTrigger = CommandBarDismissTrigger.shared
     /// Reveal progress on the axis growing out of the anchored edge, and on the
     /// axis spreading along it. 0 is the pre-reveal sliver, 1 is fully open;
@@ -103,11 +105,11 @@ struct ContentView: View {
     /// which passes it down to every section background inside it.
     @AppStorage(CommandBarAppearance.outerPanelKey) var outerPanelEnabled: Bool = true
     @AppStorage(CommandBarAppearance.accentKey) var accent: CommandBarAccent = .system
-    /// Settings › Appearance › Position (slice 10). Missing key = follow the hover edge (old look).
-    @AppStorage(CommandBarAppearance.followsEdgeKey) var followsEdge: Bool = true
+    /// Settings › Appearance › Position: the position for shortcut / menu opens (hover opens use the
+    /// hover spot's own anchor). Stored value: an edge/corner name, empty = floating at
+    /// `floatingPlacement`, or "followMouse".
     @AppStorage(CommandBarAppearance.placementKey) var floatingPlacement: CommandBarPlacement = .topCenter
-    /// Position = Notch / Left / Right edge (shared anchor). Empty = floating at `floatingPlacement`.
-    @AppStorage(CommandBarAppearance.edgeAnchorKey) var edgeAnchor: String = ""
+    @AppStorage(CommandBarAppearance.edgeAnchorKey) var edgeAnchor: String = CommandBarAppearance.standard.edgeAnchor?.rawValue ?? ""
 
     var filteredResults: [BrowserSearchResult] {
         appState.browserService.results
@@ -302,11 +304,18 @@ struct ContentView: View {
         .padding(.bottom, 8)
     }
 
-    var commandBarAnchor: CommandBarAnchor {
-        CommandBarAppearanceSettings(rowLimit: 0, placement: floatingPlacement, followsEdge: followsEdge,
-                                     edgeAnchor: CommandBarEdgeAnchor(rawValue: edgeAnchor))
-            .resolvedAnchor(hoverStyle: edgeRevealStore.style)
+    /// Where this open puts the card: the shared resolver applied to the open's trigger
+    /// (`openSession.source`) and the stored Position. The stored values are read through
+    /// `@AppStorage` so a Settings change redraws an open card.
+    var resolvedPosition: CommandBarResolvedPosition {
+        CommandBarAppearanceSettings(
+            rowLimit: 0, placement: floatingPlacement,
+            edgeAnchor: CommandBarEdgeAnchor(rawValue: edgeAnchor),
+            followsMouse: edgeAnchor == CommandBarAppearanceSettings.followMouseStoredValue
+        ).resolvedAnchor(opening: openSession.source)
     }
+
+    var commandBarAnchor: CommandBarAnchor { resolvedPosition.anchor }
 
     /// Narrow (half-width) edge-anchored surface — content wraps instead of
     /// truncating. See `EnvironmentValues.isCompactCommandBar`.
@@ -408,8 +417,12 @@ struct ContentView: View {
         // The toast hangs below the bar, or above it when the card sits at the bottom.
         let toastBelow: Bool = {
             if case .floating(let p) = anchor, p == .bottomLeft || p == .bottomRight { return false }
+            // Bottom edge / bottom corners: the card hugs the bottom, so the toast goes above it.
+            if anchor.surfaceHug?.hugsBottom == true { return false }
             return true
         }()
+        // Hover edges slide to the pointer; "Follow the mouse" puts the card on the pointer.
+        let pointerOffset = appState.commandBarPointerOffset(position: resolvedPosition, pointer: openSession.pointer, surfaceSize: surfaceSize)
 
         // Everything is positioned by aligning it against the canvas edge the
         // anchor hugs — never by measuring the canvas. See
@@ -434,6 +447,7 @@ struct ContentView: View {
                     // last thing left on screen.
                     .opacity(revealSurfaceOpacity)
                     .padding(floatingPadding)
+                    .offset(pointerOffset)
             }
             .overlay(alignment: alignment) {
                 CommandBarSurface(anchor: anchor, outerPanelEnabled: outerPanelEnabled) {
@@ -752,6 +766,7 @@ struct ContentView: View {
                 )
                 .opacity(revealSurfaceOpacity)
                 .padding(floatingPadding)
+                .offset(pointerOffset)
             }
             // Centred on the surface, then pushed 24pt past its bottom edge —
             // `fixedSize` so the surface-sized positioning box can't squeeze the
@@ -763,6 +778,7 @@ struct ContentView: View {
                         .offset(y: ((surfaceSize.height / 2) + 24) * (toastBelow ? 1 : -1))
                         .frame(width: surfaceSize.width, height: surfaceSize.height)
                         .padding(floatingPadding)
+                        .offset(pointerOffset)
                         .transition(.move(edge: toastBelow ? .bottom : .top).combined(with: .opacity))
                 }
             }
@@ -781,6 +797,7 @@ struct ContentView: View {
                         .offset(y: ((surfaceSize.height / 2) + 24 + (toastMessage == nil ? 0 : 48)) * (toastBelow ? 1 : -1))
                         .frame(width: surfaceSize.width, height: surfaceSize.height)
                         .padding(floatingPadding)
+                        .offset(pointerOffset)
                         .transition(.move(edge: toastBelow ? .bottom : .top).combined(with: .opacity))
                 }
             }

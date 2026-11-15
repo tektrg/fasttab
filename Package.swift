@@ -2,28 +2,28 @@
 
 import PackageDescription
 
-let indieSearch: Target.Dependency = .product(name: "IndieSearch", package: "IndieLibKit")
+let indieSearch: Target.Dependency = .product(name: "IndieSearch", package: "indielibkit")
 // Saved views (model, store, day buckets, keyword matcher) shared by Fast Tab and Agent Bar.
-let indieSavedViews: Target.Dependency = .product(name: "IndieSavedViews", package: "IndieLibKit")
-let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "IndieLibKit")
-let indieMotion: Target.Dependency = .product(name: "IndieMotion", package: "IndieLibKit")
-let indieEdgeReveal: Target.Dependency = .product(name: "IndieEdgeReveal", package: "IndieLibKit")
-let indieEdgeRevealUI: Target.Dependency = .product(name: "IndieEdgeRevealUI", package: "IndieLibKit")
+let indieSavedViews: Target.Dependency = .product(name: "IndieSavedViews", package: "indielibkit")
+let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "indielibkit")
+let indieMotion: Target.Dependency = .product(name: "IndieMotion", package: "indielibkit")
+let indieEdgeReveal: Target.Dependency = .product(name: "IndieEdgeReveal", package: "indielibkit")
+let indieEdgeRevealUI: Target.Dependency = .product(name: "IndieEdgeRevealUI", package: "indielibkit")
 // Shared Mac settings window (sidebar, groups, navigator, Feedback pane).
-let indieSettings: Target.Dependency = .product(name: "IndieSettings", package: "IndieLibKit")
-let indieFeedbackUI: Target.Dependency = .product(name: "IndieFeedbackUI", package: "IndieLibKit")
-let indieFeedback: Target.Dependency = .product(name: "IndieFeedback", package: "IndieLibKit")
-let indieComments: Target.Dependency = .product(name: "IndieComments", package: "IndieLibKit")
-let indieTable: Target.Dependency = .product(name: "IndieTable", package: "IndieLibKit")
-let indieMCP: Target.Dependency = .product(name: "IndieMCP", package: "IndieLibKit")
-let indieSharing: Target.Dependency = .product(name: "IndieSharing", package: "IndieLibKit")
-let indieAccount: Target.Dependency = .product(name: "IndieAccount", package: "IndieLibKit")
-let indieAgentSessions: Target.Dependency = .product(name: "IndieAgentSessions", package: "IndieLibKit")
-let indieCommandBar: Target.Dependency = .product(name: "IndieCommandBar", package: "IndieLibKit")
+let indieSettings: Target.Dependency = .product(name: "IndieSettings", package: "indielibkit")
+let indieFeedbackUI: Target.Dependency = .product(name: "IndieFeedbackUI", package: "indielibkit")
+let indieFeedback: Target.Dependency = .product(name: "IndieFeedback", package: "indielibkit")
+let indieComments: Target.Dependency = .product(name: "IndieComments", package: "indielibkit")
+let indieTable: Target.Dependency = .product(name: "IndieTable", package: "indielibkit")
+let indieMCP: Target.Dependency = .product(name: "IndieMCP", package: "indielibkit")
+let indieSharing: Target.Dependency = .product(name: "IndieSharing", package: "indielibkit")
+let indieAccount: Target.Dependency = .product(name: "IndieAccount", package: "indielibkit")
+let indieAgentSessions: Target.Dependency = .product(name: "IndieAgentSessions", package: "indielibkit")
+let indieCommandBar: Target.Dependency = .product(name: "IndieCommandBar", package: "indielibkit")
 // Browser profiles (Chromium profile list, Local State names, window-title profile), shared with MacLanes.
 // Accessibility window control (raise a Claude window), shared with MacLanes.
-let indieWorkspace: Target.Dependency = .product(name: "IndieWorkspace", package: "IndieLibKit")
-let indieBrowserTabs: Target.Dependency = .product(name: "IndieBrowserTabs", package: "IndieLibKit")
+let indieWorkspace: Target.Dependency = .product(name: "IndieWorkspace", package: "indielibkit")
+let indieBrowserTabs: Target.Dependency = .product(name: "IndieBrowserTabs", package: "indielibkit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -40,13 +40,13 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
-        // Shared L1 library, sibling checkout (~/01_Project/IndieLibKit on both Macs).
+        // Shared L1 library (GitHub tektrg/indielibkit; was a sibling checkout until the edge-anchors API).
         // Linked here: `IndieSearch` (the search folding every app shares), `IndieMetrics`
         // (tab-activity statistics), `IndieMotion` (onboarding hero clock + stage) and
         // `IndieEdgeReveal` (notch/edge/corner hover trigger) + `IndieEdgeRevealUI` (the black
         // edge-hugging surface and its grow-out motion).
         // `IndieFeedback`/`IndieFeedbackUI` (Settings > About > Chat with the Creator…).
-        .package(path: "../IndieLibKit"),
+        .package(url: "https://github.com/tektrg/indielibkit", branch: "feat/edge-anchors"), // TEMP: back to branch: "main" once merged
         // The reading connector's search index (FTS5). Same package IndieLibKit already pulls in.
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0")
     ],

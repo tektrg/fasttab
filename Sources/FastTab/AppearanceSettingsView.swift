@@ -20,6 +20,12 @@ struct AppearanceSettingsView: View {
                 ),
                 options: CommandBarAppearance.options
             )
+            // Two separate settings: this Position is for the shortcut and menu bar icon; the hover
+            // spot (General › Trigger) always opens the card at that spot.
+            Text("Position applies when FastTab opens from the shortcut or the menu bar icon. Opening by hover always shows the card at the hover spot you pick in General › Trigger.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .formStyle(.grouped)
     }

@@ -212,22 +212,21 @@ enum CommandBarAppearance {
     static let resultRowStyleKey = keys.rowStyle
     /// Accent colour (slice 8c). Missing = `.system`, the look before the setting existed.
     static let accentKey = keys.accent
-    /// Position (slice 10): follow the hover edge (default, missing key) or a floating card at `placementKey`.
-    static let followsEdgeKey = keys.followsEdge
     static let placementKey = keys.placement
-    /// Position = Notch / Left edge / Right edge, independent of the hover edge (shared anchor).
+    /// Position when opened by shortcut / menu bar: an edge or corner name, empty = floating at
+    /// `placementKey`, or "followMouse". Hover opens ignore it (they use the hover spot's own anchor).
     static let edgeAnchorKey = keys.edgeAnchor
-    /// Fast Tab's defaults: background on, Minimal rows, Position = follow the hover-to-open
-    /// edge (General). No Size picker: the bar sizes itself. `rowLimit` is unused (no row cap).
-    static let standard = CommandBarAppearanceSettings(background: true, rowStyle: .minimal, rowLimit: 5, followsEdge: true)
+    /// Fast Tab's defaults: background on, Minimal rows, shortcut position = Notch (what the bar
+    /// looked like for the default hover spot). No Size picker: the bar sizes itself. `rowLimit` is unused (no row cap).
+    static let standard = CommandBarAppearanceSettings(background: true, rowStyle: .minimal, rowLimit: 5, edgeAnchor: .notch)
 
-    /// Settings › Appearance through the shared section: Accent, Position (follow the hover edge,
-    /// Notch, Left/Right edge, or a floating spot), Background, Result rows. No Size picker (the
+    /// Settings › Appearance through the shared section: Accent, Position when opened by shortcut
+    /// (Follow the mouse, an edge or corner, or a floating spot), Background, Result rows. No Size picker (the
     /// bar sizes itself) and no row count (every open lists every tab).
     static let options = CommandBarAppearanceOptions(
         offersFitsContent: false, offersEdgeAnchors: true, offersRowLimit: false,
         rowLimitRange: CommandBarLayout.minQuickOpenItemLimit...CommandBarLayout.maxQuickOpenItemLimit,
-        followEdgeTitle: "Follow hover edge"
+        followMouseTitle: "Follow the mouse"
     )
 
     static func load(from defaults: UserDefaults = .standard) -> CommandBarAppearanceSettings {

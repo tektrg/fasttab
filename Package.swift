@@ -19,6 +19,8 @@ let indieAccount: Target.Dependency = .product(name: "IndieAccount", package: "I
 let indieAgentSessions: Target.Dependency = .product(name: "IndieAgentSessions", package: "IndieLibKit")
 let indieCommandBar: Target.Dependency = .product(name: "IndieCommandBar", package: "IndieLibKit")
 // Browser profiles (Chromium profile list, Local State names, window-title profile), shared with MacLanes.
+// Accessibility window control (raise a Claude window), shared with MacLanes.
+let indieWorkspace: Target.Dependency = .product(name: "IndieWorkspace", package: "IndieLibKit")
 let indieBrowserTabs: Target.Dependency = .product(name: "IndieBrowserTabs", package: "IndieLibKit")
 
 let package = Package(
@@ -109,7 +111,7 @@ let package = Package(
         // Agent switcher (⌥Tab panel). Standalone app: no Sparkle, no FastTabSync.
         .executableTarget(
             name: "AgentBar",
-            dependencies: [indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions, indieEdgeReveal],
+            dependencies: [indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions, indieEdgeReveal, indieWorkspace],
             path: "Sources/AgentBar"
         ),
         .testTarget(

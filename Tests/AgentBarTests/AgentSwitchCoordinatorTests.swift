@@ -118,9 +118,14 @@ struct AgentSwitchCoordinatorTests {
     @MainActor private final class DesktopOpenerSpy: ClaudeDesktopOpening {
         var opens = true
         private(set) var openedURLs: [URL?] = []
+        private(set) var openedTitles: [String?] = []
         func openSession(_ url: URL?) -> Bool {
             openedURLs.append(url)
             return opens
+        }
+        func openSession(_ url: URL?, title: String?) -> Bool {
+            openedTitles.append(title)
+            return openSession(url)
         }
     }
 
@@ -136,6 +141,7 @@ struct AgentSwitchCoordinatorTests {
         rig.model.receive(F.snapshot([F.agent("w1", section: .working), desktop]))
         await coordinator(rig, opener: opener).switchTo(desktop)
         #expect(opener.openedURLs == [URL(string: StatusOnlyFixtures.openUrl)])
+        #expect(opener.openedTitles == ["desk"])   // the chat name, so the window already showing it can be raised
         #expect(rig.source.focusedPaneIds.isEmpty)
         #expect(rig.panel.events == ["hide"])
         #expect(rig.model.footerNotice == nil)

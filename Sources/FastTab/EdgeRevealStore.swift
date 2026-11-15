@@ -36,25 +36,21 @@ extension EdgeRevealStyle {
 final class EdgeRevealStore: ObservableObject {
     static let shared = EdgeRevealStore()
 
-    private static let styleKey = "FastTab.edgeReveal.style"
+    /// Shared storage (IndieLibKit `EdgeRevealStyleSetting`); the key is unchanged.
+    static let setting = EdgeRevealStyleSetting(key: "FastTab.edgeReveal.style")
     private static let onboardingCompletedKey = "onboarding.v1.completed"
 
     @Published private(set) var style: EdgeRevealStyle
 
     init(defaults: UserDefaults = .standard) {
-        if let raw = defaults.string(forKey: Self.styleKey),
-           let stored = EdgeRevealStyle(rawValue: raw) {
-            style = stored
-        } else {
-            let isExistingUser = defaults.bool(forKey: Self.onboardingCompletedKey)
-            style = isExistingUser ? .off : .notch
-        }
+        let isExistingUser = defaults.bool(forKey: Self.onboardingCompletedKey)
+        style = Self.setting.load(from: defaults, fallback: isExistingUser ? .off : .notch)
     }
 
     func update(_ style: EdgeRevealStyle) {
         guard style != self.style else { return }
         self.style = style
-        UserDefaults.standard.set(style.rawValue, forKey: Self.styleKey)
+        Self.setting.save(style)
     }
 }
 

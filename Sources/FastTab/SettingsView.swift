@@ -1,5 +1,5 @@
 import SwiftUI
-import IndieFeedbackUI
+import IndieSettings
 import AppKit
 
 /// One entry in the Settings sidebar. Each case's content lives in its own
@@ -46,121 +46,69 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
         case .about: return "info.circle"
         }
     }
-
-    /// Top, ungrouped rows in the sidebar.
-    static let primaryTabs: [SettingsTab] = [.general, .appearance, .shortcuts, .views, .sources, .bookmarks, .highlights, .sync]
-
-    /// Rows under the sidebar's "Advanced" header.
-    static let advancedTabs: [SettingsTab] = [.searchAliases, .advanced, .experimental, .license]
 }
 
-/// Lets code outside the Settings window (e.g. the command bar's banners)
-/// open Settings on a specific sidebar tab. `SettingsView` consumes the
-/// request whether it is already open or appears in response.
-@MainActor
-final class SettingsNavigator: ObservableObject {
+extension SettingsTab {
+    /// Sidebar group in the shared settings window.
+    var group: SettingsPaneGroup {
+        switch self {
+        case .searchAliases, .advanced, .experimental, .license: return .advanced
+        case .feedback, .about: return .footer
+        default: return .main
+        }
+    }
+
+    @MainActor
+    var pane: SettingsPane {
+        switch self {
+        // Shared Feedback pane (FeedbackCenterView + news dot), titled with Fast Tab's menu title.
+        case .feedback:
+            return .feedback(center: FastTabFeedback.center, title: title, systemImage: systemImage, id: id)
+        default:
+            return SettingsPane(id: id, title: title, systemImage: systemImage, group: group) { content }
+        }
+    }
+
+    @MainActor @ViewBuilder
+    private var content: some View {
+        switch self {
+        case .general: GeneralSettingsView()
+        case .appearance: AppearanceSettingsView()
+        case .shortcuts: ShortcutsSettingsView()
+        case .views: CustomViewsSettingsView()
+        case .sources: SourcesSettingsView()
+        case .bookmarks: BookmarksSettingsView()
+        case .highlights: HighlightsSettingsView()
+        case .sync: Form { SyncSettingsSection() }.formStyle(.grouped)
+        case .searchAliases: Form { SearchAliasSettingsSection() }.formStyle(.grouped)
+        case .advanced: AdvancedSettingsView()
+        case .experimental: ExperimentalSettingsView()
+        case .license: LicenseSettingsView()
+        case .feedback: EmptyView() // built by `pane` as the shared Feedback pane
+        // Fast Tab keeps its own About: the shared one has no copy-email button or setup replay.
+        case .about: AboutSettingsView()
+        }
+    }
+}
+
+/// Opens Settings on a `SettingsTab` from outside the window (e.g. the command bar's banners).
+/// Wraps the shared navigator so call sites pass a pane case, never a free-text id.
+extension SettingsNavigator {
     static let shared = SettingsNavigator()
 
-    @Published var requestedTab: SettingsTab?
+    func request(_ tab: SettingsTab) { request(tab.id) }
 
     func open(_ tab: SettingsTab, using openSettings: OpenSettingsAction) {
-        requestedTab = tab
-        NSApp.activate(ignoringOtherApps: true)
-        openSettings()
+        open(tab.id, using: openSettings)
     }
 }
 
-/// Settings window: a sidebar of tabs (mirrors the macOS System Settings
-/// layout) with each tab's content in its own file. Split out once the
-/// previous single scrolling `Form` grew past a dozen sections.
+/// Settings window: the shared IndieSettings window with Fast Tab's panes.
+/// Each pane's content lives in its own `*SettingsView` file.
 struct SettingsView: View {
-    @EnvironmentObject var appState: AppState
-    @EnvironmentObject var licenseService: LicenseService
-
-    @State private var selection: SettingsTab? = .general
-    @ObservedObject private var navigator = SettingsNavigator.shared
-
     var body: some View {
-        NavigationSplitView {
-            sidebar
-        } detail: {
-            detail
-                .navigationTitle(currentTab.title)
-        }
-        .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 220)
-        .frame(width: 680, height: 420)
-        .onChange(of: navigator.requestedTab, initial: true) { _, requested in
-            guard let requested else { return }
-            selection = requested
-            navigator.requestedTab = nil
-        }
-    }
-
-    private var sidebar: some View {
-        List(selection: $selection) {
-            Section {
-                ForEach(SettingsTab.primaryTabs) { tab in
-                    Label(tab.title, systemImage: tab.systemImage)
-                        .tag(tab)
-                }
-            }
-
-            Section("Advanced") {
-                ForEach(SettingsTab.advancedTabs) { tab in
-                    Label(tab.title, systemImage: tab.systemImage)
-                        .tag(tab)
-                }
-            }
-
-            Section {
-                FeedbackNewsLabel(SettingsTab.feedback.title, systemImage: SettingsTab.feedback.systemImage, center: FastTabFeedback.center)
-                    .tag(SettingsTab.feedback)
-                Label(SettingsTab.about.title, systemImage: SettingsTab.about.systemImage)
-                    .tag(SettingsTab.about)
-            }
-        }
-        .listStyle(.sidebar)
-        .toolbar(removing: .sidebarToggle)
-    }
-
-    private var currentTab: SettingsTab {
-        selection ?? .general
-    }
-
-    @ViewBuilder
-    private var detail: some View {
-        switch currentTab {
-        case .general:
-            GeneralSettingsView()
-        case .appearance:
-            AppearanceSettingsView()
-        case .shortcuts:
-            ShortcutsSettingsView()
-        case .views:
-            CustomViewsSettingsView()
-        case .sources:
-            SourcesSettingsView()
-        case .bookmarks:
-            BookmarksSettingsView()
-        case .highlights:
-            HighlightsSettingsView()
-        case .sync:
-            Form { SyncSettingsSection() }
-                .formStyle(.grouped)
-        case .searchAliases:
-            Form { SearchAliasSettingsSection() }
-                .formStyle(.grouped)
-        case .advanced:
-            AdvancedSettingsView()
-        case .experimental:
-            ExperimentalSettingsView()
-        case .license:
-            LicenseSettingsView()
-        case .feedback:
-            // Settings is a fixed 680x420: start with the release note collapsed so the chat has room.
-            FeedbackCenterView(center: FastTabFeedback.center, noteStartsExpanded: false)
-        case .about:
-            AboutSettingsView()
-        }
+        SettingsWindow(
+            panes: SettingsTab.allCases.map(\.pane),
+            navigator: SettingsNavigator.shared)
     }
 }

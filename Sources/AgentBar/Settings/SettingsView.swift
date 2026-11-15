@@ -1,3 +1,4 @@
+import IndieSettings
 import SwiftUI
 
 /// One entry in the Settings sidebar. Each case's content lives in its own
@@ -36,36 +37,44 @@ enum SettingsTab: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-/// Settings window content: a sidebar of tabs (the same layout as FastTab's).
+extension SettingsTab {
+    /// Sidebar group in the shared settings window: About sits in the footer, like Fast Tab's.
+    var group: SettingsPaneGroup { self == .about ? .footer : .main }
+}
+
+/// Opens Settings on a `SettingsTab`: call sites pass a pane case, never a free-text id.
+extension SettingsNavigator {
+    func request(_ tab: SettingsTab) { request(tab.id) }
+}
+
+/// Settings window content: the shared IndieSettings window with Agent Bar's panes.
+/// Each pane's content lives in its own `*SettingsView` file.
 struct SettingsView: View {
     @ObservedObject var settings: AgentBarSettings
     let actions: AgentBarSettingsActions
     let connectionTester: DashboardConnectionTester
-
-    @State private var selection: SettingsTab? = .general
-
-    var body: some View {
-        NavigationSplitView {
-            List(SettingsTab.allCases, selection: $selection) { tab in
-                Label(tab.title, systemImage: tab.systemImage).tag(tab)
-            }
-            .listStyle(.sidebar)
-            // Wide enough for "Status source" in full.
-            .navigationSplitViewColumnWidth(min: 200, ideal: 200, max: 240)
-        } detail: {
-            detail.navigationTitle(currentTab.title)
-        }
-        .frame(width: Self.width, height: Self.height)
-    }
+    var navigator: SettingsNavigator? = nil
 
     static let width: CGFloat = 680
     static let height: CGFloat = 420
+    /// Wide enough for "Status source" in full (the shared default, 170–220, cuts it off).
+    static let sidebarWidth = SettingsSidebarWidth(min: 200, ideal: 200, max: 240)
 
-    private var currentTab: SettingsTab { selection ?? .general }
+    var body: some View {
+        SettingsWindow(
+            panes: SettingsTab.allCases.map { tab in
+                SettingsPane(id: tab.id, title: tab.title, systemImage: tab.systemImage, group: tab.group) {
+                    content(tab)
+                }
+            },
+            navigator: navigator,
+            size: CGSize(width: Self.width, height: Self.height),
+            sidebarWidth: Self.sidebarWidth)
+    }
 
     @ViewBuilder
-    private var detail: some View {
-        switch currentTab {
+    private func content(_ tab: SettingsTab) -> some View {
+        switch tab {
         case .general: GeneralSettingsView(settings: settings)
         case .appearance: AppearanceSettingsView(settings: settings)
         case .shortcuts: ShortcutsSettingsView(settings: settings, actions: actions)

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import IndieSettings
 @testable import FastTab
 
 /// Renders the Settings window (sidebar + page) on chosen pages, light and
@@ -35,7 +36,7 @@ struct SettingsWindowRenderSheet {
     }
 
     static func render(tab: SettingsTab, dark: Bool, to url: URL) throws {
-        SettingsNavigator.shared.requestedTab = tab
+        SettingsNavigator.shared.request(tab)
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         // No AppState/LicenseService: their `shared` start CloudKit, which traps
         // in a test process. The Views page doesn't read them.

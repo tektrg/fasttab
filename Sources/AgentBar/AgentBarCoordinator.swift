@@ -21,7 +21,7 @@ final class AgentBarCoordinator {
     private var feedTask: Task<Void, Never>?
     private var settingsSubscriptions: Set<AnyCancellable> = []
 
-    private lazy var settingsWindow = SettingsWindowController { [unowned self] in
+    private lazy var settingsWindow = SettingsWindowController { [unowned self] navigator in
         SettingsView(
             settings: settings,
             actions: AgentBarSettingsActions(
@@ -29,7 +29,8 @@ final class AgentBarCoordinator {
                 setHotkeyRecording: { [unowned self] isRecording in setHotkeyRecording(isRecording) },
                 changeFocusHotkey: { [unowned self] requested in changeFocusHotkey(to: requested) }
             ),
-            connectionTester: DashboardConnectionTester()
+            connectionTester: DashboardConnectionTester(),
+            navigator: navigator
         )
     }
 

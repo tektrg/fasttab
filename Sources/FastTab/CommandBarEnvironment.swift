@@ -1,4 +1,5 @@
 import SwiftUI
+import IndieSettings
 
 /// App services the command-bar views use, handed in by the composition point
 /// (`FastTabApp`) instead of read from singletons, so the generic pieces can

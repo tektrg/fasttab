@@ -9,6 +9,8 @@ let indieMetrics: Target.Dependency = .product(name: "IndieMetrics", package: "I
 let indieMotion: Target.Dependency = .product(name: "IndieMotion", package: "IndieLibKit")
 let indieEdgeReveal: Target.Dependency = .product(name: "IndieEdgeReveal", package: "IndieLibKit")
 let indieEdgeRevealUI: Target.Dependency = .product(name: "IndieEdgeRevealUI", package: "IndieLibKit")
+// Shared Mac settings window (sidebar, groups, navigator, Feedback pane).
+let indieSettings: Target.Dependency = .product(name: "IndieSettings", package: "IndieLibKit")
 let indieFeedbackUI: Target.Dependency = .product(name: "IndieFeedbackUI", package: "IndieLibKit")
 let indieFeedback: Target.Dependency = .product(name: "IndieFeedback", package: "IndieLibKit")
 let indieComments: Target.Dependency = .product(name: "IndieComments", package: "IndieLibKit")
@@ -82,6 +84,7 @@ let package = Package(
         .executableTarget(
             name: "FastTab",
             dependencies: [
+                indieSettings,
                 .product(name: "Sparkle", package: "Sparkle"),
                 "FastTabSync",
                 "FastTabReader",

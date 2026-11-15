@@ -1231,7 +1231,25 @@ final class AgentPanelModel: ObservableObject {
     func toggleKeyMenu() {
         if keyMenu != nil { keyMenu = nil; return }
         guard !isCardOpen, peek == nil, let agent = selectedAgent else { return }
-        keyMenu = RowKeyMenu(agentID: agent.id, items: AgentActionList.menuItems(for: agent, tree: treeModel.tree))
+        var identity: QuestionIdentity?
+        if case .question(let question)? = agent.blockedOnYou { identity = question.identity }
+        keyMenu = RowKeyMenu(
+            agentID: agent.id,
+            answers: RowKeyMenu.answerEntries(for: agent, isAwaiting: answer.isAwaiting(agent)),
+            questionIdentity: identity,
+            items: AgentActionList.menuItems(for: agent, tree: treeModel.tree)
+        )
+    }
+
+    /// A ⌘K answer pick: opens the card exactly like the row's red Answer (`press(.answer)`), then
+    /// presses the option's digit in it — the card's own send path (pre-send pane read, tracker, one
+    /// send). The card stays open instead when it turned out to be a form, or is on another question
+    /// than the menu showed; the Other row leaves it open typing.
+    func answerFromKeyMenu(optionIndex: Int, agentID: String, question: QuestionIdentity?) {
+        press(.answer, on: agentID)
+        guard let card = answer.card, card.agentID == agentID, card.form == nil,
+              card.state.question.identity == question else { return }
+        answer.handle(.digit(optionIndex))
     }
 
     /// A key while the ⌘K menu is open; true = the menu used it (the panel's key monitor then drops the event).
@@ -1245,15 +1263,25 @@ final class AgentPanelModel: ObservableObject {
         case .activate(let button):
             keyMenu = nil
             press(button, on: menu.agentID)
+        case .answer(let optionIndex):
+            keyMenu = nil
+            answerFromKeyMenu(optionIndex: optionIndex, agentID: menu.agentID, question: menu.questionIdentity)
         }
         return true
     }
 
     /// A click on one of the ⌘K menu's items.
     func chooseKeyMenuItem(at index: Int) {
-        guard let menu = keyMenu, menu.items.indices.contains(index), menu.items[index].isEnabled else { return }
-        keyMenu = nil
-        press(menu.items[index].button, on: menu.agentID)
+        guard let menu = keyMenu else { return }
+        switch menu.activate(index) {
+        case .none, .close: return
+        case .activate(let button):
+            keyMenu = nil
+            press(button, on: menu.agentID)
+        case .answer(let optionIndex):
+            keyMenu = nil
+            answerFromKeyMenu(optionIndex: optionIndex, agentID: menu.agentID, question: menu.questionIdentity)
+        }
     }
 
     @discardableResult

@@ -9,7 +9,6 @@ private struct SearchHeaderFrameKey: PreferenceKey {
     }
 }
 struct ContentView: View {
-    @Environment(\.colorScheme) var colorScheme
     @Environment(\.openSettings) var openSettings
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var licenseService: LicenseService
@@ -440,17 +439,12 @@ struct ContentView: View {
                 dismissCommandBar()
             }
             .overlay(alignment: alignment) {
-                ambientShadow(anchor: anchor, surfaceSize: surfaceSize)
-                    .allowsHitTesting(false)
-                    // Same tail fade as the surface below — a shadow lingering
-                    // at full strength under a dissolving panel would be the
-                    // last thing left on screen.
-                    .opacity(revealSurfaceOpacity)
-                    .padding(floatingPadding)
-                    .offset(pointerOffset)
-            }
-            .overlay(alignment: alignment) {
-                CommandBarSurface(anchor: anchor, outerPanelEnabled: outerPanelEnabled) {
+                // One shared card (IndieCommandBar `CommandBarCard`): surface, content fade, notch
+                // connector, reveal scale, tail fade and ambient shadow. Content lays out at exactly `surfaceSize`.
+                CommandBarCard(
+                    anchor: anchor, surfaceSize: surfaceSize, outerPanelEnabled: outerPanelEnabled,
+                    depthProgress: revealDepthProgress, spreadProgress: revealSpreadProgress
+                ) {
                     // The VStack's content is split from its long modifier
                     // tail below (padding/frame/opacity/background/etc.) —
                     // stacked directly on one expression, this whole surface
@@ -711,46 +705,7 @@ struct ContentView: View {
                             }
                             .animation(.easeOut(duration: 0.12), value: surfaceSize)
                     )
-                    // Deliberately *inside* the notch connector background added
-                    // below, so the connector stays opaque while the content
-                    // fades — it stands in for the notch itself and has to keep
-                    // reading as solid screen bezel throughout.
-                    //
-                    // Derived from the reveal springs rather than driven by its
-                    // own animation: it then can't drift out of step with the
-                    // growth, and the dismiss animation gets the matching
-                    // fade-out for free.
-                    let fadedContent: AnyView = AnyView(
-                        sizedContent
-                            .opacity(CommandBarLayout.revealContentOpacity(
-                                depthProgress: revealDepthProgress,
-                                spreadProgress: revealSpreadProgress
-                            ))
-                    )
-                    // Fills the notch-clearance inset above with a small
-                    // notch-width (not panel-width) black connector instead of
-                    // leaving it transparent: without this, the reveal
-                    // animation shrinks that dead space right along with
-                    // everything else, so instead of growing flush out of the
-                    // notch it left a visible gap between the true top edge
-                    // and the first opaque pixel. Kept exactly notch-width so
-                    // it reads as the notch extending down a little, not a
-                    // bar spanning the whole panel.
-                    fadedContent
-                        .background(alignment: .top) {
-                            UnevenRoundedRectangle(
-                                topLeadingRadius: 0,
-                                bottomLeadingRadius: 10,
-                                bottomTrailingRadius: 10,
-                                topTrailingRadius: 0,
-                                style: .continuous
-                            )
-                            .fill(Color.black)
-                            .frame(
-                                width: CommandBarLayout.notchConnectorWidth(for: anchor),
-                                height: CommandBarLayout.surfaceTopInset(for: anchor)
-                            )
-                        }
+                    sizedContent
                         .coordinateSpace(name: "commandBar")
                         .onPreferenceChange(SearchHeaderFrameKey.self) { newValue in
                             searchHeaderFrame = newValue
@@ -759,12 +714,6 @@ struct ContentView: View {
                 .environment(\.isCompactCommandBar, isCompact(anchor))
                 // Fast Tab's look: the accent picked in Settings › Appearance (default System) and its own icon.
                 .environment(\.commandBarTheme, CommandBarTheme(accent: accent, appIcon: NSApp.applicationIconImage))
-                .scaleEffect(
-                    x: revealScale(for: anchor, surfaceSize: surfaceSize).width,
-                    y: revealScale(for: anchor, surfaceSize: surfaceSize).height,
-                    anchor: CommandBarLayout.revealAnchorUnitPoint(for: anchor)
-                )
-                .opacity(revealSurfaceOpacity)
                 .padding(floatingPadding)
                 .offset(pointerOffset)
             }
@@ -914,72 +863,6 @@ struct ContentView: View {
             clearKeyboardSwipe()
             resetPointerSwipe(animated: false)
         }
-    }
-
-    /// Ambient shadow behind the surface. Sized and positioned exactly like the
-    /// surface (the caller aligns it against the same edge), so it needs no
-    /// knowledge of the canvas — only the direction to lean away from the edge.
-    private func ambientShadow(anchor: CommandBarAnchor, surfaceSize: CGSize) -> some View {
-        let shadowColor = CommandBarLayout.fullScreenShadowColor(for: colorScheme)
-        let shift = CommandBarLayout.shadowShiftVector(for: anchor)
-        let scale = revealScale(for: anchor, surfaceSize: surfaceSize)
-        let anchorPoint = CommandBarLayout.revealAnchorUnitPoint(for: anchor)
-        // The blur has to shrink with the panel too: left at its full radius it
-        // spread the sliver-sized shadow into a haze reaching well past the
-        // anchor edge, which read as a smudge floating away from the
-        // notch/edge during the first frames of the reveal.
-        let blurScale = CommandBarLayout.isCompact(anchor) ? scale.width : scale.height
-
-        return Rectangle()
-            .fill(shadowColor.opacity(0.6))
-            .frame(
-                width: surfaceSize.width,
-                height: surfaceSize.height
-            )
-            // Shifted toward the surface's growth direction so the shadow reads
-            // as cast away from the flush/anchor edge instead of evenly
-            // surrounding the panel — applied *inside* the `scaleEffect` below
-            // so the shift shrinks with the reveal and the shadow stays tucked
-            // under the surface (see `CommandBarLayout.shadowShiftVector`).
-            .offset(x: shift.width, y: shift.height)
-            // Scaled from the same anchor/initial-scale as the surface itself
-            // (before the blur widens its layout box) so the shadow grows in
-            // lockstep with the reveal instead of popping in at full size while
-            // the panel is still animating.
-            .scaleEffect(x: scale.width, y: scale.height, anchor: anchorPoint)
-            .blur(radius: CommandBarLayout.shadowBlurRadius * blurScale)
-    }
-
-    /// Tail fade shared by the surface and its shadow, so the two can never
-    /// dissolve out of step (the same reason `revealScale` is shared).
-    private var revealSurfaceOpacity: Double {
-        CommandBarLayout.revealSurfaceOpacity(
-            depthProgress: revealDepthProgress,
-            spreadProgress: revealSpreadProgress
-        )
-    }
-
-    /// Current reveal scale — interpolated from the pre-reveal sliver to 1:1 by
-    /// the two progress values, per axis. Shared by the surface and its ambient
-    /// shadow so the two can never animate out of step.
-    ///
-    /// Progress can pass 1 while the spring settles; that overshoot is passed
-    /// straight through, so the bar swells a hair past full size and eases
-    /// back. It always overshoots *away* from the anchored edge, so it can
-    /// never lift off that edge.
-    private func revealScale(for anchor: CommandBarAnchor, surfaceSize: CGSize) -> CGSize {
-        let depth = revealDepthProgress
-        let spread = revealSpreadProgress
-        guard depth != 1 || spread != 1 else { return CGSize(width: 1, height: 1) }
-
-        let start = CommandBarLayout.revealInitialScale(for: anchor, surfaceSize: surfaceSize)
-        // For the edge anchors the bar grows sideways out of the edge, so depth
-        // is the horizontal axis; under the notch it grows downward.
-        let growsSideways = CommandBarLayout.isCompact(anchor)
-        return CGSize(
-            width: CommandBarLayout.revealAxis(from: start.width, progress: growsSideways ? depth : spread),
-            height: CommandBarLayout.revealAxis(from: start.height, progress: growsSideways ? spread : depth)
-        )
     }
 
     /// Snaps the surface to its shrunk pre-reveal scale, then springs it open

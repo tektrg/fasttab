@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The peek (Space on a row, 2026-11-14 redesign): agent header with two tabs — **Last message**
 /// (default, the whole transcript message, scrolls) and **Terminal** (the raw pane read, mono,
-/// read-only) — switched by a click or Tab; a message box that sends on both tabs (the Tab-tag
+/// read-only) — switched by a click, Tab, or ←/→ (`PeekKeyRouting`); a message box that sends on both tabs (the Tab-tag
 /// compose path, `AgentPanelModel.sendFromPeek`); and the shared `AgentActionRow`. Fills exactly
 /// `bodyHeight`, the height of the list it replaces.
 struct PanePeekView: View {
@@ -10,6 +10,7 @@ struct PanePeekView: View {
     let peek: PanePeek
     let bodyHeight: CGFloat
     @State private var draft = ""
+    @FocusState private var inputFocused: Bool
 
     static let inputRowHeight: CGFloat = 44
     static let actionRowHeight: CGFloat = 38
@@ -64,7 +65,7 @@ struct PanePeekView: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .help("\(tab.title) (Tab switches)")
+                .help("\(tab.title) (Tab or ←/→ switches)")
             }
         }
         .padding(2)
@@ -139,6 +140,9 @@ struct PanePeekView: View {
                 .disabled(refusal != nil)
                 .onSubmit { if model.sendFromPeek(draft) { draft = "" } }
                 .onExitCommand { model.closePeek() }
+                .focused($inputFocused)
+                .onChange(of: inputFocused) { _, focused in model.peekInputFocused = focused }
+                .onDisappear { model.peekInputFocused = false }
             if let sending = model.peekAgent.flatMap({ model.sendingLabel(for: $0) ?? model.sentLabel(for: $0) }) {
                 Text(sending).font(.avenir(size: 11)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
             }

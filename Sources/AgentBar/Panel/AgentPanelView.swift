@@ -59,6 +59,7 @@ struct AgentPanelView: View {
                 notice: model.footerNotice,
                 hintContext: .init(
                     isPeeking: corner == nil && model.peek != nil,
+                    peekInputFocused: model.peekInputFocused,
                     hasHighlightedButton: model.highlightedButton != nil,
                     searchIsEmpty: model.query.isEmpty,
                     answerMode: model.answer.card?.hintMode,

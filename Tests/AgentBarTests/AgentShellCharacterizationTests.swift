@@ -78,18 +78,18 @@ struct AgentShellCharacterizationTests {
 
     @Test func footerHintWordsAreStable() {
         typealias H = PanelFooterHints
-        #expect(H.text(for: .init()) == "↑↓ select   ←→ actions   space peek   ↩ switch   esc close")
-        #expect(H.text(for: .init(searchIsEmpty: false)) == "↑↓ select   ↩ switch   esc close")
-        #expect(H.text(for: .init(isPeeking: true)) == "space/esc back   ↩ switch")
-        #expect(H.text(for: .init(hasHighlightedButton: true)) == "←→ button   ↩ press   esc back")
+        #expect(H.text(for: .init()) == "↑↓ select   ←→ actions   space peek   ↩ switch   ⌘K more   esc close")
+        #expect(H.text(for: .init(searchIsEmpty: false)) == "↑↓ select   ↩ switch   ⌘K more   esc close")
+        #expect(H.text(for: .init(isPeeking: true)) == "←→/tab tabs   ↩ switch   ⌘K more   space/esc back")
+        #expect(H.text(for: .init(hasHighlightedButton: true)) == "←→ button   ↩ press   ⌘K more   esc back")
         #expect(H.text(for: .init(hasDismissibleNotice: true)) == "esc dismiss notice")
         #expect(H.text(for: .init(isTagged: true)) == "↩ send   tab retag   esc untag")
     }
 
     @Test func footerHintsSplitIntoSharedKeyTokens() {
         let tokens = PanelFooterHints.guidance(for: .init()).tokens
-        #expect(tokens.map(\.glyph) == ["↑↓", "←→", "space", "↩", "esc"])
-        #expect(tokens.map(\.label) == ["select", "actions", "peek", "switch", "close"])
+        #expect(tokens.map(\.glyph) == ["↑↓", "←→", "space", "↩", "⌘K", "esc"])
+        #expect(tokens.map(\.label) == ["select", "actions", "peek", "switch", "more", "close"])
         #expect(PanelFooterHints.guidance(for: .init(hasDismissibleNotice: true)).tokens == [GuidanceToken(glyph: "esc", label: "dismiss notice")])
     }
 

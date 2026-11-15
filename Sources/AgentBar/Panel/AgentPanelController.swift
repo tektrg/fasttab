@@ -139,10 +139,14 @@ final class AgentPanelController {
         guard keyMenuMonitor == nil else { return }
         keyMenuMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.panel else { return event }
-            // Peek: Tab (no modifiers) switches Last message / Terminal, from the search box or the peek's message box.
-            if self.model.keyMenu == nil, self.model.peek != nil, event.keyCode == 48,
-               event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
-                self.model.togglePeekTab()
+            // Peek: Tab toggles Last message / Terminal from either box; ←/→ pick a tab while the
+            // focused box is empty (with text they move the caret) — `PeekKeyRouting`.
+            if self.model.keyMenu == nil, self.model.peek != nil,
+               let action = PeekKeyRouting.action(
+                   keyCode: event.keyCode,
+                   hasModifiers: !event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                   focusedText: (self.panel.firstResponder as? NSText)?.string) {
+                self.model.handlePeekKey(action)
                 return nil
             }
             guard self.model.keyMenu != nil else { return event }

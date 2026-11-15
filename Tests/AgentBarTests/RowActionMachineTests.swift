@@ -85,7 +85,7 @@ struct RowActionTextTests {
         #expect(Hints.text(for: .init(answerMode: .singleSelect, hasDismissibleNotice: true)).hasPrefix("esc dismiss notice"))
         #expect(!Hints.text(for: .init(searchIsEmpty: false)).contains("←→"))   // arrows belong to the text field
         #expect(!Hints.text(for: .init(searchIsEmpty: false)).contains("space"))
-        #expect(Hints.text(for: .init(hasHighlightedButton: true)) == "←→ button   ↩ press   esc back")
-        #expect(Hints.text(for: .init(isPeeking: true)) == "space/esc back   ↩ switch")
+        #expect(Hints.text(for: .init(hasHighlightedButton: true)) == "←→ button   ↩ press   ⌘K more   esc back")
+        #expect(Hints.text(for: .init(isPeeking: true)) == "←→/tab tabs   ↩ switch   ⌘K more   space/esc back")
     }
 }

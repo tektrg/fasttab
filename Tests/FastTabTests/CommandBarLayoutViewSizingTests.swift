@@ -11,8 +11,6 @@ struct CommandBarLayoutViewSizingTests {
         let rowStyles: [ResultRowStyle] = [.minimal, .full]
         let footers: [Bool] = [true, false]
         let views: [CommandBarView] = [.recents, .stack, .custom(UUID()), .newView]
-        let allTabsStates: [Bool] = [false, true]
-        let quickOpenLimits = [CommandBarLayout.minQuickOpenItemLimit, 5, 10, CommandBarLayout.maxQuickOpenItemLimit]
 
         for anchor in anchors {
             let clickBox = CommandBarLayout.surfaceFrame(
@@ -23,16 +21,13 @@ struct CommandBarLayoutViewSizingTests {
             for view in views {
                 for rowStyle in rowStyles {
                     for showFooter in footers {
-                        for isShowingAll in allTabsStates {
-                            for limit in quickOpenLimits {
+                        for isSearching in [false, true] {
                                 let maxRows = CommandBarLayout.surfaceMaxRows(
                                     view: view,
-                                    isShowingAllOpenTabs: isShowingAll,
-                                    isSearching: false,
+                                    isSearching: isSearching,
                                     anchor: anchor,
                                     rowStyle: rowStyle,
-                                    showFooter: showFooter,
-                                    quickOpenLimit: limit
+                                    showFooter: showFooter
                                 )
 
                                 let hoverBox = CommandBarLayout.surfaceFrame(
@@ -51,9 +46,8 @@ struct CommandBarLayoutViewSizingTests {
 
                                 #expect(
                                     contains,
-                                    "Click box \(clickBox) does not contain hover box \(hoverBox) for anchor=\(anchor), view=\(view), rowStyle=\(rowStyle), footer=\(showFooter), allTabs=\(isShowingAll), limit=\(limit)"
+                                    "Click box \(clickBox) does not contain hover box \(hoverBox) for anchor=\(anchor), view=\(view), rowStyle=\(rowStyle), footer=\(showFooter), searching=\(isSearching)"
                                 )
-                            }
                         }
                     }
                 }

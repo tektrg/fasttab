@@ -1,40 +1,24 @@
 import SwiftUI
 import IndieCommandBar
 
-/// "Appearance" tab of Settings: how the command bar looks and how much it shows. The section is
-/// the shared one (IndieCommandBar `CommandBarAppearanceSection`), stored under Fast Tab's own keys.
+/// "Appearance" tab of Settings: how the command bar looks. The shared section, load and save
+/// (IndieCommandBar `CommandBarAppearanceSection` / `CommandBarAppearanceSettings`), stored under
+/// Fast Tab's keys (`CommandBarAppearance.keys`, old names kept), offering `CommandBarAppearance.options`.
+/// Saving posts the shared change notice; the bar's own `@AppStorage` fields also see the write.
 struct AppearanceSettingsView: View {
-    @AppStorage(CommandBarAppearance.outerPanelKey) private var outerPanelEnabled: Bool = true
-    @AppStorage(CommandBarAppearance.resultRowStyleKey) private var resultRowStyle: ResultRowStyle = .minimal
-    @AppStorage(CommandBarAppearance.quickOpenItemLimitKey) private var quickOpenItemLimit: Int = 5
-    @AppStorage(CommandBarAppearance.accentKey) private var accent: CommandBarAccent = .system
-    @AppStorage(CommandBarAppearance.followsEdgeKey) private var followsEdge: Bool = true
-    @AppStorage(CommandBarAppearance.placementKey) private var placement: CommandBarPlacement = .topCenter
+    @State private var settings = CommandBarAppearance.load()
 
     var body: some View {
         Form {
             CommandBarAppearanceSection(
                 settings: Binding(
-                    get: {
-                        CommandBarAppearanceSettings(background: outerPanelEnabled, rowStyle: resultRowStyle, rowLimit: quickOpenItemLimit, placement: placement, accent: accent, followsEdge: followsEdge)
-                    },
+                    get: { settings },
                     set: { newValue in
-                        outerPanelEnabled = newValue.background
-                        resultRowStyle = newValue.rowStyle
-                        quickOpenItemLimit = newValue.rowLimit
-                        accent = newValue.accent
-                        followsEdge = newValue.followsEdge
-                        placement = newValue.placement
+                        settings = newValue
+                        newValue.save(to: .standard, keys: CommandBarAppearance.keys)
                     }
                 ),
-                options: CommandBarAppearanceOptions(
-                    offersFitsContent: false,
-                    rowLimitRange: CommandBarLayout.minQuickOpenItemLimit...CommandBarLayout.maxQuickOpenItemLimit,
-                    rowLimitTitle: "Quick-open items",
-                    rowLimitCaption: "Recent tabs shown when FastTab opens with an empty search. Automatically reduced to fit smaller screens.",
-                    // Default: the bar hugs the edge set in General › Hover to open. Any other choice floats a card there.
-                    followEdgeTitle: "Follow hover edge"
-                )
+                options: CommandBarAppearance.options
             )
         }
         .formStyle(.grouped)

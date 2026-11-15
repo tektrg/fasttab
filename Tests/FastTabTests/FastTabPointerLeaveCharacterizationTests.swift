@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import IndieCommandBar
 import Testing
@@ -17,6 +18,35 @@ struct FastTabPointerLeaveCharacterizationTests {
         #expect(FastTabPointerLeaveGates.isHeld(isFloating: false, isVisible: true, editorHoldsBar: false, hasPanel: false))
         #expect(FastTabPointerLeaveGates.outset == 6)
         #expect(FastTabPointerLeaveGates.shortcutOpenGrace == 1.0)
+    }
+
+    /// Owner report 2026-11-14: the bar closed mid-cycle while ⌥ (of ⌥Q) was still held —
+    /// the pointer rests outside the bar for keyboard users. A held shortcut modifier holds it.
+    @Test func aHeldShortcutModifierHoldsTheBar() {
+        #expect(FastTabPointerLeaveGates.isHeld(
+            isFloating: false, isVisible: true, editorHoldsBar: false, hasPanel: true, isShortcutModifierHeld: true
+        ))
+        #expect(!FastTabPointerLeaveGates.isHeld(
+            isFloating: false, isVisible: true, editorHoldsBar: false, hasPanel: true, isShortcutModifierHeld: false
+        ))
+        // Held modifier → the shared rule never schedules a close, even after the grace.
+        var rule = CommandBarPointerLeaveClose(openedAt: t0, openGrace: 0)
+        let held = FastTabPointerLeaveGates.isHeld(
+            isFloating: false, isVisible: true, editorHoldsBar: false, hasPanel: true, isShortcutModifierHeld: true
+        )
+        let mayClose = CommandBarPointerLeaveClose.mayClose(isSearchEmpty: true, isHeld: held, isMenuOpen: false)
+        #expect(rule.evaluate(mayClose: mayClose, isPointerOutside: true, lastTypingDate: t0, now: t0.addingTimeInterval(5)) == .cancel)
+    }
+
+    /// The live check reads the configured shortcut's modifiers: ⌥ for ⌥Q, ⌃ for ⌃Tab.
+    @MainActor @Test func liveModifierCheckMatchesTheConfiguredShortcut() {
+        let defaults = UserDefaults(suiteName: "FastTabPointerLeaveHeld-\(UUID().uuidString)")!
+        let store = ShortcutStore(defaults: defaults)
+        store.update(keyCode: 12, modifiers: .option, keyName: "Q")
+        #expect(store.isAnyShortcutModifierHeld(in: [.option]))
+        #expect(store.isAnyShortcutModifierHeld(in: [.option, .shift]))
+        #expect(!store.isAnyShortcutModifierHeld(in: []))
+        #expect(!store.isAnyShortcutModifierHeld(in: [.shift]))
     }
 
     @Test func onlyAnEmptySearchCloses_menusIgnored() {

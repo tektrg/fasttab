@@ -252,9 +252,20 @@ public struct MoreView: View {
                     )
                 }
                 .foregroundStyle(.primary)
+                // The same thread as "Send feedback" on the What's New review step: replies are read here.
+                NavigationLink {
+                    FastTabFeedbackChat()
+                } label: {
+                    MoreRowLabel(
+                        systemImage: "bubble.left.and.bubble.right",
+                        tint: DS.Tint.action,
+                        title: "Chat with the Creator",
+                        subtitle: "Feedback, ideas, bugs: replies show up here"
+                    )
+                }
                 #if DEBUG
-                Button("Show Rating Popup (Debug)") {
-                    RatingPromptCoordinator.shared.forceShow()
+                Button("Show What's New Card (Debug)") {
+                    FastTabWhatsNew.showSampleCard()
                 }
                 #endif
             }

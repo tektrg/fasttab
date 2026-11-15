@@ -83,7 +83,8 @@ struct FastTabGuidanceWordsTests {
         #expect(text { _ in } == "↑↓ navigate | ↵ open | @ scope | Esc dismiss")
         #expect(text { $0.pointerSwipePhase = .releaseToAct(.leading) } == "→ release to copy link")
         #expect(text { $0.pointerSwipePhase = .releaseToAct(.trailing) } == "← release to delete")
-        #expect(text { $0.selectedIndex = 0; $0.isSearchFocused = false; $0.lastInteraction = .upDown; $0.isExtraRowFocused = true } == "↵ show all | Esc back")
+        // No "Show all tabs…" row any more, so no "↵ show all" hint on a row.
+        #expect(text { $0.selectedIndex = 0; $0.isSearchFocused = false; $0.lastInteraction = .upDown }.contains("show all") == false)
     }
 
     @Test func footerItemsWithoutQuery() {

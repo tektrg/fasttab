@@ -16,7 +16,8 @@ struct AppearanceSettingsMigrationTests {
     @Test func keysAreTheOldOnes() {
         #expect(CommandBarAppearance.outerPanelKey == "FastTab.appearance.outerGlassPanel")
         #expect(CommandBarAppearance.resultRowStyleKey == "FastTab.appearance.resultRowStyle")
-        #expect(CommandBarAppearance.quickOpenItemLimitKey == "FastTab.appearance.quickOpenItemLimit")
+        // The retired "Quick-open items" setting keeps its old key name (loaded, never read).
+        #expect(CommandBarAppearance.keys.rowLimit == "FastTab.appearance.quickOpenItemLimit")
     }
 
     @Test func oldStoredSettingsStillLoad() {
@@ -51,18 +52,32 @@ struct AppearanceSettingsMigrationTests {
     @Test func positionDefaultsToFollowingTheHoverEdge() {
         #expect(CommandBarAppearance.followsEdgeKey == "FastTab.appearance.followsEdge")
         #expect(CommandBarAppearance.placementKey == "FastTab.appearance.placement")
-        #expect(CommandBarAppearance.load(from: scratch()).position == nil)
+        #expect(CommandBarAppearance.load(from: scratch()).positionChoice == .followHoverEdge)
         // An older build may have saved a placement it never showed: still the edge.
         let defaults = scratch()
         defaults.set("bottomRight", forKey: "FastTab.appearance.placement")
-        #expect(CommandBarAppearance.load(from: defaults).position == nil)
+        #expect(CommandBarAppearance.load(from: defaults).positionChoice == .followHoverEdge)
         defaults.set(false, forKey: "FastTab.appearance.followsEdge")
-        #expect(CommandBarAppearance.load(from: defaults).position == .bottomRight)
+        #expect(CommandBarAppearance.load(from: defaults).positionChoice == .anchor(.floating(.bottomRight)))
     }
 
     @Test func positionPicksTheAnchor() {
-        #expect(CommandBarAnchor(revealStyle: .notch, position: CommandBarAppearance.standard.position) == .notch)
-        #expect(CommandBarAnchor(revealStyle: .leftEdge, position: CommandBarAppearance.standard.position) == .leftEdge)
-        #expect(CommandBarAnchor(revealStyle: .notch, position: .center) == .floating(.center))
+        #expect(CommandBarAppearance.standard.resolvedAnchor(hoverStyle: .notch) == .notch)
+        #expect(CommandBarAppearance.standard.resolvedAnchor(hoverStyle: .leftEdge) == .leftEdge)
+        var floating = CommandBarAppearance.standard
+        floating.positionChoice = .anchor(.floating(.center))
+        #expect(floating.resolvedAnchor(hoverStyle: .notch) == .floating(.center))
+    }
+
+    // Shared anchor: a fixed edge (e.g. Notch) no longer has to match the hover-to-open edge.
+    @Test func fixedEdgeAnchorIsIndependentOfTheHoverEdge() {
+        #expect(CommandBarAppearance.keys.edgeAnchor == "FastTab.appearance.edgeAnchor")
+        let defaults = scratch()
+        var s = CommandBarAppearance.load(from: defaults)
+        s.positionChoice = .anchor(.notch)
+        s.save(to: defaults, keys: CommandBarAppearance.keys)
+        #expect(CommandBarAppearance.load(from: defaults).resolvedAnchor(hoverStyle: .leftEdge) == .notch)
+        #expect(CommandBarAppearance.options.offersEdgeAnchors)
+        #expect(CommandBarAppearance.options.followEdgeTitle == "Follow hover edge")
     }
 }

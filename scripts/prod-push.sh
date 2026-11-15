@@ -74,7 +74,7 @@ preflight() {
   pro true || die "cannot reach the Pro (${PRO}) — nothing was deployed"
   local lib="${repo_root}/../IndieLibKit" pro_lib want
   pro_lib="$(dirname "${PRO_REPO}")/IndieLibKit"
-  want="$(git ls-remote "$(git -C "${lib}" remote get-url origin)" refs/heads/main 2>/dev/null | cut -f1)"
+  want="$(git ls-remote "$(git -C "${lib}" remote get-url origin)" refs/heads/main 2>/dev/null | cut -f1 || true)"
   if [[ -z "${want}" ]]; then
     want="$(git -C "${lib}" rev-parse origin/main)"
     echo "!! could not reach GitHub for IndieLibKit main; comparing against last fetched ${want:0:7}"

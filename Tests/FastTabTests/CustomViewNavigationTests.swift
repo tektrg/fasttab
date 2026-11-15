@@ -212,19 +212,24 @@ struct CustomViewNavigationTests {
     @Test func customPagesAreTallLikeStackForSurfaceAndHitTest() {
         for anchor in CommandBarAnchor.allCases {
             for rowStyle in [ResultRowStyle.minimal, .full] {
-                func rows(_ view: CommandBarView) -> Int {
+                func rows(_ view: CommandBarView, searching: Bool = false) -> Int {
                     // The one function both ContentView sizing and
                     // FastTabApp.isCursorOutsideSurface call.
                     CommandBarLayout.surfaceMaxRows(
-                        view: view, isShowingAllOpenTabs: false, isSearching: false,
-                        anchor: anchor, rowStyle: rowStyle, showFooter: true, quickOpenLimit: 5
+                        view: view, isSearching: searching,
+                        anchor: anchor, rowStyle: rowStyle, showFooter: true
                     )
                 }
                 let tall = CommandBarLayout.expandedAllTabsMaxRows(for: anchor, rowStyle: rowStyle, showFooter: true)
                 #expect(rows(.stack) == tall)
                 #expect(rows(.custom(UUID())) == tall)
                 #expect(rows(.newView) == tall)
-                #expect(rows(.recents) == 5)
+                #expect(rows(.custom(UUID()), searching: true) == tall)
+                // Recents on an empty search is the same tall list (no quick-open cap);
+                // only a live search at a top-hugging position shrinks it.
+                #expect(rows(.recents) == tall)
+                #expect(rows(.recents, searching: true)
+                    == (CommandBarLayout.searchShrinksPanel(at: anchor) ? 5 : tall))
             }
         }
     }

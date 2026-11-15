@@ -83,14 +83,9 @@ struct ContentView: View {
     @State var pointerSwipe = CommandBarPointerSwipe()
     @State var pointerSwipeSuppressionTask: Task<Void, Never>?
     @State var flickDetector = ViewSwitchFlickDetector()
-    @State var isShowingAllOpenTabs = false
     /// True for the lifetime of one open when the bar was revealed by hovering
     /// the notch/edge (not the keyboard shortcut or menu bar icon).
     @State var wasOpenedByHover = false
-    /// True for the lifetime of one open when opened via mouse (notch/edge hover,
-    /// menu bar icon, or dock icon). Mouse opens show all open tabs immediately in the switcher
-    /// view; the 5-tab limit and "Show all tabs..." affordance only apply to shortcut opens.
-    @State var wasOpenedByMouse = false
     @AppStorage("guidance.hasDiscoveredSwipe") var hasDiscoveredSwipe: Bool = false
     @State var lastInteractionKey: LastInteractionKey = .none
     /// Measured frame of the SearchHeader in the command-bar coordinate space.
@@ -111,37 +106,17 @@ struct ContentView: View {
     /// Settings › Appearance › Position (slice 10). Missing key = follow the hover edge (old look).
     @AppStorage(CommandBarAppearance.followsEdgeKey) var followsEdge: Bool = true
     @AppStorage(CommandBarAppearance.placementKey) var floatingPlacement: CommandBarPlacement = .topCenter
-    /// User's preferred quick-open ("recent tabs") item count. Read through
-    /// `effectiveQuickOpenLimit`, never used directly — it may exceed what the
-    /// current screen can actually fit.
-    @AppStorage(CommandBarAppearance.quickOpenItemLimitKey) var quickOpenItemLimitSetting: Int = 5
+    /// Position = Notch / Left / Right edge (shared anchor). Empty = floating at `floatingPlacement`.
+    @AppStorage(CommandBarAppearance.edgeAnchorKey) var edgeAnchor: String = ""
 
     var filteredResults: [BrowserSearchResult] {
         appState.browserService.results
     }
 
+    /// Every row the service returned — no cap on an empty search, whichever way
+    /// the bar was opened (shortcut or mouse); the tall list scrolls.
     var displayedResults: [BrowserSearchResult] {
-        if isSearchActive {
-            return filteredResults
-        }
-        return quickOpenState.results
-    }
-
-    /// The quick-open item count actually used: the user's setting, clamped to
-    /// the Stepper's bounds and to however many rows the current screen can
-    /// show without the panel growing past its edge (see
-    /// `CommandBarLayout.maxQuickOpenRowsFittingScreen`).
-    var effectiveQuickOpenLimit: Int {
-        let bounded = min(max(quickOpenItemLimitSetting, CommandBarLayout.minQuickOpenItemLimit), CommandBarLayout.maxQuickOpenItemLimit)
-        return min(bounded, CommandBarLayout.maxQuickOpenRowsFittingScreen(rowStyle: rowStyle))
-    }
-
-    var quickOpenState: QuickOpenDisplayState {
-        quickOpenDisplayState(
-            from: filteredResults,
-            limit: effectiveQuickOpenLimit,
-            isShowingAllOpenTabs: isShowingAllOpenTabs
-        )
+        filteredResults
     }
 
     /// Pinned slots in stored order — the Stack view's top section. Pinned
@@ -189,16 +164,15 @@ struct ContentView: View {
                 break
             }
         }
-        return extraRows.extraRows(for: CommandBarListState(
+        return extraRows.listItems(around: displayedResults, state: CommandBarListState(
             query: searchText,
             isSearchActive: isSearchActive,
             matchCount: filteredResults.count
-        )).assembled(around: displayedResults.map(CommandBarDisplayItem.result))
+        ))
     }
 
     var extraRows: FastTabExtraRows {
         FastTabExtraRows(
-            includesShowAllTabs: quickOpenState.includesShowAllTabsItem,
             activeSearchAlias: activeSearchAlias,
             hintedSearchAlias: searchAliasHint
         )
@@ -237,8 +211,8 @@ struct ContentView: View {
     }
 
     /// Row count the panel sizes itself around: always the full row budget
-    /// (`resultsMaxRows`), so the panel holds a constant height — matching its
-    /// default, 5-item size — as the result count changes while typing. A
+    /// (`resultsMaxRows`), so the panel holds a constant height as the result
+    /// count changes while typing. A
     /// shorter result list leaves dead space below it rather than resizing
     /// (and repositioning) the window on every keystroke.
     var resultsSizingRowCount: Int {
@@ -257,21 +231,18 @@ struct ContentView: View {
         !isSearchActive
     }
 
-    /// Ceiling `resultsSizingRowCount` clamps against: once "Show all tabs" is
-    /// expanded, a fixed height ceiling (independent of screen size) so the
-    /// panel doesn't grow to fill most of a tall display — see
-    /// `CommandBarLayout.expandedAllTabsMaxHeight`. Otherwise the user's
-    /// configurable, screen-safe quick-open limit while the search field is
-    /// empty, or the fixed live-search row cap.
+    /// Ceiling `resultsSizingRowCount` clamps against: on an empty search (any
+    /// open, shortcut or mouse), Stack and custom views, a fixed height ceiling
+    /// (independent of screen size) so the panel doesn't grow to fill most of a
+    /// tall display — see `CommandBarLayout.expandedAllTabsMaxHeight`; rows past
+    /// it scroll. A live search on Recents uses the fixed live-search row cap.
     var resultsMaxRows: Int {
         CommandBarLayout.surfaceMaxRows(
             view: viewStore.activeView,
-            isShowingAllOpenTabs: isShowingAllOpenTabs,
             isSearching: isSearchActive,
             anchor: commandBarAnchor,
             rowStyle: rowStyle,
-            showFooter: showHelperPanel,
-            quickOpenLimit: effectiveQuickOpenLimit
+            showFooter: showHelperPanel
         )
     }
 
@@ -332,7 +303,9 @@ struct ContentView: View {
     }
 
     var commandBarAnchor: CommandBarAnchor {
-        CommandBarAnchor(revealStyle: edgeRevealStore.style, position: followsEdge ? nil : floatingPlacement)
+        CommandBarAppearanceSettings(rowLimit: 0, placement: floatingPlacement, followsEdge: followsEdge,
+                                     edgeAnchor: CommandBarEdgeAnchor(rawValue: edgeAnchor))
+            .resolvedAnchor(hoverStyle: edgeRevealStore.style)
     }
 
     /// Narrow (half-width) edge-anchored surface — content wraps instead of
@@ -352,7 +325,6 @@ struct ContentView: View {
         // switches: the search field only lives in Recents, but both views
         // render the same filtered results while a search is active — so
         // clearing here left stale results behind an empty box on return.
-        isShowingAllOpenTabs = wasOpenedByMouse && !isSearchActive
         clearKeyboardSwipe()
         resetPointerSwipe(animated: false)
         focusedChipID = nil
@@ -369,19 +341,11 @@ struct ContentView: View {
             return
         }
 
-        if !searchText.isEmpty {
-            isShowingAllOpenTabs = false
-        }
         if searchText.isEmpty {
             // Clearing the field is a fresh start — the earlier rejection of a
             // keyword no longer applies.
             rejectedAliasKeyword = nil
             appState.selectedIndex = -1
-            // Stay in search mode while chips/alias remain — only restore the
-            // mouse-open "show all" list when the bar is truly empty.
-            if wasOpenedByMouse, scopeChips.isEmpty, activeSearchAlias == nil {
-                isShowingAllOpenTabs = true
-            }
         } else {
             appState.selectedIndex = displayedResults.isEmpty ? -1 : 0
         }
@@ -395,7 +359,7 @@ struct ContentView: View {
         resetPointerSwipe(animated: false)
         isSearchFocused = true
         // Not animated: on the first character this coincides with the
-        // quick-open → search branch swap, and an animation here made
+        // tall list → search branch swap, and an animation here made
         // SwiftUI interpolate that whole layout change while typing.
         listScrollToTop.request()
         scheduleSearchFetch()
@@ -404,12 +368,10 @@ struct ContentView: View {
     private func handleCommandBarVisibilityChange(_ visible: Bool) {
         if visible {
             wasOpenedByHover = appState.wasOpenedByHover
-            wasOpenedByMouse = appState.wasOpenedByMouse
             resetForCommandBarOpen()
             if wasOpenedByHover {
                 viewStore.resetForHoverOpen()
             }
-            isShowingAllOpenTabs = wasOpenedByMouse
             triggerFetch()
             syncCustomViewPage()
             DispatchQueue.main.async {
@@ -418,8 +380,6 @@ struct ContentView: View {
             }
         } else {
             wasOpenedByHover = false
-            wasOpenedByMouse = false
-            isShowingAllOpenTabs = false
             syncCustomViewPage()
         }
     }
@@ -859,13 +819,6 @@ struct ContentView: View {
                 .onChange(of: activeSearchAlias) { _, _ in
                     appState.isSearchTextEmpty = isSearchEmpty
                 }
-                // Same mirror for the "show all tabs" expansion: the hover-dismiss
-                // monitor sizes its outside-box from this (`AppState.isShowingAllOpenTabs`)
-                // so a hover reveal's taller, all-tabs panel isn't mistaken for a
-                // quick-open one — see `CommandBarPanelController.isCursorOutsideSurface`.
-                .onChange(of: isShowingAllOpenTabs) { _, newValue in
-                    appState.isShowingAllOpenTabs = newValue
-                }
         )
 
         let beforeActivationSheet: AnyView = AnyView(
@@ -874,13 +827,8 @@ struct ContentView: View {
                     // The reveal trigger only fires for notch/edge hover opens (see
                     // `AppState.showCommandBar(revealStyle:)`), so this is the one
                     // reliable signal that the bar was opened by hover. Record it for
-                    // the session, ensure mouse-open full tabs state is active, and
-                    // switch to the hover default view.
+                    // the session and switch to the hover default view.
                     wasOpenedByHover = true
-                    wasOpenedByMouse = true
-                    isShowingAllOpenTabs = true
-                    appState.wasOpenedByMouse = true
-                    appState.isShowingAllOpenTabs = true
                     viewStore.resetForHoverOpen()
                     playRevealAnimation()
                 }

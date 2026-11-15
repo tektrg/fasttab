@@ -3,8 +3,8 @@ import Testing
 @testable import FastTab
 import IndieCommandBar
 
-/// Pins which extra rows ("Show all tabs…", "Search the web", alias rows)
-/// appear for which query and state, and what they say.
+/// Pins which extra rows ("Search the web", alias rows) appear for which query
+/// and state, and what they say. An empty search adds none (no "Show all tabs…").
 struct FastTabExtraRowsTests {
     private let jira = SearchAlias(
         keyword: "jira", displayName: "Service Desk",
@@ -21,33 +21,25 @@ struct FastTabExtraRowsTests {
         return extra.leading.map(\.id) + results + extra.trailing.map(\.id)
     }
 
-    @Test func emptyQueryWithShowAllOffersOnlyShowAll() {
-        let p = FastTabExtraRows(includesShowAllTabs: true)
-        #expect(ids(p, "", active: false, matches: 12, results: ["r"]) == ["r", "command-bar-show-all-tabs"])
-        if case .showAllTabs(let count) = p.extraRows(for: .init(query: "", isSearchActive: false, matchCount: 12)).trailing[0] {
-            #expect(count == 12)
-        } else { Issue.record("expected showAllTabs") }
-    }
-
-    @Test func showAllHiddenWhileSearchingOrWhenNotOffered() {
-        #expect(ids(FastTabExtraRows(includesShowAllTabs: true), "x", active: true, matches: 3).isEmpty)
-        #expect(ids(FastTabExtraRows(includesShowAllTabs: false), "", active: false, matches: 3).isEmpty)
+    @Test func emptyQueryAddsNoExtraRows() {
+        #expect(ids(FastTabExtraRows(), "", active: false, matches: 12, results: ["r"]) == ["r"])
+        #expect(ids(FastTabExtraRows(), "", active: false, matches: 0).isEmpty)
     }
 
     @Test func searchTheWebOnlyWhenTypedTextMatchesNothing() {
-        let p = FastTabExtraRows(includesShowAllTabs: false)
+        let p = FastTabExtraRows()
         #expect(ids(p, "zz", active: true, matches: 0) == ["command-bar-search-the-web"])
         #expect(ids(p, "zz", active: true, matches: 1).isEmpty)
         #expect(ids(p, "", active: true, matches: 0).isEmpty)
     }
 
     @Test func activeAliasGoesFirstAndSuppressesWebSearch() {
-        let p = FastTabExtraRows(includesShowAllTabs: false, activeSearchAlias: jira, hintedSearchAlias: mine)
+        let p = FastTabExtraRows(activeSearchAlias: jira, hintedSearchAlias: mine)
         #expect(ids(p, "bug", active: true, matches: 0, results: ["r"]) == ["command-bar-search-alias-query", "r"])
     }
 
     @Test func hintGoesLastAfterWebSearch() {
-        let p = FastTabExtraRows(includesShowAllTabs: false, hintedSearchAlias: mine)
+        let p = FastTabExtraRows(hintedSearchAlias: mine)
         #expect(ids(p, "gh", active: true, matches: 0) == ["command-bar-search-the-web", "command-bar-search-alias-hint"])
         #expect(ids(p, "gh", active: true, matches: 2, results: ["r"]) == ["r", "command-bar-search-alias-hint"])
     }
@@ -58,13 +50,6 @@ struct FastTabExtraRowsTests {
     }
 
     @Test func rowTextIsUnchanged() {
-        let one = CommandBarDisplayItem.showAllTabs(count: 1).actionRow(webSearchBrowserName: nil, aliasTriggerKeys: [])!
-        #expect(one.title == "Show all tabs...")
-        #expect(one.subtitle == "1 open tab")
-        #expect(one.icon == "rectangle.stack.fill")
-        #expect(one.accessory != nil)
-        #expect(CommandBarDisplayItem.showAllTabs(count: 3).actionRow(webSearchBrowserName: nil, aliasTriggerKeys: [])!.subtitle == "3 open tabs")
-
         let web = CommandBarDisplayItem.searchTheWeb(query: "cats").actionRow(webSearchBrowserName: "Arc", aliasTriggerKeys: [])!
         #expect(web.title == "Search \u{201c}cats\u{201d}")
         #expect(web.subtitle == "Opens a new tab in Arc")

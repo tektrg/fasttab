@@ -1,12 +1,11 @@
 import SwiftUI
 import IndieCommandBar
 
-/// Fast Tab's extra rows around the results ("Show all tabs…", "Search the
-/// web", the search-alias rows). Pure: which rows appear for which query and
-/// state. The shared shell (`CommandBarActionRow`) draws them.
+/// Fast Tab's extra rows around the results ("Search the web", the
+/// search-alias rows). Pure: which rows appear for which query and state. The
+/// shared shell (`CommandBarActionRow`) draws them. An empty search adds none:
+/// every tab is listed, with no "Show all tabs…" row (removed 2026-11-14).
 struct FastTabExtraRows: CommandBarExtraRowsProvider {
-    /// The view offers a "Show all tabs…" row (Quick Open, collapsed).
-    var includesShowAllTabs: Bool
     /// Alias mode is on: anything typed goes to this site.
     var activeSearchAlias: SearchAlias?
     /// The alias the current text would commit to on Tab/Space.
@@ -14,9 +13,6 @@ struct FastTabExtraRows: CommandBarExtraRowsProvider {
 
     func extraRows(for state: CommandBarListState) -> CommandBarExtraRows<CommandBarDisplayItem> {
         var extra = CommandBarExtraRows<CommandBarDisplayItem>()
-        if !state.isSearchActive, includesShowAllTabs {
-            extra.trailing.append(.showAllTabs(count: state.matchCount))
-        }
         if !state.query.isEmpty, state.matchCount == 0, activeSearchAlias == nil {
             extra.trailing.append(.searchTheWeb(query: state.query))
         }
@@ -32,6 +28,12 @@ struct FastTabExtraRows: CommandBarExtraRowsProvider {
         }
         return extra
     }
+
+    /// The rows Recents (and a search on any page) lists: every result, uncapped,
+    /// wrapped in the extra rows for `state`.
+    func listItems(around results: [BrowserSearchResult], state: CommandBarListState) -> [CommandBarDisplayItem] {
+        extraRows(for: state).assembled(around: results.map(CommandBarDisplayItem.result))
+    }
 }
 
 extension CommandBarDisplayItem {
@@ -44,20 +46,6 @@ extension CommandBarDisplayItem {
         switch self {
         case .result, .orderedEntry:
             return nil
-        case .showAllTabs(let count):
-            return CommandBarRow(
-                id: id,
-                title: "Show all tabs...",
-                subtitle: "\(count) open \(count == 1 ? "tab" : "tabs")",
-                subtitleSymbol: "list.bullet",
-                icon: "rectangle.stack.fill",
-                accessory: AnyView(
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
-                )
-            )
         case .searchTheWeb(let query):
             return CommandBarRow(
                 id: id,

@@ -198,30 +198,37 @@ private struct SearchAliasBadge: View {
 extension CommandBarAppearanceKeys {
     /// Fast Tab's keys. The first three predate the shared model and keep their old
     /// names so stored choices survive (pinned by `AppearanceSettingsMigrationTests`).
-    static let fastTab = CommandBarAppearanceKeys(
-        background: "FastTab.appearance.outerGlassPanel",
-        rowStyle: "FastTab.appearance.resultRowStyle",
-        rowLimit: "FastTab.appearance.quickOpenItemLimit",
-        placement: "FastTab.appearance.placement",
-        fitsContent: "FastTab.appearance.fitsContent",
-        accent: "FastTab.appearance.accent",
-        followsEdge: "FastTab.appearance.followsEdge"
-    )
+    /// `.rowLimit` is the retired "Quick-open items" setting: still loaded and saved by the
+    /// shared model under its old name, read by nothing (every open lists every tab).
+    static let fastTab = CommandBarAppearanceKeys(prefix: "FastTab", renamed: [
+        .background: "FastTab.appearance.outerGlassPanel",
+        .rowLimit: "FastTab.appearance.quickOpenItemLimit",
+    ])
 }
 
 enum CommandBarAppearance {
     static let keys = CommandBarAppearanceKeys.fastTab
     static let outerPanelKey = keys.background
     static let resultRowStyleKey = keys.rowStyle
-    static let quickOpenItemLimitKey = keys.rowLimit
     /// Accent colour (slice 8c). Missing = `.system`, the look before the setting existed.
     static let accentKey = keys.accent
     /// Position (slice 10): follow the hover edge (default, missing key) or a floating card at `placementKey`.
     static let followsEdgeKey = keys.followsEdge
     static let placementKey = keys.placement
-    /// Fast Tab's defaults: background on, Minimal rows, 5 quick-open items, Position = follow
-    /// the hover-to-open edge (General). No Size picker: the bar sizes itself.
+    /// Position = Notch / Left edge / Right edge, independent of the hover edge (shared anchor).
+    static let edgeAnchorKey = keys.edgeAnchor
+    /// Fast Tab's defaults: background on, Minimal rows, Position = follow the hover-to-open
+    /// edge (General). No Size picker: the bar sizes itself. `rowLimit` is unused (no row cap).
     static let standard = CommandBarAppearanceSettings(background: true, rowStyle: .minimal, rowLimit: 5, followsEdge: true)
+
+    /// Settings › Appearance through the shared section: Accent, Position (follow the hover edge,
+    /// Notch, Left/Right edge, or a floating spot), Background, Result rows. No Size picker (the
+    /// bar sizes itself) and no row count (every open lists every tab).
+    static let options = CommandBarAppearanceOptions(
+        offersFitsContent: false, offersEdgeAnchors: true, offersRowLimit: false,
+        rowLimitRange: CommandBarLayout.minQuickOpenItemLimit...CommandBarLayout.maxQuickOpenItemLimit,
+        followEdgeTitle: "Follow hover edge"
+    )
 
     static func load(from defaults: UserDefaults = .standard) -> CommandBarAppearanceSettings {
         CommandBarAppearanceSettings.load(

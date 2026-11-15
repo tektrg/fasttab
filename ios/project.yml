@@ -54,6 +54,12 @@ targets:
       # transcripts need it. Sharing (FastTabMobile/Sharing/) is not wired at launch yet.
       - package: IndieLibKit
         product: IndieAccount
+      # What's New card → notes → Apple's stars + creator chat (FastTabMobile/Views/FastTabWhatsNew.swift);
+      # replaced the after-browser-close rating popup.
+      - package: IndieLibKit
+        product: IndieWhatsNew
+      - package: IndieLibKit
+        product: IndieFeedbackUI
       # Tag paths, tag filter (AND + descendants) and tag search for the Highlights feed,
       # plus text folding for its search. See FastTabMobile/Reader/HighlightFeedModel.swift.
       - package: IndieLibKit

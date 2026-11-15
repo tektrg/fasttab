@@ -1,4 +1,5 @@
 import AppKit
+import IndieSettings
 import SwiftUI
 
 /// Owns the Settings window: an `NSWindow` hosting `SettingsView`. Used instead
@@ -9,13 +10,17 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController {
     private var window: NSWindow?
-    private let makeContent: () -> SettingsView
+    private let makeContent: (SettingsNavigator) -> SettingsView
+    /// Lets `show(_:)` switch the (reused) window to a given pane.
+    private let navigator = SettingsNavigator()
 
-    init(makeContent: @escaping () -> SettingsView) {
+    init(makeContent: @escaping (SettingsNavigator) -> SettingsView) {
         self.makeContent = makeContent
     }
 
-    func show() {
+    /// Shows the window; with a tab, switches to that pane (else keeps the last one shown).
+    func show(_ tab: SettingsTab? = nil) {
+        if let tab { navigator.request(tab) }
         let window = window ?? makeWindow()
         self.window = window
         // An accessory app is never frontmost by itself; without this the
@@ -33,7 +38,7 @@ final class SettingsWindowController {
         )
         window.title = "AgentBar Settings"
         window.isReleasedWhenClosed = false
-        window.contentViewController = NSHostingController(rootView: makeContent())
+        window.contentViewController = NSHostingController(rootView: makeContent(navigator))
         window.center()
         return window
     }

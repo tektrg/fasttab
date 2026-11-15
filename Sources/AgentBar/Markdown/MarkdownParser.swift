@@ -186,7 +186,12 @@ private struct BlockScanner {
             if fence.closes(line.trimmingCharacters(in: .whitespaces)) { break }
             code.append(String(line.dropFirst(min(indent, MarkdownParser.indentWidth(of: line)))))
         }
-        blocks.append(.codeBlock(language: fence.language, code: code.joined(separator: "\n")))
+        let body = code.joined(separator: "\n")
+        if fence.language?.lowercased() == "mermaid", !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            blocks.append(.mermaid(source: body))   // drawn as a diagram; falls back to the code tile on a parse error
+        } else {
+            blocks.append(.codeBlock(language: fence.language, code: body))
+        }
         canContinueListItem = false   // the list's levels stay: items after the code carry on
     }
 

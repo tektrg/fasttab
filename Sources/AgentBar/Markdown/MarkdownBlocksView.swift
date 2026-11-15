@@ -42,6 +42,8 @@ struct MarkdownBlocksView: View {
             .padding(.leading, CGFloat(min(depth, 5)) * 16)
         case .codeBlock(let language, let code):
             codeTile(language: language, code: code)
+        case .mermaid(let source):
+            MermaidDiagramView(source: source, bodySize: bodySize) { codeTile(language: "mermaid", code: source) }
         case .quote(let inner):
             MarkdownBlocksView(blocks: inner, bodySize: bodySize)
                 .foregroundStyle(.secondary)

@@ -77,6 +77,10 @@ rm -rf "${APP}"
 mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
 BIN_HASH="$(shasum -a 256 "${BIN}" | awk '{print $1}')"
 cp "${BIN}" "${APP}/Contents/MacOS/AgentBar"
+# SwiftPM resource bundle (pele.min.js — the offline Mermaid renderer). Without it diagrams fall back to code.
+RES_BUNDLE="$(dirname "${BIN}")/FastTabPackage_AgentBar.bundle"   # SwiftPM: <package>_<target>
+[[ -d "${RES_BUNDLE}" ]] || { echo "build-agentbar-app: resource bundle missing at ${RES_BUNDLE}" >&2; exit 1; }
+cp -R "${RES_BUNDLE}" "${APP}/Contents/Resources/"
 if [[ -f "dist/AgentBar.icns" ]]; then
   cp "dist/AgentBar.icns" "${APP}/Contents/Resources/AppIcon.icns"
 fi

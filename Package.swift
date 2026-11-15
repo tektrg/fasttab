@@ -112,7 +112,10 @@ let package = Package(
         .executableTarget(
             name: "AgentBar",
             dependencies: [indieCommandBar, indieSearch, indieSavedViews, indieAgentSessions, indieEdgeReveal, indieWorkspace],
-            path: "Sources/AgentBar"
+            path: "Sources/AgentBar",
+            exclude: ["AGENTS.md", "Markdown/Resources/pele.LICENSE"],
+            // pele 1.6.0 (MIT) bundled as IIFE `Pele`; see Markdown/MermaidRenderer.swift.
+            resources: [.copy("Markdown/Resources/pele.min.js")]
         ),
         .testTarget(
             name: "FastTabTests",

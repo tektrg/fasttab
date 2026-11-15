@@ -14,6 +14,9 @@ enum MarkdownBlock: Equatable, Sendable {
     /// One list item. Nesting is only its `depth` (0 = top level); a continuation line joins `text` after a `\n`.
     case listItem(depth: Int, marker: ListMarker, text: String)
     case codeBlock(language: String?, code: String)
+    /// A ```mermaid fence (non-empty). `MarkdownBlocksView` draws it via `MermaidRenderer`; a source pele
+    /// can't parse is drawn as the plain code tile instead.
+    case mermaid(source: String)
     case quote([MarkdownBlock])
     /// Every row has exactly `header.count` cells (short rows padded, long ones cut).
     case table(header: [String], rows: [[String]])

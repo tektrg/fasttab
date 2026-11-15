@@ -6,7 +6,7 @@ import Testing
 struct QAPass2CornerTests {
     private let start = Date(timeIntervalSince1970: 1_800_000_000)
     private let one = CornerTabContent(count: 1, newestName: "one")
-    private let timing = CornerTabTiming(visibleSeconds: 5, hoverDwellSeconds: 0.3, leaveGraceSeconds: 0.7)
+    private let timing = CornerTabTiming(visibleSeconds: 5, leaveGraceSeconds: 0.7)
 
     private func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
 
@@ -26,7 +26,7 @@ struct QAPass2CornerTests {
 
     @Test func aHoverThatWasCutShortByAHotkeyPanelDoesNotHijackTheNextArrivalTab() {
         var machine = CornerTabMachine(timing: timing)
-        _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(0))   // dwelling in the corner
+        _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(0))   // pointer on the hover spot
         _ = machine.handle(.panelVisibility(true), now: at(0.1))          // hotkey opens the panel
         _ = machine.handle(.panelVisibility(false), now: at(20))
         _ = machine.handle(.arrival(one), now: at(40))

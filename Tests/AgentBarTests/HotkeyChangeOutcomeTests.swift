@@ -19,6 +19,6 @@ struct HotkeyChangeOutcomeTests {
             registrationIssue: "Shortcut already registered by AgentBar or another app."
         )
         #expect(outcome.active == previous)
-        #expect(outcome.message == "⌘Space can't be used. Shortcut already registered by AgentBar or another app. Still using ⌥Tab.")
+        #expect(outcome.message == "⌘Space can't be used. Shortcut already registered by AgentBar or another app. Still using ⌥⇥.")
     }
 }

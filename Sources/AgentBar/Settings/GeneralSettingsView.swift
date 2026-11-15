@@ -60,11 +60,11 @@ struct GeneralSettingsView: View {
             }
 
             Section("Alerts") {
-                Toggle("Corner tab (bottom-right)", isOn: Binding(
+                Toggle("Corner tab", isOn: Binding(
                     get: { settings.showsCornerTab },
                     set: { settings.setShowsCornerTab($0) }
                 ))
-                Text("A small tab slides in at the bottom-right for a few seconds when an agent needs you, and whenever you rest the pointer in the bottom-right corner of the screen. While an agent is waiting for your answer or approval it stays until you deal with it. Click it to open AgentBar.")
+                Text("A small tab slides in for a few seconds when an agent needs you, from the spot chosen under Shortcuts › Trigger (bottom-right corner by default). Resting the pointer on that spot opens AgentBar. While an agent is waiting for your answer or approval the tab stays until you deal with it. Click it to open AgentBar.")
                     .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

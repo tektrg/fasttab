@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import IndieCommandBar
+import IndieEdgeReveal
 
 /// The corner tab's window: a small non-activating panel, configured like the main panel (same
 /// level, same behaviour over full-screen apps). As the pill it never takes keyboard focus at all;
@@ -17,6 +18,8 @@ final class CornerTabWindowController {
 
     private let state = CornerTabViewState()
     private let panel: NSPanel
+    /// Where the tab sits (the hover spot); decides its edge, corner and slide direction.
+    private(set) var spot: EdgeRevealStyle = .bottomRightCorner
     /// Invalidates a pending "order out after sliding" when the tab comes back.
     private var hideGeneration = 0
 
@@ -32,6 +35,20 @@ final class CornerTabWindowController {
         )
         host.sizingOptions = []
         panel.contentViewController = host
+    }
+
+    /// Moves the tab to another spot; a tab already on screen jumps there without sliding.
+    func setSpot(_ newSpot: EdgeRevealStyle) {
+        guard newSpot != spot else { return }
+        spot = newSpot
+        state.slide = CornerTabSlide(spot: newSpot)
+        guard panel.isVisible else { return }
+        panel.setFrame(
+            state.mode == .card
+                ? CornerTabPlacement.cardWindowFrame(in: screenFrame(), spot: newSpot)
+                : CornerTabPlacement.windowFrame(in: screenFrame(), spot: newSpot),
+            display: true
+        )
     }
 
     /// The window's frame while it is on screen.
@@ -58,7 +75,7 @@ final class CornerTabWindowController {
         state.mode = .card
         state.isSlidIn = false
         panel.hasShadow = true
-        present(frame: CornerTabPlacement.cardWindowFrame(in: screenFrame()))
+        present(frame: CornerTabPlacement.cardWindowFrame(in: screenFrame(), spot: spot))
     }
 
     /// The card is already up: its content follows the model on its own, nothing to do. Only a
@@ -74,7 +91,7 @@ final class CornerTabWindowController {
         state.content = content
         state.isSlidIn = false
         panel.hasShadow = false
-        present(frame: CornerTabPlacement.windowFrame(in: screenFrame()))
+        present(frame: CornerTabPlacement.windowFrame(in: screenFrame(), spot: spot))
     }
 
     private func screenFrame() -> CGRect {

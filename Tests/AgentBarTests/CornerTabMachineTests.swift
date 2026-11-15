@@ -1,13 +1,12 @@
 import Foundation
 import Testing
-import IndieEdgeReveal
 @testable import AgentBar
 
 struct CornerTabMachineTests {
     private let start = Date(timeIntervalSince1970: 1_800_000_000)
     private let one = CornerTabContent(count: 1, newestName: "one")
     private let two = CornerTabContent(count: 2, newestName: "two")
-    private let timing = CornerTabTiming(visibleSeconds: 5, hoverDwellSeconds: 0.3, leaveGraceSeconds: 0.7)
+    private let timing = CornerTabTiming(visibleSeconds: 5, leaveGraceSeconds: 0.7)
 
     private func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
 
@@ -94,36 +93,26 @@ struct CornerTabMachineTests {
 
     // MARK: - Hovering the corner (any time)
 
-    @Test func restingInTheCornerOpensThePanelAfterTheDwell() {
+    @Test func theSharedHoverRevealOpensThePanel() {
         var machine = machine()
-        #expect(machine.handle(.mouse(isOverCornerOrTab: true), now: at(0)) == [])
-        #expect(machine.phase == .dwelling(showAt: at(0.3)))
-        #expect(machine.nextDeadline == at(0.3))
-        #expect(machine.wantsCornerWatch)
-        #expect(machine.handle(.deadlineReached, now: at(0.29)) == [])
-        #expect(machine.handle(.deadlineReached, now: at(0.3)) == [.openPanel])
-        #expect(machine.phase == .idle)
-    }
-
-    @Test func passingQuicklyThroughTheCornerOpensNothing() {
-        var machine = machine()
-        _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(0))
-        #expect(machine.handle(.mouse(isOverCornerOrTab: false), now: at(0.1)) == [])
-        #expect(machine.handle(.deadlineReached, now: at(0.3)) == [])
-        #expect(machine.phase == .idle)
-    }
-
-    @Test func standardDwellIsTheSharedEdgeRevealCornerDwell() {
-        #expect(CornerTabTiming.standard.hoverDwellSeconds == EdgeRevealStyle.bottomRightCorner.dwellDelay)
-    }
-
-    @Test func passingThroughTheCornerShowsNothing() {
-        var machine = machine()
-        _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(0))
-        _ = machine.handle(.mouse(isOverCornerOrTab: false), now: at(0.1))
+        #expect(machine.wantsHoverTrigger)
+        #expect(machine.handle(.hoverRevealed, now: at(0)) == [.openPanel])
         #expect(machine.phase == .idle)
         #expect(machine.nextDeadline == nil)
-        #expect(machine.handle(.deadlineReached, now: at(0.3)) == [])
+    }
+
+    @Test func theHoverRevealLeavesAShowingTabToItsOwnClick() {
+        var machine = showingArrivalTab()
+        #expect(machine.handle(.hoverRevealed, now: at(1)) == [])
+        #expect(machine.phase == .tab(hideAt: at(5)))
+    }
+
+    @Test func aPointerOnTheSpotWhileNothingShowsChangesNothing() {
+        var machine = machine()
+        #expect(machine.handle(.mouse(isOverCornerOrTab: true), now: at(0)) == [])
+        #expect(machine.handle(.mouse(isOverCornerOrTab: false), now: at(0.1)) == [])
+        #expect(machine.phase == .idle)
+        #expect(machine.nextDeadline == nil)
     }
 
     @Test func theHoverTabHidesAShortWhileAfterThePointerLeaves() {
@@ -162,7 +151,7 @@ struct CornerTabMachineTests {
         #expect(machine.phase == .tab(hideAt: nil))   // still hovered: stays
     }
 
-    @Test func anArrivalWhileThePointerDwellsInTheCornerShowsTheTabAtOnce() {
+    @Test func anArrivalWhileThePointerRestsOnTheSpotShowsTheTabAtOnce() {
         var machine = machine()
         _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(0))
         #expect(machine.handle(.arrival(one), now: at(0.1)) == [.showTab(one)])
@@ -174,36 +163,35 @@ struct CornerTabMachineTests {
 
     @Test func theHotZoneIsOffWhenTheSettingIsOff() {
         var machine = machine(enabled: false)
-        #expect(!machine.wantsCornerWatch)
+        #expect(!machine.wantsHoverTrigger)
         #expect(machine.handle(.mouse(isOverCornerOrTab: true), now: at(0)) == [])
         #expect(machine.phase == .idle)
         #expect(machine.nextDeadline == nil)
     }
 
-    @Test func turningTheSettingOffDuringTheDwellCancelsIt() {
-        var machine = machine()
-        _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(0))
-        #expect(machine.handle(.enabled(false), now: at(0.1)) == [])
-        #expect(machine.phase == .idle)
-        #expect(!machine.wantsCornerWatch)
-        #expect(machine.handle(.deadlineReached, now: at(0.3)) == [])
+    @Test func aHoverRevealWhileOffOrWhileThePanelIsOpenOpensNothing() {
+        var off = machine(enabled: false)
+        #expect(off.handle(.hoverRevealed, now: at(0)) == [])
+        var open = machine()
+        _ = open.handle(.panelVisibility(true), now: at(0))
+        #expect(open.handle(.hoverRevealed, now: at(1)) == [])
+        var turnedOff = machine()
+        _ = turnedOff.handle(.enabled(false), now: at(0))
+        #expect(turnedOff.handle(.hoverRevealed, now: at(1)) == [])
+        #expect(!turnedOff.wantsHoverTrigger)
     }
 
     @Test func theHotZoneIsOffWhileThePanelIsOpen() {
         var machine = machine()
         _ = machine.handle(.panelVisibility(true), now: at(0))
-        #expect(!machine.wantsCornerWatch)
+        #expect(!machine.wantsHoverTrigger)
         #expect(machine.handle(.mouse(isOverCornerOrTab: true), now: at(1)) == [])
         #expect(machine.phase == .idle)
         _ = machine.handle(.panelVisibility(false), now: at(2))
-        #expect(machine.wantsCornerWatch)
+        #expect(machine.wantsHoverTrigger)
     }
 
-    @Test func openingThePanelDuringTheDwellOrOverTheHoverTabEndsIt() {
-        var dwelling = machine()
-        _ = dwelling.handle(.mouse(isOverCornerOrTab: true), now: at(0))
-        #expect(dwelling.handle(.panelVisibility(true), now: at(0.1)) == [])
-        #expect(dwelling.phase == .idle)
+    @Test func openingThePanelOverTheHoverTabEndsIt() {
         var hovering = showingHoverTab()
         #expect(hovering.handle(.panelVisibility(true), now: at(1)) == [.removeTabNow])
         #expect(hovering.phase == .idle)
@@ -225,7 +213,7 @@ struct CornerTabMachineTests {
         var machine = machine()
         #expect(machine.handle(.tabClicked, now: at(0)) == [])
         _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(0))
-        #expect(machine.handle(.tabClicked, now: at(0.1)) == [])   // still only dwelling
+        #expect(machine.handle(.tabClicked, now: at(0.1)) == [])
     }
 
     // MARK: - Sticky while an agent is blocked on the user
@@ -335,8 +323,7 @@ struct CornerTabMachineTests {
         var machine = machine()
         _ = machine.handle(.needsYouChanged(blockedOne, hasNewBlocker: false), now: at(0))   // baseline: no tab
         #expect(machine.phase == .idle)
-        _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(1))
-        #expect(machine.handle(.deadlineReached, now: at(1.3)) == [.openPanel])   // hover opens the panel (2026-11-12)
+        #expect(machine.handle(.hoverRevealed, now: at(1.3)) == [.openPanel])   // hover opens the panel (2026-11-12)
         _ = machine.handle(.mouse(isOverCornerOrTab: false), now: at(2))
         #expect(machine.nextDeadline == nil)
     }
@@ -440,7 +427,7 @@ struct BlockedCornerTabContentTests {
 /// already covers, since only the effect emitted differs.
 struct CornerTabMachineCardModeTests {
     private let start = Date(timeIntervalSince1970: 1_800_000_000)
-    private let timing = CornerTabTiming(visibleSeconds: 5, hoverDwellSeconds: 0.3, leaveGraceSeconds: 0.7)
+    private let timing = CornerTabTiming(visibleSeconds: 5, leaveGraceSeconds: 0.7)
     private func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
     private func machine() -> CornerTabMachine { CornerTabMachine(timing: timing, isEnabled: true) }
 
@@ -516,8 +503,7 @@ struct CornerTabMachineCardModeTests {
         var machine = machine()
         _ = machine.handle(.arrival(cardable), now: at(0))
         _ = machine.handle(.dismissed(cardAgentID: "a"), now: at(1))
-        _ = machine.handle(.mouse(isOverCornerOrTab: true), now: at(2))
-        #expect(machine.handle(.deadlineReached, now: at(2.5)) == [.openPanel])
+        #expect(machine.handle(.hoverRevealed, now: at(2.5)) == [.openPanel])
         // The summon cleared the dismissal: once the panel closes, a new reading may show the card again.
         _ = machine.handle(.panelVisibility(true), now: at(3))
         _ = machine.handle(.panelVisibility(false), now: at(4))

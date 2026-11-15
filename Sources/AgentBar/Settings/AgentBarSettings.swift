@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import IndieEdgeReveal
 
 /// Everything the user can configure, backed by UserDefaults (`.standard` in
 /// the app; a scratch suite in tests). The Settings window edits it; the
@@ -10,6 +11,10 @@ import Combine
 final class AgentBarSettings: ObservableObject {
     static let showsMenuBarIconKey = "showsMenuBarIcon"
     static let showsCornerTabKey = "showsCornerTab"
+    /// Where hovering opens AgentBar and the corner tab sits (`EdgeRevealStyle`). Default and fallback:
+    /// the bottom-right corner, where the corner tab always was.
+    static let hoverSpot = EdgeRevealStyleSetting(key: "hoverSpot")
+    static let defaultHoverSpot: EdgeRevealStyle = .bottomRightCorner
     nonisolated static let usesAvenirFontKey = "usesAvenirFont"
     nonisolated static let fontScaleKey = "fontScale"
     nonisolated static let fontScaleRange = 0.8...1.4
@@ -25,6 +30,10 @@ final class AgentBarSettings: ObservableObject {
     /// The corner tab: peeks in when an agent starts needing the user, and when the pointer rests
     /// in the bottom-right corner (both off when this is off). A click on it opens the panel.
     @Published private(set) var showsCornerTab: Bool
+    /// Where the corner tab sits and which screen edge or corner opens AgentBar when the pointer rests
+    /// there (shared `EdgeRevealService`). `.off` = no hover open; the tab then keeps the bottom-right
+    /// for arrivals. Only acts while `showsCornerTab` is on.
+    @Published private(set) var hoverSpot: EdgeRevealStyle
     /// Text face: Avenir Next (default) or the system font. Read by `Font.avenir`.
     @Published private(set) var usesAvenirFont: Bool
     @Published private(set) var fontScale: Double
@@ -45,6 +54,7 @@ final class AgentBarSettings: ObservableObject {
         list = AgentListSettings.load(from: defaults)
         showsMenuBarIcon = defaults.object(forKey: Self.showsMenuBarIconKey) as? Bool ?? true
         showsCornerTab = defaults.object(forKey: Self.showsCornerTabKey) as? Bool ?? true
+        hoverSpot = Self.hoverSpot.load(from: defaults, fallback: Self.defaultHoverSpot)
         usesAvenirFont = defaults.object(forKey: Self.usesAvenirFontKey) as? Bool ?? true
         fontScale = Double(Self.currentFontScale(defaults))
         sounds = SoundSettings.load(from: defaults)
@@ -72,6 +82,12 @@ final class AgentBarSettings: ObservableObject {
         guard shows != showsCornerTab else { return }
         showsCornerTab = shows
         defaults.set(shows, forKey: Self.showsCornerTabKey)
+    }
+
+    func setHoverSpot(_ spot: EdgeRevealStyle) {
+        guard spot != hoverSpot else { return }
+        hoverSpot = spot
+        Self.hoverSpot.save(spot, to: defaults)
     }
 
     func setUsesAvenirFont(_ uses: Bool) {

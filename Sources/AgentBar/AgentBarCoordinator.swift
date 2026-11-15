@@ -87,8 +87,9 @@ final class AgentBarCoordinator {
         )
         cornerTab = CornerTabController(
             isEnabled: settings.showsCornerTab,
+            spot: settings.hoverSpot,
             panel: .init(
-                open: { panelController.show(fromCorner: true) },   // grows from the corner, closes on pointer leave
+                open: { panelController.show(fromSpot: $0) },   // grows from the hover spot, closes on pointer leave
                 summary: { [model] in model.needsYouSummary() }
             ),
             model: model,
@@ -169,6 +170,10 @@ final class AgentBarCoordinator {
         settings.$showsCornerTab
             .dropFirst()
             .sink { [weak self] shows in self?.cornerTab.setEnabled(shows) }
+            .store(in: &settingsSubscriptions)
+        settings.$hoverSpot
+            .dropFirst()
+            .sink { [weak self] spot in self?.cornerTab.setSpot(spot) }
             .store(in: &settingsSubscriptions)
         settings.$dashboardBaseURL
             .dropFirst()

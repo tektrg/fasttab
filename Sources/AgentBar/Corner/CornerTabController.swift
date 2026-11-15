@@ -1,14 +1,16 @@
 import AppKit
 import Combine
+import IndieEdgeReveal
 
 /// Drives the corner tab: feeds `CornerTabMachine` its events (arrivals, the pointer, panel
 /// visibility, the setting, deadlines) and carries out its effects on the tab window and the
 /// main panel. Thin glue; the rules live in the machine.
 ///
-/// The pointer is followed by a global mouse-moved monitor (no Accessibility permission needed;
-/// it sees moves over other apps), which is how a rest in the bottom-right corner (it opens the panel) is noticed
-/// while nothing is showing. While the tab is up the pointer is polled instead, since moves
-/// over AgentBar's own window are not reported to a global monitor. Neither steals focus.
+/// Resting the pointer on the hover spot (any of the shared `EdgeRevealStyle` spots, default the
+/// bottom-right corner; it opens the panel) is noticed by the shared `EdgeRevealService`: an invisible
+/// hover window per display, no background mouse tracking, and no trigger where another display touches
+/// the spot. While the tab is up the pointer is polled instead, since moves over AgentBar's own window
+/// are not reported to anyone. Neither steals focus.
 ///
 /// When the machine calls for a card (`showCard`/`updateCard`), this opens the *same* `answer`/
 /// `permission` card the main panel uses (`model`, shared with it) so every existing rule (form
@@ -18,8 +20,8 @@ import Combine
 @MainActor
 final class CornerTabController {
     struct PanelAccess {
-        /// Shows the panel through the same path as the hotkey.
-        var open: () -> Void
+        /// Shows the panel grown out of the hover spot (the spot is where it came from; nil = no spot).
+        var open: (EdgeRevealStyle) -> Void
         /// What the tab says when the pointer rests in the corner.
         var summary: () -> CornerTabContent
     }
@@ -38,7 +40,8 @@ final class CornerTabController {
     private var window: CornerTabWindowController!
     private var deadlineTask: Task<Void, Never>?
     private var mouseTimer: Timer?
-    private var cornerMonitor: Any?
+    private let hoverTrigger = EdgeRevealService()
+    private var spot: EdgeRevealStyle
     private var lastMouseSample: Bool?
     /// The agent whose card the corner currently has open (nil while showing the plain pill),
     /// so the activation session and the model's card are torn down exactly once when it ends.
@@ -47,10 +50,12 @@ final class CornerTabController {
     private var cardChanges: AnyCancellable?
 
     init(
-        isEnabled: Bool, panel: PanelAccess, model: AgentPanelModel, activation: TextInputActivation,
+        isEnabled: Bool, spot: EdgeRevealStyle = AgentBarSettings.defaultHoverSpot,
+        panel: PanelAccess, model: AgentPanelModel, activation: TextInputActivation,
         clock: @escaping () -> Date = { Date() }
     ) {
         machine = CornerTabMachine(isEnabled: isEnabled)
+        self.spot = spot
         self.panel = panel
         self.model = model
         self.activation = activation
@@ -61,6 +66,10 @@ final class CornerTabController {
             onDismiss: { [weak self] in self.map { $0.send(.dismissed(cardAgentID: $0.cardOpenAgentID)) } },
             onOpenSettings: { [weak self] in self?.onOpenSettings() }
         )
+        window.setSpot(spot)
+        hoverTrigger.style = spot
+        hoverTrigger.onReveal = { [weak self] _ in self?.send(.hoverRevealed, isPanelOpening: true) }
+        hoverTrigger.isRevealSuppressed = { [weak self] in self?.machine.wantsMousePolling ?? true }
         cardChanges = model.objectWillChange.sink { [weak self] _ in
             // After the change lands (`objectWillChange` fires before it): a sent or cancelled card leaves the corner empty.
             DispatchQueue.main.async { self?.showPillIfCardEmpty() }
@@ -77,6 +86,15 @@ final class CornerTabController {
         showPillIfCardEmpty()
     }
     func setEnabled(_ isEnabled: Bool) { send(.enabled(isEnabled)) }
+
+    /// A new hover spot: the tab sits and slides in there, and resting the pointer there opens the panel.
+    func setSpot(_ newSpot: EdgeRevealStyle) {
+        guard newSpot != spot else { return }
+        spot = newSpot
+        window.setSpot(newSpot)
+        hoverTrigger.style = newSpot
+        lastMouseSample = nil
+    }
     func panelVisibilityChanged(_ isVisible: Bool) { send(.panelVisibility(isVisible), isPanelOpening: isVisible) }
 
     private func send(_ event: CornerTabEvent, isPanelOpening: Bool = false) {
@@ -117,7 +135,7 @@ final class CornerTabController {
             leaveCard(isPanelOpening: isPanelOpening)
             window.removeNow()
         case .openPanel:
-            panel.open()
+            panel.open(spot)
         }
     }
 
@@ -196,7 +214,7 @@ final class CornerTabController {
 
     private func syncObservers() {
         scheduleDeadline()
-        machine.wantsCornerWatch ? startCornerMonitor() : stopCornerMonitor()
+        machine.wantsHoverTrigger ? startHoverTrigger() : stopHoverTrigger()
         machine.wantsMousePolling ? startMousePolling() : stopMousePolling()
     }
 
@@ -217,17 +235,12 @@ final class CornerTabController {
         send(.deadlineReached)
     }
 
-    private func startCornerMonitor() {
-        guard cornerMonitor == nil else { return }
-        cornerMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sampleMouse() }
-        }
+    private func startHoverTrigger() {
+        hoverTrigger.start()
     }
 
-    private func stopCornerMonitor() {
-        guard let cornerMonitor else { return }
-        NSEvent.removeMonitor(cornerMonitor)
-        self.cornerMonitor = nil
+    private func stopHoverTrigger() {
+        hoverTrigger.stop()
         lastMouseSample = nil
     }
 
@@ -244,16 +257,24 @@ final class CornerTabController {
         mouseTimer = nil
     }
 
-    /// Only changes are sent; the machine cares about entering and leaving. The corner counts only
+    /// Only changes are sent; the machine cares about entering and leaving. The hover spot counts only
     /// with no mouse button down (a drag passing through it is not a hover); the tab always counts.
     private func sampleMouse() {
         let location = NSEvent.mouseLocation
         let overTab = window.frame?.contains(location) == true
-        let inCorner = NSEvent.pressedMouseButtons == 0
-            && CornerHotZone.contains(location, displayFrames: NSScreen.screens.map(\.frame))
-        let isOver = overTab || inCorner
+        let inSpot = NSEvent.pressedMouseButtons == 0 && Self.hoverZones(for: spot).contains { $0.contains(location) }
+        let isOver = overTab || inSpot
         guard isOver != lastMouseSample else { return }
         lastMouseSample = isOver
         send(.mouse(isOverCornerOrTab: isOver))
+    }
+
+    /// The spot's hover areas on the connected displays (none where another display touches it).
+    private static func hoverZones(for spot: EdgeRevealStyle) -> [CGRect] {
+        let frames = NSScreen.screens.map(\.frame)
+        return NSScreen.screens.compactMap { screen in
+            EdgeRevealGeometry.triggerZone(for: spot, screen: EdgeRevealScreenInfo(screen: screen), otherScreens: frames)
+                .map { EdgeRevealGeometry.hitZone(for: spot, zone: $0) }
+        }
     }
 }

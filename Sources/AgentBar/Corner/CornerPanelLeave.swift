@@ -1,14 +1,16 @@
 import CoreGraphics
+import IndieEdgeReveal
 
-/// Gap 9: the panel opened from the corner tab grows out of the bottom-right corner and closes
+/// Gap 9: the panel opened from the corner tab grows out of its hover spot and closes
 /// when the pointer leaves it (shared `CommandBarPointerLeaveMonitor`). Opened by the shortcut,
 /// none of this applies. Pure geometry and gates; `AgentPanelController` is the glue.
 enum CornerPanelLeave {
-    /// The corner the panel grows out of: a small square at the display's bottom-right
-    /// (AppKit coordinates, y up). Also counts as "not left yet" while the pointer is in it.
-    static func cornerZone(displayFrame: CGRect) -> CGRect {
-        let side = CornerHotZone.size * 2
-        return CGRect(x: displayFrame.maxX - side, y: displayFrame.minY, width: side, height: side)
+    /// The hover spot the panel grows out of on `displayFrame` (AppKit coordinates, y up): the shared
+    /// trigger zone of that spot. Also counts as "not left yet" while the pointer is in it.
+    /// "Hover to open: Off" grows from the bottom-right, where the corner tab sits.
+    static func zone(spot: EdgeRevealStyle, displayFrame: CGRect) -> CGRect {
+        let spot = CornerTabPlacement.placementSpot(for: spot)
+        return EdgeRevealGeometry.triggerZone(for: spot, screen: EdgeRevealScreenInfo(frame: displayFrame)) ?? .zero
     }
 }
 

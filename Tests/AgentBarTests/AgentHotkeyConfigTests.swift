@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import IndieCommandBar
 @testable import AgentBar
 
 struct AgentHotkeyConfigTests {
@@ -23,7 +24,7 @@ struct AgentHotkeyConfigTests {
         #expect(config == .standard)
         #expect(config.keyCode == 48)
         #expect(config.modifiers == [.option])
-        #expect(config.displayName == "⌥Tab")
+        #expect(config.displayName == "⌥⇥")
     }
 
     @Test func readsAConfiguredShortcut() {
@@ -104,8 +105,41 @@ struct AgentHotkeyConfigTests {
     }
 
     @Test func backwardShortcutIsShownOrExplainedAsUnavailable() {
-        #expect(AgentHotkeyConfig.standard.backwardDisplayName == "⌥⇧Tab")
+        #expect(AgentHotkeyConfig.standard.backwardDisplayName == "⌥⇧⇥")
         #expect(AgentHotkeyConfig(keyCode: 49, modifiers: [.control, .command], keyName: "Space").backwardDisplayName == "⌃⇧⌘Space")
         #expect(AgentHotkeyConfig(keyCode: 48, modifiers: [.option, .shift]).backwardDisplayName == nil)
+    }
+
+    // MARK: - Shared recorder (ViewShortcut)
+
+    @Test func theSharedRecordersValueRoundTrips() {
+        let recorded = ViewShortcut(keyCode: 49, modifiers: NSEvent.ModifierFlags([.control, .shift]).rawValue, keyName: "Space")
+        let config = AgentHotkeyConfig.recorded(recorded)
+        #expect(config?.modifiers == [.control, .shift])
+        #expect(config?.viewShortcut == recorded)
+        #expect(AgentHotkeyConfig.standard.viewShortcut.displayString == "⌥⇥")
+    }
+
+    @Test func aSharedRecordingWithoutAModifierOrOutOfRangeIsRefused() {
+        #expect(AgentHotkeyConfig.recorded(ViewShortcut(keyCode: 49, modifiers: 0, keyName: "Space")) == nil)
+        #expect(AgentHotkeyConfig.recorded(ViewShortcut(keyCode: 200, modifiers: NSEvent.ModifierFlags.option.rawValue, keyName: "?")) == nil)
+    }
+
+    @Test func aKeyNameStoredByAnOlderBuildReadsLikeOneRecordedNow() {
+        let defaults = makeDefaults()
+        defaults.set(48, forKey: AgentHotkeyConfig.keyCodeDefaultsKey)
+        defaults.set(3, forKey: AgentHotkeyConfig.modifiersDefaultsKey)
+        defaults.set("Tab", forKey: AgentHotkeyConfig.keyNameDefaultsKey)   // what the old recorder wrote
+        let loaded = AgentHotkeyConfig.configured(defaults: defaults)
+        #expect(loaded.keyCode == 48 && loaded.modifiers == [.command, .option])
+        #expect(loaded.displayName == "⌥⌘⇥")
+        // A layout-dependent letter keeps the stored name.
+        defaults.set(40, forKey: AgentHotkeyConfig.keyCodeDefaultsKey)
+        defaults.set("Ö", forKey: AgentHotkeyConfig.keyNameDefaultsKey)
+        #expect(AgentHotkeyConfig.configured(defaults: defaults).keyName == "Ö")
+    }
+
+    @Test func functionKeysAreNamedWhateverWasStored() {
+        #expect(AgentHotkeyConfig(keyCode: 96, modifiers: [.command], keyName: "\u{F708}").keyName == "F5")
     }
 }

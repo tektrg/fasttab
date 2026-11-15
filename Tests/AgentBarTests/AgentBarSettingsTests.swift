@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import IndieEdgeReveal
 @testable import AgentBar
 
 @MainActor
@@ -9,6 +10,7 @@ struct AgentBarSettingsTests {
         #expect(settings.list == .standard)
         #expect(settings.showsMenuBarIcon)
         #expect(settings.showsCornerTab)
+        #expect(settings.hoverSpot == .bottomRightCorner)
         #expect(settings.hotkey == .standard)
         #expect(settings.dashboardBaseURL == DashboardEndpoint.defaultBaseURL)
     }
@@ -37,6 +39,52 @@ struct AgentBarSettingsTests {
         #expect(!AgentBarSettings(defaults: defaults).showsCornerTab)
         AgentBarSettings(defaults: defaults).setShowsCornerTab(true)
         #expect(AgentBarSettings(defaults: defaults).showsCornerTab)
+    }
+
+    // MARK: - Hover spot (shared EdgeRevealStyle)
+
+    @Test func hoverSpotDefaultsToTheBottomRightCornerWhereTheTabAlwaysWas() {
+        #expect(AgentBarSettings.defaultHoverSpot == .bottomRightCorner)
+        #expect(AgentBarSettings(defaults: makeScratchDefaults()).hoverSpot == .bottomRightCorner)
+    }
+
+    @Test func everySpotPersistsUnderItsSharedRawValue() {
+        for spot in EdgeRevealStyle.allCases where spot != AgentBarSettings.defaultHoverSpot {
+            let defaults = makeScratchDefaults()
+            AgentBarSettings(defaults: defaults).setHoverSpot(spot)
+            #expect(AgentBarSettings(defaults: defaults).hoverSpot == spot)
+            #expect(defaults.string(forKey: "hoverSpot") == spot.rawValue)
+        }
+        // Choosing the default back writes nothing new but still reads as the default.
+        let defaults = makeScratchDefaults()
+        let settings = AgentBarSettings(defaults: defaults)
+        settings.setHoverSpot(.notch)
+        settings.setHoverSpot(.bottomRightCorner)
+        #expect(AgentBarSettings(defaults: defaults).hoverSpot == .bottomRightCorner)
+    }
+
+    @Test func settingsStoredBeforeHoverSpotsKeepWorking() {
+        // An existing user: corner tab turned off, no spot stored.
+        let off = makeScratchDefaults()
+        off.set(false, forKey: AgentBarSettings.showsCornerTabKey)
+        let before = AgentBarSettings(defaults: off)
+        #expect(!before.showsCornerTab && before.hoverSpot == .bottomRightCorner)
+        // Another: corner tab on (the default), nothing stored at all.
+        #expect(AgentBarSettings(defaults: makeScratchDefaults()).showsCornerTab)
+    }
+
+    @Test func anUnreadableStoredSpotFallsBackToTheDefault() {
+        let defaults = makeScratchDefaults()
+        defaults.set("middleOfTheScreen", forKey: "hoverSpot")
+        #expect(AgentBarSettings(defaults: defaults).hoverSpot == .bottomRightCorner)
+        defaults.set(5, forKey: "hoverSpot")
+        #expect(AgentBarSettings(defaults: defaults).hoverSpot == .bottomRightCorner)
+    }
+
+    @Test func choosingOffIsKeptAsOff() {
+        let defaults = makeScratchDefaults()
+        AgentBarSettings(defaults: defaults).setHoverSpot(.off)
+        #expect(AgentBarSettings(defaults: defaults).hoverSpot == .off)
     }
 
     @Test func committedShortcutPersistsAndResetClearsIt() {

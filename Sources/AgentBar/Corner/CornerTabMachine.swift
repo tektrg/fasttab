@@ -1,18 +1,13 @@
 import Foundation
-import IndieEdgeReveal
 
 /// How long the corner tab waits and stays.
 struct CornerTabTiming: Equatable, Sendable {
     /// How long an arrival's tab stays when the pointer is not on it.
     var visibleSeconds: TimeInterval
-    /// How long the pointer must rest in the corner before the panel opens, so passing
-    /// through the corner (or dragging something past it) opens nothing. The shared
-    /// IndieEdgeReveal corner dwell, same as Fast Tab's hover edges.
-    var hoverDwellSeconds: TimeInterval
     /// How long the tab stays after the pointer leaves it and the corner.
     var leaveGraceSeconds: TimeInterval
 
-    static let standard = CornerTabTiming(visibleSeconds: 5, hoverDwellSeconds: EdgeRevealStyle.bottomRightCorner.dwellDelay, leaveGraceSeconds: 0.7)
+    static let standard = CornerTabTiming(visibleSeconds: 5, leaveGraceSeconds: 0.7)
 }
 
 enum CornerTabEvent: Equatable, Sendable {
@@ -21,8 +16,11 @@ enum CornerTabEvent: Equatable, Sendable {
     /// Every reading of Needs you (`nothingNeedsYou` when the feed is down): how many are blocked
     /// on the user now, and whether one just became blocked (a late classification, or a new question).
     case needsYouChanged(CornerTabContent, hasNewBlocker: Bool)
-    /// The pointer is now over (or no longer over) the bottom-right corner or the tab.
+    /// The pointer is now over (or no longer over) the hover spot or the tab.
     case mouse(isOverCornerOrTab: Bool)
+    /// The pointer rested on the hover spot long enough (the shared `EdgeRevealService` owns the
+    /// dwell, so passing through opens nothing): the user asked for the panel.
+    case hoverRevealed
     case tabClicked
     /// The ✕ on the tab or card: put it away without opening the panel or answering. `cardAgentID` is
     /// the agent whose card was showing (nil for the plain pill).
@@ -55,8 +53,7 @@ enum CornerTabEffect: Equatable, Sendable {
 ///     idle --arrival--> tab                       (stays while the pointer is on it)
 ///     idle --an agent becomes blocked--> tab
 ///     tab --deadline--> idle                      (slides out; never while an agent is blocked)
-///     idle --pointer in the corner--> dwelling --rests a moment--> idle + open panel (gap 9, user 2026-11-12)
-///     dwelling --pointer leaves--> idle
+///     idle --pointer rests on the hover spot (shared edge-reveal dwell)--> idle + open panel (gap 9, user 2026-11-12)
 ///     tab --pointer leaves the tab and corner--> tab (hides after a short grace)
 ///     tab --click--> idle                         (opens the panel like the shortcut)
 ///     tab --✕--> idle                             (slides out; the blocker stays in Needs you, not re-announced)
@@ -79,8 +76,6 @@ enum CornerTabEffect: Equatable, Sendable {
 struct CornerTabMachine: Equatable, Sendable {
     enum Phase: Equatable, Sendable {
         case idle
-        /// The pointer is in the corner; the tab slides in at `showAt` if it is still there.
-        case dwelling(showAt: Date)
         /// Showing. `hideAt` is nil while the pointer is on the tab or in the corner.
         case tab(hideAt: Date?)
     }
@@ -106,13 +101,12 @@ struct CornerTabMachine: Equatable, Sendable {
     var nextDeadline: Date? {
         switch phase {
         case .idle: nil
-        case .dwelling(let showAt): showAt
         case .tab(let hideAt): hideAt
         }
     }
 
-    /// Whether the host should follow the pointer's moves at all (to notice it reaching the corner).
-    var wantsCornerWatch: Bool { isEnabled && !isPanelVisible }
+    /// Whether the hover spot should be armed (the host's `EdgeRevealService` runs only then).
+    var wantsHoverTrigger: Bool { isEnabled && !isPanelVisible }
 
     /// Whether the host should poll the pointer: while the tab is up, the pointer over it
     /// generates no moves the host could observe.
@@ -126,6 +120,7 @@ struct CornerTabMachine: Equatable, Sendable {
         case .arrival(let content): return arrive(content, now: now)
         case .needsYouChanged(let content, let hasNewBlocker): return needsYouChanged(content, hasNewBlocker: hasNewBlocker, now: now)
         case .mouse(let isOver): return pointerMoved(isOver: isOver, now: now)
+        case .hoverRevealed: return hoverRevealed()
         case .tabClicked: return clicked()
         case .dismissed(let cardAgentID): return dismissed(cardAgentID: cardAgentID)
         case .panelVisibility(let isVisible): return panelVisibilityChanged(isVisible)
@@ -143,7 +138,7 @@ struct CornerTabMachine: Equatable, Sendable {
         let hideAt = pointerIsOver || isSticky ? nil : now.addingTimeInterval(timing.visibleSeconds)
         shownContent = content
         switch phase {
-        case .idle, .dwelling:
+        case .idle:
             phase = .tab(hideAt: hideAt)
             return [showEffect(for: content)]
         case .tab:
@@ -158,7 +153,7 @@ struct CornerTabMachine: Equatable, Sendable {
         if hasNewBlocker || blockedCount == 0 { dismissedCardAgentID = nil }
         guard isEnabled, !isPanelVisible else { return [] }
         switch phase {
-        case .idle, .dwelling:
+        case .idle:
             guard hasNewBlocker, isSticky else { return [] }
             phase = .tab(hideAt: nil)
             shownContent = content
@@ -195,10 +190,7 @@ struct CornerTabMachine: Equatable, Sendable {
         pointerIsOver = isOver
         switch phase {
         case .idle:
-            guard isOver, isEnabled, !isPanelVisible else { return [] }
-            phase = .dwelling(showAt: now.addingTimeInterval(timing.hoverDwellSeconds))
-        case .dwelling:
-            if !isOver { phase = .idle }
+            break
         case .tab(let hideAt):
             if isOver {
                 phase = .tab(hideAt: nil)
@@ -207,6 +199,15 @@ struct CornerTabMachine: Equatable, Sendable {
             }
         }
         return []
+    }
+
+    /// Resting on the hover spot opens the panel (decision 2026-11-12: hover opens). A showing tab keeps
+    /// its own click; nothing happens while the panel is open or the setting is off.
+    private mutating func hoverRevealed() -> [CornerTabEffect] {
+        guard isEnabled, !isPanelVisible, phase == .idle else { return [] }
+        shownContent = nil
+        dismissedCardAgentID = nil
+        return [.openPanel]
     }
 
     private mutating func clicked() -> [CornerTabEffect] {
@@ -245,12 +246,6 @@ struct CornerTabMachine: Equatable, Sendable {
 
     private mutating func deadlineReached(now: Date) -> [CornerTabEffect] {
         switch phase {
-        case .dwelling(let showAt) where now >= showAt:
-            // The user asked for the panel by resting the pointer here (decision 2026-11-12: hover opens).
-            phase = .idle
-            shownContent = nil
-            dismissedCardAgentID = nil
-            return [.openPanel]
         case .tab(let hideAt?) where now >= hideAt:
             phase = .idle
             return [.slideTabOut]

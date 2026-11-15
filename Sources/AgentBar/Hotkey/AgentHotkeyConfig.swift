@@ -36,7 +36,23 @@ struct AgentHotkeyConfig: Equatable {
     init(keyCode: UInt16, modifiers: NSEvent.ModifierFlags, keyName: String? = nil) {
         self.keyCode = keyCode
         self.modifiers = modifiers.intersection([.command, .option, .control, .shift])
-        self.keyName = keyName.flatMap { $0.isEmpty ? nil : $0 } ?? KeyDisplayName.name(forKeyCode: keyCode)
+        // Keys that print no character (Tab, Space, arrows, F-keys) always use the shared name, so a
+        // name stored by an older build ("Tab") reads like one recorded now ("⇥"). Storage is unchanged.
+        self.keyName = ViewShortcut.specialKeyName(forKeyCode: keyCode)
+            ?? keyName.flatMap { $0.isEmpty ? nil : $0 }
+            ?? ViewShortcut.layoutFreeName(forKeyCode: keyCode)
+            ?? "key \(keyCode)"
+    }
+
+    /// The shared recorder's value for this shortcut (what `ShortcutRecorderField` shows).
+    var viewShortcut: ViewShortcut {
+        ViewShortcut(keyCode: keyCode, modifiers: modifiers.rawValue, keyName: keyName)
+    }
+
+    /// What a shortcut recorded by the shared `ShortcutRecorderField` means here; nil for a key
+    /// code outside Apple keyboards' range.
+    static func recorded(_ shortcut: ViewShortcut) -> AgentHotkeyConfig? {
+        recorded(keyCode: shortcut.keyCode, modifiers: shortcut.modifierFlags, keyName: shortcut.keyName)
     }
 
     static func == (lhs: AgentHotkeyConfig, rhs: AgentHotkeyConfig) -> Bool {

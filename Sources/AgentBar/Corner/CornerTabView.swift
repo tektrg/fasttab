@@ -1,3 +1,4 @@
+import IndieEdgeReveal
 import SwiftUI
 
 /// What the corner window currently shows: the summary pill, or the sole blocked agent's live
@@ -13,14 +14,16 @@ final class CornerTabViewState: ObservableObject {
     @Published var content = CornerTabContent(count: 0, newestName: "")
     @Published var isSlidIn = false
     @Published var mode: CornerTabDisplayMode = .pill
+    /// The edge the tab slides in from (set by the hover spot).
+    @Published var slide: CornerTabSlide = .fromRight
 }
 
 /// The corner window's content: either the pill (an orange dot, "3 need you", and the newest
 /// arrival's name; a grey dot and "Nothing needs you · AgentBar" when nobody needs the user; a red
 /// dot and "waiting for your answer" while someone is blocked, and then the tab stays), or, once
 /// exactly one agent is blocked with something answerable, that agent's live card (the compact `AgentPanelView`)
-/// in its place. Same material and outline as the panel. Slides in from the display's right edge;
-/// the window clips it.
+/// in its place. Same material and outline as the panel. Slides in from the screen edge of its hover spot
+/// (the display's right edge by default); the window clips it.
 struct CornerTabView: View {
     @ObservedObject var state: CornerTabViewState
     @ObservedObject var model: AgentPanelModel
@@ -30,20 +33,18 @@ struct CornerTabView: View {
     let onDismiss: () -> Void
     let onOpenSettings: () -> Void
 
-    private var contentWidth: CGFloat {
-        state.mode == .card ? AgentPanelMetrics.width : CornerTabPlacement.tabWidth
-    }
-    private var contentHeight: CGFloat {
-        state.mode == .card ? CornerTabPlacement.cardHeight : CornerTabPlacement.tabHeight
+    private var contentSize: CGSize {
+        state.mode == .card
+            ? CGSize(width: AgentPanelMetrics.width, height: CornerTabPlacement.cardHeight)
+            : CGSize(width: CornerTabPlacement.tabWidth, height: CornerTabPlacement.tabHeight)
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            content
-                .offset(x: state.isSlidIn ? 0 : contentWidth + AgentPanelPlacement.edgeMargin)
-            Spacer(minLength: 0)
-        }
-        .frame(width: contentWidth + AgentPanelPlacement.edgeMargin, height: contentHeight)
+        let hidden = state.slide.hiddenOffset(for: contentSize)
+        let window = state.slide.windowSize(for: contentSize)
+        content
+            .offset(x: state.isSlidIn ? 0 : hidden.width, y: state.isSlidIn ? 0 : hidden.height)
+            .frame(width: window.width, height: window.height, alignment: state.slide.contentAlignment)
     }
 
     @ViewBuilder

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import IndieCommandBar
+import IndieEdgeReveal
 @testable import AgentBar
 
 /// Gap 9: corner-opened panel closes on pointer leave only when nothing is in progress.
@@ -14,9 +15,20 @@ struct CornerPanelLeaveTests {
         return AgentPanelModel(store: FrecencyStore(defaults: defaults), pages: pages, now: { AgentListFixtures.now })
     }
 
-    @Test func cornerZoneIsTheDisplaysBottomRight() {
-        let zone = CornerPanelLeave.cornerZone(displayFrame: CGRect(x: 0, y: 0, width: 1000, height: 800))
-        #expect(zone.maxX == 1000 && zone.minY == 0 && zone.width == CornerHotZone.size * 2)
+    private let display = CGRect(x: 0, y: 0, width: 1000, height: 800)
+
+    @Test func zoneIsTheSharedTriggerZoneOfTheHoverSpot() {
+        let corner = CornerPanelLeave.zone(spot: .bottomRightCorner, displayFrame: display)
+        #expect(corner.maxX == 1000 && corner.minY == 0 && corner.width == EdgeRevealGeometry.cornerZoneSide)
+        let topLeft = CornerPanelLeave.zone(spot: .topLeftCorner, displayFrame: display)
+        #expect(topLeft.minX == 0 && topLeft.maxY == 800)
+        let right = CornerPanelLeave.zone(spot: .rightEdge, displayFrame: display)
+        #expect(right.maxX == 1000 && right.midY == 400)
+    }
+
+    @Test func hoverOffGrowsFromTheBottomRightWhereTheTabSits() {
+        #expect(CornerPanelLeave.zone(spot: .off, displayFrame: display)
+                == CornerPanelLeave.zone(spot: .bottomRightCorner, displayFrame: display))
     }
 
     @Test func idlePanelMayCloseButTypingAndEditorsHoldIt() {

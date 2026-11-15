@@ -25,6 +25,8 @@ final class AgentPanelController {
     private var focusObservers: [NSObjectProtocol] = []
     /// Set while the panel was opened from the corner tab (gap 9): grow-from-corner + pointer-leave close.
     private var cornerZone: CGRect?
+    /// The hover spot the panel was opened from (nil: shortcut, menu bar...).
+    private var openedFromSpot: EdgeRevealStyle?
     private var leaveMonitor: CommandBarPointerLeaveMonitor?
     private var leaveGateSubscription: AnyCancellable?
     private var leaveTypingSubscription: AnyCancellable?
@@ -165,19 +167,23 @@ final class AgentPanelController {
         scrollMonitor = nil
     }
 
-    /// `fromCorner`: opened by clicking the corner tab. The panel grows out of the bottom-right
-    /// corner (shared `EdgeRevealAnimator`) and closes when the pointer leaves it while the search
-    /// box is blank and nothing holds it (`holdsPanelAgainstPointerLeave`, open menus). Any other
-    /// open (shortcut, menu bar, link) keeps today's behaviour.
-    func show(fromCorner: Bool = false) {
+    /// `fromSpot`: opened from the hover spot (resting the pointer there, or clicking the corner tab
+    /// that sits there). The panel grows out of that spot (shared `EdgeRevealAnimator`) and closes when
+    /// the pointer leaves it while the search box is blank and nothing holds it
+    /// (`holdsPanelAgainstPointerLeave`, open menus). The default spot (bottom-right corner) keeps the
+    /// user's Placement setting; any other spot draws the panel at that spot (as Fast Tab does).
+    /// Any other open (shortcut, menu bar, link) keeps today's behaviour.
+    func show(fromSpot: EdgeRevealStyle? = nil) {
         EdgeRevealAnimator.interrupt(panel)
         model.resetForShow()
         placementFrame = SummonScreen.visibleFrame(fallback: placementFrame)
-        applyCurrentSize()
         stopLeaveMonitor()
-        if fromCorner, let display = NSScreen.containing(NSEvent.mouseLocation) ?? NSScreen.main {
-            let zone = CornerPanelLeave.cornerZone(displayFrame: display.frame)
-            cornerZone = zone
+        if let fromSpot, let display = NSScreen.containing(NSEvent.mouseLocation) ?? NSScreen.main {
+            cornerZone = CornerPanelLeave.zone(spot: fromSpot, displayFrame: display.frame)
+            openedFromSpot = CornerTabPlacement.placementSpot(for: fromSpot)
+        }
+        applyCurrentSize()
+        if let zone = cornerZone {
             let frame = panel.frame
             EdgeRevealAnimator.reveal(panel, to: frame, from: EdgeRevealGeometry.revealStartFrame(panelFrame: frame, zone: zone))
             startLeaveMonitor()
@@ -237,6 +243,7 @@ final class AgentPanelController {
         leaveGateSubscription = nil
         leaveTypingSubscription = nil
         cornerZone = nil
+        openedFromSpot = nil
     }
 
     /// The pointer left: slide back into the corner, then finish hiding as any other close does.
@@ -275,7 +282,17 @@ final class AgentPanelController {
             commandRowCount: model.commandRows.count
         )
         let size = CGSize(width: AgentPanelMetrics.width, height: height)
-        panel.setFrame(AgentPanelPlacement.frame(size: size, in: placementFrame, placement: listSettings.placement), display: panel.isVisible, animate: false)
+        panel.setFrame(frame(for: size, listSettings: listSettings), display: panel.isVisible, animate: false)
+    }
+
+    /// The panel's frame: the Placement setting, except when opened from a hover spot other than the
+    /// default bottom-right corner (then the shared frame hugging that spot).
+    private func frame(for size: CGSize, listSettings: AgentListSettings) -> CGRect {
+        if let spot = openedFromSpot, spot != AgentBarSettings.defaultHoverSpot, let zone = cornerZone,
+           let frame = EdgeRevealGeometry.panelFrame(for: spot, size: size, zone: zone, visibleFrame: placementFrame) {
+            return frame
+        }
+        return AgentPanelPlacement.frame(size: size, in: placementFrame, placement: listSettings.placement)
     }
 
     private func startOutsideClickMonitor() {

@@ -1,6 +1,11 @@
+import IndieCommandBar
+import IndieEdgeReveal
+import IndieEdgeRevealUI
+import IndieSettings
 import SwiftUI
 
-/// "Shortcuts" tab: the summon shortcut, changed live.
+/// "Shortcuts" tab: how AgentBar is opened (hover spot + summon shortcut, the "Trigger" section every
+/// app has), Focus mode's shortcut, and the cycling rule. Changed live.
 struct ShortcutsSettingsView: View {
     @ObservedObject var settings: AgentBarSettings
     let actions: AgentBarSettingsActions
@@ -8,21 +13,22 @@ struct ShortcutsSettingsView: View {
     @State private var focusProblem: String?
 
     var body: some View {
-        Form {
-            Section("Summon shortcut") {
-                HStack {
-                    Text("Open AgentBar")
-                    Spacer()
+        SettingsForm {
+            Section("Trigger") {
+                EdgeRevealStylePicker(style: Binding(
+                    get: { settings.hoverSpot },
+                    set: { settings.setHoverSpot($0) }
+                ))
+                .disabled(!settings.showsCornerTab)
+                LabeledContent("Open AgentBar") {
                     ShortcutRecorderField(
-                        displayString: settings.hotkey.displayName,
+                        shortcut: settings.hotkey.viewShortcut,
                         onRecord: record,
-                        onKeyWithoutModifier: {
-                            problem = "Hold at least one of ⌘ ⌥ ⌃ ⇧ while pressing the key."
-                        },
                         onRecordingChange: { isRecording in
                             if isRecording { problem = nil }
                             actions.setHotkeyRecording(isRecording)
-                        }
+                        },
+                        onRejected: { problem = Self.needsModifierMessage }
                     )
                 }
                 if let problem {
@@ -34,9 +40,10 @@ struct ShortcutsSettingsView: View {
                 if settings.hotkey != .standard {
                     Button("Reset to \(AgentHotkeyConfig.standard.displayName)") {
                         problem = nil
-                        record(.standard)
+                        apply(.standard)
                     }
                 }
+                SettingsFootnote(Self.hoverFootnote(spot: settings.hoverSpot, cornerTabOn: settings.showsCornerTab))
             }
 
             Section("Focus mode") {
@@ -44,15 +51,19 @@ struct ShortcutsSettingsView: View {
                     Text("Answer agents one by one")
                     Spacer()
                     ShortcutRecorderField(
-                        displayString: settings.focusHotkey.displayName,
-                        onRecord: { focusProblem = actions.changeFocusHotkey($0).message },
-                        onKeyWithoutModifier: {
-                            focusProblem = "Hold at least one of ⌘ ⌥ ⌃ ⇧ while pressing the key."
+                        shortcut: settings.focusHotkey.viewShortcut,
+                        onRecord: { shortcut in
+                            guard let config = AgentHotkeyConfig.recorded(shortcut) else {
+                                focusProblem = Self.needsModifierMessage
+                                return
+                            }
+                            focusProblem = actions.changeFocusHotkey(config).message
                         },
                         onRecordingChange: { isRecording in
                             if isRecording { focusProblem = nil }
                             actions.setHotkeyRecording(isRecording)
-                        }
+                        },
+                        onRejected: { focusProblem = Self.needsModifierMessage }
                     )
                 }
                 if let focusProblem {
@@ -80,7 +91,16 @@ struct ShortcutsSettingsView: View {
                 backwardCyclingRow
             }
         }
-        .formStyle(.grouped)
+    }
+
+    static let needsModifierMessage = "Hold at least one of ⌘ ⌥ ⌃ ⇧ while pressing the key."
+
+    /// The note under the Trigger rows; says what the hover does and what it needs.
+    static func hoverFootnote(spot: EdgeRevealStyle, cornerTabOn: Bool) -> String {
+        let shortcut = "The shortcut opens AgentBar anywhere."
+        guard cornerTabOn else { return "\(shortcut) Hover to open needs the corner tab (General › Alerts) turned on." }
+        guard spot != .off else { return "\(shortcut) The corner tab still slides in at the bottom-right when an agent needs you." }
+        return "\(shortcut) Rest the pointer on the \(spot.displayName.lowercased()) to open AgentBar there; the corner tab slides in from that spot when an agent needs you."
     }
 
     @ViewBuilder
@@ -104,7 +124,15 @@ struct ShortcutsSettingsView: View {
         }
     }
 
-    private func record(_ requested: AgentHotkeyConfig) {
+    private func record(_ shortcut: ViewShortcut) {
+        guard let config = AgentHotkeyConfig.recorded(shortcut) else {
+            problem = Self.needsModifierMessage
+            return
+        }
+        apply(config)
+    }
+
+    private func apply(_ requested: AgentHotkeyConfig) {
         problem = actions.changeHotkey(requested).message
     }
 }

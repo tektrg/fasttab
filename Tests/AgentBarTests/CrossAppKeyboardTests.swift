@@ -192,7 +192,7 @@ struct CrossAppKeyboardTests {
             focus.show(); await pump(0.3); focus.hide(restoringFocus: false)
             corner.showCard(); await pump(0.3); corner.removeNow()
             await pump(0.4)
-            controller.show(fromCorner: fromCorner)
+            controller.show(fromSpot: fromCorner ? .bottomRightCorner : nil)
             defer { controller.hide(restoringFocus: false) }
             let window = try #require(NSApp.windows.first { $0 is CommandBarPanel && $0.isVisible })
             hideOffScreen(window)

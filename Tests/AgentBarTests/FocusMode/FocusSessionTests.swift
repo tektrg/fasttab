@@ -63,6 +63,26 @@ struct FocusSessionTests {
         #expect(!model.isCardOpen)
     }
 
+    /// A dead feed shows no agents; that must not read as "they all went away" (no All clear, no exit).
+    @Test func aFeedDropKeepsTheQueueAndDoesNotShowAllClear() async {
+        let agents = [A.blockedAgent("q", blocker: .question(A.question())), A.blockedAgent("r", blocker: .question(A.question()))]
+        let (model, session) = makeRig(agents)
+        var exited = false
+        session.onExit = { exited = true }
+        session.moveForward()
+        let current = session.queue.currentID
+        model.receive(F.snapshot([], health: .down(reason: "x"), boardIsCurrent: false))
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(session.phase == .showing)
+        #expect(session.queue.count == 2)
+        #expect(session.toast == nil)
+        #expect(!exited)
+        model.receive(F.snapshot(agents))   // reconnect: same place
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(session.queue.currentID == current)
+        #expect(session.phase == .showing)
+    }
+
     @Test func emptyQueueIsAllClearAtOnce() {
         let (_, session) = makeRig([])
         #expect(session.phase == .allClear)

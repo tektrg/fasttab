@@ -1674,6 +1674,9 @@ final class AgentPanelModel: ObservableObject {
 
     /// Focus mode (`FocusMode/`): every agent in Needs you (blocked or generic idle), in the list's
     /// display order with an empty search. Empty without a trustworthy reading.
+    /// The feed is up: an empty agent list then really means nobody needs you.
+    var isStatusFeedLive: Bool { snapshot.map { !$0.health.isDown } ?? false }
+
     func focusCandidates() -> [AgentSnapshot] {
         guard let needsYou = AgentListBuilder.needsYouAgents(snapshot: snapshot, settings: listSettings, triage: triage) else { return [] }
         let display = AgentListBuilder.presentation(

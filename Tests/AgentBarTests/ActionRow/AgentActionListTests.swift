@@ -51,3 +51,31 @@ struct AgentActionCandidateTests {
         #expect(AgentActionList.candidateCounts(itemCount: 0) == [0])
     }
 }
+
+/// "More…" overflow entries show the same confirm/busy/done words as the inline capsules (M1).
+struct AgentActionMoreTitleTests {
+    private func item(_ button: RowButton) -> AgentActionItem {
+        let spec = RowButtonSpec(button: button, disabledReason: nil)
+        return AgentActionItem(action: .row(button), title: spec.label, isEnabled: true, help: nil, spec: spec)
+    }
+
+    @Test func doneShowsConfirmThenBusyInTheMoreMenu() {
+        let done = item(.done)
+        #expect(AgentActionList.overflowTitle(of: done, state: nil) == done.title)
+        #expect(AgentActionList.overflowTitle(of: done, state: .confirming(.done, reason: "x"))
+            == RowActionButtonView.titles(for: done.spec!).confirming)
+        #expect(AgentActionList.overflowTitle(of: done, state: .busy(.done))
+            == RowActionButtonView.titles(for: done.spec!).busy)
+        #expect(AgentActionList.overflowIsEnabled(done, state: .busy(.done)) == false)
+        #expect(AgentActionList.overflowIsEnabled(done, state: .confirming(.done, reason: "")) == true)
+    }
+
+    @Test func closePaneConfirmDoesNotLeakToOtherItems() {
+        let close = item(.closePane), park = item(.park)
+        #expect(AgentActionList.overflowTitle(of: close, state: .confirming(.closePane, reason: ""))
+            == RowActionText.title(of: .closePane, state: .confirming(.closePane, reason: "")))
+        #expect(AgentActionList.overflowTitle(of: park, state: .confirming(.closePane, reason: "")) == park.title)
+        let goTo = AgentActionItem(action: .goToAgent, title: "Go to agent", isEnabled: true, help: nil, spec: nil)
+        #expect(AgentActionList.overflowTitle(of: goTo, state: .busy(.done)) == "Go to agent")
+    }
+}

@@ -203,6 +203,9 @@ final class FocusSession: ObservableObject {
     // MARK: - Following the feed and the cards
 
     func reconcile() {
+        // A dead (or not-yet-arrived) feed shows no agents; that is not "they all went away":
+        // keep the queue, the card and the position until the feed is back (no false All clear).
+        guard model.isStatusFeedLive || queue.isAllClear else { return }
         let candidates = model.focusCandidates()
         let shownAgent = queue.currentID.flatMap { agentsByID[$0] }
         agentsByID = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

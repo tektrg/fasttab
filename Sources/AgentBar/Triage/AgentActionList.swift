@@ -55,6 +55,21 @@ enum AgentActionList {
         return items
     }
 
+    /// A "More…" entry's title: the same confirm/busy/done words the inline capsule shows
+    /// (`RowActionButtonView.titles`) when the row's in-flight action is this item's button.
+    static func overflowTitle(of item: AgentActionItem, state: RowActionState?) -> String {
+        guard case .row(let button) = item.action, let state, state.button == button else { return item.title }
+        return RowActionText.title(of: button, state: state)
+    }
+
+    /// A "More…" entry is pressable unless disabled or its own request is in flight / already done.
+    static func overflowIsEnabled(_ item: AgentActionItem, state: RowActionState?) -> Bool {
+        guard item.isEnabled else { return false }
+        guard case .row(let button) = item.action, let state, state.button == button else { return true }
+        if case .confirming = state { return true }
+        return false
+    }
+
     /// The row's layouts to try, best first: all items, then one fewer (+ "More…"), down to only "More…".
     static func candidateCounts(itemCount: Int) -> [Int] { Array((0...max(0, itemCount)).reversed()) }
 }

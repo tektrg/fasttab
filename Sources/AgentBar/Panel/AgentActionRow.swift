@@ -51,7 +51,8 @@ struct AgentActionRow: View {
     private func moreMenu(_ rest: [AgentActionItem]) -> some View {
         Menu {
             ForEach(rest) { item in
-                Button(item.title) { onAction(item.action) }.disabled(!item.isEnabled)
+                Button(AgentActionList.overflowTitle(of: item, state: actionState)) { onAction(item.action) }
+                    .disabled(!AgentActionList.overflowIsEnabled(item, state: actionState))
             }
         } label: {
             Text(AgentActionList.moreTitle).font(.avenir(size: fontSize, weight: .medium)).lineLimit(1)

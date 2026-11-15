@@ -16,6 +16,13 @@ for the payload contract).
                     transcript's last assistant message (local Claude
                     sessions), else the screen's last line.
 
+Question pushes are DELAYED (apns_delayed_question): each wait gets a timer
+(default 20 min, apns.json `questionDelaySec`, env
+AGENTBAR_QUESTION_PUSH_DELAY_SEC) and is pushed only if still open then; a
+wait answered anywhere first never reaches the phone. AGENTBAR_PUSH_DRY_RUN=1
+logs instead of sending. Pending timers persist in the state dir
+(apns-pending-questions.json) across restarts.
+
 Rules:
   * one push per (agent, event, turn): the turn is identified by the text
     (question text / last message), so a row flapping in and out of needs-you,
@@ -32,11 +39,15 @@ Driven by start_observer(): one daemon thread polling get_full_state every
 OBSERVE_INTERVAL_SEC. Sends run off-thread (apns_fan_out); feeds never wait.
 """
 import hashlib
+import os
 import sys
 import threading
 import time
 
+import apns_delayed_question
 import apns_fan_out
+import apns_push
+import dashboard_config
 import apns_permission_push
 import chief_dashboard_store
 import session_transcript
@@ -117,9 +128,11 @@ def message_alert(event, agent_key, label, body, turn, reason=None):
 
 
 class AgentEventPusher:
-    def __init__(self, fan_out=None, clock=time.time, last_message=local_last_message):
+    def __init__(self, fan_out=None, clock=time.time, last_message=local_last_message,
+                 question_scheduler=None):
         self._fan_out = fan_out or apns_fan_out.ApnsFanOut()
         self._clock = clock
+        self._questions = question_scheduler or default_question_scheduler(self._fan_out, clock)
         self._last_message = last_message
         self._lock = threading.Lock()
         self._seen = {}
@@ -140,8 +153,11 @@ class AgentEventPusher:
         computed = (state or {}).get("computed") or {}
         agents = [a for a in computed.get("agents") or [] if isinstance(a, dict)]
         with self._lock:
-            pushes = self._diff(agents, computed.get("needsYou") or [])
+            pushes, open_waits = self._diff(agents, computed.get("needsYou") or [])
             primed, self._primed = self._primed, True
+            # Timers run from the first observation too: a restart must not
+            # lose a pending wait (the store dedupes ones already sent).
+            self._questions.observe(open_waits)
         if not primed:
             return
         for payload, collapse_id in pushes:
@@ -153,6 +169,7 @@ class AgentEventPusher:
         by_session = {a["agentSession"]: a for a in agents if a.get("agentSession")}
         by_pane = {a["paneId"]: a for a in agents if a.get("paneId")}
         pushes = []
+        open_waits = {}
         held = set()
         asking = set()  # agents waiting on the user this pass: no "finished" for them
         for row in needs_you:
@@ -166,11 +183,15 @@ class AgentEventPusher:
                 held.add(key)
                 continue
             asking.add(key)
-            # One question push per waiting episode, whatever the text: the hook
-            # preview, the screen picker and the row detail word the same
-            # question differently, and each used to hash to a new push.
-            pushes += self._once(EVENT_QUESTION, key, row.get("label") or "Agent",
-                                 push_body(row, reason), episode=True, reason=reason)
+            # One question push per waiting episode, whatever the text, and
+            # only after the delay if still open (apns_delayed_question).
+            if key not in open_waits:
+                label = row.get("label") or "Agent"
+                body = push_body(row, reason)
+                open_waits[key or label] = {
+                    "payload": message_alert(EVENT_QUESTION, key, label,
+                                             apns_fan_out.one_line(body, BODY_MAX_CHARS), _digest(body), reason),
+                    "collapseId": f"{EVENT_QUESTION}-{_digest(key or label)}"}
         now = self._clock()
         working_now = {}
         for agent in agents:
@@ -194,7 +215,7 @@ class AgentEventPusher:
                 self._last_finished_at[key] = now
             pushes += sent
         self._working = working_now
-        return pushes
+        return pushes, open_waits
 
     def _forget_turns(self, key):
         for seen_key in [k for k in self._seen if k[0] == key]:
@@ -212,6 +233,19 @@ class AgentEventPusher:
             self._seen.pop(next(iter(self._seen)))
         collapse_id = f"{event}-{_digest(key or label)}" + ("" if episode else f"-{turn}")
         return [(message_alert(event, key, label, body, turn, reason), collapse_id)]
+
+
+def default_question_scheduler(fan_out, clock):
+    store_path = (os.environ.get(apns_delayed_question.STORE_ENV)
+                  or os.path.join(dashboard_config.STATE_HOME, apns_delayed_question.STORE_NAME))
+    delay = apns_delayed_question.delay_from(apns_config_path=apns_push.CONFIG_PATH)
+    dry_run = apns_delayed_question.dry_run_from(apns_config_path=apns_push.CONFIG_PATH)
+    print(f"apns: question pushes delayed {delay:.0f}s" + (" (DRY RUN)" if dry_run else "")
+          + f", pending store {store_path}", file=sys.stderr)
+    return apns_delayed_question.DelayedQuestionScheduler(
+        apns_delayed_question.JsonStore(store_path),
+        send=lambda payload, collapse_id: fan_out.send(lambda p=payload: p, collapse_id),
+        clock=clock, delay_sec=delay, dry_run=dry_run)
 
 
 def row_kind(row):

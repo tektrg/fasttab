@@ -751,6 +751,24 @@ silent withdraw on answer, background thread). OFF unless
 `tests/test_apns_devices_remote.py`.
 A registered device + config counts as an answer surface (`PresenceOrDevice`): prompts are held and pushed even with AgentBar closed.
 
+**Delayed needs-you push (2026-11-15)** — `server/lib/apns_delayed_question.py`.
+The "Asked a question / Needs approval / Needs login" push (`apns_agent_push`)
+is sent only if the wait is STILL open `questionDelaySec` after it opened
+(apns.json, default 1200 = 20 min; env `AGENTBAR_QUESTION_PUSH_DELAY_SEC`
+overrides, e.g. 60 for a test). Answered anywhere first (AgentBar, Focus,
+terminal, Desktop, phone) = no push: "open" is read only from the live
+`computed.needsYou` snapshot at fire time.
+- Wait identity = one agent's waiting episode (not the question text, which
+  each source words differently). Answering ends it (row gone ≥15 s); the next
+  question opens a new wait with a fresh timer. One push per wait, never repeats.
+- Pending + sent waits persist in `<state dir>/apns-pending-questions.json`
+  (env `AGENTBAR_PENDING_PUSH_FILE`), atomic write. Restart: overdue + still
+  open fires once; closed-while-down dropped; nothing is closed in the first
+  60 s (feeds warming). **At-most-once**: `sent` is saved before the APNs send.
+- `AGENTBAR_PUSH_DRY_RUN=1` (or apns.json `"questionPushDryRun": true`) logs `apns-delay: DRY RUN push …` instead of sending.
+- Server log lines: `apns-delay: wait opened|closed|sending`.
+- Tests: `tests/test_apns_delayed_question.py` (fake clock/send, temp store).
+
 ## claude-router (account auto-rotation, slice 1)
 Brief: `.claude/briefs/claude-account-rotation.md`. Separate always-on process
 (`server/claude_router.py`, stdlib), **port 4720** — the brief said 4712, but

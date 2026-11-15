@@ -2,10 +2,14 @@
 no-device no-op. Run: python3 tests/test_apns_agent_push.py"""
 import os
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Never touch the real pending-push store or send for real.
+os.environ["AGENTBAR_PENDING_PUSH_FILE"] = os.path.join(tempfile.mkdtemp(prefix="apns-agent-push-"), "p.json")
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "server", "lib"))
 import apns_agent_push as agent_push  # noqa: E402
+import apns_delayed_question as delayed  # noqa: E402
 import apns_fan_out  # noqa: E402
 import apns_permission_push as _pp  # noqa: E402
 _pp.PERMISSION_PUSH_ENABLED = True  # held-agent skip is tested with the push on
@@ -69,7 +73,12 @@ def work(pusher, clock, **extra):
 
 def make(reachable=True, last_message="All done: tests pass"):
     fan, clock = FakeFanOut(reachable), Clock()
-    pusher = agent_push.AgentEventPusher(fan_out=fan, clock=clock, last_message=lambda sid: last_message)
+    # Delay 0: these checks pin WHAT is pushed; WHEN is test_apns_delayed_question.
+    sched = delayed.DelayedQuestionScheduler(
+        delayed.MemoryStore(), send=lambda p, c: fan.send(lambda: p, c), clock=clock,
+        delay_sec=0, log=lambda m: None, startup_grace_sec=0)
+    pusher = agent_push.AgentEventPusher(fan_out=fan, clock=clock, last_message=lambda sid: last_message,
+                                         question_scheduler=sched)
     return pusher, fan, clock
 
 
@@ -85,10 +94,10 @@ pusher.tick(lambda: calls.append(1) or state([agent()], [question_row()]))
 check("get_state not called", calls, [])
 check("nothing sent", fan.sent, [])
 
-print("first observation primes only")
+print("first observation: a pre-existing question still gets its (delayed) push")
 pusher, fan, clock = make()
 pusher.observe(state([agent()], [question_row()]))
-check("no push for pre-existing question", fan.sent, [])
+check("restart keeps the wait's push", len(fan.sent), 1)
 
 print("question: one push per turn, dedupe on flapping")
 pusher, fan, clock = make()

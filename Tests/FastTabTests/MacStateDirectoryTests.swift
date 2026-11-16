@@ -271,6 +271,44 @@ struct DirectSnapshotTests {
         #expect(precedence.admitsDirect(recordName: "r", modifiedAt: t0))
     }
 
+    @Test("A record shown only by the direct path is dropped once a newer directory stops listing it")
+    func directOnlyDroppedWhenUnlisted() {
+        var precedence = DirectSnapshotPrecedence()
+        precedence.noteDirectApplied(recordName: "\(macA)_t1", modifiedAt: t0)
+        precedence.noteDirectApplied(recordName: "\(macA)_gone", modifiedAt: t0)
+        let later = t0.addingTimeInterval(120)
+        // Older directory (written before the record's version): not evidence of a delete.
+        #expect(precedence.directOnlyNamesDropped(by: directory, directoryModifiedAt: t0.addingTimeInterval(-1)).isEmpty)
+        #expect(precedence.directOnlyNamesDropped(by: directory, directoryModifiedAt: nil).isEmpty)
+        #expect(precedence.directOnlyNamesDropped(by: directory, directoryModifiedAt: later) == ["\(macA)_gone"])
+    }
+
+    @Test("Never drops a record the history sync has seen, or one of a Mac missing from the directory")
+    func directOnlyDropIsConservative() {
+        var precedence = DirectSnapshotPrecedence()
+        precedence.noteDirectApplied(recordName: "\(macA)_historySeen", modifiedAt: t0)
+        precedence.noteHistoryApplied(modified: [("\(macA)_historySeen", t0)], deleted: [])
+        precedence.noteDirectApplied(recordName: "CCCC-3333_t1", modifiedAt: t0)
+        #expect(precedence.directOnlyNamesDropped(by: directory, directoryModifiedAt: t0.addingTimeInterval(60)).isEmpty)
+    }
+
+    @Test("A dropped record is forgotten, not tombstoned: a later listing may fetch it again")
+    func forgetDirectOnly() {
+        var precedence = DirectSnapshotPrecedence()
+        precedence.noteDirectApplied(recordName: "\(macA)_gone", modifiedAt: t0)
+        precedence.forgetDirectOnly(["\(macA)_gone"])
+        #expect(precedence.directOnlyNamesDropped(by: directory, directoryModifiedAt: t0.addingTimeInterval(60)).isEmpty)
+        #expect(precedence.admitsDirect(recordName: "\(macA)_gone", modifiedAt: t0.addingTimeInterval(-60)))
+    }
+
+    @Test("A record applied with no modification date still blocks a dateless copy")
+    func nilDatesStillCount() {
+        var precedence = DirectSnapshotPrecedence()
+        precedence.noteDirectApplied(recordName: "r", modifiedAt: nil)
+        #expect(!precedence.admitsDirect(recordName: "r", modifiedAt: nil))
+        #expect(precedence.admitsDirect(recordName: "r", modifiedAt: t0))
+    }
+
     @Test("Reset forgets tombstones (new iCloud account)")
     func reset() {
         var precedence = DirectSnapshotPrecedence()

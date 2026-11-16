@@ -10,7 +10,8 @@ import FastTabSync
 // fetches that list and the listed records by ID — seconds, no history.
 //
 // The history sync keeps running underneath and stays the authority:
-// - it is the only path that deletes (this path only adds or updates), and
+// - it deletes anything; this path removes only records it alone has shown, once a
+//   newer directory stops listing them (closed tabs on a fresh install), and
 // - `DirectSnapshotPrecedence` refuses a direct copy that is older than what is
 //   shown, or of a record the history sync deleted.
 
@@ -35,10 +36,13 @@ extension SyncConsumer {
         let full = !hasFullMacDirectorySnapshot
 
         let directory: MacStateDirectory
+        let directoryModifiedAt: Date?
         do {
             let results = try await database.records(for: [MacStateDirectory.recordID])
             guard let result = results[MacStateDirectory.recordID] else { return }
-            guard let decoded = MacStateDirectory(from: try result.get()) else {
+            let directoryRecord = try result.get()
+            directoryModifiedAt = directoryRecord.modificationDate
+            guard let decoded = MacStateDirectory(from: directoryRecord) else {
                 traceMacDirectoryProblem("record unreadable")
                 return
             }
@@ -60,6 +64,7 @@ extension SyncConsumer {
         var fetched: [CKRecord] = []
         var missingNames: [String] = []
         var failures: [String] = []
+        var batchFailed = false
         for batch in MacDirectoryFetchPlan.batches(names) {
             let ids = batch.map { CKRecord.ID(recordName: $0, zoneID: SyncConstants.stateZoneID) }
             do {
@@ -77,6 +82,7 @@ extension SyncConsumer {
             } catch {
                 guard !ZoneSweepSchedule.isCancellation(error) else { return }
                 failures.append("batch of \(batch.count): \(Self.describe(error))")
+                batchFailed = true
                 break
             }
         }
@@ -86,7 +92,13 @@ extension SyncConsumer {
         let admitted = fetched.filter {
             directSnapshotPrecedence.admitsDirect(recordName: $0.recordID.recordName, modifiedAt: $0.modificationDate)
         }
-        applyRecordsToCache(modifications: admitted, deletions: [])
+        let dropped = directSnapshotPrecedence.directOnlyNamesDropped(
+            by: directory, directoryModifiedAt: directoryModifiedAt)
+        applyRecordsToCache(
+            modifications: admitted,
+            deletions: dropped.map { CKRecord.ID(recordName: $0, zoneID: SyncConstants.stateZoneID) })
+        directSnapshotPrecedence.forgetDirectOnly(dropped)
+        directlyFetchedRecordNames.subtract(dropped)
         for record in admitted {
             directSnapshotPrecedence.noteDirectApplied(
                 recordName: record.recordID.recordName, modifiedAt: record.modificationDate)
@@ -94,14 +106,16 @@ extension SyncConsumer {
         LocalCache.shared.flushPendingSave()
         directlyFetchedRecordNames.formUnion(fetched.map(\.recordID.recordName))
         directlyFetchedRecordNames.formUnion(missingNames)
-        if failures.isEmpty { hasFullMacDirectorySnapshot = true }
-        if !admitted.isEmpty {
+        // Only a failed request keeps the next pass full: one record that keeps failing
+        // must not re-download every bookmark and history record every 30 s.
+        if !batchFailed { hasFullMacDirectorySnapshot = true }
+        if !admitted.isEmpty || !dropped.isEmpty {
             fetchedChangeGeneration += 1
         }
 
         let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-        if full || !admitted.isEmpty || !failures.isEmpty {
-            Self.syncTrace("directory: \(full ? "full" : "light") macs=\(directory.entries.count) requested=\(names.count) fetched=\(fetched.count) applied=\(admitted.count) missing=\(missingNames.count) failed=\(failures.count) elapsedMs=\(elapsedMs)")
+        if full || !admitted.isEmpty || !dropped.isEmpty || !failures.isEmpty {
+            Self.syncTrace("directory: \(full ? "full" : "light") macs=\(directory.entries.count) requested=\(names.count) fetched=\(fetched.count) applied=\(admitted.count) dropped=\(dropped.count) missing=\(missingNames.count) failed=\(failures.count) elapsedMs=\(elapsedMs)")
         }
         for failure in failures.prefix(5) {
             Self.syncTrace("directory: record fetch failed: \(failure)")

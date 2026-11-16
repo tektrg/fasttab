@@ -286,10 +286,12 @@ public enum MacDirectoryFetchPlan {
 /// Keeps the direct snapshot from fighting the history-based sync on the phone.
 ///
 /// - The history sync (CKSyncEngine fetch + zone sweep) is the authority. It is
-///   always applied, and is the only path that deletes.
+///   always applied, and deletes anything.
 /// - A direct copy is applied only if it is newer (server modification date) than
 ///   what either path last applied for that record, so a slow fetch cannot roll a
 ///   record back.
+/// - The direct path removes only records it alone has shown, once a newer
+///   directory stops listing them (`directOnlyNamesDropped`).
 /// - A record the history sync deleted is never re-added by a direct copy — not
 ///   even a "newer" one fetched across the delete — until the history sync itself
 ///   delivers the record again (a reused tab record name). Without this a direct
@@ -298,16 +300,22 @@ public enum MacDirectoryFetchPlan {
 public struct DirectSnapshotPrecedence: Sendable {
     private var lastAppliedModifiedAt: [String: Date] = [:]
     private var deletedByHistory: Set<String> = []
+    /// Shown by the direct path and not touched by the history sync since, with the
+    /// modification date of the version shown (see `directOnlyNamesDropped`).
+    private var directOnlyModifiedAt: [String: Date] = [:]
 
     public init() {}
 
     public mutating func noteHistoryApplied(modified: [(name: String, modifiedAt: Date?)], deleted: [String]) {
         for (name, modifiedAt) in modified {
             deletedByHistory.remove(name)
-            lastAppliedModifiedAt[name] = modifiedAt
+            directOnlyModifiedAt.removeValue(forKey: name)
+            // A dateless record still counts as applied (oldest possible version).
+            lastAppliedModifiedAt[name] = modifiedAt ?? .distantPast
         }
         for name in deleted {
             deletedByHistory.insert(name)
+            directOnlyModifiedAt.removeValue(forKey: name)
             lastAppliedModifiedAt.removeValue(forKey: name)
         }
     }
@@ -320,11 +328,40 @@ public struct DirectSnapshotPrecedence: Sendable {
     }
 
     public mutating func noteDirectApplied(recordName: String, modifiedAt: Date?) {
-        lastAppliedModifiedAt[recordName] = modifiedAt
+        lastAppliedModifiedAt[recordName] = modifiedAt ?? .distantPast
+        directOnlyModifiedAt[recordName] = modifiedAt ?? .distantPast
+    }
+
+    /// Records only the direct path has shown that the directory, written after the
+    /// shown version, no longer lists: the Mac deleted them. On a fresh install the
+    /// history sync would take minutes to deliver those deletes, leaving closed tabs
+    /// on screen. Conservative: never a record the history sync has seen (it owns
+    /// that record now), never one whose Mac is missing from the directory, and
+    /// never on a directory not provably newer than the shown version.
+    public func directOnlyNamesDropped(by directory: MacStateDirectory, directoryModifiedAt: Date?) -> [String] {
+        guard let directoryModifiedAt else { return [] }
+        return directOnlyModifiedAt.compactMap { name, shownModifiedAt -> String? in
+            guard directoryModifiedAt > shownModifiedAt,
+                  let owner = directory.entries.first(where: {
+                      MacStateDirectory.isOwnedStateRecordName(name, deviceID: $0.deviceID)
+                  }),
+                  !owner.recordNames.contains(name) else { return nil }
+            return name
+        }.sorted()
+    }
+
+    /// After removing dropped records from the cache: forgotten, not tombstoned, so
+    /// a later listing (a re-used tab record name) may fetch and show them again.
+    public mutating func forgetDirectOnly<Names: Sequence<String>>(_ names: Names) {
+        for name in names {
+            directOnlyModifiedAt.removeValue(forKey: name)
+            lastAppliedModifiedAt.removeValue(forKey: name)
+        }
     }
 
     public mutating func reset() {
         lastAppliedModifiedAt.removeAll()
         deletedByHistory.removeAll()
+        directOnlyModifiedAt.removeAll()
     }
 }

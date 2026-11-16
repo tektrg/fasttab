@@ -75,7 +75,7 @@ final class SyncService: NSObject, ObservableObject {
     /// The phone's history-free fast path (SyncService+MacDirectory.swift). The ledger is persisted.
     var macDirectory = MacDirectoryPublishState() {
         didSet {
-            guard macDirectory.ledger != oldValue.ledger else { return }
+            guard macDirectory.ledger.recordNames != oldValue.ledger.recordNames else { return }
             persistOwnedRecordLedger()
         }
     }

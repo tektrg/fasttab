@@ -57,8 +57,10 @@ extension SyncService {
         let savedNames = ownStateRecordNames(saved)
         let deletedNames = ownStateRecordNames(deleted)
         guard !savedNames.isEmpty || !deletedNames.isEmpty else { return }
-        macDirectory.ledger.noteSaved(savedNames)
-        macDirectory.ledger.noteDeleted(deletedNames)
+        var ledger = macDirectory.ledger
+        ledger.noteSaved(savedNames)
+        ledger.noteDeleted(deletedNames)
+        macDirectory.ledger = ledger
         scheduleDirectoryWrite()
     }
 
@@ -154,6 +156,9 @@ extension SyncService {
             }
             do {
                 let saved = try await saveDirectoryRecord(record)
+                // Account switched mid-save (`resetMacDirectoryState` cancelled us):
+                // this result belongs to the previous account's state.
+                guard !Task.isCancelled else { return }
                 macDirectory.serverRecord = saved
                 macDirectory.publishedEntry = desired
                 macDirectory.lastWriteAt = now

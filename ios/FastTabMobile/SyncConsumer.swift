@@ -60,6 +60,8 @@ public final class SyncConsumer: NSObject, ObservableObject {
     var hasFullMacDirectorySnapshot = false
     var lastMacDirectoryCheckAt: Date?
     var macDirectoryCheckInFlight = false
+    /// Last directory-fetch problem traced, so a repeat every 30 s is logged once.
+    var lastMacDirectoryProblem: String?
 
     /// When this phone last queued its own `SyncedDevice` heartbeat — the
     /// record the Mac reads to say "iPhone connected". See
@@ -404,9 +406,10 @@ public final class SyncConsumer: NSObject, ObservableObject {
 
     private func performRefreshNow() async {
         await refreshAccountStatus()
-        // The Mac's current state by ID, before anything that reads change history
-        // (the engine fetch and the sweep below can take minutes on a fresh install).
-        await refreshFromMacDirectory()
+        // The Mac's current state by ID, alongside everything below rather than after
+        // it: the engine fetch and the sweep read change history, which can take
+        // minutes on a fresh install, and restored commands should not wait for it.
+        async let directSnapshot: Void = refreshFromMacDirectory()
         // Pull-to-refresh doubles as "retry everything": re-arm anything the
         // outbox still holds in case the engine's pending changes were lost.
         restorePendingCommandOutbox()
@@ -421,6 +424,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         // The engine's fetch alone can miss a zone no push marked dirty.
         lastZoneSweepAt = nil
         await sweepZonesIfDue()
+        await directSnapshot
     }
 
     public func sendPendingChanges() {

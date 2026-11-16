@@ -39,17 +39,18 @@ extension SyncConsumer {
             let results = try await database.records(for: [MacStateDirectory.recordID])
             guard let result = results[MacStateDirectory.recordID] else { return }
             guard let decoded = MacStateDirectory(from: try result.get()) else {
-                Self.syncTrace("directory: record unreadable")
+                traceMacDirectoryProblem("record unreadable")
                 return
             }
             directory = decoded
+            lastMacDirectoryProblem = nil
         } catch {
             guard !ZoneSweepSchedule.isCancellation(error) else { return }
             if let code = (error as? CKError)?.code, code == .unknownItem || code == .zoneNotFound {
                 // No Mac on a build that writes it yet; the history sync still works.
-                if full { Self.syncTrace("directory: none yet (\(Self.describe(error)))") }
+                traceMacDirectoryProblem("none yet (\(Self.describe(error)))")
             } else {
-                Self.syncTrace("directory: fetch failed: \(Self.describe(error))")
+                traceMacDirectoryProblem("fetch failed: \(Self.describe(error))")
             }
             return
         }
@@ -107,12 +108,19 @@ extension SyncConsumer {
         }
     }
 
+    private func traceMacDirectoryProblem(_ problem: String) {
+        guard problem != lastMacDirectoryProblem else { return }
+        lastMacDirectoryProblem = problem
+        Self.syncTrace("directory: \(problem)")
+    }
+
     /// A different iCloud account has a different directory and records.
     func resetMacDirectorySnapshot() {
         directSnapshotPrecedence.reset()
         directlyFetchedRecordNames.removeAll()
         hasFullMacDirectorySnapshot = false
         lastMacDirectoryCheckAt = nil
+        lastMacDirectoryProblem = nil
     }
 
     /// History-path bookkeeping for `DirectSnapshotPrecedence`: called for every

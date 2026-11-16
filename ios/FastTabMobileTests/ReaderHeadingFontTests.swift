@@ -119,11 +119,15 @@ final class ReaderHeadingFontTests: XCTestCase {
 
     func testFontFaceEmbedsTheWholeFontAsData() throws {
         let css = try XCTUnwrap(ReaderBundledFont.fontFaceCSS)
-        XCTAssertTrue(css.contains("font-family:'Fraunces'"))
-        XCTAssertTrue(css.contains("src:url(data:font/woff2;base64,"))
-        XCTAssertTrue(css.contains("font-weight:100 900"))
-        let data = try XCTUnwrap(ReaderBundledFont.frauncesData)
-        XCTAssertTrue(css.contains(data.base64EncodedString()))
+        XCTAssertEqual(css.components(separatedBy: "@font-face{font-family:'Fraunces'").count - 1, 2,
+                       "one face per subset (latin + vietnamese)")
+        XCTAssertEqual(css.components(separatedBy: "font-weight:100 900").count - 1, 2)
+        for subset in ReaderBundledFont.subsets {
+            let data = try XCTUnwrap(ReaderBundledFont.data(subset), subset.resource)
+            XCTAssertTrue(css.contains("src:url(data:font/woff2;base64,\(data.base64EncodedString())) format('woff2')"))
+            XCTAssertTrue(css.contains("unicode-range:\(subset.unicodeRange);"), subset.resource)
+        }
+        XCTAssertTrue(ReaderBundledFont.vietnamese.unicodeRange.contains("U+1EA0-1EF9"))
     }
 
     func testTemplateGetsFontFaceAndBootstrap() throws {
@@ -141,6 +145,10 @@ final class ReaderHeadingFontTests: XCTestCase {
         let font = try Data(contentsOf: fontURL)
         XCTAssertEqual(font.prefix(4), Data("wOF2".utf8))
         XCTAssertEqual(font.count, 67_388)
+        let viURL = try XCTUnwrap(Bundle.main.url(forResource: "fraunces-vietnamese", withExtension: "woff2"))
+        let vi = try Data(contentsOf: viURL)
+        XCTAssertEqual(vi.prefix(4), Data("wOF2".utf8))
+        XCTAssertEqual(vi.count, 19_748)
 
         let licenceURL = try XCTUnwrap(Bundle.main.url(forResource: "Fraunces-OFL", withExtension: "txt"))
         let licence = try String(contentsOf: licenceURL, encoding: .utf8)
@@ -156,6 +164,11 @@ final class ReaderHeadingFontTests: XCTestCase {
         XCTAssertEqual(variations?[NSNumber(value: ReaderBundledFont.weightAxisTag)]?.doubleValue, 400)
         // Optical size follows the point size, like the page (WebKit's font-optical-sizing: auto).
         XCTAssertEqual(variations?[NSNumber(value: ReaderBundledFont.opticalSizeAxisTag)]?.doubleValue, 20)
+        // Vietnamese-only letters resolve to Fraunces too (vietnamese subset in the cascade list).
+        for letter in ["ư", "đ", "ệ", "ỗ"] {
+            let used = CTFontCreateForString(font as CTFont, letter as CFString, CFRange(location: 0, length: 1))
+            XCTAssertEqual(CTFontCopyFamilyName(used) as String, "Fraunces", letter)
+        }
     }
 
     // MARK: - Real WebKit load (offline, article's own https origin)
@@ -202,6 +215,19 @@ final class ReaderHeadingFontTests: XCTestCase {
         XCTAssertEqual(ReaderFontFamily.allCases.filter(\.scalesWithDynamicType),
                        [.georgia, .palatino, .helvetica, .charter].sorted { a, b in
                            ReaderFontFamily.allCases.firstIndex(of: a)! < ReaderFontFamily.allCases.firstIndex(of: b)! })
+    }
+
+    /// Vietnamese headings: both subsets load, so ă đ ơ ư and stacked tones stay Fraunces.
+    func testVietnameseHeadingLoadsBothFrauncesSubsets() async throws {
+        let s = ReaderReadingSettings(headingFont: .fraunces)
+        let webView = try await loadReaderPage(settings: s, title: "Người Việt đọc tin tức mỗi sáng", heading: "Thời tiết")
+        let faces = try await webView.callAsyncJavaScript(
+            "return (await document.fonts.load('400 24px Fraunces', 'Người Việt đọc tin tức mỗi sáng')).length",
+            contentWorld: .page) as? Int
+        XCTAssertEqual(faces, 2, "latin + vietnamese Fraunces faces")
+        let covered = try await webView.callAsyncJavaScript(
+            "return document.fonts.check('400 24px Fraunces', 'ăđơưệọỗ')", contentWorld: .page) as? Bool
+        XCTAssertEqual(covered, true)
     }
 
     func testMatchBodyPageKeepsBoldSystemHeadings() async throws {

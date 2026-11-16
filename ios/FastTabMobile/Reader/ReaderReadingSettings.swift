@@ -97,7 +97,7 @@ public enum ReaderFontFamily: String, Codable, CaseIterable, Identifiable, Senda
 /// Font for the article title and headings, picked separately from the body font.
 /// `.matchBody` = the body family's own title stack, i.e. how headings looked before
 /// this setting existed. Fraunces is the one bundled (non-system) font: SIL OFL 1.1,
-/// latin subset, licence shipped as `Resources/Fonts/Fraunces-OFL.txt`, embedded
+/// latin + vietnamese subsets, licence shipped as `Resources/Fonts/Fraunces-OFL.txt`, embedded
 /// into the reader page by `ReaderBundledFont`.
 public enum ReaderHeadingFont: String, Codable, CaseIterable, Identifiable, Sendable {
     case matchBody

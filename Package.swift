@@ -24,6 +24,8 @@ let indieCommandBar: Target.Dependency = .product(name: "IndieCommandBar", packa
 // Accessibility window control (raise a Claude window), shared with MacLanes.
 let indieWorkspace: Target.Dependency = .product(name: "IndieWorkspace", package: "indielibkit")
 let indieBrowserTabs: Target.Dependency = .product(name: "IndieBrowserTabs", package: "indielibkit")
+// In-app updates (Sparkle 2.9.1, pinned exactly by IndieLibKit): the inline update banner.
+let indieUpdate: Target.Dependency = .product(name: "IndieUpdate", package: "indielibkit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -39,13 +41,13 @@ let package = Package(
         .library(name: "FastTabSync", targets: ["FastTabSync"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
         // Shared L1 library (GitHub tektrg/indielibkit; was a sibling checkout until the edge-anchors API).
         // Linked here: `IndieSearch` (the search folding every app shares), `IndieMetrics`
         // (tab-activity statistics), `IndieMotion` (onboarding hero clock + stage) and
         // `IndieEdgeReveal` (notch/edge/corner hover trigger) + `IndieEdgeRevealUI` (the black
         // edge-hugging surface and its grow-out motion).
         // `IndieFeedback`/`IndieFeedbackUI` (Settings > About > Chat with the Creator…).
+        // `IndieUpdate` (Sparkle updater + update banner wording; Sparkle comes in through it).
         .package(path: "../IndieLibKit"), // TEMP: back to .package(url: "https://github.com/tektrg/indielibkit", branch: "main") once IndieLibKit feat/indie-update is merged
         // The reading connector's search index (FTS5). Same package IndieLibKit already pulls in.
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0")
@@ -87,7 +89,7 @@ let package = Package(
             name: "FastTab",
             dependencies: [
                 indieSettings,
-                .product(name: "Sparkle", package: "Sparkle"),
+                indieUpdate,
                 "FastTabSync",
                 "FastTabReader",
                 "FastTabWebReader",
@@ -119,7 +121,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, indieCommandBar, indieSearch, indieSavedViews, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP,
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, indieCommandBar, indieSearch, indieSavedViews, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP, indieUpdate,
                            .product(name: "GRDB", package: "GRDB.swift")]
         ),
         .testTarget(

@@ -54,6 +54,22 @@ public final class SyncConsumer: NSObject, ObservableObject {
     /// Manual iCloud sweep bookkeeping (SyncConsumer+ZoneSweep.swift).
     var lastZoneSweepAt: Date?
     var zoneSweepInFlight = false
+    /// History-free fast path to each Mac's current state (SyncConsumer+MacDirectory.swift).
+    var directSnapshotPrecedence = DirectSnapshotPrecedence()
+    var directlyFetchedRecordNames: Set<String> = []
+    var hasFullMacDirectorySnapshot = false
+    /// A StateZone sweep reached the present this launch; until then the direct
+    /// snapshot keeps doing full passes (`MacDirectoryFetchPlan.isFullPass`).
+    var stateZoneHistoryCaughtUp = false
+    /// Bumped on an iCloud account switch; a direct pass started before it is void.
+    var macDirectoryGeneration = 0
+    /// On-screen only, like the poll; separate from it because a poll tick waits for
+    /// the history reads, which take minutes on a fresh install.
+    var macDirectoryTimer: Timer?
+    var lastMacDirectoryCheckAt: Date?
+    var macDirectoryCheckInFlight = false
+    /// Last directory-fetch problem traced, so a repeat every 30 s is logged once.
+    var lastMacDirectoryProblem: String?
 
     /// When this phone last queued its own `SyncedDevice` heartbeat — the
     /// record the Mac reads to say "iPhone connected". See
@@ -151,6 +167,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
 
+        loadDirectSnapshotPrecedence()
         setupSyncEngine()
         observeAccountChanges()
         observeLocalReaderChanges()
@@ -303,6 +320,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         lastSyncError = message
         syncHealth = health
         logger.error("iOS sync failed while \(activity, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        Self.syncTrace("failed while \(activity): \(Self.describe(error))")
     }
 
     // MARK: - Foreground Refresh
@@ -314,6 +332,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         // Back to the foreground: the user is looking, so poll at full speed.
         emptyPollStreak = 0
         scheduleNextPoll()
+        startMacDirectoryTimer()
     }
 
     /// One-shot timer re-armed after each tick, so the interval can follow the backoff.
@@ -336,6 +355,8 @@ public final class SyncConsumer: NSObject, ObservableObject {
     public func stopForegroundRefresh() {
         foregroundRefreshTimer?.invalidate()
         foregroundRefreshTimer = nil
+        macDirectoryTimer?.invalidate()
+        macDirectoryTimer = nil
     }
 
     /// The periodic tick. Silent by design — see `TransferVisibility`.
@@ -350,6 +371,8 @@ public final class SyncConsumer: NSObject, ObservableObject {
             !$0.state.pendingRecordZoneChanges.isEmpty || !$0.state.pendingDatabaseChanges.isEmpty
         } ?? false
         await performSend(visibility: .silent)
+        // Before the history reads: on a fresh install those can take minutes.
+        await refreshFromMacDirectoryIfDue()
         await performFetch(visibility: .silent)
         await sweepZonesIfDue()
         // Anything still waiting to leave the phone keeps the full-speed retry.
@@ -395,6 +418,10 @@ public final class SyncConsumer: NSObject, ObservableObject {
 
     private func performRefreshNow() async {
         await refreshAccountStatus()
+        // The Mac's current state by ID, alongside everything below rather than after
+        // it: the engine fetch and the sweep read change history, which can take
+        // minutes on a fresh install, and restored commands should not wait for it.
+        async let directSnapshot: Void = refreshFromMacDirectory()
         // Pull-to-refresh doubles as "retry everything": re-arm anything the
         // outbox still holds in case the engine's pending changes were lost.
         restorePendingCommandOutbox()
@@ -409,6 +436,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         // The engine's fetch alone can miss a zone no push marked dirty.
         lastZoneSweepAt = nil
         await sweepZonesIfDue()
+        await directSnapshot
     }
 
     public func sendPendingChanges() {

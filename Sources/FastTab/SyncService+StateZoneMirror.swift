@@ -25,7 +25,10 @@ extension SyncService {
     /// feed threw; callers decide what a failure means for them.
     func catchUpStateZoneMirror(reason: String) async throws {
         let startedAt = Date()
-        let summary = try await stateZoneMirror.catchUp()
+        var caughtUp: StateZoneMirror<CKServerChangeToken>.CatchUpSummary?
+        // Every catch-up also re-bases the phone directory's record list (SyncService+MacDirectory.swift).
+        try await resyncDirectoryLedger { caughtUp = try await self.stateZoneMirror.catchUp() }
+        guard let summary = caughtUp else { return }
         let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
         logger.info("State-zone mirror caught up for \(reason, privacy: .public): pages=\(summary.pageCount) fullWalk=\(summary.wasFullWalk) elapsedMs=\(elapsedMs) records=\(self.stateZoneMirror.recordsByName.count) unreadable=\(self.stateZoneMirror.unreadableRecordNames.count)")
     }

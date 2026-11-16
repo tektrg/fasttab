@@ -72,6 +72,13 @@ final class SyncService: NSObject, ObservableObject {
     var pendingTabOrderSlots: [OrderedTabSlot]?
     var tabStatsPublishState = TabStatsPublishState()
     var faviconPublishState = FaviconPublishState()
+    /// The phone's history-free fast path (SyncService+MacDirectory.swift). The ledger is persisted.
+    var macDirectory = MacDirectoryPublishState() {
+        didSet {
+            guard macDirectory.ledger.recordNames != oldValue.ledger.recordNames else { return }
+            persistOwnedRecordLedger()
+        }
+    }
 
     private var tabDebounceTask: Task<Void, Never>?
     private var syncPollTimer: Timer?
@@ -170,6 +177,7 @@ final class SyncService: NSObject, ObservableObject {
             deviceID: deviceID,
             publishedTabRecordIDs: Self.loadPublishedTabRecordIDs(deviceID: deviceID)
         )
+        self.macDirectory.ledger = Self.loadOwnedRecordLedger(supportDirectory: fastTabDir)
 
         super.init()
 
@@ -226,6 +234,7 @@ final class SyncService: NSObject, ObservableObject {
                 self.queueReaderChanges()
                 self.catchUpReaderZone()
                 self.refreshPendingChangeCount()
+                self.scheduleDirectoryWrite()
             }
         }
     }
@@ -769,6 +778,7 @@ final class SyncService: NSObject, ObservableObject {
         }
 
         liveTabPublishState.forgetServerDeletedRecords(deletedRecordIDs)
+        noteDirectoryAcks(saved: [], deleted: Array(deletedRecordIDs))
 
         PairedPhoneStore.shared.forget(recordNames: deletions
             .filter { $0.recordType == SyncedDevice.recordType }
@@ -828,6 +838,7 @@ final class SyncService: NSObject, ObservableObject {
         inFlightRecords.removeAll()
         serverRecordsByID.removeAll()
         stateZoneMirror.reset()
+        resetMacDirectoryState()
     }
 
 }
@@ -861,6 +872,7 @@ extension SyncService: CKSyncEngineDelegate {
                 for modification in fetchedChanges.modifications {
                     let record = modification.record
                     self.serverRecordsByID[record.recordID] = record
+                    self.retainDirectoryServerRecord(record)
                     if record.recordType == SyncCommand.recordType {
                         if let command = SyncCommand(from: record) {
                             self.handleIncomingCommand(command)
@@ -896,6 +908,8 @@ extension SyncService: CKSyncEngineDelegate {
                 }
                 self.listSync.didSave(sentChanges.savedRecords)
                 self.listSync.didDelete(sentChanges.deletedRecordIDs)
+                self.noteDirectoryAcks(saved: sentChanges.savedRecords.map(\.recordID),
+                                       deleted: sentChanges.deletedRecordIDs)
                 if !sentChanges.deletedRecordIDs.isEmpty {
                     // A reused record name (positional tabs) must be re-created
                     // fresh, not built on the deleted record's change tag.

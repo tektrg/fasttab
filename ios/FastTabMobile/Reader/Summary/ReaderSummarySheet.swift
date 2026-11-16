@@ -105,7 +105,7 @@ struct ReaderSummarySheet: View {
         let family = readingSettings.settings.fontFamily
         switch block {
         case .heading(let text):
-            Text(SummaryMarkdown.attributed(text)).font(family.swiftUIFont(size: sizes.heading).bold())
+            Text(SummaryMarkdown.attributed(text)).font(readingSettings.settings.headingSwiftUIFont(size: sizes.heading))
                 .accessibilityAddTraits(.isHeader)
         case .paragraph(let text):
             Text(SummaryMarkdown.attributed(text)).font(family.swiftUIFont(size: sizes.body))

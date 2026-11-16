@@ -193,12 +193,15 @@ extension ContentView {
     /// selection (⇧ + hotkey moves back), releasing the modifier activates it.
     func wireCycleSession() {
         cycleSession.onAdvance = { direction in
+            appState.keyboardTookControl()
             moveSelection(forward: direction == .forward, includeSearchField: true)
             return appState.selectedIndex != -1
         }
         cycleSession.onCommit = {
             activateSelectedDisplayItem()
         }
+        // The mouse takes the selection by row id (`AppState.pointerTookOver`).
+        appState.indexOfDisplayedRow = { id in displayedItems.firstIndex { $0.id == id } }
     }
 
     private func hideBarFromEscape() {
@@ -237,6 +240,9 @@ extension ContentView {
                 // text fields — e.g. the Views sheet — need Space/arrows/Return).
                 guard appState.isVisible else { return event }
                 appState.recordTypingActivity()
+                // Any key hands the highlight back to the keyboard (rows the list scrolls under a
+                // resting pointer no longer select themselves).
+                appState.keyboardTookControl()
                 // Esc closes a showing error notice first, before any other Esc job.
                 if event.keyCode == 53, dismissErrorNotice() { return nil }
                 let action = FastTabKeyRouting.route(

@@ -1,4 +1,5 @@
 import IndieAgentSessions
+import IndieCommandBar
 import AppKit
 import Combine
 
@@ -14,6 +15,8 @@ final class AgentBarCoordinator {
     private let hotkeys = AgentHotkeys()
     private let modifierWatcher: ModifierReleaseWatcher
     private let cycleController: AgentCycleController
+    /// A real mouse move inside the panel ends a keyboard cycle (no switch on release).
+    private let pointerTakeover: CommandBarPointerTakeoverMonitor
     private let switchCoordinator: AgentSwitchCoordinator
     private let cornerTab: CornerTabController
     private let arrivalSounds: ArrivalSoundController
@@ -75,6 +78,11 @@ final class AgentBarCoordinator {
         )
         self.cycleController = cycleController
         modifierWatcher = ModifierReleaseWatcher { flags in cycleController.modifiersChanged(flags) }
+        pointerTakeover = CommandBarPointerTakeoverMonitor(
+            isPointerInside: { panelController.frame.contains($0) },
+            onTakeover: { cycleController.pointerTookOver() }
+        )
+        panelController.shortcutModifiers = { settings.hotkey.modifiers }
 
         switchCoordinator = AgentSwitchCoordinator(
             model: model,
@@ -138,12 +146,14 @@ final class AgentBarCoordinator {
             arrivalSounds.observe(arrivals: arrivals, needsYou: needsYou ?? [])
             cornerTab.needsYouChanged(needsYou)
         }
-        panelController.onVisibilityChange = { [modifierWatcher, cycleController, cornerTab] isVisible in
+        panelController.onVisibilityChange = { [modifierWatcher, cycleController, cornerTab, pointerTakeover] isVisible in
             cornerTab.panelVisibilityChanged(isVisible)
             if isVisible {
                 modifierWatcher.start()
+                pointerTakeover.start()
             } else {
                 modifierWatcher.stop()
+                pointerTakeover.stop()
                 cycleController.panelClosed()
             }
         }

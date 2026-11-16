@@ -38,6 +38,9 @@ final class AgentPanelController {
     /// The gear / ⌘, was used; called after the panel has closed itself.
     var onOpenSettings: (() -> Void)?
 
+    /// The summon shortcut's modifiers, read live: holding one holds a corner-opened panel.
+    var shortcutModifiers: () -> NSEvent.ModifierFlags = { [] }
+
     init(model: AgentPanelModel, activation: TextInputActivation) {
         self.model = model
         self.activation = activation
@@ -89,6 +92,7 @@ final class AgentPanelController {
     }
 
     var isVisible: Bool { panel.isVisible }
+    var frame: CGRect { panel.frame }
 
     /// The page strip / editor / New worker mode changed: re-size once the change has landed.
     private func wirePageSizing() {
@@ -225,7 +229,10 @@ final class AgentPanelController {
                 guard let self, let zone = self.cornerZone else { return false }
                 return EdgeRevealGeometry.pointerHasLeft(pointer, panelFrame: self.panel.frame, zone: zone)
             },
-            close: { [weak self] in self?.retreatToCorner() }
+            close: { [weak self] in self?.retreatToCorner() },
+            isShortcutModifierHeld: { [weak self] flags in
+                CornerPanelLeave.isShortcutModifierHeld(flags, shortcutModifiers: self?.shortcutModifiers() ?? [])
+            }
         ))
         leaveMonitor = monitor
         monitor.start()

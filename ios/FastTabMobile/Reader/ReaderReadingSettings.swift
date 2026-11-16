@@ -84,6 +84,36 @@ public enum ReaderFontFamily: String, Codable, CaseIterable, Identifiable, Senda
     }
 }
 
+// MARK: - Heading Font
+
+/// Font for the article title and headings, picked separately from the body font.
+/// `.matchBody` = the body family's own title stack, i.e. how headings looked before
+/// this setting existed. Fraunces is the one bundled (non-system) font: SIL OFL 1.1,
+/// latin subset, licence shipped as `Resources/Fonts/Fraunces-OFL.txt`, embedded
+/// into the reader page by `ReaderBundledFont`.
+public enum ReaderHeadingFont: String, Codable, CaseIterable, Identifiable, Sendable {
+    case matchBody
+    case fraunces
+
+    public static let frauncesCSSStack = "'Fraunces', Georgia, serif"
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .matchBody: return "Same as body"
+        case .fraunces: return "Fraunces"
+        }
+    }
+
+    /// A value written by a newer build (a font this build doesn't know) reads as
+    /// `.matchBody` instead of failing the whole settings decode.
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: raw) ?? .matchBody
+    }
+}
+
 // MARK: - Colour Scheme + Line Height
 
 public enum ReaderColorScheme: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -164,6 +194,9 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
     public var paradeeVoiceEnabled: Bool?
     /// Paradee voice the user picked (`ParadeeVoice.rawValue`, e.g. "af_heart"). Nil = Heart.
     public var paradeeVoiceID: String?
+    /// Heading font override. Nil (and `.matchBody`) = headings follow `fontFamily`;
+    /// optional so values saved before this setting existed still decode.
+    public var headingFont: ReaderHeadingFont?
     public var updatedAt: Date
 
     public static var defaults: Self {
@@ -190,6 +223,7 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
         naturalVoiceEnabled: Bool? = nil,
         paradeeVoiceEnabled: Bool? = nil,
         paradeeVoiceID: String? = nil,
+        headingFont: ReaderHeadingFont? = nil,
         updatedAt: Date = Date()
     ) {
         self.fontSize = min(max(fontSize, Self.fontSizeRange.lowerBound), Self.fontSizeRange.upperBound)
@@ -203,7 +237,32 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
         self.naturalVoiceEnabled = naturalVoiceEnabled
         self.paradeeVoiceEnabled = paradeeVoiceEnabled
         self.paradeeVoiceID = paradeeVoiceID
+        self.headingFont = headingFont
         self.updatedAt = updatedAt
+    }
+
+    // MARK: Fonts as the reader page uses them
+
+    public var effectiveHeadingFont: ReaderHeadingFont { headingFont ?? .matchBody }
+
+    /// `--reader-font-body`.
+    public var cssBodyStack: String { fontFamily.cssBodyStack }
+
+    /// `--reader-font-title` (article title, h1–h6, site name, end-of-article label).
+    public var cssTitleStack: String {
+        effectiveHeadingFont == .fraunces ? ReaderHeadingFont.frauncesCSSStack : fontFamily.cssTitleStack
+    }
+
+    /// `--reader-title-weight` for the title and h1–h6. Fraunces reads as a display face
+    /// at 400 (its file defaults to 900); system stacks keep their bold.
+    public var cssTitleWeight: Int { effectiveHeadingFont == .fraunces ? 400 : 700 }
+
+    /// Native heading font for SwiftUI surfaces (settings preview, Summary headings).
+    public func headingSwiftUIFont(size: CGFloat) -> Font {
+        if effectiveHeadingFont == .fraunces, let font = ReaderBundledFont.frauncesUIFont(size: size) {
+            return Font(font as CTFont)
+        }
+        return fontFamily.swiftUIFont(size: size).bold()
     }
 
     /// `true` when every field matches the factory defaults (used for the
@@ -415,6 +474,11 @@ public final class ReaderReadingSettingsStore: ObservableObject {
 
     public func setFontFamily(_ family: ReaderFontFamily) {
         update { $0.fontFamily = family }
+    }
+
+    /// `.matchBody` is stored as nil so the value stays identical to the defaults.
+    public func setHeadingFont(_ font: ReaderHeadingFont) {
+        update { $0.headingFont = font == .matchBody ? nil : font }
     }
 
     public func setColorScheme(_ scheme: ReaderColorScheme) {

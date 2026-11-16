@@ -164,7 +164,7 @@ public struct ReaderWebView: UIViewRepresentable {
         let settings = viewModel.readerSettings
         let theme = ReaderResolvedTheme.resolve(backgroundHex: settings.effectiveBackgroundHex(systemIsDark: systemIsDark))
         let signature = [
-            "\(settings.fontSize)", settings.fontFamily.rawValue,
+            "\(settings.fontSize)", settings.fontFamily.rawValue, settings.effectiveHeadingFont.rawValue,
             "\(settings.lineHeight.value)", settings.colorScheme.rawValue,
             theme.backgroundHex
         ].joined(separator: "|")
@@ -274,6 +274,8 @@ public struct ReaderWebView: UIViewRepresentable {
         let fontSize: Int
         let fontBody: String
         let fontTitle: String
+        /// `--reader-title-weight` (400 for Fraunces, else 700).
+        let titleWeight: Int
         let lineHeight: Double
         let theme: String
         let bg: String
@@ -305,8 +307,9 @@ public struct ReaderWebView: UIViewRepresentable {
         return """
         (function(){var r=document.documentElement.style;
         r.setProperty('--reader-font-size','\(settings.fontSize)px');
-        r.setProperty('--reader-font-body','\(esc(settings.fontFamily.cssBodyStack))');
-        r.setProperty('--reader-font-title','\(esc(settings.fontFamily.cssTitleStack))');
+        r.setProperty('--reader-font-body','\(esc(settings.cssBodyStack))');
+        r.setProperty('--reader-font-title','\(esc(settings.cssTitleStack))');
+        r.setProperty('--reader-title-weight','\(settings.cssTitleWeight)');
         r.setProperty('--reader-line-height','\(settings.lineHeight.value)');
         r.setProperty('--bg','\(theme.backgroundHex)');
         r.setProperty('--fg','\(theme.foregroundHex)');
@@ -338,13 +341,27 @@ public struct ReaderWebView: UIViewRepresentable {
         }
     }
 
-    static func loadTemplate(into webView: WKWebView, viewModel: ReaderViewModel, article: ReaderArticle,
-                             focusHighlightID: String? = nil) {
+    /// The reader page: bundled template + embedded fonts (`ReaderBundledFont`) + article JSON.
+    /// `bootstrapJSON` must already be `</`-escaped.
+    static func templateHTML(bootstrapJSON: String) -> String? {
         guard let templateURL = Bundle.main.url(forResource: "reader_template", withExtension: "html") ??
                                 Bundle.main.url(forResource: "reader_template", withExtension: "html", subdirectory: "Resources"),
-              var templateHTML = try? String(contentsOf: templateURL, encoding: .utf8) else {
-            return
+              let template = try? String(contentsOf: templateURL, encoding: .utf8) else {
+            return nil
         }
+        let fonts = ReaderBundledFont.fontFaceCSS.map { "<style id=\"ft-bundled-fonts\">\($0)</style>" } ?? ""
+        let bootstrap = """
+        <script id="fasttab-article-data" type="application/json">
+        \(bootstrapJSON)
+        </script>
+        """
+        return template
+            .replacingOccurrences(of: "<!-- FONTS -->", with: fonts)
+            .replacingOccurrences(of: "<!-- BOOTSTRAP -->", with: bootstrap)
+    }
+
+    static func loadTemplate(into webView: WKWebView, viewModel: ReaderViewModel, article: ReaderArticle,
+                             focusHighlightID: String? = nil) {
 
         let highlightItems = viewModel.highlights.map {
             ArticleBootstrapData.HighlightItem(id: $0.id, range: $0.serializedRange, color: $0.color.cssRGBA)
@@ -373,8 +390,9 @@ public struct ReaderWebView: UIViewRepresentable {
             siteName: article.siteName,
             content: article.content,
             fontSize: settings.fontSize,
-            fontBody: settings.fontFamily.cssBodyStack,
-            fontTitle: settings.fontFamily.cssTitleStack,
+            fontBody: settings.cssBodyStack,
+            fontTitle: settings.cssTitleStack,
+            titleWeight: settings.cssTitleWeight,
             lineHeight: settings.lineHeight.value,
             theme: theme.isDark ? "dark" : "light",
             bg: theme.backgroundHex,
@@ -403,16 +421,8 @@ public struct ReaderWebView: UIViewRepresentable {
             // Prevent </script> tag breakout in HTML parsing
             jsonString = str.replacingOccurrences(of: "</", with: "<\\/")
         }
-
-        // Inject article data as an embedded JSON data block
-        let bootstrap = """
-        <script id="fasttab-article-data" type="application/json">
-        \(jsonString)
-        </script>
-        """
-        templateHTML = templateHTML.replacingOccurrences(of: "<!-- BOOTSTRAP -->", with: bootstrap)
-
-        webView.loadHTMLString(templateHTML, baseURL: Self.baseURL(for: article))
+        guard let html = templateHTML(bootstrapJSON: jsonString) else { return }
+        webView.loadHTMLString(html, baseURL: Self.baseURL(for: article))
     }
 
     /// Embed origin for transcript pages. YouTube rejects embeds (error 152) whose parent page

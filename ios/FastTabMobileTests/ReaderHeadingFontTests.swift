@@ -274,16 +274,24 @@ final class ReaderHeadingFontRenderSheet: XCTestCase {
                 let html = try XCTUnwrap(ReaderHeadingFontRender.pageHTML(
                     settings: column.settings, title: sample.title, heading: sample.heading, paragraph: sample.paragraph))
                 let webView = WKWebView(frame: CGRect(origin: .zero, size: cell))
-                let window = UIWindow(frame: webView.frame)
-                window.addSubview(webView)
-                window.isHidden = false
+                // Must sit in a window on the app's scene, or WebKit never paints (blank snapshot).
+                let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+                let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+                window.frame = webView.frame
+                window.rootViewController = UIViewController()
+                window.rootViewController?.view.addSubview(webView)
+                window.makeKeyAndVisible()
+                defer { window.isHidden = true }
                 let waiter = LoadWaiter()
                 webView.navigationDelegate = waiter
                 webView.loadHTMLString(html, baseURL: URL(string: "https://example.com/article"))
                 try await waiter.wait()
                 _ = try await webView.callAsyncJavaScript("await document.fonts.ready; return 1", contentWorld: .page)
-                try await Task.sleep(nanoseconds: 300_000_000)
-                row.append(try await webView.takeSnapshot(configuration: nil))
+                try await Task.sleep(nanoseconds: 800_000_000)
+                let shot = try await webView.takeSnapshot(configuration: nil)
+                // A painted page has its text; an unpainted one is a single flat colour.
+                XCTAssertGreaterThan(Self.distinctColours(shot), 8, "\(sample.lang) / \(column.label) snapshot is blank")
+                row.append(shot)
             }
             shots.append(row)
         }
@@ -311,5 +319,15 @@ final class ReaderHeadingFontRenderSheet: XCTestCase {
         }
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         try XCTUnwrap(image.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent("sheet.png"))
+    }
+
+    private static func distinctColours(_ image: UIImage) -> Int {
+        guard let cg = image.cgImage, let data = cg.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return 0 }
+        var seen = Set<UInt32>()
+        let stride = max(1, cg.bytesPerRow * cg.height / 4 / 4000)
+        for i in Swift.stride(from: 0, to: cg.bytesPerRow * cg.height - 4, by: stride * 4) {
+            seen.insert(UInt32(bytes[i]) << 16 | UInt32(bytes[i + 1]) << 8 | UInt32(bytes[i + 2]))
+        }
+        return seen.count
     }
 }

@@ -54,6 +54,12 @@ public final class SyncConsumer: NSObject, ObservableObject {
     /// Manual iCloud sweep bookkeeping (SyncConsumer+ZoneSweep.swift).
     var lastZoneSweepAt: Date?
     var zoneSweepInFlight = false
+    /// History-free fast path to each Mac's current state (SyncConsumer+MacDirectory.swift).
+    var directSnapshotPrecedence = DirectSnapshotPrecedence()
+    var directlyFetchedRecordNames: Set<String> = []
+    var hasFullMacDirectorySnapshot = false
+    var lastMacDirectoryCheckAt: Date?
+    var macDirectoryCheckInFlight = false
 
     /// When this phone last queued its own `SyncedDevice` heartbeat — the
     /// record the Mac reads to say "iPhone connected". See
@@ -303,6 +309,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         lastSyncError = message
         syncHealth = health
         logger.error("iOS sync failed while \(activity, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        Self.syncTrace("failed while \(activity): \(Self.describe(error))")
     }
 
     // MARK: - Foreground Refresh
@@ -350,6 +357,8 @@ public final class SyncConsumer: NSObject, ObservableObject {
             !$0.state.pendingRecordZoneChanges.isEmpty || !$0.state.pendingDatabaseChanges.isEmpty
         } ?? false
         await performSend(visibility: .silent)
+        // Before the history reads: on a fresh install those can take minutes.
+        await refreshFromMacDirectoryIfDue()
         await performFetch(visibility: .silent)
         await sweepZonesIfDue()
         // Anything still waiting to leave the phone keeps the full-speed retry.
@@ -395,6 +404,9 @@ public final class SyncConsumer: NSObject, ObservableObject {
 
     private func performRefreshNow() async {
         await refreshAccountStatus()
+        // The Mac's current state by ID, before anything that reads change history
+        // (the engine fetch and the sweep below can take minutes on a fresh install).
+        await refreshFromMacDirectory()
         // Pull-to-refresh doubles as "retry everything": re-arm anything the
         // outbox still holds in case the engine's pending changes were lost.
         restorePendingCommandOutbox()

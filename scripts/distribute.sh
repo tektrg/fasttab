@@ -184,7 +184,7 @@ fi
 
 # The embedded Sparkle.framework (kept in dist/FastTab.app, not rebuilt) must be the version the
 # binary is linked against (IndieLibKit pins it exactly).
-sparkle_resolved_plist="$(find .build/artifacts/sparkle -path '*macos*/Sparkle.framework/Resources/Info.plist' 2>/dev/null | head -1)"
+sparkle_resolved_plist="$(find .build/artifacts/sparkle -path '*macos*/Sparkle.framework/Versions/*/Resources/Info.plist' 2>/dev/null | head -1)"
 sparkle_resolved=""
 [[ -z "${sparkle_resolved_plist}" ]] || sparkle_resolved="$(plist_read CFBundleShortVersionString "${sparkle_resolved_plist}")"
 sparkle_embedded="$(plist_read CFBundleShortVersionString "${APP}/Contents/Frameworks/Sparkle.framework/Resources/Info.plist")"

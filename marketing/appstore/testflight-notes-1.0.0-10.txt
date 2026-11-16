@@ -1,0 +1,17 @@
+What's new
+- Reader: new Headings font option in Reading Settings. Fraunces, a bold serif, works with Vietnamese too.
+- Your Mac's status (More > Connected Macs) now appears within seconds on a fresh install.
+- AI Summary in the reader's … menu, with a prompt you can edit. Summary text follows your reader text size and font.
+- Find in Article: search inside the article you're reading.
+- Highlights is now a tab with a two-column card gallery and its own Shuffle. Shuffle on Read moved to a top-left button.
+- Tab list shows site icons from your Mac instead of a globe.
+- Delete a whole bookmark folder at once.
+- Faster typing in comments.
+
+What to test
+- Reading Settings > Headings: switch to Fraunces and back; try an English and a Vietnamese article.
+- Delete the app, reinstall, then open More > Connected Macs: your Mac and its tabs should show within about 30 seconds.
+- Open an article, … menu > Summary; edit the prompt and summarise again.
+- … menu > Find in Article: search a word, step through the matches.
+- Highlights tab: browse the cards, open one, try Shuffle.
+- Everyday use: reading, highlighting, closing Mac tabs from the phone.

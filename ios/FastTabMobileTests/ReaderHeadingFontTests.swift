@@ -151,6 +151,8 @@ final class ReaderHeadingFontTests: XCTestCase {
         XCTAssertEqual(font.familyName, "Fraunces")
         let variations = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber]
         XCTAssertEqual(variations?[NSNumber(value: ReaderBundledFont.weightAxisTag)]?.doubleValue, 400)
+        // Optical size follows the point size, like the page (WebKit's font-optical-sizing: auto).
+        XCTAssertEqual(variations?[NSNumber(value: ReaderBundledFont.opticalSizeAxisTag)]?.doubleValue, 20)
     }
 
     // MARK: - Real WebKit load (offline, article's own https origin)

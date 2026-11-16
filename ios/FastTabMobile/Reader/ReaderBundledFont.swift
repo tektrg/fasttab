@@ -16,6 +16,8 @@ enum ReaderBundledFont {
     static let frauncesResource = "fraunces-latin"
     /// OpenType `wght` axis tag as a number (CoreText variation dictionary key).
     static let weightAxisTag = 0x7767_6874
+    /// `opsz` (optical size, 9–144). WebKit sets it from the text size; native previews must too.
+    static let opticalSizeAxisTag = 0x6F70_737A
 
     static let frauncesData: Data? = {
         guard let url = Bundle.main.url(forResource: frauncesResource, withExtension: "woff2") else {
@@ -39,7 +41,8 @@ enum ReaderBundledFont {
     /// Native Fraunces for SwiftUI previews (CoreText reads woff2 directly).
     static func frauncesUIFont(size: CGFloat, weight: Double = 400) -> UIFont? {
         guard let base = frauncesDescriptor else { return nil }
-        let attributes = [kCTFontVariationAttribute: [weightAxisTag: weight]] as CFDictionary
+        let opticalSize = min(max(Double(size), 9), 144)
+        let attributes = [kCTFontVariationAttribute: [weightAxisTag: weight, opticalSizeAxisTag: opticalSize]] as CFDictionary
         let descriptor = CTFontDescriptorCreateCopyWithAttributes(base, attributes)
         return CTFontCreateWithFontDescriptor(descriptor, size, nil) as UIFont
     }

@@ -167,6 +167,8 @@ extension SyncService {
                 logger.notice("Mac state directory written: \(desired.recordNames.count) records, \(merged.entries.count) Macs")
                 return
             } catch {
+                // Account switched mid-save: not a failure of this Mac's directory.
+                guard !Task.isCancelled else { return }
                 lastError = error
                 switch (error as? CKError)?.code {
                 case .serverRecordChanged:
@@ -189,6 +191,7 @@ extension SyncService {
                 }
             }
         }
+        guard !Task.isCancelled else { return }
         macDirectory.failures += 1
         let backoff = MacStateDirectory.retryBackoff(afterFailures: macDirectory.failures)
         macDirectory.retryAfter = now.addingTimeInterval(backoff)

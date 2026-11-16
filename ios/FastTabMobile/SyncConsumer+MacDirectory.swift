@@ -16,7 +16,18 @@ import FastTabSync
 //   shown, or of a record the history sync deleted.
 
 extension SyncConsumer {
-    /// Poll-tick entry: at most once per `MacDirectoryFetchPlan.checkInterval`.
+    /// Armed with the foreground poll and stopped with it. Idempotent.
+    func startMacDirectoryTimer() {
+        guard macDirectoryTimer == nil else { return }
+        // Ticks faster than the interval so the due-gate, not timer phase, sets the pace.
+        macDirectoryTimer = Timer.scheduledTimer(
+            withTimeInterval: MacDirectoryFetchPlan.checkInterval / 3, repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in await self?.refreshFromMacDirectoryIfDue() }
+        }
+    }
+
+    /// Timer / poll-tick entry: at most once per `MacDirectoryFetchPlan.checkInterval`.
     func refreshFromMacDirectoryIfDue() async {
         guard ZoneSweepSchedule.isDue(
             lastSweptAt: lastMacDirectoryCheckAt, now: Date(), interval: MacDirectoryFetchPlan.checkInterval
@@ -24,16 +35,20 @@ extension SyncConsumer {
         await refreshFromMacDirectory()
     }
 
-    /// Fetches the directory, then the listed records: all of them until one full
-    /// pass has succeeded this launch, afterwards only records not fetched yet plus
-    /// each Mac's device record (its "last seen").
+    /// Fetches the directory, then the listed records: all of them until a full pass
+    /// has succeeded and the state-zone history sync has caught up once this launch
+    /// (`MacDirectoryFetchPlan.isFullPass`), afterwards only records not fetched yet
+    /// plus each Mac's device record (its "last seen").
     func refreshFromMacDirectory() async {
         guard !macDirectoryCheckInFlight else { return }
         macDirectoryCheckInFlight = true
         defer { macDirectoryCheckInFlight = false }
         lastMacDirectoryCheckAt = Date()
         let startedAt = Date()
-        let full = !hasFullMacDirectorySnapshot
+        // An iCloud account switch mid-pass (`resetMacDirectorySnapshot`) voids its results.
+        let generation = macDirectoryGeneration
+        let full = MacDirectoryFetchPlan.isFullPass(
+            completedFullPass: hasFullMacDirectorySnapshot, historyCaughtUp: stateZoneHistoryCaughtUp)
 
         let directory: MacStateDirectory
         let directoryModifiedAt: Date?
@@ -49,6 +64,7 @@ extension SyncConsumer {
             directory = decoded
             lastMacDirectoryProblem = nil
         } catch {
+            guard generation == macDirectoryGeneration else { return }
             guard !ZoneSweepSchedule.isCancellation(error) else { return }
             if let code = (error as? CKError)?.code, code == .unknownItem || code == .zoneNotFound {
                 // No Mac on a build that writes it yet; the history sync still works.
@@ -59,6 +75,7 @@ extension SyncConsumer {
             return
         }
 
+        guard generation == macDirectoryGeneration else { return }
         let names = MacDirectoryFetchPlan.recordNames(
             in: directory, alreadyFetched: directlyFetchedRecordNames, full: full)
         var fetched: [CKRecord] = []
@@ -89,6 +106,8 @@ extension SyncConsumer {
 
         // One MainActor turn from here, after the last await: a history delete that
         // landed while these fetches were in flight is already known to the precedence.
+        guard generation == macDirectoryGeneration else { return }
+        let precedenceBefore = directSnapshotPrecedence
         let admitted = fetched.filter {
             directSnapshotPrecedence.admitsDirect(recordName: $0.recordID.recordName, modifiedAt: $0.modificationDate)
         }
@@ -104,6 +123,7 @@ extension SyncConsumer {
                 recordName: record.recordID.recordName, modifiedAt: record.modificationDate)
         }
         LocalCache.shared.flushPendingSave()
+        persistDirectSnapshotPrecedence(ifChangedFrom: precedenceBefore)
         directlyFetchedRecordNames.formUnion(fetched.map(\.recordID.recordName))
         directlyFetchedRecordNames.formUnion(missingNames)
         // Only a failed request keeps the next pass full: one record that keeps failing
@@ -130,7 +150,11 @@ extension SyncConsumer {
 
     /// A different iCloud account has a different directory and records.
     func resetMacDirectorySnapshot() {
+        macDirectoryGeneration += 1
+        stateZoneHistoryCaughtUp = false
+        let precedenceBefore = directSnapshotPrecedence
         directSnapshotPrecedence.reset()
+        persistDirectSnapshotPrecedence(ifChangedFrom: precedenceBefore)
         directlyFetchedRecordNames.removeAll()
         hasFullMacDirectorySnapshot = false
         lastMacDirectoryCheckAt = nil
@@ -147,7 +171,33 @@ extension SyncConsumer {
             .filter { $0.zoneID == SyncConstants.stateZoneID }
             .map(\.recordName)
         guard !modified.isEmpty || !deleted.isEmpty else { return }
+        let precedenceBefore = directSnapshotPrecedence
         directSnapshotPrecedence.noteHistoryApplied(modified: modified, deleted: deleted)
+        persistDirectSnapshotPrecedence(ifChangedFrom: precedenceBefore)
+    }
+
+    // MARK: - Persistence
+
+    /// The direct-only set outlives the app, like the cache it populated: a tab shown
+    /// by this path, then closed on the Mac while the phone was killed, must still be
+    /// dropped by the next launch's first pass.
+    private static var directSnapshotStateURL: URL {
+        AppGroupContainer.fileURL(forFileNamed: "ios_direct_snapshot_state.json")
+    }
+
+    func loadDirectSnapshotPrecedence() {
+        guard let data = try? Data(contentsOf: Self.directSnapshotStateURL),
+              let restored = try? JSONDecoder().decode(DirectSnapshotPrecedence.self, from: data) else { return }
+        directSnapshotPrecedence = restored
+    }
+
+    private func persistDirectSnapshotPrecedence(ifChangedFrom before: DirectSnapshotPrecedence) {
+        guard !directSnapshotPrecedence.hasSameDirectOnly(as: before) else { return }
+        do {
+            try JSONEncoder().encode(directSnapshotPrecedence).write(to: Self.directSnapshotStateURL, options: .atomic)
+        } catch {
+            Self.syncTrace("directory: could not save the direct-only set: \(Self.describe(error))")
+        }
     }
 
     // MARK: - Diagnostics

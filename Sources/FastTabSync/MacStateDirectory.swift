@@ -276,6 +276,14 @@ public enum MacDirectoryFetchPlan {
         return names
     }
 
+    /// A full pass refreshes every listed record. Needed until one has succeeded, and
+    /// until the state-zone history sync has caught up once this launch: before that,
+    /// edits to records already shown (titles, URLs, order, bookmarks) reach the phone
+    /// only through this path. Polls run only while the app is on screen.
+    public static func isFullPass(completedFullPass: Bool, historyCaughtUp: Bool) -> Bool {
+        !completedFullPass || !historyCaughtUp
+    }
+
     public static func batches(_ names: [String], size: Int = batchSize) -> [[String]] {
         stride(from: 0, to: names.count, by: max(size, 1)).map {
             Array(names[$0..<min($0 + max(size, 1), names.count)])
@@ -297,7 +305,7 @@ public enum MacDirectoryFetchPlan {
 ///   delivers the record again (a reused tab record name). Without this a direct
 ///   fetch in flight across a delete would resurrect a closed tab for good: the
 ///   history token has already moved past the delete.
-public struct DirectSnapshotPrecedence: Sendable {
+public struct DirectSnapshotPrecedence: Codable, Sendable {
     private var lastAppliedModifiedAt: [String: Date] = [:]
     private var deletedByHistory: Set<String> = []
     /// Shown by the direct path and not touched by the history sync since, with the
@@ -305,6 +313,26 @@ public struct DirectSnapshotPrecedence: Sendable {
     private var directOnlyModifiedAt: [String: Date] = [:]
 
     public init() {}
+
+    /// Persisted: only the direct-only set. The cache it populated outlives the app,
+    /// so after a relaunch a tab the Mac closed meanwhile must still be droppable.
+    /// Tombstones and version bars are per launch (a relaunch re-fetches current copies).
+    private enum CodingKeys: String, CodingKey { case directOnlyModifiedAt }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        directOnlyModifiedAt = try container.decodeIfPresent([String: Date].self, forKey: .directOnlyModifiedAt) ?? [:]
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(directOnlyModifiedAt, forKey: .directOnlyModifiedAt)
+    }
+
+    /// Whether the persisted part differs (save only when it changed).
+    public func hasSameDirectOnly(as other: DirectSnapshotPrecedence) -> Bool {
+        directOnlyModifiedAt == other.directOnlyModifiedAt
+    }
 
     public mutating func noteHistoryApplied(modified: [(name: String, modifiedAt: Date?)], deleted: [String]) {
         for (name, modifiedAt) in modified {

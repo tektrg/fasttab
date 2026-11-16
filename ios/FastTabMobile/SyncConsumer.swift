@@ -58,6 +58,14 @@ public final class SyncConsumer: NSObject, ObservableObject {
     var directSnapshotPrecedence = DirectSnapshotPrecedence()
     var directlyFetchedRecordNames: Set<String> = []
     var hasFullMacDirectorySnapshot = false
+    /// A StateZone sweep reached the present this launch; until then the direct
+    /// snapshot keeps doing full passes (`MacDirectoryFetchPlan.isFullPass`).
+    var stateZoneHistoryCaughtUp = false
+    /// Bumped on an iCloud account switch; a direct pass started before it is void.
+    var macDirectoryGeneration = 0
+    /// On-screen only, like the poll; separate from it because a poll tick waits for
+    /// the history reads, which take minutes on a fresh install.
+    var macDirectoryTimer: Timer?
     var lastMacDirectoryCheckAt: Date?
     var macDirectoryCheckInFlight = false
     /// Last directory-fetch problem traced, so a repeat every 30 s is logged once.
@@ -159,6 +167,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
 
+        loadDirectSnapshotPrecedence()
         setupSyncEngine()
         observeAccountChanges()
         observeLocalReaderChanges()
@@ -323,6 +332,7 @@ public final class SyncConsumer: NSObject, ObservableObject {
         // Back to the foreground: the user is looking, so poll at full speed.
         emptyPollStreak = 0
         scheduleNextPoll()
+        startMacDirectoryTimer()
     }
 
     /// One-shot timer re-armed after each tick, so the interval can follow the backoff.
@@ -345,6 +355,8 @@ public final class SyncConsumer: NSObject, ObservableObject {
     public func stopForegroundRefresh() {
         foregroundRefreshTimer?.invalidate()
         foregroundRefreshTimer = nil
+        macDirectoryTimer?.invalidate()
+        macDirectoryTimer = nil
     }
 
     /// The periodic tick. Silent by design — see `TransferVisibility`.

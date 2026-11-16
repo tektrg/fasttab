@@ -68,6 +68,7 @@ extension SyncConsumer {
                 guard changes.moreComing else { break }
             }
             trace("done")
+            if zoneID == SyncConstants.stateZoneID { stateZoneHistoryCaughtUp = true }
         } catch let error as CKError where error.code == .changeTokenExpired {
             // Start over from scratch next time.
             try? FileManager.default.removeItem(at: tokenURL)

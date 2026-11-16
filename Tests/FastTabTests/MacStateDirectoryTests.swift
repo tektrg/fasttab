@@ -215,6 +215,16 @@ struct DirectSnapshotTests {
         #expect(Set(names) == [macA, macB, "\(macB)_t1"])
     }
 
+    @Test("Full passes until one succeeds AND the state-zone history has caught up once; then incremental")
+    func fullPassModeSwitch() {
+        #expect(MacDirectoryFetchPlan.isFullPass(completedFullPass: false, historyCaughtUp: false))
+        #expect(MacDirectoryFetchPlan.isFullPass(completedFullPass: false, historyCaughtUp: true))
+        // A fresh install: the first full pass worked, but history is still walking —
+        // keep refreshing everything, or edits to shown records stay stale for minutes.
+        #expect(MacDirectoryFetchPlan.isFullPass(completedFullPass: true, historyCaughtUp: false))
+        #expect(!MacDirectoryFetchPlan.isFullPass(completedFullPass: true, historyCaughtUp: true))
+    }
+
     @Test("Fetches are split into CloudKit-sized batches")
     func batching() {
         let names = (0..<7).map { "n\($0)" }
@@ -307,6 +317,23 @@ struct DirectSnapshotTests {
         precedence.noteDirectApplied(recordName: "r", modifiedAt: nil)
         #expect(!precedence.admitsDirect(recordName: "r", modifiedAt: nil))
         #expect(precedence.admitsDirect(recordName: "r", modifiedAt: t0))
+    }
+
+    @Test("Direct-only records survive a relaunch, so a closed tab is still dropped after it")
+    func directOnlyPersists() throws {
+        var precedence = DirectSnapshotPrecedence()
+        precedence.noteDirectApplied(recordName: "\(macA)_gone", modifiedAt: t0)
+        precedence.noteDirectApplied(recordName: "\(macA)_seen", modifiedAt: t0)
+        precedence.noteHistoryApplied(modified: [("\(macA)_seen", t0)], deleted: ["\(macA)_deleted"])
+        let data = try JSONEncoder().encode(precedence)
+        let relaunched = try JSONDecoder().decode(DirectSnapshotPrecedence.self, from: data)
+        let unlisting = MacStateDirectory(entries: [
+            MacStateDirectoryEntry(deviceID: macA, deviceName: "A", lastSeenAt: t0, recordNames: [])
+        ])
+        #expect(relaunched.directOnlyNamesDropped(by: unlisting, directoryModifiedAt: t0.addingTimeInterval(60)) == ["\(macA)_gone"])
+        // Only the direct-only set is persisted: tombstones and version bars are per launch.
+        #expect(relaunched.admitsDirect(recordName: "\(macA)_deleted", modifiedAt: t0))
+        #expect(relaunched.hasSameDirectOnly(as: precedence))
     }
 
     @Test("Reset forgets tombstones (new iCloud account)")

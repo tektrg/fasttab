@@ -276,6 +276,8 @@ public struct ReaderWebView: UIViewRepresentable {
         let fontTitle: String
         /// `--reader-title-weight` (400 for Fraunces, else 700).
         let titleWeight: Int
+        /// `--reader-title-strong-weight` (`<b>`/`<strong>` inside headings).
+        let titleStrongWeight: String
         let lineHeight: Double
         let theme: String
         let bg: String
@@ -310,6 +312,7 @@ public struct ReaderWebView: UIViewRepresentable {
         r.setProperty('--reader-font-body','\(esc(settings.cssBodyStack))');
         r.setProperty('--reader-font-title','\(esc(settings.cssTitleStack))');
         r.setProperty('--reader-title-weight','\(settings.cssTitleWeight)');
+        r.setProperty('--reader-title-strong-weight','\(settings.cssTitleStrongWeight)');
         r.setProperty('--reader-line-height','\(settings.lineHeight.value)');
         r.setProperty('--bg','\(theme.backgroundHex)');
         r.setProperty('--fg','\(theme.foregroundHex)');
@@ -393,6 +396,7 @@ public struct ReaderWebView: UIViewRepresentable {
             fontBody: settings.cssBodyStack,
             fontTitle: settings.cssTitleStack,
             titleWeight: settings.cssTitleWeight,
+            titleStrongWeight: settings.cssTitleStrongWeight,
             lineHeight: settings.lineHeight.value,
             theme: theme.isDark ? "dark" : "light",
             bg: theme.backgroundHex,

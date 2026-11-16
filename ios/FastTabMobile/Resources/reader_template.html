@@ -19,6 +19,8 @@
     --reader-font-body: -apple-system, "SF Pro Text", Georgia, serif;
     --reader-font-title: -apple-system, "SF Pro Display", sans-serif;
     --reader-title-weight: 700;
+    /* <b>/<strong> inside headings: one step bolder by default; Fraunces pins it to 400. */
+    --reader-title-strong-weight: bolder;
 
     /* Light mode */
     --bg: #FAFAF8;
@@ -113,6 +115,11 @@
     line-height: 1.3;
     color: var(--fg);
     margin: 1.6em 0 0.5em;
+  }
+
+  #reader-title b, #reader-title strong,
+  #reader-body :is(h1, h2, h3, h4, h5, h6) :is(b, strong) {
+    font-weight: var(--reader-title-strong-weight);
   }
 
   #reader-body h1 { font-size: calc(var(--reader-font-size) * 1.5); }
@@ -686,6 +693,7 @@ ftSetTexts(article.transcriptTexts);
   if (a.fontBody)   root.setProperty('--reader-font-body', a.fontBody);
   if (a.fontTitle)  root.setProperty('--reader-font-title', a.fontTitle);
   if (a.titleWeight) root.setProperty('--reader-title-weight', a.titleWeight);
+  if (a.titleStrongWeight) root.setProperty('--reader-title-strong-weight', a.titleStrongWeight);
   if (a.lineHeight) root.setProperty('--reader-line-height', a.lineHeight);
   if (a.bg)       root.setProperty('--bg', a.bg);
   if (a.fg)       root.setProperty('--fg', a.fg);

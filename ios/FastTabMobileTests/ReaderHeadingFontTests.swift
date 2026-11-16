@@ -111,6 +111,9 @@ final class ReaderHeadingFontTests: XCTestCase {
         let js = ReaderWebView.settingsJS(settings: s, theme: .resolve(backgroundHex: "#FAFAF8"))
         XCTAssertTrue(js.contains("r.setProperty('--reader-font-title','\\'Fraunces\\', Georgia, serif')"), js)
         XCTAssertTrue(js.contains("r.setProperty('--reader-title-weight','400')"), js)
+        XCTAssertTrue(js.contains("r.setProperty('--reader-title-strong-weight','400')"), js)
+        let plain = ReaderWebView.settingsJS(settings: ReaderReadingSettings(), theme: .resolve(backgroundHex: "#FAFAF8"))
+        XCTAssertTrue(plain.contains("r.setProperty('--reader-title-strong-weight','bolder')"), plain)
         XCTAssertTrue(js.contains("r.setProperty('--reader-font-body','\(ReaderFontFamily.systemSans.cssBodyStack.replacingOccurrences(of: "\\", with: "\\\\"))')"))
     }
 
@@ -180,6 +183,27 @@ final class ReaderHeadingFontTests: XCTestCase {
         XCTAssertFalse(parts[4].contains("Fraunces"), "body must keep its own font: \(parts[4])")
     }
 
+    /// WordPress-style `<h2><strong>…</strong></h2>`: Fraunces stays 400 like plain headings;
+    /// "Same as body" keeps the browser's one-step-bolder (900), as before this feature.
+    func testBoldTagsInsideHeadings() async throws {
+        let probe = "getComputedStyle(document.querySelector('#reader-body h2 strong')).fontWeight"
+        let fraunces = try await loadReaderPage(settings: ReaderReadingSettings(headingFont: .fraunces),
+                                                title: "T", heading: "<strong>Why it matters</strong>")
+        let frauncesWeight = try await fraunces.evaluateJavaScript(probe) as? String
+        XCTAssertEqual(frauncesWeight, "400")
+        let plain = try await loadReaderPage(settings: ReaderReadingSettings(), title: "T",
+                                             heading: "<strong>Why it matters</strong>")
+        let plainWeight = try await plain.evaluateJavaScript(probe) as? String
+        XCTAssertEqual(plainWeight, "900")
+    }
+
+    /// Summary headings in Fraunces grow with iPhone text size exactly when the body font does.
+    func testDynamicTypeScalingFollowsBodyFamily() {
+        XCTAssertEqual(ReaderFontFamily.allCases.filter(\.scalesWithDynamicType),
+                       [.georgia, .palatino, .helvetica, .charter].sorted { a, b in
+                           ReaderFontFamily.allCases.firstIndex(of: a)! < ReaderFontFamily.allCases.firstIndex(of: b)! })
+    }
+
     func testMatchBodyPageKeepsBoldSystemHeadings() async throws {
         let webView = try await loadReaderPage(settings: ReaderReadingSettings(), title: "T", heading: "H")
         let weight = try await webView.evaluateJavaScript(
@@ -215,6 +239,7 @@ enum ReaderHeadingFontRender {
             "content": "<p>\(paragraph)</p><h2>\(heading)</h2><p>\(paragraph)</p>",
             "fontSize": settings.fontSize, "fontBody": settings.cssBodyStack,
             "fontTitle": settings.cssTitleStack, "titleWeight": settings.cssTitleWeight,
+            "titleStrongWeight": settings.cssTitleStrongWeight,
             "lineHeight": settings.lineHeight.value, "theme": "light", "bg": theme.backgroundHex,
             "fg": theme.foregroundHex, "highlights": [Any](), "transcriptTexts": [Any](),
             "locationBadges": [Any](), "deleteLabel": "Delete", "readAgainLabel": "Read Again",

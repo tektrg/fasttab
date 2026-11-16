@@ -68,6 +68,14 @@ public enum ReaderFontFamily: String, Codable, CaseIterable, Identifiable, Senda
         }
     }
 
+    /// `swiftUIFont` grows with the iPhone text size (`.custom` fonts do; `.system(size:)` doesn't).
+    public var scalesWithDynamicType: Bool {
+        switch self {
+        case .georgia, .palatino, .charter, .helvetica: return true
+        case .systemSans, .systemSerif, .rounded, .menlo: return false
+        }
+    }
+
     /// Native counterpart for the SwiftUI preview row in the settings sheet.
     /// Best-effort: falls back to the system font when the named family is absent.
     public func swiftUIFont(size: CGFloat) -> Font {
@@ -257,10 +265,17 @@ public struct ReaderReadingSettings: Codable, Equatable, Sendable {
     /// at 400 (its file defaults to 900); system stacks keep their bold.
     public var cssTitleWeight: Int { effectiveHeadingFont == .fraunces ? 400 : 700 }
 
+    /// `--reader-title-strong-weight`: `<b>`/`<strong>` inside headings (common in WordPress
+    /// articles). Fraunces keeps them at 400 so a wrapped heading matches its neighbours;
+    /// system stacks keep the browser's one-step-bolder.
+    public var cssTitleStrongWeight: String { effectiveHeadingFont == .fraunces ? "400" : "bolder" }
+
     /// Native heading font for SwiftUI surfaces (settings preview, Summary headings).
     public func headingSwiftUIFont(size: CGFloat) -> Font {
-        if effectiveHeadingFont == .fraunces, let font = ReaderBundledFont.frauncesUIFont(size: size) {
-            return Font(font as CTFont)
+        if effectiveHeadingFont == .fraunces {
+            // Grow with the iPhone text size exactly when the body font does (named fonts).
+            let scaled = fontFamily.scalesWithDynamicType ? UIFontMetrics.default.scaledValue(for: size) : size
+            if let font = ReaderBundledFont.frauncesUIFont(size: scaled) { return Font(font as CTFont) }
         }
         return fontFamily.swiftUIFont(size: size).bold()
     }

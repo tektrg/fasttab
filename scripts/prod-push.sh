@@ -14,7 +14,7 @@
 #      ALLOW_STALE_INDIELIBKIT (0) — build even if an IndieLibKit checkout is off main / behind
 #      PHONE_ONLY (0) — iPhone only: no Air/Pro merge, no Mac app touched, the Pro's checkouts may
 #      be on any branch / dirty. Builds PHONE_REF (origin/main) + IndieLibKit GitHub main
-#      (INDIELIBKIT_SHA overrides) from a temp clean copy on the Pro, removed afterwards
+#      (INDIELIBKIT_SHA overrides; INDIELIBKIT_DIR = Air clone, for tests) from a temp clean copy on the Pro, removed afterwards
 #      (scripts/ios-phone-build.sh). PHONE_MIN_FREE_GB (5) — Pro free-disk floor.
 #
 # Preflight (owner decision 2026-11-11): every check that can fail runs BEFORE any app is
@@ -139,25 +139,34 @@ require_signed() {
 device="${IOS_DEVICE:-243A482F-26DD-5381-8067-41B9DFD7A8CC}"   # iPhone 16e (two phones are paired)
 device_arg=""; [[ "${device}" == auto ]] || device_arg=" --device ${device}"
 
-# IndieLibKit commit for PHONE_ONLY: INDIELIBKIT_SHA, else GitHub main (asked from the Air, then
-# the Pro), else the newer of the two Macs' last-fetched origin/main (loud). Prints the sha.
-resolve_lib_sha() {
-  local lib="${repo_root}/../IndieLibKit" pro_lib sha="" a p
-  pro_lib="$(dirname "${PRO_REPO}")/IndieLibKit"
-  [[ -n "${INDIELIBKIT_SHA:-}" ]] && { echo "${INDIELIBKIT_SHA}"; return; }
-  sha="$(GIT_TERMINAL_PROMPT=0 git ls-remote "$(git -C "${lib}" remote get-url origin)" refs/heads/main 2>/dev/null | cut -f1 || true)"
-  [[ -n "${sha}" ]] || sha="$(pro "GIT_TERMINAL_PROMPT=0 git -C '${pro_lib}' ls-remote origin refs/heads/main" 2>/dev/null | cut -f1 || true)"
+# GitHub main of the repo at <air_dir> / <pro_dir>: asked from the Air, then the Pro; if GitHub is
+# unreachable from both, the newer of the two Macs' last-fetched origin/main (loud; refuses if they
+# diverged). Used for the app AND IndieLibKit, so both come from the same moment. Prints the sha.
+github_main() {
+  local label="$1" air_dir="$2" pro_dir="$3" sha="" a p
+  sha="$(GIT_TERMINAL_PROMPT=0 git ls-remote "$(git -C "${air_dir}" remote get-url origin)" refs/heads/main 2>/dev/null | cut -f1 || true)"
+  [[ -n "${sha}" ]] || sha="$(pro "GIT_TERMINAL_PROMPT=0 git -C '${pro_dir}' ls-remote origin refs/heads/main" 2>/dev/null | cut -f1 || true)"
   [[ -n "${sha}" ]] && { echo "${sha}"; return; }
-  a="$(git -C "${lib}" rev-parse origin/main)" || die "cannot read the Air's IndieLibKit origin/main"
-  p="$(pro "git -C '${pro_lib}' rev-parse origin/main")" || die "cannot read the Pro's IndieLibKit origin/main"
-  if [[ "${a}" == "${p}" ]] || git -C "${lib}" merge-base --is-ancestor "${p}" "${a}" 2>/dev/null \
-    || pro "git -C '${pro_lib}' merge-base --is-ancestor ${p} ${a}" 2>/dev/null; then sha="${a}"
-  elif git -C "${lib}" merge-base --is-ancestor "${a}" "${p}" 2>/dev/null \
-    || pro "git -C '${pro_lib}' merge-base --is-ancestor ${a} ${p}" 2>/dev/null; then sha="${p}"
-  else die "GitHub unreachable and the Macs' last-fetched IndieLibKit main differ (Air ${a:0:7}, Pro ${p:0:7}); set INDIELIBKIT_SHA"
+  a="$(git -C "${air_dir}" rev-parse origin/main)" || die "cannot read the Air's ${label} origin/main"
+  p="$(pro "git -C '${pro_dir}' rev-parse origin/main")" || die "cannot read the Pro's ${label} origin/main"
+  if [[ "${a}" == "${p}" ]] || git -C "${air_dir}" merge-base --is-ancestor "${p}" "${a}" 2>/dev/null \
+    || pro "git -C '${pro_dir}' merge-base --is-ancestor ${p} ${a}" 2>/dev/null; then sha="${a}"
+  elif git -C "${air_dir}" merge-base --is-ancestor "${a}" "${p}" 2>/dev/null \
+    || pro "git -C '${pro_dir}' merge-base --is-ancestor ${a} ${p}" 2>/dev/null; then sha="${p}"
+  else die "GitHub unreachable and the Macs' last-fetched ${label} main differ (Air ${a:0:7}, Pro ${p:0:7}) — nothing was installed"
   fi
-  echo "!! GitHub unreachable for IndieLibKit; using the newest last-fetched main ${sha:0:7}" >&2
+  echo "!! GitHub unreachable for ${label}; using the newer last-fetched main of the two Macs: ${sha:0:7}" >&2
   echo "${sha}"
+}
+
+# Make <sha> exist in the Pro's repo at <pro_dir>, pushing it from <air_dir> when missing.
+copy_to_pro() {
+  local sha="$1" label="$2" air_dir="$3" pro_dir="$4"
+  pro "git -C '${pro_dir}' cat-file -e ${sha}^{commit}" 2>/dev/null && return
+  git -C "${air_dir}" cat-file -e "${sha}^{commit}" 2>/dev/null \
+    || die "${label} ${sha:0:7} is on neither Mac (fetch it first) — nothing was installed"
+  run git -C "${air_dir}" push -q pro "+${sha}:refs/prod-push/phone-only" \
+    || die "cannot copy ${label} ${sha:0:7} to the Pro — nothing was installed"
 }
 
 # PHONE_ONLY=1: build + install only the iPhone app, from a temp clean copy on the Pro.
@@ -165,24 +174,22 @@ phone_only() {
   echo "==> PHONE_ONLY: iPhone only — no merge, no Mac app touched, the Pro's checkouts left as they are"
   pro true || die "cannot reach the Pro (${PRO}) — nothing was installed"
   local ref="${PHONE_REF:-origin/main}" app_sha lib_sha free_kb rc=0
-  local lib="${repo_root}/../IndieLibKit" pro_lib
+  local lib="${INDIELIBKIT_DIR:-${repo_root}/../IndieLibKit}" pro_lib
   pro_lib="$(dirname "${PRO_REPO}")/IndieLibKit"
   if [[ "${ref}" == origin/main ]]; then
-    GIT_TERMINAL_PROMPT=0 git fetch -q origin main 2>/dev/null || echo "!! could not fetch origin; using the last fetched origin/main"
+    app_sha="$(github_main app "${repo_root}" "${PRO_REPO}")" || exit 1
+    GIT_TERMINAL_PROMPT=0 git fetch -q origin main 2>/dev/null || true   # so the commit is here to copy over
+  else
+    app_sha="$(git rev-parse --verify -q "${ref}^{commit}")" || die "unknown PHONE_REF ${ref} — nothing was installed"
   fi
-  app_sha="$(git rev-parse --verify -q "${ref}^{commit}")" || die "unknown PHONE_REF ${ref} — nothing was installed"
-  lib_sha="$(resolve_lib_sha)" || exit 1
+  if [[ -n "${INDIELIBKIT_SHA:-}" ]]; then lib_sha="${INDIELIBKIT_SHA}"
+  else lib_sha="$(github_main IndieLibKit "${lib}" "${pro_lib}")" || exit 1
+  fi
   echo "==> app ${app_sha:0:7} (${ref}), IndieLibKit ${lib_sha:0:7}"
-  # The Pro needs both commits. A throwaway ref (not a branch) never moves its checkouts.
-  pro "git -C '${PRO_REPO}' cat-file -e ${app_sha}^{commit}" 2>/dev/null \
-    || run git push -q pro "+${app_sha}:refs/prod-push/phone-only" \
-    || die "cannot copy ${app_sha:0:7} to the Pro — nothing was installed"
-  if ! pro "git -C '${pro_lib}' cat-file -e ${lib_sha}^{commit}" 2>/dev/null; then
-    git -C "${lib}" cat-file -e "${lib_sha}^{commit}" 2>/dev/null \
-      || die "IndieLibKit ${lib_sha:0:7} is on neither Mac (fetch it first) — nothing was installed"
-    run git -C "${lib}" push -q pro "+${lib_sha}:refs/prod-push/phone-only" \
-      || die "cannot copy IndieLibKit ${lib_sha:0:7} to the Pro — nothing was installed"
-  fi
+  # The Pro needs both commits. A throwaway ref (not a branch; deleted after the run) never moves
+  # its checkouts; the temp worktrees keep the commits alive while they exist.
+  copy_to_pro "${app_sha}" app "${repo_root}" "${PRO_REPO}"
+  copy_to_pro "${lib_sha}" IndieLibKit "${lib}" "${pro_lib}"
   free_kb="$(pro "df -Pk / | awk 'NR==2{print \$4}'")" || die "cannot read the Pro's free disk"
   (( free_kb / 1048576 >= ${PHONE_MIN_FREE_GB:-5} )) \
     || die "the Pro has $(( free_kb / 1048576 )) GB free (< ${PHONE_MIN_FREE_GB:-5}); a fresh iPhone build needs a few GB — nothing was installed"
@@ -195,6 +202,7 @@ phone_only() {
   # Streamed, so the Pro's own (possibly older) checkout needn't have the helper.
   run ssh "${PRO}" "bash -s -- --app-repo '${PRO_REPO}' --lib-repo '${pro_lib}' --app-sha ${app_sha} --lib-sha ${lib_sha}${device_arg}" \
     < scripts/ios-phone-build.sh || rc=$?
+  [[ "${DRY_RUN:-0}" == 1 ]] || pro "git -C '${PRO_REPO}' update-ref -d refs/prod-push/phone-only; git -C '${pro_lib}' update-ref -d refs/prod-push/phone-only" 2>/dev/null || true
   (( rc == 255 )) && die "lost the ssh connection to the Pro — the build may still be running; check /tmp/fasttab-ios-push.log there"
   (( rc == 0 )) || die "iPhone install FAILED on ${device} (log on the Pro: /tmp/fasttab-ios-push.log)"
   echo "==> prod-push done (iPhone only: ${app_sha:0:7} on ${device})"

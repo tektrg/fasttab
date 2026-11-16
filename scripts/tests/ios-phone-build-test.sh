@@ -35,8 +35,18 @@ setup() {
   echo "seed=$(cat ios/build/SourcePackages/marker 2>/dev/null)"; echo "args=$*"; } > "${STUB_LOG}"
 exit "${STUB_EXIT:-0}"
 EOF
-  # tmux stub: "a build is still running" only when STUB_TMUX_ALIVE=1.
-  printf '#!/usr/bin/env bash\n[[ "${STUB_TMUX_ALIVE:-0}" == 1 ]]\n' > "${T}/w/bin/tmux"
+  # tmux stub: the shared build session exists only when STUB_TMUX_ALIVE=1; its start command
+  # runs in the newest temp copy (STUB_TMUX_WHERE=ours, default) or another folder (=other).
+  cat > "${T}/w/bin/tmux" <<'EOF'
+#!/usr/bin/env bash
+[[ "${STUB_TMUX_ALIVE:-0}" == 1 ]] || exit 1
+if [[ "$1" == list-panes ]]; then
+  d="$(ls -dt "${PHONE_TMP_ROOT}"/wt-phone-* 2>/dev/null | head -1)"
+  [[ "${STUB_TMUX_WHERE:-ours}" == ours ]] || d="/elsewhere/other-session"
+  echo "cd '${d}/command-bar-macos' && scripts/build-ios.sh > /tmp/log 2>&1"
+fi
+exit 0
+EOF
   chmod +x "${T}/w/bin/build-stub" "${T}/w/bin/tmux"
   export STUB_LOG="${T}/w/stub.log"; rm -f "${STUB_LOG}"
 }
@@ -77,6 +87,15 @@ untouched || fail "untouched after failure" "branch/dirty changed"
 setup; STUB_EXIT=1 STUB_TMUX_ALIVE=1 run_helper
 [[ -n "$(ls -A "${T}/w/tmproot")" ]] && grep -q "kept" "${T}/w/out.log" \
   && pass "copy kept while a build still runs in it" || fail "copy kept while build runs" "$(cat "${T}/w/out.log")"
+# 3b. Next run after that build ended: the leftover is swept, and the new copy removed too.
+run_helper; rc=$?
+[[ ${rc} -eq 0 ]] && no_temp_left && grep -q "removed leftover" "${T}/w/out.log" \
+  && pass "leftover copy removed by the next run once its build ended" || fail "leftover swept" "rc=${rc}; $(cat "${T}/w/out.log")"
+untouched || fail "untouched after sweep" "branch/dirty changed"
+# 3c. The shared build session belongs to ANOTHER session's folder: our copy is not kept.
+setup; STUB_EXIT=1 STUB_TMUX_ALIVE=1 STUB_TMUX_WHERE=other run_helper
+no_temp_left && ! grep -q "kept" "${T}/w/out.log" \
+  && pass "copy removed when the running build is another session's" || fail "other session's build" "$(cat "${T}/w/out.log")"
 
 # 4. Refuses an unknown commit before creating anything.
 setup; APP_SHA=0123456789abcdef0123456789abcdef01234567 run_helper; rc=$?
@@ -106,5 +125,38 @@ if [[ ${rc} -eq 0 ]] && grep -q -- "--app-sha ${want_app}" <<<"${all}" && grep -
   && ! grep -qE "git merge |merge --ff-only|app-lifecycle|rsync |prod-push-sync|fasttab-build-mac-app|build-agentbar-app" <<<"${all}"; then
   pass "PHONE_ONLY dry run: no merge / Mac apps; helper gets app+lib commit + 16e"
 else fail "PHONE_ONLY dry run" "rc=${rc}; ${all}"; fi
+
+# 6. GitHub unreachable from both Macs: IndieLibKit = the newer of the two Macs' last-fetched main.
+#    Air's lib repo has origin/main = L1 and knows L2 (= L1 + 1); the Pro reports origin/main = <stub>.
+setup
+L1="$(git -C "${LIB}" rev-parse HEAD~1)"; L2="$(git -C "${LIB}" rev-parse HEAD)"
+git -C "${LIB}" remote add origin "${T}/no-such-remote"; git -C "${LIB}" update-ref refs/remotes/origin/main "${L1}"
+cat > "${T}/w/bin/ssh" <<'EOF'
+#!/usr/bin/env bash
+echo "ssh $*" >> "${SSH_LOG}"
+case "$*" in
+  *ls-remote*) exit 1 ;;                          # GitHub unreachable from the Pro too
+  *"rev-parse origin/main"*) echo "${STUB_PRO_MAIN}" ;;
+  *merge-base*) exit 1 ;;                         # the Pro can't decide; the Air's repo must
+  *"df -Pk"*) echo 99999999 ;;
+  *"has-session -t fasttab-ios-push"*) exit 1 ;;
+esac
+exit 0
+EOF
+chmod +x "${T}/w/bin/ssh"
+lib_run() {
+  out="$(cd "${repo_root}" && PATH="${T}/w/bin:${PATH}" PHONE_ONLY=1 DRY_RUN=1 PHONE_REF=HEAD INDIELIBKIT_DIR="${LIB}" \
+    STUB_PRO_MAIN="$1" MAC_PRO_SSH=stubpro bash scripts/prod-push.sh 2>&1)"; rc=$?
+}
+lib_run "${L2}"
+[[ ${rc} -eq 0 ]] && grep -q -- "--lib-sha ${L2}" <<<"${out}" && grep -q "GitHub unreachable" <<<"${out}" \
+  && pass "GitHub down, Pro newer: uses the Pro's newer IndieLibKit main (loudly)" || fail "fallback Pro newer" "rc=${rc}; ${out}"
+git -C "${LIB}" update-ref refs/remotes/origin/main "${L2}"; lib_run "${L1}"
+[[ ${rc} -eq 0 ]] && grep -q -- "--lib-sha ${L2}" <<<"${out}" \
+  && pass "GitHub down, Air newer: uses the Air's newer IndieLibKit main" || fail "fallback Air newer" "rc=${rc}; ${out}"
+side="$(g -C "${LIB}" commit-tree "${L1}^{tree}" -p "${L1}" -m side)"   # sibling of L2: diverged
+git -C "${LIB}" update-ref refs/remotes/origin/main "${side}"; lib_run "${L2}"
+[[ ${rc} -ne 0 ]] && grep -q "differ" <<<"${out}" && ! grep -q -- "--app-sha" <<<"${out}" \
+  && pass "GitHub down, Macs diverged: refuses before building" || fail "fallback diverged" "rc=${rc}; ${out}"
 
 echo; (( fails == 0 )) && echo "ALL PASS" || { echo "${fails} FAILED"; exit 1; }

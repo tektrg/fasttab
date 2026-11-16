@@ -13,8 +13,9 @@
 #                      default <app-repo>/ios/build/SourcePackages; skipped if missing)
 #      PHONE_BUILD_CMD (default scripts/build-ios-in-gui-session.sh, run inside the temp copy)
 #
-# Keeps the temp copy (and says so) while an iPhone build is still running in it (tmux session
-# fasttab-ios-push alive: build timed out, or the ssh link dropped) — removing it would break it.
+# Keeps the temp copy (and says so) while an iPhone build is still running IN IT (tmux session
+# fasttab-ios-push started there: build timed out, or the ssh link dropped) — removing it would
+# break it. The next run removes such leftovers once their build has ended.
 set -euo pipefail
 
 main() {
@@ -40,8 +41,9 @@ main() {
   local root="${PHONE_TMP_ROOT:-$(dirname "${app_repo}")}"
   local seed="${PHONE_SEED_DIR:-${app_repo}/ios/build/SourcePackages}"
   local build_cmd="${PHONE_BUILD_CMD:-scripts/build-ios-in-gui-session.sh}"
-  TMP="$(mktemp -d "${root}/wt-phone-XXXXXX")"
   APP_REPO="${app_repo}"; LIB_REPO="${lib_repo}"
+  sweep_leftovers "${root}"
+  TMP="$(mktemp -d "${root}/wt-phone-XXXXXX")"
   trap cleanup EXIT
 
   echo "==> temp clean copy: ${TMP} (app ${app_sha:0:7}, IndieLibKit ${lib_sha:0:7})"
@@ -58,17 +60,38 @@ main() {
   echo "==> iPhone build installed: app $(git -C "${TMP}/command-bar-macos" log --oneline -1), IndieLibKit ${lib_sha:0:7}"
 }
 
+# True while the shared iPhone-build tmux session is running a build inside <dir>. Another
+# session's build (any other folder) does not count: its copy is not ours to keep.
+build_running_in() {
+  tmux has-session -t fasttab-ios-push 2>/dev/null || return 1
+  tmux list-panes -t fasttab-ios-push -F '#{pane_start_command}' 2>/dev/null | grep -qF "$1/"
+}
+
+# Remove one temp copy: only our two worktrees (git refuses paths that aren't its worktrees).
+remove_copy() {
+  local dir="$1"
+  [[ -d "${dir}/command-bar-macos" ]] && git -C "${APP_REPO}" worktree remove --force "${dir}/command-bar-macos" </dev/null || true
+  [[ -d "${dir}/IndieLibKit" ]] && git -C "${LIB_REPO}" worktree remove --force "${dir}/IndieLibKit" </dev/null || true
+  rmdir "${dir}" 2>/dev/null || { echo "!! could not remove ${dir} (not empty?)" >&2; return 1; }
+}
+
+# Copies kept by earlier runs (build was still running then) whose build has since ended.
+sweep_leftovers() {
+  local old
+  for old in "$1"/wt-phone-*; do
+    [[ -d "${old}" ]] || continue
+    build_running_in "${old}" && { echo "!! ${old}: an iPhone build is still running there — left alone"; continue; }
+    remove_copy "${old}" && echo "==> removed leftover temp copy ${old}"
+  done
+}
+
 cleanup() {
   [[ -n "${TMP:-}" && -d "${TMP}" ]] || return 0
-  if tmux has-session -t fasttab-ios-push 2>/dev/null; then
-    echo "!! an iPhone build is still running in ${TMP} (tmux session fasttab-ios-push) — kept; remove later with:" >&2
-    echo "   git -C '${APP_REPO}' worktree remove --force '${TMP}/command-bar-macos'; git -C '${LIB_REPO}' worktree remove --force '${TMP}/IndieLibKit'; rmdir '${TMP}'" >&2
+  if build_running_in "${TMP}"; then
+    echo "!! the iPhone build is still running in ${TMP} (tmux session fasttab-ios-push) — kept; the next phone-only run removes it once that build ends" >&2
     return 0
   fi
-  [[ -d "${TMP}/command-bar-macos" ]] && git -C "${APP_REPO}" worktree remove --force "${TMP}/command-bar-macos" </dev/null || true
-  [[ -d "${TMP}/IndieLibKit" ]] && git -C "${LIB_REPO}" worktree remove --force "${TMP}/IndieLibKit" </dev/null || true
-  rmdir "${TMP}" 2>/dev/null || echo "!! could not remove ${TMP} (not empty?)" >&2
-  echo "==> temp copy removed"
+  remove_copy "${TMP}" && echo "==> temp copy removed"
 }
 
 # Everything runs from main (read fully before it starts), so streaming this file over

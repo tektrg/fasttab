@@ -46,7 +46,7 @@ let package = Package(
         // `IndieEdgeReveal` (notch/edge/corner hover trigger) + `IndieEdgeRevealUI` (the black
         // edge-hugging surface and its grow-out motion).
         // `IndieFeedback`/`IndieFeedbackUI` (Settings > About > Chat with the Creator…).
-        .package(url: "https://github.com/tektrg/indielibkit", branch: "feat/shared-primitives"), // TEMP: back to branch: "main" once feat/edge-anchors + feat/shared-primitives are merged
+        .package(url: "https://github.com/tektrg/indielibkit", branch: "main"),
         // The reading connector's search index (FTS5). Same package IndieLibKit already pulls in.
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0")
     ],

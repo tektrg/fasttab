@@ -20,6 +20,7 @@ public struct ReaderSettingsSheet: View {
                 previewSection
                 sizeSection
                 fontSection
+                headingSection
                 appearanceSection
                 resetSection
             }
@@ -41,7 +42,7 @@ public struct ReaderSettingsSheet: View {
         Section {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 Text("The quick brown fox")
-                    .font(store.settings.fontFamily.swiftUIFont(size: 20).weight(.bold))
+                    .font(store.settings.headingSwiftUIFont(size: 20))
                 Text("Jumps over the lazy dog. Pack my box with five dozen liquor jugs.")
                     .font(store.settings.fontFamily.swiftUIFont(size: CGFloat(store.settings.fontSize)))
                     .lineSpacing(CGFloat((store.settings.lineHeight.value - 1.0)) * CGFloat(store.settings.fontSize))
@@ -132,6 +133,43 @@ public struct ReaderSettingsSheet: View {
         } footer: {
             Text("All fonts ship with iOS — no downloads, and safe for commercial use.")
         }
+    }
+
+    // MARK: - Headings
+
+    private var headingSection: some View {
+        Section {
+            ForEach(ReaderHeadingFont.allCases) { heading in
+                Button {
+                    store.setHeadingFont(heading)
+                } label: {
+                    HStack {
+                        Text("Ag")
+                            .font(headingPreview(heading).headingSwiftUIFont(size: 22))
+                            .frame(width: 40)
+                        Text(heading.label)
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if store.settings.effectiveHeadingFont == heading {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(DS.Tint.action)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        } header: {
+            Text("Headings")
+        } footer: {
+            Text("Fraunces is included with FastTab (SIL Open Font License).")
+        }
+    }
+
+    /// Current settings with `heading` swapped in, so each row draws its own heading font.
+    private func headingPreview(_ heading: ReaderHeadingFont) -> ReaderReadingSettings {
+        var s = store.settings
+        s.headingFont = heading
+        return s
     }
 
     // MARK: - Appearance

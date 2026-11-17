@@ -12,6 +12,10 @@
 #      IOS_DIRTY_OK ("marketing") — space-separated Pro paths whose uncommitted edits never block
 #      the iPhone step (App Store media other sessions work on; not part of the iOS build)
 #      ALLOW_STALE_INDIELIBKIT (0) — build even if an IndieLibKit checkout is off main / behind
+#      PHONE_ONLY (0) — iPhone only: no Air/Pro merge, no Mac app touched, the Pro's checkouts may
+#      be on any branch / dirty. Builds PHONE_REF (origin/main) + IndieLibKit GitHub main
+#      (INDIELIBKIT_SHA overrides; INDIELIBKIT_DIR = Air clone, for tests) from a temp clean copy on the Pro, removed afterwards
+#      (scripts/ios-phone-build.sh). PHONE_MIN_FREE_GB (5) — Pro free-disk floor.
 #
 # Preflight (owner decision 2026-11-11): every check that can fail runs BEFORE any app is
 # stopped or replaced — all steps run, or the script refuses up front and nothing changes.
@@ -135,6 +139,81 @@ require_signed() {
 device="${IOS_DEVICE:-243A482F-26DD-5381-8067-41B9DFD7A8CC}"   # iPhone 16e (two phones are paired)
 device_arg=""; [[ "${device}" == auto ]] || device_arg=" --device ${device}"
 
+# GitHub main of the repo at <air_dir> / <pro_dir>: asked from the Air, then the Pro; if GitHub is
+# unreachable from both, the newer of the two Macs' last-fetched origin/main (loud; refuses if they
+# diverged). Used for the app AND IndieLibKit, so both come from the same moment. Prints the sha.
+github_main() {
+  local label="$1" air_dir="$2" pro_dir="$3" sha="" a p
+  sha="$(GIT_TERMINAL_PROMPT=0 git ls-remote "$(git -C "${air_dir}" remote get-url origin)" refs/heads/main 2>/dev/null | cut -f1 || true)"
+  [[ -n "${sha}" ]] || sha="$(pro "GIT_TERMINAL_PROMPT=0 git -C '${pro_dir}' ls-remote origin refs/heads/main" 2>/dev/null | cut -f1 || true)"
+  [[ -n "${sha}" ]] && { echo "${sha}"; return; }
+  a="$(git -C "${air_dir}" rev-parse origin/main)" || die "cannot read the Air's ${label} origin/main"
+  p="$(pro "git -C '${pro_dir}' rev-parse origin/main")" || die "cannot read the Pro's ${label} origin/main"
+  if [[ "${a}" == "${p}" ]] || git -C "${air_dir}" merge-base --is-ancestor "${p}" "${a}" 2>/dev/null \
+    || pro "git -C '${pro_dir}' merge-base --is-ancestor ${p} ${a}" 2>/dev/null; then sha="${a}"
+  elif git -C "${air_dir}" merge-base --is-ancestor "${a}" "${p}" 2>/dev/null \
+    || pro "git -C '${pro_dir}' merge-base --is-ancestor ${a} ${p}" 2>/dev/null; then sha="${p}"
+  else die "GitHub unreachable and the Macs' last-fetched ${label} main differ (Air ${a:0:7}, Pro ${p:0:7}) — nothing was installed"
+  fi
+  echo "!! GitHub unreachable for ${label}; using the newer last-fetched main of the two Macs: ${sha:0:7}" >&2
+  echo "${sha}"
+}
+
+# Make <sha> exist in the Pro's repo at <pro_dir>, pushing it from <air_dir> when missing.
+copy_to_pro() {
+  local sha="$1" label="$2" air_dir="$3" pro_dir="$4"
+  pro "git -C '${pro_dir}' cat-file -e ${sha}^{commit}" 2>/dev/null && return
+  git -C "${air_dir}" cat-file -e "${sha}^{commit}" 2>/dev/null \
+    || die "${label} ${sha:0:7} is on neither Mac (fetch it first) — nothing was installed"
+  run git -C "${air_dir}" push -q pro "+${sha}:refs/prod-push/phone-only" \
+    || die "cannot copy ${label} ${sha:0:7} to the Pro — nothing was installed"
+}
+
+# PHONE_ONLY=1: build + install only the iPhone app, from a temp clean copy on the Pro.
+phone_only() {
+  echo "==> PHONE_ONLY: iPhone only — no merge, no Mac app touched, the Pro's checkouts left as they are"
+  pro true || die "cannot reach the Pro (${PRO}) — nothing was installed"
+  local ref="${PHONE_REF:-origin/main}" app_sha lib_sha free_kb rc=0
+  local lib="${INDIELIBKIT_DIR:-${repo_root}/../IndieLibKit}" pro_lib
+  pro_lib="$(dirname "${PRO_REPO}")/IndieLibKit"
+  if [[ "${ref}" == origin/main ]]; then
+    app_sha="$(github_main app "${repo_root}" "${PRO_REPO}")" || exit 1
+    GIT_TERMINAL_PROMPT=0 git fetch -q origin main 2>/dev/null || true   # so the commit is here to copy over
+  else
+    app_sha="$(git rev-parse --verify -q "${ref}^{commit}")" || die "unknown PHONE_REF ${ref} — nothing was installed"
+  fi
+  if [[ -n "${INDIELIBKIT_SHA:-}" ]]; then lib_sha="${INDIELIBKIT_SHA}"
+  else lib_sha="$(github_main IndieLibKit "${lib}" "${pro_lib}")" || exit 1
+  fi
+  echo "==> app ${app_sha:0:7} (${ref}), IndieLibKit ${lib_sha:0:7}"
+  # The Pro needs both commits. A throwaway ref (not a branch; deleted after the run) never moves
+  # its checkouts; the temp worktrees keep the commits alive while they exist.
+  copy_to_pro "${app_sha}" app "${repo_root}" "${PRO_REPO}"
+  copy_to_pro "${lib_sha}" IndieLibKit "${lib}" "${pro_lib}"
+  free_kb="$(pro "df -Pk / | awk 'NR==2{print \$4}'")" || die "cannot read the Pro's free disk"
+  (( free_kb / 1048576 >= ${PHONE_MIN_FREE_GB:-5} )) \
+    || die "the Pro has $(( free_kb / 1048576 )) GB free (< ${PHONE_MIN_FREE_GB:-5}); a fresh iPhone build needs a few GB — nothing was installed"
+  pro "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux has-session" 2>/dev/null \
+    || die "no tmux server in the Pro's GUI session (open a terminal on the Pro once) — nothing was installed"
+  ! pro "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; tmux has-session -t fasttab-ios-push" 2>/dev/null \
+    || die "another iPhone build is running on the Pro (tmux session fasttab-ios-push) — nothing was installed"
+  pro "cd '${PRO_REPO}/scripts' && bash -s -- --check-only${device_arg}" < scripts/build-ios.sh \
+    || die "the iPhone (${device}) isn't reachable from the Pro — unlock it / same Wi-Fi; nothing was installed"
+  # Streamed, so the Pro's own (possibly older) checkout needn't have the helper.
+  run ssh "${PRO}" "bash -s -- --app-repo '${PRO_REPO}' --lib-repo '${pro_lib}' --app-sha ${app_sha} --lib-sha ${lib_sha}${device_arg}" \
+    < scripts/ios-phone-build.sh || rc=$?
+  [[ "${DRY_RUN:-0}" == 1 ]] || pro "git -C '${PRO_REPO}' update-ref -d refs/prod-push/phone-only; git -C '${pro_lib}' update-ref -d refs/prod-push/phone-only" 2>/dev/null || true
+  (( rc == 255 )) && die "lost the ssh connection to the Pro — the build may still be running; check /tmp/fasttab-ios-push.log there"
+  (( rc == 0 )) || die "iPhone install FAILED on ${device} (log on the Pro: /tmp/fasttab-ios-push.log)"
+  echo "==> prod-push done (iPhone only: ${app_sha:0:7} on ${device})"
+}
+
+if [[ "${PHONE_ONLY:-0}" == 1 ]]; then
+  [[ "${IOS:-0}" == 1 ]] && die "PHONE_ONLY=1 and IOS=1 are different modes — pick one"
+  phone_only
+  exit 0
+fi
+
 preflight
 sync_main_with_pro
 
@@ -200,13 +279,36 @@ done
 
 for app in ${APPS}; do require_signed "dist/${app}.app"; done
 
+# Every app stopped on the Pro is started again, whatever happens after the stop (rsync failure,
+# lost ssh, Ctrl-C): the EXIT trap restarts whatever is still down. `start` itself verifies exactly
+# ONE process of the app (app-lifecycle.sh) and fails loudly otherwise. The Pro's keep-alive
+# (agentbar-keepalive.sh) is the second net if even this can't reach the Pro.
+# The lifecycle script is streamed from this checkout, so an older copy on the Pro can't skip the check.
+stopped=""
+lifecycle() { ssh "${PRO}" "cd '${PRO_REPO}/scripts' && bash -s -- $*" < scripts/app-lifecycle.sh; }
+restart_stopped() {
+  local a failed=""
+  for a in ${stopped}; do
+    echo "+ (restart after a stop) app-lifecycle.sh start ${a}"
+    lifecycle start "${a}" || failed+=" ${a}"
+  done
+  stopped=""
+  [[ -z "${failed}" ]] || echo "prod-push: STOP — could not restart on the Pro:${failed} — NOT running there (keep-alive retries AgentBar within ~10 min)" >&2
+  [[ -z "${failed}" ]]
+}
+trap 'rc=$?; restart_stopped || rc=1; exit $rc' EXIT
 for app in ${APPS}; do
-  run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/app-lifecycle.sh stop ${app}"
+  echo "+ app-lifecycle.sh stop ${app} (on the Pro)"
+  if [[ "${DRY_RUN:-0}" != 1 ]]; then stopped+=" ${app}"; lifecycle stop "${app}"; fi
   run rsync -aE --delete "dist/${app}.app/" "${PRO}:${PRO_REPO}/dist/${app}.app/"
   # Stamp via ssh, not rsync (openrsync mangles single-file targets).
   [[ "${DRY_RUN:-0}" == 1 ]] || ssh "${PRO}" "cat > '${PRO_REPO}/dist/${app}.app.commit'" < "dist/${app}.app.commit" \
     || echo "!! could not write ${app}'s deploy stamp on the Pro — next deploy will only warn" >&2
-  run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/app-lifecycle.sh start ${app}"
+  echo "+ app-lifecycle.sh start ${app} (on the Pro)"
+  if [[ "${DRY_RUN:-0}" != 1 ]]; then
+    lifecycle start "${app}" || die "${app} did not come back on the Pro after the deploy (see STOP above)"
+    stopped="${stopped/ ${app}/}"
+  fi
 done
 
 if [[ "${IOS:-0}" == 1 ]]; then

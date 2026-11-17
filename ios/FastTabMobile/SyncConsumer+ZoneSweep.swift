@@ -39,11 +39,25 @@ extension SyncConsumer {
         var token = (try? Data(contentsOf: tokenURL)).flatMap {
             try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: $0)
         }
+        // Diagnostics (Documents/reader-sync.log): how long a walk takes is the
+        // question when a phone shows no Mac.
+        let startedFromScratch = token == nil
+        let startedAt = Date()
+        var pages = 0
+        var recordCount = 0
+        var deletionCount = 0
+        func trace(_ outcome: String) {
+            guard pages > 1 || recordCount + deletionCount > 0 || outcome != "done" else { return }
+            Self.syncTrace("sweep \(zoneID.zoneName) \(outcome): fromScratch=\(startedFromScratch) pages=\(pages) records=\(recordCount) deletions=\(deletionCount) elapsedMs=\(Int(Date().timeIntervalSince(startedAt) * 1000))")
+        }
         do {
             while true {
                 let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
                 let records = changes.modificationResultsByID.values.compactMap { try? $0.get().record }
                 let deletions = changes.deletions.map(\.recordID)
+                pages += 1
+                recordCount += records.count
+                deletionCount += deletions.count
                 if !records.isEmpty || !deletions.isEmpty {
                     await applyFetchedChanges(modifications: records, deletions: deletions)
                 }
@@ -53,13 +67,20 @@ extension SyncConsumer {
                 }
                 guard changes.moreComing else { break }
             }
+            trace("done")
+            if zoneID == SyncConstants.stateZoneID { stateZoneHistoryCaughtUp = true }
         } catch let error as CKError where error.code == .changeTokenExpired {
             // Start over from scratch next time.
             try? FileManager.default.removeItem(at: tokenURL)
+            trace("token expired")
         } catch let error as CKError where error.code == .zoneNotFound {
             // Zone not created yet (nothing has been written to it).
         } catch {
-            guard !ZoneSweepSchedule.isCancellation(error) else { return }
+            guard !ZoneSweepSchedule.isCancellation(error) else {
+                trace("interrupted")
+                return
+            }
+            trace("failed: \(Self.describe(error))")
             markSyncFailed(error, whileDoing: "sweeping \(zoneID.zoneName)")
         }
     }

@@ -59,7 +59,7 @@ extension CommandBarLayout {
     }
 
     /// Single source of truth for row-cap branching across both SwiftUI view sizing (ContentView)
-    /// and AppKit pointer hit testing (`hoverDismissMaxRows`).
+    /// and AppKit pointer hit testing (`drawnSurfaceMaxRows`).
     /// Every open — shortcut or mouse — lists every tab: an empty search, Stack and the
     /// custom views are all the tall list (`expandedAllTabsMaxRows`, scrolls past it). Only a
     /// live search on Recents at a top-hugging position is the short `visibleResultRows` panel.
@@ -89,13 +89,16 @@ extension CommandBarLayout {
         }
     }
 
-    /// Rows of the hover-dismiss box ("stay inside or the bar closes"). Hover-dismiss only runs
-    /// on an empty search, so this is the tall list — never shorter than the drawn panel
-    /// (pinned by `ShortcutOpenShowsAllTabsTests`). Reads the live appearance from `defaults`.
-    static func hoverDismissMaxRows(view: CommandBarView, anchor: CommandBarAnchor, defaults: UserDefaults = .standard) -> Int {
+    /// Rows of the panel as drawn, for AppKit pointer hit tests ("is the pointer on the bar":
+    /// leave close, has-visited, mouse takeover — `FastTabPointerLeaveGates.isOutsideDrawnBar`).
+    /// Same rows as ContentView's `resultsMaxRows` (pinned by `ShortcutOpenShowsAllTabsTests`);
+    /// reads the live appearance from `defaults`.
+    static func drawnSurfaceMaxRows(
+        view: CommandBarView, isSearching: Bool, anchor: CommandBarAnchor, defaults: UserDefaults = .standard
+    ) -> Int {
         surfaceMaxRows(
             view: view,
-            isSearching: false,
+            isSearching: isSearching,
             anchor: anchor,
             rowStyle: storedRowStyle(in: defaults),
             showFooter: storedShowFooter(in: defaults)
@@ -134,7 +137,7 @@ extension CommandBarLayout {
     /// Where the surface is for one open: the resolved anchor, slid to `pointer` for hover
     /// edges (left/right: y, bottom: x), or a card centred on `pointer` for "Follow the mouse".
     /// Defaults to the largest the panel can be (the outside-click test);
-    /// the hover-dismiss monitor passes `hoverDismissMaxRows`.
+    /// the pointer hit tests pass `drawnSurfaceMaxRows`.
     static func surfaceFrame(in canvasFrame: CGRect, position: CommandBarResolvedPosition, pointer: CGPoint?, rowStyle: ResultRowStyle = .full, maxRows: Int = CommandBarSizing.fastTab.maxQuickOpenItemLimit, showFooter: Bool = true, visibleFrame: CGRect? = nil) -> CGRect {
         if position.followsMouse, position.anchor.isFloating, let pointer {
             return sizing.followMouseSurfaceFrame(in: canvasFrame, rowStyle: rowStyle, maxRows: maxRows, showFooter: showFooter, visibleFrame: visibleFrame, pointer: pointer)

@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 import IndieEdgeReveal
 
 /// Gap 9: the panel opened from the corner tab grows out of its hover spot and closes
@@ -11,6 +11,13 @@ enum CornerPanelLeave {
     static func zone(spot: EdgeRevealStyle, displayFrame: CGRect) -> CGRect {
         let spot = CornerTabPlacement.placementSpot(for: spot)
         return EdgeRevealGeometry.triggerZone(for: spot, screen: EdgeRevealScreenInfo(frame: displayFrame)) ?? .zero
+    }
+
+    /// One of the summon shortcut's modifiers is down (⌥ of ⌥Tab): holds the panel (shared leave
+    /// rule's `isShortcutModifierHeld` hook), and letting go re-checks at once.
+    static func isShortcutModifierHeld(_ flags: NSEvent.ModifierFlags, shortcutModifiers: NSEvent.ModifierFlags) -> Bool {
+        let held = shortcutModifiers.intersection([.command, .option, .control, .shift])
+        return !flags.intersection(.deviceIndependentFlagsMask).intersection(held).isEmpty
     }
 }
 

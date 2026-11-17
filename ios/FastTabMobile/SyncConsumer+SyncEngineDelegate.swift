@@ -25,6 +25,7 @@ extension SyncConsumer: CKSyncEngineDelegate {
                     self.listSync.resetLedger()
                     self.activitySync.resetLedger()
                     self.resetZoneSweepTokens()
+                    self.resetMacDirectorySnapshot()
                     self.ensureZonesExist()
                     self.restorePendingCommandOutbox()
                     self.ownDeviceServerRecord = nil
@@ -212,8 +213,21 @@ extension SyncConsumer: CKSyncEngineDelegate {
 extension SyncConsumer {
     /// Applies records read from CloudKit to the local cache. One path for the engine's
     /// fetch events and for the manual zone sweep (SyncConsumer+ZoneSweep.swift), so both
-    /// produce the same result.
+    /// produce the same result. This is the history sync: the authority the direct
+    /// snapshot (SyncConsumer+MacDirectory.swift) defers to.
     func applyFetchedChanges(modifications: [CKRecord], deletions: [CKRecord.ID]) async {
+        noteHistoryChangesForDirectSnapshot(modifications: modifications, deletions: deletions)
+        applyRecordsToCache(modifications: modifications, deletions: deletions)
+        LocalCache.shared.flushPendingSave()
+        await absorbReaderChanges(
+            modifications,
+            deletions: deletions)
+    }
+
+    /// Record → cache mapping shared by the history sync and the direct snapshot.
+    /// Synchronous on purpose: the direct snapshot's precedence check and this apply
+    /// must happen in one MainActor turn.
+    func applyRecordsToCache(modifications: [CKRecord], deletions: [CKRecord.ID]) {
         for record in modifications {
             switch record.recordType {
             case SyncedDevice.recordType:
@@ -274,10 +288,5 @@ extension SyncConsumer {
                 FaviconModel.shared.remove(recordName: recordName)
             }
         }
-
-        LocalCache.shared.flushPendingSave()
-        await absorbReaderChanges(
-            modifications,
-            deletions: deletions)
     }
 }

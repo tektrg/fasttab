@@ -43,6 +43,24 @@ struct AgentCycleControllerTests {
         )
     }
 
+    /// The mouse taking over mid-cycle (a real move inside the panel) drops the release-to-switch;
+    /// the hovered row is what a click opens. Tapping the shortcut again takes the keyboard back.
+    @Test func pointerTakeoverDropsTheCommitAndALaterPressReArmsIt() {
+        let panel = FakePanel()
+        let controller = makeController(panel)
+        controller.hotkeyPressed(.forward, currentModifiers: held)
+        controller.hotkeyPressed(.forward, currentModifiers: held)
+        controller.pointerTookOver()
+        controller.modifiersChanged(released)
+        #expect(panel.commits.isEmpty)
+        #expect(panel.isVisible)
+
+        controller.modifiersChanged(held)
+        controller.hotkeyPressed(.forward, currentModifiers: held)
+        controller.modifiersChanged(released)
+        #expect(panel.commits == [2])
+    }
+
     @Test func firstPressOpensWithoutCycling() {
         let panel = FakePanel()
         let controller = makeController(panel)

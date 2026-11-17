@@ -14,6 +14,7 @@ final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu-bar-less background app: no dock icon, no menu bar.
         NSApp.setActivationPolicy(.accessory)
+        CleanQuitMarker.standard.markLaunched()
         KeyboardDebugLog.start()
         ClaudeWindowRaiser.warmUp()
 
@@ -23,6 +24,11 @@ final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
         closeStraySettingsWindows()
         for url in pendingURLs { coordinator.openSessionLink(url) }
         pendingURLs = []
+    }
+
+    /// A normal quit only (not a crash/kill): tells the Pro's keep-alive not to relaunch.
+    func applicationWillTerminate(_ notification: Notification) {
+        CleanQuitMarker.standard.markCleanQuit()
     }
 
     /// `agentbar://session/<id>` links (scheme registered by `scripts/build-agentbar-app.sh`).

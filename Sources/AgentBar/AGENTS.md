@@ -7,6 +7,7 @@ Native Mac agent switcher (⌥Tab panel) over the AptusFit **chief dashboard** (
 - App: `scripts/build-agentbar-app.sh` (→ `dist/AgentBar.app`). Do this after every change.
 - Tests: `swift test --filter AgentBarTests` (1437 on 2026-09-27, after the hook answer bridge QA 2 — gotcha 22). Full-suite runs flake under machine load; re-run the failing test alone before believing it (known: `FastTabTests.licenseServiceRecoversWhenInitialStorageLoadFinishesAfterTimeout` under parallel load — passes solo).
 - Own defaults domain `com.trungluong.AgentBar`. Unsandboxed.
+- **Keep-alive on the Pro** (2026-11-17): launchd `com.trungluong.agentbar-keepalive` runs `scripts/agentbar-keepalive.sh` every 60s and `open`s AgentBar when it is not running, unless the user quit it (`~/Library/Application Support/AgentBar/clean-quit`, written by `applicationWillTerminate` = menu Quit / `quit app` / logout, deleted on launch; `CleanQuitMarker`) or a deploy is mid-flight (`~/.local/state/app-lifecycle/AgentBar.deploying` < 10 min, set by `app-lifecycle.sh stop`, cleared by a verified `start`). Crash / `kill` / missed relaunch leave no marker -> back within ~60s, one line in `~/.local/state/app-lifecycle/keepalive.log`. Install: `scripts/agentbar-keepalive.sh --install` on the Pro (copies the script to `~/.local/bin`, plist points at the main checkout's `dist/AgentBar.app`). Tests: `scripts/tests/agentbar-keepalive-test.sh`, `CleanQuitMarkerTests` (the path is hardcoded in both — change together).
 
 ## What it does (user vocabulary → code)
 | User says | Code / concept |

@@ -279,13 +279,36 @@ done
 
 for app in ${APPS}; do require_signed "dist/${app}.app"; done
 
+# Every app stopped on the Pro is started again, whatever happens after the stop (rsync failure,
+# lost ssh, Ctrl-C): the EXIT trap restarts whatever is still down. `start` itself verifies exactly
+# ONE process of the app (app-lifecycle.sh) and fails loudly otherwise. The Pro's keep-alive
+# (agentbar-keepalive.sh) is the second net if even this can't reach the Pro.
+# The lifecycle script is streamed from this checkout, so an older copy on the Pro can't skip the check.
+stopped=""
+lifecycle() { ssh "${PRO}" "cd '${PRO_REPO}/scripts' && bash -s -- $*" < scripts/app-lifecycle.sh; }
+restart_stopped() {
+  local a failed=""
+  for a in ${stopped}; do
+    echo "+ (restart after a stop) app-lifecycle.sh start ${a}"
+    lifecycle start "${a}" || failed+=" ${a}"
+  done
+  stopped=""
+  [[ -z "${failed}" ]] || echo "prod-push: STOP — could not restart on the Pro:${failed} — NOT running there (keep-alive retries AgentBar within ~10 min)" >&2
+  [[ -z "${failed}" ]]
+}
+trap 'rc=$?; restart_stopped || rc=1; exit $rc' EXIT
 for app in ${APPS}; do
-  run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/app-lifecycle.sh stop ${app}"
+  echo "+ app-lifecycle.sh stop ${app} (on the Pro)"
+  if [[ "${DRY_RUN:-0}" != 1 ]]; then stopped+=" ${app}"; lifecycle stop "${app}"; fi
   run rsync -aE --delete "dist/${app}.app/" "${PRO}:${PRO_REPO}/dist/${app}.app/"
   # Stamp via ssh, not rsync (openrsync mangles single-file targets).
   [[ "${DRY_RUN:-0}" == 1 ]] || ssh "${PRO}" "cat > '${PRO_REPO}/dist/${app}.app.commit'" < "dist/${app}.app.commit" \
     || echo "!! could not write ${app}'s deploy stamp on the Pro — next deploy will only warn" >&2
-  run ssh "${PRO}" "cd '${PRO_REPO}' && scripts/app-lifecycle.sh start ${app}"
+  echo "+ app-lifecycle.sh start ${app} (on the Pro)"
+  if [[ "${DRY_RUN:-0}" != 1 ]]; then
+    lifecycle start "${app}" || die "${app} did not come back on the Pro after the deploy (see STOP above)"
+    stopped="${stopped/ ${app}/}"
+  fi
 done
 
 if [[ "${IOS:-0}" == 1 ]]; then

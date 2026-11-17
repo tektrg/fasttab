@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: installed by `scripts/agentbar-keepalive.sh --install` (fills __REPO__ / __HOME__). -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.trungluong.agentbar-keepalive</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>__HOME__/.local/bin/agentbar-keepalive.sh</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>AGENTBAR_APP</key>
+		<string>__REPO__/dist/AgentBar.app</string>
+		<key>PATH</key>
+		<string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>StartInterval</key>
+	<integer>60</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>__HOME__/.local/state/app-lifecycle/keepalive-error.log</string>
+</dict>
+</plist>

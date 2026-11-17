@@ -385,7 +385,8 @@ private struct AudibleTabRow: View {
                 LeadingIconColumn(
                     browserName: result.browserName,
                     fallbackSymbol: result.type.symbolName,
-                    faviconImage: faviconImage
+                    faviconImage: faviconImage,
+                    sourceType: result.type
                 )
 
                 HStack(spacing: 5) {

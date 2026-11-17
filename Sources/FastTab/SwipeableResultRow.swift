@@ -98,10 +98,10 @@ private struct ResultRowView: View {
                     browserName: result.browserName,
                     fallbackSymbol: result.isGhost ? "clock.arrow.circlepath" : result.type.symbolName,
                     faviconImage: faviconImage,
-                    sourceType: result.type
+                    sourceType: result.type,
+                    opacities: .init(rowDimming: result.type.dimmingOpacity, isGhost: result.isGhost)
                 )
                 .frame(maxHeight: .infinity, alignment: .top)
-                .opacity(result.isGhost ? 0.6 : 1.0)
 
                 Group {
                     if rowStyle == .minimal {
@@ -117,6 +117,7 @@ private struct ResultRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
                 .padding(.trailing, actionReserveWidth)
+                .opacity(result.type.dimmingOpacity)
 
                 Spacer(minLength: 0)
             }
@@ -135,8 +136,8 @@ private struct ResultRowView: View {
             ) {
                 actionButtonCluster
             }
+            .opacity(result.type.dimmingOpacity)
         }
-        .opacity(result.type.dimmingOpacity)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(isSelected ? theme.accentColor.opacity(0.17) : (isHovering ? Color.primary.opacity(0.04) : Color.clear))
@@ -417,6 +418,20 @@ struct LeadingIconColumn: View {
     let faviconImage: NSImage?
     /// The row's source; nil for callers that only draw open tabs.
     var sourceType: BrowserResultType? = nil
+    var opacities = Opacities(rowDimming: 1, isGhost: false)
+
+    /// Bookmark/history rows fade their site icon with the text, but the badge
+    /// stays at full strength (owner 2026-11-17). A closed "ghost" tab fades both.
+    struct Opacities: Equatable {
+        let mainIcon: Double
+        let badge: Double
+
+        init(rowDimming: Double, isGhost: Bool) {
+            let ghost = isGhost ? 0.6 : 1.0
+            mainIcon = rowDimming * ghost
+            badge = ghost
+        }
+    }
 
     private var badge: LeadingIconBadge {
         LeadingIconBadge.resolve(
@@ -429,6 +444,7 @@ struct LeadingIconColumn: View {
     var body: some View {
         LeadingResultIcon(browserName: browserName, fallbackSymbol: fallbackSymbol, faviconImage: faviconImage)
             .frame(width: Self.iconSize, height: Self.iconSize)
+            .opacity(opacities.mainIcon)
             .overlay(alignment: .bottomTrailing) {
                 let badge = badge
                 if badge != .none {
@@ -443,6 +459,7 @@ struct LeadingIconColumn: View {
                     }
                     .frame(width: Self.badgeHaloSize, height: Self.badgeHaloSize)
                     .background(Circle().fill(.regularMaterial))
+                    .opacity(opacities.badge)
                     .offset(x: Self.badgeOffset, y: Self.badgeOffset)
                 }
             }

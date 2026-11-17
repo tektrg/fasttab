@@ -50,6 +50,23 @@ struct LeadingIconBadgeTests {
         #expect(LeadingIconBadge.none.symbolName == nil)
     }
 
+    /// Owner 2026-11-17: bookmark/history rows fade (text + site icon) but the
+    /// badge stays at full strength; closed "ghost" tabs still fade the whole icon.
+    @Test func badgeStaysFullStrengthWhileTheRowFades() {
+        let history = LeadingIconColumn.Opacities(rowDimming: BrowserResultType.history.dimmingOpacity, isGhost: false)
+        #expect(history.mainIcon == 0.52)
+        #expect(history.badge == 1)
+        let bookmark = LeadingIconColumn.Opacities(rowDimming: BrowserResultType.bookmark.dimmingOpacity, isGhost: false)
+        #expect(bookmark.mainIcon == 0.72)
+        #expect(bookmark.badge == 1)
+        let tab = LeadingIconColumn.Opacities(rowDimming: BrowserResultType.tab.dimmingOpacity, isGhost: false)
+        #expect(tab.mainIcon == 1)
+        #expect(tab.badge == 1)
+        let ghost = LeadingIconColumn.Opacities(rowDimming: 1, isGhost: true)
+        #expect(ghost.mainIcon == 0.6)
+        #expect(ghost.badge == 0.6)
+    }
+
     /// A page that is open AND bookmarked (AND in history) collapses into one
     /// row, the open tab, which keeps the browser logo.
     @Test func openAndBookmarkedPageShowsOneRowWithTheBrowserLogo() throws {

@@ -9,7 +9,7 @@
 # Install on the Pro (one-liner, from the main checkout): scripts/agentbar-keepalive.sh --install
 #   copies this script to ~/.local/bin (so the checkout may sit on any branch) and loads the plist,
 #   which points AGENTBAR_APP at this checkout's dist/AgentBar.app. Re-run after changing either.
-# Env (tests): AGENTBAR_APP  AGENTBAR_SUPPORT_DIR  LIFECYCLE_STATE_DIR  DEPLOY_STALE_SECS (600)  NOW
+# Env: AGENTBAR_REPO (--install: checkout whose dist/ to watch; default this one)  tests: AGENTBAR_APP  AGENTBAR_SUPPORT_DIR  LIFECYCLE_STATE_DIR  DEPLOY_STALE_SECS (600)  NOW
 set -uo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 app="${AGENTBAR_APP:-${repo_root}/dist/AgentBar.app}"
@@ -22,7 +22,7 @@ if [[ "${1:-}" == --install ]]; then
   plist="${HOME}/Library/LaunchAgents/${label}.plist"
   mkdir -p "${HOME}/.local/bin" "${state}"
   cp "${repo_root}/scripts/agentbar-keepalive.sh" "${HOME}/.local/bin/agentbar-keepalive.sh"
-  sed "s#__REPO__#${repo_root}#g; s#__HOME__#${HOME}#g" "${repo_root}/scripts/${label}.plist" > "${plist}"
+  sed "s#__REPO__#${AGENTBAR_REPO:-${repo_root}}#g; s#__HOME__#${HOME}#g" "${repo_root}/scripts/${label}.plist" > "${plist}"
   launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "${plist}" && echo "installed ${plist} (every 60s; log ${state}/keepalive.log)"
   exit

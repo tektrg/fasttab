@@ -41,10 +41,13 @@ for app in ${APPS}; do
   (( rc == 3 )) && echo "!! FORCE_REPLACE: replacing ${app} anyway — ${verdict}" || echo "==> ${app}: ${verdict}"
   run ssh "${AIR}" "cd '${AIR_REPO}' && scripts/${script}"
   run scripts/app-lifecycle.sh stop "${app}"
+  # Whatever fails from here on, start the app again (start verifies exactly one process).
+  trap "scripts/app-lifecycle.sh start '${app}' || echo 'prod-pull: STOP — ${app} NOT running' >&2" EXIT
   run rsync -aE --delete "${AIR}:${AIR_REPO}/dist/${app}.app/" "dist/${app}.app/"
   [[ "${DRY_RUN:-0}" == 1 ]] || ssh "${AIR}" "cat '${AIR_REPO}/dist/${app}.app.commit'" > "dist/${app}.app.commit" \
     || { rm -f "dist/${app}.app.commit"; echo "!! could not copy ${app}'s deploy stamp — next deploy will only warn" >&2; }
-  run scripts/app-lifecycle.sh start "${app}"
+  trap - EXIT
+  run scripts/app-lifecycle.sh start "${app}" || { echo "prod-pull: STOP — ${app} did not come back" >&2; exit 1; }
 done
 
 [[ "${IOS:-0}" == 1 ]] && run scripts/build-ios.sh

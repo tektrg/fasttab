@@ -32,9 +32,11 @@ for app in "$@"; do
   case "${action}" in
     stop)
       date +%s > "${state}/${app}.deploying"
-      if pkill -x "${app}" 2>/dev/null; then
-        for _ in $(seq 1 20); do pgrep -x "${app}" >/dev/null || break; sleep 0.25; done
-        pgrep -x "${app}" >/dev/null && { pkill -9 -x "${app}" 2>/dev/null || true; sleep 0.5; }
+      # Only this checkout's bundle: another checkout's instance isn't being replaced.
+      own="^$(exe_of "${app}")( .*)?$"
+      if pkill -f "${own}" 2>/dev/null; then
+        for _ in $(seq 1 20); do pgrep -f "${own}" >/dev/null || break; sleep 0.25; done
+        pgrep -f "${own}" >/dev/null && { pkill -9 -f "${own}" 2>/dev/null || true; sleep 0.5; }
       fi
       log "stop ${app} (deploy marker set) by ${SSH_CONNECTION:+ssh }pid $$ ppid ${PPID}"
       echo "stopped ${app}"

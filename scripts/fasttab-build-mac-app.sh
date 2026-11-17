@@ -31,21 +31,24 @@ swift build -c release
 BIN="$(swift build -c release --show-bin-path)/FastTab"
 [[ -f "${BIN}" ]] || { echo "build-app: built binary not found at ${BIN}" >&2; exit 1; }
 
-# Terminate any running instance and WAIT for it to actually exit before
+# Terminate the instance running THIS checkout's bundle and WAIT for it to actually exit before
 # touching the bundle's executable. Overwriting/re-signing the binary in
 # place while a live process still has it mapped trips the kernel's code
 # integrity check on the next page-in — SIGKILL "Code Signature Invalid" —
 # which looks like a random crash, not a build issue. Escalate to SIGKILL
 # ourselves if a hung main run loop ignores SIGTERM.
-if pkill -x FastTab 2>/dev/null; then
+# Only this bundle (2026-11-17, same as build-agentbar-app.sh): a bare `pkill -x FastTab` from a
+# worktree build also killed the production FastTab running from the main checkout's dist/.
+own="^${repo_root}/${APP}/Contents/MacOS/FastTab( .*)?$"
+if pkill -f "${own}" 2>/dev/null; then
   echo "==> Stopping running instance before install"
   for _ in $(seq 1 20); do          # up to ~5s for a graceful exit
-    pgrep -x FastTab >/dev/null || break
+    pgrep -f "${own}" >/dev/null || break
     sleep 0.25
   done
-  if pgrep -x FastTab >/dev/null; then
+  if pgrep -f "${own}" >/dev/null; then
     echo "==> Old instance ignored SIGTERM; force-killing"
-    pkill -9 -x FastTab 2>/dev/null || true
+    pkill -9 -f "${own}" 2>/dev/null || true
     sleep 0.5
   fi
 fi

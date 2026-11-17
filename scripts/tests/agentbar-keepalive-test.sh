@@ -70,4 +70,16 @@ out="$(cd "${T}/w/repo/scripts" && PATH="${T}/w/bin:/usr/bin:/bin" LIFECYCLE_STA
   bash -s -- start AgentBar < "${repo_root}/scripts/app-lifecycle.sh" 2>&1)"; rc=$?
 (( rc == 0 )) && [[ "${out}" == *"exactly one"* ]] && pass "lifecycle streamed via bash -s finds the bundle" || fail streamed "rc=${rc} out=${out}"
 
+# fasttab-build-mac-app.sh: kills only the FastTab running from THIS checkout's dist bundle.
+setup; R="${T}/w/ft"; mkdir -p "${R}/scripts" "${R}/dist/FastTab.app/Contents/MacOS" "${R}/bin-out"
+cp "${repo_root}/scripts/fasttab-build-mac-app.sh" "${R}/scripts/"; touch "${R}/bin-out/FastTab"
+printf '#!/bin/sh\ncase "$*" in *show-bin-path*) echo "%s/bin-out";; esac\n' "${R}" > "${T}/w/bin/swift"
+printf '#!/bin/sh\necho "$@" >> "%s/w/pkilled"\nexit 1\n' "${T}" > "${T}/w/bin/pkill"
+chmod +x "${T}/w/bin/"*
+R="$(cd "${R}" && pwd -P)"
+PATH="${T}/w/bin:/usr/bin:/bin" HOME="${T}/w" bash "${R}/scripts/fasttab-build-mac-app.sh" --no-open >/dev/null 2>&1
+k="$(cat "${T}/w/pkilled" 2>/dev/null)"
+[[ "${k}" == "-f ^${R}/dist/FastTab.app/Contents/MacOS/FastTab( .*)?\$" ]] \
+  && pass "fasttab build kills only this checkout's FastTab" || fail ftkill "pkill args: ${k}"
+
 (( fails == 0 )) && echo "ALL PASS" || { echo "${fails} FAILED"; exit 1; }

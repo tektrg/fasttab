@@ -64,4 +64,10 @@ out="$(PATH="${T}/w/bin:/usr/bin:/bin" L start AgentBar 2>&1)"; rc=$?
   && [[ ! -f "${T}/w/state/AgentBar.deploying" ]] && pass "lifecycle start, two processes -> newer killed" \
   || fail extras "rc=${rc} out=${out}"
 
+# Streamed the way prod-push.sh runs it on the Pro (`cd scripts && bash -s`): must find dist/.
+printf '#!/bin/sh\necho 111\n' > "${T}/w/bin/pgrep"; chmod +x "${T}/w/bin/pgrep"
+out="$(cd "${T}/w/repo/scripts" && PATH="${T}/w/bin:/usr/bin:/bin" LIFECYCLE_STATE_DIR="${T}/w/state" START_TIMEOUT=1 \
+  bash -s -- start AgentBar < "${repo_root}/scripts/app-lifecycle.sh" 2>&1)"; rc=$?
+(( rc == 0 )) && [[ "${out}" == *"exactly one"* ]] && pass "lifecycle streamed via bash -s finds the bundle" || fail streamed "rc=${rc} out=${out}"
+
 (( fails == 0 )) && echo "ALL PASS" || { echo "${fails} FAILED"; exit 1; }

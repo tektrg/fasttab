@@ -16,7 +16,7 @@
 # Env: LIFECYCLE_STATE_DIR (~/.local/state/app-lifecycle)  START_TIMEOUT (20)
 # Usage: scripts/app-lifecycle.sh stop|start|status <App> [<App>...]   (e.g. FastTab AgentBar)
 set -euo pipefail
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")/.." && pwd)"   # :-. = streamed via `bash -s` from scripts/ (prod-push)
 cd "${repo_root}"
 state="${LIFECYCLE_STATE_DIR:-${HOME}/.local/state/app-lifecycle}"
 mkdir -p "${state}"

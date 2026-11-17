@@ -131,7 +131,8 @@ fi
 # NOTARY_* environment variables (never on this script's command lines).
 NOTARY_FLAGS=()
 if [[ "${SKIP_NOTARIZE}" == "true" ]]; then
-  NOTARY_FLAGS=(--skip-notarize)
+  # Same as before the shared script: an explicit --skip-notarize release still goes in the feed.
+  NOTARY_FLAGS=(--skip-notarize --allow-unnotarized-feed)
 elif [[ -n "${NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
   echo "  Notary auth: keychain profile '${NOTARY_KEYCHAIN_PROFILE}'"
   NOTARY_FLAGS=(--notary-profile "${NOTARY_KEYCHAIN_PROFILE}")

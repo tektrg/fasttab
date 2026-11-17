@@ -97,7 +97,8 @@ private struct ResultRowView: View {
                 LeadingIconColumn(
                     browserName: result.browserName,
                     fallbackSymbol: result.isGhost ? "clock.arrow.circlepath" : result.type.symbolName,
-                    faviconImage: faviconImage
+                    faviconImage: faviconImage,
+                    sourceType: result.type
                 )
                 .frame(maxHeight: .infinity, alignment: .top)
                 .opacity(result.isGhost ? 0.6 : 1.0)
@@ -369,11 +370,43 @@ private struct MetadataPill: View {
     }
 }
 
+/// What the small circle at the bottom-right of a row's main icon shows
+/// (owner decisions 2026-11-17): bookmark and history rows show where they
+/// came from (grey bookmark / clock) instead of the browser logo; open tabs
+/// and everything else keep the browser logo.
+enum LeadingIconBadge: Equatable {
+    case none
+    case browser
+    case bookmark
+    case history
+
+    /// `sourceType` nil = a caller that only draws open tabs (Stack).
+    static func resolve(sourceType: BrowserResultType?, hasFavicon: Bool, hasBrowserIcon: Bool) -> LeadingIconBadge {
+        switch sourceType {
+        case .bookmark?, .history?:
+            // No site icon and no browser icon: the main icon is already the
+            // type's own symbol, so a badge would repeat it.
+            guard hasFavicon || hasBrowserIcon else { return .none }
+            return sourceType == .bookmark ? .bookmark : .history
+        default:
+            return hasFavicon ? .browser : .none
+        }
+    }
+
+    var symbolName: String? {
+        switch self {
+        case .bookmark: return "bookmark.fill"
+        case .history: return "clock.fill"
+        case .none, .browser: return nil
+        }
+    }
+}
+
 /// Leading icon for a result row. When the result has a real favicon, it's
-/// the main icon (top-left) and the source browser's icon shrinks to a small
-/// badge overlapping its bottom-right corner, so the two icons don't get
-/// confused for one another. When there's no favicon (e.g. Finder results),
-/// only the single fallback icon is shown, with no badge.
+/// the main icon (top-left) and a small badge overlaps its bottom-right
+/// corner: the browser's icon, or for bookmark/history rows the source
+/// (`LeadingIconBadge`). When there's no favicon, the browser icon is the main
+/// icon; bookmark/history rows still get their source badge on it.
 struct LeadingIconColumn: View {
     static let iconSize: CGFloat = 16
     static let badgeHaloSize: CGFloat = 13
@@ -382,16 +415,35 @@ struct LeadingIconColumn: View {
     let browserName: String
     let fallbackSymbol: String
     let faviconImage: NSImage?
+    /// The row's source; nil for callers that only draw open tabs.
+    var sourceType: BrowserResultType? = nil
+
+    private var badge: LeadingIconBadge {
+        LeadingIconBadge.resolve(
+            sourceType: sourceType,
+            hasFavicon: faviconImage != nil,
+            hasBrowserIcon: BrowserIconCache.icon(for: browserName, size: Self.iconSize) != nil
+        )
+    }
 
     var body: some View {
         LeadingResultIcon(browserName: browserName, fallbackSymbol: fallbackSymbol, faviconImage: faviconImage)
             .frame(width: Self.iconSize, height: Self.iconSize)
             .overlay(alignment: .bottomTrailing) {
-                if faviconImage != nil {
-                    BrowserBadge(browserName: browserName, size: Self.badgeHaloSize - 3)
-                        .frame(width: Self.badgeHaloSize, height: Self.badgeHaloSize)
-                        .background(Circle().fill(.regularMaterial))
-                        .offset(x: Self.badgeOffset, y: Self.badgeOffset)
+                let badge = badge
+                if badge != .none {
+                    Group {
+                        if let symbol = badge.symbolName {
+                            Image(systemName: symbol)
+                                .font(.system(size: 7, weight: .bold))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            BrowserBadge(browserName: browserName, size: Self.badgeHaloSize - 3)
+                        }
+                    }
+                    .frame(width: Self.badgeHaloSize, height: Self.badgeHaloSize)
+                    .background(Circle().fill(.regularMaterial))
+                    .offset(x: Self.badgeOffset, y: Self.badgeOffset)
                 }
             }
     }

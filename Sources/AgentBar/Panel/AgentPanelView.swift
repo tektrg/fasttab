@@ -38,9 +38,6 @@ struct AgentPanelView: View {
                 if let corner {
                     CornerCardBar(chrome: corner)
                     Divider()
-                } else if model.showsPageStrip {
-                    AgentPageStripView(pages: model.pages)
-                    Divider().opacity(0.5)
                 }
                 bodyContent
                 // Hidden whenever the body collapses (`AgentPanelMetrics.height(isComposing:)`).
@@ -51,6 +48,12 @@ struct AgentPanelView: View {
             .overlay(alignment: .bottom) { failureNotice }
             .overlay(alignment: .bottomTrailing) { keyMenu }
             .overlay(alignment: .top) { if corner == nil { fallbackApproval } }
+            // Page tabs sit at the bottom, directly above the search box (2026-11-18): near the
+            // keyboard focus, and the list above keeps its top edge. Same height either way.
+            if corner == nil, model.showsPageStrip {
+                Divider().opacity(0.5)
+                AgentPageStripView(pages: model.pages)
+            }
             if corner == nil {
                 Divider()
                 SearchFieldView(model: model, onClose: onClose)

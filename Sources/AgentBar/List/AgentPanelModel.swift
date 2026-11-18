@@ -34,6 +34,8 @@ final class AgentPanelModel: ObservableObject {
     private(set) var hoverSelectedAgentID: String?
     /// The selected row's button the keyboard is on (←/→), if any; ↩ presses it.
     @Published private(set) var highlightedButton: RowButton?
+    /// The peek's message box has the keyboard (footer hints only; set by `PanePeekView`).
+    @Published var peekInputFocused = false
     /// Where each row's Done / Close pane press has got to (see `RowActionState`).
     @Published private(set) var rowActionStates: [String: RowActionState] = [:]
     /// The user's yes to the paid fallback account is on its way (`approvePendingFallback`).
@@ -1089,6 +1091,14 @@ final class AgentPanelModel: ObservableObject {
     func selectPeekTab(_ tab: PanePeek.Tab) {
         guard let agentID = peek?.agentID else { return }
         preview.updateContent(for: agentID) { $0.tab = tab }
+    }
+
+    /// ←/→ (or Tab) while peeking, routed by `PeekKeyRouting`.
+    func handlePeekKey(_ action: PeekKeyRouting.Action) {
+        switch action {
+        case .toggle: togglePeekTab()
+        case .select(let tab): selectPeekTab(tab)
+        }
     }
 
     /// Tab while peeking: the other tab.

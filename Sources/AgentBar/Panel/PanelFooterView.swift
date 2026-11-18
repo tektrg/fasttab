@@ -39,13 +39,13 @@ struct PanelFooterView: View {
                 .truncationMode(.tail)
                 .help(stripNotice.text)
         } else {
-            // Shared keycap hints, one line (the footer has a fixed height).
-            HStack(spacing: 8) {
-                ForEach(Array(PanelFooterHints.guidance(for: hintContext).tokens.enumerated()), id: \.offset) { _, token in
-                    GuidanceTokenView(token: token)
-                }
+            // Shared keycap hints, one line (the footer has a fixed height): too narrow → the
+            // lowest-priority hints drop out (`KeyHintFit`), never a wrap.
+            FittingKeyHints(items: PanelFooterHints.guidance(for: hintContext).tokens,
+                            priority: { KeyHintFit.priority(ofGlyph: $0.glyph) }) { token in
+                GuidanceTokenView(token: token)
             }
-            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

@@ -193,17 +193,7 @@ struct FocusOverlayView: View {
     }
 
     private var hints: some View {
-        HStack(spacing: 22) {
-            hint("↑ ↓", "choose")
-            hint("1–9", "pick")
-            hint("↩", "answer")
-            hint("⌘← ⌘→", "agents")
-            hint("⌘↩", goToHint)
-            hint("esc", "exit")
-            Spacer()
-        }
-        .padding(.horizontal, 32)
-        .frame(height: 48)
+        FocusHintsBar(goToLabel: goToHint, hotkey: FocusHotkey.configured().displayName)
     }
 
     private var goToHint: String {
@@ -224,14 +214,6 @@ struct FocusOverlayView: View {
                 .transition(.opacity)
                 .animation(.easeOut(duration: 0.2), value: session.toast)
         }
-    }
-
-    private func hint(_ key: String, _ label: String) -> some View {
-        HStack(spacing: 6) {
-            Text(key).font(.avenirMono(size: 13, weight: .semibold))
-            Text(label).font(.avenir(size: 13))
-        }
-        .foregroundStyle(FocusPalette.mute)
     }
 
     private var sentBadge: some View {
@@ -266,5 +248,49 @@ struct FocusOverlayView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture(perform: onExit)
+    }
+}
+
+/// Focus mode's footer hints (pure, 2026-11-15): every key `FocusKey` handles, in display order,
+/// each with a priority for `KeyHintFit` (a narrow screen drops the lowest first, never wraps).
+enum FocusHints {
+    struct Item: Equatable {
+        let key: String
+        let label: String
+        let priority: Int
+    }
+
+    /// `hotkey`: the system-wide Focus shortcut's name (Settings › Shortcuts, default ⌥⇧F), which also exits.
+    static func items(goToLabel: String, hotkey: String) -> [Item] {
+        [
+            Item(key: "↑ ↓", label: "choose", priority: 70),
+            Item(key: "1–9", label: "pick", priority: 60),
+            Item(key: "space", label: "tick", priority: 30),
+            Item(key: "↩", label: "answer", priority: 90),
+            Item(key: "⌘← ⌘→", label: "agents", priority: 80),
+            Item(key: "⌘↩", label: goToLabel, priority: 50),
+            Item(key: "esc / \(hotkey)", label: "exit", priority: 100),
+        ]
+    }
+}
+
+/// Focus mode's footer: `FocusHints` on one line, low-priority hints dropped when narrow.
+struct FocusHintsBar: View {
+    let goToLabel: String
+    let hotkey: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            FittingKeyHints(items: FocusHints.items(goToLabel: goToLabel, hotkey: hotkey), priority: \.priority, spacing: 22) { item in
+                HStack(spacing: 6) {
+                    Text(item.key).font(.avenirMono(size: 13, weight: .semibold))
+                    Text(item.label).font(.avenir(size: 13))
+                }
+                .foregroundStyle(FocusPalette.mute)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 32)
+        .frame(height: 48)
     }
 }

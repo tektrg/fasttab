@@ -9,6 +9,8 @@ import IndieCommandBar
 enum PanelFooterHints {
     struct Context: Equatable {
         var isPeeking = false
+        /// The peek's message box has the keyboard (↩ sends there instead of switching).
+        var peekInputFocused = false
         /// A row button is highlighted (←/→ / ↩ act on it).
         var hasHighlightedButton = false
         var searchIsEmpty = true
@@ -74,10 +76,13 @@ enum PanelFooterHints {
         if let permissionMode = context.permissionMode { return permissionText(for: permissionMode) }
         if let messageMode = context.messageMode { return messageText(for: messageMode) }
         if context.isTagged { return "↩ send   tab retag   esc untag" }
-        if context.isPeeking { return "space/esc back   ↩ switch" }
-        if context.hasHighlightedButton { return "←→ button   ↩ press   esc back" }
-        if context.searchIsEmpty { return "↑↓ select   ←→ actions   space peek   ↩ switch   esc close" }
-        return "↑↓ select   ↩ switch   esc close"
+        // Peek: ←/→ (and Tab) switch Last message / Terminal (`PeekKeyRouting`; arrows only while
+        // the focused box is empty).
+        if context.isPeeking, context.peekInputFocused { return "←→/tab tabs   ↩ send   esc back" }
+        if context.isPeeking { return "←→/tab tabs   ↩ switch   ⌘K more   space/esc back" }
+        if context.hasHighlightedButton { return "←→ button   ↩ press   ⌘K more   esc back" }
+        if context.searchIsEmpty { return "↑↓ select   ←→ actions   space peek   ↩ switch   ⌘K more   esc close" }
+        return "↑↓ select   ↩ switch   ⌘K more   esc close"
     }
 
     /// Keys only — the state itself ("Asking Jev…" / "→ target agent") is `SearchFieldView`'s own

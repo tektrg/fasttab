@@ -60,16 +60,17 @@ scripts/distribute.sh <VERSION> "<release notes shown in Sparkle update banner>"
 scripts/distribute.sh 1.6.0 "Brave Browser support, deeper history search, and a reliable app relaunch fix"
 ```
 
-This single command does everything:
-1. Bumps `Info.plist` version + injects Polar config
-2. Builds release binary (`swift build -c release`)
-3. Signs with Developer ID cert
-4. Notarizes with Apple (`xcrun notarytool`) — takes ~30–60s
-5. Staples notarization ticket
-6. Creates DMG + signs with Sparkle EdDSA key
-7. Copies DMG to `../theindieapp_website/public/fasttab/`
-8. Updates `appcast.xml` and `version.json`
-9. Builds + deploys website via `wrangler pages deploy`
+Always run it with `--dry-run` first: it lists every step and any **release blockers**, then exits 3 if there are blockers (a real run stops before building on any blocker).
+
+Steps:
+1. Checks: Developer ID cert, notary credentials, `../IndieLibKit/scripts/indie-mac-release.sh`, and release blockers: bundle id must stay `com.trungluong.FastTab`, `SUFeedURL`, `fasttab://` URL scheme, `SUPublicEDKey` (Info.plist or `.env` `SPARKLE_PUBLIC_ED_KEY`), appcast valid XML and without this version, embedded `Sparkle.framework` = linked Sparkle (2.9.1)
+2. Release copy of `dist/FastTab.app` (dist itself is never modified): version, Polar + support/pricing values from `.env`; release entitlements derived from `dist/FastTab.entitlements` (drops `get-task-allow` and dev-only keys; iCloud/push keys only with an embedded **Developer ID** profile; a Development profile is left out). No iCloud entitlement = blocker (the app opens CloudKit at launch)
+3. `swift build -c release`, copy the 3 executables, reader resources, resource bundles, rpath
+4. Shared `indie-mac-release.sh`: sign inside-out (helpers without entitlements) → notarize + staple app → DMG → sign, notarize, staple DMG → Gatekeeper check → Sparkle EdDSA signature (keychain account `ed25519`) → item inserted into `../theindieapp_website/public/fasttab/appcast.xml`
+5. DMG copied to `../theindieapp_website/public/fasttab/`, `version.json` written
+6. `npm run build` + `wrangler pages deploy` of the website
+
+Output: `dist/release/FastTab.app` (signed), `dist/release/FastTab-<VERSION>.dmg`, `dist/release/appcast-item-<VERSION>.xml`.
 
 Users receive the update automatically via Sparkle on next check.
 
@@ -106,10 +107,10 @@ Then commit + push the website repo separately.
 ## Prerequisites (already set up — no action needed)
 
 - Developer ID Application cert in Keychain: `Developer ID Application: Trung Luong (56S46Y7CKN)`
-- Apple ID notarytool auth: `you@example.com` (your Apple ID), team `56S46Y7CKN`
+- Notary auth: `.env` `FASTTAB_APPLE_ID` / `FASTTAB_APPLE_TEAM_ID` / `FASTTAB_APPLE_APP_PASSWORD`, or `NOTARY_KEYCHAIN_PROFILE` (a `xcrun notarytool store-credentials` profile, preferred)
 - Sparkle EdDSA private key in Keychain (public key in `.env`)
 - `wrangler` configured in `../theindieapp_website/`
-- `../theindieapp_website/` repo cloned at that relative path
+- `../theindieapp_website/` and `../IndieLibKit/` cloned at those relative paths
 
 ---
 
@@ -117,6 +118,7 @@ Then commit + push the website repo separately.
 
 - [ ] All changes committed and pushed to `origin/main`
 - [ ] `.env` has production Polar block active (not sandbox)
+- [ ] `scripts/distribute.sh <VERSION> "<notes>" --dry-run` shows no release blockers
 - [ ] `scripts/release.sh <VERSION>` succeeded (all tests green, tag pushed)
 - [ ] `scripts/distribute.sh <VERSION> "<notes>"` succeeded (notarized, DMG in website)
 - [ ] Landing page updated and deployed (version, copy, release notes)

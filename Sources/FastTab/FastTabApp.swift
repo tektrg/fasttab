@@ -5,6 +5,7 @@ import Combine
 import IndieCommandBar
 import IndieFeedbackUI
 import IndieEdgeReveal
+import IndieUpdate
 
 private let appLogger = Logger(subsystem: "com.trungluong.FastTab", category: "AppDelegate")
 let fastTabPresentLicenseActivationNotification = Notification.Name("FastTabPresentLicenseActivation")

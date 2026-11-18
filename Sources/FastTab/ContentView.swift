@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import IndieCommandBar
+import IndieUpdate
 
 private struct SearchHeaderFrameKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
@@ -463,7 +464,7 @@ struct ContentView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                         }
 
-                        if let banner = updateBannerConfig(updateService.status) {
+                        if let banner = UpdateService.bannerConfig(for: updateService.status) {
                             PermissionBanner(
                                 icon: banner.icon,
                                 tint: banner.tint,

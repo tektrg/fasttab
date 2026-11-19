@@ -26,6 +26,8 @@ let indieWorkspace: Target.Dependency = .product(name: "IndieWorkspace", package
 let indieBrowserTabs: Target.Dependency = .product(name: "IndieBrowserTabs", package: "indielibkit")
 // In-app updates (Sparkle 2.9.1, pinned exactly by IndieLibKit): the inline update banner.
 let indieUpdate: Target.Dependency = .product(name: "IndieUpdate", package: "indielibkit")
+// The shared setup wizard: window, step runner, permission step, "has onboarded" flag.
+let indieOnboarding: Target.Dependency = .product(name: "IndieOnboarding", package: "indielibkit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -48,7 +50,11 @@ let package = Package(
         // edge-hugging surface and its grow-out motion).
         // `IndieFeedback`/`IndieFeedbackUI` (Settings > About > Chat with the Creator…).
         // `IndieUpdate` (Sparkle updater + update banner wording; Sparkle comes in through it).
-        .package(url: "https://github.com/tektrg/indielibkit", branch: "main"),
+        // Dogfooding: the ONE shared L1 checkout on this machine (`~/01_Project/IndieLibKit`), not a
+        // downloaded copy, so an L1 change is in the next build of every app. `macapp` keeps that
+        // folder level with origin/main. A clone without the sibling folder must switch this back
+        // to .package(url: "https://github.com/tektrg/indielibkit", branch: "main").
+        .package(path: "../IndieLibKit"),
         // The reading connector's search index (FTS5). Same package IndieLibKit already pulls in.
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0")
     ],
@@ -90,6 +96,7 @@ let package = Package(
             dependencies: [
                 indieSettings,
                 indieUpdate,
+                indieOnboarding,
                 "FastTabSync",
                 "FastTabReader",
                 "FastTabWebReader",

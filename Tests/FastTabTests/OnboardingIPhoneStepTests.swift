@@ -1,4 +1,5 @@
 import AppKit
+import IndieOnboarding
 import SwiftUI
 import Testing
 @testable import FastTab
@@ -14,7 +15,7 @@ struct OnboardingIPhoneStepTests {
         let defaults = UserDefaults(suiteName: "OnboardingIPhoneStepTests.\(UUID().uuidString)")!
         let store = PairedPhoneStore(defaults: defaults)
         store.record(pairedPhones)
-        return OnboardingStepFit.fittingHeight(of: OnboardingIPhoneStep(downloadURL: downloadURL, pairedPhoneStore: store, onContinue: {}), in: layout)
+        return FastTabStepFit.fittingHeight(of: OnboardingIPhoneStep(downloadURL: downloadURL, pairedPhoneStore: store, onContinue: {}), in: layout)
     }
 
     @Test(arguments: OnboardingLayout.all)

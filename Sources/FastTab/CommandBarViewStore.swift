@@ -139,7 +139,6 @@ public final class CommandBarViewStore: ObservableObject {
 
     public static let defaultViewKey = "FastTab.commandBarView.default"
     public static let hoverDefaultViewKey = "FastTab.commandBarView.hoverDefault"
-    private static let onboardingCompletedKey = "onboarding.v1.completed"
 
     @Published public var activeView: CommandBarView
     @Published public private(set) var defaultView: CommandBarView
@@ -163,7 +162,7 @@ public final class CommandBarViewStore: ObservableObject {
            let stored = Self.decodeView(raw, available: ordered) {
             resolvedDefault = stored
         } else {
-            let isExistingUser = defaults.bool(forKey: Self.onboardingCompletedKey)
+            let isExistingUser = FastTabOnboarding.isCompleted(in: defaults)
             resolvedDefault = isExistingUser ? .recents : .stack
         }
         self.defaultView = resolvedDefault

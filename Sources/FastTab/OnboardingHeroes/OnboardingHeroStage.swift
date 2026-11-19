@@ -1,5 +1,6 @@
 import SwiftUI
 import IndieMotion
+import IndieOnboarding
 
 /// Runs one Mac onboarding hero: IndieMotion's `MotionStage` on the fixed
 /// 200 × 96 pt storyboard canvas, drawn at `onboardingHeroScale` (half size in
@@ -20,11 +21,8 @@ struct OnboardingHeroStage<Frame: View>: View {
     }
 }
 
-extension EnvironmentValues {
-    /// How big onboarding heroes draw: 1 is the storyboard's 200 × 96 pt.
-    /// Set from `OnboardingLayout.heroScale`.
-    @Entry var onboardingHeroScale: Double = 1
-}
+// `onboardingHeroScale` is the shared wizard's environment value (IndieOnboarding); the wizard
+// sets it from its layout, so heroes shrink with the window on a short screen.
 
 enum HeroCanvas {
     /// Every Mac hero draws into this, per the storyboard.

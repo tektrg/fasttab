@@ -1,4 +1,5 @@
 import AppKit
+import IndieOnboarding
 import Testing
 @testable import FastTab
 
@@ -13,7 +14,7 @@ struct CommandBarWindowBehaviorTests {
             defer: false
         )
 
-        OnboardingWindowController.configureOnboardingWindow(window, layout: .compact)
+        OnboardingWizardWindowController.configure(window, layout: .compact)
 
         #expect(!window.isMovable)
         #expect(!window.isMovableByWindowBackground)

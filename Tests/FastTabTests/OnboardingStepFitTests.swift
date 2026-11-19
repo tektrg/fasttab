@@ -1,33 +1,27 @@
 import AppKit
+import IndieOnboarding
 import IndieCommandBar
 import IndieEdgeReveal
 import SwiftUI
 import Testing
 @testable import FastTab
 
-/// Measures an onboarding step the way the window lays it out: full width,
-/// heroes at the layout's scale, as short as its content allows (the steps
-/// pad with flexible spacers).
+/// Fast Tab's own step fixtures. The measuring itself is the shared
+/// `OnboardingStepFit` (IndieOnboarding), so every app checks its steps the same way.
 @MainActor
-enum OnboardingStepFit {
+enum FastTabStepFit {
     static func fittingHeight(of step: some View, in layout: OnboardingLayout) -> CGFloat {
-        let host = NSHostingView(rootView: sized(step, in: layout))
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize.height
+        IndieOnboarding.OnboardingStepFit.fittingHeight(of: step, in: layout)
     }
 
     static func sized(_ step: some View, in layout: OnboardingLayout) -> some View {
-        step
-            .environment(\.onboardingHeroScale, layout.heroScale)
-            .frame(width: layout.windowSize.width)
+        IndieOnboarding.OnboardingStepFit.sized(step, in: layout)
     }
 
     /// Stores backed by a throwaway defaults suite, so tests never read or
     /// write the real app's settings.
     static func scratchDefaults(_ values: [String: Any] = [:]) -> UserDefaults {
-        let defaults = UserDefaults(suiteName: "OnboardingStepFitTests.\(UUID().uuidString)")!
-        values.forEach { defaults.set($0.value, forKey: $0.key) }
-        return defaults
+        IndieOnboarding.OnboardingStepFit.scratchDefaults(values)
     }
 
     static func sourceStore(enabled: [SearchSource]) -> SourceSelectionStore {
@@ -46,24 +40,24 @@ enum OnboardingStepFit {
 struct OnboardingStepFitTests {
     @Test(arguments: OnboardingLayout.all)
     func welcomeFits(layout: OnboardingLayout) {
-        let height = OnboardingStepFit.fittingHeight(of: WelcomeStep(onContinue: {}), in: layout)
+        let height = FastTabStepFit.fittingHeight(of: WelcomeStep(onContinue: {}), in: layout)
         #expect(height <= layout.stepHeight, "welcome step is \(height)pt tall")
     }
 
     @Test(arguments: OnboardingLayout.all, EdgeRevealStyle.allCases)
     func triggerStyleFits(layout: OnboardingLayout, style: EdgeRevealStyle) {
-        let store = EdgeRevealStore(defaults: OnboardingStepFit.scratchDefaults(["FastTab.edgeReveal.style": style.rawValue]))
+        let store = EdgeRevealStore(defaults: FastTabStepFit.scratchDefaults(["FastTab.edgeReveal.style": style.rawValue]))
         #expect(store.style == style)
-        let height = OnboardingStepFit.fittingHeight(of: TriggerStyleStep(edgeReveal: store, onContinue: {}), in: layout)
+        let height = FastTabStepFit.fittingHeight(of: TriggerStyleStep(edgeReveal: store, onContinue: {}), in: layout)
         #expect(height <= layout.stepHeight, "trigger step (\(style)) is \(height)pt tall")
     }
 
     /// All sources on (every row), and none (adds the "select one" note).
     @Test(arguments: OnboardingLayout.all, [SearchSource.allCases, []])
     func sourcePickerFits(layout: OnboardingLayout, enabled: [SearchSource]) {
-        let store = OnboardingStepFit.sourceStore(enabled: enabled)
+        let store = FastTabStepFit.sourceStore(enabled: enabled)
         #expect(store.enabled == Set(enabled))
-        let height = OnboardingStepFit.fittingHeight(of: SourcePickerStep(store: store, onContinue: {}), in: layout)
+        let height = FastTabStepFit.fittingHeight(of: SourcePickerStep(store: store, onContinue: {}), in: layout)
         #expect(height <= layout.stepHeight, "source step (\(enabled.count) on) is \(height)pt tall")
     }
 
@@ -73,7 +67,7 @@ struct OnboardingStepFitTests {
     @Test(arguments: OnboardingLayout.all)
     func extensionStepFitsWithRoomForTheNotConnectingHint(layout: OnboardingLayout) {
         let notConnectingHintHeight: CGFloat = 36
-        let height = OnboardingStepFit.fittingHeight(of: ExtensionInstallStep(
+        let height = FastTabStepFit.fittingHeight(of: ExtensionInstallStep(
             didAutoAdvance: .constant(true), onContinue: {}, onAutoAdvance: {}
         ), in: layout)
         #expect(height + notConnectingHintHeight <= layout.stepHeight, "extension step is \(height)pt tall")
@@ -90,7 +84,7 @@ struct OnboardingStepFitTests {
             return checks > 1
         })
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: layout.windowSize), styleMask: [.titled], backing: .buffered, defer: false)
-        let host = NSHostingView(rootView: OnboardingStepFit.sized(step, in: layout))
+        let host = NSHostingView(rootView: FastTabStepFit.sized(step, in: layout))
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
@@ -104,7 +98,7 @@ struct OnboardingStepFitTests {
     /// Worst case: the restart note shows.
     @Test(arguments: OnboardingLayout.all)
     func shortcutStepFits(layout: OnboardingLayout) {
-        let height = OnboardingStepFit.fittingHeight(of: ShortcutStep(onDismiss: { _ in }, isRestartNeeded: { true }), in: layout)
+        let height = FastTabStepFit.fittingHeight(of: ShortcutStep(onDismiss: { _ in }, isRestartNeeded: { true }), in: layout)
         #expect(height <= layout.stepHeight, "shortcut step is \(height)pt tall")
     }
 }

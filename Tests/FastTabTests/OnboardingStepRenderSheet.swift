@@ -1,4 +1,5 @@
 import AppKit
+import IndieOnboarding
 import SwiftUI
 import Testing
 @testable import FastTab
@@ -16,9 +17,9 @@ struct OnboardingStepRenderSheet {
     func renderSheet() throws {
         let out = URL(fileURLWithPath: try #require(Self.outDir))
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        let phones = PairedPhoneStore(defaults: OnboardingStepFit.scratchDefaults())
+        let phones = PairedPhoneStore(defaults: FastTabStepFit.scratchDefaults())
         let steps: [(String, AnyView)] = [
-            ("Sources (none on)", AnyView(SourcePickerStep(store: OnboardingStepFit.sourceStore(enabled: []), onContinue: {}))),
+            ("Sources (none on)", AnyView(SourcePickerStep(store: FastTabStepFit.sourceStore(enabled: []), onContinue: {}))),
             ("Extension (waiting)", AnyView(ExtensionInstallStep(didAutoAdvance: .constant(true), onContinue: {}, onAutoAdvance: {}))),
             ("iPhone (download)", AnyView(OnboardingIPhoneStep(downloadURL: URL(string: "https://apps.apple.com/app/id0000000000")!, pairedPhoneStore: phones, onContinue: {}))),
         ]

@@ -28,7 +28,7 @@ class ShortcutStore: ObservableObject {
     )
     /// Written when onboarding finishes, by every build since onboarding shipped (May 2026) —
     /// the same "existing user" signal `EdgeRevealStore` and `CommandBarViewStore` use.
-    static let onboardingCompletedKey = "onboarding.v1.completed"
+    static let onboardingCompletedKey = FastTabOnboarding.completedKey
     /// Written on first launch by every build up to 1.3 (`LaunchAtLoginService` started with the
     /// app then; now it starts only with Settings › General, after this pin has run). Catches
     /// installs from before onboarding (they may never have finished it). A 1.4+ install whose

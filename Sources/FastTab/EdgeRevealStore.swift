@@ -50,8 +50,8 @@ extension EdgeRevealStyle {
 /// Defaulting rule: a background mouse-position listener is new behavior, so
 /// it should not silently switch on for people who already set FastTab up
 /// before this feature existed. We tell "new" from "existing" by checking
-/// whether onboarding (`onboarding.v1.completed`, see `OnboardingView.swift`)
-/// was already finished the first time this store reads its value — existing
+/// whether onboarding (`FastTabOnboarding`) was already finished
+/// the first time this store reads its value — existing
 /// users default to `.off`, fresh installs default to `.notch`.
 @MainActor
 final class EdgeRevealStore: ObservableObject {
@@ -59,12 +59,11 @@ final class EdgeRevealStore: ObservableObject {
 
     /// Shared storage (IndieLibKit `EdgeRevealStyleSetting`); the key is unchanged.
     static let setting = EdgeRevealStyleSetting(key: "FastTab.edgeReveal.style")
-    private static let onboardingCompletedKey = "onboarding.v1.completed"
 
     @Published private(set) var style: EdgeRevealStyle
 
     init(defaults: UserDefaults = .standard) {
-        let isExistingUser = defaults.bool(forKey: Self.onboardingCompletedKey)
+        let isExistingUser = FastTabOnboarding.isCompleted(in: defaults)
         style = Self.setting.load(from: defaults, fallback: isExistingUser ? .off : .notch)
     }
 

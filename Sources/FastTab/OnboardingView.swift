@@ -1,63 +1,45 @@
 import SwiftUI
 import AppKit
+import IndieOnboarding
 import IndieCommandBar
 import IndieEdgeReveal
 
-private let onboardingCompletedKey = "onboarding.v1.completed"
-
-/// The onboarding window's size. It is fixed and unmovable, so it must fit the
-/// screen: short screens (13" Macs at larger-text scaling, with the Dock
-/// showing) get `compact`, which draws the heroes at half size. Every step
-/// must fit both (pinned by `OnboardingStepFitTests`).
-struct OnboardingLayout: Equatable, Sendable {
-    let windowSize: CGSize
-    /// How big the animated heroes draw: 1 is the storyboard's 200 × 96 pt
-    /// (`OnboardingHeroes/`).
-    let heroScale: Double
-    let stepDotsBottomPadding: CGFloat
-
-    static let regular = OnboardingLayout(
-        windowSize: CGSize(width: 440, height: 580), heroScale: 1, stepDotsBottomPadding: 20
-    )
-    static let compact = OnboardingLayout(
-        windowSize: CGSize(width: 440, height: 530), heroScale: 0.5, stepDotsBottomPadding: 12
-    )
-    static let all = [regular, compact]
-
-    static let stepDotSize: CGFloat = 6
-    /// Room kept between the window and the screen's usable edges (menu bar, Dock).
-    static let screenMargin: CGFloat = 20
-
-    /// Height left for the current step above the step dots.
-    var stepHeight: CGFloat { windowSize.height - Self.stepDotSize - stepDotsBottomPadding }
-
-    /// `regular` when it fits the screen's usable height, else `compact`.
-    static func fitting(visibleScreenHeight: CGFloat) -> OnboardingLayout {
-        visibleScreenHeight >= regular.windowSize.height + screenMargin ? .regular : .compact
-    }
-}
+/// The onboarding window's size: the shared `OnboardingWizardLayout` (IndieOnboarding), which
+/// picks `compact` on a short screen. Every step must fit both (pinned by `OnboardingStepFitTests`).
+typealias OnboardingLayout = OnboardingWizardLayout
 
 // MARK: - Coordinator
 
+/// Fast Tab's onboarding window. The window, the step chrome and the "has onboarded" flag are the
+/// shared wizard (IndieOnboarding); what is left here is what only Fast Tab knows — which choices
+/// need a fresh process, and what to do once the wizard closes.
 @MainActor
 final class OnboardingWindowController: NSObject {
     static let shared = OnboardingWindowController()
     /// Shared by the menu bar item and Settings > About.
     static let replayMenuTitle = "Replay Onboarding…"
 
-    private var window: NSWindow?
-    /// Full Disk Access state when this process started (the controller is
-    /// first touched at launch). Safari's protected data only becomes
-    /// readable after a relaunch, so a grant during onboarding needs one.
+    /// Full Disk Access state when this process started (the controller is first touched at
+    /// launch). Safari's protected data only becomes readable after a relaunch, so a grant during
+    /// onboarding needs one.
     private let safariDataReadableAtLaunch = AppState.shared.browserService.canReadSafariProtectedData()
 
-    var isNeeded: Bool {
-        !UserDefaults.standard.bool(forKey: onboardingCompletedKey)
+    private lazy var wizard = OnboardingWizardWindowController(
+        completion: FastTabOnboarding.completion()
+    ) { [weak self] layout, dismiss in
+        AnyView(
+            OnboardingView(layout: layout) { shouldOpenBar in
+                self?.finish(andOpenBar: shouldOpenBar, dismiss: dismiss)
+            }
+            .environmentObject(AppState.shared)
+        )
     }
 
-    /// Onboarding choices that only take effect in a fresh process: source
-    /// toggles (backends are built once at launch — see `BrowserTabService.init`)
-    /// and a Full Disk Access grant for Safari bookmarks/history.
+    var isNeeded: Bool { wizard.isNeeded }
+
+    /// Onboarding choices that only take effect in a fresh process: source toggles (backends are
+    /// built once at launch — see `BrowserTabService.init`) and a Full Disk Access grant for Safari
+    /// bookmarks/history.
     var isRestartNeededToApplyChoices: Bool {
         let sources = SourceSelectionStore.shared
         if sources.needsRestartToApply { return true }
@@ -65,55 +47,15 @@ final class OnboardingWindowController: NSObject {
         return AppState.shared.browserService.canReadSafariProtectedData()
     }
 
-    /// Opens onboarding from the first step. Also used to replay it later
-    /// (menu bar / Settings); replaying only re-shows the steps — existing
-    /// settings are kept and pre-filled.
+    /// Opens onboarding from the first step. Also used to replay it later (menu bar / Settings);
+    /// replaying only re-shows the steps — existing settings are kept and pre-filled.
     func show() {
-        if let window {
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-            return
-        }
-
-        let layout = OnboardingLayout.fitting(visibleScreenHeight: NSScreen.main?.visibleFrame.height ?? .infinity)
-        let view = OnboardingView(layout: layout) { [weak self] shouldOpenBar in
-            self?.dismiss(andOpenBar: shouldOpenBar)
-        }
-        .environmentObject(AppState.shared)
-
-        let controller = NSHostingController(rootView: view)
-        controller.view.wantsLayer = true
-
-        let win = NSWindow(contentViewController: controller)
-        Self.configureOnboardingWindow(win, layout: layout)
-        NSApp.activate(ignoringOtherApps: true)
-        win.makeKeyAndOrderFront(nil)
-        window = win
+        wizard.show()
     }
 
-    static func configureOnboardingWindow(_ win: NSWindow, layout: OnboardingLayout) {
-        win.styleMask = [.titled, .fullSizeContentView]
-        win.titleVisibility = .hidden
-        win.titlebarAppearsTransparent = true
-        win.isOpaque = false
-        win.backgroundColor = .clear
-        win.hasShadow = true
-        win.isMovable = false
-        win.isMovableByWindowBackground = false
-
-        [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].forEach {
-            win.standardWindowButton($0)?.isHidden = true
-        }
-
-        win.setContentSize(layout.windowSize)
-        win.center()
-    }
-
-    private func dismiss(andOpenBar: Bool) {
+    private func finish(andOpenBar: Bool, dismiss: () -> Void) {
         let needsRestart = isRestartNeededToApplyChoices
-        window?.close()
-        window = nil
-        UserDefaults.standard.set(true, forKey: onboardingCompletedKey)
+        dismiss()
         if needsRestart {
             restartFastTab(openCommandBarAfterRelaunch: andOpenBar)
             return
@@ -130,7 +72,7 @@ final class OnboardingWindowController: NSObject {
 /// conditional on Safari being in the user's selected source set, so the
 /// `steps()` builder reads from `SourceSelectionStore` rather than being a
 /// fixed list.
-private enum OnboardingStep: Hashable {
+enum OnboardingStep: Hashable {
     case welcome
     case triggerStyle
     case sources
@@ -148,11 +90,12 @@ struct OnboardingView: View {
     let layout: OnboardingLayout
     let onDismiss: (Bool) -> Void
 
-    @State private var stepIndex: Int = 0
     /// Lifted out of `ExtensionInstallStep` so stepping Back onto it doesn't
     /// auto-advance the user forward again.
     @State private var didAutoAdvancePastExtension = false
 
+    /// Conditional steps, so the wizard's dots follow a live list: unticking Safari on the picker
+    /// step drops its permission step while the wizard is open.
     private var steps: [OnboardingStep] {
         var list: [OnboardingStep] = [.welcome, .triggerStyle, .sources]
         // Recommended (skippable) step — only meaningful when a Chromium browser is in play.
@@ -167,122 +110,34 @@ struct OnboardingView: View {
         return list
     }
 
-    /// Current step, clamped to the live `steps` list. The list shrinks when
-    /// the user unchecks Safari on the picker step, so the index can momentarily
-    /// point past the end — clamp rather than crash.
-    private var currentStep: OnboardingStep {
-        steps[clampedStepIndex]
-    }
-
-    private var clampedStepIndex: Int {
-        min(max(stepIndex, 0), steps.count - 1)
-    }
-
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-
-            VStack(spacing: 0) {
-                Group {
-                    switch currentStep {
-                    case .welcome:
-                        WelcomeStep(onContinue: advance)
-                            .transition(stepTransition)
-                    case .triggerStyle:
-                        TriggerStyleStep(onContinue: advance)
-                            .transition(stepTransition)
-                    case .sources:
-                        SourcePickerStep(
-                            store: selectionStore,
-                            onContinue: advance
-                        )
-                        .transition(stepTransition)
-                    case .extensionInstall:
-                        ExtensionInstallStep(
-                            didAutoAdvance: $didAutoAdvancePastExtension,
-                            onContinue: advance,
-                            onAutoAdvance: { advance(ifStillOn: .extensionInstall) }
-                        )
-                            .transition(stepTransition)
-                    case .safariPermission:
-                        SafariPermissionStep(onContinue: advance)
-                            .transition(stepTransition)
-                    case .iPhoneApp:
-                        OnboardingIPhoneStep(onContinue: advance)
-                            .transition(stepTransition)
-                    case .shortcut:
-                        ShortcutStep(onDismiss: onDismiss)
-                            .transition(stepTransition)
-                    }
-                }
-                .animation(.spring(response: 0.38, dampingFraction: 0.82), value: stepIndex)
-
-                stepDots
-                    .padding(.bottom, layout.stepDotsBottomPadding)
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            if clampedStepIndex > 0 {
-                backButton
-            }
-        }
-        .environment(\.onboardingHeroScale, layout.heroScale)
-        .frame(width: layout.windowSize.width, height: layout.windowSize.height)
-    }
-
-    private var stepTransition: AnyTransition {
-        .asymmetric(
-            insertion: .opacity.combined(with: .offset(x: 32)),
-            removal: .opacity.combined(with: .offset(x: -32))
-        )
-    }
-
-    private func advance() {
-        let count = steps.count
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-            stepIndex = min(clampedStepIndex + 1, count - 1)
+        OnboardingWizardView(steps: steps, layout: layout) { step, actions in
+            stepView(step, actions)
         }
     }
 
-    /// Delayed advances call this so a Continue/Back tapped in the meantime
-    /// wins — otherwise the late advance skips a step or undoes the Back.
-    private func advance(ifStillOn step: OnboardingStep) {
-        guard currentStep == step else { return }
-        advance()
-    }
-
-    /// Steps back through the live `steps` list, so conditional steps
-    /// (extension, Safari) are revisited only while they still apply.
-    private func goBack() {
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
-            stepIndex = max(clampedStepIndex - 1, 0)
+    @ViewBuilder
+    private func stepView(_ step: OnboardingStep, _ actions: OnboardingWizardActions<OnboardingStep>) -> some View {
+        switch step {
+        case .welcome:
+            WelcomeStep(onContinue: actions.advance)
+        case .triggerStyle:
+            TriggerStyleStep(onContinue: actions.advance)
+        case .sources:
+            SourcePickerStep(store: selectionStore, onContinue: actions.advance)
+        case .extensionInstall:
+            ExtensionInstallStep(
+                didAutoAdvance: $didAutoAdvancePastExtension,
+                onContinue: actions.advance,
+                onAutoAdvance: { actions.advanceIfStillOn(.extensionInstall) }
+            )
+        case .safariPermission:
+            SafariPermissionStep(onContinue: actions.advance)
+        case .iPhoneApp:
+            OnboardingIPhoneStep(onContinue: actions.advance)
+        case .shortcut:
+            ShortcutStep(onDismiss: onDismiss)
         }
-    }
-
-    private var backButton: some View {
-        Button(action: goBack) {
-            Label("Back", systemImage: "chevron.left")
-                .font(.callout)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .keyboardShortcut(.leftArrow, modifiers: .command)
-        .padding(.top, 16)
-        .padding(.leading, 18)
-    }
-
-    private var stepDots: some View {
-        let count = steps.count
-        let active = clampedStepIndex
-        return HStack(spacing: 6) {
-            ForEach(0..<count, id: \.self) { i in
-                Capsule()
-                    .fill(i == active ? Color.primary.opacity(0.7) : Color.primary.opacity(0.18))
-                    .frame(width: i == active ? 18 : OnboardingLayout.stepDotSize, height: OnboardingLayout.stepDotSize)
-            }
-        }
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: active)
     }
 }
 

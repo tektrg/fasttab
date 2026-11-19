@@ -80,6 +80,8 @@ echo "==> Installing reader resources"
 for res in Readability.js reader_template.html; do
   cp "ios/FastTabMobile/Resources/${res}" "${APP}/Contents/Resources/${res}"
 done
+# Privacy manifest (usage events: FastTabTelemetry; see marketing/app-privacy.md).
+cp "Sources/FastTab/Resources/PrivacyInfo.xcprivacy" "${APP}/Contents/Resources/PrivacyInfo.xcprivacy"
 
 # SwiftPM resource bundles (IndieTable's table-core.js for Settings > Highlights, ...). Without
 # them the app traps on first use outside the build Mac. Must precede the final codesign.

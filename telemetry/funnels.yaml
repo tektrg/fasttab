@@ -1,0 +1,87 @@
+# Fast Tab's usage-event registry (telemetry flywheel standard,
+# ~/01_Project/memory/Projects/telemetry-flywheel/project-index.md).
+#
+# Every event the Mac app sends must be listed here. The app passes the same list to IndieTelemetry
+# (`FastTabTelemetry.registry`, Sources/FastTab/FastTabTelemetry.swift), and `FastTabTelemetryTests`
+# fails when the two differ. Debug builds stop on a name that is not listed.
+#
+# Names: funnel steps are uf_<Funnel>_<NN>_<Step>; other events are noun_verb.
+# Props: flat, short, never tab titles, URLs, search text or license keys.
+# Server: theindie-api POST /v1/events (app "fasttab"). Read a funnel:
+#   GET /v1/admin/events/funnel?app=fasttab&funnel=Onboard
+
+app: fasttab
+
+funnels:
+  Onboard:
+    description: First open to the first tab switch (the first value moment).
+    session: one per install (the funnel session that starts at first open)
+    steps:
+      - number: 1
+        name: FirstOpen
+        when: Fast Tab opens for the first time on this Mac (never for a Mac that ran Fast Tab before this build). Sent once the license state is loaded (at most 3 s), so it carries the trial plan.
+        props: [install_source, channel]
+      - number: 2
+        name: FirstTabSwitch
+        when: The first time the person switches to a tab from the bar (Return, click, cycle release, a reopened closed tab), after FirstOpen. Opening a bookmark, history item or list item does not count.
+        props: [browser]
+    mermaid: |
+      flowchart LR
+        A[01 First open] --> B[02 First tab switch]
+
+  Activate:
+    description: Used on a 3rd different day within 7 days of the first open (new installs only).
+    session: one per install (shared with Onboard)
+    steps:
+      - number: 1
+        name: FirstDay
+        when: The first local day (within 7 days of FirstOpen) on which the person opens anything from the bar (tab, bookmark, history, list item, sent link).
+        props: []
+      - number: 2
+        name: SecondDay
+        when: A second, different local day of use inside the same 7 days.
+        props: []
+      - number: 3
+        name: ThirdDay
+        when: A third, different local day of use inside the same 7 days (the activation bar).
+        props: []
+    mermaid: |
+      flowchart LR
+        A[01 Day 1 used] --> B[02 Day 2 used] --> C[03 Day 3 used, within 7 days]
+
+  Upgrade:
+    description: An upsell seen, to the pricing page opened, to a license activated on this Mac.
+    session: one per attempt - a new Upgrade session at the first upsell or checkout step after 30 minutes without any Upgrade step this launch (same rule as Parklet and Strider); Purchased never starts one. Onboard and Activate keep theirs.
+    steps:
+      - number: 1
+        name: UpsellViewed
+        when: An upsell becomes visible - the trial banner (last 3 trial days), the trial-ended / revoked / upgrade paywall, Settings › License without a license. Each placement at most once per 30 minutes. (The menu-bar "Buy FastTab…" item has no view to see: its click goes straight to step 2.)
+        props: [placement, reason]
+      - number: 2
+        name: CheckoutOpened
+        when: A Buy button opened the pricing page in the browser (trial banner, paywall, Settings, menu bar).
+        props: [placement]
+      - number: 3
+        name: Purchased
+        when: A license key was activated on this Mac and unlocks it (key pasted or the fasttab://activate link from the purchase email). The payment itself happens on the website.
+        props: [placement, tier, first_activation]
+    mermaid: |
+      flowchart LR
+        A[01 Upsell seen] --> B[02 Pricing page opened] --> C[03 License activated]
+
+events: {}
+
+# Props:
+# - install_source: always "unknown" for now (a DMG download hands the app no link or utm_*).
+# - channel: direct (notarized DMG from distribute.sh) | local (Release built from the repo: Polar
+#   sandbox or no Polar config) | debug. Filter testers out with it.
+# - browser: the app that owns the tab ("Google Chrome", "Safari", "Finder", ...), max 40 chars.
+# - placement: trial_banner | expired_paywall | settings | menu_bar (menu_bar: step 2 only).
+#   Purchased repeats the last Buy click's placement this launch ("unknown" without one).
+# - reason (expired_paywall only): expired_trial | revoked | major_upgrade.
+# - tier: personal | lifetime | team | unknown.
+# - first_activation: true when Polar counts this as the key's only activation (a new purchase);
+#   false = a second Mac or a reinstall. Count purchases with first_activation = true.
+# Plan on every event: paid (license unlocks the app) | trial (built-in 7-day trial running) | free.
+# Debug builds send only when launched with -telemetryLive YES (appVersion then ends in " debug");
+# -telemetryFreshInstall YES makes that launch a first open.

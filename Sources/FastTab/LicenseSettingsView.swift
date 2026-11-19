@@ -53,6 +53,10 @@ struct LicenseSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            // Only an upsell for someone without a license (its Buy button is for them).
+            if licenseService.snapshot.license == nil { FastTabTelemetry.upsellViewed(.settings) }
+        }
     }
 
     private var licenseStatusTitle: String {

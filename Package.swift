@@ -26,6 +26,8 @@ let indieWorkspace: Target.Dependency = .product(name: "IndieWorkspace", package
 let indieBrowserTabs: Target.Dependency = .product(name: "IndieBrowserTabs", package: "indielibkit")
 // In-app updates (Sparkle 2.9.1, pinned exactly by IndieLibKit): the inline update banner.
 let indieUpdate: Target.Dependency = .product(name: "IndieUpdate", package: "indielibkit")
+// Anonymous usage events (funnel steps) to theindie-api; Fast Tab's wiring is FastTabTelemetry.swift.
+let indieTelemetry: Target.Dependency = .product(name: "IndieTelemetry", package: "indielibkit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -105,8 +107,11 @@ let package = Package(
                 indieMotion,
                 indieEdgeReveal,
                 indieFeedback,
-                indieFeedbackUI
-            ]
+                indieFeedbackUI,
+                indieTelemetry
+            ],
+            // Copied into Contents/Resources by fasttab-build-mac-app.sh / distribute.sh.
+            exclude: ["Resources/PrivacyInfo.xcprivacy"]
         ),
         // Pure stdio<->socket relay launched by Chrome's native messaging.
         // Intentionally no dependency on the app target.
@@ -124,7 +129,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FastTabTests",
-            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, indieCommandBar, indieSearch, indieSavedViews, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP, indieUpdate,
+            dependencies: ["FastTab", "FastTabSync", "FastTabReader", "FastTabWebReader", "FastTabMCP", "ReadingConnector", indieSharing, indieCommandBar, indieSearch, indieSavedViews, indieMetrics, indieMotion, indieEdgeReveal, indieComments, indieTable, indieMCP, indieUpdate, indieTelemetry,
                            .product(name: "GRDB", package: "GRDB.swift")]
         ),
         .testTarget(

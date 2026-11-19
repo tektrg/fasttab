@@ -1107,6 +1107,7 @@ class BrowserTabService: ObservableObject {
     }
 
     func activate(_ result: BrowserSearchResult) {
+        FastTabTelemetry.resultOpened(isTabSwitch: result.type == .tab, browser: result.browserName)
         switch result.type {
         case .sent:
             if let commandID = result.bookmarkID {

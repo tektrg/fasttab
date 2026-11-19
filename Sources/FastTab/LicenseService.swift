@@ -204,6 +204,9 @@ final class LicenseService: ObservableObject {
                 license: stored,
                 lastErrorMessage: nil
             )
+            if case .licensed(let tier) = snapshot.access {
+                FastTabTelemetry.licenseActivated(tier: tier, firstActivation: validated.usage <= 1)
+            }
         } catch {
             guard revision == stateRevision else { return }
             logger.error("License activation failed: \(error.localizedDescription, privacy: .public)")
@@ -257,6 +260,7 @@ final class LicenseService: ObservableObject {
             url = base
         }
         NSWorkspace.shared.open(url)
+        if let source { FastTabTelemetry.checkoutOpened(.init(source)) }
     }
 
     func openManageLicense() {

@@ -329,6 +329,8 @@ install_bin FastTabMCP fasttab-mcp
 for res in Readability.js reader_template.html; do
   run cp "ios/FastTabMobile/Resources/${res}" "${STAGE_APP}/Contents/Resources/${res}"
 done
+# Privacy manifest (usage events: FastTabTelemetry; see marketing/app-privacy.md).
+run cp "Sources/FastTab/Resources/PrivacyInfo.xcprivacy" "${STAGE_APP}/Contents/Resources/PrivacyInfo.xcprivacy"
 
 # SwiftPM resource bundles (IndieTable's table-core.js for Settings > Highlights, ...). Without
 # them the app traps on first use. Must precede signing.

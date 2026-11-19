@@ -357,9 +357,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         logCategory: "GlobalHotkey"
     )
     private var cancellables = Set<AnyCancellable>()
+    /// Read at init, before the tab poll writes recency data (`FastTabTelemetry.isExistingUser`).
+    private let telemetryIsExistingUser = FastTabTelemetry.isExistingUser(defaults: .standard)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         appLogger.info("Application did finish launching")
+        FastTabTelemetry.start(isExistingUser: telemetryIsExistingUser, license: LicenseService.shared)
         NSApp.setActivationPolicy(.accessory)
         // No idle-sleep-disable / App-Nap-exemption activity token here: the
         // notch/edge hover trigger (`EdgeRevealCoordinator`) is invisible

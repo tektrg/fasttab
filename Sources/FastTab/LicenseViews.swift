@@ -33,6 +33,7 @@ struct TrialStatusBanner: View {
         ) {
             onBuy()
         }
+        .onAppear { FastTabTelemetry.upsellViewed(.trialBanner) }
     }
 
     private var isUrgent: Bool { daysRemaining <= 3 }
@@ -92,6 +93,11 @@ struct PaywallView: View {
         .frame(maxWidth: .infinity)
         .frame(height: 300)
         .background(CommandBarSurfaceBackground(cornerRadius: 16))
+        .onAppear {
+            if let reason = FastTabTelemetry.paywallReason(snapshot.access) {
+                FastTabTelemetry.upsellViewed(.expiredPaywall, reason: reason)
+            }
+        }
     }
 
     private var iconName: String {

@@ -7,8 +7,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 APP="dist/FastTab.app"
+BIN="${APP}/Contents/MacOS/FastTab"   # test the executable: a failed build can leave a hollow bundle
 
-if [[ "${1:-}" == "--build" || ! -d "${APP}" ]]; then
+if [[ "${1:-}" == "--build" || ! -x "${BIN}" ]]; then
   exec scripts/fasttab-build-mac-app.sh   # builds, re-signs and relaunches
 fi
 if pgrep -f "${APP}/Contents/MacOS/FastTab" >/dev/null; then

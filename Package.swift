@@ -28,6 +28,8 @@ let indieBrowserTabs: Target.Dependency = .product(name: "IndieBrowserTabs", pac
 let indieUpdate: Target.Dependency = .product(name: "IndieUpdate", package: "indielibkit")
 // The shared setup wizard: window, step runner, permission step, "has onboarded" flag.
 let indieOnboarding: Target.Dependency = .product(name: "IndieOnboarding", package: "indielibkit")
+// Anonymous funnel events (Onboard, Activate, Upgrade).
+let indieTelemetry: Target.Dependency = .product(name: "IndieTelemetry", package: "indielibkit")
 
 let package = Package(
     name: "FastTabPackage",
@@ -97,6 +99,7 @@ let package = Package(
                 indieSettings,
                 indieUpdate,
                 indieOnboarding,
+                indieTelemetry,
                 "FastTabSync",
                 "FastTabReader",
                 "FastTabWebReader",

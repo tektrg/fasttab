@@ -71,6 +71,11 @@ enum FastTabTelemetry {
         processInfo.environment["XCTestConfigurationFilePath"] != nil
             || processInfo.environment["XCTestSessionIdentifier"] != nil
             || NSClassFromString("XCTestCase") != nil
+            // `swift test` runs Swift Testing in `swiftpm-testing-helper` or an `xctest` runner,
+            // where neither variable above is set.
+            || processInfo.processName == "swiftpm-testing-helper"
+            || processInfo.processName.hasSuffix("xctest")
+            || processInfo.arguments.contains { $0.hasSuffix(".xctest") || $0.contains("swift-testing") }
     }
 
     /// This Mac ran Fast Tab before this launch. Read it as early as possible (the app delegate's

@@ -2463,6 +2463,7 @@ function render(state) {
   const order = ['hookCache','herdr','paneScreen','paneTick','gitHealth','board'];
   order.forEach(name => {
     const f = state.feeds[name];
+    if (!f) return;  // feed removed server-side; never crash the whole render
     const span = document.createElement('span');
     span.className = f.broken ? 'bad' : 'ok';
     span.textContent = name + ' ' +

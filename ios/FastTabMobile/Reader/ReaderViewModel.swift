@@ -99,6 +99,11 @@ public final class ReaderViewModel: ObservableObject {
     /// Today's reading against the daily word goal, for the page's second progress bar.
     /// Set once per loaded article; the page adds this session's new ground itself.
     @Published public private(set) var dailyGoal: ReaderDailyGoal?
+    /// Bottom-panel rings. Refreshed with the capped progress writes, never per scroll tick.
+    let ring = ReaderRingState()
+    private func refreshRing() {
+        ring.update(ReaderRingModel(articleProgress: scrollProgress, goal: dailyGoal))
+    }
     private var dailyGoalTask: Task<Void, Never>?
 
     // MARK: - Inputs
@@ -169,6 +174,7 @@ public final class ReaderViewModel: ObservableObject {
         LastOpenedStore.shared.recordOpened(url: url, title: title)
         scrollProgress = progressStore.progress(for: url)
         lastPersistedProgress = scrollProgress
+        refreshRing()
         readSession = ReadSession(startProgress: scrollProgress)
         statsRecorder.beginReading(url: url, savedProgress: scrollProgress)
         highlights = highlightStore.highlights(for: url)
@@ -360,6 +366,7 @@ public final class ReaderViewModel: ObservableObject {
         }
         lastPersistedProgress = scrollProgress
         persistCount += 1
+        refreshRing()
         progressStore.set(progress: scrollProgress, for: url, title: title)
         LastOpenedStore.shared.updateProgress(url: url, progress: scrollProgress)
         SavedOnIPhoneStore.shared.recordProgress(url: url, progress: scrollProgress)
@@ -403,8 +410,10 @@ public final class ReaderViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             self.dailyGoal = ReaderDailyGoal(
                 wordsToday: today.wordsToday, articleWords: articleWords,
-                highWater: today.highWater, goal: ReadingGoal.dailyWords
+                highWater: today.highWater, goal: ReadingGoal.dailyWords,
+                wordsThisWeek: today.wordsThisWeek
             )
+            self.refreshRing()
         }
     }
 

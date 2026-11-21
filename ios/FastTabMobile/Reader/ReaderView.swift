@@ -483,12 +483,13 @@ public struct ReaderView: View {
                 TranscriptCleanupToggle(cleanup: cleanup)
             }
 
-            highlightsMenu
+            ReaderRingsView(state: viewModel.ring)
+                .readerBarTapTarget()
             moreActionsMenu
         }
     }
 
-    /// Highlights list.
+    /// Highlights list: a submenu of the ••• menu.
     private var highlightsMenu: some View {
         Menu {
             if viewModel.highlights.isEmpty {
@@ -519,16 +520,8 @@ public struct ReaderView: View {
                 }
             }
         } label: {
-            Image(systemName: "highlighter")
-                .overlay(alignment: .topTrailing) {
-                    if !viewModel.highlights.isEmpty {
-                        Circle()
-                            .fill(Color.yellow)
-                            .frame(width: 8, height: 8)
-                            .offset(x: 4, y: -4)
-                    }
-                }
-                .readerBarTapTarget()
+            Label(viewModel.highlights.isEmpty ? "Highlights" : "Highlights (\(viewModel.highlights.count))",
+                  systemImage: "highlighter")
         }
     }
 
@@ -539,6 +532,8 @@ public struct ReaderView: View {
             isLoaded: isLoaded, isEntitled: NaturalVoiceAccess.shared.isEntitled,
             hasSavedSummary: hasSavedSummary, cleanupAvailable: cleanup?.isAvailable == true)
         return Menu {
+            highlightsMenu
+            Divider()
             ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                 switch entry {
                 case .item(let action):

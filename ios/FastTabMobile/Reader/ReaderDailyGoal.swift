@@ -1,10 +1,9 @@
 import Foundation
 
-/// Today's reading against the daily word goal (More → Reading goal), drawn by the reader page
-/// as a second bar under the article's progress bar. Same words the Reading ring widget counts.
+/// Today's reading against the daily word goal (More → Reading goal), drawn as the inner ring of the
+/// reader's bottom-panel rings (`ReaderRingsView`). Same words the Reading ring widget counts.
 ///
-/// Sent to the page once per article; the page grows the bar live as the reader scrolls past
-/// `highWater` (`ftSetDailyGoal` in reader_template.html mirrors `fraction(sessionProgress:)`).
+/// Loaded once per article; the ring grows as the reader scrolls past `highWater`.
 public struct ReaderDailyGoal: Equatable, Encodable, Sendable {
     /// Words already in the reading log for today.
     let wordsToday: Double
@@ -13,6 +12,8 @@ public struct ReaderDailyGoal: Equatable, Encodable, Sendable {
     /// How far into this article the log already counts. Only ground past it is new today.
     let highWater: Double
     let goal: Int
+    /// Words in the log since the start of this week (includes today).
+    var wordsThisWeek: Double = 0
 
     /// Words read today once the reader has reached `sessionProgress` (furthest this session).
     func words(sessionProgress: Double) -> Double {
@@ -22,5 +23,12 @@ public struct ReaderDailyGoal: Equatable, Encodable, Sendable {
     /// 0...1, the drawn bar.
     func fraction(sessionProgress: Double) -> Double {
         goal > 0 ? min(1, words(sessionProgress: sessionProgress) / Double(goal)) : 0
+    }
+
+    /// 0...1 against 7 × the daily goal; the app has no separate weekly goal.
+    func weekFraction(sessionProgress: Double) -> Double {
+        guard goal > 0 else { return 0 }
+        let gain = Double(articleWords) * max(0, min(1, sessionProgress) - highWater)
+        return min(1, (wordsThisWeek + gain) / Double(goal * 7))
     }
 }

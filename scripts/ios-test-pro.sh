@@ -17,6 +17,7 @@ export MAC_SIM_OWNER="${MAC_SIM_OWNER:-claude-ios-test-$$}"
 
 root="$(cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" && pwd)"
 log=/tmp/ios-test-pro.log
+: > "${log}"
 dd="${IOS_TEST_DD:-${root}/build/DerivedData-ios}"
 
 [[ "$(hostname -s)" != *Air* ]] || { echo "run this on the Pro (the Air has no iOS simulator)" >&2; exit 2; }
@@ -36,13 +37,27 @@ fi
 
 cd "${root}/ios" && xcodegen generate -q || exit 1
 
-mac-sim run --label "fasttab: iOS unit tests" -- bash -c \
-  "arch -arm64 xcodebuild -project FastTabMobile.xcodeproj -scheme FastTabMobile \
-     -destination \"id=\$SIM_UDID\" -derivedDataPath '${dd}' test" > "${log}" 2>&1
+# The shared simulator is usually slimmed (services off to save RAM). NaturalVoiceStoreKitTests need
+# storekitd. Re-enabling it means re-slimming + rebooting the shared device for every project, so
+# this script never does that: it detects the gap, says so in the log, and skips only those tests.
+inner="$(mktemp -t ios-test-inner)"
+trap 'rm -f "${inner}"' EXIT
+cat > "${inner}" <<'INNER'
+#!/usr/bin/env bash
+skip=()
+if ! simslim doctor "$SIM_UDID" --requires storekit >> "$IOS_TEST_LOG" 2>&1; then
+  echo "!! storekit is disabled on the shared simulator: SKIPPING NaturalVoiceStoreKitTests (2 tests). To run them: simslim on $SIM_UDID --except storekit, only while nobody else holds the simulator." >> "$IOS_TEST_LOG"
+  skip=(-skip-testing:FastTabMobileTests/NaturalVoiceStoreKitTests)
+fi
+arch -arm64 xcodebuild -project FastTabMobile.xcodeproj -scheme FastTabMobile \
+  -destination "id=$SIM_UDID" -derivedDataPath "$IOS_TEST_DD" "${skip[@]}" test >> "$IOS_TEST_LOG" 2>&1
+INNER
+IOS_TEST_LOG="${log}" IOS_TEST_DD="${dd}" mac-sim run --label "fasttab: iOS unit tests" -- bash "${inner}"
 rc=$?
 
 echo "ios tests rc=${rc} (log: ${log})"
 grep -A30 '^Failing tests:' "${log}" | sed '/^$/q'
 grep -m3 -E 'error:|BUILD FAILED|signal trap' "${log}"
+grep -m1 '^!! storekit' "${log}"
 grep -E 'Executed [0-9]+ tests, with' "${log}" | tail -1
 exit "${rc}"

@@ -46,6 +46,8 @@ struct MessageCard: Equatable, Sendable {
     private(set) var mayHaveGoneThrough = false
     /// Nil while the transcript is still being read.
     var sessionContext: SessionContext?
+    /// Local transcript, or the dashboard for a row on another machine.
+    let messageSource: LatestMessageSource
     /// The question the agent's turn ended on (Claude Desktop wrap_up): shown above the text box, one button per action.
     let wrapUpQuestion: WrapUpQuestion?
 
@@ -57,6 +59,7 @@ struct MessageCard: Equatable, Sendable {
         self.projectName = agent.projectName
         self.identityText = agent.identityText
         self.sessionId = agent.sessionId
+        self.messageSource = LatestMessageSource.choose(paneId: agent.paneId, rowId: agent.rowId)
         self.acceptsImages = agent.acceptsImages
         self.sessionContext = agent.sessionId == nil ? .empty : nil
         self.wrapUpQuestion = agent.wrapUpQuestion

@@ -28,6 +28,8 @@ struct AnswerCard: Equatable, Sendable {
     var form: AnswerFormState?
     /// Nil while the transcript is still being read.
     var sessionContext: SessionContext?
+    /// Local transcript, or the dashboard for a row on another machine.
+    let messageSource: LatestMessageSource
 
     init(agent: AgentSnapshot, paneId: String, question: AnswerableQuestion) {
         self.agentID = agent.id
@@ -37,6 +39,7 @@ struct AnswerCard: Equatable, Sendable {
         self.identityText = agent.identityText
         self.sessionId = agent.sessionId
         self.hookRequest = agent.hookRequest
+        self.messageSource = LatestMessageSource.choose(paneId: agent.paneId, rowId: agent.rowId)
         self.state = AnswerCardState(question: question)
         // No session to read: nothing is loading.
         self.sessionContext = agent.sessionId == nil ? .empty : nil

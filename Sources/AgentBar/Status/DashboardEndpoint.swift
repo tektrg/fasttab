@@ -12,6 +12,8 @@ struct DashboardEndpoint: Sendable {
     /// The server's own read of a wedged pane gives up at 15s; wait a bit longer.
     static let paneScreenTimeoutSeconds: TimeInterval = 20
     static let requestTimeoutSeconds: TimeInterval = 10
+    /// A remote transcript read is an ssh round trip (the server tries a few windows).
+    static let sessionLatestTimeoutSeconds: TimeInterval = 20
     /// Stop gives the agent's processes a grace period before killing them.
     static let sessionActionTimeoutSeconds: TimeInterval = 30
     /// An answer types into the pane, then re-reads it several times (up to a
@@ -302,6 +304,15 @@ struct DashboardEndpoint: Sendable {
         ]
         var request = Self.agentBarRequest(url: components.url!)
         request.timeoutInterval = Self.paneScreenTimeoutSeconds
+        return request
+    }
+
+    /// `GET /api/session/latest?rowId=`: the dashboard reads a remote row's transcript over ssh.
+    func sessionLatestRequest(rowId: String) -> URLRequest {
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/session/latest"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "rowId", value: rowId)]
+        var request = Self.agentBarRequest(url: components.url!)
+        request.timeoutInterval = Self.sessionLatestTimeoutSeconds
         return request
     }
 

@@ -79,6 +79,10 @@ protocol AgentStatusSource: Sendable {
 
     /// Stops the walled Claude in `paneId` and resumes its session on the next login account.
     func resumeOnNextAccount(paneId: String) async -> AccountActionOutcome
+
+    /// The full latest assistant message of a row's session, read by the dashboard (the only way to
+    /// reach a row on another machine). Nil on any failure: the caller falls back to its short copy.
+    func latestMessage(rowId: String) async -> String?
 }
 
 /// Why an image didn't upload, in words. Nothing was sent.
@@ -87,6 +91,8 @@ struct ImageUploadFailure: Error, Equatable, Sendable {
 }
 
 extension AgentStatusSource {
+    func latestMessage(rowId: String) async -> String? { nil }
+
     func sendWrapUpAnswer(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
         await sendMessage(rowId: rowId, text: text, confirmed: confirmed)
     }

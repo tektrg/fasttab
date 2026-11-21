@@ -91,6 +91,17 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
         }
     }
 
+    func latestMessage(rowId: String) async -> String? {
+        do {
+            let (body, statusCode) = try await transport.response(for: endpoint.sessionLatestRequest(rowId: rowId))
+            guard (200..<300).contains(statusCode) else { return nil }
+            let reply = try JSONDecoder().decode(DashboardSessionLatestResponse.self, from: body)
+            return reply.ok == true ? reply.latestMessage : nil
+        } catch {
+            return nil
+        }
+    }
+
     func answer(paneId: String, choice: AnswerChoice, question: QuestionIdentity) async -> AnswerResult {
         do {
             let request = endpoint.answerRequest(paneId: paneId, choice: choice, question: question)

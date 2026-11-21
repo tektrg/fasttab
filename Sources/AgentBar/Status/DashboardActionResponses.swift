@@ -15,6 +15,12 @@ struct DashboardPaneScreenResponse: Decodable {
     let error: String?
 }
 
+/// `GET /api/session/latest` reply: `{"ok": true, "latestMessage": "..."|null, ...}` or `{"ok": false, "error": "..."}`.
+struct DashboardSessionLatestResponse: Decodable {
+    let ok: Bool?
+    let latestMessage: String?
+}
+
 /// `POST /api/session/{stop,close,message}` reply: `{"ok": true, "state": "...", "reason": "..."}`,
 /// `{"ok": false, "needsConfirm": true, "reason": "..."}` (nothing was done) or
 /// `{"ok": false, "error": "..."}`.

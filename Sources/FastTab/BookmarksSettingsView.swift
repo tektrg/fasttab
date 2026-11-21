@@ -208,7 +208,8 @@ struct BookmarksSettingsView: View {
             await MainActor.run {
                 if ok {
                     withAnimation(.easeOut(duration: 0.2)) {
-                        _ = bookmarkTreeStore.removeBookmark(id: item.id, browserName: item.browserName, profileName: item.profileName)
+                        _ = bookmarkTreeStore.removeBookmark(id: item.id, browserName: item.browserName,
+                                                                         profileName: item.profileDirectory ?? item.profileName)
                         bookmarkTreeStore.deletingBookmarkIDs.remove(item.uniqueKey)
                     }
                 } else {

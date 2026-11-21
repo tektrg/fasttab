@@ -70,9 +70,11 @@ enum CustomViewFilter {
         candidates: [BrowserSearchResult],
         now: Date = Date()
     ) -> [CustomViewItem] {
-        let matcher = Matcher(view: view, displayNameKeys: Set(candidates.compactMap {
-            $0.profileDirectory == nil ? nil : ProfileNames.key($0.profileName)
-        }))
+        var displayNameKeys: [String: Set<String>] = [:]
+        for row in candidates where row.profileDirectory != nil {
+            if let key = ProfileNames.key(row.profileName) { displayNameKeys[row.browserName, default: []].insert(key) }
+        }
+        let matcher = Matcher(view: view, displayNameKeys: displayNameKeys)
         let historyIndex = makeHistoryIndex(from: candidates)
 
         var tabs: [CustomViewItem] = []
@@ -157,10 +159,11 @@ enum CustomViewFilter {
         let keywords: SavedViewKeywords
         let pinned: PinnedRule
 
-        /// Display names of profiles seen on rows that also know their folder (see `ProfileNames.matches`).
-        let displayNameKeys: Set<String>
+        /// Per browser: display names of profiles seen on rows that also know their folder (see
+        /// `ProfileNames.matches`). Per browser because folder names only collide within one browser.
+        let displayNameKeys: [String: Set<String>]
 
-        init(view: CustomView, displayNameKeys: Set<String> = []) {
+        init(view: CustomView, displayNameKeys: [String: Set<String>] = [:]) {
             self.displayNameKeys = displayNameKeys
             types = view.effectiveTypes
             profiles = ProfileNames.keys(view.profiles)
@@ -180,7 +183,7 @@ enum CustomViewFilter {
             // names, the folder ("Profile 3"); rows answer to both.
             guard ProfileNames.matches(selectedKeys: profiles, displayName: item.profileName,
                                        directory: item.profileDirectory,
-                                       displayNameKeys: displayNameKeys) else { return false }
+                                       displayNameKeys: displayNameKeys[item.browserName] ?? []) else { return false }
             if !domains.isEmpty || !domainPatterns.isEmpty {
                 guard let host = CustomViewDomain.host(ofURL: item.url),
                       domains.contains(where: { CustomViewDomain.host(host, isWithin: $0) })

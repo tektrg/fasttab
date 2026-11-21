@@ -103,7 +103,8 @@ struct CustomViewProfileOption: Identifiable, Hashable {
         var order: [String] = []
         var names: [String: String] = [:]
         var browsers: [String: Set<String>] = [:]
-        var aliases: [String: [String]] = [:]
+        var aliases: [String: [(browser: String, folder: String)]] = [:]
+        var displayKeysByBrowser: [String: Set<String>] = [:]
         for source in sources {
             guard let raw = source.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { continue }
             let key = raw.lowercased()
@@ -112,14 +113,26 @@ struct CustomViewProfileOption: Identifiable, Hashable {
                 order.append(key)
             }
             if !source.browserName.isEmpty { browsers[key, default: []].insert(source.browserName) }
+            if source.directory != nil { displayKeysByBrowser[source.browserName, default: []].insert(key) }
             if let folder = source.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !folder.isEmpty,
                folder.lowercased() != key,
-               !aliases[key, default: []].contains(where: { $0.caseInsensitiveCompare(folder) == .orderedSame }) {
-                aliases[key, default: []].append(folder)
+               !aliases[key, default: []].contains(where: {
+                   $0.browser == source.browserName && $0.folder.caseInsensitiveCompare(folder) == .orderedSame
+               }) {
+                aliases[key, default: []].append((source.browserName, folder))
             }
         }
+        // A folder that its own browser also shows as a display name (Edge: folder "Profile 1" is
+        // "Profile 2" while "Default" is "Profile 1") belongs to that other chip, not this one.
+        let aliasFolders = aliases.mapValues { entries in
+            var seen = Set<String>()
+            return entries
+                .filter { !(displayKeysByBrowser[$0.browser] ?? []).contains($0.folder.lowercased()) }
+                .map(\.folder)
+                .filter { seen.insert($0.lowercased()).inserted }
+        }
         // A folder name that is also a display name ("Default" named "Default") stays that chip's.
-        let aliasOwner = aliases.reduce(into: [String: String]()) { owners, entry in
+        let aliasOwner = aliasFolders.reduce(into: [String: String]()) { owners, entry in
             for folder in entry.value where owners[folder.lowercased()] == nil { owners[folder.lowercased()] = entry.key }
         }
         for raw in selected {
@@ -137,7 +150,7 @@ struct CustomViewProfileOption: Identifiable, Hashable {
                     name: names[key] ?? key,
                     browsers: (browsers[key] ?? []).sorted(),
                     showsBrowsers: showsBrowsers,
-                    aliases: (aliases[key] ?? []).filter { names[$0.lowercased()] == nil }
+                    aliases: aliasFolders[key] ?? []
                 )
             }
             .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }

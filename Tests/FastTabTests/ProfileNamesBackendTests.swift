@@ -96,6 +96,18 @@ import Testing
         #expect(titles == ["deftab", "defbm"])
     }
 
+    @Test func sameFolderNameInAnotherBrowserIsNotBlockedByEdgeDisplayNames() {
+        // Edge folder "Default" shows "Profile 1"; Chrome folder "Profile 1" is "Work". An old view
+        // saved as "Profile 1" (Chrome's folder chip, or Edge's display chip) keeps both, as before.
+        let rows = [
+            row(.tab, "edgedef", display: "Profile 1", folder: "Default"),
+            BrowserSearchResult(title: "chromework", url: "https://chromework.example.com/", browserName: "Google Chrome",
+                                type: .bookmark, timestamp: Date(), bookmarkID: "9", profileName: "Work", profileDirectory: "Profile 1"),
+        ]
+        let titles = Set(CustomViewFilter.evaluate(CustomView(name: "v", profiles: ["Profile 1"]), candidates: rows).map(\.result.title))
+        #expect(titles == ["edgedef", "chromework"])
+    }
+
     @Test func settingsBookmarkRowKeepsTheFolderForDeletes() throws {
         let fixture = try Fixture()
         let folder = try #require(fixture.backend.fetchBookmarkTree().first { $0.profileName == "SSV" })

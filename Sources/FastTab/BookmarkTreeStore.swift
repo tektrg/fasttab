@@ -30,13 +30,16 @@ final class BookmarkTreeStore: ObservableObject {
     }
 
     @discardableResult
+    /// `profileName`: the profile's folder when known (`profileDirectory ?? profileName`), since two
+    /// profiles can share a display name and Chromium bookmark ids repeat across profiles.
     func removeBookmark(id: String, browserName: String? = nil, profileName: String? = nil) -> Bool {
         var didRemove = false
         for i in rootFolders.indices {
             if let browserName, !browserName.isEmpty, rootFolders[i].browserName != browserName {
                 continue
             }
-            if let profileName, !profileName.isEmpty, rootFolders[i].profileName != profileName {
+            if let profileName, !profileName.isEmpty,
+               (rootFolders[i].profileDirectory ?? rootFolders[i].profileName) != profileName {
                 continue
             }
             if rootFolders[i].removeBookmark(id: id) {

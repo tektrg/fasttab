@@ -117,7 +117,7 @@ struct BookmarkItem: Identifiable, Equatable, Sendable {
     var profileDirectory: String? = nil
 
     var uniqueKey: String {
-        "\(browserName)|\(profileName)|\(id)"
+        "\(browserName)|\(profileDirectory ?? profileName)|\(id)"
     }
 
     var asSearchResult: BrowserSearchResult {
@@ -144,7 +144,7 @@ enum BookmarkDisplayRow: Identifiable, Equatable, Sendable {
         case .folder(let id, _, _, _, _, _):
             return "bm_folder_\(id)"
         case .bookmark(let item, _, _, _, _):
-            return "bm_item_\(item.browserName)_\(item.profileName)_\(item.id)_\(item.url)"
+            return "bm_item_\(item.browserName)_\(item.profileDirectory ?? item.profileName)_\(item.id)_\(item.url)"
         }
     }
 

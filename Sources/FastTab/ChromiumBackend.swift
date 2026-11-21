@@ -1535,9 +1535,10 @@ struct ChromiumBackend: BrowserBackend {
 
     private func profile(for result: BrowserSearchResult) -> ChromiumProfile? {
         let all = profiles()
-        if result.profileDirectory != nil || result.profileName != nil {
-            return ChromiumProfile.pick(result.profileDirectory, in: all) ?? ChromiumProfile.pick(result.profileName, in: all)
-        }
+        // A known folder that is gone means no profile: falling back to the display name could land
+        // on another profile whose folder has that name (Edge defaults).
+        if let directory = result.profileDirectory { return all.first { $0.name == directory } }
+        if result.profileName != nil { return ChromiumProfile.pick(result.profileName, in: all) }
         return all.first
     }
 

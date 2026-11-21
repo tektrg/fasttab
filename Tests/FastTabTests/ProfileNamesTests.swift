@@ -110,6 +110,17 @@ struct ProfileNamesTests {
         #expect(!ssv.isSelected(in: ["AptusFit"]))
     }
 
+    @Test func folderAliasIsDroppedOnlyWhenTheSameBrowserUsesItAsADisplayName() {
+        // Edge (defaults): folder "Default" shows "Profile 1". Chrome: folder "Profile 1" is "Work".
+        let options = CustomViewProfileOption.options(from: [
+            .init(browserName: "Microsoft Edge", displayName: "Profile 1", directory: "Default"),
+            .init(browserName: "Microsoft Edge", displayName: "Profile 2", directory: "Profile 1"),
+            .init(browserName: "Google Chrome", displayName: "Work", directory: "Profile 1"),
+        ], selected: [])
+        #expect(options.first { $0.name == "Work" }?.aliases == ["Profile 1"])
+        #expect(options.first { $0.name == "Profile 2" }?.aliases == [])
+    }
+
     @Test func togglingAChipRemovesEveryNameOfThatProfile() {
         let ssv = CustomViewProfileOption(name: "SSV", browsers: ["Microsoft Edge"], showsBrowsers: false, aliases: ["Profile 3"])
         #expect(ssv.toggled(in: ["Profile 3", "AptusFit"]) == ["AptusFit"])

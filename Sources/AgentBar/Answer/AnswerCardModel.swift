@@ -326,9 +326,16 @@ final class AnswerCardModel: ObservableObject {
     // MARK: - Transcript
 
     func loadContext() {
-        guard let sessionId = card?.sessionId, let agentID = card?.agentID else { return }
+        guard let sessionId = card?.sessionId, let agentID = card?.agentID, let source = card?.messageSource else { return }
         let load = loadSessionContext
-        contextLoader.load({ await load(sessionId) }) { [weak self] context in
+        let status = statusSource
+        contextLoader.load({
+            await LatestMessageSource.resolve(
+                source,
+                readLocal: { await load(sessionId) },
+                readRemote: { await status?.latestMessage(rowId: $0) }
+            )
+        }) { [weak self] context in
             guard self?.card?.agentID == agentID else { return }
             self?.card?.sessionContext = context
         }

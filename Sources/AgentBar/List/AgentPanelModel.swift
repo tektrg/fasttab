@@ -1061,13 +1061,20 @@ final class AgentPanelModel: ObservableObject {
         peekLoader.load({ await statusSource.paneScreen(paneId: paneId) }) { [weak self] result in
             self?.preview.updateContent(for: opened.agentID) { $0.content = PanePeek.content(from: result) }
         }
-        if let sessionId = agent.sessionId, opened.message == .loadingLatestMessage { loadPeekLastMessage(for: opened.agentID, sessionId: sessionId) }
+        if let sessionId = agent.sessionId, opened.message == .loadingLatestMessage { loadPeekLastMessage(for: opened.agentID, sessionId: sessionId, source: LatestMessageSource.choose(paneId: agent.paneId, rowId: agent.rowId)) }
     }
 
     /// The Last message tab of a herdr row: the session transcript's latest message.
-    private func loadPeekLastMessage(for agentID: String, sessionId: String) {
+    private func loadPeekLastMessage(for agentID: String, sessionId: String, source: LatestMessageSource) {
         let load = loadPeekMessage
-        peekMessageLoader.load({ await load(sessionId) }) { [weak self] context in
+        let status = statusSource
+        peekMessageLoader.load({
+            await LatestMessageSource.resolve(
+                source,
+                readLocal: { await load(sessionId) },
+                readRemote: { await status?.latestMessage(rowId: $0) }
+            )
+        }) { [weak self] context in
             self?.preview.updateContent(for: agentID) { $0.message = PanePeek.content(fromLatestMessage: context.latestMessage) }
         }
     }

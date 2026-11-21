@@ -61,7 +61,12 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
     let tabIndex: Int?
     let windowName: String?
     let bookmarkID: String?
+    /// The profile's display name ("SSV"), shown to people and matched by custom views. Can be a folder
+    /// name on rows built from older stored data (tab slots, phone commands).
     let profileName: String?
+    /// The profile's folder ("Profile 3"), for file access and `--profile-directory`; nil when unknown
+    /// (Safari, a window title that named no known profile). See `ProfileNames`.
+    let profileDirectory: String?
     let folderPath: String?
     let isCurrentFlowActiveTab: Bool
     let hasMediaIndicator: Bool
@@ -105,7 +110,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case title, url, browserName, type, timestamp, windowIndex, tabIndex
-        case windowName, bookmarkID, profileName, folderPath
+        case windowName, bookmarkID, profileName, profileDirectory, folderPath
         case isCurrentFlowActiveTab, hasMediaIndicator
         case tabID, isAudible, isMuted, isPinned, isDiscarded, tabGroupTitle
         case isPinnedAudibleTab
@@ -123,6 +128,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         windowName: String? = nil,
         bookmarkID: String? = nil,
         profileName: String? = nil,
+        profileDirectory: String? = nil,
         folderPath: String? = nil,
         isCurrentFlowActiveTab: Bool = false,
         hasMediaIndicator: Bool = false,
@@ -147,6 +153,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
         self.windowName = windowName.map(normalizedBrowserWindowName)
         self.bookmarkID = bookmarkID
         self.profileName = profileName
+        self.profileDirectory = profileDirectory
         self.folderPath = folderPath
         self.isCurrentFlowActiveTab = isCurrentFlowActiveTab
         self.hasMediaIndicator = hasMediaIndicator
@@ -172,7 +179,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             url: url,
             timestamp: timestamp,
             bookmarkID: bookmarkID,
-            profileName: profileName,
+            profileName: type == .bookmark ? (profileDirectory ?? profileName) : profileName,
             windowIndex: windowIndex,
             tabIndex: tabIndex,
             tabID: tabID,
@@ -195,6 +202,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             windowName: try c.decodeIfPresent(String.self, forKey: .windowName),
             bookmarkID: try c.decodeIfPresent(String.self, forKey: .bookmarkID),
             profileName: try c.decodeIfPresent(String.self, forKey: .profileName),
+            profileDirectory: try c.decodeIfPresent(String.self, forKey: .profileDirectory),
             folderPath: try c.decodeIfPresent(String.self, forKey: .folderPath),
             isCurrentFlowActiveTab: try c.decodeIfPresent(Bool.self, forKey: .isCurrentFlowActiveTab) ?? false,
             hasMediaIndicator: try c.decodeIfPresent(Bool.self, forKey: .hasMediaIndicator) ?? false,
@@ -225,6 +233,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             windowName: windowName,
             bookmarkID: bookmarkID,
             profileName: profileName,
+            profileDirectory: profileDirectory,
             folderPath: folderPath,
             isCurrentFlowActiveTab: isCurrentFlowActiveTab,
             hasMediaIndicator: hasMediaIndicator,
@@ -257,6 +266,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             windowName: windowName,
             bookmarkID: bookmarkID,
             profileName: profileName,
+            profileDirectory: profileDirectory,
             folderPath: folderPath,
             isCurrentFlowActiveTab: isCurrentFlowActiveTab,
             hasMediaIndicator: isAudible && !value,
@@ -284,6 +294,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             windowName: windowName,
             bookmarkID: bookmarkID,
             profileName: profileName,
+            profileDirectory: profileDirectory,
             folderPath: folderPath,
             isCurrentFlowActiveTab: isCurrentFlowActiveTab,
             hasMediaIndicator: hasMediaIndicator,
@@ -311,6 +322,7 @@ struct BrowserSearchResult: Identifiable, Codable, Hashable, Sendable {
             windowName: windowName,
             bookmarkID: bookmarkID,
             profileName: profileName,
+            profileDirectory: profileDirectory,
             folderPath: folderPath,
             isCurrentFlowActiveTab: isCurrentFlowActiveTab,
             hasMediaIndicator: hasMediaIndicator,

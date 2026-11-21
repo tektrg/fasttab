@@ -1544,6 +1544,7 @@ class BrowserTabService: ObservableObject {
                 tabIndex: tabRecord.tabIndex,
                 windowName: tabRecord.windowName,
                 profileName: existing.profileName,
+                profileDirectory: existing.profileDirectory,
                 isCurrentFlowActiveTab: tabRecord.isActive,
                 hasMediaIndicator: isAudibleToUser,
                 tabID: tabRecord.tabID,

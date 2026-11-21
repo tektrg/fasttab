@@ -150,61 +150,29 @@ struct CustomViewDraft: Equatable {
             profiles.append(name)
         }
     }
+
+    /// Chip form: also counts the profile's folder name ("Profile 3" for "SSV"), which older saved
+    /// views hold; unticking removes every name it goes by.
+    func isProfileSelected(_ option: CustomViewProfileOption) -> Bool {
+        option.isSelected(in: profiles)
+    }
+
+    mutating func toggleProfile(_ option: CustomViewProfileOption) {
+        profiles = option.toggled(in: profiles)
+    }
 }
 
 // MARK: - Profile options
 
-/// One profile chip in the builder. Profiles match by name only
-/// (`CustomViewFilter`), so the same name in two browsers is one chip.
-struct CustomViewProfileOption: Identifiable, Hashable {
-    let name: String
-    /// Browsers the name was seen in (empty for a saved profile not seen now).
-    let browsers: [String]
-    /// Whether to name the browser(s) on the chip.
-    let showsBrowsers: Bool
-
-    var id: String { name.lowercased() }
-
-    var label: String {
-        guard showsBrowsers, !browsers.isEmpty else { return name }
-        return "\(name) · \(browsers.joined(separator: ", "))"
-    }
-
-    /// Chips for the profiles present in `candidates`, plus any `selected`
-    /// one no longer present (so it can still be unticked). Browser names
-    /// are shown when profiles come from more than one browser — otherwise
-    /// "Default" / "Person 1" are ambiguous.
+extension CustomViewProfileOption {
+    /// Chips for the profiles present in `candidates` (see `options(from: [ProfileNames.Source], …)`).
     static func options(from candidates: [BrowserSearchResult], selected: [String]) -> [CustomViewProfileOption] {
-        var order: [String] = []
-        var names: [String: String] = [:]
-        var browsers: [String: Set<String>] = [:]
-        for item in candidates {
-            guard let raw = item.profileName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { continue }
-            let key = raw.lowercased()
-            if names[key] == nil {
-                names[key] = raw
-                order.append(key)
-            }
-            if !item.browserName.isEmpty { browsers[key, default: []].insert(item.browserName) }
-        }
-        for raw in selected {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = trimmed.lowercased()
-            guard !trimmed.isEmpty, names[key] == nil else { continue }
-            names[key] = trimmed
-            order.append(key)
-        }
-        let allBrowsers = browsers.values.reduce(into: Set<String>()) { $0.formUnion($1) }
-        let showsBrowsers = allBrowsers.count > 1
-        return order
-            .map { key in
-                CustomViewProfileOption(
-                    name: names[key] ?? key,
-                    browsers: (browsers[key] ?? []).sorted(),
-                    showsBrowsers: showsBrowsers
-                )
-            }
-            .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+        options(
+            from: candidates.map {
+                ProfileNames.Source(browserName: $0.browserName, displayName: $0.profileName, directory: $0.profileDirectory)
+            },
+            selected: selected
+        )
     }
 }
 

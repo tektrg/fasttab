@@ -157,10 +157,7 @@ enum CustomViewFilter {
 
         init(view: CustomView) {
             types = view.effectiveTypes
-            profiles = Set(view.profiles.compactMap {
-                let p = $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                return p.isEmpty ? nil : p
-            })
+            profiles = ProfileNames.keys(view.profiles)
             let patternEntries = view.domains.filter(CustomViewDomain.isPattern)
             domainPatterns = TextPattern.Compiled(TextPattern.clean(patternEntries))
             var seen = Set<String>()
@@ -173,10 +170,10 @@ enum CustomViewFilter {
         /// All of the view's structured filters (the AI filter runs separately).
         func matchesStructure(_ item: BrowserSearchResult) -> Bool {
             guard types.contains(item.type), pinned.matches(item) else { return false }
-            if !profiles.isEmpty {
-                guard let profile = item.profileName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                      profiles.contains(profile) else { return false }
-            }
+            // A view may hold the display name ("SSV") or, if saved before results carried display
+            // names, the folder ("Profile 3"); rows answer to both.
+            guard ProfileNames.matches(selectedKeys: profiles, displayName: item.profileName,
+                                       directory: item.profileDirectory) else { return false }
             if !domains.isEmpty || !domainPatterns.isEmpty {
                 guard let host = CustomViewDomain.host(ofURL: item.url),
                       domains.contains(where: { CustomViewDomain.host(host, isWithin: $0) })

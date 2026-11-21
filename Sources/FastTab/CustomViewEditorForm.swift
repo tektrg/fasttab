@@ -225,8 +225,8 @@ struct CustomViewEditorForm: View {
                 Divider()
                 ForEach(profileOptions) { option in
                     Toggle(option.label, isOn: Binding(
-                        get: { draft.isProfileSelected(option.name) },
-                        set: { _ in draft.toggleProfile(option.name) }
+                        get: { draft.isProfileSelected(option) },
+                        set: { _ in draft.toggleProfile(option) }
                     ))
                 }
             } label: {
@@ -255,8 +255,11 @@ struct CustomViewEditorForm: View {
         let names = selected
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        // One count per profile: "Profile 3" and "SSV" are the same chip.
         var seen = Set<String>()
-        let unique = names.filter { seen.insert($0.lowercased()).inserted }
+        let unique = names.filter { name in
+            seen.insert(options.first { $0.answers(to: name) }?.id ?? name.lowercased()).inserted
+        }
         switch unique.count {
         case 0: return "Any profile"
         case 1: return label(of: unique[0], in: options)
@@ -268,13 +271,13 @@ struct CustomViewEditorForm: View {
     /// menu when more than one is ticked.
     static func selectedProfilesList(selected: [String], options: [CustomViewProfileOption]) -> String {
         options
-            .filter { option in selected.contains { $0.caseInsensitiveCompare(option.name) == .orderedSame } }
+            .filter { $0.isSelected(in: selected) }
             .map(\.label)
             .joined(separator: "; ")
     }
 
     private static func label(of name: String, in options: [CustomViewProfileOption]) -> String {
-        options.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.label ?? name
+        options.first { $0.answers(to: name) }?.label ?? name
     }
 
     // MARK: Domains

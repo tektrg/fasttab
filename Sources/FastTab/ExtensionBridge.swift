@@ -52,6 +52,8 @@ struct ExtensionTabRecord: Sendable {
     let lastAccessed: Date?
     /// The browser profile's display name, stamped from the connection (ExtensionProfileTags).
     var profileName: String?
+    /// The browser profile's folder ("Profile 3"), stamped alongside `profileName`.
+    var profileDirectory: String?
 
     init(
         tabID: Int,
@@ -353,12 +355,13 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
             }
             let supportDirectory = ChromiumBrowserSpec.all.first { $0.appName == appName }?.supportDirectory
             let tabs = Self.dedupedTabs(from: activeConnections.map { connection in
-                let profileName = supportDirectory.flatMap {
-                    ExtensionProfileTags.shared.profileName(tag: connection.profileTag, supportDirectory: $0)
+                let profile = supportDirectory.flatMap {
+                    ExtensionProfileTags.shared.profile(tag: connection.profileTag, supportDirectory: $0)
                 }
                 return connection.tabs.values.map { tab in
                     var tab = tab
-                    tab.profileName = profileName
+                    tab.profileName = profile?.displayName
+                    tab.profileDirectory = profile?.directory
                     return tab
                 }
             })

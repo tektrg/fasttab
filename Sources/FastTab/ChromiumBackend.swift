@@ -6,8 +6,17 @@ import IndieBrowserTabs
 
 struct ChromiumProfile: Sendable {
     let browserAppName: String
+    /// Folder name ("Profile 3"): file access and `--profile-directory`.
     let name: String
+    /// The name the person gave it ("SSV"), from `Local State`; the folder name when unnamed. Results
+    /// carry this (see `ProfileNames`).
+    let displayName: String
     let directoryURL: URL
+
+    /// The profile a stored reference (folder or display name) points at.
+    static func pick(_ reference: String?, in profiles: [ChromiumProfile]) -> ChromiumProfile? {
+        ProfileNames.pick(reference, in: profiles, directory: \.name, displayName: \.displayName)
+    }
 
     var bookmarksURL: URL { directoryURL.appendingPathComponent("Bookmarks") }
     var historyURL: URL { directoryURL.appendingPathComponent("History") }
@@ -64,6 +73,7 @@ struct ChromiumBackend: BrowserBackend {
         if liveTabs.isEmpty { return .fetched([]) }
 
         var newResults: [BrowserSearchResult] = []
+        let knownProfiles = profiles()
         let activeTimesCount = activeTimes.count
         logger.info("recency-sort fetchLiveTabs start. browser='\(self.appName, privacy: .public)' activeTimesCount=\(activeTimesCount) rows=\(liveTabs.count)")
         for live in liveTabs {
@@ -78,6 +88,7 @@ struct ChromiumBackend: BrowserBackend {
             // Show the user's window name when set; the title (active tab +
             // profile suffix) is the fallback and the profile's source.
             let windowName = givenName.isEmpty ? windowTitle : givenName
+            let windowProfile = Self.windowProfile(title: windowTitle, among: knownProfiles)
             let hasMediaIndicator = browserWindowMediaIndicatorBelongsToTab(tabTitle: title, windowName: windowTitle)
             let key = makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
             let urlKey = makeTabURLRecencyKey(browserName: appName, url: url)
@@ -117,7 +128,8 @@ struct ChromiumBackend: BrowserBackend {
                     windowIndex: winIdx,
                     tabIndex: tabIdx,
                     windowName: windowName,
-                    profileName: BrowserWindowProfile.guess(fromTitle: windowTitle),
+                    profileName: windowProfile.displayName,
+                    profileDirectory: windowProfile.directory,
                     isCurrentFlowActiveTab: isCurrentFlowActiveTab,
                     hasMediaIndicator: hasMediaIndicator
                 )
@@ -182,7 +194,8 @@ struct ChromiumBackend: BrowserBackend {
                 Self.collectBookmarks(
                     from: node,
                     browserName: appName,
-                    profileName: profile.name,
+                    profileName: profile.displayName,
+                    profileDirectory: profile.name,
                     folderTrail: [],
                     results: &results
                 )
@@ -214,7 +227,8 @@ struct ChromiumBackend: BrowserBackend {
                     from: node,
                     defaultName: rootKey.replacingOccurrences(of: "_", with: " ").capitalized,
                     browserName: appName,
-                    profileName: profile.name,
+                    profileName: profile.displayName,
+                    profileDirectory: profile.name,
                     parentTrail: []
                 ) {
                     var folder = folder
@@ -239,11 +253,13 @@ struct ChromiumBackend: BrowserBackend {
         defaultName: String,
         browserName: String,
         profileName: String,
+        profileDirectory: String,
         parentTrail: [String]
     ) -> BookmarkFolder? {
         let nodeName = (node["name"] as? String) ?? defaultName
         let rawID = (node["id"] as? String) ?? UUID().uuidString
-        let id = "\(browserName)|\(profileName)|\(rawID)"
+        // Keyed by folder so the id stays stable when the profile is renamed.
+        let id = "\(browserName)|\(profileDirectory)|\(rawID)"
         let currentTrail = parentTrail + [nodeName]
 
         guard let childrenNodes = node["children"] as? [[String: Any]] else {
@@ -275,6 +291,7 @@ struct ChromiumBackend: BrowserBackend {
                     defaultName: childName,
                     browserName: browserName,
                     profileName: profileName,
+                    profileDirectory: profileDirectory,
                     parentTrail: currentTrail
                 ) {
                     children.append(.folder(subFolder))
@@ -295,6 +312,7 @@ struct ChromiumBackend: BrowserBackend {
         from node: [String: Any],
         browserName: String,
         profileName: String,
+        profileDirectory: String,
         folderTrail: [String],
         results: inout [BrowserSearchResult]
     ) {
@@ -314,6 +332,7 @@ struct ChromiumBackend: BrowserBackend {
                     timestamp: chromiumDate(from: node["date_added"] as? String) ?? Date(timeIntervalSince1970: 0),
                     bookmarkID: node["id"] as? String,
                     profileName: profileName,
+                    profileDirectory: profileDirectory,
                     folderPath: folderTrail.joined(separator: " / ")
                 )
             )
@@ -335,6 +354,7 @@ struct ChromiumBackend: BrowserBackend {
                     timestamp: chromiumDate(from: node["date_added"] as? String) ?? Date(timeIntervalSince1970: 0),
                     bookmarkID: node["id"] as? String,
                     profileName: profileName,
+                    profileDirectory: profileDirectory,
                     folderPath: nextTrail.joined(separator: " / ")
                 )
             )
@@ -345,6 +365,7 @@ struct ChromiumBackend: BrowserBackend {
                 from: child,
                 browserName: browserName,
                 profileName: profileName,
+                profileDirectory: profileDirectory,
                 folderTrail: nextTrail,
                 results: &results
             )
@@ -393,7 +414,8 @@ struct ChromiumBackend: BrowserBackend {
                     browserName: appName,
                     type: .history,
                     timestamp: timestamp,
-                    profileName: profile.name
+                    profileName: profile.displayName,
+                    profileDirectory: profile.name
                 )
 
                 let key = "\(appName)|\(url)"
@@ -492,7 +514,8 @@ struct ChromiumBackend: BrowserBackend {
                     browserName: appName,
                     type: .history,
                     timestamp: timestamp,
-                    profileName: profile.name
+                    profileName: profile.displayName,
+                    profileDirectory: profile.name
                 )
 
                 let key = "\(appName)|\(url)"
@@ -777,10 +800,10 @@ struct ChromiumBackend: BrowserBackend {
             return
         }
 
-        // Profile-aware open via executable launch. profileName may be a
-        // directory ("Profile 1") or a display name parsed from the window
-        // title ("Work") — resolve display names via Local State first.
-        if let profileName = result.profileName,
+        // Profile-aware open via executable launch. Prefer the folder when the
+        // row carries it; profileName may be a directory ("Profile 1") or a
+        // display name ("Work") — resolve display names via Local State.
+        if let profileName = result.profileDirectory ?? result.profileName,
            !profileName.isEmpty,
            let directory = Self.resolveProfileDirectory(
                supportDirectory: supportDirectory,
@@ -1018,7 +1041,7 @@ struct ChromiumBackend: BrowserBackend {
     // MARK: - Folder delete
 
     func locateBookmarkFolder(_ target: BookmarkFolderTarget) -> BookmarkFolderLocateResult {
-        guard let profile = profiles().first(where: { $0.name == target.profileName }) else {
+        guard let profile = ChromiumProfile.pick(target.profileName, in: profiles()) else {
             logger.error("locateBookmarkFolder: profile not found browser=\(self.appName, privacy: .public) profile=\(target.profileName, privacy: .public)")
             return .failed(.notFound)
         }
@@ -1034,7 +1057,7 @@ struct ChromiumBackend: BrowserBackend {
     }
 
     func deleteBookmarkFolder(_ target: BookmarkFolderTarget) -> BookmarkFolderDeleteOutcome {
-        guard let profile = profiles().first(where: { $0.name == target.profileName }) else {
+        guard let profile = ChromiumProfile.pick(target.profileName, in: profiles()) else {
             logger.error("deleteBookmarkFolder: profile not found browser=\(self.appName, privacy: .public) profile=\(target.profileName, privacy: .public)")
             return .notFound
         }
@@ -1123,7 +1146,7 @@ struct ChromiumBackend: BrowserBackend {
     /// matched by key rather than display name since the key is stable across
     /// locales and there's no path segment to match against for "top level".
     func insertBookmark(title: String, url: String, dateAdded: Date?, profileName: String, folderPath: [String]) -> Bool {
-        guard let profile = profiles().first(where: { $0.name == profileName }) else {
+        guard let profile = ChromiumProfile.pick(profileName, in: profiles()) else {
             logger.error("insertBookmark: profile not found name=\(profileName, privacy: .public)")
             return false
         }
@@ -1204,7 +1227,7 @@ struct ChromiumBackend: BrowserBackend {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return false }
 
-        guard let profile = profiles().first(where: { $0.name == profileName }) else {
+        guard let profile = ChromiumProfile.pick(profileName, in: profiles()) else {
             logger.error("createBookmarkFolder: profile not found name=\(profileName, privacy: .public)")
             return false
         }
@@ -1498,16 +1521,27 @@ struct ChromiumBackend: BrowserBackend {
     func profiles() -> [ChromiumProfile] {
         let base = URL(fileURLWithPath: (supportDirectory as NSString).expandingTildeInPath, isDirectory: true)
         return ChromiumProfiles.list(base: base).map {
-            ChromiumProfile(browserAppName: appName, name: $0.directory, directoryURL: base.appendingPathComponent($0.directory))
+            ChromiumProfile(browserAppName: appName, name: $0.directory, displayName: $0.displayName,
+                            directoryURL: base.appendingPathComponent($0.directory))
         }
     }
 
     private func profile(for result: BrowserSearchResult) -> ChromiumProfile? {
         let all = profiles()
-        if let profileName = result.profileName {
-            return all.first(where: { $0.name == profileName })
+        if result.profileDirectory != nil || result.profileName != nil {
+            return ChromiumProfile.pick(result.profileDirectory, in: all) ?? ChromiumProfile.pick(result.profileName, in: all)
         }
         return all.first
+    }
+
+    /// The profile a window title names (" - SSV"): both names when it is a known profile, else the
+    /// best guess from the title with no folder.
+    static func windowProfile(title: String?, among known: [ChromiumProfile]) -> (displayName: String?, directory: String?) {
+        if let name = BrowserWindowProfile.match(title: title, among: known.map(\.displayName)),
+           let profile = known.first(where: { $0.displayName.caseInsensitiveCompare(name) == .orderedSame }) {
+            return (profile.displayName, profile.name)
+        }
+        return (BrowserWindowProfile.guess(fromTitle: title), nil)
     }
 
     /// Resolves a stored profile reference to a `--profile-directory` value.

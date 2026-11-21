@@ -16,7 +16,10 @@ packages:
   # On-device English Read Aloud voice (Paradee, FastTabMobile/Reader/ReadAloud/Paradee/): runs
   # the bundled paradee_int8.onnx. Pinned: a new ORT can change the binary size a lot.
   OnnxRuntime:
-    url: https://github.com/microsoft/onnxruntime-swift-package-manager
+    # Own copy: Microsoft deleted the upstream repo + its download server on 2026-11-18. Same 1.24.2
+    # sources (upstream b7fb7f7), binaries SHA-256-verified against Microsoft's checksums; only the two
+    # download URLs differ. Do not repoint to a random mirror.
+    url: https://github.com/tektrg/onnxruntime-swift-package-manager
     exactVersion: 1.24.2
 
 targets:

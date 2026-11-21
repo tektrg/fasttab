@@ -12,6 +12,7 @@ would), and checks:
 """
 import hashlib
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -142,7 +143,8 @@ with tempfile.TemporaryDirectory() as tmp:
     check("dry run exits 0", result.returncode, 0)
     check_true("dry run reports DRY RUN mode", "DRY RUN" in result.stdout)
     check_true("dry run reports 4 session rows copyable across property/view/value/session_seen",
-               "property" in result.stdout and "4" in result.stdout.split("TOTAL")[0])
+               all(re.search(rf"^\s+{t}\s+1 rows\b", result.stdout, re.M)
+                   for t in ("property", "view", "value", "session_seen")))
     check_true("dry run creates no target file", not os.path.exists(dry_target))
 
     check("source mtime unchanged after dry run",

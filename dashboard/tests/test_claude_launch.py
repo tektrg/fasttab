@@ -11,7 +11,8 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 DASHBOARD_DIR = os.path.dirname(HERE)
 _tmp = tempfile.mkdtemp(prefix="claude-launch-test-")
-os.environ.update({"CHIEF_DASHBOARD_CONFIG_HOME": _tmp, "CHIEF_DASHBOARD_STATE_HOME": _tmp})
+os.environ.update({"CHIEF_DASHBOARD_CONFIG_HOME": _tmp, "CHIEF_DASHBOARD_STATE_HOME": _tmp,
+                   "HOME": _tmp})  # hermetic: never read the real ~/.config/agent-dashboard/ccproxy-remote.json
 _spec = importlib.util.spec_from_file_location(
     "claude_launch", os.path.join(DASHBOARD_DIR, "scripts", "claude-launch.py"))
 L = importlib.util.module_from_spec(_spec)
@@ -100,9 +101,21 @@ with open(acc, "w") as f:
 os.environ["CLAUDE_ROUTER_ACCOUNTS"] = acc
 os.environ["CLAUDE_BIN"] = "/fake/claude"
 calls = []
-L.os.execvpe = lambda b, a, e: calls.append((b, a, e.get("CLAUDE_CONFIG_DIR")))
+class _Exec(Exception):
+    """A real exec never returns; the fake stops the caller the same way."""
+
+
+def _fake_exec(b, a, e):
+    calls.append((b, a, e.get("CLAUDE_CONFIG_DIR")))
+    raise _Exec
+
+
+L.os.execvpe = _fake_exec
 L.account_login.logged_in = yes
-L.main(["--resume", "x"])
+try:
+    L.main(["--resume", "x"])
+except _Exec:
+    pass
 check("main execs with argv passthrough", calls, [("/fake/claude", ["/fake/claude", "--resume", "x"], "/cfg/a")])
 
 if fails:

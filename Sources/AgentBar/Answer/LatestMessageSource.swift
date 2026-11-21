@@ -58,6 +58,24 @@ enum LatestMessageSource: Equatable, Sendable {
         )
     }
 
+    /// The same choice for the multi-question form the agent is waiting on: this Mac's transcript (needs the
+    /// session id), or the dashboard's copy for a row on another machine. Nil (none, a failed read, no status
+    /// source) leaves the card on the single question scraped from the pane.
+    static func readPendingForm(
+        _ source: LatestMessageSource,
+        sessionId: String?,
+        readLocal: @escaping @Sendable (_ sessionId: String) async -> PendingQuestionForm?,
+        status: (any AgentStatusSource)?
+    ) async -> PendingQuestionForm? {
+        switch source {
+        case .localTranscript:
+            guard let sessionId else { return nil }
+            return await readLocal(sessionId)
+        case .dashboard(let rowId):
+            return await status?.pendingForm(rowId: rowId)
+        }
+    }
+
     /// `^(w[0-9A-Za-z]+|p_?[0-9A-Za-z]+|t[0-9A-Za-z]+)$`
     private static func looksLikeHerdrId(_ prefix: String) -> Bool {
         guard let first = prefix.first, "wpt".contains(first) else { return false }

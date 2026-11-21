@@ -39,6 +39,8 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
     private var accounts: DashboardAccounts?
     private var accountsFetchedAt: Date?
     private var accountsFetchInFlight = false
+    /// `GET /api/session/latest` reads in flight, by row (see `sessionLatest`).
+    private var sessionLatestReads: [String: Task<DashboardSessionLatestResponse?, Never>] = [:]
     /// `/api/accounts` rides the status refresh at most this often (a pending approval shows within ~10s).
     static let accountsRefreshSeconds: TimeInterval = 10
 
@@ -92,14 +94,34 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
     }
 
     func latestMessage(rowId: String) async -> String? {
-        do {
-            let (body, statusCode) = try await transport.response(for: endpoint.sessionLatestRequest(rowId: rowId))
-            guard (200..<300).contains(statusCode) else { return nil }
-            let reply = try JSONDecoder().decode(DashboardSessionLatestResponse.self, from: body)
-            return reply.ok == true ? reply.latestMessage : nil
-        } catch {
-            return nil
+        await sessionLatest(rowId: rowId)?.latestMessage
+    }
+
+    func pendingForm(rowId: String) async -> PendingQuestionForm? {
+        await sessionLatest(rowId: rowId)?.pendingQuestion
+    }
+
+    /// One `GET /api/session/latest` per row at a time: a card opening asks for the message and the pending form
+    /// at the same moment, and each read is an ssh round trip to the row's machine, so the two share one.
+    /// Nil on any failure (unreachable, non-2xx, unreadable, `ok:false`).
+    private func sessionLatest(rowId: String) async -> DashboardSessionLatestResponse? {
+        if let running = sessionLatestReads[rowId] { return await running.value }
+        let transport = transport
+        let request = endpoint.sessionLatestRequest(rowId: rowId)
+        let read = Task { () -> DashboardSessionLatestResponse? in
+            do {
+                let (body, statusCode) = try await transport.response(for: request)
+                guard (200..<300).contains(statusCode) else { return nil }
+                let reply = try JSONDecoder().decode(DashboardSessionLatestResponse.self, from: body)
+                return reply.ok == true ? reply : nil
+            } catch {
+                return nil
+            }
         }
+        sessionLatestReads[rowId] = read
+        let reply = await read.value
+        sessionLatestReads[rowId] = nil
+        return reply
     }
 
     func answer(paneId: String, choice: AnswerChoice, question: QuestionIdentity) async -> AnswerResult {

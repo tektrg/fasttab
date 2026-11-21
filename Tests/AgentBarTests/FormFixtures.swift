@@ -87,6 +87,19 @@ final class FakeFormTerminal: AgentStatusSource, @unchecked Sendable {
     var reads: Int { lock.withLock { readCount } }
     var tab: Int { lock.withLock { currentTab } }
     func refuse(atTab tab: Int) { lock.withLock { refusedTab = tab } }
+    /// What the dashboard's `GET /api/session/latest` says is pending for a row on another machine
+    /// (nil: nothing pending, or the read failed), and the rows it was asked about.
+    private var dashboardForm: PendingQuestionForm?
+    private var dashboardFormRowIds: [String] = []
+    func serveDashboardForm(_ form: PendingQuestionForm?) { lock.withLock { dashboardForm = form } }
+    var dashboardFormReads: [String] { lock.withLock { dashboardFormRowIds } }
+    func pendingForm(rowId: String) async -> PendingQuestionForm? {
+        lock.withLock {
+            dashboardFormRowIds.append(rowId)
+            return dashboardForm
+        }
+    }
+
     func moveTo(tab: Int) { lock.withLock { currentTab = tab } }
     func failReads(_ message: String?) { lock.withLock { screenFailure = message } }
     func stayStale(reads: Int) { lock.withLock { staleReadsLeft = reads } }

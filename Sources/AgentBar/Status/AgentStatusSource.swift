@@ -83,6 +83,11 @@ protocol AgentStatusSource: Sendable {
     /// The full latest assistant message of a row's session, read by the dashboard (the only way to
     /// reach a row on another machine). Nil on any failure: the caller falls back to its short copy.
     func latestMessage(rowId: String) async -> String?
+
+    /// The multi-question AskUserQuestion form a row's agent is waiting on, read by the dashboard from the
+    /// session's transcript (same `GET /api/session/latest`; the only way to reach a row on another machine).
+    /// Nil when there is none, or on any failure: the card then stays on its scraped single question.
+    func pendingForm(rowId: String) async -> PendingQuestionForm?
 }
 
 /// Why an image didn't upload, in words. Nothing was sent.
@@ -92,6 +97,8 @@ struct ImageUploadFailure: Error, Equatable, Sendable {
 
 extension AgentStatusSource {
     func latestMessage(rowId: String) async -> String? { nil }
+
+    func pendingForm(rowId: String) async -> PendingQuestionForm? { nil }
 
     func sendWrapUpAnswer(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
         await sendMessage(rowId: rowId, text: text, confirmed: confirmed)

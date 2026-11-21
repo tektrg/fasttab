@@ -7,13 +7,21 @@ import Foundation
 extension AnswerCardModel {
     // MARK: - Opening as a form
 
-    /// Reads the transcript for a pending form; the card turns into the form card when one is found
-    /// and the question in front of the agent is one of its questions.
+    /// Reads the transcript for a pending form (this Mac's disk; the dashboard for a row on another machine);
+    /// the card turns into the form card when one is found and the question in front of the agent is one of
+    /// its questions. That check runs when the read lands, so a form for a question that has meanwhile gone
+    /// (answered, or the card moved on) is never adopted.
     func loadPendingFormForCard() {
-        guard let card, let sessionId = card.sessionId else { return }
+        guard let card else { return }
+        let source = card.messageSource
+        let sessionId = card.sessionId
+        if source == .localTranscript, sessionId == nil { return }
         let agentID = card.agentID
         let load = loadPendingForm
-        formLoader.load({ await load(sessionId) }) { [weak self] form in
+        let status = statusSource
+        formLoader.load({
+            await LatestMessageSource.readPendingForm(source, sessionId: sessionId, readLocal: load, status: status)
+        }) { [weak self] form in
             self?.adoptForm(form, forAgent: agentID)
         }
     }

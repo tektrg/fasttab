@@ -15,10 +15,58 @@ struct DashboardPaneScreenResponse: Decodable {
     let error: String?
 }
 
-/// `GET /api/session/latest` reply: `{"ok": true, "latestMessage": "..."|null, ...}` or `{"ok": false, "error": "..."}`.
+/// `GET /api/session/latest` reply: `{"ok": true, "latestMessage": "..."|null, "pendingQuestion": {...}|null, ...}`
+/// or `{"ok": false, "error": "..."}`.
 struct DashboardSessionLatestResponse: Decodable {
     let ok: Bool?
     let latestMessage: String?
+    /// Nil when absent, null or unreadable: an odd form never costs the message.
+    let pendingQuestion: PendingQuestionForm?
+
+    private enum CodingKeys: String, CodingKey { case ok, latestMessage, pendingQuestion }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try container.decodeIfPresent(Bool.self, forKey: .ok)
+        latestMessage = try container.decodeIfPresent(String.self, forKey: .latestMessage)
+        pendingQuestion = (try? container.decodeIfPresent(DashboardPendingQuestion.self, forKey: .pendingQuestion))?.form
+    }
+}
+
+/// `pendingQuestion` of `GET /api/session/latest`: the dashboard's port of `AskUserQuestionExtractor`
+/// (`session_transcript._build_form`): `{toolUseId, questions[{question, header, isMultiSelect, options[{label, description}]}]}`.
+/// `header`, `isMultiSelect` and `description` may be missing; a question without text or options, or an option
+/// without a label, makes the whole form unreadable (the transcript reader drops such a call too).
+struct DashboardPendingQuestion: Decodable {
+    struct Question: Decodable {
+        let question: String
+        let header: String?
+        let isMultiSelect: Bool?
+        let options: [Option]
+    }
+
+    struct Option: Decodable {
+        let label: String
+        let description: String?
+    }
+
+    let toolUseId: String
+    let questions: [Question]
+
+    var form: PendingQuestionForm? {
+        guard !toolUseId.isEmpty, !questions.isEmpty else { return nil }
+        let readable = questions.allSatisfy { question in
+            !question.question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !question.options.isEmpty && question.options.allSatisfy { !$0.label.isEmpty }
+        }
+        guard readable else { return nil }
+        return PendingQuestionForm(toolUseId: toolUseId, questions: questions.map { question in
+            FormQuestion(
+                header: question.header ?? "", question: question.question, isMultiSelect: question.isMultiSelect ?? false,
+                options: question.options.map { FormQuestion.Option(label: $0.label, description: $0.description ?? "") }
+            )
+        })
+    }
 }
 
 /// `POST /api/session/{stop,close,message}` reply: `{"ok": true, "state": "...", "reason": "..."}`,

@@ -142,6 +142,12 @@ public struct ReaderWebView: UIViewRepresentable {
         context.coordinator.edgeSwipeGesture = edgeSwipe
 
         context.coordinator.webView = wv
+        viewModel.selectionRangeProvider = { [weak wv] done in
+            guard let wv else { done(""); return }
+            wv.evaluateJavaScript("window.ftSerializeSelection ? ftSerializeSelection() : ''") { result, _ in
+                done(result as? String ?? "")
+            }
+        }
         loadTemplate(into: wv, coordinator: context.coordinator)
         return wv
     }
@@ -541,7 +547,8 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
     /// Read Again state the view wants shown, and what the page last got (nil = never).
     var isReadAgain = false
     private(set) var pushedReadAgain: Bool?
-    private(set) var isAtEnd: Bool = false
+    private var endZone = ReaderEndZone()
+    var isAtEnd: Bool { endZone.isAtEnd }
 
     // Scroll-direction tracking for header auto-hide
     private var lastContentOffsetY: CGFloat = 0
@@ -642,11 +649,7 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
 
         let maxOffset = scrollView.contentSize.height - scrollView.bounds.height
         if maxOffset > 20 {
-            let atEnd = offsetY >= (maxOffset - 80)
-            if atEnd != isAtEnd {
-                isAtEnd = atEnd
-                onReachedEndChanged?(atEnd)
-            }
+            applyEndZone(progress: min(max(offsetY / maxOffset, 0), 1))
         }
 
         if offsetY <= topRevealThreshold {
@@ -659,6 +662,18 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
         } else if delta < 0 {
             setHeaderHidden(false)
         }
+    }
+
+    /// The one place the "at end" flag changes (native scroll and page progress both land here).
+    func applyEndZone(progress: Double) {
+        guard let atEnd = endZone.update(progress: progress) else { return }
+        onReachedEndChanged?(atEnd)
+        if atEnd { setHeaderHidden(false) }
+    }
+
+    func applyContentFits() {
+        guard let atEnd = endZone.contentFits() else { return }
+        onReachedEndChanged?(atEnd)
     }
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -685,22 +700,12 @@ public final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDe
                 if let p = body["progress"] as? Double {
                     let immediate = body["immediate"] as? Bool ?? false
                     self.viewModel.updateScrollProgress(p, immediate: immediate)
-                    let atEnd = p >= 0.90
-                    if atEnd != self.isAtEnd {
-                        self.isAtEnd = atEnd
-                        self.onReachedEndChanged?(atEnd)
-                        if atEnd {
-                            self.setHeaderHidden(false)
-                        }
-                    }
+                    self.applyEndZone(progress: p)
                 }
             case .contentFitsViewport:
                 let fits = body["fits"] as? Bool ?? false
                 self.viewModel.contentFitsViewportChanged(fits)
-                if fits && !self.isAtEnd {
-                    self.isAtEnd = true
-                    self.onReachedEndChanged?(true)
-                }
+                if fits { self.applyContentFits() }
             case .textSelected:
                 let text = body["text"] as? String ?? ""
                 let range = body["range"] as? String ?? ""

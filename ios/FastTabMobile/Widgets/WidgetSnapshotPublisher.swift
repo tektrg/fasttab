@@ -23,6 +23,12 @@ final class WidgetSnapshotPublisher {
     private var subscriptions = Set<AnyCancellable>()
     private var pendingWrite: DispatchWorkItem?
     private var readingReload: Task<Void, Never>?
+    /// WidgetKit redraws at most this often; the data still lands on disk every write. A read
+    /// near the end of an article changes the snapshot repeatedly (progress, stats), and each
+    /// redraw wakes the widget extension.
+    static let minReloadInterval: TimeInterval = 30
+    private var reloadGate = ReaderRateGate(minInterval: minReloadInterval)
+    private var pendingReload: DispatchWorkItem?
     private var hasStarted = false
     private let calendar = Calendar.current
     private let logger = Logger(subsystem: "app.theindie.FastTabMobile", category: "WidgetSnapshot")
@@ -116,6 +122,7 @@ final class WidgetSnapshotPublisher {
     /// Writes a pending change right away. Call when the app goes to the background, where a
     /// debounced write might never get to run.
     func flushPendingWrite() {
+        if pendingReload != nil { performReload() }  // the timer may never run in the background
         guard let pendingWrite else { return }
         pendingWrite.cancel()
         self.pendingWrite = nil
@@ -135,10 +142,27 @@ final class WidgetSnapshotPublisher {
         do {
             try WidgetSnapshotStore.save(snapshot)
             pruneThumbnails(keeping: snapshot.shuffle?.thumbnailFileName)
-            WidgetCenter.shared.reloadAllTimelines()
+            requestReload()
         } catch {
             logger.error("Widget snapshot write failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Reload now when the last one is old enough, else once at the end of the wait.
+    private func requestReload() {
+        let wait = reloadGate.delay(now: Date())
+        guard wait > 0 else { performReload(); return }
+        guard pendingReload == nil else { return }
+        let work = DispatchWorkItem { [weak self] in self?.performReload() }
+        pendingReload = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
+    }
+
+    private func performReload() {
+        pendingReload?.cancel()
+        pendingReload = nil
+        reloadGate.markFired(now: Date())
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     // MARK: - Thumbnails

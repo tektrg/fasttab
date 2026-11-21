@@ -875,12 +875,19 @@ function serializeRange(range) {
   }
 }
 
-document.addEventListener('selectionchange', function() {
+// Handle drags fire selectionchange every few ms. Work only once the selection settles
+// (150 ms), post the text only (never the serialized range), and skip repeats. Swift asks for
+// the range with ftSerializeSelection() when the user taps a highlight colour.
+var ftSelectionTimer = null;
+var ftLastPostedSelection = null;   // null = "deselected" was last posted
+function ftPostSelectionState() {
+  ftSelectionTimer = null;
   var sel = window.getSelection();
   if (!sel || sel.isCollapsed || sel.toString().trim().length === 0) {
-    try {
-      window.webkit.messageHandlers.textDeselected.postMessage({});
-    } catch(e) {}
+    if (ftLastPostedSelection !== null) {
+      ftLastPostedSelection = null;
+      try { window.webkit.messageHandlers.textDeselected.postMessage({}); } catch(e) {}
+    }
     if (sel && sel.isCollapsed && ftDeferredTexts.length) {
       var deferred = ftDeferredTexts;
       ftDeferredTexts = [];
@@ -888,13 +895,21 @@ document.addEventListener('selectionchange', function() {
     }
     return;
   }
-  var text  = sel.toString().trim();
-  var range = sel.getRangeAt(0);
-  var serialized = serializeRange(range);
-  try {
-    window.webkit.messageHandlers.textSelected.postMessage({ text: text, range: serialized });
-  } catch(e) {}
+  var text = sel.toString().trim();
+  if (text === ftLastPostedSelection) return;
+  ftLastPostedSelection = text;
+  try { window.webkit.messageHandlers.textSelected.postMessage({ text: text }); } catch(e) {}
+}
+document.addEventListener('selectionchange', function() {
+  if (ftSelectionTimer) clearTimeout(ftSelectionTimer);
+  ftSelectionTimer = setTimeout(ftPostSelectionState, 150);
 });
+// Current selection as the serialized range string ('' when nothing is selected).
+window.ftSerializeSelection = function() {
+  var sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0 || sel.toString().trim().length === 0) return '';
+  return serializeRange(sel.getRangeAt(0));
+};
 
 // ── Apply highlight from Swift ─────────────────────────────────
 function applyHighlightPayload(payload) {

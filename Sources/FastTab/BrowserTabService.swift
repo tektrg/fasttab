@@ -1948,7 +1948,8 @@ class BrowserTabService: ObservableObject {
             logger.warning("deleteBookmarkFolderAsync: no backend for browser=\(folder.browserName, privacy: .public)")
             return .failed
         }
-        let target = BookmarkFolderTarget(profileName: folder.profileName, locator: .id(folder.rawID))
+        // The folder, not the display name: Edge's default display names collide with other folders.
+        let target = BookmarkFolderTarget(profileName: folder.profileDirectory ?? folder.profileName, locator: .id(folder.rawID))
         return await Task.detached(priority: .userInitiated) {
             backend.deleteBookmarkFolder(target)
         }.value

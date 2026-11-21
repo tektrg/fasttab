@@ -5,7 +5,8 @@ import Testing
 /// A Chromium profile has a folder name ("Profile 3") and a display name ("SSV"). Live tabs used to
 /// carry the display name and bookmarks/history the folder name, so a custom view saved with one
 /// never matched rows carrying the other: "Profile 3" showed no open tabs, and "SSV" lost its
-/// bookmarks/history whenever the extension was offline. Pure; runs headless (also on Linux).
+/// bookmarks/history whenever the extension was offline. Pure; runs headless, also on Linux via
+/// `scripts/test-profile-names-linux.sh` (compiles ProfileNames.swift alone).
 @Suite("Profile names: folder vs display name")
 struct ProfileNamesTests {
     struct P: Equatable { let directory: String; let displayName: String }
@@ -64,6 +65,19 @@ struct ProfileNamesTests {
         #expect(!matches(["Profile 3"], display: "AptusFit", directory: "Profile 4"))
         #expect(!matches(["SSV"], display: nil, directory: nil))
         #expect(!matches(["SSV"], display: "SSV-old", directory: "Profile 9"))
+    }
+
+    @Test func displayNameWinsWhenItIsAlsoAnotherProfilesFolder() {
+        // Edge's default naming: folder "Default" shows as "Profile 1", folder "Profile 1" as "Profile 2".
+        let known = ProfileNames.keys(["Profile 1", "Profile 2"])
+        func edge(_ selected: [String], display: String, directory: String) -> Bool {
+            ProfileNames.matches(selectedKeys: ProfileNames.keys(selected), displayName: display,
+                                 directory: directory, displayNameKeys: known)
+        }
+        #expect(edge(["Profile 1"], display: "Profile 1", directory: "Default"))
+        #expect(!edge(["Profile 1"], display: "Profile 2", directory: "Profile 1"))
+        #expect(edge(["Default"], display: "Profile 1", directory: "Default"))
+        #expect(edge(["Profile 2"], display: "Profile 2", directory: "Profile 1"))
     }
 
     @Test func emptySelectionMatchesEverything() {

@@ -25,10 +25,15 @@ enum ProfileNames {
     }
 
     /// Whether a row known by `displayName` / `directory` belongs to one of the selected profiles.
-    /// An empty selection means any profile.
-    static func matches(selectedKeys: Set<String>, displayName: String?, directory: String?) -> Bool {
+    /// An empty selection means any profile. A selected name that is some profile's display name
+    /// (`displayNameKeys`) means that profile only, never a folder of the same name: Edge shows folder
+    /// "Default" as "Profile 1" and folder "Profile 1" as "Profile 2".
+    static func matches(selectedKeys: Set<String>, displayName: String?, directory: String?,
+                        displayNameKeys: Set<String> = []) -> Bool {
         guard !selectedKeys.isEmpty else { return true }
-        return [displayName, directory].contains { key($0).map(selectedKeys.contains) ?? false }
+        if let display = key(displayName), selectedKeys.contains(display) { return true }
+        guard let folder = key(directory) else { return false }
+        return selectedKeys.contains(folder) && !displayNameKeys.contains(folder)
     }
 
     /// The profile a stored reference names: exact folder first, then display name, then folder

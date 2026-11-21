@@ -73,7 +73,7 @@ struct ChromiumBackend: BrowserBackend {
         if liveTabs.isEmpty { return .fetched([]) }
 
         var newResults: [BrowserSearchResult] = []
-        let knownProfiles = profiles()
+        var knownProfiles: [ChromiumProfile]?
         let activeTimesCount = activeTimes.count
         logger.info("recency-sort fetchLiveTabs start. browser='\(self.appName, privacy: .public)' activeTimesCount=\(activeTimesCount) rows=\(liveTabs.count)")
         for live in liveTabs {
@@ -88,7 +88,12 @@ struct ChromiumBackend: BrowserBackend {
             // Show the user's window name when set; the title (active tab +
             // profile suffix) is the fallback and the profile's source.
             let windowName = givenName.isEmpty ? windowTitle : givenName
-            let windowProfile = Self.windowProfile(title: windowTitle, among: knownProfiles)
+            // Reads Local State only when a title names something (Edge titles usually don't).
+            let windowProfile: (displayName: String?, directory: String?) = {
+                guard BrowserWindowProfile.guess(fromTitle: windowTitle) != nil else { return (nil, nil) }
+                if knownProfiles == nil { knownProfiles = profiles() }
+                return Self.windowProfile(title: windowTitle, among: knownProfiles ?? [])
+            }()
             let hasMediaIndicator = browserWindowMediaIndicatorBelongsToTab(tabTitle: title, windowName: windowTitle)
             let key = makeTabRecencyKey(browserName: appName, windowIndex: winIdx, tabIndex: tabIdx, url: url)
             let urlKey = makeTabURLRecencyKey(browserName: appName, url: url)
@@ -282,7 +287,8 @@ struct ChromiumBackend: BrowserBackend {
                     browserName: browserName,
                     profileName: profileName,
                     dateAdded: chromiumDate(from: child["date_added"] as? String),
-                    folderPath: currentTrail.joined(separator: " / ")
+                    folderPath: currentTrail.joined(separator: " / "),
+                    profileDirectory: profileDirectory
                 )
                 children.append(.item(item))
             } else if childType == "folder" {
@@ -304,7 +310,8 @@ struct ChromiumBackend: BrowserBackend {
             name: nodeName,
             browserName: browserName,
             profileName: profileName,
-            children: children
+            children: children,
+            profileDirectory: profileDirectory
         )
     }
 

@@ -389,7 +389,9 @@ final class SyncService: NSObject, ObservableObject {
         var grouped: [String: [SyncedBookmarkItem]] = [:]
         for bm in bookmarks where bm.type == .bookmark {
             let browser = bm.browserName
-            let profile = bm.profileName ?? "Default"
+            // Keyed (and sent to the phone) by folder, as before display names: stable record ids,
+            // and phone commands name the profile unambiguously.
+            let profile = bm.profileDirectory ?? bm.profileName ?? "Default"
             let groupKey = "\(browser)|\(profile)"
 
             let item = SyncedBookmarkItem(

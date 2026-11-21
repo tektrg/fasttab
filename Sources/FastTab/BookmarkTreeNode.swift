@@ -24,6 +24,8 @@ struct BookmarkFolder: Identifiable, Equatable, Sendable {
     /// A grouping FastTab made up from flat bookmark paths (browsers without a
     /// real folder tree, e.g. Safari) — there is no browser folder behind it.
     var isSynthesized: Bool = false
+    /// The profile's folder ("Profile 3"); `profileName` is its display name. Nil for Safari.
+    var profileDirectory: String? = nil
 
     var childCount: Int {
         children.count
@@ -111,6 +113,8 @@ struct BookmarkItem: Identifiable, Equatable, Sendable {
     let profileName: String
     let dateAdded: Date?
     let folderPath: String
+    /// The profile's folder ("Profile 3"); `profileName` is its display name. Nil for Safari.
+    var profileDirectory: String? = nil
 
     var uniqueKey: String {
         "\(browserName)|\(profileName)|\(id)"
@@ -125,6 +129,7 @@ struct BookmarkItem: Identifiable, Equatable, Sendable {
             timestamp: dateAdded ?? Date(timeIntervalSince1970: 0),
             bookmarkID: id,
             profileName: profileName,
+            profileDirectory: profileDirectory,
             folderPath: folderPath
         )
     }

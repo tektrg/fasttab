@@ -71,7 +71,8 @@ struct FastTabListBookmarkDestination: Equatable {
     ) -> FastTabListBookmarkDestination? {
         var counts: [FastTabListBookmarkDestinationKey: Int] = [:]
         for bookmark in bookmarks where bookmark.type == .bookmark && writableBrowsers.contains(bookmark.browserName) {
-            guard let profile = bookmark.profileName, !profile.isEmpty else { continue }
+            // Folder first: inserts look the profile up by name, and display names can collide.
+            guard let profile = bookmark.profileDirectory ?? bookmark.profileName, !profile.isEmpty else { continue }
             counts[FastTabListBookmarkDestinationKey(browserName: bookmark.browserName, profileName: profile), default: 0] += 1
         }
         let best = counts.max { lhs, rhs in

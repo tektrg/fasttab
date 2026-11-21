@@ -85,6 +85,29 @@ import Testing
         #expect(titles == ["ssvtab", "ssvbm", "ssvhist"])
     }
 
+    @Test func edgeDefaultNamesPickTheProfileShownInTheMenu() {
+        // Edge: folder "Default" shows as "Profile 1", folder "Profile 1" as "Profile 2".
+        let rows = [
+            row(.tab, "deftab", display: "Profile 1", folder: "Default"),
+            row(.bookmark, "defbm", display: "Profile 1", folder: "Default"),
+            row(.bookmark, "p1bm", display: "Profile 2", folder: "Profile 1"),
+        ]
+        let titles = Set(CustomViewFilter.evaluate(CustomView(name: "v", profiles: ["Profile 1"]), candidates: rows).map(\.result.title))
+        #expect(titles == ["deftab", "defbm"])
+    }
+
+    @Test func settingsBookmarkRowKeepsTheFolderForDeletes() throws {
+        let fixture = try Fixture()
+        let folder = try #require(fixture.backend.fetchBookmarkTree().first { $0.profileName == "SSV" })
+        #expect(folder.profileDirectory == "Profile 3")
+        guard case .item(let item) = try #require(folder.children.first) else { Issue.record("no item"); return }
+        let result = item.asSearchResult
+        #expect(result.profileDirectory == "Profile 3")
+        // Same id as the cached search row, so a delete also clears it from results.
+        #expect(fixture.backend.fetchAllBookmarks().contains { $0.id == result.id })
+    }
+
+    @MainActor
     @Test func menuShowsOneChipPerProfileAndTicksOldFolderSelections() throws {
         let options = CustomViewProfileOption.options(from: candidates, selected: ["Profile 3"])
         #expect(options.map(\.name) == ["AptusFit", "SSV"])

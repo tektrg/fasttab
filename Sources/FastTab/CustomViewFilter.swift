@@ -70,7 +70,9 @@ enum CustomViewFilter {
         candidates: [BrowserSearchResult],
         now: Date = Date()
     ) -> [CustomViewItem] {
-        let matcher = Matcher(view: view)
+        let matcher = Matcher(view: view, displayNameKeys: Set(candidates.compactMap {
+            $0.profileDirectory == nil ? nil : ProfileNames.key($0.profileName)
+        }))
         let historyIndex = makeHistoryIndex(from: candidates)
 
         var tabs: [CustomViewItem] = []
@@ -155,7 +157,11 @@ enum CustomViewFilter {
         let keywords: SavedViewKeywords
         let pinned: PinnedRule
 
-        init(view: CustomView) {
+        /// Display names of profiles seen on rows that also know their folder (see `ProfileNames.matches`).
+        let displayNameKeys: Set<String>
+
+        init(view: CustomView, displayNameKeys: Set<String> = []) {
+            self.displayNameKeys = displayNameKeys
             types = view.effectiveTypes
             profiles = ProfileNames.keys(view.profiles)
             let patternEntries = view.domains.filter(CustomViewDomain.isPattern)
@@ -173,7 +179,8 @@ enum CustomViewFilter {
             // A view may hold the display name ("SSV") or, if saved before results carried display
             // names, the folder ("Profile 3"); rows answer to both.
             guard ProfileNames.matches(selectedKeys: profiles, displayName: item.profileName,
-                                       directory: item.profileDirectory) else { return false }
+                                       directory: item.profileDirectory,
+                                       displayNameKeys: displayNameKeys) else { return false }
             if !domains.isEmpty || !domainPatterns.isEmpty {
                 guard let host = CustomViewDomain.host(ofURL: item.url),
                       domains.contains(where: { CustomViewDomain.host(host, isWithin: $0) })

@@ -44,6 +44,20 @@ enum LatestMessageSource: Equatable, Sendable {
         }
     }
 
+    /// What every card's transcript loader calls: `resolve` wired to this Mac's reader and the dashboard.
+    static func read(
+        _ source: LatestMessageSource,
+        sessionId: String,
+        readLocal: @escaping @Sendable (_ sessionId: String) async -> SessionContext,
+        status: (any AgentStatusSource)?
+    ) async -> SessionContext {
+        await resolve(
+            source,
+            readLocal: { await readLocal(sessionId) },
+            readRemote: { await status?.latestMessage(rowId: $0) }
+        )
+    }
+
     /// `^(w[0-9A-Za-z]+|p_?[0-9A-Za-z]+|t[0-9A-Za-z]+)$`
     private static func looksLikeHerdrId(_ prefix: String) -> Bool {
         guard let first = prefix.first, "wpt".contains(first) else { return false }

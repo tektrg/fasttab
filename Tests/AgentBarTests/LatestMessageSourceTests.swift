@@ -60,4 +60,27 @@ struct LatestMessageSourceTests {
         card.sessionContext = LatestMessageSource.remoteContext(text: "the whole message")
         #expect(card.message == .text("the whole message"))
     }
+
+    private static let airRow = """
+    {"paneId": "air-m1:w8:p3", "label": "air", "cwd": "/p", "hasHookData": false, "machine": "air-m1",
+     "agentSession": "s-air", "source": "herdr", "rowId": "s-air", "agentKind": "claude"}
+    """
+
+    @Test func permissionPlanAndMessageCardsChooseTheirSourceFromTheRow() throws {
+        let agent = try #require(try StatusOnlyFixtures.snapshot(agents: [Self.airRow], needsYou: []).agents.first)
+        let prompt = PermissionPrompt(tool: "ExitPlanMode", detail: "", title: "T", options: [.init(index: 1, label: "Yes")], cursorIndex: 1, kind: .plan, planPath: nil)
+        #expect(PermissionCard(agent: agent, paneId: "air-m1:w8:p3", prompt: prompt).messageSource == .dashboard(rowId: "s-air"))
+        let message = MessageCard(agent: agent, route: .pane(paneId: "air-m1:w8:p3"), rowId: "s-air")
+        #expect(message.messageSource == .dashboard(rowId: "s-air"))
+    }
+
+    @Test func readUsesTheSessionIdLocallyAndFallsBackWithoutAStatusSource() async {
+        let local = await LatestMessageSource.read(
+            .localTranscript, sessionId: "sess",
+            readLocal: { SessionContext(latestMessage: "local \($0)", planFile: nil) }, status: nil)
+        #expect(local.latestMessage == "local sess")
+        let remote = await LatestMessageSource.read(
+            .dashboard(rowId: "s-air"), sessionId: "sess", readLocal: { _ in .empty }, status: nil)
+        #expect(remote == .empty)
+    }
 }

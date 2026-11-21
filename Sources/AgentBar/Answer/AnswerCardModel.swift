@@ -329,13 +329,7 @@ final class AnswerCardModel: ObservableObject {
         guard let sessionId = card?.sessionId, let agentID = card?.agentID, let source = card?.messageSource else { return }
         let load = loadSessionContext
         let status = statusSource
-        contextLoader.load({
-            await LatestMessageSource.resolve(
-                source,
-                readLocal: { await load(sessionId) },
-                readRemote: { await status?.latestMessage(rowId: $0) }
-            )
-        }) { [weak self] context in
+        contextLoader.load({ await LatestMessageSource.read(source, sessionId: sessionId, readLocal: load, status: status) }) { [weak self] context in
             guard self?.card?.agentID == agentID else { return }
             self?.card?.sessionContext = context
         }

@@ -28,6 +28,8 @@ struct PermissionCard: Equatable, Sendable {
     var sentWarning: String?
     /// Nil while the transcript is still being read.
     var sessionContext: SessionContext?
+    /// Local transcript, or the dashboard for a row on another machine.
+    let messageSource: LatestMessageSource
 
     init(agent: AgentSnapshot, paneId: String, prompt: PermissionPrompt) {
         self.agentID = agent.id
@@ -37,6 +39,7 @@ struct PermissionCard: Equatable, Sendable {
         self.projectName = agent.projectName
         self.identityText = agent.identityText
         self.sessionId = agent.sessionId
+        self.messageSource = LatestMessageSource.choose(paneId: agent.paneId, rowId: agent.rowId)
         self.state = PermissionCardState(prompt: prompt)
         if prompt.isPlan {
             self.plan = PlanCardState(prompt: prompt)

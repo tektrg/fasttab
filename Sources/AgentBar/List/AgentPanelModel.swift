@@ -1068,13 +1068,7 @@ final class AgentPanelModel: ObservableObject {
     private func loadPeekLastMessage(for agentID: String, sessionId: String, source: LatestMessageSource) {
         let load = loadPeekMessage
         let status = statusSource
-        peekMessageLoader.load({
-            await LatestMessageSource.resolve(
-                source,
-                readLocal: { await load(sessionId) },
-                readRemote: { await status?.latestMessage(rowId: $0) }
-            )
-        }) { [weak self] context in
+        peekMessageLoader.load({ await LatestMessageSource.read(source, sessionId: sessionId, readLocal: load, status: status) }) { [weak self] context in
             self?.preview.updateContent(for: agentID) { $0.message = PanePeek.content(fromLatestMessage: context.latestMessage) }
         }
     }

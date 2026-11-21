@@ -9,7 +9,15 @@ cd "${repo_root}"
 APP="dist/FastTab.app"
 BIN="${APP}/Contents/MacOS/FastTab"   # test the executable: a failed build can leave a hollow bundle
 
-if [[ "${1:-}" == "--build" || ! -x "${BIN}" ]]; then
+# fasttab-build-mac-app.sh only REFRESHES an existing bundle (it keeps Info.plist, icon, Sparkle,
+# URL scheme from it); nothing in the repo can create dist/FastTab.app from scratch. dist/ is
+# gitignored, so if it is wiped the bundle is gone: say so plainly instead of the build's cryptic error.
+if [[ ! -x "${BIN}" ]]; then
+  echo "start-app-fasttab: ${APP} is missing (dist/ is gitignored and was probably wiped)." >&2
+  echo "  Recreate it, then build:  scripts/fasttab-restore-dist.sh && scripts/fasttab-build-mac-app.sh" >&2
+  exit 1
+fi
+if [[ "${1:-}" == "--build" ]]; then
   exec scripts/fasttab-build-mac-app.sh   # builds, re-signs and relaunches
 fi
 if pgrep -f "${APP}/Contents/MacOS/FastTab" >/dev/null; then

@@ -49,9 +49,9 @@ struct CompactProgressTests {
 
     @Test func aStartGoesStartingThenTracking() {
         var progress = P.idle
-        #expect(progress.apply(.startPressed))
+        do { let accepted = progress.apply(.startPressed); #expect(accepted == true) }
         #expect(progress == .starting && progress.isBusy && progress.line == "Starting compact…")
-        #expect(progress.apply(.startReplied(.started(F.job(.waitingIdle)))))
+        do { let accepted = progress.apply(.startReplied(.started(F.job(.waitingIdle)))); #expect(accepted == true) }
         #expect(progress == tracking(F.job(.waitingIdle)))
         #expect(progress.runningJobId == "job-1" && progress.isBusy)
     }
@@ -59,15 +59,15 @@ struct CompactProgressTests {
     @Test func pollsWalkEveryStateToDone() {
         var progress = tracking(F.job(.waitingIdle))
         for state in [CompactJob.State.switchingModel, .compacting, .restoringModel, .sendingFollowUp] {
-            #expect(progress.apply(.polled(.job(F.job(state)))))
+            do { let accepted = progress.apply(.polled(.job(F.job(state)))); #expect(accepted == true) }
             #expect(progress.line == F.job(state).progressLine)
             #expect(progress.runningJobId == "job-1")
         }
-        #expect(progress.apply(.polled(.job(F.job(.done)))))
+        do { let accepted = progress.apply(.polled(.job(F.job(.done)))); #expect(accepted == true) }
         #expect(progress.line == "Compacted ✓" && !progress.isBusy && !progress.isFailure)
         #expect(progress.runningJobId == nil)
         // A late poll after the end changes nothing.
-        #expect(!progress.apply(.polled(.job(F.job(.compacting)))))
+        do { let accepted = progress.apply(.polled(.job(F.job(.compacting)))); #expect(accepted == false) }
     }
 
     @Test func aFailedJobEndsAsAFailure() {
@@ -80,13 +80,13 @@ struct CompactProgressTests {
 
     @Test func singleFlightRefusesASecondStartWhileStartingOrRunning() {
         var progress = P.starting
-        #expect(!progress.apply(.startPressed))
+        do { let accepted = progress.apply(.startPressed); #expect(accepted == false) }
         progress = tracking(F.job(.compacting))
-        #expect(!progress.apply(.startPressed))
+        do { let accepted = progress.apply(.startPressed); #expect(accepted == false) }
         progress = tracking(F.job(.done))
-        #expect(progress.apply(.startPressed))   // a finished one never blocks the next
+        do { let accepted = progress.apply(.startPressed); #expect(accepted == true) }   // a finished one never blocks the next
         progress = .startFailed("x")
-        #expect(progress.apply(.startPressed))
+        do { let accepted = progress.apply(.startPressed); #expect(accepted == true) }
     }
 
     @Test func a409AdoptsTheRunningJobAndSaysSo() {
@@ -106,47 +106,47 @@ struct CompactProgressTests {
         progress.apply(.startReplied(.uncertain("took too long")))
         #expect(progress == .startFailed("took too long"))
         // …then the lookup finds the job it made after all.
-        #expect(progress.apply(.resumed(.job(F.job(.waitingIdle)))))
+        do { let accepted = progress.apply(.resumed(.job(F.job(.waitingIdle)))); #expect(accepted == true) }
         #expect(progress.runningJobId == "job-1")
     }
 
     @Test func afterAFailedStartAFinishedJobIsOldNews() {
         var progress = P.startFailed("x")
-        #expect(!progress.apply(.resumed(.job(F.job(.done)))))
+        do { let accepted = progress.apply(.resumed(.job(F.job(.done)))); #expect(accepted == false) }
         #expect(progress == .startFailed("x"))
     }
 
     @Test func resumeOnOpenShowsARunningOrRecentJob() {
         var progress = P.idle
-        #expect(progress.apply(.resumed(.job(F.job(.compacting)))))
+        do { let accepted = progress.apply(.resumed(.job(F.job(.compacting)))); #expect(accepted == true) }
         #expect(progress.runningJobId == "job-1")
         progress = .idle
         progress.apply(.resumed(.job(F.job(.done))))
         #expect(progress.line == "Compacted ✓" && progress.runningJobId == nil)
         progress = .idle
-        #expect(!progress.apply(.resumed(.none)))
-        #expect(!progress.apply(.resumed(.failed("down"))))
+        do { let accepted = progress.apply(.resumed(.none)); #expect(accepted == false) }
+        do { let accepted = progress.apply(.resumed(.failed("down"))); #expect(accepted == false) }
         #expect(progress == .idle && progress.line == nil)
     }
 
     @Test func aResumeNeverOverridesAStartInProgress() {
         var progress = P.starting
-        #expect(!progress.apply(.resumed(.job(F.job(.done, id: "old")))))
+        do { let accepted = progress.apply(.resumed(.job(F.job(.done, id: "old")))); #expect(accepted == false) }
         #expect(progress == .starting)
         progress = tracking(F.job(.compacting))
-        #expect(!progress.apply(.resumed(.job(F.job(.done, id: "old")))))
+        do { let accepted = progress.apply(.resumed(.job(F.job(.done, id: "old")))); #expect(accepted == false) }
         #expect(progress.runningJobId == "job-1")
     }
 
     @Test func aStartReplyOutsideStartingIsIgnored() {
         var progress = P.idle
-        #expect(!progress.apply(.startReplied(.started(F.job(.compacting)))))
+        do { let accepted = progress.apply(.startReplied(.started(F.job(.compacting)))); #expect(accepted == false) }
         #expect(progress == .idle)
     }
 
     @Test func aPollForAnotherJobIsIgnored() {
         var progress = tracking(F.job(.compacting))
-        #expect(!progress.apply(.polled(.job(F.job(.done, id: "other")))))
+        do { let accepted = progress.apply(.polled(.job(F.job(.done, id: "other")))); #expect(accepted == false) }
         #expect(progress == tracking(F.job(.compacting)))
     }
 

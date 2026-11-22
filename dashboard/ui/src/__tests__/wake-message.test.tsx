@@ -60,11 +60,11 @@ describe("wake rows", () => {
       return { ok: true, json: async () => ({ ok: true, state: "message sent" }) } as Response;
     }) as typeof fetch;
     const unmount = mount(endedRow("wake"));
-    const input = document.querySelector<HTMLInputElement>(".composer input");
+    const input = document.querySelector<HTMLTextAreaElement>(".composer textarea");
     expect(input).not.toBe(null);
     expect(document.body.textContent).toContain(WAKE_CAPTION);
     act(() => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
       setter.call(input, "wake up");
       input!.dispatchEvent(new Event("input", { bubbles: true }));
     });
@@ -81,7 +81,7 @@ describe("wake rows", () => {
 
   test("a plain ended row has no Composer", () => {
     const unmount = mount(endedRow(null));
-    expect(document.querySelector(".composer input")).toBe(null);
+    expect(document.querySelector(".composer textarea")).toBe(null);
     unmount();
   });
 });

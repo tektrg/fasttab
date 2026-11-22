@@ -80,7 +80,7 @@ describe("keyboard up", () => {
 
     const hidden = rules(css("components/phone/phone.css")).find((r) => /\[data-keyboard\] \.phone-sheet-gate-note/.test(r.sel));
     expect(hidden?.body).toMatch(/display:\s*none/);
-    for (const c of [".composer-remote-image-note", ".mantine-TextInput-label"]) expect(hidden!.sel).toContain(c);
+    for (const c of [".composer-remote-image-note", ".mantine-Textarea-label"]) expect(hidden!.sel).toContain(c);
   });
 });
 

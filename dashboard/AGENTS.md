@@ -616,6 +616,73 @@ same auth/CSRF as the image route. Code: `lib/audio_attachments.py` (storage),
 - Every user-facing error is a fixed English sentence; CLI output is logged
   server-side only, key-scrubbed, last 300 chars.
 
+## Compact on Sonnet (`/api/session/compact`) — 2026-11-22
+`/compact` run on a cheaper model: switch the session to Sonnet (session only), compact,
+switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/compact_jobs.py`
+(job table + worker, pure: pane I/O, clock, sleep, spawn injected), routes in
+`chief-dashboard-server.py` (`handle_compact_post`, `_compact_pane_io`). Tests:
+`tests/test_compact_jobs.py` (FakeTUI of the probed screens; key log asserted). Shared contract
+(Swift Agent Bar uses the same): `.claude/compact-api-contract.md` in the main checkout
+(gitignored), summarized here.
+- **Composer rule** (web `ui/src/compactJob.ts` `parseCompactDraft`, Swift identical): draft's
+  first line, trimmed, is `/compact` or starts with `/compact ` (case-sensitive). Rest of line 1 =
+  `instructions`; lines 2..n joined, trimmed, newlines -> spaces = `followUp`. Any other draft =
+  plain Send message (multi-line drafts flattened to one line). Web composer: Enter sends,
+  Shift+Enter = new line.
+- `POST /api/session/compact {rowId, actor, instructions?, followUp?}` -> 202 `{ok, job}` | 409
+  `{ok:false, error:"job-active", job}` (single-flight per rowId) | 400 (bad text — same rules as
+  `validate_message_text`; actor not `po`; no pane; not a Claude pane; dev-server / own pane) |
+  404 (row not live). Both listeners, audited like Send message.
+- `GET /api/session/compact?rowId=` -> `{ok, job|null}` (active job, else newest finished < 30
+  min). `GET /api/session/compact/<jobId>` -> `{ok, job}` | 404. Clients poll ~1.5s while not
+  terminal.
+- Job (camelCase): `id, rowId, state, originalModel, switchSkipped, skipReason, compactOk,
+  modelRestored, followUpSent, error` (first failure only), `failedStep, createdAt, updatedAt`.
+  States: `waitingIdle` (idle + EMPTY prompt, 10 min max) -> `switchingModel` -> `compacting`
+  (new `compact_boundary` within 5 min) -> `restoringModel` -> `sendingFollowUp` -> `done` |
+  `failed`. State file `<STATE_HOME>/compact-jobs.json` (0600); a job running at a restart reads
+  `failed` / "dashboard restarted" (the session may still be on Sonnet then).
+- Rules: restore runs once the picker step started, even after a failure (no-op `modelRestored:
+  true` when `s` was never pressed — nothing changed). Follow-up is sent even if the switch or
+  compact failed, but NOT when the agent never got idle or the user typed. Before every typing step
+  a fresh read must show an idle, empty prompt; text in the box = failed "you typed into the
+  session" (restore then waits up to 2 min for the box to empty, never types over it).
+  `/compact` and the follow-up go through `_handle_reach_action` (its /compact retry included).
+- **Gotcha — `s`, never Enter or a digit, inside the /model picker.** Enter or a row digit SAVES
+  that model as the global default for new sessions (`~/.claude/settings.json` `model`); `s` =
+  "use this session only". `/model` is typed with `herdr pane run` (text + herdr's own Enter, which
+  opens the picker) and is NOT followed by the message path's extra `send-keys enter` — that Enter
+  would land in the open picker. Rows are matched by text (description `Sonnet 5.5 · …`), never by
+  number; row 1 `Default (recommended)` says `(currently <model>)` and is never chosen (a session
+  whose ✔ sits on Default is restored to the row of the model it names, session only).
+- **Custom-model skip**: a session on a custom / pinned model (`ANTHROPIC_MODEL` from
+  `scripts/claude-launch.py`, e.g. `trung/claude-opus-5-5`) has no ✔ on a standard picker row ->
+  Esc, `switchSkipped: true`, `skipReason: "custom model: compacting on current model"`, compact
+  anyway. Already on Sonnet (statusline `[Sonnet …]` or ✔ on the Sonnet row) -> skipped too.
+- Unverified live: Claude Code placeholder / suggestion ghost text in an empty prompt would read
+  as "typed" (herdr reads plain text) and stall `waitingIdle`; not seen in the probe.
+
+### Probe facts (live, 2026-11-22, Claude Code 2.1.330 via herdr; the probe notes are gitignored)
+- `herdr pane run <pane> "<text>"` already presses Enter. An extra `send-keys enter` is harmless
+  at the idle prompt and during compaction, NOT while the picker is open.
+- `/model` picker: title `Select model`, rows `N. <Label> [✔]  <Model x.y> · <blurb>`, footer
+  `s to use this session only · Enter to save · Esc to cancel`. `✔` = the session's LIVE model;
+  the `❯` cursor starts on it. `up`/`down` move only (several keys in one send-keys call work);
+  `left`/`right` change effort. Esc cancels (`⎿  Kept model as …`, a `system` transcript line).
+- Results: `⎿  Set model to Sonnet 5.5 for this session only` (settings untouched) vs `… and saved
+  as your default for new sessions` (digit / Enter / `/model <arg>` — all save). Transcript gets
+  `<local-command-stdout>Set model to …</local-command-stdout>`.
+- `Switch model?` dialog appears only when the prompt cache is warm (recent reply, no compaction
+  since): `❯ 1. Yes, switch to <model>` / `2. No, go back`, `Enter to confirm · Esc to cancel`.
+  `1` or Enter confirms and keeps the session-only choice; Esc goes back to the picker.
+- After a switch: statusline `[Sonnet 5.5] N% context`, assistant `message.model`
+  `claude-sonnet-5-5`. The compaction call itself is not logged with a model.
+- `/compact`: spinner `✽ Compacting conversation… (3s · ↓ 104 tokens)` + `esc to interrupt`;
+  done = `⎿  Compacted (ctrl+o to see full summary)` under the `❯ /compact` echo (screen not
+  cleared), and the same transcript file gets `{"type":"system","subtype":"compact_boundary",…}`
+  then the summary and `<local-command-stdout>\x1b[2mCompacted …` (strip ANSI). ~3-11s measured.
+- Fresh folder trust dialog defaults to "No, exit" (digits don't work there) — never blind-Enter.
+
 ## Running it
 ```
 cd dashboard

@@ -212,6 +212,7 @@ import tui_message  # noqa: E402  (Phase 4: message an OpenCode / Codex row)
 import image_attachments  # noqa: E402  (image uploads -> path notes in Send message)
 import audio_attachments  # noqa: E402  (voice-note uploads from the phone)
 import voice_transcription  # noqa: E402  (voice note -> text via SpeechToDo CLI)
+import compact_jobs  # noqa: E402  (/compact with a temporary Sonnet switch)
 import jev_route  # noqa: E402  (POST /api/jev/route — pick a persona server-side)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
 import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
@@ -2149,6 +2150,101 @@ def handle_session_latest(qs):
             "pendingQuestion": pending}, 200
 
 
+#: /compact with a temporary Sonnet switch (server/lib/compact_jobs.py).
+_COMPACT_TAIL_WINDOW = 256 * 1024
+_COMPACT_JOBS = None
+_COMPACT_JOBS_LOCK = threading.Lock()
+
+
+def _compact_jobs():
+    """The job table, created on first use: restart recovery (running jobs
+    -> failed "dashboard restarted") happens on that first load."""
+    global _COMPACT_JOBS
+    with _COMPACT_JOBS_LOCK:
+        if _COMPACT_JOBS is None:
+            import dashboard_config
+            _COMPACT_JOBS = compact_jobs.CompactJobs(
+                os.path.join(dashboard_config.STATE_HOME, "compact-jobs.json"))
+        return _COMPACT_JOBS
+
+
+def _compact_pane_io(row_id, actor, machine, raw_pane_id, session_id):
+    """compact_jobs.PaneIO for one pane, routed to its machine exactly like
+    the Send message path: `pane run` / `send-keys` / `pane read` through
+    `_type_text` / `_send_keys` / `_read_pane_now` (ssh for a remote row),
+    `/compact` and the follow-up through `_handle_reach_action` itself, and
+    the transcript tail from local disk or over the ssh tail reader."""
+    def read():
+        return _read_pane_now(raw_pane_id, machine=machine)[0]
+
+    def run_line(text):
+        # `pane run` = text + herdr's own Enter. Deliberately NOT followed
+        # by `_send_keys(enter)` (that is the message path's habit): a second
+        # Enter lands in the open /model picker and saves the global default.
+        _type_text(raw_pane_id, text, machine=machine)
+
+    def keys(*names):
+        _send_keys(raw_pane_id, *names, machine=machine)
+
+    def send_message(text):
+        # confirm: the job has just seen the prompt idle itself.
+        return _handle_reach_action(
+            "message", {"rowId": row_id, "actor": actor, "text": text,
+                        "confirm": True}, row_id, actor)
+
+    def transcript_tail():
+        if not session_id:
+            return None
+        reader = (_local_tail_reader(session_id)
+                  if machine == herdr_transport.LOCAL_MACHINE
+                  else _remote_tail_reader(machine, session_id, []))
+        got = reader(_COMPACT_TAIL_WINDOW)
+        return got[0] if got else None
+
+    return compact_jobs.PaneIO(read, run_line, keys, send_message, transcript_tail)
+
+
+def handle_compact_post(body):
+    """POST /api/session/compact -> (payload, status). Contract:
+    .claude/compact-api-contract.md (summary in dashboard/AGENTS.md)."""
+    fields, error = compact_jobs.validate_request(body)
+    if error:
+        return {"ok": False, "error": error}, 400
+    ok, why = session_actions.check_actor(fields["actor"])
+    if not ok:
+        return {"ok": False, "error": why}, 400
+    row_id = fields["rowId"]
+    state = get_full_state()
+    agents = state.get("computed", {}).get("agents") or []
+    agent = next((a for a in agents if resolve_agent_row_id(a) == row_id), None)
+    if agent is None:
+        return {"ok": False, "error": f"row {row_id} is not live"}, 404
+    pane_id = agent.get("paneId")
+    if not pane_id:
+        return {"ok": False, "error": f"row {row_id} has no pane — compact "
+                                      "drives a Claude pane"}, 400
+    if (message_gate.blind_agent_refusal(agent) or message_gate.is_tui_row(agent)
+            or agent.get("agentKind") not in (None, message_gate.CLAUDE_AGENT_KIND)):
+        return {"ok": False, "error": f"row {row_id} is not a Claude pane"}, 400
+    if (agent.get("label") or "") in session_actions.DEV_SERVER_LABELS:
+        return {"ok": False, "error": "refused: dev-server pane"}, 400
+    try:
+        own = _own_pane_cached({a.get("paneId") for a in agents if a.get("paneId")})
+    except Exception:
+        own = None
+    if own and pane_id == own:
+        return {"ok": False, "error": "refused: this is the dashboard server's own pane"}, 400
+    try:
+        machine, raw_pane_id = herdr_transport.split_pane_key(pane_id, MACHINES)
+    except herdr_transport.HerdrError as e:
+        return {"ok": False, "error": f"could not resolve pane machine: {e}"}, 400
+    session_id = agent.get("agentSession")
+    if not session_transcript.is_safe_session_id(session_id or ""):
+        session_id = None
+    io = _compact_pane_io(row_id, fields["actor"], machine, raw_pane_id, session_id)
+    return _compact_jobs().start(fields, io)
+
+
 def _current_plan_path(pane_id, row_id):
     """Reads the pane FRESH (same `_read_pane_now` door every send-path
     handler uses) and returns (planPath, resolvedMachine, error). error is
@@ -3176,6 +3272,9 @@ class Handler(BaseHTTPRequestHandler):
         if voice_reply is not None:
             self._send_json(*voice_reply)
             return
+        if path == compact_jobs.COMPACT_PATH or path.startswith(compact_jobs.COMPACT_PATH + "/"):
+            self._send_json(*compact_jobs.handle_get(path, parse_qs(parsed.query), _compact_jobs()))
+            return
         if hook_permission_routes.is_hook_path(path):
             self._send_json(*hook_permission_routes.handle_get(
                 path, parse_qs(parsed.query), self._is_remote_listener()))
@@ -3343,6 +3442,21 @@ class Handler(BaseHTTPRequestHandler):
         if path == voice_transcription.TRANSCRIBE_PATH:
             voice_reply = voice_transcription.handle_post(path, self._read_json_body)
             self._send_json(*voice_reply)
+            return
+        if path == compact_jobs.COMPACT_PATH:
+            # Both listeners, like Send message (the phone composer uses it).
+            self._note_remote_audit_row("compact")
+            try:
+                body = self._read_json_body()
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=400)
+                return
+            row_id = body.get("rowId") if isinstance(body, dict) else None
+            self._note_remote_audit_row(row_id if isinstance(row_id, str) else None)
+            try:
+                self._send_json(*handle_compact_post(body))
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=500)
             return
         if path.startswith("/api/session/"):
             action = path[len("/api/session/"):]

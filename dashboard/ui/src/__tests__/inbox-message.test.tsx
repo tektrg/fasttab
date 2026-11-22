@@ -123,12 +123,12 @@ describe("PhoneSheet on a Claude Desktop row", () => {
     const calls = stubFetch();
     const unmount = mount(sheet(boardRow({ source: "claude-desktop", messageVia: "inbox", openUrl: DESKTOP_URL })));
     await settle();
-    const input = document.querySelector<HTMLInputElement>(".composer input");
+    const input = document.querySelector<HTMLTextAreaElement>(".composer textarea");
     expect(input).not.toBe(null);
     expect(document.body.textContent).toContain(INBOX_CAPTION);
     expect(input!.placeholder).toBe("Message agent…");
     act(() => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
       setter.call(input, "hello desk");
       input!.dispatchEvent(new Event("input", { bubbles: true }));
     });
@@ -157,7 +157,7 @@ describe("PhoneSheet on a Claude Desktop row", () => {
     await settle();
     expect(document.querySelector(".composer")).not.toBe(null);
     expect(document.body.textContent).not.toContain(INBOX_CAPTION);
-    expect(document.querySelector<HTMLInputElement>(".composer input")!.placeholder).toBe(
+    expect(document.querySelector<HTMLTextAreaElement>(".composer textarea")!.placeholder).toBe(
       "Message agent…",
     );
     unmount();

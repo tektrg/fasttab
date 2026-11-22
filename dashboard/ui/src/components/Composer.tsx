@@ -1,5 +1,17 @@
-import { useRef, useState } from "react";
-import { Alert, Button, Group, List, Text, TextInput } from "@mantine/core";
+import { useEffect, useRef, useState } from "react";
+import { Alert, Button, Group, List, Text, Textarea } from "@mantine/core";
+import {
+  compactPolling,
+  describeCompactJob,
+  fetchCompactForRow,
+  fetchCompactJob,
+  flattenMessage,
+  isCompactTerminal,
+  parseCompactDraft,
+  startCompact,
+  type CompactDraft,
+  type CompactJob,
+} from "../compactJob";
 import type { BoardRow } from "../types";
 import {
   evaluateMessageBulk,
@@ -32,14 +44,21 @@ interface PendingRow {
   reason: string;
 }
 
-/** The one-line message composer (phase 9): board-to-pane text, the only
+/** The message composer (phase 9): board-to-pane text, the only
  *  non-destructive bulk verb.
  *
  *  Server resolves, UI renders: no client-side copy of the guards (no
- *  newlines, no leading `/`, length cap) — the text goes up raw and the
- *  server's refusal renders verbatim. Targets show by label so the PO can
- *  never type into a pane they did not mean. Enter sends, like the
- *  question panel's text field.
+ *  leading `/`, length cap) — the text goes up raw and the server's refusal
+ *  renders verbatim. Targets show by label so the PO can never type into a
+ *  pane they did not mean. Enter sends; Shift+Enter adds a line. A plain
+ *  multi-line draft is sent as one line (newlines -> spaces: in a pane a
+ *  newline IS the submit key, the server refuses it).
+ *
+ *  `/compact [instructions]` + optional lines 2..n (the follow-up) start a
+ *  compact JOB instead (POST /api/session/compact: temporary Sonnet switch,
+ *  compact, restore the model, send the follow-up — compactJob.ts). Its
+ *  progress line polls until done/failed; a job already running or finished
+ *  < 30 min ago shows when a single-row composer opens.
  *
  *  Result presentation, per the brief: sent → toast naming the pane;
  *  queued → SUCCESS saying it lands when the turn ends (never an
@@ -84,7 +103,9 @@ export function Composer({
   const attach = useImageAttachments();
   // Phone: an image was pasted at an agent that cannot take one.
   const [attachTried, setAttachTried] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Compact jobs by row id (one per row: the server is single-flight per row).
+  const [compactJobs, setCompactJobs] = useState<Record<string, CompactJob>>({});
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   // The transcript joins the end of whatever is typed; sending stays a tap.
   const voice = useVoiceInput({
     onText: (spoken) => {
@@ -151,9 +172,80 @@ export function Composer({
     return { done, need };
   };
 
+  // A single-row composer shows that row's running (or < 30 min finished)
+  // compact job when it opens.
+  const soleRowId = rows.length === 1 ? rows[0].rowId : null;
+  useEffect(() => {
+    if (!soleRowId) return;
+    let live = true;
+    void fetchCompactForRow(soleRowId).then((job) => {
+      if (live && job) setCompactJobs((prev) => (prev[job.rowId] ? prev : { ...prev, [job.rowId]: job }));
+    });
+    return () => {
+      live = false;
+    };
+  }, [soleRowId]);
+
+  // Poll every non-terminal job until it is done/failed.
+  const activeIds = Object.values(compactJobs)
+    .filter((j) => !isCompactTerminal(j))
+    .map((j) => j.id)
+    .sort()
+    .join(",");
+  useEffect(() => {
+    if (!activeIds) return;
+    let live = true;
+    const timer = setInterval(() => {
+      for (const id of activeIds.split(",")) {
+        void fetchCompactJob(id).then((job) => {
+          if (live && job) setCompactJobs((prev) => ({ ...prev, [job.rowId]: job }));
+        });
+      }
+    }, compactPolling.intervalMs);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [activeIds]);
+
+  const sendCompact = async (draft: string, compact: CompactDraft) => {
+    if (attach.images.length > 0) {
+      onToast("images can't go with /compact — remove them or send them separately", false);
+      return;
+    }
+    setBusy(true);
+    setText("");
+    setReport(null);
+    setPending(null);
+    let anyStarted = false;
+    for (const m of targets) {
+      const label = rowLabel(m.row);
+      const res = await startCompact(m.row.rowId, compact);
+      const job = res.job;
+      if (job) setCompactJobs((prev) => ({ ...prev, [job.rowId]: job }));
+      if (res.ok) {
+        anyStarted = true;
+      } else if (res.error === "job-active") {
+        anyStarted = true; // the running job is shown; nothing new typed
+        onToast(`a compact is already running for ${label}`, false);
+      } else {
+        onToast(`compact refused for ${label}: ${res.error || "?"}`, false);
+      }
+    }
+    setBusy(false);
+    // Every POST refused before a job existed: nothing reached a pane.
+    if (!anyStarted) setText((current) => (current === "" ? draft : current));
+    onDone?.();
+  };
+
   const send = async () => {
     if (!canSend) return;
-    const body = text.trim();
+    const compact = parseCompactDraft(text);
+    if (compact) {
+      await sendCompact(text, compact);
+      return;
+    }
+    const body = flattenMessage(text);
     setBusy(true);
     let ids: string[] = [];
     if (attach.images.length > 0) {
@@ -220,7 +312,10 @@ export function Composer({
     else void send();
   };
   const field = (
-    <TextInput
+    <Textarea
+      autosize
+      minRows={1}
+      maxRows={6}
       {...(phone
         ? {
             "aria-label": targets.length > 0 ? `Message ${targets.length === 1 ? rowLabel(targets[0].row) : `${targets.length} selected rows`}` : "Message",
@@ -247,7 +342,7 @@ export function Composer({
                 : "Message — select rows first",
             placeholder:
               targets.length > 0
-                ? `one line to the ${allInbox ? "session" : "pane"}${targets.length > 1 ? "s" : ""} — Enter sends`
+                ? `to the ${allInbox ? "session" : "pane"}${targets.length > 1 ? "s" : ""} — Enter sends, Shift+Enter new line`
                 : "select one or more rows to enable",
           })}
       ref={inputRef}
@@ -266,7 +361,8 @@ export function Composer({
         }
       }}
       onKeyDown={(e) => {
-        if (e.key === "Enter") {
+        // Shift+Enter falls through: the textarea inserts the newline.
+        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
           e.preventDefault();
           sendOrConfirm();
         }
@@ -333,6 +429,37 @@ export function Composer({
           {WAKE_CAPTION}
         </Text>
       )}
+      {Object.values(compactJobs).map((job) => (
+        <Text
+          key={job.id}
+          size="xs"
+          mt={4}
+          c={job.state === "failed" ? "red" : job.state === "done" ? "green" : "dimmed"}
+          className="composer-compact-progress"
+          data-state={job.state}
+          aria-live="polite"
+        >
+          {rows.length > 1 ? `${rowLabel(rows.find((r) => r.rowId === job.rowId) ?? rows[0])}: ` : ""}
+          {describeCompactJob(job)}
+          {isCompactTerminal(job) && (
+            <Button
+              variant="subtle"
+              size="compact-xs"
+              ml={6}
+              aria-label="dismiss compact status"
+              onClick={() =>
+                setCompactJobs((prev) => {
+                  const next = { ...prev };
+                  delete next[job.rowId];
+                  return next;
+                })
+              }
+            >
+              ×
+            </Button>
+          )}
+        </Text>
+      ))}
       {evaled.refused.length > 0 && (
         <Text size="xs" c="dimmed" mt={4}>
           {evaled.refused.length} ended{" "}

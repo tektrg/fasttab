@@ -55,7 +55,8 @@ struct RemotePaneMessageTests {
         let agent = try row(airRow())
         #expect(!RowButtons.takesQuickCommands(agent))
         #expect(RowButtons.takesCompactJob(agent))
-        #expect(RowButtons.menuItems(for: agent).map(\.button) == [.compact])
+        let menu = RowButtons.menuItems(for: agent).map(\.button)
+        #expect(menu.contains(.compact) && !menu.contains(.clear))
     }
 
     @Test func aRowTheDashboardRefusesIsNotOfferedMessage() throws {

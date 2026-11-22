@@ -44,6 +44,15 @@ private final class ActionFakeSource: AgentStatusSource, @unchecked Sendable {
         lock.withLock { sentMessages.append(SentMessage(rowId: rowId, text: text, confirmed: confirmed)) }
         return .sent(queued: false)
     }
+
+    private var compactRows: [String] = []
+    /// Rows a compact job was started for (the ⋯ menu's Compact, Park); each finishes at once.
+    var compactStarts: [String] { lock.withLock { compactRows } }
+
+    func startCompact(rowId: String, actor: String, instructions: String?, followUp: String?) async -> CompactStartOutcome {
+        lock.withLock { compactRows.append(rowId) }
+        return .started(CompactJob(id: "job-\(rowId)", rowId: rowId, state: .done))
+    }
 }
 
 @MainActor
@@ -347,14 +356,17 @@ struct RowActionsModelTests {
         #expect(model.rowActionStates["a"] == nil)
     }
 
-    // MARK: - Compact / Clear (⋯ menu quick commands — straight to `sendDirect`, no validator, no confirm)
+    // MARK: - Compact / Clear (⋯ menu: Compact = the dashboard's compact job; Clear = straight to `sendDirect`)
 
-    @Test func pressingCompactSendsSlashCompactStraightThroughSendDirect() async {
+    /// Every compact in Agent Bar is the dashboard's job (Sonnet → /compact → model restored), never a typed `/compact`.
+    @Test func pressingCompactStartsTheCompactJobInsteadOfTypingIt() async {
         let (model, source, _) = makeModel()
         model.receive(F.snapshot(agents(["a"])))
-        #expect(model.press(.compact, on: "a") == nil)   // fire-and-forget, like every other direct send
-        for _ in 0..<200 where source.messagesSent.isEmpty { await Task.yield() }
-        #expect(source.messagesSent == [.init(rowId: "a", text: "/compact", confirmed: true)])
+        #expect(model.press(.compact, on: "a") == nil)   // fire-and-forget: the row shows the progress
+        await waitUntil { model.sentLabel(for: model.presentation.agents[0]) == MessageCardModel.compactedLabel }
+        #expect(source.compactStarts == ["a"])
+        #expect(source.messagesSent.isEmpty)
+        #expect(model.footerNotice == nil)
     }
 
     @Test func pressingClearSendsSlashClearStraightThroughSendDirect() async {
@@ -373,6 +385,7 @@ struct RowActionsModelTests {
         #expect(model.press(.compact, on: "a") == nil)
         #expect(model.press(.clear, on: "a") == nil)
         #expect(source.messagesSent.isEmpty)
+        #expect(source.compactStarts.isEmpty)
     }
 
     /// Done and Close pane are menu selections too, but they still go through `RowActionMachine` —

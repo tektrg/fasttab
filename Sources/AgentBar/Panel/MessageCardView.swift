@@ -103,6 +103,9 @@ struct MessageCardView: View {
             if let hint = card.draftHint {
                 Text(hint)
                     .foregroundStyle(.red)
+            } else if let compactHint = card.compactHint {
+                Text(compactHint)
+                    .foregroundStyle(.secondary)
             } else if card.showsLineBreakNote {
                 Text("Line breaks are sent as spaces.")
                     .foregroundStyle(.secondary)
@@ -127,7 +130,7 @@ struct MessageCardView: View {
             statusText(card)
             Spacer(minLength: 0)
             Button(card.sendTitle) { message.pressSend() }
-                .disabled(!card.canSend)
+                .disabled(!message.canSend)
                 .tint(card.isConfirming ? .orange : nil)
                 .keepsColorWhenInactive()
                 .controlSize(largeTextSize == nil ? .regular : .large)
@@ -140,11 +143,14 @@ struct MessageCardView: View {
 
     @ViewBuilder
     private func statusText(_ card: MessageCard) -> some View {
+        let compact = message.compactProgress
         if card.phase == .sending {
             ProgressView().controlSize(.small)
             Text("Checking the terminal, then sending…")
                 .font(.avenir(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
+        } else if compact.isBusy {
+            compactStatus(compact)
         } else if let error = card.errorText {
             Text(error)
                 .font(.avenir(size: 11, weight: .medium))
@@ -157,6 +163,28 @@ struct MessageCardView: View {
                 .font(.avenir(size: 11, weight: .medium))
                 .foregroundStyle(WarningTextColor.color)
                 .fixedSize(horizontal: false, vertical: true)
+        } else if compact.line != nil {
+            compactStatus(compact)
         }
+    }
+
+    /// The `/compact` job's progress line (`CompactProgress`), with its notes underneath.
+    @ViewBuilder
+    private func compactStatus(_ compact: CompactProgress) -> some View {
+        if compact.isBusy { ProgressView().controlSize(.small) }
+        VStack(alignment: .leading, spacing: 2) {
+            if let line = compact.line {
+                Text(line)
+                    .foregroundStyle(compact.isFailure ? Color.red : Color.secondary)
+            }
+            if let detail = message.compactDetail {
+                Text(detail)
+                    .foregroundStyle(WarningTextColor.color)
+            }
+        }
+        .font(.avenir(size: 11, weight: .medium))
+        .lineLimit(3)
+        .fixedSize(horizontal: false, vertical: true)
+        .textSelection(.enabled)
     }
 }

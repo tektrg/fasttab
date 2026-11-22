@@ -228,6 +228,49 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
         }
     }
 
+    func startCompact(rowId: String, actor: String, instructions: String?, followUp: String?) async -> CompactStartOutcome {
+        let request = endpoint.compactStartRequest(rowId: rowId, actor: actor, instructions: instructions, followUp: followUp)
+        do {
+            let (body, statusCode) = try await transport.response(for: request)
+            return DashboardCompactResponse.startOutcome(body: body, statusCode: statusCode)
+        } catch let error as URLError where error.code == .timedOut {
+            return .uncertain("The dashboard took too long to answer. The compact may have started.")
+        } catch let error as URLError where !Self.neverReachedDashboard(error) {
+            // The connection broke after the request may have gone out: look the job up by row, never re-post.
+            return .uncertain("The connection dropped after the request went out. The compact may have started.")
+        } catch {
+            return .failed("Can't reach the status dashboard. Nothing was started.")
+        }
+    }
+
+    /// The request never got to the dashboard (no host, no route, refused): nothing can have started.
+    /// Any other connection error may come after the request went out.
+    static func neverReachedDashboard(_ error: URLError) -> Bool {
+        switch error.code {
+        case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet, .badURL, .unsupportedURL:
+            true
+        default:
+            false
+        }
+    }
+
+    func compactJob(rowId: String) async -> CompactJobRead {
+        await compactRead(endpoint.compactJobRequest(rowId: rowId))
+    }
+
+    func compactJob(id: String) async -> CompactJobRead {
+        await compactRead(endpoint.compactJobRequest(id: id))
+    }
+
+    private func compactRead(_ request: URLRequest) async -> CompactJobRead {
+        do {
+            let (body, statusCode) = try await transport.response(for: request)
+            return DashboardCompactResponse.read(body: body, statusCode: statusCode)
+        } catch {
+            return .failed("Can't reach the status dashboard")
+        }
+    }
+
     /// `GET /api/personas`. Nil on anything but a clean 2xx + decode — a slow/dead dashboard reads
     /// exactly like "no personas offered", so `AgentPanelModel.startRouting` falls back to
     /// sessions only, silently (no footer notice: this runs on every routing start, not a

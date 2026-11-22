@@ -6,6 +6,8 @@ final class ScriptedDashboardTransport: DashboardTransport, @unchecked Sendable 
     enum Reply {
         case body(Data, statusCode: Int = 200)
         case fail
+        /// Throws this exact error (e.g. a `URLError` code).
+        case throwing(any Error)
     }
 
     struct ScriptedError: Error {}
@@ -38,6 +40,7 @@ final class ScriptedDashboardTransport: DashboardTransport, @unchecked Sendable 
         switch respond(request) {
         case .body(let data, let statusCode): return (data, statusCode)
         case .fail: throw ScriptedError()
+        case .throwing(let error): throw error
         }
     }
 

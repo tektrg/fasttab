@@ -224,13 +224,13 @@ struct MessageCardModelTests {
         #expect(rig.model.card?.phase == .editing)
     }
 
-    /// /compact and /clear (2026-09-22) are the two exceptions: typed into the card itself, not
-    /// just the row menu's shortcuts, they now go through like any other ready draft.
-    @Test func compactAndClearTypedIntoTheCardAreSentLikeAnyOtherDraft() async {
+    /// /clear (2026-09-22) typed into the card goes through like any other ready draft. A `/compact`
+    /// draft starts the dashboard's compact job instead (2026-11-22, `CompactCardTests`).
+    @Test func clearTypedIntoTheCardIsSentLikeAnyOtherDraft() async {
         let rig = makeRig()
         rig.model.open(agent())
-        await sendOnce(rig, text: "/compact")
-        #expect(rig.source.sent.first?.text == "/compact")
+        await sendOnce(rig, text: "/clear")
+        #expect(rig.source.sent.first?.text == "/clear")
     }
 
     @Test func escapeIsIgnoredWhileTheMessageIsOnItsWay() async {

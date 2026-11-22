@@ -19,6 +19,15 @@ if (typeof window !== "undefined" && !window.matchMedia) {
   }) as unknown as MediaQueryList) as typeof window.matchMedia;
 }
 
+// Mantine's autosize Textarea (the Composer) listens on document.fonts,
+// which every browser has and happy-dom does not.
+if (typeof document !== "undefined" && !(document as unknown as { fonts?: unknown }).fonts) {
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { addEventListener: () => {}, removeEventListener: () => {}, ready: Promise.resolve() },
+  });
+}
+
 // Mantine's floating UI measures the viewport on open; happy-dom has no
 // ResizeObserver, so provide a no-op stub before any component mounts.
 if (typeof window !== "undefined" && !window.ResizeObserver) {

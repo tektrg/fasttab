@@ -127,7 +127,7 @@ describe("footer composer (phone)", () => {
     const m = mount(sheet(row()));
     const footer = document.querySelector(".ui-screen__footer")!;
     expect(footer.textContent).not.toContain("not destructive");
-    const input = footer.querySelector<HTMLInputElement>(".composer-field input")!;
+    const input = footer.querySelector<HTMLTextAreaElement>(".composer-field textarea")!;
     expect(input.placeholder).toBe("Message agent…");
     expect(input.getAttribute("aria-label")).toBe("Message alpha");
     expect(footer.querySelector(".composer-field .composer-mic")?.getAttribute("aria-label")).toBe("record voice message");
@@ -143,7 +143,7 @@ describe("footer composer (phone)", () => {
     const remote = row({ acceptsImages: false });
     const m = mount(<Composer rows={[remote]} onToast={() => {}} phone />);
     expect(m.host.textContent).not.toContain("Images can only go to agents on this Mac");
-    const input = m.host.querySelector<HTMLInputElement>("input")!;
+    const input = m.host.querySelector<HTMLTextAreaElement>("textarea")!;
     const paste = new Event("paste", { bubbles: true }) as Event & { clipboardData?: unknown };
     const file = new File(["x"], "a.png", { type: "image/png" });
     paste.clipboardData = { files: [file], items: [{ kind: "file", type: "image/png", getAsFile: () => file }] };
@@ -164,9 +164,9 @@ describe("footer composer (phone)", () => {
     stubFetch();
     const toasts: string[] = [];
     const m = mount(<Composer rows={[row()]} onToast={(t) => toasts.push(t)} phone />);
-    const input = m.host.querySelector<HTMLInputElement>("input")!;
+    const input = m.host.querySelector<HTMLTextAreaElement>("textarea")!;
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "hi");
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "hi");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });

@@ -78,7 +78,7 @@ async function attach(host: HTMLElement, count = 1) {
   });
 }
 
-async function pasteImage(input: HTMLInputElement) {
+async function pasteImage(input: HTMLElement) {
   const png = new File([new Uint8Array([1])], "x.png", { type: "image/png" });
   const paste = new Event("paste", { bubbles: true, cancelable: true }) as Event & { clipboardData: unknown };
   paste.clipboardData = { files: [png], getData: () => "" };
@@ -155,11 +155,11 @@ describe("image attachments", () => {
     const { host, unmount } = mount(() => {}, [airRow]);
     expect(host.querySelector(".image-attach-button")).toBeNull();
     expect(host.textContent).toContain("Images can only go to agents on this Mac");
-    const input = host.querySelector("input:not([type=file])") as HTMLInputElement;
+    const input = host.querySelector("textarea") as HTMLTextAreaElement;
     await pasteImage(input);
     expect(host.querySelectorAll(".image-attach-thumb").length).toBe(0);
     await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
       setter.call(input, "hello air");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
@@ -174,7 +174,7 @@ describe("image attachments", () => {
     const { host, unmount } = mount();
     expect(host.querySelector(".image-attach-button")).not.toBeNull();
     expect(host.textContent).not.toContain("Images can only go to agents on this Mac");
-    await pasteImage(host.querySelector("input:not([type=file])") as HTMLInputElement);
+    await pasteImage(host.querySelector("textarea") as HTMLTextAreaElement);
     expect(host.querySelectorAll(".image-attach-thumb").length).toBe(1);
     unmount();
   });

@@ -101,6 +101,7 @@ _SET_MODEL_RE = re.compile(
     r"|Kept model as\s+(?P<kept>.+?)\s*$)")
 _COMPACT_ECHO_RE = re.compile(r"^\s*❯\s*/compact\b")
 _COMPACTED_RE = re.compile(r"^\s*⎿?\s*Compacted\b")
+_RESULT_RE = re.compile(r"^\s*⎿\s*(?P<text>\S.*?)\s*$")
 _COMPACT_ERROR_RE = re.compile(r"^\s*⎿?\s*(Error[^\n]*compact[^\n]*)", re.IGNORECASE)
 #: Lines allowed under the input box's closing rule: status line + mode
 #: footer (+ a hint). Mirrors pane_screen_signals.MAX_LINES_UNDER_BOX + 1.
@@ -331,11 +332,18 @@ def screen_compacted(lines):
 
 
 def screen_compact_error(lines):
+    """Why the LAST `❯ /compact` did not compact, else None: its first `⎿`
+    result line when that is not `Compacted` (live 2026-11-22: `⎿  Not
+    enough messages to compact.` — no compact_boundary is written, so without
+    this the job waited the full 5 min), or an `Error … compact …` line."""
     above = _above_box(lines)
     echoes = [i for i, l in enumerate(above) if _COMPACT_ECHO_RE.match(l)]
     if not echoes:
         return None
     for l in above[echoes[-1] + 1:]:
+        m = _RESULT_RE.match(l)
+        if m:
+            return None if _COMPACTED_RE.match(l) else m.group("text")
         m = _COMPACT_ERROR_RE.match(l)
         if m:
             return m.group(1).strip()

@@ -438,6 +438,35 @@ fake = FakeTUI(screen_compacted=False, boundary=False)
 job, _s, _t = run_job(fake)
 check("no new boundary, no screen line -> timeout", (job["compactOk"], job["state"]), (False, "failed"))
 
+print("== `Not enough messages to compact.` (live 2026-11-22) fails at once, not after 5 min ==")
+
+
+class NotEnoughMessages(FakeTUI):
+    """Live screen: `⎿  Not enough messages to compact.` under the echo, no
+    compact_boundary written. An older successful `/compact` sits above it."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.history += ["❯ /compact", "  ⎿  Compacted (ctrl+o to see full summary)",
+                         "  ⎿  Referenced file ../notes.md"]
+
+    def _finish_compact(self):
+        self.mode = "idle"
+        self.history += ["  ⎿  Not enough messages to compact."]
+
+
+clock = Clock()
+fake = NotEnoughMessages(live_row=3)
+job, _s, _t = run_job(fake, follow_up="say done", table=new_table(clock=clock)[0])
+check("state failed", job["state"], "failed")
+check("error names the TUI's reason", (job["failedStep"], job["error"]),
+      ("compacting", "compact failed: Not enough messages to compact."))
+check("compactOk false", job["compactOk"], False)
+check("ended within seconds (no 5 min wait)", clock.t - 1_000_000.0 < 60, True)
+check("follow-up still sent", (job["followUpSent"], fake.sent_texts), (True, ["say done"]))
+check("an older `Compacted` above the last echo never counts",
+      cj.screen_compacted(fake.render()), False)
+
 print("== user typed into the session mid-job -> failed, restore attempted, no follow-up ==")
 class TypesAfterSwitch(FakeTUI):
     """The user starts typing in the terminal right after the Sonnet switch."""

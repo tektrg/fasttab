@@ -88,6 +88,17 @@ protocol AgentStatusSource: Sendable {
     /// session's transcript (same `GET /api/session/latest`; the only way to reach a row on another machine).
     /// Nil when there is none, or on any failure: the card then stays on its scraped single question.
     func pendingForm(rowId: String) async -> PendingQuestionForm?
+
+    /// `POST /api/session/compact`: starts the dashboard's compact job for a row (switch to Sonnet for this
+    /// session, compact, restore the model, send `followUp`). Never call twice for one press: an
+    /// `.uncertain` reply is looked up with `compactJob(rowId:)`, not re-posted.
+    func startCompact(rowId: String, actor: String, instructions: String?, followUp: String?) async -> CompactStartOutcome
+
+    /// `GET /api/session/compact?rowId=`: the row's running job, else its last one finished < 30 min ago.
+    func compactJob(rowId: String) async -> CompactJobRead
+
+    /// `GET /api/session/compact/<id>`: one job, polled while it runs.
+    func compactJob(id: String) async -> CompactJobRead
 }
 
 /// Why an image didn't upload, in words. Nothing was sent.
@@ -99,6 +110,15 @@ extension AgentStatusSource {
     func latestMessage(rowId: String) async -> String? { nil }
 
     func pendingForm(rowId: String) async -> PendingQuestionForm? { nil }
+
+    func startCompact(rowId: String, actor: String, instructions: String?, followUp: String?) async -> CompactStartOutcome {
+        .failed("This status source cannot compact an agent.")
+    }
+
+    /// Sources without compact jobs have none to show.
+    func compactJob(rowId: String) async -> CompactJobRead { .none }
+
+    func compactJob(id: String) async -> CompactJobRead { .none }
 
     func sendWrapUpAnswer(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
         await sendMessage(rowId: rowId, text: text, confirmed: confirmed)

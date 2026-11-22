@@ -228,6 +228,35 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
         }
     }
 
+    func startCompact(rowId: String, actor: String, instructions: String?, followUp: String?) async -> CompactStartOutcome {
+        let request = endpoint.compactStartRequest(rowId: rowId, actor: actor, instructions: instructions, followUp: followUp)
+        do {
+            let (body, statusCode) = try await transport.response(for: request)
+            return DashboardCompactResponse.startOutcome(body: body, statusCode: statusCode)
+        } catch let error as URLError where error.code == .timedOut {
+            return .uncertain("The dashboard took too long to answer. The compact may have started.")
+        } catch {
+            return .failed("Can't reach the status dashboard. Nothing was started.")
+        }
+    }
+
+    func compactJob(rowId: String) async -> CompactJobRead {
+        await compactRead(endpoint.compactJobRequest(rowId: rowId))
+    }
+
+    func compactJob(id: String) async -> CompactJobRead {
+        await compactRead(endpoint.compactJobRequest(id: id))
+    }
+
+    private func compactRead(_ request: URLRequest) async -> CompactJobRead {
+        do {
+            let (body, statusCode) = try await transport.response(for: request)
+            return DashboardCompactResponse.read(body: body, statusCode: statusCode)
+        } catch {
+            return .failed("Can't reach the status dashboard")
+        }
+    }
+
     /// `GET /api/personas`. Nil on anything but a clean 2xx + decode — a slow/dead dashboard reads
     /// exactly like "no personas offered", so `AgentPanelModel.startRouting` falls back to
     /// sessions only, silently (no footer notice: this runs on every routing start, not a

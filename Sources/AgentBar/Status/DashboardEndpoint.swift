@@ -25,6 +25,8 @@ struct DashboardEndpoint: Sendable {
     static let hookAnswerTimeoutSeconds: TimeInterval = 15
     /// A message types into the pane and re-reads it to see whether it was submitted (2s or more).
     static let messageTimeoutSeconds: TimeInterval = 60
+    /// A compact start only creates the job (it runs on in the dashboard), so the reply is quick.
+    static let compactStartTimeoutSeconds: TimeInterval = 20
     /// Attach/detach are one write to the dashboard's own tree state, no pane involved: a plain
     /// request-timeout budget is generous.
     static let agentTreeActionTimeoutSeconds: TimeInterval = 20
@@ -314,6 +316,33 @@ struct DashboardEndpoint: Sendable {
         var request = Self.agentBarRequest(url: components.url!)
         request.timeoutInterval = Self.sessionLatestTimeoutSeconds
         return request
+    }
+
+    /// `POST /api/session/compact {rowId, actor, instructions?, followUp?}`: the dashboard answers at once
+    /// (202 with the job, 409 with the job already running); the job itself runs on.
+    /// `instructions` / `followUp` are sent only when there are some.
+    func compactStartRequest(rowId: String, actor: String, instructions: String?, followUp: String?) -> URLRequest {
+        var request = request(path: "/api/session/compact")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.compactStartTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["rowId": rowId, "actor": actor]
+        if let instructions, !instructions.isEmpty { body["instructions"] = instructions }
+        if let followUp, !followUp.isEmpty { body["followUp"] = followUp }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// `GET /api/session/compact?rowId=`: the row's running or recently finished job.
+    func compactJobRequest(rowId: String) -> URLRequest {
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/session/compact"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "rowId", value: rowId)]
+        return Self.agentBarRequest(url: components.url!)
+    }
+
+    /// `GET /api/session/compact/<jobId>`.
+    func compactJobRequest(id: String) -> URLRequest {
+        request(path: "/api/session/compact/\(id)")
     }
 
     private func request(path: String) -> URLRequest {

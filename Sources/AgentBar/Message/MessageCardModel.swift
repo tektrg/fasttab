@@ -47,15 +47,20 @@ final class MessageCardModel: ObservableObject {
     private var sentLabels: [String: (text: String, until: Date)] = [:]
     /// Bumped when the dashboard changes: replies from the old one are dropped.
     private var epoch = 0
+    /// The open card's `/compact` job (Claude panes only): one per card, stopped when the card closes.
+    private var compactFollower: CompactJobFollower?
+    private let makeCompactFollower: @MainActor (String, any AgentStatusSource) -> CompactJobFollower
 
     init(
         now: @escaping () -> Date = Date.init,
         sentLabelSeconds: TimeInterval = MessageCardModel.sentLabelSeconds,
-        loadSessionContext: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript
+        loadSessionContext: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript,
+        makeCompactFollower: @escaping @MainActor (String, any AgentStatusSource) -> CompactJobFollower = { CompactJobFollower(rowId: $0, source: $1) }
     ) {
         self.now = now
         self.sentLabelSeconds = sentLabelSeconds
         self.loadSessionContext = loadSessionContext
+        self.makeCompactFollower = makeCompactFollower
     }
 
     var isOpen: Bool { card != nil }
@@ -76,12 +81,16 @@ final class MessageCardModel: ObservableObject {
         close()
         card = MessageCard(agent: agent, route: route, rowId: rowId)
         loadContext()
+        followCompact(rowId: rowId, route: route)
         return true
     }
 
     /// Closes the card. A message already on its way carries on: its result still reaches the row or the footer.
+    /// A compact job runs on in the dashboard; the card just stops watching it.
     func close() {
         contextLoader.cancel()
+        compactFollower?.stop()
+        compactFollower = nil
         card = nil
     }
 
@@ -118,7 +127,7 @@ final class MessageCardModel: ObservableObject {
 
     /// Esc: a failure notice goes first, then the card closes (not while its message is on its way).
     func handleEscape() {
-        guard let card, !consumeEscape(), card.phase == .editing else { return }
+        guard let card, !consumeEscape(), card.phase == .editing, compactProgress != .starting else { return }
         close()
         onReleaseKeyboard()
     }
@@ -127,6 +136,10 @@ final class MessageCardModel: ObservableObject {
     func pressSend() { pressSend(isWrapUpAnswer: false) }
 
     private func pressSend(isWrapUpAnswer: Bool) {
+        if !isWrapUpAnswer, let compactDraft = card?.compactDraft {
+            pressCompact(compactDraft)
+            return
+        }
         guard var card, let statusSource, let text = card.sendableText else { return }
         let confirmed = card.isConfirming
         guard card.beginSending() else { return }
@@ -175,6 +188,38 @@ final class MessageCardModel: ObservableObject {
             self?.finishSend(outcome, of: request, epoch: epoch)
         }
         return true
+    }
+
+    // MARK: - Compact
+
+    /// Where the open card's `/compact` job has got to (`.idle` with no card, or on a route without compact).
+    var compactProgress: CompactProgress { compactFollower?.progress ?? .idle }
+
+    /// Send is on: the draft can go, and a `/compact` draft waits while a compact is already starting or running.
+    var canSend: Bool {
+        guard let card, card.canSend else { return false }
+        return card.compactDraft == nil || !compactProgress.isBusy
+    }
+
+    /// A `/compact` draft: the dashboard runs the whole job (wait for idle, Sonnet, compact, restore,
+    /// follow-up); the card shows its progress. No pane read first: the job does its own before every step.
+    private func pressCompact(_ draft: CompactDraft) {
+        guard let card, card.phase == .editing, card.compactRefusal == nil, let compactFollower else { return }
+        let agentID = card.agentID
+        let typed = card.draft
+        compactFollower.start(draft) { [weak self] outcome in
+            // Started: the text is in the job now, so the draft goes (a second press must not start another).
+            guard case .started = outcome, self?.card?.agentID == agentID, self?.card?.draft == typed else { return }
+            self?.setDraft("")
+        }
+    }
+
+    private func followCompact(rowId: String, route: MessageRoute) {
+        guard route.allowsQuickCommands, let statusSource else { return }
+        let follower = makeCompactFollower(rowId, statusSource)
+        follower.onChange = { [weak self] in self?.objectWillChange.send() }
+        compactFollower = follower
+        follower.resume()
     }
 
     // MARK: - Sending

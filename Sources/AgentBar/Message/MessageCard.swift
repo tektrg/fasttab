@@ -82,11 +82,32 @@ struct MessageCard: Equatable, Sendable {
         return nil
     }
 
-    var canSend: Bool { phase == .editing && sendableText != nil }
+    /// A `/compact` draft on a Claude pane: Send starts the dashboard's compact job instead of typing
+    /// the text (`CompactDraft`). Nil for any other draft, and on routes that never take `/compact`.
+    var compactDraft: CompactDraft? {
+        guard route.allowsQuickCommands else { return nil }
+        return CompactDraft.parse(draft)
+    }
+
+    static let compactWithImagesHint = "Images can't go with /compact. Remove them, or send them separately."
+
+    /// Why a `/compact` draft cannot start; nil when it can (or it is not one).
+    var compactRefusal: String? {
+        guard let compactDraft else { return nil }
+        if !images.isEmpty { return Self.compactWithImagesHint }
+        return compactDraft.refusal
+    }
+
+    var canSend: Bool {
+        guard phase == .editing else { return false }
+        if compactDraft != nil { return compactRefusal == nil }
+        return sendableText != nil
+    }
 
     /// The line under the field about the draft itself: why it cannot go, or the counter near the cap.
     var draftHint: String? {
         if let imageHint { return imageHint }
+        if compactDraft != nil { return compactRefusal }
         switch verdict {
         case .slashCommand: return route.commandHint
         case .tooLong(let over): return MessageDraftValidator.tooLongHint(over: over)
@@ -94,7 +115,10 @@ struct MessageCard: Equatable, Sendable {
         }
     }
 
-    var showsLineBreakNote: Bool { MessageDraftValidator.sendsWithLineBreaksFlattened(draft) }
+    var showsLineBreakNote: Bool { compactDraft == nil && MessageDraftValidator.sendsWithLineBreaksFlattened(draft) }
+
+    /// What a `/compact` draft will do (shown in place of the line-break note); nil for any other draft.
+    var compactHint: String? { compactDraft?.hint }
 
     var counterText: String? {
         guard MessageDraftValidator.showsCounter(for: draft) else { return nil }
@@ -102,6 +126,7 @@ struct MessageCard: Equatable, Sendable {
     }
 
     var sendTitle: String {
+        if compactDraft != nil { return "Compact" }
         if isConfirming { return "Send anyway" }
         return mayHaveGoneThrough ? "Send again" : "Send"
     }
@@ -129,7 +154,7 @@ struct MessageCard: Equatable, Sendable {
 
     /// The field's placeholder: how to send, and how to add an image where images can go.
     var placeholder: String {
-        let howToSend = "Message \(label)…   ↩ sends"
+        let howToSend = "Message \(label)…   ↩ sends" + (route.allowsQuickCommands ? " · /compact + ⇧↩ queues a message" : "")
         return acceptsImages ? howToSend + " · ⌘V or drop an image" : howToSend + " · no images (agent on another Mac)"
     }
 

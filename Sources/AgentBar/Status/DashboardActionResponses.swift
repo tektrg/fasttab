@@ -102,7 +102,7 @@ struct DashboardAnswerResponse: Decodable {
     /// The result the reply amounts to; nil when it says nothing usable.
     var result: AnswerResult? {
         if ok != true, CompactRunningReply.matches(code: code, error: error) { return .failed(CompactRunningReply.answerWords) }
-        switch ok {
+        return switch ok {
         case true?: .sent(next: AnswerableQuestion(next))
         case false?: .failed(error ?? "The dashboard refused the answer.")
         case nil: nil

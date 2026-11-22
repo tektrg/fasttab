@@ -56,6 +56,54 @@ import Testing
         #expect(guess.displayName == "Someone" && guess.directory == nil)
     }
 
+    // MARK: Pinned tabs reopened after closing (ghosts)
+
+    /// Edge's default naming: folder "Default" shows "Profile 1", folder "Profile 1" shows "Profile 2".
+    private func edgeDefaults() throws -> (ChromiumBackend, URL) {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("edgedefaults-\(UUID().uuidString)")
+        for folder in ["Default", "Profile 1"] {
+            let dir = base.appendingPathComponent(folder, isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try #"{"roots":{}}"#.write(to: dir.appendingPathComponent("Bookmarks"), atomically: true, encoding: .utf8)
+        }
+        let state = #"{"profile":{"info_cache":{"Default":{"name":"Profile 1"},"Profile 1":{"name":"Profile 2"}}}}"#
+        try state.write(to: base.appendingPathComponent("Local State"), atomically: true, encoding: .utf8)
+        return (ChromiumBackend(appName: "Microsoft Edge", bundleIdentifier: "com.microsoft.edgemac", supportDirectory: base.path), base)
+    }
+
+    @Test func ghostSavedWithDisplayNameReopensInThatProfile() throws {
+        let (backend, base) = try edgeDefaults()
+        defer { try? FileManager.default.removeItem(at: base) }
+        // A slot saved before slots kept the folder: only the tab's display name "Profile 1".
+        let oldGhost = OrderedTabSlot(url: "https://a.example.com/", title: "A", browserName: "Microsoft Edge",
+                                      profileName: "Profile 1", state: .ghost).asSearchResult
+        #expect(backend.launchDirectory(for: oldGhost) == "Default")
+        let newGhost = OrderedTabSlot(url: "https://a.example.com/", title: "A", browserName: "Microsoft Edge",
+                                      profileName: "Profile 2", profileDirectory: "Profile 1", state: .ghost).asSearchResult
+        #expect(backend.launchDirectory(for: newGhost) == "Profile 1")
+        // Non-tab rows name folders first (phone commands, stored references).
+        let bookmark = BrowserSearchResult(title: "B", url: "https://b.example.com/", browserName: "Microsoft Edge",
+                                           type: .bookmark, timestamp: Date(), profileName: "Profile 1")
+        #expect(backend.launchDirectory(for: bookmark) == "Profile 1")
+        let gone = BrowserSearchResult(title: "C", url: "https://c.example.com/", browserName: "Microsoft Edge",
+                                       type: .tab, timestamp: Date(), profileName: "Profile 1", profileDirectory: "Profile 9")
+        #expect(backend.launchDirectory(for: gone) == nil)
+    }
+
+    @Test func slotsRememberTheFolderAndOldSlotsStillDecode() throws {
+        let tab = row(.tab, "ssvtab", display: "SSV", folder: "Profile 3")
+        let slots = MyOrderReconciler.reconcile(currentSlots: [], liveTabs: [tab], runningBrowsers: ["Microsoft Edge"],
+                                                pendingCloses: []).slots
+        let slot = try #require(slots.first)
+        #expect(slot.profileName == "SSV" && slot.profileDirectory == "Profile 3")
+        let decoded = try JSONDecoder().decode(OrderedTabSlot.self, from: JSONEncoder().encode(slot))
+        #expect(decoded.profileDirectory == "Profile 3")
+        #expect(decoded.asSearchResult.profileDirectory == "Profile 3")
+        let old = #"{"slotID":"\#(UUID().uuidString)","url":"https://a.com","title":"A","browserName":"Microsoft Edge","profileName":"SSV","state":"ghost"}"#
+        let oldSlot = try JSONDecoder().decode(OrderedTabSlot.self, from: Data(old.utf8))
+        #expect(oldSlot.profileName == "SSV" && oldSlot.profileDirectory == nil)
+    }
+
     // MARK: Custom view (bug B: "Profile 3" must show open tabs too)
 
     private func row(_ type: BrowserResultType, _ title: String, display: String?, folder: String?) -> BrowserSearchResult {

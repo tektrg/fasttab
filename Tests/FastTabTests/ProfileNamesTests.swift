@@ -38,6 +38,20 @@ struct ProfileNamesTests {
         #expect(hit == tricky[1])
     }
 
+    @Test func tabNamesResolveDisplayNameFirst() {
+        // Tab rows (and slots remembered from them) carry the display name. Edge's defaults show folder
+        // "Default" as "Profile 1", so a pinned tab saved as "Profile 1" must reopen in "Default".
+        let edgeDefaults = [P(directory: "Default", displayName: "Profile 1"), P(directory: "Profile 1", displayName: "Profile 2")]
+        let tab = ProfileNames.pick("Profile 1", in: edgeDefaults, directory: \.directory, displayName: \.displayName,
+                                    displayNameFirst: true)
+        #expect(tab == edgeDefaults[0])
+        let stored = ProfileNames.pick("Profile 1", in: edgeDefaults, directory: \.directory, displayName: \.displayName)
+        #expect(stored == edgeDefaults[1])
+        // A slot that saved a folder name still resolves.
+        #expect(ProfileNames.pick("Default", in: edgeDefaults, directory: \.directory, displayName: \.displayName,
+                                  displayNameFirst: true) == edgeDefaults[0])
+    }
+
     // MARK: Filter matching (bug A + bug B)
 
     private func matches(_ selected: [String], display: String?, directory: String?) -> Bool {

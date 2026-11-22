@@ -807,16 +807,10 @@ struct ChromiumBackend: BrowserBackend {
             return
         }
 
-        // Profile-aware open via executable launch. Prefer the folder when the
-        // row carries it; profileName may be a directory ("Profile 1") or a
-        // display name ("Work") — resolve display names via Local State.
-        if let profileName = result.profileDirectory ?? result.profileName,
-           !profileName.isEmpty,
-           let directory = Self.resolveProfileDirectory(
-               supportDirectory: supportDirectory,
-               profileName: profileName
-           ),
+        // Profile-aware open via executable launch (see `launchDirectory(for:)`).
+        if let directory = launchDirectory(for: result),
            let executableURL = browserExecutableURL() {
+            let profileName = directory
             let shellScript = "nohup \(shellQuoted(executableURL.path)) --profile-directory=\(shellQuoted(directory)) \(shellQuoted(result.url)) > /dev/null 2>&1 &"
             if runDetachedShellCommand(shellScript) {
                 logger.info("openURL: app=\(result.browserName, privacy: .public) type=\(result.type.rawValue, privacy: .public) profile=\(profileName, privacy: .public) url='\(result.url, privacy: .public)'")
@@ -845,10 +839,25 @@ struct ChromiumBackend: BrowserBackend {
         """
         guard let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]),
               output.hasPrefix("title:") else { return false }
-        guard let ghostProfile = result.profileName, !ghostProfile.isEmpty else { return true }
-        guard let windowProfile = BrowserWindowProfile.guess(fromTitle: String(output.dropFirst("title:".count))) else { return false }
-        let resolve = { Self.resolveProfileDirectory(supportDirectory: self.supportDirectory, profileName: $0) ?? $0 }
-        return resolve(ghostProfile).caseInsensitiveCompare(resolve(windowProfile)) == .orderedSame
+        guard let ghostFolder = launchDirectory(for: result) else {
+            // Profile unknown, or named but no longer on disk: any window will do only when unknown.
+            return result.profileName?.isEmpty ?? true
+        }
+        let window = Self.windowProfile(title: String(output.dropFirst("title:".count)), among: profiles())
+        guard let windowFolder = window.directory else { return false }
+        return ghostFolder == windowFolder
+    }
+
+    /// The `--profile-directory` to open `result` in, nil when unknown. The row's folder when it has
+    /// one; else its name, read as a display name first for tab rows (window titles, extension and
+    /// pinned-tab slots carry display names) and as a folder first for anything else.
+    func launchDirectory(for result: BrowserSearchResult) -> String? {
+        let all = profiles()
+        if let folder = result.profileDirectory, !folder.isEmpty {
+            return all.first { $0.name == folder }?.name
+        }
+        return ProfileNames.pick(result.profileName, in: all, directory: \.name, displayName: \.displayName,
+                                 displayNameFirst: result.type == .tab)?.name
     }
 
     /// Opens `result` inside `app`'s installed chromeless window.
@@ -1550,18 +1559,6 @@ struct ChromiumBackend: BrowserBackend {
             return (profile.displayName, profile.name)
         }
         return (BrowserWindowProfile.guess(fromTitle: title), nil)
-    }
-
-    /// Resolves a stored profile reference to a `--profile-directory` value.
-    /// Slots carry whatever the live-tab poll knew: usually a directory name
-    /// ("Default", "Profile 1"), but since the window-title parse it can be
-    /// the user-visible display name ("Work"). Directories pass straight
-    /// through (verified against the profile folders on disk); display names
-    /// resolve via the browser's Local State `profile.info_cache`. Returns
-    /// nil when nothing matches — callers fall back to window-targeted open.
-    static func resolveProfileDirectory(supportDirectory: String, profileName: String) -> String? {
-        let base = URL(fileURLWithPath: (supportDirectory as NSString).expandingTildeInPath, isDirectory: true)
-        return ChromiumProfiles.resolveDirectory(base: base, profileName: profileName)
     }
 
     /// Profile directory names the browser currently has open, detected via

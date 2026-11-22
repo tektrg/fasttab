@@ -236,6 +236,8 @@ enum MyOrderReconciler {
             // profile with an unknown one, or ghost reopen loses its target.
             if let prof = tab.profileName, !prof.isEmpty {
                 slot.profileName = prof
+                // Folder travels with the name; a name without one (title guess) clears a stale folder.
+                slot.profileDirectory = tab.profileDirectory
             }
             slot.state = .live
             if let tabID = tab.tabID {
@@ -393,6 +395,7 @@ enum MyOrderReconciler {
                 title: tab.title,
                 browserName: tab.browserName,
                 profileName: tab.profileName,
+                profileDirectory: tab.profileDirectory,
                 state: .live,
                 boundTabID: tab.tabID,
                 windowIndex: tab.windowIndex,

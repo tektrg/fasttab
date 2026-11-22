@@ -37,16 +37,21 @@ enum ProfileNames {
     }
 
     /// The profile a stored reference names: exact folder first, then display name, then folder
-    /// ignoring case. Nil for blank or unknown references.
+    /// ignoring case. `displayNameFirst` for names that came from a tab (window title, extension, a
+    /// pinned-tab slot), which are display names: Edge shows folder "Default" as "Profile 1", so
+    /// folder-first would send "Profile 1" to the wrong profile. Nil for blank or unknown references.
     static func pick<P>(
         _ reference: String?,
         in profiles: [P],
         directory: (P) -> String,
-        displayName: (P) -> String
+        displayName: (P) -> String,
+        displayNameFirst: Bool = false
     ) -> P? {
         guard let wanted = key(reference), let trimmed = reference?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        let byDisplay = profiles.first { key(displayName($0)) == wanted }
+        if displayNameFirst, let byDisplay { return byDisplay }
         return profiles.first { directory($0) == trimmed }
-            ?? profiles.first { key(displayName($0)) == wanted }
+            ?? byDisplay
             ?? profiles.first { key(directory($0)) == wanted }
     }
 }

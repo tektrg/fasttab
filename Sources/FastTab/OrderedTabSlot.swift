@@ -13,7 +13,11 @@ struct OrderedTabSlot: Identifiable, Codable, Equatable, Sendable {
     var matchKey: String
     var title: String
     var browserName: String
+    /// The tab's profile display name ("SSV"); older slots may hold nothing better.
     var profileName: String?
+    /// The profile's folder ("Profile 3"), so a ghost reopens in the right profile even when display
+    /// names collide with folder names (Edge defaults). Nil on slots saved before it existed.
+    var profileDirectory: String?
     var state: SlotState
     var boundTabID: Int?
     var windowIndex: Int?
@@ -26,7 +30,7 @@ struct OrderedTabSlot: Identifiable, Codable, Equatable, Sendable {
     var id: UUID { slotID }
 
     enum CodingKeys: String, CodingKey {
-        case slotID, url, matchKey, title, browserName, profileName, state
+        case slotID, url, matchKey, title, browserName, profileName, profileDirectory, state
         case boundTabID, windowIndex, tabIndex, ghostedAt, lastSeenLiveAt
         case isPinned, confirmedInBrowser
     }
@@ -38,6 +42,7 @@ struct OrderedTabSlot: Identifiable, Codable, Equatable, Sendable {
         title: String,
         browserName: String,
         profileName: String? = nil,
+        profileDirectory: String? = nil,
         state: SlotState = .live,
         boundTabID: Int? = nil,
         windowIndex: Int? = nil,
@@ -53,6 +58,7 @@ struct OrderedTabSlot: Identifiable, Codable, Equatable, Sendable {
         self.title = title
         self.browserName = browserName
         self.profileName = profileName
+        self.profileDirectory = profileDirectory
         self.state = state
         self.boundTabID = boundTabID
         self.windowIndex = windowIndex
@@ -71,6 +77,7 @@ struct OrderedTabSlot: Identifiable, Codable, Equatable, Sendable {
         self.title = try container.decode(String.self, forKey: .title)
         self.browserName = try container.decode(String.self, forKey: .browserName)
         self.profileName = try container.decodeIfPresent(String.self, forKey: .profileName)
+        self.profileDirectory = try container.decodeIfPresent(String.self, forKey: .profileDirectory)
         self.state = try container.decode(SlotState.self, forKey: .state)
         self.boundTabID = try container.decodeIfPresent(Int.self, forKey: .boundTabID)
         self.windowIndex = try container.decodeIfPresent(Int.self, forKey: .windowIndex)
@@ -89,6 +96,7 @@ struct OrderedTabSlot: Identifiable, Codable, Equatable, Sendable {
         try container.encode(title, forKey: .title)
         try container.encode(browserName, forKey: .browserName)
         try container.encodeIfPresent(profileName, forKey: .profileName)
+        try container.encodeIfPresent(profileDirectory, forKey: .profileDirectory)
         try container.encode(state, forKey: .state)
         try container.encodeIfPresent(boundTabID, forKey: .boundTabID)
         try container.encodeIfPresent(windowIndex, forKey: .windowIndex)
@@ -109,6 +117,7 @@ struct OrderedTabSlot: Identifiable, Codable, Equatable, Sendable {
             windowIndex: windowIndex,
             tabIndex: tabIndex,
             profileName: profileName,
+            profileDirectory: profileDirectory,
             tabID: boundTabID,
             isPinned: isPinned,
             isGhost: state == .ghost

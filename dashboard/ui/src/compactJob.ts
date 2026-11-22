@@ -5,9 +5,10 @@ import { LOGGED_OUT_ERROR } from "./api";
  *  the same rules). The server runs the job; this file only parses the
  *  draft, calls the three endpoints and words the progress line. */
 
-/** Composer input rule (identical in Swift): the draft's first line, trimmed,
- *  is `/compact` or starts with `/compact ` (case-sensitive). The rest of
- *  line 1 = instructions; lines 2..n = the follow-up message. */
+/** Composer input rule (identical in Swift): leading blank / whitespace-only
+ *  lines are skipped; then the first line, trimmed, is `/compact` or starts
+ *  with `/compact ` (case-sensitive). The rest of that line = instructions;
+ *  the lines after it = the follow-up message. */
 export interface CompactDraft {
   instructions?: string;
   followUp?: string;
@@ -55,7 +56,10 @@ export function sanitizedMessage(raw: string): string {
 }
 
 export function parseCompactDraft(draft: string): CompactDraft | null {
-  const [firstLine, ...rest] = draft.split(NEWLINES);
+  const lines = draft.split(NEWLINES);
+  // Leading blank / whitespace-only lines are skipped (Swift does the same).
+  while (lines.length > 1 && trimSpaces(lines[0]) === "") lines.shift();
+  const [firstLine, ...rest] = lines;
   const first = trimSpaces(firstLine);
   if (first !== COMMAND && !first.startsWith(COMMAND + " ")) return null;
   const out: CompactDraft = {};
@@ -108,6 +112,9 @@ export interface CompactJob {
   /** The queued follow-up text (additive 2026-11-22): offered back to the
    *  draft when `followUpSent` is false. Absent on an older dashboard. */
   followUp?: string | null;
+  /** The /model picker may be open (additive, QA2 2026-11-22): the server
+   *  refuses answers/permissions for the pane only while this is true. */
+  inPicker?: boolean;
 }
 
 /** The job's follow-up when it exists and did NOT go out (resend offer). */

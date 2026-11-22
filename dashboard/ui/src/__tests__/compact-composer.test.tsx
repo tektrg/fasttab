@@ -40,7 +40,10 @@ const SWIFT_COMPACT_CASES: [string, string, { instructions?: string; followUp?: 
   ["/compacting", "/compacting now", null],
   ["longer word + line 2", "/compactx\nhello", null],
   ["later line", "hello\n/compact", null],
-  ["blank first line", "\n/compact", null],
+  // Leading blank / whitespace-only lines are skipped before line 1 is checked (QA 2).
+  ["blank first line", "\n/compact", {}],
+  ["blank lines then instructions + follow-up", "  \n\n/compact notes\nfollow", { instructions: "notes", followUp: "follow" }],
+  ["blank lines then prose", "\n\nhello", null],
   ["empty", "", null],
   ["prose", "please compact", null],
   ["case-sensitive", "/Compact", null],
@@ -433,6 +436,46 @@ describe("Composer: multi-line + compact", () => {
     expect(box(host).value).toBe("/compact\n");
     typeInto(host, "/compact\nthen go");
     expect(host.querySelector(".composer-compact-hint")?.textContent).toContain("then sends");
+    unmount();
+  });
+
+  test("409 compact-running on a plain multi-line send: the draft comes back exactly as typed", async () => {
+    const toasts: string[] = [];
+    globalThis.fetch = (async (url: unknown) => {
+      if (String(url) === "/api/session/message")
+        return {
+          status: 409,
+          json: async () => ({
+            ok: false,
+            code: "compact-running",
+            typed: false,
+            error: "compact-running: a /compact job is running on this session. Nothing was sent.",
+          }),
+        };
+      return { status: 200, json: async () => ({ ok: true, job: null }) };
+    }) as unknown as typeof fetch;
+    const { host, unmount } = mount([boardRow("r1")], (t) => toasts.push(t));
+    typeInto(host, "first line\n\n  second line  ");
+    await key(host, { key: "Enter" });
+    await settle();
+    expect(toasts.some((t) => t.includes("compact-running"))).toBe(true);
+    expect(box(host).value).toBe("first line\n\n  second line  ");
+    unmount();
+  });
+
+  test("a /compact draft after blank lines starts a job; on 409 it comes back exactly", async () => {
+    const calls = stubFetch({
+      post: { status: 409, body: { ok: false, error: "job-active", job: job({ state: "compacting" }) } },
+      polls: [job({ state: "compacting" })],
+    });
+    const { host, unmount } = mount([boardRow("r1")]);
+    typeInto(host, "\n  \n/compact notes\nfollow\n  more");
+    await key(host, { key: "Enter" });
+    await settle();
+    const posts = calls.filter((c) => c.method === "POST");
+    expect(posts.map((c) => c.url)).toEqual(["/api/session/compact"]);
+    expect(posts[0].body).toEqual({ rowId: "r1", actor: "po", instructions: "notes", followUp: "follow more" });
+    expect(box(host).value).toBe("\n  \n/compact notes\nfollow\n  more");
     unmount();
   });
 

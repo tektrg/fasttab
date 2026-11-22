@@ -271,7 +271,8 @@ export function Composer({
       await sendCompact(text, compact);
       return;
     }
-    const body = flattenMessage(text);
+    const draft = text; // exactly as typed, newlines included: what a refusal gives back
+    const body = flattenMessage(draft);
     setBusy(true);
     let ids: string[] = [];
     if (attach.images.length > 0) {
@@ -304,7 +305,7 @@ export function Composer({
     // error or dropped connection may have delivered it — a restored box
     // would double-send on the next Enter.
     if (need.length === 0 && done.every((r) => isRefusedBeforeTyping(r.res))) {
-      setText((current) => (current === "" ? body : current));
+      setText((current) => (current === "" ? draft : current));
     } else {
       attach.clear(); // the images went (or may have) with the text
     }

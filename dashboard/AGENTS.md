@@ -625,8 +625,11 @@ switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/com
 (Swift Agent Bar uses the same): `.claude/compact-api-contract.md` in the main checkout
 (gitignored), summarized here.
 - **Composer rule** (web `ui/src/compactJob.ts` `parseCompactDraft`, Swift `CompactDraft.parse`):
-  draft's first line, trimmed, is `/compact` or starts with `/compact ` (case-sensitive). Rest of
-  line 1 = `instructions`; lines 2..n = `followUp`. Both pieces, and any plain multi-line draft, go
+  leading blank / whitespace-only lines are skipped (QA2 2026-11-22: `"\n/compact"` is a compact
+  draft; `"\n\nhello"` stays a plain message); then the first line, trimmed, is `/compact` or starts
+  with `/compact ` (case-sensitive). Rest of that line = `instructions`; the lines after it =
+  `followUp`. A refused / failed send (409 `job-active` or `compact-running`, 400, dropped POST of a
+  compact) puts the draft back EXACTLY as typed, newlines included. Both pieces, and any plain multi-line draft, go
   through `sanitizedMessage` = Swift `MessageDraftValidator.sanitized` (tab -> space, other control
   characters dropped, every line trimmed, blank lines dropped, joined with one space; spaces inside a
   line kept). The web tests run the Swift test cases verbatim (`compact-composer.test.tsx` "Swift
@@ -645,6 +648,10 @@ switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/com
   `followUp` (added 2026-11-22, additive: the queued text, so a client can offer it back when
   `followUpSent` is false — the web failed line has "Put it back in the box"; contract file
   `.claude/compact-api-contract.md` needs the same note, it lives outside the repo).
+  `inPicker: bool` (added QA2 2026-11-22, additive): the /model picker may be open on the pane —
+  set just before `/model` is typed, cleared only once a read confirms it closed (success line,
+  confirmed Esc, or an idle prompt); stays true while unconfirmed. Clients grey out answer /
+  permission buttons for the pane only while an ACTIVE job has it true (ignore it on finished jobs).
   States: `waitingIdle` (idle + EMPTY prompt, 10 min max) -> `switchingModel` -> `compacting`
   (new `compact_boundary` within 5 min) -> `restoringModel` -> `sendingFollowUp` -> `done` |
   `failed`.
@@ -653,12 +660,17 @@ switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/com
   `modelRestored: false`. Web failed line: "Your queued message was NOT sent" / "Model NOT
   restored: still on Sonnet (switch back to X with /model)".
 - **State file + restart** (`<STATE_HOME>/compact-jobs.json`, 0600): besides the public fields it
-  saves `instructions`, `restoreModel`, `sSent` (picker commit pressed), `inPicker` (/model typed,
-  picker may be open), the pane (`paneKey`/`machine`/`rawPaneId`/`sessionId`) and `actor`. On load a
-  running job becomes `failed` / "dashboard restarted" with the pessimistic flags above; at server
-  start `main()` calls `CompactJobs.recover(_compact_io_for_saved_job)`: Esc a picker it may have
-  left open (after a read; ONE blind Esc if the pane can't be read), and if `sSent` run the normal
-  restore (job shows `restoringModel` meanwhile). The follow-up is never auto-sent after a restart.
+  saves `instructions`, `restoreModel`, `sSent` (picker commit pressed), `inPicker`, the pane
+  (`paneKey`/`machine`/`rawPaneId`/`sessionId`) and `actor`. On load (`main()`, before any listener
+  binds) a running job gets error "dashboard restarted" and `followUpSent: false`; if it needs
+  recovery (`inPicker` or `sSent`) it stays ACTIVE as `restoringModel` right away — single-flight
+  (409 `job-active`) and the send refusals hold from the first request, so a new job can't read
+  "already on Sonnet" and leave the session there — else it is `failed` at once. `main()` then calls
+  `CompactJobs.recover(_compact_io_for_saved_job)` (MUST follow construction): Esc a picker it may
+  have left open ONLY after a read shows it — an unreadable pane is re-read with backoff (1s
+  doubling, cap 15s, `RECOVERY_READ_BUDGET_SEC` 120), never a blind Esc (the agent may be mid-turn;
+  Esc there stops it) — and if `sSent` run the normal restore. Pane unreachable -> `failed`,
+  `modelRestored: false`. The follow-up is never auto-sent after a restart.
 - Rules: restore runs once the picker step started, even after a failure (no-op `modelRestored:
   true` when `s` was never pressed — nothing changed). Follow-up is sent even if the switch or
   compact failed, but NOT when the agent never got idle or the user typed. Before every typing step
@@ -671,17 +683,24 @@ switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/com
 - **Picker safety** (`_Runner.picker_phase`): every /model picker step runs inside try/finally that
   always leaves the picker (`escape_out`); reads inside picker steps are retried 3x
   (`read_retry`). `escape_out` Escs only on a read that shows the picker/dialog open, except ONE
-  blind Esc when no read works and none was sent (Esc at an idle prompt is a no-op; two in a row
-  could open Claude's rewind menu). A picker/dialog this job opened that is still up later is
+  blind Esc when no read works, none was sent, and `blind_esc_allowed()`: the last successful read
+  showed the picker, or `/model` / arrows / `s` / `1` were typed after it — never when it showed a
+  busy spinner (Esc there interrupts the turn), never right after another Esc (Esc at an idle prompt
+  is a no-op; two in a row could open Claude's rewind menu). A picker/dialog this job opened that is still up later is
   escaped by `wait_ready`. Why: an ssh read error used to jump straight to the catch-all with the
   picker open, and a later Enter there saves the highlighted model as the GLOBAL default.
 - **No other typing while a job runs** (`chief-dashboard-server.py`
   `_send_message_unless_compacting`, `_compact_pane_refusal`): `POST /api/session/message`
   (Compact/Clear buttons too) to a row with an active job -> HTTP 409 `{ok:false, code:
   "compact-running", typed:false, error:"compact-running: …", job}` (clients show `error`; the
-  web puts the text back, Swift shows it as a failure). `/api/answer` + `/api/permission` for the
-  job's pane get the same 409 once the job is past `waitingIdle` (while it waits, answering the
-  agent's question is what lets it go idle). Per-row send lock (`CompactJobs.row_lock`): a job's
+  web puts the text back, Swift shows it as a failure) — for the job's WHOLE active life.
+  `/api/answer` + `/api/permission` for the job's pane get the same 409 ONLY while the job's
+  `inPicker` is true (QA2 2026-11-22: the restore can wait 10 min for a busy agent, and a permission
+  prompt raised meanwhile must stay answerable; while waiting for idle, answering is what lets it go
+  idle). Answers are typed under the pane's picker lock (`CompactJobs.picker_lock`,
+  `_answer_unless_picker`; the job holds it from before setting `inPicker` until it has left the
+  picker), so a picker can't open mid-answer; an answer that waits >10s for it gets the 409, a job
+  that waits >15s fails "an answer to the agent was still being typed". Per-row send lock (`CompactJobs.row_lock`): a job's
   worker holds it for its whole run, a plain Send holds it while typing (waits 15s, then 409), so a
   Send that raced a job starting can't hit the picker. The job's own sends call
   `_handle_reach_action` directly. Not refused: Stop/Close/Relaunch (explicit user intent).
@@ -748,7 +767,7 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 51 test files, ~1810 `PASS` lines, 0 failures
+As of this writing (2026-11-22): 88 test files, ~3580 `PASS` lines, 0 failures
 (`test_chief_dashboard_views.py` prints a heading containing "FAIL-OPEN" —
 not a failure; judge by each file's exit code).
 

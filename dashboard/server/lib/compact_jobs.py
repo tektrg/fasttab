@@ -77,6 +77,14 @@ NAV_ATTEMPTS = 3
 PICKER_READ_ATTEMPTS = 3
 #: How long a job waits for the row's send lock (a plain Send already typing).
 ROW_LOCK_WAIT_SEC = 30.0
+#: How long typing /model waits for the pane's picker lock (an /api/answer or
+#: /api/permission keystroke being typed holds it).
+PICKER_LOCK_WAIT_SEC = 15.0
+#: Restart recovery never sends a blind Esc (the agent may be mid-turn, where
+#: Esc stops Claude): it re-reads, backing off, for up to this long.
+RECOVERY_READ_BUDGET_SEC = 120
+RECOVERY_BACKOFF_SEC = 1.0
+RECOVERY_BACKOFF_MAX_SEC = 15.0
 #: GET ?rowId= shows a finished job this long (contract: 30 min).
 RECENT_FINISHED_SEC = 30 * 60
 #: Finished jobs are dropped from the state file after a day.
@@ -445,14 +453,18 @@ class PaneIO:
 
 #: The Job JSON clients see. `followUp` (QA 2026-11-22, additive) = the queued
 #: message text, so a client can offer to resend it when `followUpSent` is false.
+#: `inPicker` (QA2 2026-11-22, additive): the /model picker may be open — set
+#: just before `/model` is typed, cleared only once a read confirms it closed.
+#: Answers (/api/answer, /api/permission) are refused only while it is true.
 _PUBLIC_KEYS = ("id", "rowId", "state", "originalModel", "switchSkipped",
                 "skipReason", "compactOk", "modelRestored", "followUpSent",
-                "error", "failedStep", "createdAt", "updatedAt", "followUp")
+                "error", "failedStep", "createdAt", "updatedAt", "followUp",
+                "inPicker")
 #: Saved in the 0600 state file only — what a restarted dashboard needs to
 #: leave the picker and put the model back (never sent to clients).
-#: `inPicker`: /model was typed and the picker may be open; `sSent`: the
-#: picker's session-only commit was pressed (the model may have changed).
-_PRIVATE_KEYS = ("instructions", "restoreModel", "sSent", "inPicker",
+#: `sSent`: the picker's session-only commit was pressed (the model may have
+#: changed).
+_PRIVATE_KEYS = ("instructions", "restoreModel", "sSent",
                  "paneKey", "machine", "rawPaneId", "sessionId", "actor")
 _PANE_KEYS = ("paneKey", "machine", "rawPaneId", "sessionId")
 
@@ -477,6 +489,11 @@ class _Abort(Exception):
     """The user typed into the session: stop typing (restore still runs)."""
 
 
+class _PickerBusy(Exception):
+    """An answer keystroke held the pane's picker lock too long: /model was
+    not typed."""
+
+
 class CompactJobs:
     """Job table: a lock, an in-memory dict, one worker thread per job, a
     0600 state file. Single-flight per rowId; one send lock per row, held by
@@ -493,6 +510,7 @@ class CompactJobs:
         self._lock = threading.Lock()
         self._jobs = {}
         self._row_locks = {}
+        self._picker_locks = {}
         self._interrupted = []   # (job, was_in_picker, needs_restore) from _load
         self._load()
 
@@ -512,21 +530,30 @@ class CompactJobs:
                 continue
             job = {k: raw.get(k) for k in _PUBLIC_KEYS + _PRIVATE_KEYS}
             job["switchSkipped"] = bool(job.get("switchSkipped"))
+            job["inPicker"] = bool(job.get("inPicker"))
             if job.get("state") not in TERMINAL_STATES:
-                # Its worker died with the old process. Pessimistic until
-                # `recover()` proves otherwise: a switched model reads NOT
-                # restored, a queued follow-up NOT sent (never auto-sent
-                # after a restart; the text stays for a client resend).
+                # Its worker died with the old process. A queued follow-up
+                # reads NOT sent (never auto-sent after a restart; the text
+                # stays for a client resend).
                 if job.get("error") is None:
                     job["error"] = RESTARTED_ERROR
                     job["failedStep"] = job.get("state")
                 needs_restore = bool(job.get("sSent")) and job.get("modelRestored") is not True
-                if needs_restore:
-                    job["modelRestored"] = False
                 if job.get("followUp") and job.get("followUpSent") is not True:
                     job["followUpSent"] = False
-                self._interrupted.append((job, bool(job.get("inPicker")), needs_restore))
-                job["state"] = FAILED
+                if job["inPicker"] or needs_restore:
+                    # Recovery is due: the job stays ACTIVE (`restoringModel`)
+                    # from this load on, before any request is served, so
+                    # single-flight + the send refusals hold until
+                    # `recover()`'s worker finishes it. (Marked only when the
+                    # worker took the row lock, a new job could start in the
+                    # gap, read "already on Sonnet" and leave it there.)
+                    job["state"] = RESTORING
+                    if needs_restore:
+                        job["modelRestored"] = None
+                    self._interrupted.append((job, job["inPicker"], needs_restore))
+                else:
+                    job["state"] = FAILED
                 job["updatedAt"] = self._clock()
                 changed = True
             self._jobs[job["id"]] = job
@@ -553,25 +580,27 @@ class CompactJobs:
             _log(f"could not save state: {e.__class__.__name__}")
 
     def recover(self, io_for_job):
-        """After a restart: for each job the old process left running, leave
-        the picker if it may be open (Esc after a read shows it; one blind
-        Esc when the pane can't be read), and if Sonnet may have been
-        committed, try to put the model back (same 10 min restore budget).
-        `io_for_job(job)` -> PaneIO, or None when the pane can't be reached
-        (the job then keeps `modelRestored: false`). Never sends the
-        follow-up. Call once, at server start."""
+        """After a restart: for each job the old process left mid-run (kept
+        active as `restoringModel` by `_load`), leave the picker if it may be
+        open — Esc ONLY after a read shows it; an unreadable pane is re-read
+        with backoff (RECOVERY_READ_BUDGET_SEC), never a blind Esc, since the
+        agent may be mid-turn — and if Sonnet may have been committed, put
+        the model back (same 10 min restore budget). `io_for_job(job)` ->
+        PaneIO, or None when the pane can't be reached (the job then ends
+        failed with `modelRestored: false`). Never sends the follow-up. MUST
+        be called once, at server start, after construction: until then the
+        interrupted jobs hold their rows."""
         pending, self._interrupted = self._interrupted, []
         for job, was_in_picker, needs_restore in pending:
-            if not (was_in_picker or needs_restore):
-                continue
             try:
                 io = io_for_job(job)
             except Exception as e:
                 _log(f"job {job['id']}: no pane I/O after restart: {e!r}")
                 io = None
-            if io is None:
-                continue
             runner = _Runner(self, job, io)
+            if io is None:
+                runner._finish()
+                continue
             self._spawn(lambda r=runner, p=was_in_picker, n=needs_restore: r.recover(p, n))
 
     # -- table
@@ -602,6 +631,17 @@ class CompactJobs:
                 lock = self._row_locks[row_id] = threading.Lock()
             return lock
 
+    def picker_lock(self, pane_key):
+        """One lock per (namespaced) pane, held by a job from just before it
+        sets `inPicker` and types /model until it has left the picker, and by
+        the dashboard while it types an answer/permission keystroke — so an
+        answer can never land in a picker that opens mid-answer."""
+        with self._lock:
+            lock = self._picker_locks.get(pane_key)
+            if lock is None:
+                lock = self._picker_locks[pane_key] = threading.Lock()
+            return lock
+
     def start(self, fields, io, pane=None):
         """Create + spawn a job. (payload, http_status). `pane`: {paneKey,
         machine, rawPaneId, sessionId}, saved so a restart can reach it."""
@@ -618,7 +658,7 @@ class CompactJobs:
                 "failedStep": None, "createdAt": now, "updatedAt": now,
                 "followUp": fields.get("followUp"),
                 "instructions": fields.get("instructions"),
-                "restoreModel": None, "sSent": False, "inPicker": False,
+                "restoreModel": None, "sSent": False, "inPicker": False,  # inPicker: public
                 "actor": fields.get("actor"),
             }
             for key in _PANE_KEYS:
@@ -671,6 +711,12 @@ class _Runner:
         # This runner typed /model (or inherited an open picker after a
         # restart): a picker found open later is ours to Esc.
         self.picker_used = False
+        # What the blind-Esc rule looks at (`blind_esc_allowed`): the last
+        # SUCCESSFUL read ('picker' | 'busy' | 'other' | None = no read yet,
+        # or an Esc went out since), and whether /model, an arrow, `s` or `1`
+        # was typed after that read.
+        self.last_screen = None
+        self.typed_picker_keys = False
 
     # -- small helpers
 
@@ -689,7 +735,15 @@ class _Runner:
             self.t.update(self.job, error=message, failedStep=step)
 
     def read(self):
-        return self.io.read()
+        lines = self.io.read()
+        if picker_open(lines) or switch_dialog_open(lines):
+            self.last_screen = "picker"
+        elif is_busy(lines):
+            self.last_screen = "busy"
+        else:
+            self.last_screen = "other"
+        self.typed_picker_keys = False
+        return lines
 
     def read_retry(self):
         """A fresh read, retried (bounded) — used inside picker steps, where
@@ -699,16 +753,57 @@ class _Runner:
             if attempt:
                 self.sleep(PICKER_POLL_SEC)
             try:
-                return self.io.read()
+                return self.read()
             except Exception as e:
                 error = e
         raise error
 
+    def read_patient(self):
+        """Restart recovery's read: retried with backoff for up to
+        RECOVERY_READ_BUDGET_SEC (recovery never Escs blind, so it waits for
+        a read instead)."""
+        deadline = self.now() + RECOVERY_READ_BUDGET_SEC
+        backoff = RECOVERY_BACKOFF_SEC
+        while True:
+            try:
+                return self.read()
+            except Exception:
+                if self.now() >= deadline:
+                    raise
+            self.sleep(min(backoff, max(0.0, deadline - self.now())))
+            backoff = min(backoff * 2, RECOVERY_BACKOFF_MAX_SEC)
+
+    def run_picker_line(self, text):
+        """`pane run` of a picker-opening line (/model)."""
+        self.typed_picker_keys = True
+        self.io.run_line(text)
+
+    def picker_keys(self, *keys):
+        """send-keys inside the picker / confirm dialog (arrows, s, 1)."""
+        self.typed_picker_keys = True
+        self.io.keys(*keys)
+
+    def blind_esc_allowed(self):
+        """An Esc without a read showing the picker is sent only when the
+        last successful read showed the picker, or /model / picker keys were
+        typed after it — never when it showed a busy spinner (Esc at a busy
+        prompt stops Claude's turn), and never right after another Esc."""
+        if self.last_screen == "busy":
+            return False
+        return self.last_screen == "picker" or self.typed_picker_keys
+
     def _esc(self):
+        self.last_screen = None
+        self.typed_picker_keys = False
         try:
             self.io.keys("esc")
         except Exception as e:
             _log(f"job {self.job['id']}: esc failed: {e!r}")
+
+    def _picker_closed(self):
+        """A read confirmed no picker / dialog is open."""
+        if self.job.get("inPicker"):
+            self.t.update(self.job, inPicker=False)
 
     def wait_ready(self, step, timeout, abort_on_typed=True, record=True):
         """Poll until the prompt is idle and empty. True when ready; raises
@@ -727,6 +822,7 @@ class _Runner:
                 lines = None
             if last == "idle":
                 self.lines = lines
+                self._picker_closed()   # an idle prompt = no picker open
                 return True
             if last == "typed" and abort_on_typed:
                 self.fail(step, USER_TYPED_ERROR)
@@ -743,44 +839,62 @@ class _Runner:
                 return False
             self.sleep(POLL_SEC)
 
-    def escape_out(self):
-        """Close the picker / confirm dialog without choosing anything. Esc
-        goes out on a read that shows one open (twice for dialog -> picker),
-        and ONCE blind when the pane can't be read and no Esc was sent yet:
-        Esc in the picker cancels ("Kept model as …"); a single Esc at an
-        idle prompt does nothing (two in a row could open Claude's rewind
-        menu, hence never a second blind one)."""
+    def escape_out(self, patient=False):
+        """Close the picker / confirm dialog without choosing anything.
+        True once a read confirms none is open (then `inPicker` is cleared),
+        False when that could not be confirmed (`inPicker` stays set).
+
+        Esc goes out on a read that shows one open (twice for dialog ->
+        picker). When the pane can't be read: ONE blind Esc, only if
+        `blind_esc_allowed()` (we just typed picker keys, or the last read
+        showed the picker) and no Esc was sent yet — Esc in the picker
+        cancels ("Kept model as …"); at a busy prompt it would stop the turn;
+        two in a row at an idle prompt could open Claude's rewind menu.
+        `patient` (restart recovery): reads are retried with backoff
+        (`read_patient`) and the runner has typed nothing, so no blind Esc."""
         sent = False
-        for _ in range(4):
+        for attempt in range(5):
             try:
-                lines = self.read_retry()
+                lines = self.read_patient() if patient else self.read_retry()
             except Exception:
-                if not sent:
+                if not sent and self.blind_esc_allowed():
                     self._esc()
                     self.sleep(PICKER_POLL_SEC)
-                return
+                return False
             if not (picker_open(lines) or switch_dialog_open(lines)):
-                return
+                self._picker_closed()
+                return True
+            if attempt == 4:
+                return False
             self._esc()
             sent = True
             self.sleep(PICKER_POLL_SEC)
+        return False
+
+    def _picker_key(self):
+        return self.job.get("paneKey") or f"row:{self.job['rowId']}"
 
     def picker_phase(self, body):
         """Run `body` (types /model, works the picker) and ALWAYS leave the
-        picker afterwards — result, refusal or exception alike. `inPicker`
-        is saved while it may be open, for a restart."""
-        self.picker_used = True
-        self.t.update(self.job, inPicker=True)
+        picker afterwards — result, refusal or exception alike. Holds the
+        pane's picker lock throughout (an answer keystroke can't interleave);
+        `inPicker` is set before /model and cleared only once a read confirms
+        the picker closed (it stays set, refusing answers, when unconfirmed)."""
+        lock = self.t.picker_lock(self._picker_key())
+        if not lock.acquire(timeout=PICKER_LOCK_WAIT_SEC):
+            raise _PickerBusy("an answer to the agent was still being typed")
         try:
-            return body()
-        finally:
+            self.picker_used = True
+            self.t.update(self.job, inPicker=True)
             try:
-                self.escape_out()
+                return body()
             finally:
-                self.t.update(self.job, inPicker=False)
+                self.escape_out()
+        finally:
+            lock.release()
 
     def open_picker(self):
-        self.io.run_line("/model")   # pane run's own Enter opens it; NO extra Enter
+        self.run_picker_line("/model")   # pane run's own Enter opens it; NO extra Enter
         deadline = self.now() + PICKER_WAIT_SEC
         while True:
             self.sleep(PICKER_POLL_SEC)
@@ -810,12 +924,12 @@ class _Runner:
             if cursor == target:
                 break
             delta = target - cursor
-            self.io.keys(*(["down"] * delta if delta > 0 else ["up"] * -delta))
+            self.picker_keys(*(["down"] * delta if delta > 0 else ["up"] * -delta))
             self.sleep(PICKER_POLL_SEC)
         else:
             return "the picker cursor did not reach the target row"
         self.t.update(self.job, sSent=True)
-        self.io.keys("s")
+        self.picker_keys("s")
         confirmed = False
         deadline = self.now() + PICKER_WAIT_SEC
         while True:
@@ -826,7 +940,7 @@ class _Runner:
                     yes = dialog_yes_model(lines)
                     if yes != model:
                         return f"unexpected confirm dialog ({yes or 'no Yes row'})"
-                    self.io.keys("1")
+                    self.picker_keys("1")
                     confirmed = True
             elif not picker_open(lines):
                 line = last_model_line(lines)
@@ -848,6 +962,9 @@ class _Runner:
             return self.picker_phase(self._switch_in_picker)
         except _Abort:
             raise
+        except _PickerBusy as e:
+            self.fail(SWITCHING, f"switch to Sonnet failed: {e}")
+            return "failed"
         except Exception as e:
             self.fail(SWITCHING, f"switch to Sonnet failed: pane read failed: {e}")
             return "failed"
@@ -966,6 +1083,8 @@ class _Runner:
             return self.commit_row(target)
         try:
             return self.picker_phase(body)
+        except _PickerBusy as e:
+            return str(e)
         except Exception as e:
             return f"pane read failed: {e}"
 
@@ -1044,21 +1163,19 @@ class _Runner:
 
     def recover(self, was_in_picker, needs_restore):
         """Restart recovery for a job the old process left mid-run (see
-        CompactJobs.recover). The job already reads failed / "dashboard
-        restarted"; while this runs it is active again (`restoringModel`),
-        so plain Sends to the row stay refused."""
+        CompactJobs.recover). `_load` already made it active again
+        (`restoringModel`, error "dashboard restarted"), so plain Sends and
+        new jobs for the row stay refused until `_finish` here. The picker
+        is escaped only on a read that shows it (patient reads, no blind
+        Esc: this runner typed nothing, and the agent may be mid-turn)."""
         lock = self.t.row_lock(self.job["rowId"])
         if not lock.acquire(timeout=ROW_LOCK_WAIT_SEC):
+            self._finish()
             return
         try:
             self.picker_used = True
-            if needs_restore:
-                self.t.update(self.job, state=RESTORING, modelRestored=None)
             if was_in_picker:
-                try:
-                    self.escape_out()
-                finally:
-                    self.t.update(self.job, inPicker=False)
+                self.escape_out(patient=True)
             if needs_restore:
                 self.restore()
         except Exception as e:

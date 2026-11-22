@@ -632,15 +632,107 @@ class EscReadFails(FakeTUI):
         return super().render()
 
 
-print("== QA 1: escape_out sends Esc even when its own read fails ==")
-r = cj._Runner(new_table()[0], {"id": "cj-0000000000000001", "rowId": "x", "state": "switchingModel"},
-               None)
-fake = FlakyReads(lambda s: True)
-fake.mode, fake.cursor = "picker", 1
-r.io = fake.io()
-r.escape_out()
-check("blind Esc sent", fake.key_log, [("picker", "esc")])
-check("picker closed", fake.mode, "idle")
+print("== QA 1 / QA2-4: escape_out's blind Esc only right after picker keys or a picker read ==")
+
+
+def blind_runner(prepare):
+    """A runner whose pane reads all fail from now on; `prepare(r, fake)`
+    sets up what the runner did before (typed /model, read a busy screen…)."""
+    table = new_table()[0]
+    job = {"id": "cj-0000000000000001", "rowId": "x", "state": "switchingModel", "inPicker": True}
+    fake = FlakyReads(lambda s: s.failing, )
+    fake.failing = False
+    r = cj._Runner(table, job, fake.io())
+    prepare(r, fake)
+    fake.failing = True
+    fake.key_log.clear()
+    confirmed = r.escape_out()
+    return fake, confirmed, job
+
+
+def typed_model(r, fake):
+    r.read()                     # idle prompt
+    r.run_picker_line("/model")  # opens the picker
+
+
+fake, confirmed, job = blind_runner(typed_model)
+check("just typed /model, reads fail -> one blind Esc", fake.key_log, [("picker", "esc")])
+check("… picker closed", fake.mode, "idle")
+check("… exit not confirmed by a read -> inPicker stays true", (confirmed, job["inPicker"]), (False, True))
+
+
+def read_picker(r, fake):
+    fake.run_line("/model")
+    r.read()                     # a read that SHOWS the picker
+
+
+fake, _c, _j = blind_runner(read_picker)
+check("last read showed the picker, reads fail -> one blind Esc", fake.key_log, [("picker", "esc")])
+fake, _c, _j = blind_runner(lambda r, fake: None)
+check("nothing typed, nothing read -> NO blind Esc", fake.key_log, [])
+
+
+def read_busy(r, fake):
+    fake.busy_forever = True
+    r.read()                     # a busy spinner (Esc there would interrupt the turn)
+
+
+fake, _c, _j = blind_runner(read_busy)
+check("last read showed a busy spinner -> NO blind Esc", fake.key_log, [])
+
+
+def typed_then_esc(r, fake):
+    typed_model(r, fake)
+    r._esc()                     # an Esc already went out since
+
+
+fake, _c, _j = blind_runner(typed_then_esc)
+check("an Esc already sent since the last picker key -> NO second blind Esc", fake.key_log, [])
+
+print("== QA2-1: inPicker set before /model, cleared only after a confirmed exit ==")
+
+
+class WatchInPicker(FakeTUI):
+    """Records (screen mode, the job's public inPicker) on every read."""
+
+    def __init__(self, table, **kw):
+        super().__init__(**kw)
+        self.table = table
+        self.seen = []
+
+    def render(self):
+        active = self.table.active_for_row("row-1")
+        self.seen.append((self.mode, active and active.get("inPicker")))
+        return super().render()
+
+
+for warm in (False, True):
+    table = new_table()[0]
+    fake = WatchInPicker(table, cache_warm=warm)
+    job, _s, _t = run_job(fake, follow_up="go", table=table)
+    label = "cache warm" if warm else "cold"
+    check(f"{label}: job done", job["state"], "done")
+    check(f"{label}: inPicker true on every read with the picker/dialog up",
+          {ip for mode, ip in fake.seen if mode in ("picker", "dialog")}, {True})
+    check(f"{label}: inPicker false while compacting / sending",
+          {ip for mode, ip in fake.seen if mode == "compacting"}, {False})
+    check(f"{label}: public job carries inPicker, false at the end", job["inPicker"], False)
+
+print("== QA2-1: the picker lock: /model waits for an answer being typed ==")
+table = new_table()[0]
+fake = FakeTUI()
+lock = table.picker_lock("row:row-1")
+lock.acquire()
+cj.PICKER_LOCK_WAIT_SEC, _saved_wait = 0.05, cj.PICKER_LOCK_WAIT_SEC
+job, _s, _t = run_job(fake, follow_up="go", table=table)
+cj.PICKER_LOCK_WAIT_SEC = _saved_wait
+lock.release()
+check("picker lock held (an answer typing) -> /model never typed",
+      [t for _m, t in fake.run_log if t == "/model"], [])
+check("… switch fails with a clear reason", (job["failedStep"], "answer" in (job["error"] or "")),
+      ("switchingModel", True))
+check("… inPicker never set", job["inPicker"], False)
+no_save_keys("picker lock held", fake)
 
 print("== QA 3+6: restore waits out a long compaction (> 2 min), then restores ==")
 
@@ -761,12 +853,26 @@ check("saved mid-job: sSent + restoreModel + step + not in picker",
       (True, "Opus 5.5", "compacting", False))
 fake = FakeTUI(live_row=3)   # the session as the dead worker left it: on Sonnet
 
-print("== QA 2: restart without recovery -> failed, modelRestored false, followUpSent false ==")
-reloaded = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep)
+print("== QA2-5: right after load (before recover) the job is ACTIVE + restoring: single-flight holds ==")
+reloaded = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: None)
+after = reloaded.get(jid)[0]["job"]
+check("active restoringModel, error already says restarted",
+      (after["state"], after["error"], after["failedStep"]), ("restoringModel", cj.RESTARTED_ERROR, "compacting"))
+check("modelRestored null while restoring", after["modelRestored"], None)
+check("followUpSent false, text kept", (after["followUpSent"], after["followUp"]), (False, "carry on"))
+p_new, s_new = reloaded.start({"rowId": "row-z", "actor": "po"}, FakeTUI(live_row=3).io())
+check("a new POST for the row -> 409 job-active (never 'already on Sonnet')",
+      (s_new, p_new["error"], p_new["job"]["id"]), (409, "job-active", jid))
+check("active_for_pane sees it (plain sends refused)", reloaded.active_for_pane("w4:p2")["id"], jid)
+check("state file says restoringModel too",
+      next(j for j in json.load(open(state_path))["jobs"] if j["id"] == jid)["state"], "restoringModel")
+
+print("== QA 2: restart, recovery can't reach the pane -> failed, modelRestored false, followUpSent false ==")
+reloaded.recover(lambda job: None)
 after = reloaded.get(jid)[0]["job"]
 check("failed / dashboard restarted",
       (after["state"], after["error"], after["failedStep"]), ("failed", cj.RESTARTED_ERROR, "compacting"))
-check("modelRestored false (not restored yet)", after["modelRestored"], False)
+check("modelRestored false (not restored)", after["modelRestored"], False)
 check("followUpSent false, text kept", (after["followUpSent"], after["followUp"]), (False, "carry on"))
 
 print("== QA 2: restart recovery restores the model, never auto-sends the follow-up ==")
@@ -811,14 +917,51 @@ check("nothing committed, still Opus", fake.model_display(), "Opus 5.5")
 check("failed / restarted", (after["state"], after["error"]), ("failed", cj.RESTARTED_ERROR))
 no_save_keys("restart in picker", fake)
 
-print("== QA 2: restart in the picker, pane unreadable -> one blind Esc ==")
+print("== QA2-4: restart in the picker, pane unreadable for a while -> no blind Esc; Esc once a read shows it ==")
+with open(state_path, "w") as fh:
+    json.dump({"jobs": [base]}, fh)
+fake = FlakyReads(lambda s: True, max_fails=6)
+fake.mode, fake.cursor = "picker", 1
+recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+check("loaded: active, inPicker true (answers refused)",
+      (recovered.get(base["id"])[0]["job"]["state"], recovered.get(base["id"])[0]["job"]["inPicker"]),
+      ("restoringModel", True))
+t0 = clock.t
+recovered.recover(lambda job: fake.io())
+after = recovered.get(base["id"])[0]["job"]
+check("reads retried past the failures (backoff)", fake.failed_reads, 6)
+check("exactly one Esc, sent on a read that showed the picker", fake.key_log, [("picker", "esc")])
+check("picker closed, exit confirmed -> inPicker false", (fake.mode, after["inPicker"]), ("idle", False))
+check("failed / restarted", (after["state"], after["error"]), ("failed", cj.RESTARTED_ERROR))
+
+print("== QA2-4: restart in the picker, pane never readable -> NO Esc at all, bounded ==")
 with open(state_path, "w") as fh:
     json.dump({"jobs": [base]}, fh)
 fake = FlakyReads(lambda s: True)
 fake.mode, fake.cursor = "picker", 1
 recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+t0 = clock.t
 recovered.recover(lambda job: fake.io())
-check("blind Esc", fake.key_log, [("picker", "esc")])
+after = recovered.get(base["id"])[0]["job"]
+check("no key sent blind", fake.key_log, [])
+check("gave up within the recovery read budget",
+      clock.t - t0 <= cj.RECOVERY_READ_BUDGET_SEC + cj.RECOVERY_BACKOFF_MAX_SEC, True)
+check("job ends failed", after["state"], "failed")
+
+print("== QA2-4: restart, inPicker saved but the agent is mid-turn (busy) -> no Esc ==")
+with open(state_path, "w") as fh:
+    json.dump({"jobs": [base]}, fh)
+fake = FakeTUI(busy_forever=True)
+recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+recovered.recover(lambda job: fake.io())
+check("busy agent never gets an Esc", fake.key_log, [])
+check("a read shows no picker -> exit confirmed", recovered.get(base["id"])[0]["job"]["inPicker"], False)
+
+print("== QA2-5: a load with nothing to recover (no picker, no s) is failed at once ==")
+with open(state_path, "w") as fh:
+    json.dump({"jobs": [dict(base, state="waitingIdle", inPicker=False)]}, fh)
+recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+check("failed straight away", recovered.get(base["id"])[0]["job"]["state"], "failed")
 
 print("== QA 2: restart, s sent, pane gone -> modelRestored false ==")
 with open(state_path, "w") as fh:
@@ -907,7 +1050,7 @@ def agent_row(pane_id, machine=None, kind="claude"):
 
 CONTRACT_KEYS = {"id", "rowId", "state", "originalModel", "switchSkipped", "skipReason",
                  "compactOk", "modelRestored", "followUpSent", "error", "failedStep",
-                 "createdAt", "updatedAt", "followUp"}
+                 "createdAt", "updatedAt", "followUp", "inPicker"}
 
 # local row: transcript from local disk
 fake = FakeTUI(transcript_path=os.path.join(PROJECTS, "proj", f"{SESSION}.jsonl"))
@@ -980,13 +1123,37 @@ check("message refused: compact-running, typed false",
 check("refusal is readable", res["error"].startswith("compact-running:"), True)
 check("HTTP status for it", _srv._session_action_status(res), 409)
 check("other replies keep 200", _srv._session_action_status({"ok": False, "error": "x"}), 200)
-check("answer/permission refused for the job's pane while it switches",
+check("answer/permission allowed while the job waits for idle",
       _srv._compact_pane_refusal("w4:p2"), None)  # waitingIdle: the user may answer
-_srv._compact_jobs().update(_srv._compact_jobs()._jobs[first["job"]["id"]], state="switchingModel")
+first_job = _srv._compact_jobs()._jobs[first["job"]["id"]]
+for state in ("switchingModel", "compacting", "restoringModel"):
+    _srv._compact_jobs().update(first_job, state=state, inPicker=False)
+    check(f"QA2-1: {state}, picker closed -> answers allowed (permission prompts answerable)",
+          _srv._compact_pane_refusal("w4:p2"), None)
+    res = _srv.handle_session_action("message", {"rowId": SESSION, "actor": "po", "text": "hello"})
+    check(f"QA2-1: {state} -> plain send still refused", res.get("code"), "compact-running")
+_srv._compact_jobs().update(first_job, state="restoringModel", inPicker=True)
 blocked = _srv._compact_pane_refusal("w4:p2")
-check("… refused once the job drives the picker",
-      (blocked or {}).get("code"), "compact-running")
+check("… refused while the picker may be open (inPicker)",
+      ((blocked or {}).get("code"), (blocked or {}).get("job", {}).get("inPicker")), ("compact-running", True))
 check("other panes unaffected", _srv._compact_pane_refusal("w9:p9"), None)
+
+print("== server QA2-1: answers run under the pane's picker lock ==")
+_srv._compact_jobs().update(first_job, inPicker=False)
+ran = []
+refusal, result = _srv._answer_unless_picker("w4:p2", lambda: ran.append(1) or {"answered": True})
+check("picker closed -> the answer runs", (refusal, result, ran), (None, {"answered": True}, [1]))
+_srv._compact_jobs().update(first_job, inPicker=True)
+refusal, result = _srv._answer_unless_picker("w4:p2", lambda: ran.append(2))
+check("inPicker -> refused, the answer never runs", ((refusal or {}).get("code"), ran), ("compact-running", [1]))
+_srv._compact_jobs().update(first_job, inPicker=False)
+_srv._ANSWER_PICKER_WAIT_SEC = 0.05
+plock = _srv._compact_jobs().picker_lock("w4:p2")
+plock.acquire()   # the job is between "lock taken" and "/model typed"
+refusal, result = _srv._answer_unless_picker("w4:p2", lambda: ran.append(3))
+plock.release()
+check("picker lock held by the job -> refused, never runs", ((refusal or {}).get("code"), ran),
+      ("compact-running", [1]))
 check("nothing typed by the refusals", (fake.run_log, fake.key_log), ([], []))
 
 # The row lock: a plain send that finds the lock held waits briefly, then

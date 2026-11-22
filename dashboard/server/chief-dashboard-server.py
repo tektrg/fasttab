@@ -2266,17 +2266,44 @@ def _send_message_unless_compacting(body, row_id, actor):
 
 
 def _compact_pane_refusal(pane_id):
-    """/api/answer and /api/permission send digits/Enter: refused while a
-    compact job on that pane is past `waitingIdle` (it may have the /model
-    picker open). While it is still waiting the user MUST be able to answer
-    a question — the job waits for exactly that."""
+    """/api/answer and /api/permission send digits/Enter: refused only while
+    a compact job on that pane may have the /model picker open (its
+    `inPicker` flag), where a digit or Enter SAVES the global default model.
+    Any other time — waiting for idle, compacting, a restore waiting up to
+    10 min for a busy agent — a question or permission prompt the agent
+    raises must stay answerable."""
     try:
         active = _compact_jobs().active_for_pane(pane_id)
     except Exception:
         return None
-    if active is None or active.get("state") == compact_jobs.WAITING_IDLE:
+    if active is None or not active.get("inPicker"):
         return None
     return _compact_running_refusal(active)
+
+
+#: How long an answer waits for the pane's picker lock (a compact job holds it
+#: from just before typing /model until it has left the picker: seconds).
+_ANSWER_PICKER_WAIT_SEC = 10.0
+
+
+def _answer_unless_picker(pane_id, answer):
+    """(refusal, None) or (None, answer()). The answer is typed holding the
+    pane's picker lock, so a compact job can't open the picker mid-answer;
+    a job already in its picker step -> the 409 compact-running body."""
+    jobs = _compact_jobs()
+    lock = jobs.picker_lock(pane_id)
+    if not lock.acquire(timeout=_ANSWER_PICKER_WAIT_SEC):
+        active = jobs.active_for_pane(pane_id)
+        if active is not None:
+            return _compact_running_refusal(active), None
+        raise RuntimeError("another answer to this pane is still being typed — try again")
+    try:
+        refusal = _compact_pane_refusal(pane_id)
+        if refusal is not None:
+            return refusal, None
+        return None, answer()
+    finally:
+        lock.release()
 
 
 def handle_compact_post(body):
@@ -3628,19 +3655,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "missing paneId"}, status=400)
                 return
             self._note_remote_audit_row(pane_id)
-            refusal = None if path == "/api/focus" else _compact_pane_refusal(pane_id)
-            if refusal is not None:
-                self._send_json(refusal, status=409)
-                return
             if path == "/api/focus":
                 result = focus_pane(pane_id)
-            elif path == "/api/answer":
-                result = answer_pane_question(
-                    pane_id, body.get("choice"), body.get("question"))
             else:
-                result = answer_pane_permission(
-                    pane_id, body.get("choice"), body.get("permission"),
-                    index=body.get("index"), text=body.get("text"))
+                # Refused (409 compact-running) only while a compact job may
+                # have the /model picker open on this pane.
+                if path == "/api/answer":
+                    def answer():
+                        return answer_pane_question(
+                            pane_id, body.get("choice"), body.get("question"))
+                else:
+                    def answer():
+                        return answer_pane_permission(
+                            pane_id, body.get("choice"), body.get("permission"),
+                            index=body.get("index"), text=body.get("text"))
+                refusal, result = _answer_unless_picker(pane_id, answer)
+                if refusal is not None:
+                    self._send_json(refusal, status=409)
+                    return
             self._send_json({"ok": True, **result})
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=200)
@@ -3815,8 +3847,11 @@ def main():
     start_pollers()
     SAMPLER.start()
     apns_agent_push.start_observer(get_full_state, STOP)
-    # Compact jobs the previous process left mid-run: leave the /model picker
-    # and put the model back (background threads; never re-sends a follow-up).
+    # Compact jobs the previous process left mid-run: loading the table (here,
+    # before any listener binds) marks them active `restoringModel`, so their
+    # rows refuse new jobs and sends at once; recover() then leaves the /model
+    # picker and puts the model back (background threads; never re-sends a
+    # follow-up).
     _compact_jobs().recover(_compact_io_for_saved_job)
 
     server = QuietThreadingHTTPServer((HOST, PORT), Handler)

@@ -60,14 +60,23 @@ TERMINAL_STATES = (DONE, FAILED)
 IDLE_TIMEOUT_SEC = 600
 #: Between steps the prompt is normally idle at once; this is the safety net.
 STEP_IDLE_TIMEOUT_SEC = 60
-#: Restore waits longer than a step: it is the one step that undoes a change.
-RESTORE_IDLE_TIMEOUT_SEC = 120
+#: Restore budget: it is the one step that undoes a change, so after a
+#: compact timeout or an ssh outage it waits for the pane to stop being busy
+#: and retries (backing off) for up to 10 min before `modelRestored: false`.
+RESTORE_BUDGET_SEC = 600
+RESTORE_BACKOFF_SEC = 5.0
+RESTORE_BACKOFF_MAX_SEC = 60.0
 COMPACT_TIMEOUT_SEC = 300
 POLL_SEC = 2.0
 #: Picker/dialog screen changes land within a second (probe: no delay needed).
 PICKER_WAIT_SEC = 8.0
 PICKER_POLL_SEC = 0.4
 NAV_ATTEMPTS = 3
+#: Reads inside a picker step are retried this many times (an ssh hiccup must
+#: not abandon an open picker).
+PICKER_READ_ATTEMPTS = 3
+#: How long a job waits for the row's send lock (a plain Send already typing).
+ROW_LOCK_WAIT_SEC = 30.0
 #: GET ?rowId= shows a finished job this long (contract: 30 min).
 RECENT_FINISHED_SEC = 30 * 60
 #: Finished jobs are dropped from the state file after a day.
@@ -109,6 +118,11 @@ _MAX_LINES_UNDER_BOX = 4
 #: Bottom lines the picker/dialog footer must sit in to count as OPEN (a
 #: closed picker's frame left in scrollback must never read as open).
 _BOTTOM_LINES = 8
+#: A brand-new session draws a dim suggestion in its EMPTY prompt, e.g.
+#: `❯ Try "fix lint errors"`. herdr reads plain text (no dim attribute), so
+#: it would read as typed and stall `waitingIdle`. Conservative: the whole
+#: box is exactly `Try "<one line>"` — anything after the quote is typed.
+_PLACEHOLDER_RE = re.compile(r'^Try "[^"\n]{1,200}"$')
 
 
 def strip_ansi(text):
@@ -154,6 +168,8 @@ def _input_box(lines):
     first = body[0].lstrip()[1:].strip()
     rest = [b.strip() for b in body[1:]]
     text = "\n".join([first] + rest).strip()
+    if _PLACEHOLDER_RE.match(text):
+        text = ""   # the dim new-session hint, not something typed
     return idx[top], idx[close], text
 
 
@@ -427,17 +443,34 @@ class PaneIO:
         self.transcript_tail = transcript_tail
 
 
+#: The Job JSON clients see. `followUp` (QA 2026-11-22, additive) = the queued
+#: message text, so a client can offer to resend it when `followUpSent` is false.
 _PUBLIC_KEYS = ("id", "rowId", "state", "originalModel", "switchSkipped",
                 "skipReason", "compactOk", "modelRestored", "followUpSent",
-                "error", "failedStep", "createdAt", "updatedAt")
+                "error", "failedStep", "createdAt", "updatedAt", "followUp")
+#: Saved in the 0600 state file only — what a restarted dashboard needs to
+#: leave the picker and put the model back (never sent to clients).
+#: `inPicker`: /model was typed and the picker may be open; `sSent`: the
+#: picker's session-only commit was pressed (the model may have changed).
+_PRIVATE_KEYS = ("instructions", "restoreModel", "sSent", "inPicker",
+                 "paneKey", "machine", "rawPaneId", "sessionId", "actor")
+_PANE_KEYS = ("paneKey", "machine", "rawPaneId", "sessionId")
 
 
 def public_job(job):
     return None if job is None else {k: job.get(k) for k in _PUBLIC_KEYS}
 
 
+def _saved_job(job):
+    return {k: job.get(k) for k in _PUBLIC_KEYS + _PRIVATE_KEYS}
+
+
 def _thread_spawn(fn):
     threading.Thread(target=fn, daemon=True, name="compact-job").start()
+
+
+def _log(message):
+    print(f"compact-jobs: {message}", file=sys.stderr)
 
 
 class _Abort(Exception):
@@ -446,7 +479,10 @@ class _Abort(Exception):
 
 class CompactJobs:
     """Job table: a lock, an in-memory dict, one worker thread per job, a
-    0600 state file. Single-flight per rowId."""
+    0600 state file. Single-flight per rowId; one send lock per row, held by
+    a job's worker for its whole run and by every plain Send to that row
+    (the dashboard server takes it), so a Send can never type into the
+    /model picker a job just opened."""
 
     def __init__(self, state_path=None, clock=time.time, sleep=time.sleep,
                  spawn=_thread_spawn):
@@ -456,6 +492,8 @@ class CompactJobs:
         self._spawn = spawn
         self._lock = threading.Lock()
         self._jobs = {}
+        self._row_locks = {}
+        self._interrupted = []   # (job, was_in_picker, needs_restore) from _load
         self._load()
 
     # -- persistence
@@ -472,13 +510,22 @@ class CompactJobs:
         for raw in (data.get("jobs") if isinstance(data, dict) else None) or []:
             if not isinstance(raw, dict) or not _JOB_ID_RE.match(str(raw.get("id", ""))):
                 continue
-            job = {k: raw.get(k) for k in _PUBLIC_KEYS}
+            job = {k: raw.get(k) for k in _PUBLIC_KEYS + _PRIVATE_KEYS}
             job["switchSkipped"] = bool(job.get("switchSkipped"))
             if job.get("state") not in TERMINAL_STATES:
-                # Its worker died with the old process: it can never finish.
+                # Its worker died with the old process. Pessimistic until
+                # `recover()` proves otherwise: a switched model reads NOT
+                # restored, a queued follow-up NOT sent (never auto-sent
+                # after a restart; the text stays for a client resend).
                 if job.get("error") is None:
                     job["error"] = RESTARTED_ERROR
                     job["failedStep"] = job.get("state")
+                needs_restore = bool(job.get("sSent")) and job.get("modelRestored") is not True
+                if needs_restore:
+                    job["modelRestored"] = False
+                if job.get("followUp") and job.get("followUpSent") is not True:
+                    job["followUpSent"] = False
+                self._interrupted.append((job, bool(job.get("inPicker")), needs_restore))
                 job["state"] = FAILED
                 job["updatedAt"] = self._clock()
                 changed = True
@@ -491,7 +538,7 @@ class CompactJobs:
             return
         now = self._clock()
         with self._lock:
-            jobs = [public_job(j) for j in self._jobs.values()
+            jobs = [_saved_job(j) for j in self._jobs.values()
                     if j["state"] not in TERMINAL_STATES
                     or now - (j.get("updatedAt") or 0) < KEEP_FINISHED_SEC]
         try:
@@ -503,8 +550,29 @@ class CompactJobs:
             os.chmod(tmp, 0o600)
             os.replace(tmp, self._state_path)
         except OSError as e:
-            print(f"compact-jobs: could not save state: {e.__class__.__name__}",
-                  file=sys.stderr)
+            _log(f"could not save state: {e.__class__.__name__}")
+
+    def recover(self, io_for_job):
+        """After a restart: for each job the old process left running, leave
+        the picker if it may be open (Esc after a read shows it; one blind
+        Esc when the pane can't be read), and if Sonnet may have been
+        committed, try to put the model back (same 10 min restore budget).
+        `io_for_job(job)` -> PaneIO, or None when the pane can't be reached
+        (the job then keeps `modelRestored: false`). Never sends the
+        follow-up. Call once, at server start."""
+        pending, self._interrupted = self._interrupted, []
+        for job, was_in_picker, needs_restore in pending:
+            if not (was_in_picker or needs_restore):
+                continue
+            try:
+                io = io_for_job(job)
+            except Exception as e:
+                _log(f"job {job['id']}: no pane I/O after restart: {e!r}")
+                io = None
+            if io is None:
+                continue
+            runner = _Runner(self, job, io)
+            self._spawn(lambda r=runner, p=was_in_picker, n=needs_restore: r.recover(p, n))
 
     # -- table
 
@@ -514,8 +582,29 @@ class CompactJobs:
                 return job
         return None
 
-    def start(self, fields, io, actor=None):
-        """Create + spawn a job. (payload, http_status)."""
+    def active_for_row(self, row_id):
+        with self._lock:
+            return public_job(self._active_for(row_id))
+
+    def active_for_pane(self, pane_key):
+        """The active job driving this (namespaced) pane, public shape."""
+        with self._lock:
+            for job in self._jobs.values():
+                if (pane_key and job.get("paneKey") == pane_key
+                        and job["state"] not in TERMINAL_STATES):
+                    return public_job(job)
+        return None
+
+    def row_lock(self, row_id):
+        with self._lock:
+            lock = self._row_locks.get(row_id)
+            if lock is None:
+                lock = self._row_locks[row_id] = threading.Lock()
+            return lock
+
+    def start(self, fields, io, pane=None):
+        """Create + spawn a job. (payload, http_status). `pane`: {paneKey,
+        machine, rawPaneId, sessionId}, saved so a restart can reach it."""
         now = self._clock()
         with self._lock:
             active = self._active_for(fields["rowId"])
@@ -527,11 +616,17 @@ class CompactJobs:
                 "switchSkipped": False, "skipReason": None, "compactOk": None,
                 "modelRestored": None, "followUpSent": None, "error": None,
                 "failedStep": None, "createdAt": now, "updatedAt": now,
+                "followUp": fields.get("followUp"),
+                "instructions": fields.get("instructions"),
+                "restoreModel": None, "sSent": False, "inPicker": False,
+                "actor": fields.get("actor"),
             }
+            for key in _PANE_KEYS:
+                job[key] = (pane or {}).get(key)
             self._jobs[job["id"]] = job
             snapshot = public_job(job)
         self._save()
-        runner = _Runner(self, job, io, fields.get("instructions"), fields.get("followUp"))
+        runner = _Runner(self, job, io)
         self._spawn(runner.run)
         return {"ok": True, "job": snapshot}, 202
 
@@ -564,16 +659,18 @@ class CompactJobs:
 
 
 class _Runner:
-    """One job's sequence. Every keystroke follows a fresh read."""
+    """One job's sequence. Every keystroke follows a fresh read; everything
+    a restart needs (`sSent`, `restoreModel`, `inPicker`, the follow-up) lives
+    in the job dict, saved on every change."""
 
-    def __init__(self, table, job, io, instructions, follow_up):
+    def __init__(self, table, job, io):
         self.t = table
         self.job = job
         self.io = io
-        self.instructions = instructions
-        self.follow_up = follow_up
-        self.s_sent = False         # the picker's session-only commit was pressed
-        self.restore_model = None   # e.g. "Opus 5.5" — the row to go back to
+        self.lines = None
+        # This runner typed /model (or inherited an open picker after a
+        # restart): a picker found open later is ours to Esc.
+        self.picker_used = False
 
     # -- small helpers
 
@@ -594,10 +691,31 @@ class _Runner:
     def read(self):
         return self.io.read()
 
-    def wait_ready(self, step, timeout, abort_on_typed=True):
+    def read_retry(self):
+        """A fresh read, retried (bounded) — used inside picker steps, where
+        giving up on one ssh hiccup would leave the picker open."""
+        error = None
+        for attempt in range(PICKER_READ_ATTEMPTS):
+            if attempt:
+                self.sleep(PICKER_POLL_SEC)
+            try:
+                return self.io.read()
+            except Exception as e:
+                error = e
+        raise error
+
+    def _esc(self):
+        try:
+            self.io.keys("esc")
+        except Exception as e:
+            _log(f"job {self.job['id']}: esc failed: {e!r}")
+
+    def wait_ready(self, step, timeout, abort_on_typed=True, record=True):
         """Poll until the prompt is idle and empty. True when ready; raises
         _Abort when the box holds text (the restore instead keeps waiting for
-        the user to send or clear it); False (failure recorded) on timeout."""
+        the user to send or clear it); False on timeout (failure recorded
+        unless `record` is False). A /model picker or `Switch model?` dialog
+        this job left open is escaped, never waited on."""
         deadline = self.now() + timeout
         last = None
         while True:
@@ -613,32 +731,60 @@ class _Runner:
             if last == "typed" and abort_on_typed:
                 self.fail(step, USER_TYPED_ERROR)
                 raise _Abort()
+            if (last == "prompt" and self.picker_used
+                    and (picker_open(lines) or switch_dialog_open(lines))):
+                self.escape_out()
             if self.now() >= deadline:
-                mins = int(round(timeout / 60.0))
-                what = f"{mins} min" if mins >= 1 else f"{int(timeout)}s"
-                self.fail(step, f"agent did not reach an idle prompt within {what}"
-                          + (f" ({last})" if last and last.startswith("pane read") else ""))
+                if record:
+                    mins = int(round(timeout / 60.0))
+                    what = f"{mins} min" if mins >= 1 else f"{int(timeout)}s"
+                    self.fail(step, f"agent did not reach an idle prompt within {what}"
+                              + (f" ({last})" if last and last.startswith("pane read") else ""))
                 return False
             self.sleep(POLL_SEC)
 
     def escape_out(self):
-        """Close the picker / confirm dialog without choosing anything."""
-        for _ in range(3):
+        """Close the picker / confirm dialog without choosing anything. Esc
+        goes out on a read that shows one open (twice for dialog -> picker),
+        and ONCE blind when the pane can't be read and no Esc was sent yet:
+        Esc in the picker cancels ("Kept model as …"); a single Esc at an
+        idle prompt does nothing (two in a row could open Claude's rewind
+        menu, hence never a second blind one)."""
+        sent = False
+        for _ in range(4):
             try:
-                lines = self.read()
+                lines = self.read_retry()
             except Exception:
+                if not sent:
+                    self._esc()
+                    self.sleep(PICKER_POLL_SEC)
                 return
             if not (picker_open(lines) or switch_dialog_open(lines)):
                 return
-            self.io.keys("esc")
+            self._esc()
+            sent = True
             self.sleep(PICKER_POLL_SEC)
+
+    def picker_phase(self, body):
+        """Run `body` (types /model, works the picker) and ALWAYS leave the
+        picker afterwards — result, refusal or exception alike. `inPicker`
+        is saved while it may be open, for a restart."""
+        self.picker_used = True
+        self.t.update(self.job, inPicker=True)
+        try:
+            return body()
+        finally:
+            try:
+                self.escape_out()
+            finally:
+                self.t.update(self.job, inPicker=False)
 
     def open_picker(self):
         self.io.run_line("/model")   # pane run's own Enter opens it; NO extra Enter
         deadline = self.now() + PICKER_WAIT_SEC
         while True:
             self.sleep(PICKER_POLL_SEC)
-            picker = parse_model_picker(self.read())
+            picker = parse_model_picker(self.read_retry())
             if picker is not None:
                 return picker
             if self.now() >= deadline:
@@ -648,19 +794,18 @@ class _Runner:
         """Park the ❯ cursor on the standard row whose model is `model`
         (re-read after every move), press `s`, answer `Switch model?` with
         `1`, and confirm `Set model to <model> for this session only`.
-        Returns None on success, else the reason (picker escaped)."""
+        Returns None on success, else the reason. Must run inside
+        `picker_phase` (which leaves the picker whatever happens)."""
         for _ in range(NAV_ATTEMPTS + 1):
-            picker = parse_model_picker(self.read())
+            picker = parse_model_picker(self.read_retry())
             if picker is None:
                 return "the model picker closed unexpectedly"
             target = next((i for i, r in enumerate(picker["rows"])
                            if r["standard"] and r["model"] == model), None)
             if target is None:
-                self.escape_out()
                 return f"no {model} row in the model picker"
             cursor = picker["cursor"]
             if cursor is None:
-                self.escape_out()
                 return "could not find the picker cursor"
             if cursor == target:
                 break
@@ -668,20 +813,18 @@ class _Runner:
             self.io.keys(*(["down"] * delta if delta > 0 else ["up"] * -delta))
             self.sleep(PICKER_POLL_SEC)
         else:
-            self.escape_out()
             return "the picker cursor did not reach the target row"
-        self.s_sent = True
+        self.t.update(self.job, sSent=True)
         self.io.keys("s")
         confirmed = False
         deadline = self.now() + PICKER_WAIT_SEC
         while True:
             self.sleep(PICKER_POLL_SEC)
-            lines = self.read()
+            lines = self.read_retry()
             if switch_dialog_open(lines):
                 if not confirmed:
                     yes = dialog_yes_model(lines)
                     if yes != model:
-                        self.escape_out()
                         return f"unexpected confirm dialog ({yes or 'no Yes row'})"
                     self.io.keys("1")
                     confirmed = True
@@ -692,7 +835,6 @@ class _Runner:
                 if line and line["model"] == model and line["saved"]:
                     return f"{model} was saved as the global default (expected session only)"
             if self.now() >= deadline:
-                self.escape_out()
                 return f"no 'Set model to {model} for this session only' confirmation"
 
     # -- steps
@@ -702,30 +844,35 @@ class _Runner:
         self.set_state(SWITCHING)
         if not self.wait_ready(SWITCHING, STEP_IDLE_TIMEOUT_SEC):
             return "failed"
+        try:
+            return self.picker_phase(self._switch_in_picker)
+        except _Abort:
+            raise
+        except Exception as e:
+            self.fail(SWITCHING, f"switch to Sonnet failed: pane read failed: {e}")
+            return "failed"
+
+    def _switch_in_picker(self):
         picker = self.open_picker()
         if picker is None:
-            self.escape_out()
             self.fail(SWITCHING, "the model picker did not open")
             return "failed"
         idx, display = current_model(picker)
         if display:
             self.t.update(self.job, originalModel=display)
         if idx is None:
-            self.escape_out()
             self.t.update(self.job, switchSkipped=True, skipReason=CUSTOM_MODEL_SKIP)
             return "skipped"
         row = picker["rows"][idx]
         if row["family"] == TARGET_FAMILY:
-            self.escape_out()
             self.t.update(self.job, switchSkipped=True, skipReason=ALREADY_SONNET_SKIP)
             return "skipped"
         target = next((r for r in picker["rows"]
                        if r["standard"] and r["family"] == TARGET_FAMILY), None)
         if target is None:
-            self.escape_out()
             self.fail(SWITCHING, "no Sonnet row in the model picker")
             return "failed"
-        self.restore_model = row["model"]
+        self.t.update(self.job, restoreModel=row["model"])
         err = self.commit_row(target["model"])
         if err:
             self.fail(SWITCHING, "switch to Sonnet failed: " + err)
@@ -741,7 +888,8 @@ class _Runner:
             before = compact_boundary_ids(self.io.transcript_tail())
         except Exception:
             before = None
-        text = "/compact" + (" " + self.instructions if self.instructions else "")
+        instructions = self.job.get("instructions")
+        text = "/compact" + (" " + instructions if instructions else "")
         result = self.io.send_message(text) or {}
         if not result.get("ok"):
             self.t.update(self.job, compactOk=False)
@@ -777,38 +925,86 @@ class _Runner:
         self.fail(COMPACTING, "compaction did not finish within 5 min")
 
     def restore(self):
+        """Put the remembered model back (session only). After a compact
+        timeout or an ssh outage the pane may stay busy or unreadable for a
+        while: wait for an idle prompt and retry, backing off, for up to
+        RESTORE_BUDGET_SEC; only then `modelRestored: false`."""
         self.set_state(RESTORING)
-        if not self.s_sent:
+        if not self.job.get("sSent"):
             # Nothing was committed in the picker: the model never changed.
             self.t.update(self.job, modelRestored=True)
             return
-        if not self.wait_ready(RESTORING, RESTORE_IDLE_TIMEOUT_SEC, abort_on_typed=False):
+        target = self.job.get("restoreModel")
+        if not target:
             self.t.update(self.job, modelRestored=False)
+            self.fail(RESTORING, "no model remembered to restore")
             return
-        picker = self.open_picker()
-        if picker is None:
-            self.escape_out()
-            self.t.update(self.job, modelRestored=False)
-            self.fail(RESTORING, "the model picker did not open to restore "
-                      + self.restore_model)
-            return
-        err = self.commit_row(self.restore_model)
-        self.t.update(self.job, modelRestored=err is None)
-        if err:
-            self.fail(RESTORING, f"restore to {self.restore_model} failed: {err}")
+        deadline = self.now() + RESTORE_BUDGET_SEC
+        backoff = RESTORE_BACKOFF_SEC
+        while True:
+            err = self._restore_once(target, deadline)
+            if err is None:
+                self.t.update(self.job, modelRestored=True)
+                return
+            if self.now() >= deadline:
+                break
+            self.sleep(min(backoff, max(0.0, deadline - self.now())))
+            backoff = min(backoff * 2, RESTORE_BACKOFF_MAX_SEC)
+        self.t.update(self.job, modelRestored=False)
+        self.fail(RESTORING, f"restore to {target} failed within "
+                             f"{RESTORE_BUDGET_SEC // 60} min: {err}")
+
+    def _restore_once(self, target, deadline):
+        """One attempt: None on success, else why."""
+        if not self.wait_ready(RESTORING, max(0.0, deadline - self.now()),
+                               abort_on_typed=False, record=False):
+            return "the agent did not reach an idle, empty prompt"
+
+        def body():
+            if self.open_picker() is None:
+                return "the model picker did not open"
+            return self.commit_row(target)
+        try:
+            return self.picker_phase(body)
+        except Exception as e:
+            return f"pane read failed: {e}"
 
     def send_follow_up(self):
         self.set_state(FOLLOW_UP)
         if not self.wait_ready(FOLLOW_UP, STEP_IDLE_TIMEOUT_SEC):
             self.t.update(self.job, followUpSent=False)
             return
-        result = self.io.send_message(self.follow_up) or {}
+        result = self.io.send_message(self.job["followUp"]) or {}
         self.t.update(self.job, followUpSent=bool(result.get("ok")))
         if not result.get("ok"):
             self.fail(FOLLOW_UP, "follow-up not sent: "
                       + str(result.get("error") or result.get("reason") or "refused"))
 
+    def _finish(self):
+        """Never leave a flag null when its step was due: a follow-up that
+        existed but did not go out reads `followUpSent: false`; a committed
+        switch that was not undone reads `modelRestored: false`."""
+        changes = {}
+        if self.job.get("followUp") and self.job.get("followUpSent") is not True:
+            changes["followUpSent"] = False
+        if self.job.get("sSent") and self.job.get("modelRestored") is not True:
+            changes["modelRestored"] = False
+        if changes:
+            self.t.update(self.job, **changes)
+        self.set_state(FAILED if self.job.get("error") else DONE)
+
     def run(self):
+        lock = self.t.row_lock(self.job["rowId"])
+        if not lock.acquire(timeout=ROW_LOCK_WAIT_SEC):
+            self.fail(WAITING_IDLE, "another send to this session was still running")
+            self._finish()
+            return
+        try:
+            self._run()
+        finally:
+            lock.release()
+
+    def _run(self):
         reached_idle = False
         aborted = False
         switching_started = False
@@ -830,22 +1026,46 @@ class _Runner:
         except _Abort:
             aborted = True
         except Exception as e:  # never leave a job running forever
-            print(f"compact-jobs: job {self.job['id']} crashed: {e!r}", file=sys.stderr)
+            _log(f"job {self.job['id']} crashed: {e!r}")
             self.fail(self.job.get("state"), f"internal error: {e.__class__.__name__}")
         finally:
             try:
                 if switching_started and not self.job.get("switchSkipped"):
                     self.restore()
-                if self.follow_up and reached_idle and not aborted:
+                if self.job.get("followUp") and reached_idle and not aborted:
                     try:
                         self.send_follow_up()
                     except _Abort:  # the user typed: never type over it
                         self.t.update(self.job, followUpSent=False)
             except Exception as e:
-                print(f"compact-jobs: job {self.job['id']} crashed in cleanup: {e!r}",
-                      file=sys.stderr)
+                _log(f"job {self.job['id']} crashed in cleanup: {e!r}")
                 self.fail(self.job.get("state"), f"internal error: {e.__class__.__name__}")
-            self.set_state(FAILED if self.job.get("error") else DONE)
+            self._finish()
+
+    def recover(self, was_in_picker, needs_restore):
+        """Restart recovery for a job the old process left mid-run (see
+        CompactJobs.recover). The job already reads failed / "dashboard
+        restarted"; while this runs it is active again (`restoringModel`),
+        so plain Sends to the row stay refused."""
+        lock = self.t.row_lock(self.job["rowId"])
+        if not lock.acquire(timeout=ROW_LOCK_WAIT_SEC):
+            return
+        try:
+            self.picker_used = True
+            if needs_restore:
+                self.t.update(self.job, state=RESTORING, modelRestored=None)
+            if was_in_picker:
+                try:
+                    self.escape_out()
+                finally:
+                    self.t.update(self.job, inPicker=False)
+            if needs_restore:
+                self.restore()
+        except Exception as e:
+            _log(f"job {self.job['id']} recovery crashed: {e!r}")
+        finally:
+            lock.release()
+            self._finish()
 
 
 # ---------------------------------------------------------------- routes

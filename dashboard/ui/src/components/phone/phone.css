@@ -140,6 +140,8 @@ button.phone-section-head { cursor: pointer; }
 .composer--phone .voice-bar, .composer--phone .image-attach-bar { margin-top: var(--s2); }
 .composer--phone .composer-mic { width: 44px; height: 44px; }
 .composer--phone .composer-mic svg { width: 20px; height: 20px; }
+/* /compact draft: ↵ adds line 2 (the follow-up) — touch keyboards have no Shift+Enter. */
+.composer--phone .composer-newline { flex: none; width: 44px; height: 44px; }
 /* iOS Safari auto-zooms on focus of any input under 16px; Mantine's
    TextInput (Composer, persona message) is 14px. */
 .ui-screen__footer input { font-size: 16px; }

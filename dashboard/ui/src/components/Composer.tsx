@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Group, List, Text, Textarea } from "@mantine/core";
 import {
+  compactHint,
   compactPolling,
   describeCompactJob,
   fetchCompactForRow,
@@ -9,6 +10,7 @@ import {
   isCompactTerminal,
   parseCompactDraft,
   startCompact,
+  unsentFollowUp,
   type CompactDraft,
   type CompactJob,
 } from "../compactJob";
@@ -226,17 +228,41 @@ export function Composer({
       if (res.ok) {
         anyStarted = true;
       } else if (res.error === "job-active") {
-        anyStarted = true; // the running job is shown; nothing new typed
+        // The running job is shown; THIS draft (its follow-up too) never went
+        // anywhere, so it comes back below.
         onToast(`a compact is already running for ${label}`, false);
+      } else if (res.status === 0) {
+        // Dropped connection: a job may exist — re-sending just answers 409.
+        onToast(`compact may not have started for ${label}: ${res.error || "?"}`, false);
       } else {
         onToast(`compact refused for ${label}: ${res.error || "?"}`, false);
       }
     }
     setBusy(false);
-    // Every POST refused before a job existed: nothing reached a pane.
+    // No job started from this draft: put it back, follow-up included.
     if (!anyStarted) setText((current) => (current === "" ? draft : current));
     onDone?.();
   };
+
+  /** An unsent follow-up back into the box (appended under a draft). */
+  const putBack = (followUp: string) => {
+    setText((current) => (current.trim() ? `${current}\n${followUp}` : followUp));
+    inputRef.current?.focus();
+  };
+
+  /** Phone: no Shift+Enter on a touch keyboard, so a button adds line 2. */
+  const insertNewline = () => {
+    const el = inputRef.current;
+    const at = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? at;
+    setText(text.slice(0, at) + "\n" + text.slice(end));
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(at + 1, at + 1);
+    });
+  };
+  const hint = targets.length > 0 ? compactHint(text, !!phone) : null;
 
   const send = async () => {
     if (!canSend) return;
@@ -376,6 +402,16 @@ export function Composer({
       {phone ? (
         <div className="composer-row">
           <div className="composer-field">{field}</div>
+          {hint && (
+            <IconButton
+              className="composer-newline"
+              aria-label="new line: message to send after the compact"
+              disabled={busy || !!pending}
+              onClick={insertNewline}
+            >
+              <NewlineIcon />
+            </IconButton>
+          )}
           {targets.length > 0 && imagesAllowed && (
             <AttachImageButton count={attach.images.length} disabled={busy || !!pending} onAdd={(files) => void attach.add(files)} />
           )}
@@ -429,7 +465,14 @@ export function Composer({
           {WAKE_CAPTION}
         </Text>
       )}
-      {Object.values(compactJobs).map((job) => (
+      {hint && (
+        <Text size="xs" c="dimmed" mt={4} className="composer-compact-hint">
+          {hint}
+        </Text>
+      )}
+      {Object.values(compactJobs).map((job) => {
+        const unsent = unsentFollowUp(job);
+        return (
         <Text
           key={job.id}
           size="xs"
@@ -441,6 +484,18 @@ export function Composer({
         >
           {rows.length > 1 ? `${rowLabel(rows.find((r) => r.rowId === job.rowId) ?? rows[0])}: ` : ""}
           {describeCompactJob(job)}
+          {unsent && (
+            <Button
+              variant="subtle"
+              size="compact-xs"
+              ml={6}
+              aria-label="put the queued message back in the box"
+              title={unsent}
+              onClick={() => putBack(unsent)}
+            >
+              Put it back in the box
+            </Button>
+          )}
           {isCompactTerminal(job) && (
             <Button
               variant="subtle"
@@ -459,7 +514,8 @@ export function Composer({
             </Button>
           )}
         </Text>
-      ))}
+        );
+      })}
       {evaled.refused.length > 0 && (
         <Text size="xs" c="dimmed" mt={4}>
           {evaled.refused.length} ended{" "}
@@ -539,5 +595,16 @@ export function Composer({
         </Alert>
       )}
     </div>
+  );
+}
+
+/** ↵ (corner-down-left): the phone composer's "new line" button. */
+function NewlineIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+      <path d="M9 10l-5 5 5 5" />
+    </svg>
   );
 }

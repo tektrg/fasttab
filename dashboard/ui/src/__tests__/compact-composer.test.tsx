@@ -13,12 +13,83 @@ import { Composer } from "../components/Composer";
 import { theme } from "../theme";
 import type { BoardRow } from "../types";
 import {
+  compactHint,
   compactPolling,
   describeCompactJob,
   flattenMessage,
   parseCompactDraft,
+  sanitizedMessage,
   type CompactJob,
 } from "../compactJob";
+
+/** Same cases as the Swift `CompactDraftTests` (origin/feat/compact-agentbar,
+ *  Tests/AgentBarTests/Compact/CompactDraftTests.swift) — one row each. `null`
+ *  = not a compact draft; `{}` fields omitted = Swift nil. */
+const SWIFT_COMPACT_CASES: [string, string, { instructions?: string; followUp?: string } | null][] = [
+  ["bare", "/compact", {}],
+  ["instructions", "/compact keep the plan", { instructions: "keep the plan" }],
+  ["follow-up", "/compact\nnow run the tests", { followUp: "now run the tests" }],
+  ["follow-up after trailing spaces", "/compact   \nnow run the tests", { followUp: "now run the tests" }],
+  ["both", "/compact keep the plan\nnow run the tests", { instructions: "keep the plan", followUp: "now run the tests" }],
+  ["trimmed everywhere", "   /compact   keep the plan   \n   go on   \n  ", { instructions: "keep the plan", followUp: "go on" }],
+  ["padded bare", "  /compact  ", {}],
+  ["blank follow-up lines", "/compact\n   \n  ", {}],
+  ["multi-line follow-up flattened", "/compact\nfirst line\n\n  second line  \nthird", { followUp: "first line second line third" }],
+  ["CRLF", "/compact x\r\na\r\nb", { instructions: "x", followUp: "a b" }],
+  ["longer word", "/compactx", null],
+  ["/compacting", "/compacting now", null],
+  ["longer word + line 2", "/compactx\nhello", null],
+  ["later line", "hello\n/compact", null],
+  ["blank first line", "\n/compact", null],
+  ["empty", "", null],
+  ["prose", "please compact", null],
+  ["case-sensitive", "/Compact", null],
+  ["other command", "/clear", null],
+  ["no slash", "compact", null],
+];
+
+/** Same cases as the Swift `MessageDraftValidatorTests` sanitizing rows
+ *  (`MessageDraftValidator.sanitized` = what a plain message sends). */
+const SWIFT_SANITIZED_CASES: [string, string][] = [
+  ["  fix the login bug  ", "fix the login bug"],
+  ["", ""],
+  ["   \n \n\t ", ""],
+  ["first\nsecond", "first second"],
+  ["first\r\nsecond\rthird", "first second third"],
+  ["first  \n\n\n  second\n", "first second"],
+  ["a\u2028b", "a b"],
+  ["\n/compact\nkeep the plan\n", "/compact keep the plan"],
+  ["look at src/main.swift", "look at src/main.swift"],
+  // TerminalSafeText: tab -> space, other control characters dropped, NEL is a line break.
+  ["a\tb", "a b"],
+  ["esc\u001b[2mdim", "esc[2mdim"],
+  ["bell\u0007 and del\u007f", "bell and del"],
+  ["a\u0085b", "a b"],
+  ["  keep  inner  spaces  ", "keep  inner  spaces"],
+];
+
+describe("Swift parity (CompactDraft.parse + MessageDraftValidator.sanitized)", () => {
+  for (const [name, draft, want] of SWIFT_COMPACT_CASES) {
+    test(`parse: ${name}`, () => {
+      expect(parseCompactDraft(draft)).toEqual(want);
+    });
+  }
+  for (const [raw, want] of SWIFT_SANITIZED_CASES) {
+    test(`sanitized: ${JSON.stringify(raw)}`, () => {
+      expect(sanitizedMessage(raw)).toBe(want);
+      expect(flattenMessage(raw)).toBe(want);
+    });
+  }
+  test("control characters never reach instructions or follow-up", () => {
+    expect(parseCompactDraft("/compact keep\u001b it\nthen\u0003 go")).toEqual({ instructions: "keep it", followUp: "then go" });
+  });
+  test("the hint says how to add the follow-up (desktop vs phone)", () => {
+    expect(compactHint("/compact", false)).toContain("Shift+Enter");
+    expect(compactHint("/compact", true)).toContain("↵");
+    expect(compactHint("/compact\nthen this", false)).toContain("then sends");
+    expect(compactHint("hello", false)).toBeNull();
+  });
+});
 
 describe("parseCompactDraft (contract composer rule)", () => {
   test("bare /compact", () => {
@@ -63,6 +134,7 @@ function job(over: Partial<CompactJob> = {}): CompactJob {
     failedStep: null,
     createdAt: 1,
     updatedAt: 1,
+    followUp: null,
     ...over,
   };
 }
@@ -92,8 +164,13 @@ describe("describeCompactJob", () => {
         job({ state: "failed", error: "compaction did not finish within 5 min", modelRestored: false, followUpSent: true }),
       ),
     ).toBe(
-      "Compact failed: compaction did not finish within 5 min · model NOT restored to Opus 5.5 — check the session · message sent",
+      "Compact failed: compaction did not finish within 5 min · Model NOT restored: still on Sonnet (switch back to Opus 5.5 with /model) · message sent",
     );
+  });
+  test("an unsent follow-up is said loudly", () => {
+    expect(
+      describeCompactJob(job({ state: "failed", error: "dashboard restarted", followUp: "go on", followUpSent: false })),
+    ).toBe("Compact failed: dashboard restarted · Your queued message was NOT sent");
   });
 });
 
@@ -166,14 +243,14 @@ function stubFetch(opts: { onRow?: CompactJob | null; post?: { status: number; b
   return calls;
 }
 
-function mount(rows: BoardRow[], onToast: (msg: string, ok: boolean) => void = () => {}) {
+function mount(rows: BoardRow[], onToast: (msg: string, ok: boolean) => void = () => {}, phone = false) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
   act(() => {
     root.render(
       <MantineProvider theme={theme}>
-        <Composer rows={rows} onToast={onToast} />
+        <Composer rows={rows} onToast={onToast} phone={phone} />
       </MantineProvider>,
     );
   });
@@ -288,19 +365,74 @@ describe("Composer: multi-line + compact", () => {
     unmount();
   });
 
-  test("409 job-active: says so and shows the running job, nothing new typed", async () => {
+  test("409 job-active: says so, shows the running job, and the draft (follow-up too) comes back", async () => {
     const toasts: string[] = [];
     stubFetch({
       post: { status: 409, body: { ok: false, error: "job-active", job: job({ state: "compacting" }) } },
       polls: [job({ state: "compacting" })],
     });
     const { host, unmount } = mount([boardRow("r1")], (t) => toasts.push(t));
-    typeInto(host, "/compact");
+    typeInto(host, "/compact keep it\nthen go on");
     await key(host, { key: "Enter" });
     await settle();
     expect(toasts).toContain("a compact is already running for label-r1");
     expect(progress(host)).toContain("compacting");
-    expect(box(host).value).toBe("");
+    expect(box(host).value).toBe("/compact keep it\nthen go on");
+    unmount();
+  });
+
+  test("a network failure on the POST puts the draft back", async () => {
+    const toasts: string[] = [];
+    globalThis.fetch = (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    const { host, unmount } = mount([boardRow("r1")], (t) => toasts.push(t));
+    typeInto(host, "/compact\nqueued line");
+    await key(host, { key: "Enter" });
+    await settle();
+    expect(box(host).value).toBe("/compact\nqueued line");
+    expect(toasts.some((t) => t.includes("label-r1") && t.includes("offline"))).toBe(true);
+    unmount();
+  });
+
+  test("a failed job whose follow-up was NOT sent offers to put it back in the draft", async () => {
+    stubFetch({
+      onRow: job({
+        state: "failed",
+        error: "dashboard restarted",
+        followUp: "carry on with step 3",
+        followUpSent: false,
+        modelRestored: false,
+      }),
+    });
+    const { host, unmount } = mount([boardRow("r1")]);
+    await settle(5);
+    expect(progress(host)).toContain("Your queued message was NOT sent");
+    expect(progress(host)).toContain("Model NOT restored: still on Sonnet");
+    const restore = host.querySelector("[aria-label='put the queued message back in the box']") as HTMLButtonElement;
+    expect(restore).not.toBeNull();
+    await act(async () => {
+      restore.click();
+    });
+    expect(box(host).value).toBe("carry on with step 3");
+    unmount();
+  });
+
+  test("phone: a newline button appears for a /compact draft and adds line 2", async () => {
+    stubFetch({});
+    const { host, unmount } = mount([boardRow("r1")], () => {}, true);
+    const newline = () => host.querySelector("[aria-label='new line: message to send after the compact']") as HTMLButtonElement | null;
+    typeInto(host, "hello");
+    expect(newline()).toBeNull(); // plain drafts: newlines are flattened anyway
+    typeInto(host, "/compact");
+    expect(newline()).not.toBeNull();
+    expect(host.querySelector(".composer-compact-hint")?.textContent).toContain("↵");
+    await act(async () => {
+      newline()!.click();
+    });
+    expect(box(host).value).toBe("/compact\n");
+    typeInto(host, "/compact\nthen go");
+    expect(host.querySelector(".composer-compact-hint")?.textContent).toContain("then sends");
     unmount();
   });
 

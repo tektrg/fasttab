@@ -624,11 +624,15 @@ switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/com
 `tests/test_compact_jobs.py` (FakeTUI of the probed screens; key log asserted). Shared contract
 (Swift Agent Bar uses the same): `.claude/compact-api-contract.md` in the main checkout
 (gitignored), summarized here.
-- **Composer rule** (web `ui/src/compactJob.ts` `parseCompactDraft`, Swift identical): draft's
-  first line, trimmed, is `/compact` or starts with `/compact ` (case-sensitive). Rest of line 1 =
-  `instructions`; lines 2..n joined, trimmed, newlines -> spaces = `followUp`. Any other draft =
-  plain Send message (multi-line drafts flattened to one line). Web composer: Enter sends,
-  Shift+Enter = new line.
+- **Composer rule** (web `ui/src/compactJob.ts` `parseCompactDraft`, Swift `CompactDraft.parse`):
+  draft's first line, trimmed, is `/compact` or starts with `/compact ` (case-sensitive). Rest of
+  line 1 = `instructions`; lines 2..n = `followUp`. Both pieces, and any plain multi-line draft, go
+  through `sanitizedMessage` = Swift `MessageDraftValidator.sanitized` (tab -> space, other control
+  characters dropped, every line trimmed, blank lines dropped, joined with one space; spaces inside a
+  line kept). The web tests run the Swift test cases verbatim (`compact-composer.test.tsx` "Swift
+  parity") — change both sides together. Web composer: Enter sends, Shift+Enter = new line; on the
+  phone a ↵ button (`composer-newline`) appears for a `/compact` draft to add line 2, and a hint
+  line (`compactHint`, Swift `CompactDraft.hint`) says what the lines do.
 - `POST /api/session/compact {rowId, actor, instructions?, followUp?}` -> 202 `{ok, job}` | 409
   `{ok:false, error:"job-active", job}` (single-flight per rowId) | 400 (bad text — same rules as
   `validate_message_text`; actor not `po`; no pane; not a Claude pane; dev-server / own pane) |
@@ -637,17 +641,50 @@ switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/com
   min). `GET /api/session/compact/<jobId>` -> `{ok, job}` | 404. Clients poll ~1.5s while not
   terminal.
 - Job (camelCase): `id, rowId, state, originalModel, switchSkipped, skipReason, compactOk,
-  modelRestored, followUpSent, error` (first failure only), `failedStep, createdAt, updatedAt`.
+  modelRestored, followUpSent, error` (first failure only), `failedStep, createdAt, updatedAt`,
+  `followUp` (added 2026-11-22, additive: the queued text, so a client can offer it back when
+  `followUpSent` is false — the web failed line has "Put it back in the box"; contract file
+  `.claude/compact-api-contract.md` needs the same note, it lives outside the repo).
   States: `waitingIdle` (idle + EMPTY prompt, 10 min max) -> `switchingModel` -> `compacting`
   (new `compact_boundary` within 5 min) -> `restoringModel` -> `sendingFollowUp` -> `done` |
-  `failed`. State file `<STATE_HOME>/compact-jobs.json` (0600); a job running at a restart reads
-  `failed` / "dashboard restarted" (the session may still be on Sonnet then).
+  `failed`.
+- **Never null when due**: a follow-up that existed but did not go out (idle timeout, user typed,
+  restart) = `followUpSent: false`; Sonnet committed (`s` pressed) but not undone =
+  `modelRestored: false`. Web failed line: "Your queued message was NOT sent" / "Model NOT
+  restored: still on Sonnet (switch back to X with /model)".
+- **State file + restart** (`<STATE_HOME>/compact-jobs.json`, 0600): besides the public fields it
+  saves `instructions`, `restoreModel`, `sSent` (picker commit pressed), `inPicker` (/model typed,
+  picker may be open), the pane (`paneKey`/`machine`/`rawPaneId`/`sessionId`) and `actor`. On load a
+  running job becomes `failed` / "dashboard restarted" with the pessimistic flags above; at server
+  start `main()` calls `CompactJobs.recover(_compact_io_for_saved_job)`: Esc a picker it may have
+  left open (after a read; ONE blind Esc if the pane can't be read), and if `sSent` run the normal
+  restore (job shows `restoringModel` meanwhile). The follow-up is never auto-sent after a restart.
 - Rules: restore runs once the picker step started, even after a failure (no-op `modelRestored:
   true` when `s` was never pressed — nothing changed). Follow-up is sent even if the switch or
   compact failed, but NOT when the agent never got idle or the user typed. Before every typing step
   a fresh read must show an idle, empty prompt; text in the box = failed "you typed into the
-  session" (restore then waits up to 2 min for the box to empty, never types over it).
+  session" (the restore keeps waiting for the box to empty, never types over it).
   `/compact` and the follow-up go through `_handle_reach_action` (its /compact retry included).
+- **Restore budget** (`RESTORE_BUDGET_SEC` 600): after a compact timeout or an ssh outage the
+  restore waits for an idle prompt and retries with backoff (5s doubling, cap 60s) for up to 10
+  min, then `modelRestored: false`.
+- **Picker safety** (`_Runner.picker_phase`): every /model picker step runs inside try/finally that
+  always leaves the picker (`escape_out`); reads inside picker steps are retried 3x
+  (`read_retry`). `escape_out` Escs only on a read that shows the picker/dialog open, except ONE
+  blind Esc when no read works and none was sent (Esc at an idle prompt is a no-op; two in a row
+  could open Claude's rewind menu). A picker/dialog this job opened that is still up later is
+  escaped by `wait_ready`. Why: an ssh read error used to jump straight to the catch-all with the
+  picker open, and a later Enter there saves the highlighted model as the GLOBAL default.
+- **No other typing while a job runs** (`chief-dashboard-server.py`
+  `_send_message_unless_compacting`, `_compact_pane_refusal`): `POST /api/session/message`
+  (Compact/Clear buttons too) to a row with an active job -> HTTP 409 `{ok:false, code:
+  "compact-running", typed:false, error:"compact-running: …", job}` (clients show `error`; the
+  web puts the text back, Swift shows it as a failure). `/api/answer` + `/api/permission` for the
+  job's pane get the same 409 once the job is past `waitingIdle` (while it waits, answering the
+  agent's question is what lets it go idle). Per-row send lock (`CompactJobs.row_lock`): a job's
+  worker holds it for its whole run, a plain Send holds it while typing (waits 15s, then 409), so a
+  Send that raced a job starting can't hit the picker. The job's own sends call
+  `_handle_reach_action` directly. Not refused: Stop/Close/Relaunch (explicit user intent).
 - **Gotcha — `s`, never Enter or a digit, inside the /model picker.** Enter or a row digit SAVES
   that model as the global default for new sessions (`~/.claude/settings.json` `model`); `s` =
   "use this session only". `/model` is typed with `herdr pane run` (text + herdr's own Enter, which
@@ -659,8 +696,10 @@ switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/com
   `scripts/claude-launch.py`, e.g. `trung/claude-opus-5-5`) has no ✔ on a standard picker row ->
   Esc, `switchSkipped: true`, `skipReason: "custom model: compacting on current model"`, compact
   anyway. Already on Sonnet (statusline `[Sonnet …]` or ✔ on the Sonnet row) -> skipped too.
-- Unverified live: Claude Code placeholder / suggestion ghost text in an empty prompt would read
-  as "typed" (herdr reads plain text) and stall `waitingIdle`; not seen in the probe.
+- **New-session placeholder**: a brand-new session's empty prompt shows a dim hint
+  `❯ Try "fix lint errors"`; herdr reads plain text (no dim), so `_input_box` treats a box that is
+  exactly `Try "<one line>"` (`_PLACEHOLDER_RE`) as empty. Anything after the closing quote = typed.
+  Other ghost/suggestion texts are not handled (not seen).
 
 ### Probe facts (live, 2026-11-22, Claude Code 2.1.330 via herdr; the probe notes are gitignored)
 - `herdr pane run <pane> "<text>"` already presses Enter. An extra `send-keys enter` is harmless

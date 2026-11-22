@@ -13,24 +13,73 @@ export interface CompactDraft {
   followUp?: string;
 }
 
-const LINE_BREAK = /\r\n|\r|\n/;
+const COMMAND = "/compact";
+
+// Swift parity (Sources/AgentBar/Message/Compact/CompactDraft.swift,
+// MessageDraftValidator.sanitized, TerminalSafeText — branch
+// feat/compact-agentbar). Mirror exactly; the tests share the Swift cases.
+/** Foundation `CharacterSet.newlines`: LF, VT, FF, CR, NEL, LS, PS. */
+const NEWLINES = /[\n\u000B\f\r\u0085\u2028\u2029]/;
+/** Foundation `CharacterSet.whitespaces` (Unicode Zs + tab) at either end. */
+const EDGE_SPACES = /^[\t\p{Zs}]+|[\t\p{Zs}]+$/gu;
+
+function trimSpaces(s: string): string {
+  return s.replace(EDGE_SPACES, "");
+}
+
+/** `TerminalSafeText.withoutControlCharacters`: tab -> space; every other
+ *  control character (Unicode Cc) dropped unless it is whitespace (the line
+ *  breaks LF/VT/FF/CR/NEL stay for the caller to collapse). */
+function withoutControlCharacters(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp === 0x09) out += " ";
+    else if (cp <= 0x1f || (cp >= 0x7f && cp <= 0x9f)) {
+      if ((cp >= 0x0a && cp <= 0x0d) || cp === 0x85) out += ch;
+    } else out += ch;
+  }
+  return out;
+}
+
+/** `MessageDraftValidator.sanitized`: the text as it will be sent — control
+ *  characters dropped, every line trimmed, blank lines dropped, the rest
+ *  joined with one space (the server refuses newlines: in a terminal they
+ *  are the submit key). Spaces inside a line are kept. */
+export function sanitizedMessage(raw: string): string {
+  return withoutControlCharacters(raw)
+    .split(NEWLINES)
+    .map(trimSpaces)
+    .filter((line) => line.length > 0)
+    .join(" ");
+}
 
 export function parseCompactDraft(draft: string): CompactDraft | null {
-  const [first, ...rest] = draft.split(LINE_BREAK);
-  const head = first.trim();
-  if (head !== "/compact" && !head.startsWith("/compact ")) return null;
+  const [firstLine, ...rest] = draft.split(NEWLINES);
+  const first = trimSpaces(firstLine);
+  if (first !== COMMAND && !first.startsWith(COMMAND + " ")) return null;
   const out: CompactDraft = {};
-  const instructions = head.slice("/compact".length).trim();
+  const instructions = sanitizedMessage(first.slice(COMMAND.length));
   if (instructions) out.instructions = instructions;
-  const followUp = rest.join("\n").trim().replace(/\n/g, " ");
+  const followUp = sanitizedMessage(rest.join("\n"));
   if (followUp) out.followUp = followUp;
   return out;
 }
 
-/** A plain multi-line draft goes out as one line: newlines become spaces
- *  (the server refuses newlines — in a terminal they are the submit key). */
+/** A plain multi-line draft goes out as one line (same as Swift's send). */
 export function flattenMessage(draft: string): string {
-  return draft.split(LINE_BREAK).join(" ").trim();
+  return sanitizedMessage(draft);
+}
+
+/** The line under the box while a `/compact` draft is typed (Swift
+ *  `CompactDraft.hint`, worded for the web: Shift+Enter on a keyboard, the
+ *  ↵ button on the phone). null for any other draft. */
+export function compactHint(draft: string, phone: boolean): string | null {
+  const parsed = parseCompactDraft(draft);
+  if (!parsed) return null;
+  return parsed.followUp === undefined
+    ? `Compacts on Sonnet, then restores the model. ${phone ? "↵" : "Shift+Enter"} adds a message to send after.`
+    : "Compacts on Sonnet, restores the model, then sends the lines below as one message.";
 }
 
 export type CompactState =
@@ -56,6 +105,14 @@ export interface CompactJob {
   failedStep: string | null;
   createdAt: number;
   updatedAt: number;
+  /** The queued follow-up text (additive 2026-11-22): offered back to the
+   *  draft when `followUpSent` is false. Absent on an older dashboard. */
+  followUp?: string | null;
+}
+
+/** The job's follow-up when it exists and did NOT go out (resend offer). */
+export function unsentFollowUp(job: CompactJob): string | null {
+  return isCompactTerminal(job) && job.followUpSent === false && job.followUp ? job.followUp : null;
 }
 
 export function isCompactTerminal(job: CompactJob): boolean {
@@ -138,9 +195,10 @@ export function describeCompactJob(job: CompactJob): string {
     }
     case "failed": {
       const parts = [`Compact failed: ${job.error ?? "unknown error"}`];
-      if (job.modelRestored === false) parts.push(`model NOT restored to ${model} — check the session`);
+      if (job.modelRestored === false)
+        parts.push(`Model NOT restored: still on Sonnet (switch back to ${model} with /model)`);
       if (job.followUpSent) parts.push("message sent");
-      else if (job.followUpSent === false) parts.push("message NOT sent");
+      else if (job.followUpSent === false) parts.push("Your queued message was NOT sent");
       return parts.join(" · ");
     }
   }

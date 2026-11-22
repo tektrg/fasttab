@@ -3,11 +3,12 @@ import Testing
 @testable import AgentBar
 
 /// The retry queue `AgentPanelModel` puts in front of every headless send (Jev routing, Tab-tag
-/// compose, Compact/Clear) — `sendDirectMessage`'s doc comment. A `.failed` reply (nothing reached
+/// compose, Clear) — `sendDirectMessage`'s doc comment. A `.failed` reply (nothing reached
 /// the agent) gets a few quick automatic retries before the footer notice shows; an `.uncertain`
 /// reply (may already be sitting typed in the agent's input box) never does, same reason the
 /// Message card's own manual "Send again" stays manual (AGENTS.md gotcha 11). Driven through the
-/// Compact quick command (`.press(.compact, on:)`), the simplest headless-send entry point, plus
+/// Clear quick command (`.press(.clear, on:)`; Compact is the dashboard's compact job now, gotcha
+/// 31), the simplest headless-send entry point, plus
 /// Tab-tag compose for the cross-path duplicate guard. Against `MessageFakeSource`, so each attempt
 /// is replied to explicitly rather than racing real time; `waitForRequests`/`waitUntil` poll by
 /// count, not by wall clock, so these stay correct even when the shared machine is under load
@@ -43,7 +44,7 @@ struct DirectSendRetryTests {
 
     @Test func aFailedAttemptIsRetriedAndSucceedsOnTheSecondTry() async {
         let rig = makeRig([working()])
-        #expect(rig.model.press(.compact, on: "a") == nil)
+        #expect(rig.model.press(.clear, on: "a") == nil)
         await rig.source.waitForRequests(1)
         // Row still shows the sending state right through a failed first attempt and the backoff gap.
         #expect(rig.model.sendingLabel(for: rig.model.presentation.agents[0]) == MessageCardModel.sendingLabel)
@@ -53,15 +54,15 @@ struct DirectSendRetryTests {
         rig.source.reply(.sent(queued: false))
         await waitUntil { rig.model.sentLabel(for: rig.model.presentation.agents[0]) != nil }
         #expect(rig.source.sent == [
-            .init(rowId: "a", text: "/compact", confirmed: true),
-            .init(rowId: "a", text: "/compact", confirmed: true),
+            .init(rowId: "a", text: "/clear", confirmed: true),
+            .init(rowId: "a", text: "/clear", confirmed: true),
         ])
         #expect(rig.model.footerNotice == nil)   // recovered silently, no notice for a retry that worked
     }
 
     @Test func exhaustingEveryRetryShowsTheGiveUpNoticeWithTheAttemptCount() async {
         let rig = makeRig([working(label: "worker-1")], retryDelays: [0.01, 0.01])   // 3 attempts total
-        #expect(rig.model.press(.compact, on: "a") == nil)
+        #expect(rig.model.press(.clear, on: "a") == nil)
         for _ in 0..<3 {
             await rig.source.waitForRequests(rig.source.sent.count + 1)
             rig.source.reply(.failed("dashboard unreachable"))
@@ -74,7 +75,7 @@ struct DirectSendRetryTests {
 
     @Test func anUncertainReplyIsNeverRetried() async {
         let rig = makeRig([working(label: "worker-1")])
-        #expect(rig.model.press(.compact, on: "a") == nil)
+        #expect(rig.model.press(.clear, on: "a") == nil)
         await rig.source.waitForRequests(1)
         rig.source.reply(.uncertain("may have gone through"))
         await waitUntil { rig.model.footerNotice != nil }
@@ -88,7 +89,7 @@ struct DirectSendRetryTests {
         let rig = makeRig([working(label: "worker-1")])
         let agent = working(label: "worker-1")   // sentLabel/sendingLabel only key off `.id`; `presentation.agents`
                                                    // is not used below since query-filtering (next) can empty it
-        #expect(rig.model.press(.compact, on: "a") == nil)   // starts attempt 1; marks "a" pending right away
+        #expect(rig.model.press(.clear, on: "a") == nil)   // starts attempt 1; marks "a" pending right away
         await rig.source.waitForRequests(1)
         // Race a Tab-tag compose send to the SAME agent while the compact send is still outstanding
         // (tag-compose does not go through `isPressable`, unlike a second row-button press, so it
@@ -105,12 +106,12 @@ struct DirectSendRetryTests {
         await rig.source.waitForRequests(2)   // its own retry, not the refused second send
         rig.source.reply(.sent(queued: false))
         await waitUntil { rig.model.sentLabel(for: agent) != nil }
-        #expect(rig.source.sent.map(\.text) == ["/compact", "/compact"])
+        #expect(rig.source.sent.map(\.text) == ["/clear", "/clear"])
     }
 
     @Test func switchingDashboardsSilentlyDropsAPendingRetry() async {
         let rig = makeRig([working(label: "worker-1")])
-        #expect(rig.model.press(.compact, on: "a") == nil)
+        #expect(rig.model.press(.clear, on: "a") == nil)
         await rig.source.waitForRequests(1)
         rig.source.reply(.failed("busy pane"))   // queued on MainActor, not yet processed
         rig.model.useDashboard(address: "127.0.0.1:9999")   // clears pendingDirectSends before that reply lands

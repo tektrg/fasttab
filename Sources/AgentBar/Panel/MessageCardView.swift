@@ -177,7 +177,7 @@ struct MessageCardView: View {
                 Text(line)
                     .foregroundStyle(compact.isFailure ? Color.red : Color.secondary)
             }
-            if let detail = compact.detail {
+            if let detail = message.compactDetail {
                 Text(detail)
                     .foregroundStyle(WarningTextColor.color)
             }

@@ -15,12 +15,16 @@ struct CompactCardTests {
         let ticker: ManualTicker
     }
 
+    /// The follower's clock (epoch seconds) at every press.
+    static let pressTime = 1_000.0
+
     private func makeRig() -> Rig {
         let source = CompactFakeSource()
         let ticker = ManualTicker()
+        let pressTime = Self.pressTime
         let model = MessageCardModel(
             loadSessionContext: { _ in SessionContext(latestMessage: "Done.", planFile: nil) },
-            makeCompactFollower: { CompactJobFollower(rowId: $0, source: $1, sleep: ticker.sleep) }
+            makeCompactFollower: { CompactJobFollower(rowId: $0, source: $1, sleep: ticker.sleep, now: { pressTime }) }
         )
         model.statusSource = source
         return Rig(model: model, source: source, ticker: ticker)
@@ -217,6 +221,72 @@ struct CompactCardTests {
         #expect(rig.source.rowReads.count == 2)
         #expect(rig.source.starts.count == 1)
         await finish(rig)
+    }
+
+    /// QA fix: a timed-out start whose job already FINISHED (made since the press) shows that job's
+    /// result instead of "not started", and the draft goes — pressing again would send the
+    /// follow-up a second time.
+    @Test func anUncertainStartAdoptsAFinishedJobMadeSinceThePress() async {
+        let rig = makeRig()
+        await open(rig)
+        rig.model.setDraft("/compact\nthen push")
+        rig.model.pressSend()
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.source.rowRead = .job(F.job(.done, rowId: "row-a", followUpSent: true, createdAt: Self.pressTime + 2))
+        rig.source.replyStart(.uncertain("took too long"))
+        await waitUntil { rig.model.compactProgress.line == "Compacted ✓" }
+        #expect(rig.source.starts.count == 1)
+        #expect(rig.model.card?.draft == "")   // the text was used: nothing left to press again
+        #expect(!rig.model.canSend)
+        #expect(rig.ticker.sleepCount == 0)   // a finished job is not polled
+    }
+
+    @Test func anUncertainStartIgnoresAFinishedJobFromBeforeThePress() async {
+        let rig = makeRig()
+        await open(rig)
+        rig.model.setDraft("/compact")
+        rig.model.pressSend()
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.source.rowRead = .job(F.job(.done, rowId: "row-a", createdAt: Self.pressTime - 600))
+        rig.source.replyStart(.uncertain("took too long"))
+        await waitUntil { rig.model.compactProgress == .startFailed("took too long") }
+        #expect(rig.model.card?.draft == "/compact")
+        #expect(rig.model.canSend)
+    }
+
+    /// The dashboard reports `followUpSent=false`: the card says so in capitals and puts the queued
+    /// text back in the (empty) box so the user can send it again.
+    @Test func aQueuedMessageNotSentIsSaidAndPutBackInTheBox() async {
+        let rig = makeRig()
+        await open(rig)
+        rig.model.setDraft("/compact\nthen run the tests")
+        rig.model.pressSend()
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.source.script(idReads: [.job(F.job(.failed, rowId: "row-a", modelRestored: false, followUpSent: false, error: "dashboard restarted"))])
+        rig.source.replyStart(.started(F.job(.compacting, rowId: "row-a")))
+        await waitUntil { rig.model.card?.draft == "" }
+        await poll(rig)
+        #expect(rig.model.compactProgress.line == "Compact failed: dashboard restarted")
+        #expect(rig.model.card?.draft == "then run the tests")
+        let detail = rig.model.compactDetail ?? ""
+        #expect(detail.contains("Model NOT restored: still on Sonnet"))
+        #expect(detail.contains("Your queued message was NOT sent — it's back in the box to send again"))
+        #expect(rig.model.card?.compactDraft == nil)   // a plain message now: Send types it
+    }
+
+    @Test func textTypedDuringTheJobIsNeverReplacedByTheUnsentMessage() async {
+        let rig = makeRig()
+        await open(rig)
+        rig.model.setDraft("/compact\nqueued")
+        rig.model.pressSend()
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.source.script(idReads: [.job(F.job(.done, rowId: "row-a", followUpSent: false))])
+        rig.source.replyStart(.started(F.job(.compacting, rowId: "row-a")))
+        await waitUntil { rig.model.card?.draft == "" }
+        rig.model.setDraft("something new")
+        await poll(rig)
+        #expect(rig.model.card?.draft == "something new")
+        #expect(rig.model.compactDetail == "Your queued message was NOT sent")
     }
 
     @Test func closingTheCardStopsPolling() async {

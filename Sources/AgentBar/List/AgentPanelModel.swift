@@ -447,6 +447,10 @@ final class AgentPanelModel: ObservableObject {
     private func send(to agent: AgentSnapshot) {
         routingEpoch += 1
         routingState = nil
+        if let started = startCompactIfDraft(routingText, to: agent) {
+            if started { query = "" }
+            return
+        }
         let verdict = MessageDraftValidator.check(routingText)
         guard case .ready(let text) = verdict else {
             return showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
@@ -456,7 +460,8 @@ final class AgentPanelModel: ObservableObject {
     }
 
     /// `message.sendDirect`, plus the retry shared by every direct-send path — Jev routing,
-    /// Tab-tag compose, and the row menu's Compact/Clear (`RowActionPlan.sendQuickCommand`). Two
+    /// Tab-tag compose, and the row menu's Clear (`RowActionPlan.sendQuickCommand`; a `/compact` is
+    /// the dashboard's compact job instead, `startCompactJob`). Two
     /// failure shapes get a few quick automatic retries before the footer notice shows: the row
     /// not being message-eligible right this instant (it just became blocked, or a previous send
     /// to it is still finishing — nothing was sent either way) and a `.failed` dashboard reply
@@ -469,12 +474,65 @@ final class AgentPanelModel: ObservableObject {
             showAnswerNotice("Still retrying an earlier message to \(agent.label) — wait a moment before sending another.")
             return false
         }
+        if attempt == 1, message.isCompacting(agent.id) {
+            showAnswerNotice(Self.compactRunningNotice(agent.label))
+            return false
+        }
         pendingDirectSends[agent.id] = PendingDirectSend(text: text, attempt: attempt)
         guard message.sendDirect(to: agent, text: text) else {
             retryDirectSendOrGiveUp(agentID: agent.id, label: agent.label, text: text, attempt: attempt, reason: "it can no longer take a message")
             return false
         }
         return true
+    }
+
+    // MARK: - Compact with no card (gotcha 31)
+
+    static func compactRunningNotice(_ label: String) -> String {
+        "\(label) is compacting — wait for it to finish before sending another."
+    }
+
+    /// A `/compact` draft typed in Tab-tag / Jev / Peek compose for an agent the compact job serves
+    /// (`RowButtons.takesCompactJob`): starts the job (instructions + queued follow-up, `CompactDraft`)
+    /// instead of typing the text. Nil when it is not one (or the agent is an inbox / tool / blocked
+    /// row): the caller does its plain send, unchanged. True = started (the box may clear).
+    private func startCompactIfDraft(_ text: String, to agent: AgentSnapshot) -> Bool? {
+        guard RowButtons.takesCompactJob(agent),
+              let draft = CompactDraft.parse(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        else { return nil }
+        return startCompactJob(on: agent, draft: draft)
+    }
+
+    /// Every compact in Agent Bar with no card open goes through here: compose, the row's ⋯ Compact
+    /// and Park. The row shows the job's progress, then "Compacted ✓"; anything else at the end
+    /// (failed, not started, lost track, queued message NOT sent, model NOT restored) is a footer
+    /// notice. False = nothing started (said in the footer).
+    @discardableResult
+    func startCompactJob(on agent: AgentSnapshot, draft: CompactDraft) -> Bool {
+        if let refusal = draft.refusal {
+            showAnswerNotice(refusal)
+            return false
+        }
+        if message.isCompacting(agent.id) {
+            showAnswerNotice(Self.compactRunningNotice(agent.label))
+            return false
+        }
+        if pendingDirectSends[agent.id] != nil {
+            showAnswerNotice("Still retrying an earlier message to \(agent.label) — wait a moment before compacting.")
+            return false
+        }
+        let label = agent.label
+        let started = message.startCompactDirect(to: agent, draft: draft) { [weak self] progress in
+            if let notice = progress.headlessNotice(label: label, followUp: draft.followUp) {
+                self?.showAnswerNotice(notice)
+            }
+        }
+        if !started {
+            showAnswerNotice(statusSource == nil
+                ? "Couldn't compact \(label): \(MessageCardModel.noSourceMessage)"
+                : "Couldn't compact \(label): it can't take a compact right now.")
+        }
+        return started
     }
 
     /// Every outcome of a headless send (`message.onDirectSendOutcome`) — `sendDirect` itself only
@@ -630,6 +688,13 @@ final class AgentPanelModel: ObservableObject {
         guard let agentID = taggedAgentID,
               let agent = presentation.agents.first(where: { $0.id == agentID }) ?? snapshot?.agents.first(where: { $0.id == agentID })
         else { return false }
+        if let started = startCompactIfDraft(query, to: agent) {
+            if started {
+                query = ""
+                taggedAgentID = nil
+            }
+            return true
+        }
         let verdict = MessageDraftValidator.check(query)
         guard case .ready(let text) = verdict else {
             showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
@@ -1125,6 +1190,7 @@ final class AgentPanelModel: ObservableObject {
     @discardableResult
     func sendFromPeek(_ draft: String) -> Bool {
         guard let agent = peekAgent else { return false }
+        if let started = startCompactIfDraft(draft, to: agent) { return started }
         let verdict = MessageDraftValidator.check(draft)
         guard case .ready(let text) = verdict else {
             showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
@@ -1364,6 +1430,9 @@ final class AgentPanelModel: ObservableObject {
         case .sendQuickCommand(let text):
             sendDirectMessage(to: agent, text: text)
             return nil
+        case .startCompact:
+            startCompactJob(on: agent, draft: CompactDraft(instructions: nil, followUp: nil))
+            return nil
         case .send(let kind, let confirmed):
             return send(kind, confirmed: confirmed, button: button, agent: agent)
         case .reportToNearestChief:
@@ -1432,12 +1501,15 @@ final class AgentPanelModel: ObservableObject {
         selectedAgentID = AgentSelection.reconciled(isParked ? following : agentID, in: presentation.selectableAgentIDs)
         highlightedButton = nil
         // Parking tells the session it's shelved for a while: shrink its context now
-        // rather than let it sit stale until someone resumes it. Only a row that could take
-        // Compact from its ⋯ menu gets it: an inbox row, one asking something, a non-Claude pane
-        // or one with no route still parks, just uncompacted (sending would fail and retry into
-        // a "Couldn't send … after 3 tries" footer).
-        if isParked, RowButtons.takesQuickCommands(agent) {
-            sendDirectMessage(to: agent, text: "/compact")
+        // rather than let it sit stale until someone resumes it. Only a row the compact job can
+        // serve (the same gate as the ⋯ menu's Compact, `RowButtons.takesCompactJob`) gets it: an
+        // inbox row, one asking something, a non-Claude pane or one with no route still parks, just
+        // uncompacted. The compact step is the dashboard's job (Sonnet → /compact → model restored),
+        // the last step of Park: it waits on the job (the row shows its progress in place of its
+        // buttons until it settles, then "Compacted ✓"). A failed job keeps the row parked and says
+        // why in the footer (`startCompactJob`); nothing is retried.
+        if isParked, RowButtons.takesCompactJob(agent) {
+            startCompactJob(on: agent, draft: CompactDraft(instructions: nil, followUp: nil))
         }
     }
 

@@ -36,13 +36,23 @@ struct CompactProgressTests {
 
     @Test func aFollowUpSentAfterAFailureIsMentioned() {
         #expect(F.job(.failed, followUpSent: true, error: "x").detailLine == "Your message was still sent")
-        #expect(F.job(.failed, followUpSent: false, error: "x").detailLine == "Your message was not sent")
         #expect(F.job(.failed, error: "x").detailLine == nil)
         #expect(F.job(.done, followUpSent: true).detailLine == nil)
     }
 
-    @Test func aModelNotRestoredIsMentioned() {
-        #expect(F.job(.failed, modelRestored: false, error: "x").detailLine == "Opus 5.5 was not restored — check /model in the terminal")
+    /// The dashboard sets `followUpSent=false` whenever a queued message existed but did not go
+    /// (also after a dashboard restart), whatever the end state: always said, in capitals.
+    @Test func aQueuedMessageNotSentIsSaidPlainlyInEveryEndState() {
+        #expect(F.job(.failed, followUpSent: false, error: "x").detailLine == "Your queued message was NOT sent")
+        #expect(F.job(.done, followUpSent: false).detailLine == "Your queued message was NOT sent")
+    }
+
+    @Test func aModelNotRestoredIsSaidPlainly() {
+        #expect(F.job(.failed, modelRestored: false, error: "x").detailLine
+            == "Model NOT restored: still on Sonnet (was Opus 5.5 — switch back with /model)")
+        #expect(F.job(.failed, originalModel: nil, modelRestored: false, followUpSent: false, error: "x").detailLine
+            == "Model NOT restored: still on Sonnet — switch back with /model · Your queued message was NOT sent")
+        #expect(F.job(.done, modelRestored: true).detailLine == nil)
     }
 
     // MARK: - Transitions
@@ -97,17 +107,96 @@ struct CompactProgressTests {
         #expect(progress.detail == P.adoptedNote)
     }
 
-    @Test func aRefusedOrUncertainStartIsAFailureState() {
+    @Test func aRefusedStartIsAFailureState() {
         var progress = P.starting
         progress.apply(.startReplied(.failed("row not a Claude pane")))
         #expect(progress == .startFailed("row not a Claude pane") && progress.isFailure && !progress.isBusy)
         #expect(progress.line == "Compact not started: row not a Claude pane")
-        progress = .starting
-        progress.apply(.startReplied(.uncertain("took too long")))
-        #expect(progress == .startFailed("took too long"))
-        // …then the lookup finds the job it made after all.
-        do { let accepted = progress.apply(.resumed(.job(F.job(.waitingIdle)))); #expect(accepted == true) }
+        #expect(progress.isSettled)
+    }
+
+    // MARK: - Uncertain start (timeout): look the row up, adopt this press's job even if finished
+
+    private let pressedAt = 1_000.0
+
+    private func lookingUp() -> P {
+        var progress = P.starting
+        progress.apply(.startReplied(.uncertain("took too long"), pressedAt: pressedAt))
+        return progress
+    }
+
+    @Test func anUncertainStartLooksUpAndStaysBusy() {
+        let progress = lookingUp()
+        #expect(progress == .lookingUp(reason: "took too long", notBefore: pressedAt - P.clockSkewSeconds))
+        #expect(progress.isBusy && !progress.isSettled && !progress.isFailure)
+        var again = progress
+        do { let accepted = again.apply(.startPressed); #expect(accepted == false) }   // no second POST meanwhile
+    }
+
+    @Test func theLookupFindsTheRunningJobItMade() {
+        var progress = lookingUp()
+        do { let accepted = progress.apply(.resumed(.job(F.job(.waitingIdle, createdAt: pressedAt + 1)))); #expect(accepted == true) }
+        #expect(progress == tracking(F.job(.waitingIdle, createdAt: pressedAt + 1)))
         #expect(progress.runningJobId == "job-1")
+    }
+
+    /// The fix for "follow-up sent twice": a job that already FINISHED but was made since the press
+    /// (within the clock-skew margin) is this press's job: its result shows, not "not started".
+    @Test func theLookupAdoptsAFinishedJobMadeSinceThePress() {
+        var progress = lookingUp()
+        let job = F.job(.done, followUpSent: true, createdAt: pressedAt - 4)   // dashboard clock 4s behind
+        do { let accepted = progress.apply(.resumed(.job(job))); #expect(accepted == true) }
+        #expect(progress == tracking(job))
+        #expect(progress.line == "Compacted ✓" && progress.isSettled && !progress.isBusy)
+    }
+
+    @Test func theLookupIgnoresAFinishedJobFromBeforeThePress() {
+        var progress = lookingUp()
+        progress.apply(.resumed(.job(F.job(.done, createdAt: pressedAt - 60))))
+        #expect(progress == .startFailed("took too long"))
+        progress = lookingUp()
+        progress.apply(.resumed(.job(F.job(.done))))   // no createdAt: can't be told apart, not adopted
+        #expect(progress == .startFailed("took too long"))
+    }
+
+    @Test func anOlderRunningJobFoundByTheLookupIsShownAsSomeoneElses() {
+        var progress = lookingUp()
+        progress.apply(.resumed(.job(F.job(.compacting, createdAt: pressedAt - 60))))
+        #expect(progress == tracking(F.job(.compacting, createdAt: pressedAt - 60), adopted: true))
+        #expect(progress.detail == P.adoptedNote)
+    }
+
+    @Test func theLookupFindingNothingIsNotStarted() {
+        var progress = lookingUp()
+        progress.apply(.resumed(.none))
+        #expect(progress == .startFailed("took too long") && progress.isSettled)
+        progress = lookingUp()
+        progress.apply(.resumed(.failed("down")))
+        #expect(progress == .startFailed("took too long"))
+    }
+
+    // MARK: - Footer words for a compact with no card
+
+    @Test func aCleanDoneNeedsNoNotice() {
+        #expect(tracking(F.job(.done)).headlessNotice(label: "w", followUp: nil) == nil)
+        #expect(tracking(F.job(.done, followUpSent: true)).headlessNotice(label: "w", followUp: "go on") == nil)
+        #expect(tracking(F.job(.done, switchSkipped: true, skipReason: "already on Sonnet")).headlessNotice(label: "w", followUp: nil) == nil)
+        #expect(tracking(F.job(.compacting)).headlessNotice(label: "w", followUp: nil) == nil)   // still running
+    }
+
+    @Test func aFailedJobNoticeSaysWhyAndRepeatsAnUnsentMessage() {
+        let failed = tracking(F.job(.failed, modelRestored: false, followUpSent: false, error: "compact timed out"))
+        #expect(failed.headlessNotice(label: "w", followUp: "run the tests")
+            == "w: Compact failed: compact timed out · Model NOT restored: still on Sonnet (was Opus 5.5 — switch back with /model) · Your queued message was NOT sent: \u{201C}run the tests\u{201D}")
+        #expect(P.startFailed("row is not live").headlessNotice(label: "w", followUp: nil) == "Couldn't compact w: row is not live")
+        #expect(P.lostTrack(F.job(.compacting), "down").headlessNotice(label: "w", followUp: nil) == "Lost track of w's compact: down. It may still be running.")
+    }
+
+    @Test func anAdoptedJobNoticeSaysTheTypedMessageDidNotGo() {
+        let adopted = tracking(F.job(.done), adopted: true)
+        #expect(adopted.headlessNotice(label: "w", followUp: nil) == nil)   // a bare compact: someone else's did the job
+        #expect(adopted.headlessNotice(label: "w", followUp: "go on")
+            == "w: Compacted ✓ · \(P.adoptedHeadlessNote) · Your queued message was NOT sent: \u{201C}go on\u{201D}")
     }
 
     @Test func afterAFailedStartAFinishedJobIsOldNews() {

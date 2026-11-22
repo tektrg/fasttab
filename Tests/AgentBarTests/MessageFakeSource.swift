@@ -54,4 +54,14 @@ final class MessageFakeSource: AgentStatusSource, @unchecked Sendable {
     func waitForRequests(_ count: Int) async {
         await waitUntil { self.pendingCount >= count }
     }
+
+    private var compactRows: [String] = []
+    /// Rows a compact job was started for (Park, the ⋯ menu's Compact); refused at once, so a test
+    /// that does not look for it sees no running job.
+    var compactStarts: [String] { lock.withLock { compactRows } }
+
+    func startCompact(rowId: String, actor: String, instructions: String?, followUp: String?) async -> CompactStartOutcome {
+        lock.withLock { compactRows.append(rowId) }
+        return .failed("fake source: no compact jobs")
+    }
 }

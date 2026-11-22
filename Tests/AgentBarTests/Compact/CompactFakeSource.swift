@@ -119,9 +119,10 @@ enum CompactFixtures {
     static func job(
         _ state: CompactJob.State, id: String = "job-1", rowId: String = "row-a", originalModel: String? = "Opus 5.5",
         switchSkipped: Bool = false, skipReason: String? = nil, modelRestored: Bool? = nil, followUpSent: Bool? = nil,
-        error: String? = nil
+        error: String? = nil, createdAt: Double = 0
     ) -> CompactJob {
         CompactJob(id: id, rowId: rowId, state: state, originalModel: originalModel, switchSkipped: switchSkipped,
-                   skipReason: skipReason, modelRestored: modelRestored, followUpSent: followUpSent, error: error)
+                   skipReason: skipReason, modelRestored: modelRestored, followUpSent: followUpSent, error: error,
+                   createdAt: createdAt, updatedAt: createdAt)
     }
 }

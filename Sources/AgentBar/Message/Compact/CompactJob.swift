@@ -108,23 +108,33 @@ struct CompactJob: Equatable, Sendable, Decodable {
         }
     }
 
+    static let followUpNotSentNote = "Your queued message was NOT sent"
+    static let modelNotRestoredNote = "Model NOT restored: still on Sonnet"
+
     /// Extra facts under the progress line, joined by " · "; nil when there are none.
+    /// `followUpSent == false` / `modelRestored == false` are said in capitals whatever the end state:
+    /// the dashboard sets them only when a queued message existed but did not go (also after a
+    /// dashboard restart) or the restore did not happen.
     var detailLine: String? {
+        let notes = detailNotes
+        return notes.isEmpty ? nil : notes.joined(separator: " · ")
+    }
+
+    /// `detailLine`'s facts, one per entry.
+    var detailNotes: [String] {
         var notes: [String] = []
         if switchSkipped {
             notes.append("Model not switched" + (skipReason.map { ": \($0)" } ?? ""))
         }
         if modelRestored == false {
-            notes.append("\(originalModel ?? "The model") was not restored — check /model in the terminal")
+            notes.append(Self.modelNotRestoredNote + (originalModel.map { " (was \($0) — switch back with /model)" } ?? " — switch back with /model"))
         }
-        if state == .failed {
-            switch followUpSent {
-            case true?: notes.append("Your message was still sent")
-            case false?: notes.append("Your message was not sent")
-            case nil: break
-            }
+        switch followUpSent {
+        case false?: notes.append(Self.followUpNotSentNote)
+        case true? where state == .failed: notes.append("Your message was still sent")
+        default: break
         }
-        return notes.isEmpty ? nil : notes.joined(separator: " · ")
+        return notes
     }
 }
 

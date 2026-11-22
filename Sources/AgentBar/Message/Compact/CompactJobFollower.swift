@@ -1,27 +1,37 @@
 import Foundation
 
-/// Starts and follows the `/compact` job of ONE message card's row. Holds the card's
-/// `CompactProgress` (the single owner of that status) and drives it with dashboard calls:
-/// a GET by row when the card opens (a job started earlier or from the web shows its progress),
-/// a POST on a `/compact` send, then one GET by id every `pollInterval` until the job ends.
+/// Starts and follows the `/compact` job of ONE row: for an open message card, or for a compact
+/// started with no card (compose, the row's ⋯ Compact, Park — `MessageCardModel.startCompactDirect`).
+/// Holds the `CompactProgress` (the single owner of that status) and drives it with dashboard
+/// calls: a GET by row when a card opens (a job started earlier or from the web shows its
+/// progress), a POST on a `/compact` send, then one GET by id every `pollInterval` until the job ends.
 ///
 /// One poll loop at a time; `stop()` (card closed) ends it and drops every late reply. Closing is
-/// safe: the job runs in the dashboard, the card only watches it.
+/// safe: the job runs in the dashboard, the follower only watches it.
 @MainActor
 final class CompactJobFollower {
     static let pollInterval: Duration = .milliseconds(1500)
 
     private(set) var progress: CompactProgress = .idle {
-        didSet { if progress != oldValue { onChange() } }
+        didSet {
+            guard progress != oldValue else { return }
+            onChange()
+            if progress.isSettled, !oldValue.isSettled { onSettle(progress) }
+        }
     }
 
-    /// Every progress change (the card redraws).
+    /// Every progress change (the card or row redraws).
     var onChange: () -> Void = {}
+    /// The progress just settled (job ended, never started, or lost): nothing more will happen.
+    /// Also fires when a card opens onto a job that has already finished.
+    var onSettle: (CompactProgress) -> Void = { _ in }
 
     let rowId: String
     private let source: any AgentStatusSource
     private let pollInterval: Duration
     private let sleep: @Sendable (Duration) async -> Void
+    /// Epoch seconds, compared with the dashboard's `createdAt` after an uncertain start.
+    private let now: () -> Double
     private var pollLoop: Task<Void, Never>?
     private var stopped = false
 
@@ -29,12 +39,14 @@ final class CompactJobFollower {
         rowId: String,
         source: any AgentStatusSource,
         pollInterval: Duration = CompactJobFollower.pollInterval,
-        sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+        sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+        now: @escaping () -> Double = { Date().timeIntervalSince1970 }
     ) {
         self.rowId = rowId
         self.source = source
         self.pollInterval = pollInterval
         self.sleep = sleep
+        self.now = now
     }
 
     var isPolling: Bool { pollLoop != nil }
@@ -56,15 +68,17 @@ final class CompactJobFollower {
         guard !stopped, progress.apply(.startPressed) else { return false }
         let source = source
         let rowId = rowId
+        let pressedAt = now()
         Task { [weak self] in
             let outcome = await source.startCompact(
                 rowId: rowId, actor: DashboardEndpoint.sessionActionActor,
                 instructions: draft.instructions, followUp: draft.followUp
             )
             guard let self, !self.stopped else { return }
-            self.handle(.startReplied(outcome))
+            self.handle(.startReplied(outcome, pressedAt: pressedAt))
             onReply(outcome)
             // A start with no reply may still have made a job: look it up instead of posting again.
+            // A job made since the press (even a finished one) is adopted (`CompactProgress.lookingUp`).
             if case .uncertain = outcome { self.resume() }
         }
         return true

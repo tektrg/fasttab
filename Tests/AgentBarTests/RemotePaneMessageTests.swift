@@ -49,10 +49,13 @@ struct RemotePaneMessageTests {
         #expect(agent.activitySeconds == nil)
     }
 
-    @Test func anAirPaneRowTakesNoCompactOrClear() throws {
+    /// Compact runs as the dashboard's compact job (gotcha 31), which reaches a remote pane over ssh:
+    /// offered. Clear is still typed and keeps needing hook data (the web's `takesQuickCommands`).
+    @Test func anAirPaneRowTakesTheCompactJobButNotClear() throws {
         let agent = try row(airRow())
         #expect(!RowButtons.takesQuickCommands(agent))
-        #expect(!RowButtons.menuItems(for: agent).contains { $0.button == .compact || $0.button == .clear })
+        #expect(RowButtons.takesCompactJob(agent))
+        #expect(RowButtons.menuItems(for: agent).map(\.button) == [.compact])
     }
 
     @Test func aRowTheDashboardRefusesIsNotOfferedMessage() throws {

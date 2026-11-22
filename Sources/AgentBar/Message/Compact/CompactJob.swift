@@ -44,10 +44,14 @@ struct CompactJob: Equatable, Sendable, Decodable {
     var failedStep: String?
     var createdAt: Double = 0
     var updatedAt: Double = 0
+    /// The `/model` picker may be open on the pane right now (dashboard QA2 2026-11-22). Only then does
+    /// the dashboard refuse answers and permission decisions (409 `compact-running`). Missing = false.
+    var inPicker = false
 
     init(id: String, rowId: String, state: State, originalModel: String? = nil, switchSkipped: Bool = false,
          skipReason: String? = nil, compactOk: Bool? = nil, modelRestored: Bool? = nil, followUpSent: Bool? = nil,
-         error: String? = nil, failedStep: String? = nil, createdAt: Double = 0, updatedAt: Double = 0) {
+         error: String? = nil, failedStep: String? = nil, createdAt: Double = 0, updatedAt: Double = 0,
+         inPicker: Bool = false) {
         self.id = id
         self.rowId = rowId
         self.state = state
@@ -61,11 +65,12 @@ struct CompactJob: Equatable, Sendable, Decodable {
         self.failedStep = failedStep
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.inPicker = inPicker
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, rowId, state, originalModel, switchSkipped, skipReason, compactOk, modelRestored
-        case followUpSent, error, failedStep, createdAt, updatedAt
+        case followUpSent, error, failedStep, createdAt, updatedAt, inPicker
     }
 
     init(from decoder: Decoder) throws {
@@ -83,6 +88,7 @@ struct CompactJob: Equatable, Sendable, Decodable {
         failedStep = Self.nonBlank(container.lenient(.failedStep))
         createdAt = container.lenient(.createdAt) ?? 0
         updatedAt = container.lenient(.updatedAt) ?? 0
+        inPicker = container.lenient(.inPicker) ?? false
     }
 
     private static func nonBlank(_ text: String?) -> String? {

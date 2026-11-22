@@ -140,7 +140,8 @@ final class MessageCardModel: ObservableObject {
     func pressSend() { pressSend(isWrapUpAnswer: false) }
 
     private func pressSend(isWrapUpAnswer: Bool) {
-        if !isWrapUpAnswer, let compactDraft = card?.compactDraft {
+        // A wrap_up action whose message is a `/compact` (Claude pane only) is a compact job too.
+        if let compactDraft = card?.compactDraft {
             pressCompact(compactDraft)
             return
         }
@@ -273,19 +274,31 @@ final class MessageCardModel: ObservableObject {
     func isCompacting(_ agentID: String) -> Bool { directCompacts[agentID] != nil }
 
     /// Starts the dashboard's compact job for `agent` with no card: the row shows the job's progress
-    /// line in place of its buttons, then "Compacted ✓" for a clean finish. `onSettle` hears the end
-    /// (done, failed, not started, lost) once; the caller reports anything but a clean finish. Never
-    /// re-posted: a timed-out start is looked up by row. False (nothing started) when the row can't
-    /// take a compact job, a message or compact is already on its way to it, or there is no dashboard.
+    /// line in place of its buttons, then "Compacted ✓" for a clean finish. `onAccepted` hears, once,
+    /// that the dashboard has a job for this press (a 202, a job found by the look-up after an
+    /// uncertain start, or the job already running on a 409 `job-active`): only then may the caller
+    /// clear the box the draft came from. `onSettle` hears the end (done, failed, not started, lost)
+    /// once; the caller reports anything but a clean finish. Never re-posted: a timed-out start is
+    /// looked up by row. False (nothing started) when the row can't take a compact job, a message or
+    /// compact is already on its way to it, or there is no dashboard.
     @discardableResult
-    func startCompactDirect(to agent: AgentSnapshot, draft: CompactDraft, onSettle: @escaping (CompactProgress) -> Void) -> Bool {
+    func startCompactDirect(
+        to agent: AgentSnapshot, draft: CompactDraft, onAccepted: @escaping () -> Void = {},
+        onSettle: @escaping (CompactProgress) -> Void
+    ) -> Bool {
         guard RowButtons.takesCompactJob(agent), let statusSource, let rowId = agent.rowId,
               !inFlight.contains(agent.id), directCompacts[agent.id] == nil, draft.refusal == nil
         else { return false }
         let agentID = agent.id
         let epoch = epoch
         let follower = makeCompactFollower(rowId, statusSource)
-        follower.onChange = { [weak self] in self?.objectWillChange.send() }
+        var accepted = false
+        follower.onChange = { [weak self, weak follower] in
+            self?.objectWillChange.send()
+            guard !accepted, case .tracking = follower?.progress else { return }
+            accepted = true
+            onAccepted()
+        }
         follower.onSettle = { [weak self] progress in
             self?.finishDirectCompact(agentID: agentID, progress: progress, epoch: epoch, onSettle: onSettle)
         }
@@ -403,6 +416,12 @@ final class MessageCardModel: ObservableObject {
             if showing == nil, !request.notesOnSend {
                 onNotice("Message to \(request.label): \(reason)")
             }
+        case .compactRunning:
+            // Nothing was typed; the card keeps the draft to send once the compact is over.
+            showing?.stopSending(error: MessageSendOutcome.compactRunningWords)
+            if showing == nil, !request.notesOnSend {
+                onNotice(MessageSendOutcome.compactRunningWords)
+            }
         }
         // Headless sends report every outcome to the caller instead — it owns the retry policy
         // (see `onDirectSendOutcome`'s doc comment) and, unlike a card send, there is never a
@@ -426,8 +445,15 @@ final class MessageCardModel: ObservableObject {
 
     /// What the row says in place of its buttons while its message is on its way, or while a compact
     /// started with no card runs (the job's progress line: "Waiting for agent…", "Compacting…", …).
+    /// Exception (QA #2): a row blocked on the user (a question or permission box) keeps its
+    /// Answer / Review buttons while the job runs, except while the job may have the `/model` picker
+    /// open (`CompactProgress.mayHavePickerOpen`, when the dashboard refuses answers): the job
+    /// waits for the agent to go idle, and answering is what lets it.
     func sendingLabel(for agent: AgentSnapshot) -> String? {
-        if let follower = directCompacts[agent.id] { return follower.progress.line ?? Self.compactStartingLabel }
+        if let follower = directCompacts[agent.id],
+           agent.blockedOnYou == nil || follower.progress.mayHavePickerOpen {
+            return follower.progress.line ?? Self.compactStartingLabel
+        }
         return inFlight.contains(agent.id) ? Self.sendingLabel : nil
     }
 

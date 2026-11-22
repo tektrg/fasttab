@@ -36,6 +36,19 @@ final class AgentPanelModel: ObservableObject {
     @Published private(set) var highlightedButton: RowButton?
     /// The peek's message box has the keyboard (footer hints only; set by `PanePeekView`).
     @Published var peekInputFocused = false
+    /// A change the model asks of the peek's message box (the text is `PanePeekView`'s own state):
+    /// `to` replaces the text only while the box still reads exactly `from` and shows `agentID`,
+    /// so nothing typed since is ever overwritten. Used to clear a `/compact` draft once the
+    /// dashboard has its job, and to put back a message refused because a compact is running.
+    @Published private(set) var peekDraftEdit: PeekDraftEdit?
+    struct PeekDraftEdit: Equatable {
+        let agentID: String
+        let from: String
+        let to: String
+        /// Makes two equal edits in a row still two changes.
+        let serial: Int
+    }
+    private var peekDraftEditSerial = 0
     /// Where each row's Done / Close pane press has got to (see `RowActionState`).
     @Published private(set) var rowActionStates: [String: RowActionState] = [:]
     /// The user's yes to the paid fallback account is on its way (`approvePendingFallback`).
@@ -144,7 +157,10 @@ final class AgentPanelModel: ObservableObject {
     /// scheduled retry firing after a fresh send (or `useDashboard()`) has already superseded it —
     /// see `retryDirectSend`. An `.uncertain` reply is never queued here (see `sendDirectMessage`'s
     /// doc comment): it might already be sitting typed in the agent's input box.
-    private struct PendingDirectSend { let text: String; var attempt: Int }
+    private struct PendingDirectSend { let text: String; var attempt: Int; var origin: DraftOrigin = .none }
+    /// Which box a headless send's text came from, so a reply that leaves it unsent (409
+    /// `compact-running`) can put it back there. `.none` = no box (the ⋯ menu's Clear).
+    private enum DraftOrigin { case none, searchBox, peek }
     private var pendingDirectSends: [String: PendingDirectSend] = [:]
     /// Attempts (including the first) before a headless send gives up; delay before each retry.
     /// Configurable only so tests don't have to wait out real time.
@@ -447,15 +463,16 @@ final class AgentPanelModel: ObservableObject {
     private func send(to agent: AgentSnapshot) {
         routingEpoch += 1
         routingState = nil
-        if let started = startCompactIfDraft(routingText, to: agent) {
-            if started { query = "" }
+        // A compact keeps the box until the dashboard has the job (a refusal leaves it exactly as typed).
+        let typed = query
+        if startCompactIfDraft(routingText, to: agent, onAccepted: { [weak self] in self?.clearSearchBox(ifStill: typed) }) != nil {
             return
         }
         let verdict = MessageDraftValidator.check(routingText)
         guard case .ready(let text) = verdict else {
             return showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
         }
-        guard sendDirectMessage(to: agent, text: text) else { return }
+        guard sendDirectMessage(to: agent, text: text, origin: .searchBox) else { return }
         query = ""
     }
 
@@ -469,7 +486,7 @@ final class AgentPanelModel: ObservableObject {
     /// agent's input box) is handled by `handleDirectSendOutcome` and never reaches here again —
     /// retrying that one could paste the message twice.
     @discardableResult
-    private func sendDirectMessage(to agent: AgentSnapshot, text: String, attempt: Int = 1) -> Bool {
+    private func sendDirectMessage(to agent: AgentSnapshot, text: String, attempt: Int = 1, origin: DraftOrigin = .none) -> Bool {
         if attempt == 1, pendingDirectSends[agent.id] != nil {
             showAnswerNotice("Still retrying an earlier message to \(agent.label) — wait a moment before sending another.")
             return false
@@ -478,7 +495,9 @@ final class AgentPanelModel: ObservableObject {
             showAnswerNotice(Self.compactRunningNotice(agent.label))
             return false
         }
-        pendingDirectSends[agent.id] = PendingDirectSend(text: text, attempt: attempt)
+        // A retry keeps the box the first attempt's text came from.
+        let keptOrigin = attempt == 1 ? origin : (pendingDirectSends[agent.id]?.origin ?? origin)
+        pendingDirectSends[agent.id] = PendingDirectSend(text: text, attempt: attempt, origin: keptOrigin)
         guard message.sendDirect(to: agent, text: text) else {
             retryDirectSendOrGiveUp(agentID: agent.id, label: agent.label, text: text, attempt: attempt, reason: "it can no longer take a message")
             return false
@@ -495,12 +514,23 @@ final class AgentPanelModel: ObservableObject {
     /// A `/compact` draft typed in Tab-tag / Jev / Peek compose for an agent the compact job serves
     /// (`RowButtons.takesCompactJob`): starts the job (instructions + queued follow-up, `CompactDraft`)
     /// instead of typing the text. Nil when it is not one (or the agent is an inbox / tool / blocked
-    /// row): the caller does its plain send, unchanged. True = started (the box may clear).
-    private func startCompactIfDraft(_ text: String, to agent: AgentSnapshot) -> Bool? {
-        guard RowButtons.takesCompactJob(agent),
-              let draft = CompactDraft.parse(text.trimmingCharacters(in: .whitespacesAndNewlines))
-        else { return nil }
-        return startCompactJob(on: agent, draft: draft)
+    /// row): the caller does its plain send, unchanged. True = started. The caller must NOT clear its
+    /// box then: `onAccepted` says when it may (the dashboard has the job: 202, found after an
+    /// uncertain start, or adopted on 409 `job-active`); on any failure the box stays as typed.
+    private func startCompactIfDraft(_ text: String, to agent: AgentSnapshot, onAccepted: @escaping () -> Void) -> Bool? {
+        guard RowButtons.takesCompactJob(agent), let draft = CompactDraft.parse(text) else { return nil }
+        return startCompactJob(on: agent, draft: draft, onAccepted: onAccepted)
+    }
+
+    /// The search box empties only if it still holds exactly what was sent (text typed since stays).
+    private func clearSearchBox(ifStill typed: String) {
+        guard query == typed else { return }
+        query = ""
+    }
+
+    private func editPeekDraft(agentID: String, from: String, to: String) {
+        peekDraftEditSerial += 1
+        peekDraftEdit = PeekDraftEdit(agentID: agentID, from: from, to: to, serial: peekDraftEditSerial)
     }
 
     /// Every compact in Agent Bar with no card open goes through here: compose, the row's ⋯ Compact
@@ -508,7 +538,7 @@ final class AgentPanelModel: ObservableObject {
     /// (failed, not started, lost track, queued message NOT sent, model NOT restored) is a footer
     /// notice. False = nothing started (said in the footer).
     @discardableResult
-    func startCompactJob(on agent: AgentSnapshot, draft: CompactDraft) -> Bool {
+    func startCompactJob(on agent: AgentSnapshot, draft: CompactDraft, onAccepted: @escaping () -> Void = {}) -> Bool {
         if let refusal = draft.refusal {
             showAnswerNotice(refusal)
             return false
@@ -522,7 +552,7 @@ final class AgentPanelModel: ObservableObject {
             return false
         }
         let label = agent.label
-        let started = message.startCompactDirect(to: agent, draft: draft) { [weak self] progress in
+        let started = message.startCompactDirect(to: agent, draft: draft, onAccepted: onAccepted) { [weak self] progress in
             if let notice = progress.headlessNotice(label: label, followUp: draft.followUp) {
                 self?.showAnswerNotice(notice)
             }
@@ -555,6 +585,16 @@ final class AgentPanelModel: ObservableObject {
         case .uncertain(let reason):
             pendingDirectSends.removeValue(forKey: agentID)
             showAnswerNotice("Message to \(label): \(reason)")
+        case .compactRunning:
+            // Final, never retried: the job runs for minutes. Nothing was typed, so the text goes
+            // back into the box it came from (only into an empty one: newer typing is kept).
+            let origin = pendingDirectSends.removeValue(forKey: agentID)?.origin ?? .none
+            showAnswerNotice(MessageSendOutcome.compactRunningWords)
+            switch origin {
+            case .searchBox: if query.isEmpty { query = text }
+            case .peek: editPeekDraft(agentID: agentID, from: "", to: text)
+            case .none: break
+            }
         }
     }
 
@@ -688,19 +728,20 @@ final class AgentPanelModel: ObservableObject {
         guard let agentID = taggedAgentID,
               let agent = presentation.agents.first(where: { $0.id == agentID }) ?? snapshot?.agents.first(where: { $0.id == agentID })
         else { return false }
-        if let started = startCompactIfDraft(query, to: agent) {
-            if started {
-                query = ""
-                taggedAgentID = nil
-            }
-            return true
+        // A compact keeps the box and the tag until the dashboard has the job; a refusal leaves both.
+        let typed = query
+        let onAccepted: () -> Void = { [weak self] in
+            guard let self, self.query == typed else { return }
+            self.query = ""
+            if self.taggedAgentID == agentID { self.taggedAgentID = nil }
         }
+        if startCompactIfDraft(query, to: agent, onAccepted: onAccepted) != nil { return true }
         let verdict = MessageDraftValidator.check(query)
         guard case .ready(let text) = verdict else {
             showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
             return true
         }
-        guard sendDirectMessage(to: agent, text: text) else { return true }
+        guard sendDirectMessage(to: agent, text: text, origin: .searchBox) else { return true }
         query = ""
         taggedAgentID = nil
         return true
@@ -1187,16 +1228,20 @@ final class AgentPanelModel: ObservableObject {
 
     /// Return in the peek's message box: the Tab-tag compose path (`MessageDraftValidator`, then
     /// `sendDirectMessage` → `MessageCardModel.sendDirect`). True = sent off (the box clears).
+    /// A `/compact` draft returns false: the box keeps it until the dashboard has the job, then
+    /// `peekDraftEdit` clears it (a refusal leaves it exactly as typed).
     @discardableResult
     func sendFromPeek(_ draft: String) -> Bool {
         guard let agent = peekAgent else { return false }
-        if let started = startCompactIfDraft(draft, to: agent) { return started }
+        let agentID = agent.id
+        let onAccepted: () -> Void = { [weak self] in self?.editPeekDraft(agentID: agentID, from: draft, to: "") }
+        if startCompactIfDraft(draft, to: agent, onAccepted: onAccepted) != nil { return false }
         let verdict = MessageDraftValidator.check(draft)
         guard case .ready(let text) = verdict else {
             showAnswerNotice(MessageDraftValidator.headlessRefusal(for: verdict) ?? "Nothing to send.")
             return false
         }
-        return sendDirectMessage(to: agent, text: text)
+        return sendDirectMessage(to: agent, text: text, origin: .peek)
     }
 
     private func closePeekUnlessStillSelected() {

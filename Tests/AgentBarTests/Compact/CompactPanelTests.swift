@@ -76,12 +76,14 @@ struct CompactPanelTests {
         await waitUntil { rig.source.pendingStartCount == 1 }
         #expect(rig.source.starts == [.init(rowId: "a", actor: "po", instructions: "keep the plan", followUp: nil)])
         #expect(rig.source.messages.isEmpty)   // never typed into the pane
-        #expect(rig.model.query == "" && rig.model.taggedAgentID == nil)
+        // The box keeps the draft until the dashboard has the job (QA #2).
+        #expect(rig.model.query == "/compact keep the plan" && rig.model.taggedAgentID == "a")
         let agent = try #require(row(rig))
         #expect(rig.model.sendingLabel(for: agent) == "Starting compact…")
         rig.source.script(idReads: [.job(J.job(.done, rowId: "a"))])
         rig.source.replyStart(.started(J.job(.waitingIdle, rowId: "a")))
         await waitUntil { rig.model.sendingLabel(for: agent) == "Waiting for agent…" }
+        #expect(rig.model.query == "" && rig.model.taggedAgentID == nil)
         await poll(rig)
         #expect(rig.model.sendingLabel(for: agent) == nil)
         #expect(rig.model.sentLabel(for: agent) == "Compacted ✓")
@@ -92,7 +94,7 @@ struct CompactPanelTests {
         let rig = makeRig([working()])
         rig.model.select(agentID: "a")
         rig.model.togglePeek()
-        #expect(rig.model.sendFromPeek("/compact\nthen run the tests\nand push"))
+        #expect(!rig.model.sendFromPeek("/compact\nthen run the tests\nand push"))   // the box clears on the 202 only
         await waitUntil { rig.source.pendingStartCount == 1 }
         #expect(rig.source.starts == [.init(rowId: "a", actor: "po", instructions: nil, followUp: "then run the tests and push")])
         #expect(rig.source.messages.isEmpty)
@@ -115,7 +117,7 @@ struct CompactPanelTests {
         let rig = makeRig([working()])
         rig.model.select(agentID: "a")
         #expect(rig.model.togglePeek())
-        #expect(rig.model.sendFromPeek("/compact\nrun the tests"))
+        #expect(!rig.model.sendFromPeek("/compact\nrun the tests"))
         await waitUntil { rig.source.pendingStartCount == 1 }
         rig.source.script(idReads: [.job(J.job(.failed, rowId: "a", modelRestored: false, followUpSent: false, error: "dashboard restarted"))])
         rig.source.replyStart(.started(J.job(.compacting, rowId: "a")))
@@ -130,7 +132,7 @@ struct CompactPanelTests {
         let rig = makeRig([working()])
         rig.model.select(agentID: "a")
         rig.model.togglePeek()
-        #expect(rig.model.sendFromPeek("/compact"))
+        #expect(!rig.model.sendFromPeek("/compact"))
         await waitUntil { rig.source.pendingStartCount == 1 }
         #expect(!rig.model.sendFromPeek("are you done?"))
         #expect(rig.model.footerNotice?.text == AgentPanelModel.compactRunningNotice("worker-1"))
@@ -138,6 +140,169 @@ struct CompactPanelTests {
         #expect(rig.source.starts.count == 1 && rig.source.messages.isEmpty)
         rig.source.replyStart(.failed("test over"))
         await settleTasks()
+    }
+
+    // MARK: - The box keeps the draft until the dashboard has the job (QA #2)
+
+    @Test func aRefusedTaggedCompactKeepsTheDraftExactlyAsTyped() async {
+        let rig = makeRig([working()])
+        rig.model.select(agentID: "a")
+        rig.model.tagSelected()
+        let typed = "/compact keep the plan\n  then run the tests\n\nand push"
+        rig.model.query = typed
+        rig.model.activateSelected()
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.source.replyStart(.failed("row a is not a Claude pane"))
+        await waitUntil { rig.model.footerNotice != nil }
+        #expect(rig.model.footerNotice?.text == "Couldn't compact worker-1: row a is not a Claude pane")
+        #expect(rig.model.query == typed)   // newlines and all
+        #expect(rig.model.taggedAgentID == "a")
+    }
+
+    @Test func anAdoptedJobClearsTheTaggedDraft() async {
+        let rig = makeRig([working()])
+        rig.model.select(agentID: "a")
+        rig.model.tagSelected()
+        rig.model.query = "/compact"
+        rig.model.activateSelected()
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.source.replyStart(.alreadyRunning(J.job(.compacting, rowId: "a")))
+        await waitUntil { rig.model.query.isEmpty }
+        #expect(rig.model.taggedAgentID == nil)
+        rig.model.message.reset()
+    }
+
+    @Test func textTypedSinceThePressIsNotClearedByTheAcceptance() async {
+        let rig = makeRig([working()])
+        rig.model.select(agentID: "a")
+        rig.model.tagSelected()
+        rig.model.query = "/compact"
+        rig.model.activateSelected()
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.model.query = "something new"
+        rig.source.replyStart(.started(J.job(.waitingIdle, rowId: "a")))
+        await waitUntil { rig.source.idReads.isEmpty && rig.ticker.waiting == 1 }
+        #expect(rig.model.query == "something new" && rig.model.taggedAgentID == "a")
+        rig.model.message.reset()
+    }
+
+    @Test func thePeekBoxClearsOnlyOnceTheJobIsAccepted() async {
+        let rig = makeRig([working()])
+        rig.model.select(agentID: "a")
+        rig.model.togglePeek()
+        let typed = "/compact\nthen run the tests"
+        #expect(!rig.model.sendFromPeek(typed))
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        #expect(rig.model.peekDraftEdit == nil)
+        rig.source.replyStart(.started(J.job(.waitingIdle, rowId: "a")))
+        await waitUntil { rig.model.peekDraftEdit != nil }
+        #expect(rig.model.peekDraftEdit?.agentID == "a")
+        #expect(rig.model.peekDraftEdit?.from == typed && rig.model.peekDraftEdit?.to == "")
+        rig.model.message.reset()
+    }
+
+    @Test func aRefusedPeekCompactLeavesTheBoxAlone() async {
+        let rig = makeRig([working()])
+        rig.model.select(agentID: "a")
+        rig.model.togglePeek()
+        #expect(!rig.model.sendFromPeek("/compact x"))
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.source.replyStart(.failed("bad text"))
+        await waitUntil { rig.model.footerNotice != nil }
+        #expect(rig.model.peekDraftEdit == nil)
+    }
+
+    // MARK: - Answers stay open while the job waits for idle (QA #2)
+
+    @Test func aBlockedRowKeepsItsAnswerButtonUntilThePickerMayBeOpen() async throws {
+        let rig = makeRig([working()])
+        #expect(rig.model.press(.compact, on: "a") == nil)
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.source.script(
+            idReads: [.job(J.job(.switchingModel, rowId: "a")), .job(J.job(.switchingModel, rowId: "a", inPicker: true))],
+            then: .job(J.job(.switchingModel, rowId: "a", inPicker: true))
+        )
+        rig.source.replyStart(.started(J.job(.waitingIdle, rowId: "a")))
+        await waitUntil { rig.ticker.waiting == 1 }
+        // The agent asks something while the job waits for it to go idle.
+        let asking = AnswerFixtures.blockedAgent("a", blocker: .question(AnswerFixtures.question()))
+        rig.model.receive(F.snapshot([asking]))
+        let blocked = try #require(rig.model.presentation.agents.first { $0.id == "a" })
+        #expect(blocked.blockedOnYou != nil)
+        #expect(rig.model.sendingLabel(for: blocked) == nil)
+        rig.model.press(.answer, on: "a")
+        #expect(rig.model.answer.isOpen)
+        rig.model.answer.close()
+        // A job state alone doesn't close answers: only the job's `inPicker` does (so does the dashboard).
+        await poll(rig)
+        #expect(rig.model.sendingLabel(for: blocked) == nil)
+        await poll(rig)
+        #expect(rig.model.sendingLabel(for: blocked) == "Switching to Sonnet…")
+        rig.model.press(.answer, on: "a")
+        #expect(!rig.model.answer.isOpen)
+        rig.model.message.reset()
+    }
+
+    // MARK: - A plain send hitting a running compact (409 compact-running)
+
+    @Test func aCompactRunningReplyIsFinalAndPutsTheTextBack() async throws {
+        let rig = makeRig([working()])
+        rig.source.messageOutcome = .compactRunning
+        rig.model.select(agentID: "a")
+        rig.model.tagSelected()
+        rig.model.query = "please continue"
+        rig.model.activateSelected()
+        await waitUntil { rig.model.footerNotice != nil }
+        #expect(rig.model.footerNotice?.text == MessageSendOutcome.compactRunningWords)
+        try await Task.sleep(for: .milliseconds(150))   // well past every retry delay (0.01s)
+        #expect(rig.source.messages == ["please continue"])   // never retried
+        #expect(rig.model.query == "please continue")
+        let agent = try #require(row(rig))
+        #expect(rig.model.sendingLabel(for: agent) == nil)
+    }
+
+    @Test func aCompactRunningReplyToAPeekSendPutsTheTextBackInThePeekBox() async {
+        let rig = makeRig([working()])
+        rig.source.messageOutcome = .compactRunning
+        rig.model.select(agentID: "a")
+        rig.model.togglePeek()
+        #expect(rig.model.sendFromPeek("are you done?"))
+        await waitUntil { rig.model.footerNotice != nil }
+        #expect(rig.model.footerNotice?.text == MessageSendOutcome.compactRunningWords)
+        #expect(rig.model.peekDraftEdit?.from == "" && rig.model.peekDraftEdit?.to == "are you done?")
+        #expect(rig.model.query.isEmpty)
+    }
+
+    // MARK: - A poll that says "unknown job" looks the row up first (QA #2)
+
+    @Test func anUnknownJobIsLookedUpByRowBeforeLosingTrack() async throws {
+        let rig = makeRig([working()])
+        #expect(rig.model.press(.compact, on: "a") == nil)
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.source.script(idReads: [.none, .job(J.job(.done, rowId: "a"))])
+        rig.source.rowRead = .job(J.job(.compacting, rowId: "a"))
+        rig.source.replyStart(.started(J.job(.waitingIdle, rowId: "a")))
+        await poll(rig)   // "unknown job"
+        await waitUntil { rig.source.rowReads == ["a"] }
+        await settleTasks()
+        let agent = try #require(row(rig))
+        #expect(rig.model.sendingLabel(for: agent) == "Compacting…")
+        #expect(rig.model.footerNotice == nil)
+        await poll(rig)
+        #expect(rig.model.sentLabel(for: agent) == "Compacted ✓")
+    }
+
+    @Test func anUnknownJobTheRowLookUpCannotFindLosesTrack() async {
+        let rig = makeRig([working()])
+        #expect(rig.model.press(.compact, on: "a") == nil)
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        rig.source.script(idReads: [.none])
+        rig.source.rowRead = .none
+        rig.source.replyStart(.started(J.job(.waitingIdle, rowId: "a")))
+        await poll(rig)
+        await waitUntil { rig.model.footerNotice != nil }
+        #expect(rig.source.rowReads == ["a"])
+        #expect(rig.model.footerNotice?.text.hasPrefix("Lost track of worker-1's compact") == true)
     }
 
     // MARK: - The row's ⋯ Compact

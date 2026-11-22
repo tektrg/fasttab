@@ -235,8 +235,22 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
             return DashboardCompactResponse.startOutcome(body: body, statusCode: statusCode)
         } catch let error as URLError where error.code == .timedOut {
             return .uncertain("The dashboard took too long to answer. The compact may have started.")
+        } catch let error as URLError where !Self.neverReachedDashboard(error) {
+            // The connection broke after the request may have gone out: look the job up by row, never re-post.
+            return .uncertain("The connection dropped after the request went out. The compact may have started.")
         } catch {
             return .failed("Can't reach the status dashboard. Nothing was started.")
+        }
+    }
+
+    /// The request never got to the dashboard (no host, no route, refused): nothing can have started.
+    /// Any other connection error may come after the request went out.
+    static func neverReachedDashboard(_ error: URLError) -> Bool {
+        switch error.code {
+        case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet, .badURL, .unsupportedURL:
+            true
+        default:
+            false
         }
     }
 

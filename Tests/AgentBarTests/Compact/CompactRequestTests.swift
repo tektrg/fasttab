@@ -32,6 +32,17 @@ struct CompactRequestTests {
                                   compactOk: true, createdAt: 1763800000.5, updatedAt: 1763800012.25))
     }
 
+    @Test func inPickerDecodesAndIsFalseWhenMissingOrOdd() throws {
+        func job(_ extra: String) throws -> CompactJob {
+            try JSONDecoder().decode(CompactJob.self, from: Data(#"{"id": "c", "rowId": "r", "state": "switchingModel"\#(extra)}"#.utf8))
+        }
+        #expect(try job(#", "inPicker": true"#).inPicker)
+        #expect(try !job(#", "inPicker": false"#).inPicker)
+        #expect(try !job("").inPicker)   // an older dashboard
+        #expect(try !job(#", "inPicker": null"#).inPicker)
+        #expect(try !job(#", "inPicker": "yes""#).inPicker)
+    }
+
     @Test func aMinimalJobWithNullsAndOddValuesDecodes() throws {
         let json = #"{"id": "c-2", "rowId": "r", "state": "failed", "originalModel": null, "switchSkipped": "yes", "error": "  boom ", "failedStep": "", "followUpSent": true, "createdAt": null}"#
         let job = try JSONDecoder().decode(CompactJob.self, from: Data(json.utf8))
@@ -141,5 +152,53 @@ struct CompactRequestTests {
             Issue.record("expected failed start"); return
         }
         #expect(words.contains("Nothing was started"))
+    }
+
+    /// QA #2: a connection that broke after the request went out may have started the job: the
+    /// uncertain path (look it up by row), never "Nothing was started".
+    @Test func aDroppedConnectionMayHaveStarted() async {
+        let transport = ScriptedDashboardTransport { _ in .throwing(URLError(.networkConnectionLost)) }
+        let source = DashboardStatusSource(endpoint: endpoint, transport: transport)
+        guard case .uncertain(let words) = await source.startCompact(rowId: "r", actor: "po", instructions: nil, followUp: nil) else {
+            Issue.record("expected uncertain"); return
+        }
+        #expect(!words.contains("Nothing was started"))
+        var progress = CompactProgress.starting
+        progress.apply(.startReplied(.uncertain(words), pressedAt: 1_000))
+        #expect(progress.line == "May have started: checking…")
+    }
+
+    @Test func aRequestThatNeverReachedTheDashboardStartedNothing() async {
+        for code: URLError.Code in [.cannotConnectToHost, .cannotFindHost, .notConnectedToInternet] {
+            let transport = ScriptedDashboardTransport { _ in .throwing(URLError(code)) }
+            let source = DashboardStatusSource(endpoint: endpoint, transport: transport)
+            guard case .failed(let words) = await source.startCompact(rowId: "r", actor: "po", instructions: nil, followUp: nil) else {
+                Issue.record("expected failed for \(code)"); continue
+            }
+            #expect(words.contains("Nothing was started"))
+        }
+    }
+
+    // MARK: - 409 compact-running on other sends (QA #2)
+
+    static let compactRunningJSON = #"{"ok": false, "code": "compact-running", "typed": false, "error": "compact-running: a compact job is running on this session", "job": null}"#
+
+    @Test func aPlainMessageRefusedByARunningCompactIsCompactRunning() async {
+        let (source, _) = makeSource(Self.compactRunningJSON, status: 409)
+        #expect(await source.sendMessage(rowId: "r", text: "hi", confirmed: true) == .compactRunning)
+        // The contract's spelling (the code in `error`) counts too.
+        let (contract, _) = makeSource(#"{"ok": false, "error": "compact-running", "typed": false}"#, status: 409)
+        #expect(await contract.sendMessage(rowId: "r", text: "hi", confirmed: true) == .compactRunning)
+        // Anything else stays a plain failure.
+        let (other, _) = makeSource(#"{"ok": false, "error": "compact-running-ish"}"#, status: 400)
+        #expect(await other.sendMessage(rowId: "r", text: "hi", confirmed: true) == .failed("compact-running-ish"))
+    }
+
+    @Test func anAnswerOrDecisionRefusedByARunningCompactSaysTryAgain() async {
+        let (source, _) = makeSource(Self.compactRunningJSON, status: 409)
+        let question = QuestionIdentity(title: "Fruit", question: "Which fruit?")
+        #expect(await source.answer(paneId: "w1:p1", choice: .select([1]), question: question) == .failed(CompactRunningReply.answerWords))
+        let permission = DashboardPermissionResponse.result(body: Data(Self.compactRunningJSON.utf8), statusCode: 409)
+        #expect(permission == .failed("Compact is switching models: try again in a few seconds"))
     }
 }

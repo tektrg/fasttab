@@ -129,6 +129,7 @@ struct CompactProgressTests {
         let progress = lookingUp()
         #expect(progress == .lookingUp(reason: "took too long", notBefore: pressedAt - P.clockSkewSeconds))
         #expect(progress.isBusy && !progress.isSettled && !progress.isFailure)
+        #expect(progress.line == "May have started: checking…")
         var again = progress
         do { let accepted = again.apply(.startPressed); #expect(accepted == false) }   // no second POST meanwhile
     }
@@ -252,9 +253,47 @@ struct CompactProgressTests {
         #expect(progress.isFailure && !progress.isBusy && progress.line?.contains("may still be running") == true)
     }
 
-    @Test func aJobTheDashboardForgotLosesTrack() {
+    /// QA #2: a poll that says "unknown job" (dashboard restarted?) looks the row up once first.
+    @Test func aJobTheDashboardForgotIsLookedUpByRowBeforeLosingTrack() {
         var progress = tracking(F.job(.compacting))
         progress.apply(.polled(.none))
+        #expect(progress == .relocating(P.Tracking(job: F.job(.compacting))))
+        #expect(progress.isBusy && !progress.isSettled && !progress.isFailure && progress.runningJobId == nil)
+        #expect(progress.line == "Compacting…" && progress.headlessNotice(label: "w", followUp: nil) == nil)
+        do { let accepted = progress.apply(.startPressed); #expect(accepted == false) }
+        progress.apply(.resumed(.none))
         #expect(progress == .lostTrack(F.job(.compacting), P.goneReason))
+    }
+
+    @Test func theRowLookUpFindingTheSameJobGoesOnFollowingIt() {
+        var progress = tracking(F.job(.compacting), adopted: true)
+        progress.apply(.polled(.none))
+        progress.apply(.resumed(.job(F.job(.restoringModel))))
+        #expect(progress == tracking(F.job(.restoringModel), adopted: true))
+        #expect(progress.runningJobId == "job-1")
+    }
+
+    @Test func theRowLookUpFindingAnotherJobOrFailingLosesTrack() {
+        var progress = tracking(F.job(.compacting))
+        progress.apply(.polled(.none))
+        progress.apply(.resumed(.job(F.job(.waitingIdle, id: "job-2"))))
+        #expect(progress == .lostTrack(F.job(.compacting), P.goneReason))
+        progress = tracking(F.job(.compacting))
+        progress.apply(.polled(.none))
+        progress.apply(.resumed(.failed("down")))
+        #expect(progress == .lostTrack(F.job(.compacting), "down"))
+    }
+
+    // MARK: - Answers stay open except while the /model picker may be up (QA #2)
+
+    @Test func onlyAJobInThePickerMayHaveThePickerOpen() {
+        #expect(tracking(F.job(.switchingModel, inPicker: true)).mayHavePickerOpen)
+        #expect(tracking(F.job(.restoringModel, inPicker: true)).mayHavePickerOpen)
+        // The state alone says nothing: a restore can wait minutes for a busy agent, picker closed.
+        for state: CompactJob.State in [.waitingIdle, .switchingModel, .compacting, .restoringModel, .sendingFollowUp, .done, .failed] {
+            #expect(!tracking(F.job(state)).mayHavePickerOpen)
+        }
+        #expect(!tracking(F.job(.failed, inPicker: true)).mayHavePickerOpen)   // a finished job holds nothing open
+        #expect(!P.starting.mayHavePickerOpen && !P.idle.mayHavePickerOpen)
     }
 }

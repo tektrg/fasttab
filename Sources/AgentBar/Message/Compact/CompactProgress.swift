@@ -11,10 +11,12 @@ import Foundation
 ///   │                       └──uncertain──▶ lookingUp ──resumed(job made since the press)──▶ tracking
 ///   │                                          └──resumed(none / older finished job / failed)──▶ startFailed
 ///   └──resumed(job)──▶ tracking(job) ──polled(job)──▶ tracking(job') … until job is terminal
-///                          └──polled(none) / maxFailedPolls failures──▶ lostTrack
+///                          ├──maxFailedPolls failures──▶ lostTrack
+///                          └──polled(none)──▶ relocating ──resumed(same job id)──▶ tracking
+///                                                └──resumed(none / other job / failed)──▶ lostTrack
 /// ```
-/// A new start is accepted from any state except `starting`, `lookingUp` or a running `tracking`
-/// (single-flight; the dashboard enforces it too with 409).
+/// A new start is accepted from any state except `starting`, `lookingUp`, `relocating` or a running
+/// `tracking` (single-flight; the dashboard enforces it too with 409).
 enum CompactProgress: Equatable, Sendable {
     case idle
     /// `POST /api/session/compact` on its way.
@@ -26,6 +28,9 @@ enum CompactProgress: Equatable, Sendable {
     case lookingUp(reason: String, notBefore: Double)
     /// A job to show: followed while not terminal.
     case tracking(Tracking)
+    /// A poll said the job id is unknown (a dashboard restart, say): the row is looked up once
+    /// (`GET ?rowId=`) before "lost track" is shown. QA #2, 2026-11-22.
+    case relocating(Tracking)
     /// Nothing was started (or a timed-out start found no job), in words.
     case startFailed(String)
     /// The job could no longer be read; it may still be running in the dashboard.
@@ -66,8 +71,18 @@ enum CompactProgress: Equatable, Sendable {
 
     /// True while a new start would be refused (one is on its way, being looked up, or running).
     var isBusy: Bool {
-        if case .lookingUp = self { return true }
-        return self == .starting || runningJobId != nil
+        switch self {
+        case .lookingUp, .relocating, .starting: return true
+        default: return runningJobId != nil
+        }
+    }
+
+    /// The job may have Claude's `/model` picker open in the pane (the job's `inPicker`): the dashboard
+    /// refuses answers and permission decisions for that pane meanwhile (409 `compact-running`). Any
+    /// other time answering the agent is fine, and while the job is `waitingIdle` it is what lets it go on.
+    var mayHavePickerOpen: Bool {
+        guard case .tracking(let tracking) = self, !tracking.job.isTerminal else { return false }
+        return tracking.job.inPicker
     }
 
     /// Nothing more will happen without a new start: the job ended, never started, or was lost.
@@ -75,7 +90,7 @@ enum CompactProgress: Equatable, Sendable {
         switch self {
         case .tracking(let tracking): tracking.job.isTerminal
         case .startFailed, .lostTrack: true
-        case .idle, .starting, .lookingUp: false
+        case .idle, .starting, .lookingUp, .relocating: false
         }
     }
 
@@ -92,8 +107,8 @@ enum CompactProgress: Equatable, Sendable {
         switch self {
         case .idle: nil
         case .starting: "Starting compact…"
-        case .lookingUp: "Checking whether the compact started…"
-        case .tracking(let tracking): tracking.job.progressLine
+        case .lookingUp: Self.mayHaveStartedLine
+        case .tracking(let tracking), .relocating(let tracking): tracking.job.progressLine
         case .startFailed(let reason): "Compact not started: \(reason)"
         case .lostTrack(_, let reason): "Lost track of the compact: \(reason). It may still be running — reopen to check."
         }
@@ -111,7 +126,7 @@ enum CompactProgress: Equatable, Sendable {
         switch self {
         case .startFailed, .lostTrack: true
         case .tracking(let tracking): tracking.job.state == .failed
-        case .idle, .starting, .lookingUp: false
+        case .idle, .starting, .lookingUp, .relocating: false
         }
     }
 
@@ -121,7 +136,7 @@ enum CompactProgress: Equatable, Sendable {
     /// user can send it again.
     func headlessNotice(label: String, followUp: String?) -> String? {
         switch self {
-        case .idle, .starting, .lookingUp:
+        case .idle, .starting, .lookingUp, .relocating:
             return nil
         case .startFailed(let reason):
             return "Couldn't compact \(label): \(reason)"
@@ -144,6 +159,9 @@ enum CompactProgress: Equatable, Sendable {
             return (["\(label): \(job.progressLine)"] + notes).joined(separator: " · ")
         }
     }
+
+    /// The line while a start with no usable reply is looked up by row.
+    static let mayHaveStartedLine = "May have started: checking…"
 
     static let adoptedHeadlessNote = "a compact was already running for this agent, so this one is shown instead"
 
@@ -190,6 +208,19 @@ enum CompactProgress: Equatable, Sendable {
             // After a failed start, only a running job is news (a finished one predates the press).
             if case .startFailed = self, job.isTerminal { return false }
             self = .tracking(Tracking(job: job))
+        case (.resumed(let read), .relocating(var tracking)):
+            // Only the same job counts: another one on the row is not the one this press started.
+            guard case .job(let job) = read, job.id == tracking.job.id else {
+                if case .failed(let reason) = read {
+                    self = .lostTrack(tracking.job, reason)
+                } else {
+                    self = .lostTrack(tracking.job, Self.goneReason)
+                }
+                return true
+            }
+            tracking.job = job
+            tracking.failedPolls = 0
+            self = .tracking(tracking)
         case (.resumed, _):
             return false
 
@@ -201,7 +232,7 @@ enum CompactProgress: Equatable, Sendable {
                 tracking.failedPolls = 0
                 self = .tracking(tracking)
             case .none:
-                self = .lostTrack(tracking.job, Self.goneReason)
+                self = .relocating(tracking)
             case .failed(let reason):
                 tracking.failedPolls += 1
                 self = tracking.failedPolls >= Self.maxFailedPolls ? .lostTrack(tracking.job, reason) : .tracking(tracking)

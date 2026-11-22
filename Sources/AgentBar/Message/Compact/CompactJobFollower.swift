@@ -4,7 +4,8 @@ import Foundation
 /// started with no card (compose, the row's ⋯ Compact, Park — `MessageCardModel.startCompactDirect`).
 /// Holds the `CompactProgress` (the single owner of that status) and drives it with dashboard
 /// calls: a GET by row when a card opens (a job started earlier or from the web shows its
-/// progress), a POST on a `/compact` send, then one GET by id every `pollInterval` until the job ends.
+/// progress), a POST on a `/compact` send, then one GET by id every `pollInterval` until the job ends
+/// (a GET by id that says "unknown" is followed by one more GET by row before giving up).
 ///
 /// One poll loop at a time; `stop()` (card closed) ends it and drops every late reply. Closing is
 /// safe: the job runs in the dashboard, the follower only watches it.
@@ -110,6 +111,9 @@ final class CompactJobFollower {
                 let read = await source.compactJob(id: id)
                 guard let self, !Task.isCancelled, !self.stopped else { return }
                 self.progress.apply(.polled(read))
+                // The dashboard no longer knows the id (restarted?): look the row up once before
+                // giving up (`CompactProgress.relocating`); this loop ends, a found job restarts it.
+                if case .relocating = self.progress { self.resume() }
             }
             self?.pollLoop = nil
         }

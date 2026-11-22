@@ -41,7 +41,21 @@ struct CompactDraftTests {
 
     @Test func compactOnALaterLineIsNotCompact() {
         #expect(D.parse("hello\n/compact") == nil)
-        #expect(D.parse("\n/compact") == nil)
+        #expect(D.parse("hello\n\n/compact x\nthen") == nil)
+    }
+
+    /// Shared parse table row (the web composer mirrors it): blank or whitespace-only lines before
+    /// `/compact` are skipped, so the draft still starts a compact job (QA #2, 2026-11-22).
+    @Test func leadingBlankLinesAreSkipped() {
+        #expect(D.parse("\n/compact") == D(instructions: nil, followUp: nil))
+        #expect(D.parse("\n\n/compact keep the plan\nthen run the tests") == D(instructions: "keep the plan", followUp: "then run the tests"))
+        #expect(D.parse("   \n\t\n  /compact x") == D(instructions: "x", followUp: nil))
+        #expect(D.parse("\r\n\r\n/compact\r\nnext") == D(instructions: nil, followUp: "next"))
+        #expect(D.parse("\n\n") == nil)
+        #expect(D.parse("\n\n/compactx") == nil)
+        // The web composer's shared table, verbatim.
+        #expect(D.parse("  \n\n/compact notes\nfollow") == D(instructions: "notes", followUp: "follow"))
+        #expect(D.parse("\n\nhello") == nil)
     }
 
     @Test func otherDraftsAreNotCompact() {

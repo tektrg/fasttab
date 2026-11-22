@@ -49,9 +49,18 @@ final class CompactFakeSource: AgentStatusSource, @unchecked Sendable {
     func answer(paneId: String, choice: AnswerChoice, question: QuestionIdentity) async -> AnswerResult { .failed("unused") }
     func perform(_ kind: SessionActionKind, rowId: String, confirmed: Bool) async -> SessionActionOutcome { .failed("unused") }
 
+    private var scriptedMessageOutcome: MessageSendOutcome = .sent(queued: false)
+    /// The reply every plain message gets (default `.sent`).
+    var messageOutcome: MessageSendOutcome {
+        get { lock.withLock { scriptedMessageOutcome } }
+        set { lock.withLock { scriptedMessageOutcome = newValue } }
+    }
+
     func sendMessage(rowId: String, text: String, confirmed: Bool) async -> MessageSendOutcome {
-        lock.withLock { recordedMessages.append(text) }
-        return .sent(queued: false)
+        lock.withLock {
+            recordedMessages.append(text)
+            return scriptedMessageOutcome
+        }
     }
 
     func startCompact(rowId: String, actor: String, instructions: String?, followUp: String?) async -> CompactStartOutcome {
@@ -119,10 +128,10 @@ enum CompactFixtures {
     static func job(
         _ state: CompactJob.State, id: String = "job-1", rowId: String = "row-a", originalModel: String? = "Opus 5.5",
         switchSkipped: Bool = false, skipReason: String? = nil, modelRestored: Bool? = nil, followUpSent: Bool? = nil,
-        error: String? = nil, createdAt: Double = 0
+        error: String? = nil, createdAt: Double = 0, inPicker: Bool = false
     ) -> CompactJob {
         CompactJob(id: id, rowId: rowId, state: state, originalModel: originalModel, switchSkipped: switchSkipped,
                    skipReason: skipReason, modelRestored: modelRestored, followUpSent: followUpSent, error: error,
-                   createdAt: createdAt, updatedAt: createdAt)
+                   createdAt: createdAt, updatedAt: createdAt, inPicker: inPicker)
     }
 }

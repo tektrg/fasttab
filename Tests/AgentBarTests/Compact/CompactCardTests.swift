@@ -102,6 +102,56 @@ struct CompactCardTests {
         #expect(rig.model.compactProgress == .idle)
     }
 
+    /// QA #2: blank lines before `/compact` used to fall through to the plain send, which flattened
+    /// the draft into a typed `/compact …` that skipped the Sonnet switch.
+    @Test func blankLinesBeforeACompactStillStartTheJob() async {
+        let rig = makeRig()
+        await open(rig)
+        rig.model.setDraft("\n  \n/compact keep the plan\nthen run the tests")
+        #expect(rig.model.card?.sendTitle == "Compact")
+        rig.model.pressSend()
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        #expect(rig.source.starts == [.init(rowId: "row-a", actor: "po", instructions: "keep the plan", followUp: "then run the tests")])
+        #expect(rig.source.messages.isEmpty)
+        await finish(rig)
+    }
+
+    /// A wrap_up action whose message is a `/compact` (on a Claude pane) runs the compact job too,
+    /// never a typed `/compact`.
+    @Test func aWrapUpActionThatIsACompactStartsTheJob() async throws {
+        let rig = makeRig()
+        var withAsk = agent()
+        let payload = try JSONDecoder().decode(
+            DashboardWrapUpQuestion.self,
+            from: Data(#"{"ask": "Next?", "actions": [{"label": "Compact", "message": "/compact keep the plan"}]}"#.utf8)
+        )
+        withAsk.wrapUpQuestion = WrapUpQuestion(payload)
+        #expect(rig.model.open(withAsk))
+        await waitUntil { rig.source.rowReads.count == 1 }
+        await settleTasks()
+        let action = try #require(rig.model.card?.wrapUpQuestion?.actions.first)
+        rig.model.pressWrapUpAction(action)
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        #expect(rig.source.starts == [.init(rowId: "row-a", actor: "po", instructions: "keep the plan", followUp: nil)])
+        #expect(rig.source.messages.isEmpty)
+        await finish(rig)
+    }
+
+    /// QA #2: a card message refused because a compact is running keeps the card and its draft.
+    @Test func aCardMessageRefusedByARunningCompactKeepsTheDraft() async {
+        let rig = makeRig()
+        rig.source.messageOutcome = .compactRunning
+        await open(rig)
+        rig.model.setDraft("please continue")
+        rig.model.pressSend()
+        await waitUntil { rig.model.card?.phase == .editing && rig.model.card?.errorText != nil }
+        #expect(rig.model.card?.errorText == MessageSendOutcome.compactRunningWords)
+        #expect(rig.model.card?.draft == "please continue")
+        await settleTasks()
+        #expect(rig.source.messages == ["please continue"])
+        await finish(rig)
+    }
+
     @Test func compactWithImagesIsRefusedInline() async {
         let rig = makeRig()
         await open(rig)

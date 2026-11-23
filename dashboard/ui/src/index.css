@@ -411,6 +411,17 @@ body.rp-resizing .rp-resize { background:var(--ask); }
   font-family: var(--mono); font-size: 0.85em; white-space: pre;
   background: none; padding: 0;
 }
+/* Mermaid diagrams (MermaidBlock.tsx): natural size, scrolling sideways
+   inside their own box so a wide diagram never widens the page on a phone. */
+.md-mermaid { margin: 0.4em 0; max-width: 100%; min-width: 0; }
+.md-mermaid__scroll {
+  overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%;
+  padding: 8px; border: 1px solid var(--hair); border-radius: var(--r-sm);
+}
+.md-mermaid__scroll svg { display: block; max-width: none; height: auto; margin: 0 auto; }
+.md-mermaid__source { margin-top: 4px; font-size: 0.85em; }
+.md-mermaid__source summary { cursor: pointer; color: var(--ink-3); width: max-content; }
+.md-mermaid__note { margin-top: 2px; font-size: 0.8em; color: var(--ink-3); }
 .md-table-scroll {
   overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0.4em 0;
   border: 1px solid var(--hair); border-radius: var(--r-sm);

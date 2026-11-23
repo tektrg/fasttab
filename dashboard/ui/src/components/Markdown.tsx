@@ -1,6 +1,7 @@
 import React from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { MermaidBlock } from "./MermaidBlock";
 
 /**
  * Markdown (plan card, latest-message, and other agent-authored content).
@@ -16,9 +17,36 @@ import remarkGfm from "remark-gfm";
  * shows, dropped explicitly below. Links are allowlisted to http(s)/mailto;
  * anything else (javascript:, data:, vbscript:, disguised/whitespace/entity
  * tricks around the scheme) renders as inert text, not a clickable anchor.
+ *
+ * ```mermaid fences render as diagrams via MermaidBlock (lazy-loaded,
+ * strict security, falls back to the raw source) — see that file.
  */
 
 const SAFE_HREF_RE = /^(https?:|mailto:)/i;
+
+/** Minimal hast shape — just what `mermaidSource` reads. */
+type HastNode = {
+  type?: string;
+  tagName?: string;
+  value?: string;
+  properties?: { className?: unknown };
+  children?: HastNode[];
+};
+
+function hastText(n: HastNode): string {
+  if (n.type === "text") return n.value ?? "";
+  return (n.children ?? []).map(hastText).join("");
+}
+
+/** The diagram text when this `<pre>` is a ```mermaid fence, else null. */
+function mermaidSource(pre: HastNode | undefined): string | null {
+  const code = pre?.children?.find((c) => c.type === "element");
+  if (!code || code.tagName !== "code") return null;
+  const cls = code.properties?.className;
+  const classes = Array.isArray(cls) ? cls.map(String) : typeof cls === "string" ? cls.split(/\s+/) : [];
+  if (!classes.some((c) => c.toLowerCase() === "language-mermaid")) return null;
+  return hastText(code).replace(/\n$/, "");
+}
 
 function isSafeHref(href: string | undefined): boolean {
   if (!href) return false;
@@ -64,7 +92,13 @@ const blockComponents: Components = {
   td: ({ node: _node, children, ...props }) => (
     <td {...props}><div className="md-cell">{children}</div></td>
   ),
-  pre: ({ children }) => <pre className="md-pre">{children}</pre>,
+  // A ```mermaid fence becomes a diagram (MermaidBlock lazy-loads mermaid
+  // only then); every other fence stays a plain code block.
+  pre: ({ node, children }) => {
+    const source = mermaidSource(node);
+    if (source !== null) return <MermaidBlock source={source} />;
+    return <pre className="md-pre">{children}</pre>;
+  },
   code: ({ className, children, ...props }) => {
     // Fenced blocks carry a `language-xxx` className from remark; inline
     // code does not — this is the same signal react-markdown v9+ exposes.

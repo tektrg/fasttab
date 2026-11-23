@@ -741,6 +741,12 @@ switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/com
   then the summary and `<local-command-stdout>\x1b[2mCompacted …` (strip ANSI). ~3-11s measured.
 - Fresh folder trust dialog defaults to "No, exit" (digits don't work there) — never blind-Enter.
 
+## Web UI: mermaid diagrams in agent markdown (2026-11-23)
+- **Where**: every surface using `ui/src/components/Markdown.tsx` `<Markdown>` (latest message on desktop row panel, phone sheet, prompt sheet; plan approval card). `MarkdownInline` (one-line question/option text) has no fences, so no diagrams. Plain-text surfaces (sent-message history, inbox subtitles, feedback bodies) are not markdown and stay as is.
+- **How**: `Markdown`'s `pre` override sends a ```` ```mermaid ```` fence to `MermaidBlock.tsx`, which `import("mermaid")`s on first use only (separate `mermaid.core-*.js` chunk, ~670 kB; main chunk unchanged apart from ~4 kB of glue). Pinned `mermaid` 12.3.0.
+- **Rules** (pinned by `__tests__/mermaid.test.tsx`, mermaid mocked): `securityLevel: "strict"`, `htmlLabels: false`, output SVG re-scrubbed (`scrubSvg`: no script/foreignObject/SMIL/on*/non-http links); bad diagram = raw source + "diagram failed to render"; results cached by theme + content hash, 150 ms quiet period, so a streaming message renders once; theme follows `data-mantine-color-scheme`; natural size in a sideways-scroll box (`.md-mermaid__scroll`).
+- **Real mermaid can't render under happy-dom** (empty SVG), so check diagrams visually in a browser.
+
 ## Running it
 ```
 cd dashboard

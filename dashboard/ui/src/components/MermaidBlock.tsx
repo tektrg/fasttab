@@ -1,5 +1,8 @@
-import React, { useEffect, useState, useSyncExternalStore } from "react";
+import React, { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { MermaidConfig } from "mermaid";
+
+// Fullscreen pan/zoom viewer: its own small chunk, fetched on first expand.
+const MermaidZoomOverlay = lazy(() => import("./MermaidZoomOverlay"));
 
 /**
  * One ```mermaid fenced block from agent-authored markdown (Markdown.tsx's
@@ -21,6 +24,8 @@ import type { MermaidConfig } from "mermaid";
  *   re-renders when it flips (OS light/dark switch).
  * - **Phone**: the diagram keeps its natural size inside its own
  *   horizontal-scroll box (`.md-mermaid__scroll`), never widening the page.
+ * - **Zoom**: tap the diagram or its ⤢ button for the fullscreen pan/zoom
+ *   viewer (MermaidZoomOverlay, lazy). Inline never zooms or eats the wheel.
  */
 
 type Scheme = "light" | "dark";
@@ -202,6 +207,8 @@ function SourceBlock({ source }: { source: string }) {
 export function MermaidBlock({ source }: { source: string }): React.ReactElement {
   const scheme = useColorScheme();
   const key = cacheKey(source, scheme);
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const expandRef = useRef<HTMLButtonElement>(null);
   const [shown, setShown] = useState<{ key: string; result: Result } | null>(() => {
     const done = settled.get(key);
     return done ? { key, result: done } : null;
@@ -244,8 +251,33 @@ export function MermaidBlock({ source }: { source: string }): React.ReactElement
 
   return (
     <div className="md-mermaid">
-      {/* SVG from mermaid strict mode, re-scrubbed by scrubSvg above. */}
-      <div className="md-mermaid__scroll" dangerouslySetInnerHTML={{ __html: svg }} />
+      <div className="md-mermaid__frame">
+        {/* SVG from mermaid strict mode, re-scrubbed by scrubSvg above.
+            Inline = scroll box only: no wheel/pinch handling here, so the
+            page scrolls normally over it; zoom lives in the overlay. */}
+        <div
+          className="md-mermaid__scroll"
+          onClick={(e) => {
+            if (!(e.target as Element).closest?.("a")) setZoomOpen(true);
+          }}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+        <button
+          type="button"
+          ref={expandRef}
+          className="md-mermaid__expand"
+          aria-label="Expand diagram"
+          title="Expand"
+          onClick={() => setZoomOpen(true)}
+        >
+          ⤢
+        </button>
+      </div>
+      {zoomOpen ? (
+        <Suspense fallback={null}>
+          <MermaidZoomOverlay svg={svg} returnFocus={expandRef.current} onClose={() => setZoomOpen(false)} />
+        </Suspense>
+      ) : null}
       <details className="md-mermaid__source">
         <summary>show source</summary>
         <SourceBlock source={source} />

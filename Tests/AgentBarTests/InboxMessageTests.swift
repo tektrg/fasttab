@@ -188,10 +188,9 @@ struct InboxMessageCardTests {
     }
 }
 
-/// Park compacts a terminal session (`/compact`), but only a row that can take it
-/// (`RowButtons.takesQuickCommands`): an inbox, a blocked pane or a non-Claude pane must still
-/// park, just without the compact — else the headless retry ends in a "Couldn't send … after 3
-/// tries" footer.
+/// Park compacts a terminal session (the dashboard's compact job, gotcha 31), but only a row the job
+/// can serve (`RowButtons.takesCompactJob`): an inbox, a blocked pane or a non-Claude pane must still
+/// park, just without the compact — else it would end in a "Couldn't compact …" footer.
 @MainActor
 struct InboxParkTests {
     typealias I = InboxFixtures
@@ -215,8 +214,8 @@ struct InboxParkTests {
     @Test func parkingAPaneRowStillCompactsIt() async {
         let (model, source) = makeModel([F.agent("a", section: .needsYou)])
         model.press(.park, on: "a")
-        await source.waitForRequests(1)
-        #expect(source.sent.map(\.text) == ["/compact"])
+        await waitUntil { source.compactStarts == ["a"] }
+        #expect(source.sent.isEmpty)   // the compact job, never a typed /compact
     }
 
     @Test func parkingAnInboxRowParksWithoutSendingCompact() async throws {

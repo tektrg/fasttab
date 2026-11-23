@@ -27,6 +27,35 @@ struct AgentShellCharacterizationTests {
         #expect(AgentPanelKeys.returnAction(shift: true, isCardOpen: true) == .activateSelected)
     }
 
+    /// Owner bug 2026-11-23: in Tab-tag compose Shift+Return did nothing, so a `/compact` with a
+    /// queued message (line 2+) could not be typed. Composing: Shift/Option+Return = a new line,
+    /// plain Return sends. Not composing (plain search): exactly as before.
+    @Test func shiftOrOptionReturnInsertsANewlineOnlyWhileComposing() {
+        typealias K = AgentPanelKeys
+        #expect(K.returnAction(shift: true, option: false, isCardOpen: false, isComposing: true) == .insertNewline)
+        #expect(K.returnAction(shift: false, option: true, isCardOpen: false, isComposing: true) == .insertNewline)
+        #expect(K.returnAction(shift: true, option: true, isCardOpen: false, isComposing: true) == .insertNewline)
+        #expect(K.returnAction(shift: false, option: false, isCardOpen: false, isComposing: true) == .activateSelected)
+        // Plain search: unchanged (Shift routes to Jev, Option is a plain Return).
+        #expect(K.returnAction(shift: true, option: false, isCardOpen: false, isComposing: false) == .startRouting)
+        #expect(K.returnAction(shift: false, option: true, isCardOpen: false, isComposing: false) == .activateSelected)
+        #expect(K.returnAction(shift: false, option: false, isCardOpen: false, isComposing: false) == .activateSelected)
+        // A card owns the keyboard: never a newline in the box.
+        #expect(K.returnAction(shift: true, option: false, isCardOpen: true, isComposing: true) == .activateSelected)
+        #expect(K.returnAction(shift: false, option: true, isCardOpen: true, isComposing: true) == .activateSelected)
+    }
+
+    @Test func onlyATabTaggedBoxComposesMultiline() {
+        let model = makeModel()
+        model.receive(F.snapshot([F.agent("a", section: .working)]))
+        #expect(!model.composesMultilineMessage)
+        model.select(agentID: "a")
+        model.tagSelected()
+        #expect(model.composesMultilineMessage)
+        model.removeTag()
+        #expect(!model.composesMultilineMessage)
+    }
+
     @Test func cardKeysPickDigitsCopyAndDropTheRest() {
         func key(_ c: String, _ m: EventModifiers = [], nav: Bool = false, open: Bool = true) -> AgentPanelKeys.CardKey {
             AgentPanelKeys.cardKey(characters: c, modifiers: m, isNavigationKey: nav, isCardOpen: open)
@@ -83,7 +112,7 @@ struct AgentShellCharacterizationTests {
         #expect(H.text(for: .init(isPeeking: true)) == "←→/tab tabs   ↩ switch   ⌘K more   space/esc back")
         #expect(H.text(for: .init(hasHighlightedButton: true)) == "←→ button   ↩ press   ⌘K more   esc back")
         #expect(H.text(for: .init(hasDismissibleNotice: true)) == "esc dismiss notice")
-        #expect(H.text(for: .init(isTagged: true)) == "↩ send   tab retag   esc untag")
+        #expect(H.text(for: .init(isTagged: true)) == "↩ send   ⇧↩ new line   tab retag   esc untag")
     }
 
     @Test func footerHintsSplitIntoSharedKeyTokens() {

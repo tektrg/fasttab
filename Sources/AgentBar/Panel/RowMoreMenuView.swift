@@ -8,7 +8,8 @@ import IndieCommandBar
 /// row: Done and/or Close pane (still routed through `AgentPanelModel.press`, so the existing
 /// confirm-on-second-press flow applies unchanged — see `AgentRowView`'s `activeMenuItemSpec`,
 /// which pulls a button back OUT of this menu and into its own capsule the moment it starts
-/// confirming) plus Compact/Clear (straight to `MessageCardModel.sendDirect`, no confirm).
+/// confirming) plus Compact (the dashboard's compact job, `AgentPanelModel.startCompactJob`) and
+/// Clear (straight to `MessageCardModel.sendDirect`), neither with a confirm step.
 ///
 /// A native SwiftUI `Menu`, deliberately: low-visual-weight (a bare `ellipsis` glyph, styled like
 /// `CopyIdentityButton`, not a capsule), opened only by a real click. There is no public SwiftUI

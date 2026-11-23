@@ -139,6 +139,12 @@ struct PanePeekView: View {
                 .lineLimit(1)
                 .disabled(refusal != nil)
                 .onSubmit { if model.sendFromPeek(draft) { draft = "" } }
+                // A `/compact` draft clears once the dashboard has the job; a message refused because a
+                // compact is running comes back. Only while the box still reads what the model expects.
+                .onChange(of: model.peekDraftEdit) { _, edit in
+                    guard let edit, edit.agentID == peek.agentID, draft == edit.from else { return }
+                    draft = edit.to
+                }
                 .onExitCommand { model.closePeek() }
                 .focused($inputFocused)
                 .onChange(of: inputFocused) { _, focused in model.peekInputFocused = focused }

@@ -212,6 +212,7 @@ import tui_message  # noqa: E402  (Phase 4: message an OpenCode / Codex row)
 import image_attachments  # noqa: E402  (image uploads -> path notes in Send message)
 import audio_attachments  # noqa: E402  (voice-note uploads from the phone)
 import voice_transcription  # noqa: E402  (voice note -> text via SpeechToDo CLI)
+import compact_jobs  # noqa: E402  (/compact with a temporary Sonnet switch)
 import jev_route  # noqa: E402  (POST /api/jev/route — pick a persona server-side)
 import persona_registry_edit  # noqa: E402  (POST /api/personas + registry view, P4)
 import persona_suggestions  # noqa: E402  (GET /api/personas/suggestions, P4)
@@ -1069,7 +1070,7 @@ def handle_session_action(action, body):
     if action == "message":
         # Reach needs no ladder resolution (it refuses non-live rows
         # outright) and must never fall through to do_relaunch below.
-        return _handle_reach_action(action, body, row_id, actor)
+        return _send_message_unless_compacting(body, row_id, actor)
 
     state = get_full_state()
     agents = state.get("computed", {}).get("agents") or []
@@ -2149,6 +2150,205 @@ def handle_session_latest(qs):
             "pendingQuestion": pending}, 200
 
 
+#: /compact with a temporary Sonnet switch (server/lib/compact_jobs.py).
+_COMPACT_TAIL_WINDOW = 256 * 1024
+_COMPACT_JOBS = None
+_COMPACT_JOBS_LOCK = threading.Lock()
+
+
+def _compact_jobs():
+    """The job table, created on first use: restart recovery (running jobs
+    -> failed "dashboard restarted") happens on that first load."""
+    global _COMPACT_JOBS
+    with _COMPACT_JOBS_LOCK:
+        if _COMPACT_JOBS is None:
+            import dashboard_config
+            _COMPACT_JOBS = compact_jobs.CompactJobs(
+                os.path.join(dashboard_config.STATE_HOME, "compact-jobs.json"))
+        return _COMPACT_JOBS
+
+
+def _compact_pane_io(row_id, actor, machine, raw_pane_id, session_id):
+    """compact_jobs.PaneIO for one pane, routed to its machine exactly like
+    the Send message path: `pane run` / `send-keys` / `pane read` through
+    `_type_text` / `_send_keys` / `_read_pane_now` (ssh for a remote row),
+    `/compact` and the follow-up through `_handle_reach_action` itself, and
+    the transcript tail from local disk or over the ssh tail reader."""
+    def read():
+        return _read_pane_now(raw_pane_id, machine=machine)[0]
+
+    def run_line(text):
+        # `pane run` = text + herdr's own Enter. Deliberately NOT followed
+        # by `_send_keys(enter)` (that is the message path's habit): a second
+        # Enter lands in the open /model picker and saves the global default.
+        _type_text(raw_pane_id, text, machine=machine)
+
+    def keys(*names):
+        _send_keys(raw_pane_id, *names, machine=machine)
+
+    def send_message(text):
+        # confirm: the job has just seen the prompt idle itself.
+        return _handle_reach_action(
+            "message", {"rowId": row_id, "actor": actor, "text": text,
+                        "confirm": True}, row_id, actor)
+
+    def transcript_tail():
+        if not session_id:
+            return None
+        reader = (_local_tail_reader(session_id)
+                  if machine == herdr_transport.LOCAL_MACHINE
+                  else _remote_tail_reader(machine, session_id, []))
+        got = reader(_COMPACT_TAIL_WINDOW)
+        return got[0] if got else None
+
+    return compact_jobs.PaneIO(read, run_line, keys, send_message, transcript_tail)
+
+
+def _compact_io_for_saved_job(job):
+    """PaneIO for a job a restart interrupted (CompactJobs.recover), built
+    from the pane it saved; None when that pane's machine is unknown now."""
+    machine = job.get("machine") or herdr_transport.LOCAL_MACHINE
+    raw_pane_id = job.get("rawPaneId")
+    if not raw_pane_id or (machine != herdr_transport.LOCAL_MACHINE and machine not in MACHINES):
+        return None
+    session_id = job.get("sessionId")
+    if not session_transcript.is_safe_session_id(session_id or ""):
+        session_id = None
+    return _compact_pane_io(job["rowId"], job.get("actor") or "po", machine,
+                            raw_pane_id, session_id)
+
+
+#: How long a plain Send waits for the row's send lock (held by a compact job
+#: for its whole run, or a Send already typing) before refusing.
+_PLAIN_SEND_LOCK_WAIT_SEC = 15.0
+COMPACT_RUNNING = "compact-running"
+
+
+def _compact_running_refusal(job):
+    """409 body for a pane-typing request while a compact job drives the row:
+    its /model picker may be open, where a stray Enter or digit SAVES the
+    global default model. Nothing was typed."""
+    return {"ok": False, "code": COMPACT_RUNNING, "typed": False, "job": job,
+            "error": f"{COMPACT_RUNNING}: a /compact job is running on this session "
+                     "(it switches the model, compacts and switches back). Wait until "
+                     "it finishes, then send. Nothing was sent."}
+
+
+def _session_action_status(result):
+    return 409 if isinstance(result, dict) and result.get("code") == COMPACT_RUNNING else 200
+
+
+def _send_message_unless_compacting(body, row_id, actor):
+    """POST /api/session/message: refused (409 compact-running) while the row
+    has an active compact job. The send holds the row's send lock, which a
+    job's worker holds for its whole run, so a Send that raced a job starting
+    can never type into the picker. The job's OWN sends call
+    `_handle_reach_action` directly (no lock)."""
+    jobs = _compact_jobs()
+    active = jobs.active_for_row(row_id)
+    if active is not None:
+        return _compact_running_refusal(active)
+    lock = jobs.row_lock(row_id)
+    if not lock.acquire(timeout=_PLAIN_SEND_LOCK_WAIT_SEC):
+        active = jobs.active_for_row(row_id)
+        if active is not None:
+            return _compact_running_refusal(active)
+        return _refused_before_typing(
+            "refused: another message to this session is still being typed — "
+            "try again in a moment")
+    try:
+        active = jobs.active_for_row(row_id)
+        if active is not None:
+            return _compact_running_refusal(active)
+        return _handle_reach_action("message", body, row_id, actor)
+    finally:
+        lock.release()
+
+
+def _compact_pane_refusal(pane_id):
+    """/api/answer and /api/permission send digits/Enter: refused only while
+    a compact job on that pane may have the /model picker open (its
+    `inPicker` flag), where a digit or Enter SAVES the global default model.
+    Any other time — waiting for idle, compacting, a restore waiting up to
+    10 min for a busy agent — a question or permission prompt the agent
+    raises must stay answerable."""
+    try:
+        active = _compact_jobs().active_for_pane(pane_id)
+    except Exception:
+        return None
+    if active is None or not active.get("inPicker"):
+        return None
+    return _compact_running_refusal(active)
+
+
+#: How long an answer waits for the pane's picker lock (a compact job holds it
+#: from just before typing /model until it has left the picker: seconds).
+_ANSWER_PICKER_WAIT_SEC = 10.0
+
+
+def _answer_unless_picker(pane_id, answer):
+    """(refusal, None) or (None, answer()). The answer is typed holding the
+    pane's picker lock, so a compact job can't open the picker mid-answer;
+    a job already in its picker step -> the 409 compact-running body."""
+    jobs = _compact_jobs()
+    lock = jobs.picker_lock(pane_id)
+    if not lock.acquire(timeout=_ANSWER_PICKER_WAIT_SEC):
+        active = jobs.active_for_pane(pane_id)
+        if active is not None:
+            return _compact_running_refusal(active), None
+        raise RuntimeError("another answer to this pane is still being typed — try again")
+    try:
+        refusal = _compact_pane_refusal(pane_id)
+        if refusal is not None:
+            return refusal, None
+        return None, answer()
+    finally:
+        lock.release()
+
+
+def handle_compact_post(body):
+    """POST /api/session/compact -> (payload, status). Contract:
+    .claude/compact-api-contract.md (summary in dashboard/AGENTS.md)."""
+    fields, error = compact_jobs.validate_request(body)
+    if error:
+        return {"ok": False, "error": error}, 400
+    ok, why = session_actions.check_actor(fields["actor"])
+    if not ok:
+        return {"ok": False, "error": why}, 400
+    row_id = fields["rowId"]
+    state = get_full_state()
+    agents = state.get("computed", {}).get("agents") or []
+    agent = next((a for a in agents if resolve_agent_row_id(a) == row_id), None)
+    if agent is None:
+        return {"ok": False, "error": f"row {row_id} is not live"}, 404
+    pane_id = agent.get("paneId")
+    if not pane_id:
+        return {"ok": False, "error": f"row {row_id} has no pane — compact "
+                                      "drives a Claude pane"}, 400
+    if (message_gate.blind_agent_refusal(agent) or message_gate.is_tui_row(agent)
+            or agent.get("agentKind") not in (None, message_gate.CLAUDE_AGENT_KIND)):
+        return {"ok": False, "error": f"row {row_id} is not a Claude pane"}, 400
+    if (agent.get("label") or "") in session_actions.DEV_SERVER_LABELS:
+        return {"ok": False, "error": "refused: dev-server pane"}, 400
+    try:
+        own = _own_pane_cached({a.get("paneId") for a in agents if a.get("paneId")})
+    except Exception:
+        own = None
+    if own and pane_id == own:
+        return {"ok": False, "error": "refused: this is the dashboard server's own pane"}, 400
+    try:
+        machine, raw_pane_id = herdr_transport.split_pane_key(pane_id, MACHINES)
+    except herdr_transport.HerdrError as e:
+        return {"ok": False, "error": f"could not resolve pane machine: {e}"}, 400
+    session_id = agent.get("agentSession")
+    if not session_transcript.is_safe_session_id(session_id or ""):
+        session_id = None
+    io = _compact_pane_io(row_id, fields["actor"], machine, raw_pane_id, session_id)
+    return _compact_jobs().start(fields, io, pane={
+        "paneKey": pane_id, "machine": machine, "rawPaneId": raw_pane_id,
+        "sessionId": session_id})
+
+
 def _current_plan_path(pane_id, row_id):
     """Reads the pane FRESH (same `_read_pane_now` door every send-path
     handler uses) and returns (planPath, resolvedMachine, error). error is
@@ -3176,6 +3376,9 @@ class Handler(BaseHTTPRequestHandler):
         if voice_reply is not None:
             self._send_json(*voice_reply)
             return
+        if path == compact_jobs.COMPACT_PATH or path.startswith(compact_jobs.COMPACT_PATH + "/"):
+            self._send_json(*compact_jobs.handle_get(path, parse_qs(parsed.query), _compact_jobs()))
+            return
         if hook_permission_routes.is_hook_path(path):
             self._send_json(*hook_permission_routes.handle_get(
                 path, parse_qs(parsed.query), self._is_remote_listener()))
@@ -3344,6 +3547,21 @@ class Handler(BaseHTTPRequestHandler):
             voice_reply = voice_transcription.handle_post(path, self._read_json_body)
             self._send_json(*voice_reply)
             return
+        if path == compact_jobs.COMPACT_PATH:
+            # Both listeners, like Send message (the phone composer uses it).
+            self._note_remote_audit_row("compact")
+            try:
+                body = self._read_json_body()
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=400)
+                return
+            row_id = body.get("rowId") if isinstance(body, dict) else None
+            self._note_remote_audit_row(row_id if isinstance(row_id, str) else None)
+            try:
+                self._send_json(*handle_compact_post(body))
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=500)
+            return
         if path.startswith("/api/session/"):
             action = path[len("/api/session/"):]
             self._note_remote_audit_row(action)
@@ -3352,7 +3570,8 @@ class Handler(BaseHTTPRequestHandler):
                 # Audit the row acted on, not just the verb.
                 row_id = body.get("rowId") if isinstance(body, dict) else None
                 self._note_remote_audit_row(row_id if isinstance(row_id, str) else None)
-                self._send_json(handle_session_action(action, body))
+                result = handle_session_action(action, body)
+                self._send_json(result, status=_session_action_status(result))
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)}, status=200)
             return
@@ -3438,13 +3657,22 @@ class Handler(BaseHTTPRequestHandler):
             self._note_remote_audit_row(pane_id)
             if path == "/api/focus":
                 result = focus_pane(pane_id)
-            elif path == "/api/answer":
-                result = answer_pane_question(
-                    pane_id, body.get("choice"), body.get("question"))
             else:
-                result = answer_pane_permission(
-                    pane_id, body.get("choice"), body.get("permission"),
-                    index=body.get("index"), text=body.get("text"))
+                # Refused (409 compact-running) only while a compact job may
+                # have the /model picker open on this pane.
+                if path == "/api/answer":
+                    def answer():
+                        return answer_pane_question(
+                            pane_id, body.get("choice"), body.get("question"))
+                else:
+                    def answer():
+                        return answer_pane_permission(
+                            pane_id, body.get("choice"), body.get("permission"),
+                            index=body.get("index"), text=body.get("text"))
+                refusal, result = _answer_unless_picker(pane_id, answer)
+                if refusal is not None:
+                    self._send_json(refusal, status=409)
+                    return
             self._send_json({"ok": True, **result})
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=200)
@@ -3619,6 +3847,12 @@ def main():
     start_pollers()
     SAMPLER.start()
     apns_agent_push.start_observer(get_full_state, STOP)
+    # Compact jobs the previous process left mid-run: loading the table (here,
+    # before any listener binds) marks them active `restoringModel`, so their
+    # rows refuse new jobs and sends at once; recover() then leaves the /model
+    # picker and puts the model back (background threads; never re-sends a
+    # follow-up).
+    _compact_jobs().recover(_compact_io_for_saved_job)
 
     server = QuietThreadingHTTPServer((HOST, PORT), Handler)
     server.remote_listener = False

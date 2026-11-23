@@ -84,12 +84,12 @@ function mount(
 }
 
 function typeInto(host: HTMLElement, value: string) {
-  const input = host.querySelector("input")!;
+  const input = host.querySelector("textarea")!;
   act(() => {
     input.focus();
     // React 19 reads the native setter — assign then dispatch.
     const setter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
+      window.HTMLTextAreaElement.prototype,
       "value",
     )!.set!;
     setter.call(input, value);
@@ -111,7 +111,7 @@ describe("Composer", () => {
     const { host, unmount } = mount([]);
     expect(host.textContent).toContain("select rows first");
     expect(
-      (host.querySelector("input") as HTMLInputElement).disabled,
+      (host.querySelector("textarea") as HTMLTextAreaElement).disabled,
     ).toBe(true);
     unmount();
   });
@@ -147,7 +147,7 @@ describe("Composer", () => {
     typeInto(host, "go on then");
     await clickSend(host);
     expect(messageCalls(calls)[0].body).toMatchObject({ text: "go on then" });
-    expect((host.querySelector("input") as HTMLInputElement).value).toBe("");
+    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe("");
     unmount();
   });
 
@@ -156,7 +156,7 @@ describe("Composer", () => {
     const { host, unmount } = mount([boardRow("a")]);
     typeInto(host, "recover me");
     await clickSend(host);
-    const input = host.querySelector("input") as HTMLInputElement;
+    const input = host.querySelector("textarea") as HTMLTextAreaElement;
     expect(input.value).toBe("");
     expect(host.textContent).toContain("recover me");
     const restore = [...host.querySelectorAll("button")].find((b) =>
@@ -165,14 +165,14 @@ describe("Composer", () => {
     await act(async () => {
       restore.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect((host.querySelector("input") as HTMLInputElement).value).toBe(
+    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
       "recover me",
     );
     unmount();
   });
 
   const inputValue = (host: HTMLElement) =>
-    (host.querySelector("input") as HTMLInputElement).value;
+    (host.querySelector("textarea") as HTMLTextAreaElement).value;
 
   test("a control-char refusal (typed:false) puts the text back in the box", async () => {
     stubFetch([
@@ -227,7 +227,7 @@ describe("Composer", () => {
     const { host, unmount } = mount([boardRow("a"), boardRow("b")]);
     typeInto(host, "once only");
     await clickSend(host);
-    expect((host.querySelector("input") as HTMLInputElement).value).toBe("");
+    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe("");
     unmount();
   });
 
@@ -239,7 +239,7 @@ describe("Composer", () => {
     const { host, unmount } = mount([boardRow("a")]);
     typeInto(host, "held through confirm");
     await clickSend(host);
-    expect((host.querySelector("input") as HTMLInputElement).value).toBe("");
+    expect((host.querySelector("textarea") as HTMLTextAreaElement).value).toBe("");
     await clickSend(host);
     expect(messageCalls(calls)[1].body).toMatchObject({
       confirm: true,

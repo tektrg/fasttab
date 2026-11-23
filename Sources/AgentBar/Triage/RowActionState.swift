@@ -28,9 +28,12 @@ enum RowActionPlan: Equatable {
     case openReview
     case openTerminal
     case openMessage
-    /// Compact / Clear: straight to `MessageCardModel.sendDirect(to:text:)`, no card, no
-    /// `MessageDraftValidator` (these two exact strings are pre-approved) and no confirm step.
+    /// Clear: straight to `MessageCardModel.sendDirect(to:text:)`, no card, no
+    /// `MessageDraftValidator` (the exact string is pre-approved) and no confirm step.
     case sendQuickCommand(String)
+    /// Compact: the dashboard's compact job with no instructions (`AgentPanelModel.startCompactJob`):
+    /// no card, no confirm step; the row shows its progress, a failure goes to the footer.
+    case startCompact
     case send(SessionActionKind, confirmed: Bool)
     /// Report to… / Stop reporting: straight to `AgentTreeModel.indentSelected()`/`outdentSelected()`
     /// (`AgentPanelModel.press`) — no card, no confirm step here (the model's own cross-project
@@ -61,7 +64,7 @@ enum RowActionMachine {
         case .park: return .park
         case .unpark: return .unpark
         case .peek: return .peek
-        case .compact: return .sendQuickCommand("/compact")
+        case .compact: return .startCompact
         case .clear: return .sendQuickCommand("/clear")
         case .reportTo: return .reportToNearestChief
         case .stopReporting: return .stopReporting

@@ -132,13 +132,16 @@ button.phone-section-head { cursor: pointer; }
 .phone-sheet-actions > button, .phone-sheet-actions > a { flex: 1; min-height: 44px; }
 
 /* Composer on the phone (Composer `phone`): [field + mic] [attach] [Send], one row. */
-.composer--phone .composer-row { display: flex; align-items: center; gap: var(--s2); }
+.composer--phone .composer-row { display: flex; align-items: flex-end; gap: var(--s2); }
 .composer--phone .composer-field { flex: 1; min-width: 0; }
-.composer--phone .mantine-TextInput-input { height: 44px; min-height: 44px; }
+/* Multi-line (Shift+Enter / long drafts): grows from one 44px row, autosize caps it at 6 rows. */
+.composer--phone .mantine-Textarea-input { min-height: 44px; }
 .composer--phone .composer-send { flex: none; min-width: 72px; }
 .composer--phone .voice-bar, .composer--phone .image-attach-bar { margin-top: var(--s2); }
 .composer--phone .composer-mic { width: 44px; height: 44px; }
 .composer--phone .composer-mic svg { width: 20px; height: 20px; }
+/* /compact draft: ↵ adds line 2 (the follow-up) — touch keyboards have no Shift+Enter. */
+.composer--phone .composer-newline { flex: none; width: 44px; height: 44px; }
 /* iOS Safari auto-zooms on focus of any input under 16px; Mantine's
    TextInput (Composer, persona message) is 14px. */
 .ui-screen__footer input { font-size: 16px; }
@@ -209,6 +212,7 @@ button.phone-section-head { cursor: pointer; }
    recording in progress must stay stoppable). */
 .ui-screen[data-keyboard] .phone-sheet-gate-note,
 .ui-screen[data-keyboard] .composer .mantine-TextInput-label,
+.ui-screen[data-keyboard] .composer .mantine-Textarea-label,
 .ui-screen[data-keyboard] .composer-remote-image-note,
 .ui-screen[data-keyboard] .composer-inbox-note,
 .ui-screen[data-keyboard] .composer-tool-note,

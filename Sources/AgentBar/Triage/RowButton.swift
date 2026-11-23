@@ -5,8 +5,9 @@ import Foundation
 /// the answer card of a blocked question, Review opens the card of a permission box
 /// (approve or deny), and Open terminal switches to the
 /// agent (the way out for a blocker the panel cannot answer). Message opens the card
-/// that types a line into a Claude agent that is not asking anything. Compact and Clear
-/// type `/compact` / `/clear` straight through the Message pipeline (no card, no validator —
+/// that types a line into a Claude agent that is not asking anything. Compact starts the
+/// dashboard's compact job (Sonnet → `/compact` → model restored, `MessageCardModel.startCompactDirect`);
+/// Clear types `/clear` straight through the Message pipeline (no card, no validator —
 /// see `RowButtons.menuItems`). Done, Close pane, Compact and Clear never appear as their own
 /// capsule; they live inside the `.moreActions` (⋯) menu (`RowMoreMenuView`), which is what
 /// actually shows in the row's button strip and the ←/→ keyboard order.
@@ -208,10 +209,21 @@ enum RowButtons {
         agent.hasHookData && messageRoute(for: agent)?.allowsQuickCommands == true
     }
 
-    /// Compact/Clear need a real terminal: never offered on an inbox route.
+    /// Whether the dashboard's compact job (`POST /api/session/compact`, gotcha 31) can serve `agent`:
+    /// a message-eligible Claude pane (`MessageRoute.pane`; never an inbox, OpenCode/Codex pane or
+    /// blocked row). Unlike `takesQuickCommands` it does NOT need hook data: the job reads the pane
+    /// itself before every step and reaches a remote pane (`air-m1:…`) over ssh like a message, so
+    /// a remote Claude pane is served too. The one gate for every compact in Agent Bar: the ⋯ menu's
+    /// Compact, Park's compact and a `/compact` typed in Tab-tag / Jev / Peek compose.
+    static func takesCompactJob(_ agent: AgentSnapshot) -> Bool {
+        messageRoute(for: agent)?.allowsQuickCommands == true
+    }
+
+    /// Compact/Clear need a real terminal: never offered on an inbox route. Compact runs as the
+    /// dashboard's compact job (`takesCompactJob`, remote panes too); Clear is still typed (`takesQuickCommands`).
     private static func quickCommandItems(for agent: AgentSnapshot) -> [RowButtonSpec] {
-        guard takesQuickCommands(agent) else { return [] }
-        return [RowButtonSpec(button: .compact, disabledReason: nil), RowButtonSpec(button: .clear, disabledReason: nil)]
+        (takesCompactJob(agent) ? [RowButtonSpec(button: .compact, disabledReason: nil)] : [])
+            + (takesQuickCommands(agent) ? [RowButtonSpec(button: .clear, disabledReason: nil)] : [])
     }
 
     /// The ⋯ trigger itself: shown only while at least one of its items is actually usable (never a

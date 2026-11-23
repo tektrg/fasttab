@@ -1,0 +1,1186 @@
+#!/usr/bin/env python3
+"""Direct-run tests for /compact with a temporary Sonnet switch
+(server/lib/compact_jobs.py + the routes in chief-dashboard-server.py).
+
+A FakeTUI plays Claude Code 2.1.330 as measured by the live probe
+(dashboard/AGENTS.md "Compact on Sonnet"): the /model picker (cursor ❯, ✔ on
+the live model, `s` = session only, Enter/digit = SAVE the global default),
+the cache-warm `Switch model?` dialog, the `Compacting conversation…` spinner
+and the transcript's `system/compact_boundary` line. Every keystroke is
+logged with the screen it landed on, so "never Enter or a digit inside the
+picker" is asserted on the key log, not inferred.
+
+HARD SAFETY: no real herdr, ssh, pane or port. Server-level cases patch
+`_pane_run_raw` / `herdr_transport.remote_shell_text`, set
+CHIEF_DASHBOARD_STATE_HOME to a temp dir before import, and stub the board
+store's writes. Run: python3 tests/test_compact_jobs.py
+"""
+import base64
+import importlib.util
+import json
+import os
+import stat
+import sys
+import tempfile
+
+TMP = tempfile.mkdtemp(prefix="compact-jobs-test-")
+os.environ["CHIEF_DASHBOARD_STATE_HOME"] = os.path.join(TMP, "state")
+os.environ["CHIEF_DASHBOARD_CONFIG_HOME"] = os.path.join(TMP, "config")
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "server", "lib"))
+
+import compact_jobs as cj  # noqa: E402
+
+fails = []
+
+
+def check(label, got, want):
+    ok = got == want
+    if not ok:
+        fails.append(f"{label}: got {got!r} want {want!r}")
+    print(f"  {'PASS' if ok else 'FAIL'}  {label}")
+
+
+# ---------------------------------------------------------------- fake TUI
+
+ROWS = [
+    ("Default (recommended)", "Use the default model (currently {default}) · $4/$20 per Mtok"),
+    ("Opus", "Opus 5.5 · Best for everyday, complex tasks · $4/$20 per Mtok"),
+    ("Fable", "Fable 5.2 · Most capable for your hardest and longest-running tasks · $8/$40 per Mtok"),
+    ("Sonnet", "Sonnet 5.5 · Efficient for routine tasks · $2/$10 per Mtok"),
+    ("Haiku", "Haiku 5.5 · Fastest for quick answers · $0.10/$0.50 per Mtok ($0.50/$2.50 for prompts over"),
+]
+MODEL_OF_ROW = [None, "Opus 5.5", "Fable 5.2", "Sonnet 5.5", "Haiku 5.5"]
+RULE = "─" * 60
+SESSION = "11111111-2222-3333-4444-555555555555"
+
+
+class FakeTUI:
+    def __init__(self, live_row=1, default="Opus 5.5", custom=None, cache_warm=False,
+                 busy_reads=0, busy_forever=False, compact_reads=3, compact_never=False,
+                 boundary=True, typed_on_read=None, transcript_path=None,
+                 statusline=True, screen_compacted=True):
+        self.statusline = statusline
+        self.screen_compacted = screen_compacted
+        self.live_row = live_row          # index into ROWS carrying ✔ (None = custom)
+        self.default = default
+        self.custom = custom              # custom model display (ANTHROPIC_MODEL)
+        self.cache_warm = cache_warm
+        self.busy_reads = busy_reads
+        self.busy_forever = busy_forever
+        self.compact_reads = compact_reads
+        self.compact_never = compact_never
+        self.boundary = boundary
+        self.typed_on_read = typed_on_read  # (read number, text): the user types
+        self.transcript_path = transcript_path
+        self.mode = "idle"
+        self.cursor = None
+        self.dialog_target = None
+        self.composer = ""
+        self.history = ["⏺ earlier work", "✻ Brewed for 1m 2s"]
+        self.transcript = [
+            {"type": "system", "subtype": "compact_boundary", "uuid": "old-boundary",
+             "timestamp": "2026-11-20T00:00:00Z"},
+            {"type": "assistant", "message": {"model": "claude-opus-5-5", "content": []}},
+        ]
+        self.reads = 0
+        self.key_log = []       # (mode the key landed in, key)
+        self.run_log = []       # (mode, text) for `pane run`
+        self.violations = []
+        self.saved_default = None
+        self.sent_texts = []
+        self.compact_left = 0
+        self._write_transcript()
+
+    # -- what the user sees
+    def model_display(self):
+        if self.live_row is None:
+            return self.custom
+        return MODEL_OF_ROW[self.live_row] if self.live_row else self.default
+
+    def _box(self, busy=False):
+        footer = "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+        if busy:
+            footer += " · esc to interrupt"
+        status = (f"  [{self.model_display()}] 4% context | effort:medium | pane:w4:p2"
+                  if self.statusline else "  ~/project")
+        return [RULE, "❯ " + self.composer, RULE, status, footer]
+
+    def render(self):
+        self.reads += 1
+        if self.typed_on_read and self.reads >= self.typed_on_read[0]:
+            self.composer = self.typed_on_read[1]
+        if self.mode == "idle" and (self.busy_forever or self.busy_reads > 0):
+            self.busy_reads -= 1
+            return self.history + ["✽ Thinking… (3s · ↓ 10 tokens)"] + self._box(busy=True)
+        if self.mode == "compacting":
+            if not self.compact_never:
+                self.compact_left -= 1
+                if self.compact_left < 0:
+                    self._finish_compact()
+                    return self.history + self._box()
+            return self.history + ["✽ Compacting conversation… (3s · ↓ 104 tokens)"] + self._box(busy=True)
+        if self.mode == "picker":
+            lines = ["", "  Select model",
+                     "  Your pick is the default for new sessions. For other models, use --model."]
+            for i, (label, desc) in enumerate(ROWS):
+                mark = " ✔" if (i == self.live_row
+                                or (self.live_row is None and self.custom == "check-default" and i == 0)) else ""
+                cur = "❯ " if i == self.cursor else "  "
+                text = f"{label}{mark}"
+                lines.append(f"  {cur}{i + 1}. {text:<22} {desc.format(default=self.default)}")
+                if label == "Haiku":
+                    lines.append(" " * 32 + "100k)")
+            lines += ["  ● High effort ←/→ to adjust",
+                      "  s to use this session only · Enter to save · Esc to cancel"]
+            return self.history + lines
+        if self.mode == "dialog":
+            name = MODEL_OF_ROW[self.dialog_target]
+            return self.history + [
+                "  Switch model?", "  Your next response will be slower and use more tokens",
+                f"  This conversation is cached for the current model. Switching to {name} means the full history gets re-read.",
+                f"  ❯ 1. Yes, switch to {name}", "    2. No, go back",
+                "  Enter to confirm · Esc to cancel"]
+        return self.history + self._box()
+
+    # -- input
+    def run_line(self, text):
+        self.run_log.append((self.mode, text))
+        if self.mode != "idle":
+            self.violations.append(f"pane run {text!r} while {self.mode}")
+            return
+        if self.composer:
+            self.violations.append(f"pane run {text!r} over typed text")
+        if text == "/model":
+            self.mode = "picker"
+            self.cursor = self.live_row if self.live_row is not None else 0
+        elif text.startswith("/compact"):
+            self.history.append("❯ " + text)
+            self.mode = "compacting"
+            self.compact_left = self.compact_reads
+        else:
+            self.history.append("❯ " + text)
+            self.sent_texts.append(text)
+
+    def keys(self, *keys):
+        for key in keys:
+            self.key_log.append((self.mode, key))
+            if self.mode == "picker":
+                if key == "down":
+                    self.cursor = min(self.cursor + 1, len(ROWS) - 1)
+                elif key == "up":
+                    self.cursor = max(self.cursor - 1, 0)
+                elif key == "s":
+                    if self.cache_warm and self.cursor != self.live_row:
+                        self.mode, self.dialog_target = "dialog", self.cursor
+                    else:
+                        self._apply(self.cursor)
+                elif key == "esc":
+                    self.mode = "idle"
+                    self.history += ["❯ /model", f"  ⎿  Kept model as {self.model_display()}"]
+                elif key == "enter" or key.isdigit():
+                    self.violations.append(f"{key!r} inside the picker (saves the default)")
+                    self.saved_default = self.cursor if key == "enter" else int(key) - 1
+                    self._apply(self.saved_default, saved=True)
+            elif self.mode == "dialog":
+                if key in ("1", "enter"):
+                    self._apply(self.dialog_target)
+                elif key == "esc":
+                    self.mode = "picker"
+                    self.cursor = self.live_row
+                else:
+                    self.violations.append(f"{key!r} inside the confirm dialog")
+            # idle / compacting: a stray Enter or Esc is harmless (probe).
+
+    def _apply(self, row, saved=False):
+        if row == 0:
+            self.violations.append("Default row selected")
+        self.live_row = row
+        self.mode = "idle"
+        how = "and saved as your default for new sessions" if saved else "for this session only"
+        self.history += ["❯ /model", f"  ⎿  Set model to {self.model_display()} {how}"]
+        self.cache_warm = False
+
+    def _finish_compact(self):
+        self.mode = "idle"
+        if self.screen_compacted:
+            self.history += ["  ⎿  Compacted (ctrl+o to see full summary)"]
+        if self.boundary:
+            self.transcript.append({"type": "system", "subtype": "compact_boundary",
+                                    "uuid": f"new-boundary-{len(self.transcript)}",
+                                    "timestamp": "2026-11-22T15:22:47.096Z"})
+            self.transcript.append({"type": "user", "message": {"content":
+                                    "<local-command-stdout>\u001b[2mCompacted\u001b[22m</local-command-stdout>"}})
+        self._write_transcript()
+
+    def tail_bytes(self):
+        return ("\n".join(json.dumps(e) for e in self.transcript) + "\n").encode()
+
+    def _write_transcript(self):
+        if self.transcript_path:
+            with open(self.transcript_path, "wb") as f:
+                f.write(self.tail_bytes())
+
+    def send_message(self, text):
+        """The reliable send path, as the dashboard does it: pane run + Enter."""
+        self.run_line(text)
+        self.keys("enter")
+        return {"ok": True, "state": "message sent"}
+
+    def io(self):
+        return cj.PaneIO(self.render, self.run_line, self.keys, self.send_message,
+                         self.tail_bytes)
+
+
+class Clock:
+    def __init__(self):
+        self.t = 1_000_000.0
+
+    def now(self):
+        return self.t
+
+    def sleep(self, sec):
+        self.t += sec
+
+
+def new_table(path=None, clock=None):
+    clock = clock or Clock()
+    return cj.CompactJobs(path, clock=clock.now, sleep=clock.sleep,
+                          spawn=lambda fn: fn()), clock
+
+
+def run_job(fake, instructions=None, follow_up=None, table=None, row="row-1"):
+    table = table or new_table()[0]
+    payload, status = table.start({"rowId": row, "actor": "po", "instructions": instructions,
+                                   "followUp": follow_up}, fake.io())
+    job = table.get(payload["job"]["id"])[0]["job"]
+    return job, status, table
+
+
+def picker_keys(fake):
+    return [k for mode, k in fake.key_log if mode == "picker"]
+
+
+def no_save_keys(label, fake):
+    bad = [k for mode, k in fake.key_log if mode == "picker" and (k == "enter" or k.isdigit())]
+    check(f"{label}: never Enter or a digit inside the picker", bad, [])
+    check(f"{label}: no violations", fake.violations, [])
+    check(f"{label}: global default never saved", fake.saved_default, None)
+
+
+# ---------------------------------------------------------------- pure parsing
+
+print("== screen parsing ==")
+f = FakeTUI()
+check("idle screen reads idle", cj.prompt_reading(f.render()), "idle")
+check("statusline model", cj.statusline_model(f.render()), "Opus 5.5")
+f.composer = "half a thought"
+check("typed text reads typed", cj.prompt_reading(f.render()), "typed")
+f = FakeTUI(busy_reads=1)
+check("busy screen reads busy", cj.prompt_reading(f.render()), "busy")
+f = FakeTUI()
+f.composer = 'Try "fix lint errors"'
+check("new-session placeholder `Try \"…\"` reads idle (QA 9)", cj.prompt_reading(f.render()), "idle")
+f.composer = 'Try "fix lint errors" and then'
+check("text after the placeholder shape still reads typed", cj.prompt_reading(f.render()), "typed")
+f.composer = 'try "x"'
+check("placeholder match is case-sensitive", cj.prompt_reading(f.render()), "typed")
+f = FakeTUI()
+f.run_line("/model")
+p = cj.parse_model_picker(f.render())
+check("picker rows parsed", [r["label"] for r in p["rows"]],
+      ["Default (recommended)", "Opus", "Fable", "Sonnet", "Haiku"])
+check("picker cursor on the ✔ row", p["cursor"], 1)
+check("current model from ✔", cj.current_model(p), (1, "Opus 5.5"))
+check("Default row is never standard", p["rows"][0]["standard"], False)
+check("picker reads as a prompt (never type into it)", cj.prompt_reading(f.render()), "prompt")
+f = FakeTUI(live_row=0, default="Opus 5.5")
+f.run_line("/model")
+check("✔ on Default -> its (currently X) row",
+      cj.current_model(cj.parse_model_picker(f.render())), (1, "Opus 5.5"))
+f = FakeTUI(live_row=None, custom="trung/claude-opus-5-5")
+f.run_line("/model")
+check("no ✔ -> custom", cj.current_model(cj.parse_model_picker(f.render()))[0], None)
+check("stale picker frame above the prompt is not open",
+      cj.picker_open(["  Select model", "  s to use this session only · Enter to save"]
+                     + ["output"] * 10 + FakeTUI()._box()), False)
+check("boundary ids", cj.compact_boundary_ids(FakeTUI().tail_bytes()), {"old-boundary"})
+check("boundary ids: unreadable", cj.compact_boundary_ids(None), None)
+
+print("== request validation ==")
+check("missing rowId", cj.validate_request({"actor": "po"})[1], "missing rowId")
+check("newline in followUp refused",
+      cj.validate_request({"rowId": "r", "actor": "po", "followUp": "a\nb"})[1] is not None, True)
+check("newline in instructions refused",
+      cj.validate_request({"rowId": "r", "actor": "po", "instructions": "a\nb"})[1] is not None, True)
+fields, err = cj.validate_request({"rowId": " r ", "actor": "po", "instructions": "  keep tests ",
+                                   "followUp": "  "})
+check("trimmed fields, empty followUp omitted",
+      (fields, err), ({"rowId": "r", "actor": "po", "instructions": "keep tests", "followUp": None}, None))
+
+
+# ---------------------------------------------------------------- job runs
+
+print("== happy path: Opus -> Sonnet (session only) -> compact -> Opus -> follow-up ==")
+fake = FakeTUI()
+job, status, _t = run_job(fake, instructions="keep the plan", follow_up="carry on with step 3")
+check("202 on start", status, 202)
+check("state done", job["state"], "done")
+check("originalModel", job["originalModel"], "Opus 5.5")
+check("switchSkipped false", job["switchSkipped"], False)
+check("compactOk", job["compactOk"], True)
+check("modelRestored", job["modelRestored"], True)
+check("followUpSent", job["followUpSent"], True)
+check("error none", (job["error"], job["failedStep"]), (None, None))
+check("session back on Opus", fake.model_display(), "Opus 5.5")
+check("picker keys: down down s (to Sonnet), up up s (back)",
+      picker_keys(fake), ["down", "down", "s", "up", "up", "s"])
+check("/model typed with pane run only (no extra Enter)",
+      [t for _m, t in fake.run_log], ["/model", "/compact keep the plan", "/model", "carry on with step 3"])
+check("compact ran on Sonnet", any("Set model to Sonnet 5.5 for this session only" in l
+                                   for l in fake.history), True)
+check("follow-up after the restore", fake.history.index("❯ carry on with step 3")
+      > max(i for i, l in enumerate(fake.history) if "Set model to Opus 5.5" in l), True)
+no_save_keys("happy path", fake)
+
+print("== `Switch model?` confirm (cache warm) is answered with 1 ==")
+fake = FakeTUI(cache_warm=True)
+job, _s, _t = run_job(fake)
+check("state done", job["state"], "done")
+check("dialog keys: only 1", [k for m, k in fake.key_log if m == "dialog"], ["1"])
+check("picker still uses s", picker_keys(fake), ["down", "down", "s", "up", "up", "s"])
+check("followUpSent null without followUp", job["followUpSent"], None)
+no_save_keys("confirm dialog", fake)
+
+print("== already on Sonnet (statusline) -> no picker, compact only ==")
+fake = FakeTUI(live_row=3)
+job, _s, _t = run_job(fake, follow_up="next")
+check("state done", job["state"], "done")
+check("switchSkipped", (job["switchSkipped"], job["skipReason"]), (True, cj.ALREADY_SONNET_SKIP))
+check("originalModel Sonnet", job["originalModel"], "Sonnet 5.5")
+check("no picker opened", [t for _m, t in fake.run_log if t == "/model"], [])
+check("modelRestored null (nothing to restore)", job["modelRestored"], None)
+check("compactOk", job["compactOk"], True)
+check("followUpSent", job["followUpSent"], True)
+
+print("== already on Sonnet, no statusline -> the picker's ✔ row decides ==")
+fake = FakeTUI(live_row=3, statusline=False)
+job, _s, _t = run_job(fake)
+check("state done", job["state"], "done")
+check("switchSkipped from the picker", (job["switchSkipped"], job["skipReason"]),
+      (True, cj.ALREADY_SONNET_SKIP))
+check("originalModel from ✔", job["originalModel"], "Sonnet 5.5")
+check("picker escaped, nothing selected", picker_keys(fake), ["esc"])
+check("modelRestored null", job["modelRestored"], None)
+no_save_keys("already Sonnet via picker", fake)
+
+print("== custom model (ANTHROPIC_MODEL) -> no switch, compact on current model ==")
+fake = FakeTUI(live_row=None, custom="trung/claude-opus-5-5")
+job, _s, _t = run_job(fake)
+check("state done", job["state"], "done")
+check("skip reason", (job["switchSkipped"], job["skipReason"]), (True, cj.CUSTOM_MODEL_SKIP))
+check("picker escaped, nothing selected", picker_keys(fake), ["esc"])
+check("compactOk", job["compactOk"], True)
+check("modelRestored null", job["modelRestored"], None)
+check("model untouched", fake.model_display(), "trung/claude-opus-5-5")
+no_save_keys("custom model", fake)
+
+print("== custom model shown as ✔ on Default with no standard row -> skip ==")
+fake = FakeTUI(live_row=None, custom="check-default", default="trung/claude-opus-5-5")
+job, _s, _t = run_job(fake)
+check("skip reason", job["skipReason"], cj.CUSTOM_MODEL_SKIP)
+check("state done", job["state"], "done")
+no_save_keys("custom on Default", fake)
+
+print("== compact timeout, TUI idles later: restore runs, follow-up still sent, state failed ==")
+
+
+class StallThenIdle(FakeTUI):
+    """Compaction outlives the 5 min deadline, then the prompt comes back."""
+
+    def render(self):
+        if self.mode == "compacting" and self.compact_never and self.reads > 200:
+            self.compact_never = False
+            self.compact_left = -1
+        return super().render()
+
+
+fake = StallThenIdle(compact_never=True)
+job, _s, _t = run_job(fake, follow_up="go on")
+check("state failed", job["state"], "failed")
+check("failedStep compacting", job["failedStep"], "compacting")
+check("error", job["error"], "compaction did not finish within 5 min")
+check("compactOk false", job["compactOk"], False)
+check("restore ran after the timeout", job["modelRestored"], True)
+check("back on Opus", fake.model_display(), "Opus 5.5")
+check("follow-up still sent", (job["followUpSent"], fake.sent_texts), (True, ["go on"]))
+no_save_keys("stall then idle", fake)
+
+print("== compact never ends: restore + follow-up attempted, nothing typed into the spinner ==")
+fake = FakeTUI(compact_never=True)
+job, _s, _t = run_job(fake, follow_up="after the compact")
+check("state failed", job["state"], "failed")
+check("compactOk false", job["compactOk"], False)
+check("restore attempted but the prompt never came back", job["modelRestored"], False)
+check("follow-up attempted but not sent", (job["followUpSent"], fake.sent_texts), (False, []))
+check("no key or text typed while compacting",
+      [k for m, k in fake.key_log if m == "compacting" and k != "enter"]
+      + [t for m, t in fake.run_log if m == "compacting"], [])
+no_save_keys("compact never ends", fake)
+
+print("== screen fallback: no transcript boundary, `Compacted` line counts ==")
+fake = FakeTUI(boundary=False)
+job, _s, _t = run_job(fake)
+check("compactOk via screen", job["compactOk"], True)
+check("state done", job["state"], "done")
+
+print("== transcript boundary alone proves the compact (screen line missing) ==")
+fake = FakeTUI(screen_compacted=False)
+job, _s, _t = run_job(fake)
+check("compactOk via transcript", (job["compactOk"], job["state"]), (True, "done"))
+
+print("== an OLD boundary in the transcript never counts ==")
+fake = FakeTUI(screen_compacted=False, boundary=False)
+job, _s, _t = run_job(fake)
+check("no new boundary, no screen line -> timeout", (job["compactOk"], job["state"]), (False, "failed"))
+
+print("== `Not enough messages to compact.` (live 2026-11-22) fails at once, not after 5 min ==")
+
+
+class NotEnoughMessages(FakeTUI):
+    """Live screen: `⎿  Not enough messages to compact.` under the echo, no
+    compact_boundary written. An older successful `/compact` sits above it."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.history += ["❯ /compact", "  ⎿  Compacted (ctrl+o to see full summary)",
+                         "  ⎿  Referenced file ../notes.md"]
+
+    def _finish_compact(self):
+        self.mode = "idle"
+        self.history += ["  ⎿  Not enough messages to compact."]
+
+
+clock = Clock()
+fake = NotEnoughMessages(live_row=3)
+job, _s, _t = run_job(fake, follow_up="say done", table=new_table(clock=clock)[0])
+check("state failed", job["state"], "failed")
+check("error names the TUI's reason", (job["failedStep"], job["error"]),
+      ("compacting", "compact failed: Not enough messages to compact."))
+check("compactOk false", job["compactOk"], False)
+check("ended within seconds (no 5 min wait)", clock.t - 1_000_000.0 < 60, True)
+check("follow-up still sent", (job["followUpSent"], fake.sent_texts), (True, ["say done"]))
+check("an older `Compacted` above the last echo never counts",
+      cj.screen_compacted(fake.render()), False)
+
+print("== user typed into the session mid-job -> failed, restore attempted, no follow-up ==")
+class TypesAfterSwitch(FakeTUI):
+    """The user starts typing in the terminal right after the Sonnet switch."""
+
+    def _apply(self, row, saved=False):
+        super()._apply(row, saved)
+        if MODEL_OF_ROW[row] == "Sonnet 5.5":
+            self.composer = "wait, one more thing"
+
+
+fake = TypesAfterSwitch()
+job, _s, _t = run_job(fake, follow_up="should not be sent")
+check("state failed", job["state"], "failed")
+check("error", job["error"], cj.USER_TYPED_ERROR)
+check("failedStep compacting", job["failedStep"], "compacting")
+check("compact never typed", [t for _m, t in fake.run_log if t.startswith("/compact")], [])
+check("follow-up not sent", fake.sent_texts, [])
+check("followUpSent false, never null (QA 3)", job["followUpSent"], False)
+check("follow-up text kept for a resend", job["followUp"], "should not be sent")
+check("restore could not type over the user's text", job["modelRestored"], False)
+check("nothing typed over the user's text", [v for v in fake.violations if "typed text" in v], [])
+no_save_keys("user typed", fake)
+
+print("== user typed, then cleared the box: restore proceeds ==")
+
+
+class TypesThenClears(TypesAfterSwitch):
+    def render(self):
+        if self.composer and self.reads > 40:
+            self.composer = ""
+        return super().render()
+
+
+fake = TypesThenClears()
+job, _s, _t = run_job(fake)
+check("state failed", job["state"], "failed")
+check("error", job["error"], cj.USER_TYPED_ERROR)
+check("model restored once the box is empty", job["modelRestored"], True)
+check("back on Opus", fake.model_display(), "Opus 5.5")
+no_save_keys("typed then cleared", fake)
+
+print("== busy agent: waits, then proceeds ==")
+fake = FakeTUI(busy_reads=20)
+clock = Clock()
+table, clock = new_table(clock=clock)
+job, _s, _t = run_job(fake, table=table)
+check("state done after waiting", job["state"], "done")
+check("waited ~20 polls", clock.t - 1_000_000.0 >= 20 * cj.POLL_SEC, True)
+
+print("== busy agent: 10 min timeout -> failed, nothing typed ==")
+fake = FakeTUI(busy_forever=True)
+job, _s, _t = run_job(fake, follow_up="x")
+check("state failed", job["state"], "failed")
+check("failedStep waitingIdle", job["failedStep"], "waitingIdle")
+check("error", job["error"], "agent did not reach an idle prompt within 10 min")
+check("nothing typed", (fake.run_log, fake.key_log), ([], []))
+check("follow-up existed but not sent -> false (QA 3)", job["followUpSent"], False)
+check("modelRestored null (never switched)", job["modelRestored"], None)
+
+print("== single-flight per row: 409 while active ==")
+held = []
+table = cj.CompactJobs(None, spawn=lambda fn: held.append(fn))
+p1, s1 = table.start({"rowId": "row-9", "actor": "po"}, FakeTUI().io())
+p2, s2 = table.start({"rowId": "row-9", "actor": "po"}, FakeTUI().io())
+check("first 202", s1, 202)
+check("second 409", s2, 409)
+check("409 body", (p2["ok"], p2["error"], p2["job"]["id"]), (False, "job-active", p1["job"]["id"]))
+p3, s3 = table.start({"rowId": "row-other", "actor": "po"}, FakeTUI().io())
+check("another row is independent", s3, 202)
+check("GET by rowId returns the active job", table.for_row("row-9")[0]["job"]["id"], p1["job"]["id"])
+check("GET unknown row -> null", table.for_row("nope"), ({"ok": True, "job": None}, 200))
+check("GET unknown id -> 404", table.get("cj-0000000000000000")[1], 404)
+
+print("== persistence: 0600 file, restart marks running jobs failed ==")
+state_path = os.path.join(TMP, "persist", "compact-jobs.json")
+clock = Clock()
+held = []
+table = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: held.append(fn))
+running, _ = table.start({"rowId": "row-r", "actor": "po"}, FakeTUI().io())
+check("state file mode 0600", stat.S_IMODE(os.stat(state_path).st_mode), 0o600)
+fresh = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep)
+after = fresh.get(running["job"]["id"])[0]["job"]
+check("restarted job failed", (after["state"], after["error"], after["failedStep"]),
+      ("failed", cj.RESTARTED_ERROR, "waitingIdle"))
+check("restart rewrote the file", json.load(open(state_path))["jobs"][0]["state"], "failed")
+check("finished job still shown for the row", fresh.for_row("row-r")[0]["job"]["id"], running["job"]["id"])
+clock.t += cj.RECENT_FINISHED_SEC + 1
+check("finished job older than 30 min -> null", fresh.for_row("row-r")[0]["job"], None)
+
+
+# ---------------------------------------------------------------- QA pass (2026-11-22)
+
+class FlakyReads(FakeTUI):
+    """Pane reads raise (ssh down) while `fail_if(self)` holds, at most
+    `max_fails` times (None = forever)."""
+
+    def __init__(self, fail_if, max_fails=None, **kw):
+        super().__init__(**kw)
+        self.fail_if = fail_if
+        self.max_fails = max_fails
+        self.failed_reads = 0
+
+    def render(self):
+        if self.fail_if(self) and (self.max_fails is None or self.failed_reads < self.max_fails):
+            self.failed_reads += 1
+            raise RuntimeError("ssh: connect to host air: Connection timed out")
+        return super().render()
+
+
+print("== QA 1: one failed read inside the picker is retried, job still done ==")
+fake = FlakyReads(lambda s: s.mode == "picker", max_fails=1)
+job, _s, _t = run_job(fake, follow_up="go")
+check("state done", (job["state"], job["error"]), ("done", None))
+check("model restored, follow-up sent", (job["modelRestored"], job["followUpSent"]), (True, True))
+no_save_keys("one flaky read", fake)
+
+print("== QA 1: reads keep failing once /model opened the picker -> blind Esc, picker closed ==")
+fake = FlakyReads(lambda s: s.mode == "picker")
+job, _s, _t = run_job(fake, follow_up="go")
+check("state failed at the switch", (job["state"], job["failedStep"]), ("failed", "switchingModel"))
+check("error names the read failure", "pane read failed" in (job["error"] or ""), True)
+check("one blind Esc reached the picker", [k for m, k in fake.key_log if m == "picker"], ["esc"])
+check("picker left (TUI back at the prompt)", fake.mode, "idle")
+check("s never pressed -> nothing to restore", job["modelRestored"], True)
+check("still on Opus", fake.model_display(), "Opus 5.5")
+check("follow-up still sent", (job["followUpSent"], fake.sent_texts), (True, ["go"]))
+no_save_keys("reads fail in the picker", fake)
+
+print("== QA 1: reads fail after the arrow keys moved the cursor -> Esc, no Enter ==")
+fake = FlakyReads(lambda s: s.mode == "picker" and s.cursor != s.live_row)
+job, _s, _t = run_job(fake)
+check("state failed", job["state"], "failed")
+check("keys in the picker: arrows then Esc only",
+      [k for m, k in fake.key_log if m == "picker"][-1], "esc")
+check("picker left", fake.mode, "idle")
+check("still on Opus", fake.model_display(), "Opus 5.5")
+no_save_keys("reads fail after arrows", fake)
+
+print("== QA 1: reads fail in the `Switch model?` dialog -> Esc, restore cleans up the picker ==")
+fake = FlakyReads(lambda s: s.mode == "dialog", cache_warm=True)
+job, _s, _t = run_job(fake)
+check("state failed at the switch", (job["state"], job["failedStep"]), ("failed", "switchingModel"))
+check("dialog got an Esc (never Enter)", [k for m, k in fake.key_log if m == "dialog"], ["esc"])
+check("restore escaped the leftover picker and re-committed Opus with s",
+      (job["modelRestored"], fake.model_display(), fake.mode), (True, "Opus 5.5", "idle"))
+no_save_keys("reads fail in the dialog", fake)
+
+
+class EscReadFails(FakeTUI):
+    """Every read fails once the TUI is in the picker after the job gave up
+    navigating (the target row is missing): escape_out must still Esc."""
+
+    def render(self):
+        if self.mode == "picker" and any(k in ("down", "up") for _m, k in self.key_log):
+            raise RuntimeError("pane read failed")
+        return super().render()
+
+
+print("== QA 1 / QA2-4: escape_out's blind Esc only right after picker keys or a picker read ==")
+
+
+def blind_runner(prepare):
+    """A runner whose pane reads all fail from now on; `prepare(r, fake)`
+    sets up what the runner did before (typed /model, read a busy screen…)."""
+    table = new_table()[0]
+    job = {"id": "cj-0000000000000001", "rowId": "x", "state": "switchingModel", "inPicker": True}
+    fake = FlakyReads(lambda s: s.failing, )
+    fake.failing = False
+    r = cj._Runner(table, job, fake.io())
+    prepare(r, fake)
+    fake.failing = True
+    fake.key_log.clear()
+    confirmed = r.escape_out()
+    return fake, confirmed, job
+
+
+def typed_model(r, fake):
+    r.read()                     # idle prompt
+    r.run_picker_line("/model")  # opens the picker
+
+
+fake, confirmed, job = blind_runner(typed_model)
+check("just typed /model, reads fail -> one blind Esc", fake.key_log, [("picker", "esc")])
+check("… picker closed", fake.mode, "idle")
+check("… exit not confirmed by a read -> inPicker stays true", (confirmed, job["inPicker"]), (False, True))
+
+
+def read_picker(r, fake):
+    fake.run_line("/model")
+    r.read()                     # a read that SHOWS the picker
+
+
+fake, _c, _j = blind_runner(read_picker)
+check("last read showed the picker, reads fail -> one blind Esc", fake.key_log, [("picker", "esc")])
+fake, _c, _j = blind_runner(lambda r, fake: None)
+check("nothing typed, nothing read -> NO blind Esc", fake.key_log, [])
+
+
+def read_busy(r, fake):
+    fake.busy_forever = True
+    r.read()                     # a busy spinner (Esc there would interrupt the turn)
+
+
+fake, _c, _j = blind_runner(read_busy)
+check("last read showed a busy spinner -> NO blind Esc", fake.key_log, [])
+
+
+def typed_then_esc(r, fake):
+    typed_model(r, fake)
+    r._esc()                     # an Esc already went out since
+
+
+fake, _c, _j = blind_runner(typed_then_esc)
+check("an Esc already sent since the last picker key -> NO second blind Esc", fake.key_log, [])
+
+print("== QA2-1: inPicker set before /model, cleared only after a confirmed exit ==")
+
+
+class WatchInPicker(FakeTUI):
+    """Records (screen mode, the job's public inPicker) on every read."""
+
+    def __init__(self, table, **kw):
+        super().__init__(**kw)
+        self.table = table
+        self.seen = []
+
+    def render(self):
+        active = self.table.active_for_row("row-1")
+        self.seen.append((self.mode, active and active.get("inPicker")))
+        return super().render()
+
+
+for warm in (False, True):
+    table = new_table()[0]
+    fake = WatchInPicker(table, cache_warm=warm)
+    job, _s, _t = run_job(fake, follow_up="go", table=table)
+    label = "cache warm" if warm else "cold"
+    check(f"{label}: job done", job["state"], "done")
+    check(f"{label}: inPicker true on every read with the picker/dialog up",
+          {ip for mode, ip in fake.seen if mode in ("picker", "dialog")}, {True})
+    check(f"{label}: inPicker false while compacting / sending",
+          {ip for mode, ip in fake.seen if mode == "compacting"}, {False})
+    check(f"{label}: public job carries inPicker, false at the end", job["inPicker"], False)
+
+print("== QA2-1: the picker lock: /model waits for an answer being typed ==")
+table = new_table()[0]
+fake = FakeTUI()
+lock = table.picker_lock("row:row-1")
+lock.acquire()
+cj.PICKER_LOCK_WAIT_SEC, _saved_wait = 0.05, cj.PICKER_LOCK_WAIT_SEC
+job, _s, _t = run_job(fake, follow_up="go", table=table)
+cj.PICKER_LOCK_WAIT_SEC = _saved_wait
+lock.release()
+check("picker lock held (an answer typing) -> /model never typed",
+      [t for _m, t in fake.run_log if t == "/model"], [])
+check("… switch fails with a clear reason", (job["failedStep"], "answer" in (job["error"] or "")),
+      ("switchingModel", True))
+check("… inPicker never set", job["inPicker"], False)
+no_save_keys("picker lock held", fake)
+
+print("== QA 3+6: restore waits out a long compaction (> 2 min), then restores ==")
+
+
+class LongStall(FakeTUI):
+    """Compaction runs 9 min: 4 past the job's 5 min deadline."""
+
+    def render(self):
+        if self.mode == "compacting" and self.compact_never and self.started and \
+                self.clock.t - self.started > 9 * 60:
+            self.compact_never = False
+            self.compact_left = -1
+        return super().render()
+
+    def run_line(self, text):
+        if text.startswith("/compact"):
+            self.started = self.clock.t
+        super().run_line(text)
+
+
+clock = Clock()
+fake = LongStall(compact_never=True)
+fake.clock, fake.started = clock, None
+job, _s, _t = run_job(fake, follow_up="after", table=new_table(clock=clock)[0])
+check("compact timed out", (job["compactOk"], job["failedStep"]), (False, "compacting"))
+check("restore waited for the pane, then restored", job["modelRestored"], True)
+check("back on Opus", fake.model_display(), "Opus 5.5")
+check("follow-up sent after", (job["followUpSent"], fake.sent_texts), (True, ["after"]))
+no_save_keys("long stall", fake)
+
+print("== QA 6: ssh outage during the restore (3 min) -> retried with backoff, restored ==")
+
+
+class OutageAtRestore(FakeTUI):
+    def __init__(self, clock, **kw):
+        super().__init__(**kw)
+        self.clock = clock
+        self.outage_from = None
+
+    def render(self):
+        if self.outage_from is None and self.live_row == 3 and self.mode == "idle" and \
+                any(t.startswith("/compact") for _m, t in self.run_log):
+            self.outage_from = self.clock.t
+        if self.outage_from is not None and self.clock.t - self.outage_from < 180:
+            raise RuntimeError("ssh: Could not resolve hostname")
+        return super().render()
+
+
+clock = Clock()
+fake = OutageAtRestore(clock)
+job, _s, _t = run_job(fake, table=new_table(clock=clock)[0])
+check("restored after the outage", (job["modelRestored"], fake.model_display()), (True, "Opus 5.5"))
+check("state done", (job["state"], job["error"]), ("done", None))
+no_save_keys("outage at restore", fake)
+
+print("== QA 6: restore gives up only after ~10 min, then modelRestored false ==")
+clock = Clock()
+fake = FakeTUI(compact_never=True)
+job, _s, _t = run_job(fake, follow_up="x", table=new_table(clock=clock)[0])
+check("modelRestored false", job["modelRestored"], False)
+check("waited at least 10 min for the restore",
+      clock.t - 1_000_000.0 >= cj.COMPACT_TIMEOUT_SEC + cj.RESTORE_BUDGET_SEC, True)
+
+print("== QA 9: a brand-new session's `Try \"…\"` hint does not stall the job ==")
+
+
+class FreshSession(FakeTUI):
+    def _box(self, busy=False):
+        box = super()._box(busy)
+        if not self.composer and self.mode == "idle":
+            box[1] = '❯ Try "fix lint errors"'
+        return box
+
+
+fake = FreshSession()
+job, _s, _t = run_job(fake, follow_up="hello")
+check("done on a fresh session", (job["state"], job["followUpSent"]), ("done", True))
+
+print("== QA 2: state file keeps what a restart needs (0600) ==")
+state_path = os.path.join(TMP, "persist2", "compact-jobs.json")
+clock = Clock()
+
+
+class SnapshotAtCompact(FakeTUI):
+    """Copies the state file the moment `/compact` is sent: that copy is
+    what a dashboard that died right then leaves on disk."""
+
+    snapshot = None
+
+    def send_message(self, text):
+        if text.startswith("/compact"):
+            with open(state_path) as fh:
+                SnapshotAtCompact.snapshot = fh.read()
+        return super().send_message(text)
+
+
+table = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: None)
+payload, _ = table.start({"rowId": "row-z", "actor": "po", "instructions": "keep plan",
+                          "followUp": "carry on"}, FakeTUI().io(),
+                         pane={"paneKey": "w4:p2", "machine": "local", "rawPaneId": "w4:p2",
+                               "sessionId": SESSION})
+jid = payload["job"]["id"]
+check("public job carries followUp (additive)", payload["job"]["followUp"], "carry on")
+saved = json.load(open(state_path))["jobs"][0]
+check("saved: followUp + instructions + pane",
+      (saved["followUp"], saved["instructions"], saved["paneKey"], saved["sessionId"]),
+      ("carry on", "keep plan", "w4:p2", SESSION))
+check("saved file 0600", stat.S_IMODE(os.stat(state_path).st_mode), 0o600)
+
+# Run the worker by hand; the state file as it was at the `/compact` send is
+# what a dashboard that died right then leaves behind.
+cj._Runner(table, table._jobs[jid], SnapshotAtCompact().io()).run()
+with open(state_path, "w") as fh:
+    fh.write(SnapshotAtCompact.snapshot)
+saved = next(j for j in json.loads(SnapshotAtCompact.snapshot)["jobs"] if j["id"] == jid)
+check("saved mid-job: sSent + restoreModel + step + not in picker",
+      (saved["sSent"], saved["restoreModel"], saved["state"], saved["inPicker"]),
+      (True, "Opus 5.5", "compacting", False))
+fake = FakeTUI(live_row=3)   # the session as the dead worker left it: on Sonnet
+
+print("== QA2-5: right after load (before recover) the job is ACTIVE + restoring: single-flight holds ==")
+reloaded = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: None)
+after = reloaded.get(jid)[0]["job"]
+check("active restoringModel, error already says restarted",
+      (after["state"], after["error"], after["failedStep"]), ("restoringModel", cj.RESTARTED_ERROR, "compacting"))
+check("modelRestored null while restoring", after["modelRestored"], None)
+check("followUpSent false, text kept", (after["followUpSent"], after["followUp"]), (False, "carry on"))
+p_new, s_new = reloaded.start({"rowId": "row-z", "actor": "po"}, FakeTUI(live_row=3).io())
+check("a new POST for the row -> 409 job-active (never 'already on Sonnet')",
+      (s_new, p_new["error"], p_new["job"]["id"]), (409, "job-active", jid))
+check("active_for_pane sees it (plain sends refused)", reloaded.active_for_pane("w4:p2")["id"], jid)
+check("state file says restoringModel too",
+      next(j for j in json.load(open(state_path))["jobs"] if j["id"] == jid)["state"], "restoringModel")
+
+print("== QA 2: restart, recovery can't reach the pane -> failed, modelRestored false, followUpSent false ==")
+reloaded.recover(lambda job: None)
+after = reloaded.get(jid)[0]["job"]
+check("failed / dashboard restarted",
+      (after["state"], after["error"], after["failedStep"]), ("failed", cj.RESTARTED_ERROR, "compacting"))
+check("modelRestored false (not restored)", after["modelRestored"], False)
+check("followUpSent false, text kept", (after["followUpSent"], after["followUp"]), (False, "carry on"))
+
+print("== QA 2: restart recovery restores the model, never auto-sends the follow-up ==")
+with open(state_path, "w") as fh:   # the reload above already marked it failed on disk
+    fh.write(SnapshotAtCompact.snapshot)
+recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+seen_jobs = []
+
+
+def factory(job):
+    seen_jobs.append((job["rowId"], job["paneKey"], job["sessionId"]))
+    return fake.io()
+
+
+recovered.recover(factory)
+after = recovered.get(jid)[0]["job"]
+check("io built from the saved pane", seen_jobs, [("row-z", "w4:p2", SESSION)])
+check("restore ran: back on Opus", (fake.model_display(), after["modelRestored"]), ("Opus 5.5", True))
+check("still failed / dashboard restarted", (after["state"], after["error"]), ("failed", cj.RESTARTED_ERROR))
+check("follow-up NOT auto-sent", (fake.sent_texts, after["followUpSent"]), ([], False))
+no_save_keys("restart recovery", fake)
+
+print("== QA 2: restart while the picker was open -> Esc first ==")
+state_path = os.path.join(TMP, "persist3", "compact-jobs.json")
+os.makedirs(os.path.dirname(state_path))
+base = {"id": "cj-00000000000000aa", "rowId": "row-p", "state": "switchingModel", "originalModel": "Opus 5.5",
+        "switchSkipped": False, "skipReason": None, "compactOk": None, "modelRestored": None,
+        "followUpSent": None, "error": None, "failedStep": None, "createdAt": clock.t, "updatedAt": clock.t,
+        "followUp": None, "instructions": None, "restoreModel": "Opus 5.5", "sSent": False,
+        "inPicker": True, "paneKey": "w4:p2", "machine": "local", "rawPaneId": "w4:p2",
+        "sessionId": SESSION, "actor": "po"}
+with open(state_path, "w") as fh:
+    json.dump({"jobs": [base]}, fh)
+fake = FakeTUI()
+fake.run_line("/model")   # the picker the dead worker left open
+fake.keys("down")
+recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+recovered.recover(lambda job: fake.io())
+after = recovered.get(base["id"])[0]["job"]
+check("picker escaped", (fake.mode, [k for m, k in fake.key_log if m == "picker"][-1]), ("idle", "esc"))
+check("nothing committed, still Opus", fake.model_display(), "Opus 5.5")
+check("failed / restarted", (after["state"], after["error"]), ("failed", cj.RESTARTED_ERROR))
+no_save_keys("restart in picker", fake)
+
+print("== QA2-4: restart in the picker, pane unreadable for a while -> no blind Esc; Esc once a read shows it ==")
+with open(state_path, "w") as fh:
+    json.dump({"jobs": [base]}, fh)
+fake = FlakyReads(lambda s: True, max_fails=6)
+fake.mode, fake.cursor = "picker", 1
+recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+check("loaded: active, inPicker true (answers refused)",
+      (recovered.get(base["id"])[0]["job"]["state"], recovered.get(base["id"])[0]["job"]["inPicker"]),
+      ("restoringModel", True))
+t0 = clock.t
+recovered.recover(lambda job: fake.io())
+after = recovered.get(base["id"])[0]["job"]
+check("reads retried past the failures (backoff)", fake.failed_reads, 6)
+check("exactly one Esc, sent on a read that showed the picker", fake.key_log, [("picker", "esc")])
+check("picker closed, exit confirmed -> inPicker false", (fake.mode, after["inPicker"]), ("idle", False))
+check("failed / restarted", (after["state"], after["error"]), ("failed", cj.RESTARTED_ERROR))
+
+print("== QA2-4: restart in the picker, pane never readable -> NO Esc at all, bounded ==")
+with open(state_path, "w") as fh:
+    json.dump({"jobs": [base]}, fh)
+fake = FlakyReads(lambda s: True)
+fake.mode, fake.cursor = "picker", 1
+recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+t0 = clock.t
+recovered.recover(lambda job: fake.io())
+after = recovered.get(base["id"])[0]["job"]
+check("no key sent blind", fake.key_log, [])
+check("gave up within the recovery read budget",
+      clock.t - t0 <= cj.RECOVERY_READ_BUDGET_SEC + cj.RECOVERY_BACKOFF_MAX_SEC, True)
+check("job ends failed", after["state"], "failed")
+
+print("== QA2-4: restart, inPicker saved but the agent is mid-turn (busy) -> no Esc ==")
+with open(state_path, "w") as fh:
+    json.dump({"jobs": [base]}, fh)
+fake = FakeTUI(busy_forever=True)
+recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+recovered.recover(lambda job: fake.io())
+check("busy agent never gets an Esc", fake.key_log, [])
+check("a read shows no picker -> exit confirmed", recovered.get(base["id"])[0]["job"]["inPicker"], False)
+
+print("== QA2-5: a load with nothing to recover (no picker, no s) is failed at once ==")
+with open(state_path, "w") as fh:
+    json.dump({"jobs": [dict(base, state="waitingIdle", inPicker=False)]}, fh)
+recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+check("failed straight away", recovered.get(base["id"])[0]["job"]["state"], "failed")
+
+print("== QA 2: restart, s sent, pane gone -> modelRestored false ==")
+with open(state_path, "w") as fh:
+    json.dump({"jobs": [dict(base, state="compacting", inPicker=False, sSent=True, followUp="next")]}, fh)
+recovered = cj.CompactJobs(state_path, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: fn())
+recovered.recover(lambda job: None)
+after = recovered.get(base["id"])[0]["job"]
+check("modelRestored false, followUpSent false",
+      (after["state"], after["modelRestored"], after["followUpSent"]), ("failed", False, False))
+
+print("== QA 4: active-job lookups + row lock ==")
+held = []
+clock = Clock()
+table = cj.CompactJobs(None, clock=clock.now, sleep=clock.sleep, spawn=lambda fn: held.append(fn))
+p, _ = table.start({"rowId": "row-l", "actor": "po"}, FakeTUI().io(),
+                   pane={"paneKey": "air-m1:w2:p3", "machine": "air-m1", "rawPaneId": "w2:p3",
+                         "sessionId": None})
+check("active_for_row", table.active_for_row("row-l")["id"], p["job"]["id"])
+check("active_for_pane", table.active_for_pane("air-m1:w2:p3")["id"], p["job"]["id"])
+check("other pane -> None", table.active_for_pane("w9:p9"), None)
+check("one lock per row", table.row_lock("row-l") is table.row_lock("row-l"), True)
+held[0]()  # the worker runs to the end (FakeTUI) and frees the row
+check("finished -> no active job", table.active_for_row("row-l"), None)
+check("lock released after the job", table.row_lock("row-l").acquire(blocking=False), True)
+table.row_lock("row-l").release()
+
+
+# ---------------------------------------------------------------- server level
+
+print("== server: routes, JSON shape, local + remote rows ==")
+_spec = importlib.util.spec_from_file_location(
+    "chief_dashboard_server",
+    os.path.join(os.path.dirname(__file__), "..", "server", "chief-dashboard-server.py"))
+_srv = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_srv)
+
+PROJECTS = os.path.join(TMP, "projects")
+os.makedirs(os.path.join(PROJECTS, "proj"), exist_ok=True)
+_srv._CLAUDE_PROJECTS_ROOT = PROJECTS
+_srv.MACHINES = {"air-m1": {"ssh": "air"}}
+_srv.STORE.log_session_action = lambda *a, **k: None
+_srv._own_pane_cached = lambda ids: None
+_srv._enrich_agents_for_actions = lambda state, agents: None
+_srv.time.sleep = lambda *a, **k: None  # _handle_reach_action's 2s verify wait
+
+
+def install(fake, agent):
+    calls = []
+
+    def pane_run_raw(args, machine="local", timeout=15):
+        calls.append((machine, args[:2], args[2]))
+        if args[:2] == ["pane", "read"]:
+            return "\n".join(fake.render())
+        if args[:2] == ["pane", "run"]:
+            fake.run_line(args[3])
+            return ""
+        if args[:2] == ["pane", "send-keys"]:
+            fake.keys(*args[3:])
+            return ""
+        raise AssertionError(f"unexpected herdr call {args}")
+
+    remote_reads = []
+
+    def remote_shell_text(machine, script, **kw):
+        remote_reads.append(machine)
+        data = fake.tail_bytes()
+        return json.dumps({"found": True, "size": len(data), "chunkStartsAtFileStart": True,
+                           "tailB64": base64.b64encode(data).decode()})
+
+    _srv._pane_run_raw = pane_run_raw
+    _srv.herdr_transport.remote_shell_text = remote_shell_text
+    _srv.get_full_state = lambda: {"computed": {"agents": [agent]}, "feeds": {}}
+    clock = Clock()
+    _srv._COMPACT_JOBS = cj.CompactJobs(os.path.join(TMP, "srv-jobs.json"), clock=clock.now,
+                                        sleep=clock.sleep, spawn=lambda fn: fn())
+    return calls, remote_reads
+
+
+def agent_row(pane_id, machine=None, kind="claude"):
+    row = {"paneId": pane_id, "label": "worker", "agentSession": SESSION, "hasHookData": True,
+           "hookState": "idle", "agentKind": kind, "source": "herdr"}
+    if machine:
+        row["machine"] = machine
+    return row
+
+
+CONTRACT_KEYS = {"id", "rowId", "state", "originalModel", "switchSkipped", "skipReason",
+                 "compactOk", "modelRestored", "followUpSent", "error", "failedStep",
+                 "createdAt", "updatedAt", "followUp", "inPicker"}
+
+# local row: transcript from local disk
+fake = FakeTUI(transcript_path=os.path.join(PROJECTS, "proj", f"{SESSION}.jsonl"))
+calls, remote_reads = install(fake, agent_row("w4:p2"))
+payload, status = _srv.handle_compact_post({"rowId": SESSION, "actor": "po",
+                                            "instructions": "keep it short", "followUp": "next step"})
+check("local: 202", status, 202)
+check("local: body keys", set(payload), {"ok", "job"})
+check("local: Job has exactly the contract keys", set(payload["job"]), CONTRACT_KEYS)
+job = _srv._compact_jobs().get(payload["job"]["id"])[0]["job"]
+check("local: done", (job["state"], job["error"]), ("done", None))
+check("local: every pane call stayed local", {m for m, _a, _p in calls}, {"local"})
+check("local: no ssh transcript read", remote_reads, [])
+check("local: compact + follow-up through the message path",
+      [t for _m, t in fake.run_log], ["/model", "/compact keep it short", "/model", "next step"])
+no_save_keys("server local", fake)
+types_ok = (isinstance(job["id"], str) and isinstance(job["createdAt"], float)
+            and isinstance(job["updatedAt"], float) and isinstance(job["switchSkipped"], bool))
+check("local: field types", types_ok, True)
+got, st = cj.handle_get(cj.COMPACT_PATH, {"rowId": [SESSION]}, _srv._compact_jobs())
+check("GET ?rowId= shape", (st, set(got), got["job"]["id"]), (200, {"ok", "job"}, job["id"]))
+got, st = cj.handle_get(cj.COMPACT_PATH + "/" + job["id"], {}, _srv._compact_jobs())
+check("GET /<id> shape", (st, got["ok"], set(got["job"])), (200, True, CONTRACT_KEYS))
+check("GET /<bad id> 404", cj.handle_get(cj.COMPACT_PATH + "/../x", {}, _srv._compact_jobs())[1], 404)
+check("GET without rowId 400", cj.handle_get(cj.COMPACT_PATH, {}, _srv._compact_jobs())[1], 400)
+
+# remote row: every pane call over machine air-m1, transcript over the ssh tail reader
+fake = FakeTUI(cache_warm=True)
+calls, remote_reads = install(fake, agent_row("air-m1:w2:p3", machine="air-m1"))
+payload, status = _srv.handle_compact_post({"rowId": SESSION, "actor": "po", "followUp": "go"})
+job = _srv._compact_jobs().get(payload["job"]["id"])[0]["job"]
+check("remote: 202 + done", (status, job["state"], job["error"]), (202, "done", None))
+check("remote: every pane call routed to air-m1", {m for m, _a, _p in calls}, {"air-m1"})
+check("remote: raw pane id handed to herdr", {p for _m, _a, p in calls}, {"w2:p3"})
+check("remote: transcript read over ssh", set(remote_reads), {"air-m1"})
+check("remote: compactOk + restored + follow-up",
+      (job["compactOk"], job["modelRestored"], job["followUpSent"]), (True, True, True))
+no_save_keys("server remote", fake)
+
+print("== server: refusals ==")
+fake = FakeTUI()
+install(fake, agent_row("w4:p2"))
+check("unknown row 404", _srv.handle_compact_post({"rowId": "nope", "actor": "po"})[1], 404)
+check("bad actor 400", _srv.handle_compact_post({"rowId": SESSION, "actor": "chief"})[1], 400)
+check("newline followUp 400",
+      _srv.handle_compact_post({"rowId": SESSION, "actor": "po", "followUp": "a\nb"})[1], 400)
+install(fake, agent_row("w4:p2", kind="opencode"))
+check("non-Claude pane 400", _srv.handle_compact_post({"rowId": SESSION, "actor": "po"})[1], 400)
+nopane = agent_row(None)
+install(fake, nopane)
+check("row without a pane 400", _srv.handle_compact_post({"rowId": SESSION, "actor": "po"})[1], 400)
+check("nothing typed by refusals", (fake.run_log, fake.key_log), ([], []))
+
+print("== server: single-flight 409 through the endpoint ==")
+fake = FakeTUI()
+install(fake, agent_row("w4:p2"))
+pending = []
+_srv._COMPACT_JOBS = cj.CompactJobs(None, spawn=lambda fn: pending.append(fn))
+first, s1 = _srv.handle_compact_post({"rowId": SESSION, "actor": "po"})
+second, s2 = _srv.handle_compact_post({"rowId": SESSION, "actor": "po"})
+check("409 + job-active + same job", (s1, s2, second["error"], second["job"]["id"]),
+      (202, 409, "job-active", first["job"]["id"]))
+
+print("== server QA 4: plain Send / answer refused while a compact job is active ==")
+check("job remembers its pane", _srv._compact_jobs().active_for_pane("w4:p2")["id"], first["job"]["id"])
+res = _srv.handle_session_action("message", {"rowId": SESSION, "actor": "po", "text": "hello"})
+check("message refused: compact-running, typed false",
+      (res["ok"], res.get("code"), res.get("typed"), res["job"]["id"]),
+      (False, "compact-running", False, first["job"]["id"]))
+check("refusal is readable", res["error"].startswith("compact-running:"), True)
+check("HTTP status for it", _srv._session_action_status(res), 409)
+check("other replies keep 200", _srv._session_action_status({"ok": False, "error": "x"}), 200)
+check("answer/permission allowed while the job waits for idle",
+      _srv._compact_pane_refusal("w4:p2"), None)  # waitingIdle: the user may answer
+first_job = _srv._compact_jobs()._jobs[first["job"]["id"]]
+for state in ("switchingModel", "compacting", "restoringModel"):
+    _srv._compact_jobs().update(first_job, state=state, inPicker=False)
+    check(f"QA2-1: {state}, picker closed -> answers allowed (permission prompts answerable)",
+          _srv._compact_pane_refusal("w4:p2"), None)
+    res = _srv.handle_session_action("message", {"rowId": SESSION, "actor": "po", "text": "hello"})
+    check(f"QA2-1: {state} -> plain send still refused", res.get("code"), "compact-running")
+_srv._compact_jobs().update(first_job, state="restoringModel", inPicker=True)
+blocked = _srv._compact_pane_refusal("w4:p2")
+check("… refused while the picker may be open (inPicker)",
+      ((blocked or {}).get("code"), (blocked or {}).get("job", {}).get("inPicker")), ("compact-running", True))
+check("other panes unaffected", _srv._compact_pane_refusal("w9:p9"), None)
+
+print("== server QA2-1: answers run under the pane's picker lock ==")
+_srv._compact_jobs().update(first_job, inPicker=False)
+ran = []
+refusal, result = _srv._answer_unless_picker("w4:p2", lambda: ran.append(1) or {"answered": True})
+check("picker closed -> the answer runs", (refusal, result, ran), (None, {"answered": True}, [1]))
+_srv._compact_jobs().update(first_job, inPicker=True)
+refusal, result = _srv._answer_unless_picker("w4:p2", lambda: ran.append(2))
+check("inPicker -> refused, the answer never runs", ((refusal or {}).get("code"), ran), ("compact-running", [1]))
+_srv._compact_jobs().update(first_job, inPicker=False)
+_srv._ANSWER_PICKER_WAIT_SEC = 0.05
+plock = _srv._compact_jobs().picker_lock("w4:p2")
+plock.acquire()   # the job is between "lock taken" and "/model typed"
+refusal, result = _srv._answer_unless_picker("w4:p2", lambda: ran.append(3))
+plock.release()
+check("picker lock held by the job -> refused, never runs", ((refusal or {}).get("code"), ran),
+      ("compact-running", [1]))
+check("nothing typed by the refusals", (fake.run_log, fake.key_log), ([], []))
+
+# The row lock: a plain send that finds the lock held waits briefly, then
+# refuses instead of typing — compact-running when a job holds it.
+_srv._COMPACT_JOBS = cj.CompactJobs(None, spawn=lambda fn: None)
+_srv._PLAIN_SEND_LOCK_WAIT_SEC = 0.05
+lock = _srv._compact_jobs().row_lock(SESSION)
+lock.acquire()
+res = _srv.handle_session_action("message", {"rowId": SESSION, "actor": "po", "text": "hello"})
+check("lock held by another Send -> refused, nothing typed",
+      (res.get("code"), res.get("typed"), "still being typed" in res["error"], fake.run_log),
+      (None, False, True, []))
+
+
+_srv._compact_jobs().start({"rowId": SESSION, "actor": "po"}, fake.io())  # worker not run
+res = _srv.handle_session_action("message", {"rowId": SESSION, "actor": "po", "text": "hello"})
+lock.release()
+check("lock held by a job -> compact-running, nothing typed",
+      (res.get("code"), res.get("typed"), fake.run_log), ("compact-running", False, []))
+_srv._COMPACT_JOBS = cj.CompactJobs(None, spawn=lambda fn: None)
+res = _srv.handle_session_action("message", {"rowId": SESSION, "actor": "po", "text": "hello"})
+check("no job, lock free -> the normal send runs", (res["ok"], fake.sent_texts), (True, ["hello"]))
+
+print()
+if fails:
+    print(f"{len(fails)} FAILED:")
+    for f_ in fails:
+        print("  " + f_)
+    sys.exit(1)
+print("all passed")

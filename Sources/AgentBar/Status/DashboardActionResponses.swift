@@ -77,6 +77,8 @@ struct DashboardSessionActionResponse: Decodable {
     let needsConfirm: Bool?
     let reason: String?
     let error: String?
+    /// Machine-readable refusal, e.g. "compact-running" (`CompactRunningReply`).
+    let code: String?
     /// What the dashboard did, e.g. "stopped (3 procs)"; for a message "queued" or "message sent".
     let state: String?
 
@@ -94,11 +96,13 @@ struct DashboardSessionActionResponse: Decodable {
 struct DashboardAnswerResponse: Decodable {
     let ok: Bool?
     let error: String?
+    let code: String?
     let next: DashboardQuestion?
 
     /// The result the reply amounts to; nil when it says nothing usable.
     var result: AnswerResult? {
-        switch ok {
+        if ok != true, CompactRunningReply.matches(code: code, error: error) { return .failed(CompactRunningReply.answerWords) }
+        return switch ok {
         case true?: .sent(next: AnswerableQuestion(next))
         case false?: .failed(error ?? "The dashboard refused the answer.")
         case nil: nil
@@ -124,6 +128,7 @@ enum PermissionResult: Equatable, Sendable {
 struct DashboardPermissionResponse: Decodable {
     let ok: Bool?
     let error: String?
+    let code: String?
     let next: DashboardPermission?
     /// Trimmed; nil when absent, null or blank. A warning that is not a string still counts as one
     /// (`unreadableWarning`): the key was pressed, so a strange value must never read as "all fine".
@@ -131,12 +136,13 @@ struct DashboardPermissionResponse: Decodable {
 
     static let unreadableWarning = "the dashboard sent a warning AgentBar could not read"
 
-    private enum CodingKeys: String, CodingKey { case ok, error, next, warning }
+    private enum CodingKeys: String, CodingKey { case ok, error, code, next, warning }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         ok = try container.decodeIfPresent(Bool.self, forKey: .ok)
         error = try container.decodeIfPresent(String.self, forKey: .error)
+        code = try? container.decodeIfPresent(String.self, forKey: .code)
         next = try container.decodeIfPresent(DashboardPermission.self, forKey: .next)
         if let text = try? container.decodeIfPresent(String.self, forKey: .warning) {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -151,6 +157,9 @@ struct DashboardPermissionResponse: Decodable {
     /// The result a reply amounts to. HTTP 404 / 405 mean the endpoint is missing, whatever the body says.
     static func result(body: Data, statusCode: Int) -> PermissionResult {
         let reply = try? JSONDecoder().decode(DashboardPermissionResponse.self, from: body)
+        if reply?.ok != true, CompactRunningReply.matches(code: reply?.code, error: reply?.error) {
+            return .failed(CompactRunningReply.answerWords)
+        }
         if statusCode == 404 || statusCode == 405 {
             return .unsupported(reply?.error ?? "HTTP \(statusCode)")
         }
@@ -159,5 +168,70 @@ struct DashboardPermissionResponse: Decodable {
         case false?: return .failed(reply?.error ?? "The dashboard refused the decision.")
         case nil: return .failed(reply?.error ?? "The dashboard sent an unreadable reply. Check the agent's terminal.")
         }
+    }
+}
+
+/// The dashboard's 409 while its compact job runs on a row (`dashboard/AGENTS.md` "No other typing while a
+/// job runs"): `{"ok": false, "code": "compact-running", "typed": false, "error": "compact-running: …", "job": …}`.
+/// The contract file names it in `error`, the server in `code`: either counts. Nothing was typed.
+/// Plain messages get it for the whole job; answers and permission decisions only while the job may
+/// have the `/model` picker open.
+enum CompactRunningReply {
+    static let code = "compact-running"
+    static let answerWords = "Compact is switching models: try again in a few seconds"
+
+    static func matches(code: String?, error: String?) -> Bool {
+        code == Self.code || error == Self.code || error?.hasPrefix(Self.code + ":") == true
+    }
+}
+
+/// `/api/session/compact` replies (contract `.claude/compact-api-contract.md`): `{"ok": true, "job": Job|null}`,
+/// `{"ok": false, "error": "job-active", "job": Job}` (409) or `{"ok": false, "error": "<reason>"}`.
+/// A `job` that is present but unreadable is kept apart from a null one: it must never read as "no job".
+struct DashboardCompactResponse: Decodable {
+    let ok: Bool?
+    let error: String?
+    let job: CompactJob?
+    let jobUnreadable: Bool
+
+    static let activeError = "job-active"
+    static let missingEndpointReason = "This dashboard can't compact yet (restart it)."
+
+    private enum CodingKeys: String, CodingKey { case ok, error, job }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ok = container.lenient(.ok)
+        error = container.lenient(.error)
+        let jobIsNull = !container.contains(.job) || ((try? container.decodeNil(forKey: .job)) ?? false)
+        job = jobIsNull ? nil : (try? container.decode(CompactJob.self, forKey: .job))
+        jobUnreadable = !jobIsNull && job == nil
+    }
+
+    /// What a `POST` reply amounts to. A 2xx without a readable job is `.uncertain`: something may have started.
+    static func startOutcome(body: Data, statusCode: Int) -> CompactStartOutcome {
+        let reply = try? JSONDecoder().decode(DashboardCompactResponse.self, from: body)
+        if let job = reply?.job {
+            if statusCode == 409 || reply?.error == activeError { return .alreadyRunning(job) }
+            if reply?.ok == true { return .started(job) }
+        }
+        if (200..<300).contains(statusCode) {
+            return .uncertain("The dashboard's reply was unreadable. The compact may have started.")
+        }
+        // An older dashboard has no such route: its generic 404 is not a reason worth showing.
+        if statusCode == 404 || statusCode == 405, reply?.ok != false || reply?.error == "not found" {
+            return .failed(missingEndpointReason)
+        }
+        return .failed(reply?.error ?? "The dashboard refused the compact (HTTP \(statusCode)).")
+    }
+
+    /// What a `GET` reply amounts to. 404 = no such job (or a dashboard without compact jobs).
+    static func read(body: Data, statusCode: Int) -> CompactJobRead {
+        if statusCode == 404 { return .none }
+        let reply = try? JSONDecoder().decode(DashboardCompactResponse.self, from: body)
+        guard (200..<300).contains(statusCode), let reply, reply.ok == true, !reply.jobUnreadable else {
+            return .failed(reply?.error ?? "The dashboard sent an unreadable reply (HTTP \(statusCode)).")
+        }
+        return reply.job.map(CompactJobRead.job) ?? .none
     }
 }

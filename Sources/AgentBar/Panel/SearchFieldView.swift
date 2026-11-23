@@ -190,6 +190,17 @@ struct SearchFieldView: View {
         }
     }
 
+    /// A line break at the caret (replacing any selection) through the field's editor, the same call
+    /// AppKit makes for Option+Return in a text field; the binding follows via the editor's change
+    /// notification. No editor (focus elsewhere for a moment): appended to the end instead.
+    private func insertLineBreakAtCaret() {
+        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isFieldEditor || editor.isEditable {
+            editor.insertNewlineIgnoringFieldEditor(nil)
+        } else {
+            model.query.append("\n")
+        }
+    }
+
     /// While tagged the field IS the message; naming who it goes to (mirrors FastTab's alias
     /// placeholder, "Search \(alias)…", the same idea one level up: name the destination).
     private var fieldPlaceholder: String {
@@ -212,9 +223,14 @@ struct SearchFieldView: View {
                 // free text starts Jev routing, unless a card already owns the keyboard; every
                 // other Return presses the highlighted button / switches to the agent, exactly
                 // as `.onSubmit` used to.
-                switch AgentPanelKeys.returnAction(shift: press.modifiers.contains(.shift), isCardOpen: model.isCardOpen) {
+                // Tab-tag compose: Shift/Option+Return is a line break, not routing / a send.
+                switch AgentPanelKeys.returnAction(
+                    shift: press.modifiers.contains(.shift), option: press.modifiers.contains(.option),
+                    isCardOpen: model.isCardOpen, isComposing: model.composesMultilineMessage
+                ) {
                 case .startRouting: model.startRouting()
                 case .activateSelected: model.activateSelected(isKeyRepeat: NSApp.currentEvent?.isARepeat ?? false)
+                case .insertNewline: insertLineBreakAtCaret()
                 }
                 return .handled
             }

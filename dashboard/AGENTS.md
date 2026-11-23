@@ -616,6 +616,139 @@ same auth/CSRF as the image route. Code: `lib/audio_attachments.py` (storage),
 - Every user-facing error is a fixed English sentence; CLI output is logged
   server-side only, key-scrubbed, last 300 chars.
 
+## Compact on Sonnet (`/api/session/compact`) — 2026-11-22
+`/compact` run on a cheaper model: switch the session to Sonnet (session only), compact,
+switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/compact_jobs.py`
+(job table + worker, pure: pane I/O, clock, sleep, spawn injected), routes in
+`chief-dashboard-server.py` (`handle_compact_post`, `_compact_pane_io`). Tests:
+`tests/test_compact_jobs.py` (FakeTUI of the probed screens; key log asserted). Shared contract
+(Swift Agent Bar uses the same): `.claude/compact-api-contract.md` in the main checkout
+(gitignored), summarized here.
+- **Composer rule** (web `ui/src/compactJob.ts` `parseCompactDraft`, Swift `CompactDraft.parse`):
+  leading blank / whitespace-only lines are skipped (QA2 2026-11-22: `"\n/compact"` is a compact
+  draft; `"\n\nhello"` stays a plain message); then the first line, trimmed, is `/compact` or starts
+  with `/compact ` (case-sensitive). Rest of that line = `instructions`; the lines after it =
+  `followUp`. A refused / failed send (409 `job-active` or `compact-running`, 400, dropped POST of a
+  compact) puts the draft back EXACTLY as typed, newlines included. Both pieces, and any plain multi-line draft, go
+  through `sanitizedMessage` = Swift `MessageDraftValidator.sanitized` (tab -> space, other control
+  characters dropped, every line trimmed, blank lines dropped, joined with one space; spaces inside a
+  line kept). The web tests run the Swift test cases verbatim (`compact-composer.test.tsx` "Swift
+  parity") — change both sides together. Web composer: Enter sends, Shift+Enter = new line; on the
+  phone a ↵ button (`composer-newline`) appears for a `/compact` draft to add line 2, and a hint
+  line (`compactHint`, Swift `CompactDraft.hint`) says what the lines do.
+- `POST /api/session/compact {rowId, actor, instructions?, followUp?}` -> 202 `{ok, job}` | 409
+  `{ok:false, error:"job-active", job}` (single-flight per rowId) | 400 (bad text — same rules as
+  `validate_message_text`; actor not `po`; no pane; not a Claude pane; dev-server / own pane) |
+  404 (row not live). Both listeners, audited like Send message.
+- `GET /api/session/compact?rowId=` -> `{ok, job|null}` (active job, else newest finished < 30
+  min). `GET /api/session/compact/<jobId>` -> `{ok, job}` | 404. Clients poll ~1.5s while not
+  terminal.
+- Job (camelCase): `id, rowId, state, originalModel, switchSkipped, skipReason, compactOk,
+  modelRestored, followUpSent, error` (first failure only), `failedStep, createdAt, updatedAt`,
+  `followUp` (added 2026-11-22, additive: the queued text, so a client can offer it back when
+  `followUpSent` is false — the web failed line has "Put it back in the box"; contract file
+  `.claude/compact-api-contract.md` needs the same note, it lives outside the repo).
+  `inPicker: bool` (added QA2 2026-11-22, additive): the /model picker may be open on the pane —
+  set just before `/model` is typed, cleared only once a read confirms it closed (success line,
+  confirmed Esc, or an idle prompt); stays true while unconfirmed. Clients grey out answer /
+  permission buttons for the pane only while an ACTIVE job has it true (ignore it on finished jobs).
+  States: `waitingIdle` (idle + EMPTY prompt, 10 min max) -> `switchingModel` -> `compacting`
+  (new `compact_boundary` within 5 min) -> `restoringModel` -> `sendingFollowUp` -> `done` |
+  `failed`.
+- **Never null when due**: a follow-up that existed but did not go out (idle timeout, user typed,
+  restart) = `followUpSent: false`; Sonnet committed (`s` pressed) but not undone =
+  `modelRestored: false`. Web failed line: "Your queued message was NOT sent" / "Model NOT
+  restored: still on Sonnet (switch back to X with /model)".
+- **State file + restart** (`<STATE_HOME>/compact-jobs.json`, 0600): besides the public fields it
+  saves `instructions`, `restoreModel`, `sSent` (picker commit pressed), `inPicker`, the pane
+  (`paneKey`/`machine`/`rawPaneId`/`sessionId`) and `actor`. On load (`main()`, before any listener
+  binds) a running job gets error "dashboard restarted" and `followUpSent: false`; if it needs
+  recovery (`inPicker` or `sSent`) it stays ACTIVE as `restoringModel` right away — single-flight
+  (409 `job-active`) and the send refusals hold from the first request, so a new job can't read
+  "already on Sonnet" and leave the session there — else it is `failed` at once. `main()` then calls
+  `CompactJobs.recover(_compact_io_for_saved_job)` (MUST follow construction): Esc a picker it may
+  have left open ONLY after a read shows it — an unreadable pane is re-read with backoff (1s
+  doubling, cap 15s, `RECOVERY_READ_BUDGET_SEC` 120), never a blind Esc (the agent may be mid-turn;
+  Esc there stops it) — and if `sSent` run the normal restore. Pane unreachable -> `failed`,
+  `modelRestored: false`. The follow-up is never auto-sent after a restart.
+- Rules: restore runs once the picker step started, even after a failure (no-op `modelRestored:
+  true` when `s` was never pressed — nothing changed). Follow-up is sent even if the switch or
+  compact failed, but NOT when the agent never got idle or the user typed. Before every typing step
+  a fresh read must show an idle, empty prompt; text in the box = failed "you typed into the
+  session" (the restore keeps waiting for the box to empty, never types over it).
+  `/compact` and the follow-up go through `_handle_reach_action` (its /compact retry included).
+- **Restore budget** (`RESTORE_BUDGET_SEC` 600): after a compact timeout or an ssh outage the
+  restore waits for an idle prompt and retries with backoff (5s doubling, cap 60s) for up to 10
+  min, then `modelRestored: false`.
+- **Picker safety** (`_Runner.picker_phase`): every /model picker step runs inside try/finally that
+  always leaves the picker (`escape_out`); reads inside picker steps are retried 3x
+  (`read_retry`). `escape_out` Escs only on a read that shows the picker/dialog open, except ONE
+  blind Esc when no read works, none was sent, and `blind_esc_allowed()`: the last successful read
+  showed the picker, or `/model` / arrows / `s` / `1` were typed after it — never when it showed a
+  busy spinner (Esc there interrupts the turn), never right after another Esc (Esc at an idle prompt
+  is a no-op; two in a row could open Claude's rewind menu). A picker/dialog this job opened that is still up later is
+  escaped by `wait_ready`. Why: an ssh read error used to jump straight to the catch-all with the
+  picker open, and a later Enter there saves the highlighted model as the GLOBAL default.
+- **No other typing while a job runs** (`chief-dashboard-server.py`
+  `_send_message_unless_compacting`, `_compact_pane_refusal`): `POST /api/session/message`
+  (Compact/Clear buttons too) to a row with an active job -> HTTP 409 `{ok:false, code:
+  "compact-running", typed:false, error:"compact-running: …", job}` (clients show `error`; the
+  web puts the text back, Swift shows it as a failure) — for the job's WHOLE active life.
+  `/api/answer` + `/api/permission` for the job's pane get the same 409 ONLY while the job's
+  `inPicker` is true (QA2 2026-11-22: the restore can wait 10 min for a busy agent, and a permission
+  prompt raised meanwhile must stay answerable; while waiting for idle, answering is what lets it go
+  idle). Answers are typed under the pane's picker lock (`CompactJobs.picker_lock`,
+  `_answer_unless_picker`; the job holds it from before setting `inPicker` until it has left the
+  picker), so a picker can't open mid-answer; an answer that waits >10s for it gets the 409, a job
+  that waits >15s fails "an answer to the agent was still being typed". Per-row send lock (`CompactJobs.row_lock`): a job's
+  worker holds it for its whole run, a plain Send holds it while typing (waits 15s, then 409), so a
+  Send that raced a job starting can't hit the picker. The job's own sends call
+  `_handle_reach_action` directly. Not refused: Stop/Close/Relaunch (explicit user intent).
+- **Gotcha — `s`, never Enter or a digit, inside the /model picker.** Enter or a row digit SAVES
+  that model as the global default for new sessions (`~/.claude/settings.json` `model`); `s` =
+  "use this session only". `/model` is typed with `herdr pane run` (text + herdr's own Enter, which
+  opens the picker) and is NOT followed by the message path's extra `send-keys enter` — that Enter
+  would land in the open picker. Rows are matched by text (description `Sonnet 5.5 · …`), never by
+  number; row 1 `Default (recommended)` says `(currently <model>)` and is never chosen (a session
+  whose ✔ sits on Default is restored to the row of the model it names, session only).
+- **Custom-model skip**: a session on a custom / pinned model (`ANTHROPIC_MODEL` from
+  `scripts/claude-launch.py`, e.g. `trung/claude-opus-5-5`) has no ✔ on a standard picker row ->
+  Esc, `switchSkipped: true`, `skipReason: "custom model: compacting on current model"`, compact
+  anyway. Already on Sonnet (statusline `[Sonnet …]` or ✔ on the Sonnet row) -> skipped too.
+- **New-session placeholder**: a brand-new session's empty prompt shows a dim hint
+  `❯ Try "fix lint errors"`; herdr reads plain text (no dim), so `_input_box` treats a box that is
+  exactly `Try "<one line>"` (`_PLACEHOLDER_RE`) as empty. Anything after the closing quote = typed.
+  Other ghost/suggestion texts are not handled (not seen).
+
+### Probe facts (live, 2026-11-22, Claude Code 2.1.330 via herdr; the probe notes are gitignored)
+- `herdr pane run <pane> "<text>"` already presses Enter. An extra `send-keys enter` is harmless
+  at the idle prompt and during compaction, NOT while the picker is open.
+- `/model` picker: title `Select model`, rows `N. <Label> [✔]  <Model x.y> · <blurb>`, footer
+  `s to use this session only · Enter to save · Esc to cancel`. `✔` = the session's LIVE model;
+  the `❯` cursor starts on it. `up`/`down` move only (several keys in one send-keys call work);
+  `left`/`right` change effort. Esc cancels (`⎿  Kept model as …`, a `system` transcript line).
+- Results: `⎿  Set model to Sonnet 5.5 for this session only` (settings untouched) vs `… and saved
+  as your default for new sessions` (digit / Enter / `/model <arg>` — all save). Transcript gets
+  `<local-command-stdout>Set model to …</local-command-stdout>`.
+- `Switch model?` dialog appears only when the prompt cache is warm (recent reply, no compaction
+  since): `❯ 1. Yes, switch to <model>` / `2. No, go back`, `Enter to confirm · Esc to cancel`.
+  `1` or Enter confirms and keeps the session-only choice; Esc goes back to the picker.
+- After a switch: statusline `[Sonnet 5.5] N% context`, assistant `message.model`
+  `claude-sonnet-5-5`. The compaction call itself is not logged with a model.
+- `/compact`: spinner `✽ Compacting conversation… (3s · ↓ 104 tokens)` + `esc to interrupt`;
+  done = `⎿  Compacted (ctrl+o to see full summary)` under the `❯ /compact` echo (screen not
+  cleared), and the same transcript file gets `{"type":"system","subtype":"compact_boundary",…}`
+  then the summary and `<local-command-stdout>\x1b[2mCompacted …` (strip ANSI). ~3-11s measured.
+- Fresh folder trust dialog defaults to "No, exit" (digits don't work there) — never blind-Enter.
+
+## Web UI: mermaid diagrams in agent markdown (2026-11-23)
+- **Where**: every surface using `ui/src/components/Markdown.tsx` `<Markdown>` (latest message on desktop row panel, phone sheet, prompt sheet; plan approval card). `MarkdownInline` (one-line question/option text) has no fences, so no diagrams. Plain-text surfaces (sent-message history, inbox subtitles, feedback bodies) are not markdown and stay as is.
+- **How**: `Markdown`'s `pre` override sends a ```` ```mermaid ```` fence to `MermaidBlock.tsx`, which `import("mermaid")`s on first use only (separate `mermaid.core-*.js` chunk, ~670 kB; main chunk unchanged apart from ~4 kB of glue). Pinned `mermaid` 12.3.0.
+- **Rules** (pinned by `__tests__/mermaid.test.tsx`, mermaid mocked): `securityLevel: "strict"`, `htmlLabels: false`, output SVG re-scrubbed (`scrubSvg`: no script/foreignObject/SMIL/on*/non-http links); bad diagram = raw source + "diagram failed to render"; results cached by theme + content hash, 150 ms quiet period, so a streaming message renders once; theme follows `data-mantine-color-scheme`; natural size in a sideways-scroll box (`.md-mermaid__scroll`).
+- **Zoom** (`MermaidZoomOverlay.tsx`, own lazy ~6 kB chunk; math in `mermaidZoom.ts`, no library): tap the diagram or its ⤢ button → fullscreen dialog. Phone: one-finger drag pans, two-finger pinch zooms. Desktop: ctrl/cmd+wheel or trackpad pinch (and Safari gesture events) zoom around the cursor, wheel/drag pans. Buttons − / + / fit / ×, keys + − 0 Esc; starts at fit, 0.25x–8x. Vector-sharp: the SVG gets real width/height = natural × scale and is only translated. While open: body scroll locked, focus trapped, then focus + page scroll restored. Inline has NO wheel/pinch handling, so the page scrolls normally over a diagram.
+- **Gotcha, phone sheet**: the vaul sheet is a modal Radix Dialog; the overlay is portalled to `<body>` (outside it), so window-capture listeners stop focusin/focusout/Esc and a root listener stops pointerdown from reaching Radix (else the sheet closes or steals focus), and `.mmz` forces `pointer-events: auto` (Radix sets `none` on body).
+- **Real mermaid can't render under happy-dom** (empty SVG), and happy-dom's `WheelEvent` drops `ctrlKey`/`clientX` (tests patch them), so check diagrams and zoom by hand in a browser.
+
 ## Running it
 ```
 cd dashboard
@@ -642,7 +775,7 @@ only). Run all tests:
 ```
 for f in tests/test_*.py; do python3 "$f" || echo "FAILED: $f"; done
 ```
-As of this writing: 51 test files, ~1810 `PASS` lines, 0 failures
+As of this writing (2026-11-22): 88 test files, ~3580 `PASS` lines, 0 failures
 (`test_chief_dashboard_views.py` prints a heading containing "FAIL-OPEN" —
 not a failure; judge by each file's exit code).
 

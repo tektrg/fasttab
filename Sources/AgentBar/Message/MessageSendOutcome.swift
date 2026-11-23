@@ -10,6 +10,11 @@ enum MessageSendOutcome: Equatable, Sendable {
     case failed(String)
     /// No reply in time: it may have gone through. Never retried on its own.
     case uncertain(String)
+    /// Refused because the dashboard's compact job is running on this row (409 `compact-running`):
+    /// nothing was typed. Final: never retried (a retry 5s later would hit the same job); the draft is kept.
+    case compactRunning
+
+    static let compactRunningWords = "A compact is running on this session: your message wasn't sent"
 
     static let textMayBeInInputBoxWords = "The message may be sitting typed in the agent's input box, not submitted. Clear or submit it in the terminal first: sending again would type it twice."
 }
@@ -19,6 +24,7 @@ extension DashboardSessionActionResponse {
     var messageOutcome: MessageSendOutcome? {
         if ok == true { return .sent(queued: state?.lowercased().contains("queued") == true) }
         if needsConfirm == true { return .needsConfirmation(reason: reason ?? "") }
+        if CompactRunningReply.matches(code: code, error: error) { return .compactRunning }
         guard let error else { return nil }
         if Self.leavesTextInInputBox(error) { return .uncertain(MessageSendOutcome.textMayBeInInputBoxWords) }
         // Inbox route (`session_inbox.MAYBE_SENT`): the connection broke after bytes left, so the

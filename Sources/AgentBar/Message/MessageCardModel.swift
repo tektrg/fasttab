@@ -47,15 +47,20 @@ final class MessageCardModel: ObservableObject {
     private var sentLabels: [String: (text: String, until: Date)] = [:]
     /// Bumped when the dashboard changes: replies from the old one are dropped.
     private var epoch = 0
+    /// The open card's `/compact` job (Claude panes only): one per card, stopped when the card closes.
+    private var compactFollower: CompactJobFollower?
+    private let makeCompactFollower: @MainActor (String, any AgentStatusSource) -> CompactJobFollower
 
     init(
         now: @escaping () -> Date = Date.init,
         sentLabelSeconds: TimeInterval = MessageCardModel.sentLabelSeconds,
-        loadSessionContext: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript
+        loadSessionContext: @escaping AnswerCardModel.SessionContextLoad = AnswerCardModel.readTranscript,
+        makeCompactFollower: @escaping @MainActor (String, any AgentStatusSource) -> CompactJobFollower = { CompactJobFollower(rowId: $0, source: $1) }
     ) {
         self.now = now
         self.sentLabelSeconds = sentLabelSeconds
         self.loadSessionContext = loadSessionContext
+        self.makeCompactFollower = makeCompactFollower
     }
 
     var isOpen: Bool { card != nil }
@@ -76,21 +81,29 @@ final class MessageCardModel: ObservableObject {
         close()
         card = MessageCard(agent: agent, route: route, rowId: rowId)
         loadContext()
+        followCompact(rowId: rowId, route: route)
         return true
     }
 
     /// Closes the card. A message already on its way carries on: its result still reaches the row or the footer.
+    /// A compact job runs on in the dashboard; the card just stops watching it.
     func close() {
         contextLoader.cancel()
+        compactFollower?.stop()
+        compactFollower = nil
+        cardCompactPress = nil
+        followUpPutBack = false
         card = nil
     }
 
-    /// Forgets everything about the old dashboard's agents.
+    /// Forgets everything about the old dashboard's agents (compact jobs run on there, unwatched).
     func reset() {
         epoch += 1
         close()
         inFlight = []
         sentLabels = [:]
+        directCompacts.values.forEach { $0.stop() }
+        directCompacts = [:]
     }
 
     // MARK: - Keys and clicks
@@ -118,7 +131,7 @@ final class MessageCardModel: ObservableObject {
 
     /// Esc: a failure notice goes first, then the card closes (not while its message is on its way).
     func handleEscape() {
-        guard let card, !consumeEscape(), card.phase == .editing else { return }
+        guard let card, !consumeEscape(), card.phase == .editing, compactProgress != .starting else { return }
         close()
         onReleaseKeyboard()
     }
@@ -127,6 +140,11 @@ final class MessageCardModel: ObservableObject {
     func pressSend() { pressSend(isWrapUpAnswer: false) }
 
     private func pressSend(isWrapUpAnswer: Bool) {
+        // A wrap_up action whose message is a `/compact` (Claude pane only) is a compact job too.
+        if let compactDraft = card?.compactDraft {
+            pressCompact(compactDraft)
+            return
+        }
         guard var card, let statusSource, let text = card.sendableText else { return }
         let confirmed = card.isConfirming
         guard card.beginSending() else { return }
@@ -175,6 +193,133 @@ final class MessageCardModel: ObservableObject {
             self?.finishSend(outcome, of: request, epoch: epoch)
         }
         return true
+    }
+
+    // MARK: - Compact
+
+    /// Where the open card's `/compact` job has got to (`.idle` with no card, or on a route without compact).
+    var compactProgress: CompactProgress { compactFollower?.progress ?? .idle }
+
+    /// Send is on: the draft can go, and a `/compact` draft waits while a compact is already starting or running.
+    var canSend: Bool {
+        guard let card, card.canSend else { return false }
+        return card.compactDraft == nil || !compactProgress.isBusy
+    }
+
+    /// A `/compact` draft: the dashboard runs the whole job (wait for idle, Sonnet, compact, restore,
+    /// follow-up); the card shows its progress. No pane read first: the job does its own before every step.
+    private func pressCompact(_ draft: CompactDraft) {
+        guard let card, card.phase == .editing, card.compactRefusal == nil, let compactFollower else { return }
+        guard compactFollower.start(draft) else { return }
+        cardCompactPress = CardCompactPress(agentID: card.agentID, typed: card.draft, followUp: draft.followUp)
+        followUpPutBack = false
+    }
+
+    /// The card's last `/compact` press, until its job settles: lets the card clear the draft once the
+    /// job is known to be this press's, and put an unsent follow-up back.
+    private struct CardCompactPress {
+        let agentID: String
+        let typed: String
+        let followUp: String?
+    }
+    private var cardCompactPress: CardCompactPress?
+
+    private func followCompact(rowId: String, route: MessageRoute) {
+        guard route.allowsQuickCommands, let statusSource else { return }
+        let follower = makeCompactFollower(rowId, statusSource)
+        follower.onChange = { [weak self] in self?.cardCompactChanged() }
+        compactFollower = follower
+        follower.resume()
+    }
+
+    /// The card's job moved. Once it is this press's job (a 202, or found by the look-up after a
+    /// timeout; never an adopted one) the typed text is in it, so the draft goes — a second press
+    /// must not start another. When it ends with the queued message NOT sent, that message goes
+    /// back into the (empty) box so the user can send it again; text typed since is never replaced.
+    private func cardCompactChanged() {
+        objectWillChange.send()
+        guard let press = cardCompactPress, card?.agentID == press.agentID,
+              case .tracking(let tracking) = compactProgress, !tracking.adopted else { return }
+        if card?.draft == press.typed { setDraft("") }
+        guard tracking.job.isTerminal else { return }
+        cardCompactPress = nil
+        if tracking.job.followUpSent == false, let followUp = press.followUp,
+           card?.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            setDraft(followUp)
+            followUpPutBack = true
+        }
+    }
+
+    static let followUpPutBackNote = "\(CompactJob.followUpNotSentNote) — it's back in the box to send again"
+
+    /// The unsent follow-up went back into the box (the card's notes say so).
+    private var followUpPutBack = false
+
+    /// The notes under the card's compact line (`CompactProgress.detail`), saying where an unsent
+    /// queued message went.
+    var compactDetail: String? {
+        guard let detail = compactProgress.detail else { return nil }
+        return followUpPutBack ? detail.replacingOccurrences(of: CompactJob.followUpNotSentNote, with: Self.followUpPutBackNote) : detail
+    }
+
+    // MARK: - Compact with no card (compose, the row's ⋯ Compact, Park)
+
+    static let compactedLabel = "Compacted ✓"
+    static let compactStartingLabel = "Starting compact…"
+
+    /// Compact jobs started with no card, by agent id, until they settle (the row shows their progress).
+    private var directCompacts: [String: CompactJobFollower] = [:]
+
+    /// A compact started with no card is still running for this agent.
+    func isCompacting(_ agentID: String) -> Bool { directCompacts[agentID] != nil }
+
+    /// Starts the dashboard's compact job for `agent` with no card: the row shows the job's progress
+    /// line in place of its buttons, then "Compacted ✓" for a clean finish. `onAccepted` hears, once,
+    /// that the dashboard has a job for this press (a 202, a job found by the look-up after an
+    /// uncertain start, or the job already running on a 409 `job-active`): only then may the caller
+    /// clear the box the draft came from. `onSettle` hears the end (done, failed, not started, lost)
+    /// once; the caller reports anything but a clean finish. Never re-posted: a timed-out start is
+    /// looked up by row. False (nothing started) when the row can't take a compact job, a message or
+    /// compact is already on its way to it, or there is no dashboard.
+    @discardableResult
+    func startCompactDirect(
+        to agent: AgentSnapshot, draft: CompactDraft, onAccepted: @escaping () -> Void = {},
+        onSettle: @escaping (CompactProgress) -> Void
+    ) -> Bool {
+        guard RowButtons.takesCompactJob(agent), let statusSource, let rowId = agent.rowId,
+              !inFlight.contains(agent.id), directCompacts[agent.id] == nil, draft.refusal == nil
+        else { return false }
+        let agentID = agent.id
+        let epoch = epoch
+        let follower = makeCompactFollower(rowId, statusSource)
+        var accepted = false
+        follower.onChange = { [weak self, weak follower] in
+            self?.objectWillChange.send()
+            guard !accepted, case .tracking = follower?.progress else { return }
+            accepted = true
+            onAccepted()
+        }
+        follower.onSettle = { [weak self] progress in
+            self?.finishDirectCompact(agentID: agentID, progress: progress, epoch: epoch, onSettle: onSettle)
+        }
+        directCompacts[agentID] = follower
+        guard follower.start(draft) else {
+            directCompacts[agentID] = nil
+            return false
+        }
+        objectWillChange.send()
+        return true
+    }
+
+    private func finishDirectCompact(agentID: String, progress: CompactProgress, epoch: Int, onSettle: (CompactProgress) -> Void) {
+        guard epoch == self.epoch, let follower = directCompacts.removeValue(forKey: agentID) else { return }
+        follower.stop()
+        if progress.isCleanDone {
+            sentLabels[agentID] = (Self.compactedLabel, now().addingTimeInterval(sentLabelSeconds))
+            scheduleRefresh(after: sentLabelSeconds)
+        }
+        objectWillChange.send()
+        onSettle(progress)
     }
 
     // MARK: - Sending
@@ -271,6 +416,12 @@ final class MessageCardModel: ObservableObject {
             if showing == nil, !request.notesOnSend {
                 onNotice("Message to \(request.label): \(reason)")
             }
+        case .compactRunning:
+            // Nothing was typed; the card keeps the draft to send once the compact is over.
+            showing?.stopSending(error: MessageSendOutcome.compactRunningWords)
+            if showing == nil, !request.notesOnSend {
+                onNotice(MessageSendOutcome.compactRunningWords)
+            }
         }
         // Headless sends report every outcome to the caller instead — it owns the retry policy
         // (see `onDirectSendOutcome`'s doc comment) and, unlike a card send, there is never a
@@ -292,12 +443,22 @@ final class MessageCardModel: ObservableObject {
 
     // MARK: - Rows
 
-    /// What the row says in place of its buttons while its message is on its way.
+    /// What the row says in place of its buttons while its message is on its way, or while a compact
+    /// started with no card runs (the job's progress line: "Waiting for agent…", "Compacting…", …).
+    /// Exception (QA #2): a row blocked on the user (a question or permission box) keeps its
+    /// Answer / Review buttons while the job runs, except while the job may have the `/model` picker
+    /// open (`CompactProgress.mayHavePickerOpen`, when the dashboard refuses answers): the job
+    /// waits for the agent to go idle, and answering is what lets it.
     func sendingLabel(for agent: AgentSnapshot) -> String? {
-        inFlight.contains(agent.id) ? Self.sendingLabel : nil
+        if let follower = directCompacts[agent.id],
+           agent.blockedOnYou == nil || follower.progress.mayHavePickerOpen {
+            return follower.progress.line ?? Self.compactStartingLabel
+        }
+        return inFlight.contains(agent.id) ? Self.sendingLabel : nil
     }
 
-    /// What the row says for a few seconds after its message went: "Message sent" or "Message queued".
+    /// What the row says for a few seconds after its message went ("Message sent" / "Message queued")
+    /// or its compact finished cleanly ("Compacted ✓").
     func sentLabel(for agent: AgentSnapshot) -> String? {
         guard let note = sentLabels[agent.id], now() < note.until else { return nil }
         return note.text

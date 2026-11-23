@@ -401,7 +401,7 @@ describe("in the message box", () => {
     await wait(750); // the Composer uses the real clock: outlast the 0.7s minimum
     await press(host, "stop recording");
     await wait(1800); // default 1.5s poll cadence
-    const input = host.querySelector('input[type="text"], input:not([type])') as HTMLInputElement;
+    const input = host.querySelector("textarea") as HTMLTextAreaElement;
     expect(input.value).toBe("fix the login bug and run the tests");
     expect(calls.some((c) => c.url.includes("/api/sessions") || c.url.includes("message"))).toBe(false);
     act(() => root.unmount());

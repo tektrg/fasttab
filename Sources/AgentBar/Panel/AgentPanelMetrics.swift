@@ -49,9 +49,9 @@ enum AgentPanelMetrics {
     static let routingRowHeight: CGFloat = 20
 
     /// Rough estimate of how many lines `text` wraps into at the field's width and font — good
-    /// enough to reserve height for, not exact text layout. Newlines only ever come from a paste
-    /// (Return is consumed to drive send/routing, never typed as a line break); each source line
-    /// counts as at least one wrapped line.
+    /// enough to reserve height for, not exact text layout. Newlines come from a paste or, in Tab-tag
+    /// compose only, Shift/Option+Return (`AgentPanelKeys.returnAction(isComposing:)`); each source
+    /// line counts as at least one wrapped line. Past `searchFieldMaxLines` the field scrolls.
     static func searchFieldLineCount(for text: String, charactersPerLine: Int = 46) -> Int {
         guard !text.isEmpty else { return 1 }
         let lines = text.components(separatedBy: .newlines).reduce(0) { total, line in

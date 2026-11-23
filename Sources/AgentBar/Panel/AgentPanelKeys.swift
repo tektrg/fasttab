@@ -5,11 +5,17 @@ import IndieCommandBar
 /// Agent-only keys: Shift+Return routing, card digits, ⌘C on a card, Esc's layers, and the
 /// hidden ⌘F / ⌘] / ⌘[ / ⌘⌫ / ⌘1…⌘9 shortcuts.
 enum AgentPanelKeys {
-    enum ReturnAction: Equatable { case startRouting, activateSelected }
+    enum ReturnAction: Equatable { case startRouting, activateSelected, insertNewline }
 
     /// Shift+Return over free text starts Jev routing unless a card owns the keyboard.
-    static func returnAction(shift: Bool, isCardOpen: Bool) -> ReturnAction {
-        !isCardOpen && shift ? .startRouting : .activateSelected
+    /// `isComposing` (Tab-tag compose, `AgentPanelModel.composesMultilineMessage`): the box is a
+    /// message, so Shift/Option+Return types a line break instead (same keys as the Message card's
+    /// `MultiLineAnswerField`; a `/compact` draft's lines 2+ are its queued message, `CompactDraft`).
+    /// Plain Return still sends. Option+Return in plain search stays a plain Return.
+    static func returnAction(shift: Bool, option: Bool = false, isCardOpen: Bool, isComposing: Bool = false) -> ReturnAction {
+        if isCardOpen { return .activateSelected }
+        if isComposing { return shift || option ? .insertNewline : .activateSelected }
+        return shift ? .startRouting : .activateSelected
     }
 
     enum CardKey: Equatable {

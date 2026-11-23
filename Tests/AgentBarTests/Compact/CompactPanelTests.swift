@@ -102,6 +102,34 @@ struct CompactPanelTests {
         await settleTasks()
     }
 
+    /// Owner bug 2026-11-23: Shift+Return in Tab-tag compose types a real line break, and the
+    /// compose send must hand those lines to `CompactDraft` intact (line 1 = instructions,
+    /// lines 2+ = the queued follow-up).
+    @Test func aMultilineTaggedCompactSplitsInstructionsAndFollowUp() async {
+        let rig = makeRig([working()])
+        rig.model.select(agentID: "a")
+        rig.model.tagSelected()
+        rig.model.query = "/compact keep the plan\nthen run the tests\nand push"
+        rig.model.activateSelected()
+        await waitUntil { rig.source.pendingStartCount == 1 }
+        #expect(rig.source.starts == [.init(rowId: "a", actor: "po", instructions: "keep the plan", followUp: "then run the tests and push")])
+        #expect(rig.source.messages.isEmpty)
+        rig.source.replyStart(.failed("test over"))
+        await settleTasks()
+        #expect(rig.model.query == "/compact keep the plan\nthen run the tests\nand push")   // refused: kept as typed
+    }
+
+    @Test func aMultilinePlainTaggedMessageIsFlattenedToOneLine() async {
+        let rig = makeRig([working()])
+        rig.model.select(agentID: "a")
+        rig.model.tagSelected()
+        rig.model.query = "first line\nsecond line"
+        rig.model.activateSelected()
+        await waitUntil { !rig.source.messages.isEmpty }
+        #expect(rig.source.messages == ["first line second line"])
+        #expect(rig.source.starts.isEmpty)
+    }
+
     @Test func aPlainTaggedMessageIsStillTyped() async {
         let rig = makeRig([working()])
         rig.model.select(agentID: "a")

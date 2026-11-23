@@ -75,7 +75,7 @@ enum PanelFooterHints {
         if let answerMode = context.answerMode { return answerText(for: answerMode) }
         if let permissionMode = context.permissionMode { return permissionText(for: permissionMode) }
         if let messageMode = context.messageMode { return messageText(for: messageMode) }
-        if context.isTagged { return "↩ send   tab retag   esc untag" }
+        if context.isTagged { return "↩ send   ⇧↩ new line   tab retag   esc untag" }
         // Peek: ←/→ (and Tab) switch Last message / Terminal (`PeekKeyRouting`; arrows only while
         // the focused box is empty).
         if context.isPeeking, context.peekInputFocused { return "←→/tab tabs   ↩ send   esc back" }

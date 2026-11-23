@@ -704,6 +704,11 @@ final class AgentPanelModel: ObservableObject {
         DispatchQueue.main.async { [weak self] in self?.focusRequest += 1 }
     }
 
+    /// Tab-tag compose: the search box is a message, so Shift/Option+Return types a line break
+    /// (`AgentPanelKeys.returnAction(isComposing:)`). The send keeps the lines for `CompactDraft`
+    /// (line 1 `/compact …`, lines 2+ the queued message) and flattens a plain message to one line.
+    var composesMultilineMessage: Bool { taggedAgentID != nil && !isCardOpen }
+
     /// The chip's ✕ (`TagChipView` in `SearchFieldView`): same effect as Esc while tagged.
     func removeTag() {
         _ = cancelTagIfActive()

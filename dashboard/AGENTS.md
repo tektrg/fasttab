@@ -741,6 +741,14 @@ switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/com
   then the summary and `<local-command-stdout>\x1b[2mCompacted …` (strip ANSI). ~3-11s measured.
 - Fresh folder trust dialog defaults to "No, exit" (digits don't work there) — never blind-Enter.
 
+## Web UI: mermaid diagrams in agent markdown (2026-11-23)
+- **Where**: every surface using `ui/src/components/Markdown.tsx` `<Markdown>` (latest message on desktop row panel, phone sheet, prompt sheet; plan approval card). `MarkdownInline` (one-line question/option text) has no fences, so no diagrams. Plain-text surfaces (sent-message history, inbox subtitles, feedback bodies) are not markdown and stay as is.
+- **How**: `Markdown`'s `pre` override sends a ```` ```mermaid ```` fence to `MermaidBlock.tsx`, which `import("mermaid")`s on first use only (separate `mermaid.core-*.js` chunk, ~670 kB; main chunk unchanged apart from ~4 kB of glue). Pinned `mermaid` 12.3.0.
+- **Rules** (pinned by `__tests__/mermaid.test.tsx`, mermaid mocked): `securityLevel: "strict"`, `htmlLabels: false`, output SVG re-scrubbed (`scrubSvg`: no script/foreignObject/SMIL/on*/non-http links); bad diagram = raw source + "diagram failed to render"; results cached by theme + content hash, 150 ms quiet period, so a streaming message renders once; theme follows `data-mantine-color-scheme`; natural size in a sideways-scroll box (`.md-mermaid__scroll`).
+- **Zoom** (`MermaidZoomOverlay.tsx`, own lazy ~6 kB chunk; math in `mermaidZoom.ts`, no library): tap the diagram or its ⤢ button → fullscreen dialog. Phone: one-finger drag pans, two-finger pinch zooms. Desktop: ctrl/cmd+wheel or trackpad pinch (and Safari gesture events) zoom around the cursor, wheel/drag pans. Buttons − / + / fit / ×, keys + − 0 Esc; starts at fit, 0.25x–8x. Vector-sharp: the SVG gets real width/height = natural × scale and is only translated. While open: body scroll locked, focus trapped, then focus + page scroll restored. Inline has NO wheel/pinch handling, so the page scrolls normally over a diagram.
+- **Gotcha, phone sheet**: the vaul sheet is a modal Radix Dialog; the overlay is portalled to `<body>` (outside it), so window-capture listeners stop focusin/focusout/Esc and a root listener stops pointerdown from reaching Radix (else the sheet closes or steals focus), and `.mmz` forces `pointer-events: auto` (Radix sets `none` on body).
+- **Real mermaid can't render under happy-dom** (empty SVG), and happy-dom's `WheelEvent` drops `ctrlKey`/`clientX` (tests patch them), so check diagrams and zoom by hand in a browser.
+
 ## Running it
 ```
 cd dashboard

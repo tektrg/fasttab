@@ -411,6 +411,53 @@ body.rp-resizing .rp-resize { background:var(--ask); }
   font-family: var(--mono); font-size: 0.85em; white-space: pre;
   background: none; padding: 0;
 }
+/* Mermaid diagrams (MermaidBlock.tsx): natural size, scrolling sideways
+   inside their own box so a wide diagram never widens the page on a phone. */
+.md-mermaid { margin: 0.4em 0; max-width: 100%; min-width: 0; }
+.md-mermaid__scroll {
+  overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%;
+  padding: 8px; border: 1px solid var(--hair); border-radius: var(--r-sm);
+}
+.md-mermaid__scroll svg { display: block; max-width: none; height: auto; margin: 0 auto; }
+.md-mermaid__frame { position: relative; }
+.md-mermaid__scroll { cursor: zoom-in; }
+.md-mermaid__expand {
+  position: absolute; top: 4px; right: 4px; width: 28px; height: 28px;
+  display: grid; place-items: center; padding: 0; font-size: 15px; line-height: 1;
+  border: 1px solid var(--hair); border-radius: var(--r-sm);
+  background: var(--paper); color: var(--ink-2); cursor: pointer; opacity: 0.85;
+}
+.md-mermaid__expand:hover, .md-mermaid__expand:focus-visible { opacity: 1; color: var(--ink); }
+/* Fullscreen viewer (MermaidZoomOverlay.tsx). Above Mantine drawers (100)
+   and the vaul phone sheet; pointer-events forced on because a modal vaul
+   sheet sets `pointer-events: none` on <body>. touch-action none = our own
+   pinch/drag, never the browser's page zoom. */
+.mmz {
+  position: fixed; inset: 0; z-index: 10000; pointer-events: auto;
+  background: var(--canvas, var(--paper)); touch-action: none;
+  overscroll-behavior: contain;
+}
+.mmz-viewport { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; }
+.mmz-viewport.is-dragging { cursor: grabbing; }
+.mmz-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.mmz-canvas svg { display: block; width: 100% !important; height: 100% !important; max-width: none !important; }
+.mmz-toolbar {
+  position: absolute; z-index: 1; right: max(12px, env(safe-area-inset-right));
+  top: max(12px, env(safe-area-inset-top));
+  display: flex; align-items: center; gap: 4px; padding: 4px;
+  border: 1px solid var(--hair); border-radius: var(--r-md, 12px);
+  background: var(--paper); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+.mmz-toolbar button {
+  min-width: 36px; height: 36px; padding: 0 8px; font-size: 18px; line-height: 1;
+  border: none; border-radius: var(--r-sm); background: transparent; color: var(--ink); cursor: pointer;
+}
+.mmz-toolbar button:hover, .mmz-toolbar button:focus-visible { background: var(--sunken); }
+.mmz-toolbar button[aria-label="Fit to screen"] { font-size: 13px; }
+.mmz-pct { min-width: 3.2em; text-align: center; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.md-mermaid__source { margin-top: 4px; font-size: 0.85em; }
+.md-mermaid__source summary { cursor: pointer; color: var(--ink-3); width: max-content; }
+.md-mermaid__note { margin-top: 2px; font-size: 0.8em; color: var(--ink-3); }
 .md-table-scroll {
   overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0.4em 0;
   border: 1px solid var(--hair); border-radius: var(--r-sm);

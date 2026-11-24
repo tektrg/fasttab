@@ -59,8 +59,8 @@ enum RowActionMachine {
         case .review: return .openReview
         case .openTerminal: return .openTerminal
         case .message: return .openMessage
-        // Same as Enter on the row: `AgentSwitchCoordinator` opens a desktop session in Claude.app.
-        case .openInClaude: return .openTerminal
+        // Same as Enter on the row: `AgentSwitchCoordinator` opens a desktop session in its app.
+        case .openInClaude, .openInAntigravity: return .openTerminal
         case .park: return .park
         case .unpark: return .unpark
         case .peek: return .peek

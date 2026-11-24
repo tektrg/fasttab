@@ -26,6 +26,7 @@ final class AgentSwitchCoordinator {
     var statusSource: any AgentStatusSource
     private let panel: PanelControls
     private let desktopOpener: any ClaudeDesktopOpening
+    private let antigravityOpener: any AntigravityOpening
     private let tmuxSwitcher: any TmuxSessionSwitching
 
     init(
@@ -33,12 +34,14 @@ final class AgentSwitchCoordinator {
         statusSource: any AgentStatusSource,
         panel: PanelControls,
         desktopOpener: any ClaudeDesktopOpening = ClaudeDesktopOpener(raiseWindowShowing: ClaudeWindowRaiser.raiseWindow(showing:)),
+        antigravityOpener: any AntigravityOpening = AntigravityOpener(raiseWindowShowing: AntigravityWindowRaiser.raiseWindow(showing:)),
         tmuxSwitcher: any TmuxSessionSwitching = TmuxSessionSwitcher()
     ) {
         self.model = model
         self.statusSource = statusSource
         self.panel = panel
         self.desktopOpener = desktopOpener
+        self.antigravityOpener = antigravityOpener
         self.tmuxSwitcher = tmuxSwitcher
     }
 
@@ -67,6 +70,9 @@ final class AgentSwitchCoordinator {
         case .claudeCLI(nil):
             if surfacesFailure { model.reportSwitchFailure(Self.untrackedCliSessionMessage) }
             return .failed(Self.untrackedCliSessionMessage)
+        case .antigravity(let openURL):
+            panel.hide()
+            outcome = antigravityOpener.openSession(openURL, title: agent.label) ? .switched : .failed("Antigravity could not be opened.")
         }
         switch outcome {
         case .switched: model.recordSwitch(to: agent.id)

@@ -118,11 +118,18 @@ struct AgentSnapshot: Identifiable, Equatable, Sendable {
     }
 
     /// A Claude agent: herdr says `claude` (hook data or not — an Air pane never has any), or a status-only
-    /// Desktop/CLI session. With no kind (older dashboard, ended/sleeping rows) hook data stands in, as before.
+    /// Desktop/CLI session. Antigravity is never Claude. With no kind (older dashboard, ended/sleeping rows)
+    /// hook data stands in, as before.
     var isClaude: Bool {
-        guard host.isHerdr else { return true }
-        if let agentKind { return agentKind == "claude" }
-        return hasHookData
+        switch host {
+        case .herdr:
+            if let agentKind { return agentKind == "claude" }
+            return hasHookData
+        case .claudeDesktop, .claudeCLI:
+            return true
+        case .antigravity:
+            return false
+        }
     }
 
     /// A non-Claude pane whose status is only a screen guess (a plain shell; OpenCode/Codex without its

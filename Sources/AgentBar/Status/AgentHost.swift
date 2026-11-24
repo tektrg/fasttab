@@ -13,8 +13,11 @@ enum AgentHost: Equatable, Sendable {
     case claudeDesktop(openURL: URL?)
     /// The Claude CLI outside herdr (e.g. in tmux). `tmuxTarget` ("session:@w.%p") when known.
     case claudeCLI(tmuxTarget: String?)
+    /// A Google Antigravity session (Desktop App / IDE). `openURL` (`antigravity://…`) when known.
+    case antigravity(openURL: URL?)
 
     static let claudeDesktopBundleIdentifier = AgentSessionHost.claudeDesktopBundleIdentifier
+    static let antigravityBundleIdentifier = AgentSessionHost.antigravityBundleIdentifier
 
     /// Reads the wire fields; nil for a `source` this build does not know (the row is then
     /// treated as herdr when it has a pane, dropped otherwise — see `LiveAgentMapper`).
@@ -26,6 +29,8 @@ enum AgentHost: Equatable, Sendable {
             self = .claudeDesktop(openURL: AgentSessionHost.claudeDesktopSessionURL(openUrl))
         case "claude-cli":
             self = .claudeCLI(tmuxTarget: AgentSessionHost.tmuxTarget(tmuxTarget))
+        case "antigravity":
+            self = .antigravity(openURL: AgentSessionHost.antigravitySessionURL(openUrl))
         default:
             return nil
         }
@@ -42,6 +47,7 @@ enum AgentHost: Equatable, Sendable {
         case .herdr: nil
         case .claudeDesktop: "Claude Desktop"
         case .claudeCLI(let tmuxTarget): tmuxTarget == nil ? "CLI" : "CLI · tmux"
+        case .antigravity: "Antigravity"
         }
     }
 }

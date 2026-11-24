@@ -23,6 +23,7 @@ import chief_dashboard_context  # noqa: E402  (phase 8: context parser)
 import chief_dashboard_herdr as herdr_transport  # noqa: E402  (R2/R3: the one door)
 import chief_dashboard_pass  # noqa: E402  (chief_pass tick: generic script resolution)
 import claude_sessions  # noqa: E402  (P4: non-herdr Claude sessions)
+import antigravity_sessions  # noqa: E402  (Antigravity hook-reported sessions)
 import dashboard_config  # noqa: E402  (P0 move: config.json + state dir)
 import desktop_sessions  # noqa: E402  (sleeping Claude Desktop sessions)
 import pane_live_work  # noqa: E402  (sub-agent status lines: live-work evidence)
@@ -203,6 +204,8 @@ FEEDS = {
     # P4: ~/.claude/sessions/<pid>.json — Claude Desktop + non-herdr CLI
     # sessions (status-only rows). Local files only, so cheap to re-read.
     "claudeSessions": Feed("claudeSessions", refresh_interval_sec=3),
+    # Antigravity hook state files (~/.local/state/agentbar/antigravity/*.json).
+    "antigravitySessions": Feed("antigravitySessions", refresh_interval_sec=3),
     # Claude Desktop's own session list (sleeping sessions: no live process).
     # Stat-filtered + mtime-cached, so cheap; nobody needs it sooner than 10s.
     "desktopSessions": Feed("desktopSessions", refresh_interval_sec=10),
@@ -297,6 +300,17 @@ def poll_claude_sessions():
         try:
             sessions = pending_questions.annotate(claude_sessions.read_live_sessions())
             feed.set_success(sessions, time.time() - t0)
+        except Exception as e:
+            feed.set_error(e, time.time() - t0)
+        STOP.wait(feed.refresh_interval_sec)
+
+
+def poll_antigravity_sessions():
+    feed = FEEDS["antigravitySessions"]
+    while not STOP.is_set():
+        t0 = time.time()
+        try:
+            feed.set_success(antigravity_sessions.read_live_sessions(), time.time() - t0)
         except Exception as e:
             feed.set_error(e, time.time() - t0)
         STOP.wait(feed.refresh_interval_sec)
@@ -799,6 +813,7 @@ POLLERS = {
     "board": poll_board,
     "paneScreen": poll_pane_screen,
     "claudeSessions": poll_claude_sessions,
+    "antigravitySessions": poll_antigravity_sessions,
     "desktopSessions": poll_desktop_sessions,
 }
 

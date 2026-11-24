@@ -15,6 +15,7 @@ On the remote (tailscale) listener only `answer` exists — the phone's web
 remote answers there (authenticated, CSRF-checked and audited like every
 remote write); register and wait stay local (404): the hook runs on this Mac.
 """
+import antigravity_hold_store
 import apns_permission_push
 import claude_sessions
 import codex_hold_store
@@ -76,7 +77,11 @@ def request_id_of(path):
 
 
 def _store_for(request_id):
-    return codex_hold_store.STORE if tui_answers.is_codex_hold(request_id) else hook_permissions.STORE
+    if tui_answers.is_codex_hold(request_id):
+        return codex_hold_store.STORE
+    if antigravity_hold_store.is_antigravity_hold(request_id):
+        return antigravity_hold_store.STORE
+    return hook_permissions.STORE
 
 
 def handle_get(path, query, is_remote, store=None):
@@ -101,6 +106,8 @@ def handle_post(path, read_body, is_remote, store=None, session_entry=None, push
             payload = read_body()
             if isinstance(payload, dict) and payload.get("agentTool") == "codex":
                 reply = (store or codex_hold_store.STORE).register(payload)
+            elif isinstance(payload, dict) and payload.get("agentTool") == "antigravity":
+                reply = (store or antigravity_hold_store.STORE).register(payload)
             else:
                 reply = (store or hook_permissions.STORE).register(payload, session_entry(payload))
             pusher.notify_registered(reply.get("requestId"), payload)

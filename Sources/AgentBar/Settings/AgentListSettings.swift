@@ -18,6 +18,7 @@ struct AgentListSettings: Equatable, Sendable {
     static let maxEndedRowsKey = "listMaxEndedRows"
     static let showsNonClaudePanesKey = "listShowsNonClaudePanes"
     static let showsClaudeOutsideHerdrKey = "listShowsClaudeOutsideHerdr"
+    static let showsAntigravityAgentsKey = "listShowsAntigravityAgents"
     static let maxVisibleRowsKey = "listMaxVisibleRows"
     static let sleepingListDaysKey = "listSleepingListDays"
     static let sleepingSearchDaysKey = "listSleepingSearchDays"
@@ -38,6 +39,8 @@ struct AgentListSettings: Equatable, Sendable {
     var showsNonClaudePanes: Bool
     /// Status-only Claude sessions outside herdr (Claude Desktop, CLI in tmux): `AgentHost`.
     var showsClaudeOutsideHerdr: Bool
+    /// Google Antigravity sessions (`AgentHost.antigravity`).
+    var showsAntigravityAgents: Bool = true
     /// Rows shown before the list scrolls.
     var maxVisibleRows: Int
     /// Sleeping Claude Desktop sessions (`AgentSection.sleeping`) last active within this many days
@@ -88,6 +91,7 @@ struct AgentListSettings: Equatable, Sendable {
             maxEndedRows: choice(defaults, maxEndedRowsKey, in: maxEndedRowsChoices, fallback: standard.maxEndedRows),
             showsNonClaudePanes: defaults.object(forKey: showsNonClaudePanesKey) as? Bool ?? standard.showsNonClaudePanes,
             showsClaudeOutsideHerdr: defaults.object(forKey: showsClaudeOutsideHerdrKey) as? Bool ?? standard.showsClaudeOutsideHerdr,
+            showsAntigravityAgents: defaults.object(forKey: showsAntigravityAgentsKey) as? Bool ?? standard.showsAntigravityAgents,
             maxVisibleRows: appearance.rowLimit,
             sleepingListDays: choice(defaults, sleepingListDaysKey, in: sleepingListDaysChoices, fallback: standard.sleepingListDays),
             sleepingSearchDays: choice(defaults, sleepingSearchDaysKey, in: sleepingSearchDaysChoices, fallback: standard.sleepingSearchDays),
@@ -102,6 +106,7 @@ struct AgentListSettings: Equatable, Sendable {
         defaults.set(maxEndedRows, forKey: Self.maxEndedRowsKey)
         defaults.set(showsNonClaudePanes, forKey: Self.showsNonClaudePanesKey)
         defaults.set(showsClaudeOutsideHerdr, forKey: Self.showsClaudeOutsideHerdrKey)
+        defaults.set(showsAntigravityAgents, forKey: Self.showsAntigravityAgentsKey)
         defaults.set(maxVisibleRows, forKey: Self.maxVisibleRowsKey)
         defaults.set(sleepingListDays, forKey: Self.sleepingListDaysKey)
         defaults.set(sleepingSearchDays, forKey: Self.sleepingSearchDaysKey)
@@ -117,7 +122,11 @@ struct AgentListSettings: Equatable, Sendable {
         let sleepingWindow = sleepingWindowSeconds(isSearching: isSearching)
         return agents.filter { agent in
             if !showsNonClaudePanes && agent.isBestGuessNonClaudePane { return false }
-            if !showsClaudeOutsideHerdr && !agent.host.isHerdr { return false }
+            if case .antigravity = agent.host {
+                if !showsAntigravityAgents { return false }
+            } else if !showsClaudeOutsideHerdr && !agent.host.isHerdr {
+                return false
+            }
             if agent.section == .sleeping { return sleepingWindow > 0 && (agent.secondsInStatus ?? .infinity) <= sleepingWindow }
             guard agent.section == .ended else { return true }
             guard (agent.secondsInStatus ?? 0) <= endedWindowSeconds, endedKept < maxEndedRows else { return false }

@@ -34,6 +34,11 @@ struct ListSettingsView: View {
                     .font(.avenir(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Toggle("Show Antigravity agents", isOn: binding(\.showsAntigravityAgents))
+                Text("Google Antigravity sessions reported by Antigravity hooks. Enter opens Antigravity; Space shows the latest reply.")
+                    .font(.avenir(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Sleeping Claude Desktop sessions") {

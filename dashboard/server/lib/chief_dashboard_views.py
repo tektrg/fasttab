@@ -11,6 +11,8 @@ import account_rotation  # limitWall / account per row
 import agent_tree  # noqa: E402  (scripts/lib/agent_tree.py — the hierarchy store)
 import chief_dashboard_herdr as herdr_transport
 import claude_sessions  # P4: non-herdr Claude sessions as status-only rows
+import antigravity_hold_store  # Antigravity PreToolUse hook bridge
+import antigravity_sessions  # Antigravity hook-reported sessions as status-only rows
 import desktop_sessions  # sleeping Claude Desktop sessions (no live process)
 import hook_permissions  # prompts answerable via the PermissionRequest hook
 import image_attachments  # acceptsImages: which rows can Read an attached image
@@ -214,6 +216,11 @@ def build_agents_view(feeds_snap):
     rows.extend(claude_sessions.build_status_only_rows(
         claude_sessions_data, herdr_session_ids, now,
         machine=herdr_transport.LOCAL_MACHINE, hook_requests=hook_requests))
+    antigravity_sessions_data = (feeds_snap.get("antigravitySessions") or {}).get("data")
+    ag_hook_requests = antigravity_hold_store.STORE.exposed_by_session()
+    rows.extend(antigravity_sessions.build_status_only_rows(
+        antigravity_sessions_data, herdr_session_ids, now,
+        machine=herdr_transport.LOCAL_MACHINE, hook_requests=ag_hook_requests))
     # Images live on this Mac's disk: clients hide image attach where the
     # send would be refused (same rule as /api/session/message).
     for r in rows:

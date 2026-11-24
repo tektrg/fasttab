@@ -18,6 +18,7 @@ final class AgentBarAppDelegate: NSObject, NSApplicationDelegate {
         CleanQuitMarker.standard.markLaunched()
         KeyboardDebugLog.start()
         ClaudeWindowRaiser.warmUp()
+        AntigravityWindowRaiser.warmUp()
 
         let coordinator = AgentBarCoordinator()
         self.coordinator = coordinator

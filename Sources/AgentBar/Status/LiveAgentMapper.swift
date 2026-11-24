@@ -111,8 +111,9 @@ enum LiveAgentMapper {
             // Status-only rows: the dashboard refuses stop/close on them; never offer Done.
             actions: host.isHerdr ? AgentActions(decoded: agent.actions, fallback: .unknown) : .none,
             // A hook request wins over the screen (Answer / Review work on it, no pane read). Without one a
-            // herdr row uses its screen blocker; a status-only session is generic Needs you ("Input needed").
-            blocker: hookRequest?.blocker ?? (host.isHerdr ? blocker(for: needsYouEntry) : nil),
+            // herdr row uses its screen blocker; an Antigravity row waiting on ask_question / ask_permission
+            // surfaces as a blocker so the corner tab, arrival sound, and red Open in Antigravity button fire.
+            blocker: hookRequest?.blocker ?? Self.nonHookBlocker(for: host, needsYouEntry: needsYouEntry, transcriptQuestion: transcriptQuestion),
             host: host,
             hookRequest: hookRequest,
             // A status-only session's needsYou entry = it is asking something: no message until answered —
@@ -131,10 +132,24 @@ enum LiveAgentMapper {
         return (snapshot, hasPrompt)
     }
 
-    /// OpenCode and Codex rows are messaged as a plain prompt (see `MessageRoute.toolPane`); everything else is Claude.
+    /// OpenCode, Codex, and Antigravity CLI rows are messaged as a plain prompt (see `MessageRoute.toolPane`); everything else is Claude.
     private static func messageTool(forAgentKind kind: String?) -> String? {
-        guard let kind, kind == "opencode" || kind == "codex" else { return nil }
+        guard let kind, kind == "opencode" || kind == "codex" || kind == "antigravity" else { return nil }
         return kind
+    }
+
+    /// Non-hook blocker: herdr panes parse the screen; Antigravity rows waiting on `ask_question` /
+    /// `ask_permission` become unanswerable blockers (triggering corner tab, sound, and red Open in Antigravity).
+    private static func nonHookBlocker(
+        for host: AgentHost,
+        needsYouEntry: DashboardNeedsYou?,
+        transcriptQuestion: DashboardTranscriptQuestion?
+    ) -> AgentBlocker? {
+        if host.isHerdr { return blocker(for: needsYouEntry) }
+        if case .antigravity = host, needsYouEntry != nil {
+            return transcriptQuestion != nil ? .questionNotAnswerable : .permission
+        }
+        return nil
     }
 
     /// A "question" row is answerable once its parsed picker has arrived (until

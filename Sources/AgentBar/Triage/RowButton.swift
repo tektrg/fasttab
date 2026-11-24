@@ -25,6 +25,8 @@ enum RowButton: Hashable, Sendable {
     case message
     /// A Claude Desktop row: opens that session in Claude.app (same path as Enter on the row).
     case openInClaude
+    /// An Antigravity row: opens that session in Antigravity.app (same path as Enter on the row).
+    case openInAntigravity
     case compact
     case clear
     /// Attaches this row to a chief — the ⋯ menu's equivalent of ⌘] (`AgentTreeModel.indentSelected`):
@@ -50,6 +52,7 @@ enum RowButton: Hashable, Sendable {
         case .closePane: "Close pane"
         case .message: "Message"
         case .openInClaude: "Open in Claude"
+        case .openInAntigravity: "Open in Antigravity"
         case .compact: "Compact"
         case .clear: "Clear"
         case .reportTo: "Report to…"
@@ -69,7 +72,7 @@ enum RowButton: Hashable, Sendable {
         switch self {
         case .done: .stop
         case .closePane: .close
-        case .answer, .review, .openTerminal, .park, .unpark, .peek, .message, .openInClaude, .compact, .clear, .reportTo,
+        case .answer, .review, .openTerminal, .park, .unpark, .peek, .message, .openInClaude, .openInAntigravity, .compact, .clear, .reportTo,
              .stopReporting, .resumeOnNextAccount, .moreActions: nil
         }
     }
@@ -85,11 +88,13 @@ struct RowButtonSpec: Equatable, Sendable {
     /// A Message button on a row whose turn ended on a question (Claude Desktop wrap_up): drawn as a red
     /// "Answer", always visible like a blocker's button; it still opens the message card (with the question).
     var answersWrapUp = false
+    /// An Open in Antigravity button on a blocked Antigravity row: drawn red and always visible like Open terminal.
+    var opensBlockedApp = false
 
     var isEnabled: Bool { disabledReason == nil }
 
     /// Red, and shown on the row even when it is not selected.
-    var isBlockedAction: Bool { button.isBlockedAction || answersWrapUp }
+    var isBlockedAction: Bool { button.isBlockedAction || answersWrapUp || opensBlockedApp }
 
     /// The label on the row: an Answer that cannot be pressed yet says why in one word.
     var label: String {
@@ -182,10 +187,16 @@ enum RowButtons {
         return [RowButtonSpec(button: .message, disabledReason: nil, hint: route.caption)]
     }
 
-    /// A Claude Desktop row's way into its session in Claude.app (Enter does the same).
+    /// A desktop-app row's way into its session in Claude.app or Antigravity.app (Enter does the same).
     private static func openInClaudeButton(for agent: AgentSnapshot) -> [RowButtonSpec] {
-        guard case .claudeDesktop = agent.host else { return [] }
-        return [RowButtonSpec(button: .openInClaude, disabledReason: nil)]
+        switch agent.host {
+        case .claudeDesktop:
+            return [RowButtonSpec(button: .openInClaude, disabledReason: nil)]
+        case .antigravity:
+            return [RowButtonSpec(button: .openInAntigravity, disabledReason: nil)]
+        case .herdr, .claudeCLI:
+            return []
+        }
     }
 
     /// Same eligibility gate as `messageButton` — Compact/Clear are typed through the same
@@ -242,7 +253,11 @@ enum RowButtons {
         case .question?: return [RowButtonSpec(button: .answer, disabledReason: nil), peek, park]
         case .questionLoading?: return [RowButtonSpec(button: .answer, disabledReason: readingOptionsReason), peek, park]
         case .permissionReview?: return [RowButtonSpec(button: .review, disabledReason: nil), peek, park]
-        case .questionNotAnswerable?, .permission?: return [RowButtonSpec(button: .openTerminal, disabledReason: nil), peek, park]
+        case .questionNotAnswerable?, .permission?:
+            if case .antigravity = agent.host {
+                return [RowButtonSpec(button: .openInAntigravity, disabledReason: nil, opensBlockedApp: true), peek, park]
+            }
+            return [RowButtonSpec(button: .openTerminal, disabledReason: nil), peek, park]
         case nil where agent.wrapUpQuestion != nil && !messageButton(for: agent).isEmpty:
             // The turn ended on a question: its red Answer (the message card) leads, like a blocker's.
             return messageButton(for: agent) + [peek, park] + openInClaudeButton(for: agent) + moreActionsButton(for: agent)

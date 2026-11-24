@@ -9,10 +9,17 @@ struct SessionTranscriptReader: Sendable {
     static let tailWindowBytes = [256 * 1024, 1024 * 1024, 4 * 1024 * 1024]
 
     let projectsRoot: URL
+    let antigravityRoots: [URL]
+
+    init(projectsRoot: URL, antigravityRoots: [URL] = []) {
+        self.projectsRoot = projectsRoot
+        self.antigravityRoots = antigravityRoots
+    }
 
     static var standard: SessionTranscriptReader {
         SessionTranscriptReader(
-            projectsRoot: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+            projectsRoot: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects"),
+            antigravityRoots: AntigravityTranscriptReader.defaultRoots
         )
     }
 
@@ -20,7 +27,10 @@ struct SessionTranscriptReader: Sendable {
     func context(forSession sessionId: String) -> SessionContext {
         guard let transcript = transcriptURL(forSession: sessionId),
               let handle = try? FileHandle(forReadingFrom: transcript),
-              let fileSize = try? handle.seekToEnd() else { return .empty }
+              let fileSize = try? handle.seekToEnd() else {
+            guard !antigravityRoots.isEmpty else { return .empty }
+            return AntigravityTranscriptReader(appDataRoots: antigravityRoots).context(forSession: sessionId)
+        }
         defer { try? handle.close() }
         var scan = TranscriptScan(latestMessage: nil, markdownPathCandidates: [])
         for window in Self.tailWindowBytes {

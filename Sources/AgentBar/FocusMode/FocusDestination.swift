@@ -36,6 +36,8 @@ struct FocusDestination: Equatable {
             self.init(label: "tmux · \(session)", isEnabled: true, reason: nil)
         case .claudeCLI(nil):
             self.init(label: Self.noHomeReason, isEnabled: false, reason: Self.noHomeReason)
+        case .antigravity:
+            self.init(label: "Antigravity", isEnabled: true, reason: nil)
         case .herdr:
             guard let paneId = agent.paneId, agent.canFocus else {
                 self.init(label: Self.noHomeReason, isEnabled: false, reason: Self.noHomeReason)

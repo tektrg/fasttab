@@ -616,6 +616,22 @@ same auth/CSRF as the image route. Code: `lib/audio_attachments.py` (storage),
 - Every user-facing error is a fixed English sentence; CLI output is logged
   server-side only, key-scrubbed, last 300 chars.
 
+## App plugin events (`POST /api/hooks/event`) — sandboxed apps -> agents (2026-11-24)
+`server/lib/app_hook_events.py`. Parklet for Mac is sandboxed (can't run node/herdr or read
+`~/.config/theindie`), so it POSTs each plugin event here (IndieLibKit `spec/plugins/README.md`,
+"HTTP event sink"; Swift side `IndieHooks` `HTTPEventSink`). This server is then a normal spec host:
+every **enabled** plugin (sha256 of `plugin.json` in `~/.config/theindie/plugins-enabled.json`) with a
+hook for the event runs, event JSON on stdin, argv only (no shell), own process group, killed at
+`timeoutSec`; each run logged to `~/.config/theindie/logs/plugin-runs.jsonl` with `app` = sender.
+agent-relay (installed plugin) then types the line into the watching agent's herdr pane.
+- **Loopback main listener only** (403 for the tailscale remote listener and any other address).
+- Only ids-only events (`entry.created/updated`, `comment.added`, `reminder.due`, `item.tags.added`
+  with `paths {library}`), schema-checked by hand (unknown keys = 400); ids/tags must match
+  `[A-Za-z0-9._/:-]{1,128}`. Reply `202 {ok, event, eventId, plugins: <n matched>}`; delivery runs on a
+  background thread. `THEINDIE_CONFIG_DIR` overrides the config root (tests).
+- Tests: `python3 tests/test_app_hook_events.py` (uses IndieLibKit's shared fixtures when the sibling
+  checkout exists; `$(echo INJECTED)` sentinel). Agent Bar does not show watcher matches yet.
+
 ## Running it
 ```
 cd dashboard

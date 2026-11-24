@@ -117,20 +117,24 @@ final class ReadingStatsRecorder {
     /// Ground past the high water is not in today's total yet, so the reader can add it live.
     /// The high water is taken when the read is queued, and later writes wait behind the read,
     /// so the two always describe the same log: no ground is counted twice or missed.
-    func todayProgress(for url: URL, calendar: Calendar = .current) async -> (wordsToday: Double, highWater: Double) {
+    func todayProgress(for url: URL, calendar: Calendar = .current) async -> (wordsToday: Double, highWater: Double, wordsThisWeek: Double) {
         let highWater = ledger.entries[url.readerCanonicalKey]?.highWater ?? 0
         let dayStart = calendar.startOfDay(for: now())
+        let weekStart = calendar.dateInterval(of: .weekOfYear, for: now())?.start ?? dayStart
         let previous = lastWrite
         let log = log
         let read = Task { @MainActor in
             await previous?.value
             let events = (try? await log.loadEvents()) ?? []
-            return events
-                .filter { $0.metric == ReadingMetric.words && $0.timestamp >= dayStart }
-                .reduce(0) { $0 + $1.value }
+            let words = events.filter { $0.metric == ReadingMetric.words && $0.timestamp >= weekStart }
+            return (
+                today: words.filter { $0.timestamp >= dayStart }.reduce(0) { $0 + $1.value },
+                week: words.reduce(0) { $0 + $1.value }
+            )
         }
         lastWrite = Task { _ = await read.value }
-        return (await read.value, highWater)
+        let counted = await read.value
+        return (counted.today, highWater, counted.week)
     }
 
     /// Drops events past `retention`. Cheap enough to run once per launch.

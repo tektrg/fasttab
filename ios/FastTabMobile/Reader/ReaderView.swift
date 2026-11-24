@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import SafariServices
 import WebKit
 import FastTabSync
@@ -33,7 +34,10 @@ public struct ReaderView: View {
     /// The original-page fallback's web view, for the system find panel (toolbar magnifier).
     @State private var fallbackPage = ReaderFallbackPage()
     /// Read Again state for the End of Article button (marked here or synced in).
-    @ObservedObject private var savedStore = SavedOnIPhoneStore.shared
+    /// Not observed: every progress write publishes the store, which re-rendered the whole
+    /// reader near the end of an article. `isReadAgain` mirrors the one flag the reader shows.
+    private let savedStore = SavedOnIPhoneStore.shared
+    @State private var isReadAgain = false
     @Environment(\.dismiss) private var dismiss
     /// Set when presented with `.readerPresentation`: closing slides the reader out to the right.
     @Environment(\.readerSlide) private var slide
@@ -42,7 +46,6 @@ public struct ReaderView: View {
 
     // Highlight bar state
     @State private var selectedText: String = ""
-    @State private var selectedRange: String = ""
     @State private var showHighlightBar: Bool = false
 
     // Reading settings sheet / Read Aloud settings sheet
@@ -123,6 +126,8 @@ public struct ReaderView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(isLoaded || viewModel.needsSafariReader || isHeaderHidden ? .hidden : .automatic, for: .navigationBar)
             .animation(.easeInOut(duration: 0.25), value: isHeaderHidden)
+            .onReceive(savedStore.$items.receive(on: DispatchQueue.main).map { [url = viewModel.url] _ in SavedOnIPhoneStore.shared.isReadAgain(url) }
+                .prepend(SavedOnIPhoneStore.shared.isReadAgain(viewModel.url)).removeDuplicates()) { isReadAgain = $0 }
             .toolbar {
                 // Reader controls live in the floating bottom bar — nothing up top
                 // once the article is loaded.
@@ -296,14 +301,16 @@ public struct ReaderView: View {
             viewModel: viewModel,
             article: article,
             systemIsDark: colorScheme == .dark,
-            onTextSelected: { text, range in
+            onTextSelected: { text, _ in
+                // The page sends text only, once the selection settles; unchanged = no work.
+                guard text != selectedText || !showHighlightBar else { return }
                 withAnimation(.spring(response: 0.3)) {
                     selectedText = text
-                    selectedRange = range
                     showHighlightBar = true
                 }
             },
             onTextDeselected: {
+                guard showHighlightBar else { return }
                 withAnimation { showHighlightBar = false }
             },
             onHighlightTapped: { id in
@@ -321,7 +328,7 @@ public struct ReaderView: View {
             onSaveToBookmarkFolder: {
                 showBookmarkPicker = true
             },
-            isReadAgain: savedStore.isReadAgain(viewModel.url),
+            isReadAgain: isReadAgain,
             onToggleReadAgain: {
                 toggleReadAgain()
             },
@@ -476,12 +483,13 @@ public struct ReaderView: View {
                 TranscriptCleanupToggle(cleanup: cleanup)
             }
 
-            highlightsMenu
+            ReaderRingsView(state: viewModel.ring)
+                .readerBarTapTarget()
             moreActionsMenu
         }
     }
 
-    /// Highlights list.
+    /// Highlights list: a submenu of the ••• menu.
     private var highlightsMenu: some View {
         Menu {
             if viewModel.highlights.isEmpty {
@@ -512,16 +520,8 @@ public struct ReaderView: View {
                 }
             }
         } label: {
-            Image(systemName: "highlighter")
-                .overlay(alignment: .topTrailing) {
-                    if !viewModel.highlights.isEmpty {
-                        Circle()
-                            .fill(Color.yellow)
-                            .frame(width: 8, height: 8)
-                            .offset(x: 4, y: -4)
-                    }
-                }
-                .readerBarTapTarget()
+            Label(viewModel.highlights.isEmpty ? "Highlights" : "Highlights (\(viewModel.highlights.count))",
+                  systemImage: "highlighter")
         }
     }
 
@@ -532,6 +532,8 @@ public struct ReaderView: View {
             isLoaded: isLoaded, isEntitled: NaturalVoiceAccess.shared.isEntitled,
             hasSavedSummary: hasSavedSummary, cleanupAvailable: cleanup?.isAvailable == true)
         return Menu {
+            highlightsMenu
+            Divider()
             ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                 switch entry {
                 case .item(let action):
@@ -713,8 +715,12 @@ public struct ReaderView: View {
 
     private func applyHighlight(color: HighlightColor) {
         withAnimation { showHighlightBar = false }
-        guard !selectedRange.isEmpty else { return }
-        viewModel.commitHighlight(selectedText: selectedText, serializedRange: selectedRange, color: color)
+        let text = selectedText
+        // Serialize only now, when the user commits (not on every handle-drag tick).
+        viewModel.selectionRangeProvider? { range in
+            guard !range.isEmpty else { return }
+            viewModel.commitHighlight(selectedText: text, serializedRange: range, color: color)
+        }
     }
 
     // MARK: - End of Article Actions

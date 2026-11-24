@@ -239,42 +239,6 @@
     animation: reader-highlight-flash 0.7s ease-in-out 2;
   }
 
-  /* ── Progress dock (bottom fixed, solid) ──────────────── */
-  /* Opaque strip behind the progress bar so article content never shows through. */
-  #progress-dock {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: var(--bg);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    z-index: 99;
-  }
-  #progress-bar {
-    width: 100%;
-    height: 3px;
-    background: var(--link);
-    transform: scaleX(0);
-    transform-origin: left;
-    will-change: transform;
-    border-radius: 2px 2px 0 0;
-  }
-  /* Daily goal bar under the article bar: today's words vs the goal (ReaderDailyGoal).
-     Same red as the Reading ring widget. Hidden until Swift sends the goal. */
-  #daily-goal-bar {
-    display: none;
-    width: 100%;
-    height: 3px;
-    margin-top: 2px;
-    background: #FA455E;
-    transform: scaleX(0);
-    transform-origin: left;
-    will-change: transform;
-    border-radius: 2px;
-    transition: transform 0.2s ease-out;
-  }
-  #progress-dock.has-daily-goal #daily-goal-bar { display: block; }
-
   /* ── Selection ──────────────────────────────────────────── */
   ::selection {
     background: rgba(0, 113, 227, 0.25);
@@ -502,7 +466,6 @@
 </head>
 <body>
 
-<div id="progress-dock"><div id="progress-bar"></div><div id="daily-goal-bar"></div></div>
 
 <div id="reader-container">
   <header id="reader-header">
@@ -706,30 +669,12 @@ ftSetTexts(article.transcriptTexts);
 })(article);
 
 // ── Progress bar & scroll tracking ────────────────────────────
-var progressBar = document.getElementById('progress-bar');
 var latestProgress = 0;
 var userHasScrolled = false;
 var isRestoringScroll = false;
 var progressDebounceTimer = null;
-var scrollRafPending = false;
 
-// ── Daily goal bar (Swift: ReaderDailyGoal.fraction(sessionProgress:)) ──
-var dailyGoalBar = document.getElementById('daily-goal-bar');
-var dailyGoal = null;           // { wordsToday, articleWords, highWater, goal }
-var sessionMaxProgress = 0;     // furthest the user scrolled this session
-
-function renderDailyGoal() {
-  if (!dailyGoal || !(dailyGoal.goal > 0)) return;
-  var gain = Math.max(0, Math.min(1, sessionMaxProgress) - dailyGoal.highWater);
-  var words = dailyGoal.wordsToday + dailyGoal.articleWords * gain;
-  dailyGoalBar.style.transform = 'scaleX(' + Math.min(1, words / dailyGoal.goal) + ')';
-}
-
-window.ftSetDailyGoal = function(goal) {
-  dailyGoal = goal;
-  document.getElementById('progress-dock').classList.toggle('has-daily-goal', !!goal && goal.goal > 0);
-  renderDailyGoal();
-};
+// The progress / daily-goal rings live in the native bottom panel (ReaderRingsView).
 
 function postProgressToSwift(immediate) {
   if (!userHasScrolled) return;
@@ -745,19 +690,6 @@ function updateProgress() {
   var scrollTop  = window.scrollY || document.documentElement.scrollTop;
   var docHeight  = document.documentElement.scrollHeight - window.innerHeight;
   latestProgress = docHeight > 0 ? Math.min(1, Math.max(0, scrollTop / docHeight)) : 0;
-
-  // Same rule as the progress Swift records: only ground the user scrolled to counts.
-  if (userHasScrolled && latestProgress > sessionMaxProgress) sessionMaxProgress = latestProgress;
-
-  // Update visual progress bar on GPU composite thread via requestAnimationFrame
-  if (!scrollRafPending) {
-    scrollRafPending = true;
-    requestAnimationFrame(function() {
-      progressBar.style.transform = 'scaleX(' + latestProgress + ')';
-      renderDailyGoal();
-      scrollRafPending = false;
-    });
-  }
 
   // Only report progress updates back to Swift once the user has actually scrolled
   if (!userHasScrolled) return;
@@ -829,7 +761,6 @@ function restoreScroll() {
     }
   }
   latestProgress = progress;
-  progressBar.style.transform = 'scaleX(' + progress + ')';
 }
 
 // ── Text selection → highlight bar ────────────────────────────
@@ -875,12 +806,19 @@ function serializeRange(range) {
   }
 }
 
-document.addEventListener('selectionchange', function() {
+// Handle drags fire selectionchange every few ms. Work only once the selection settles
+// (150 ms), post the text only (never the serialized range), and skip repeats. Swift asks for
+// the range with ftSerializeSelection() when the user taps a highlight colour.
+var ftSelectionTimer = null;
+var ftLastPostedSelection = null;   // null = "deselected" was last posted
+function ftPostSelectionState() {
+  ftSelectionTimer = null;
   var sel = window.getSelection();
   if (!sel || sel.isCollapsed || sel.toString().trim().length === 0) {
-    try {
-      window.webkit.messageHandlers.textDeselected.postMessage({});
-    } catch(e) {}
+    if (ftLastPostedSelection !== null) {
+      ftLastPostedSelection = null;
+      try { window.webkit.messageHandlers.textDeselected.postMessage({}); } catch(e) {}
+    }
     if (sel && sel.isCollapsed && ftDeferredTexts.length) {
       var deferred = ftDeferredTexts;
       ftDeferredTexts = [];
@@ -888,13 +826,21 @@ document.addEventListener('selectionchange', function() {
     }
     return;
   }
-  var text  = sel.toString().trim();
-  var range = sel.getRangeAt(0);
-  var serialized = serializeRange(range);
-  try {
-    window.webkit.messageHandlers.textSelected.postMessage({ text: text, range: serialized });
-  } catch(e) {}
+  var text = sel.toString().trim();
+  if (text === ftLastPostedSelection) return;
+  ftLastPostedSelection = text;
+  try { window.webkit.messageHandlers.textSelected.postMessage({ text: text }); } catch(e) {}
+}
+document.addEventListener('selectionchange', function() {
+  if (ftSelectionTimer) clearTimeout(ftSelectionTimer);
+  ftSelectionTimer = setTimeout(ftPostSelectionState, 150);
 });
+// Current selection as the serialized range string ('' when nothing is selected).
+window.ftSerializeSelection = function() {
+  var sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0 || sel.toString().trim().length === 0) return '';
+  return serializeRange(sel.getRangeAt(0));
+};
 
 // ── Apply highlight from Swift ─────────────────────────────────
 function applyHighlightPayload(payload) {

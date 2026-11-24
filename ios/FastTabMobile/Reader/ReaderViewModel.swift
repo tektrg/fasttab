@@ -54,6 +54,11 @@ public final class ReaderViewModel: ObservableObject {
     /// (a timestamp tap opens it) through `videoVisibilityChanged`.
     @Published var isVideoVisible = false
 
+    /// Set by the web view: reads the page's current selection as a serialized range, on demand
+    /// (when the user taps a highlight colour), instead of the page sending it on every
+    /// handle-drag tick.
+    var selectionRangeProvider: ((@escaping (String) -> Void) -> Void)?
+
     /// Transcript player size: Corner (false) or Large, full-width pinned at the top.
     /// Chosen on the player itself; persisted so the next transcript page opens the same way.
     private(set) var isVideoLarge = UserDefaults.standard.bool(forKey: ReaderViewModel.videoLargeKey)
@@ -94,6 +99,11 @@ public final class ReaderViewModel: ObservableObject {
     /// Today's reading against the daily word goal, for the page's second progress bar.
     /// Set once per loaded article; the page adds this session's new ground itself.
     @Published public private(set) var dailyGoal: ReaderDailyGoal?
+    /// Bottom-panel rings. Refreshed with the capped progress writes, never per scroll tick.
+    let ring = ReaderRingState()
+    private func refreshRing() {
+        ring.update(ReaderRingModel(articleProgress: scrollProgress, goal: dailyGoal))
+    }
     private var dailyGoalTask: Task<Void, Never>?
 
     // MARK: - Inputs
@@ -163,6 +173,8 @@ public final class ReaderViewModel: ObservableObject {
     public func loadInitialState() {
         LastOpenedStore.shared.recordOpened(url: url, title: title)
         scrollProgress = progressStore.progress(for: url)
+        lastPersistedProgress = scrollProgress
+        refreshRing()
         readSession = ReadSession(startProgress: scrollProgress)
         statsRecorder.beginReading(url: url, savedProgress: scrollProgress)
         highlights = highlightStore.highlights(for: url)
@@ -284,6 +296,11 @@ public final class ReaderViewModel: ObservableObject {
     /// Leaving the reader or the app still flushes immediately.
     var progressPersistInterval: Duration = .seconds(3)
 
+    /// Progress written by the last persist; unchanged values are never rewritten.
+    private var lastPersistedProgress: Double?
+    /// Writes that reached the stores (tests count them).
+    private(set) var persistCount = 0
+
     public func updateScrollProgress(_ progress: Double, immediate: Bool = false) {
         scrollProgress = progress
         if readSession.record(progress: progress) {
@@ -291,8 +308,9 @@ public final class ReaderViewModel: ObservableObject {
             SavedOnIPhoneStore.shared.recordFinishedRead(url: url)
         }
         if immediate && progress >= 0.999 {
-            // Reached the end: record it now. Other finished gestures coalesce like scrolling;
-            // stats still batch small gains until a real flush.
+            // Reached the end: record it now, once. The page reports a finished gesture
+            // (scrollend) every time the user flicks near the bottom; those repeats carry the
+            // same value and are skipped in `persistProgressNow`.
             persistProgressNow(statsFlush: false)
         } else {
             schedulePersist()
@@ -340,6 +358,15 @@ public final class ReaderViewModel: ObservableObject {
     private func persistProgressNow(statsFlush: Bool) {
         pendingPersistTask?.cancel()
         pendingPersistTask = nil
+        // Same value as the last write: nothing to store. Leaving the reader still flushes
+        // the stats ledger.
+        if lastPersistedProgress == scrollProgress {
+            if statsFlush { recordReadingStats(progress: scrollProgress, isFlush: true) }
+            return
+        }
+        lastPersistedProgress = scrollProgress
+        persistCount += 1
+        refreshRing()
         progressStore.set(progress: scrollProgress, for: url, title: title)
         LastOpenedStore.shared.updateProgress(url: url, progress: scrollProgress)
         SavedOnIPhoneStore.shared.recordProgress(url: url, progress: scrollProgress)
@@ -383,8 +410,10 @@ public final class ReaderViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             self.dailyGoal = ReaderDailyGoal(
                 wordsToday: today.wordsToday, articleWords: articleWords,
-                highWater: today.highWater, goal: ReadingGoal.dailyWords
+                highWater: today.highWater, goal: ReadingGoal.dailyWords,
+                wordsThisWeek: today.wordsThisWeek
             )
+            self.refreshRing()
         }
     }
 

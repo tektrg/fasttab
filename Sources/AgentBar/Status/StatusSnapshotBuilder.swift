@@ -31,11 +31,20 @@ enum StatusSnapshotBuilder {
         )
         let sleeping = SleepingSessionMapper.map(payload.sleepingSessions, serverNow: serverNow)
         return StatusSnapshot(
-            agents: liveAgents + ended + sleeping,
+            agents: uniqueByID(liveAgents + ended + sleeping),
             health: .ok,
             fetchedAt: fetchedAt,
             boardIsCurrent: boardIsCurrent && payload.boardRows != nil,
             agentTree: AgentTreeMapper.map(payload.agentTree)
         )
+    }
+
+    /// One agent per id, the first kept (live before ended before sleeping). A live agent's id is its
+    /// Claude session id, so one session in two panes, or a session both live and still listed as
+    /// sleeping, would otherwise give two rows one id — which hung the list's `LazyVStack` at 100% CPU
+    /// (2026-11-24). Selection and frecency are keyed by id too.
+    static func uniqueByID(_ agents: [AgentSnapshot]) -> [AgentSnapshot] {
+        var seen = Set<String>()
+        return agents.filter { seen.insert($0.id).inserted }
     }
 }

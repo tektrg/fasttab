@@ -79,6 +79,15 @@ struct AgentListPresentation: Equatable {
     /// unpushed markers are then missing rather than "none".
     let showsBoardNote: Bool
 
+    /// `rows` are deduped by id, first kept: SwiftUI's `LazyVStack`/`ForEach` loops forever placing
+    /// rows whose ids collide (the 2026-11-24 100% CPU hang), so no grouping path may ever hand it two.
+    init(state: AgentListState, rows: [AgentListRow], showsBoardNote: Bool) {
+        var seen = Set<String>()
+        self.state = state
+        self.rows = rows.filter { seen.insert($0.id).inserted }
+        self.showsBoardNote = showsBoardNote
+    }
+
     static let connecting = AgentListPresentation(state: .connecting, rows: [], showsBoardNote: false)
 
     var selectableAgentIDs: [String] {

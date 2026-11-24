@@ -748,6 +748,21 @@ switch back, then send a queued follow-up. Owner-approved. Code: `server/lib/com
 - **Zoom** (`MermaidZoomOverlay.tsx`, own lazy ~6 kB chunk; math in `mermaidZoom.ts`, no library): tap the diagram or its ⤢ button → fullscreen dialog. Phone: one-finger drag pans, two-finger pinch zooms. Desktop: ctrl/cmd+wheel or trackpad pinch (and Safari gesture events) zoom around the cursor, wheel/drag pans. Buttons − / + / fit / ×, keys + − 0 Esc; starts at fit, 0.25x–8x. Vector-sharp: the SVG gets real width/height = natural × scale and is only translated. While open: body scroll locked, focus trapped, then focus + page scroll restored. Inline has NO wheel/pinch handling, so the page scrolls normally over a diagram.
 - **Gotcha, phone sheet**: the vaul sheet is a modal Radix Dialog; the overlay is portalled to `<body>` (outside it), so window-capture listeners stop focusin/focusout/Esc and a root listener stops pointerdown from reaching Radix (else the sheet closes or steals focus), and `.mmz` forces `pointer-events: auto` (Radix sets `none` on body).
 - **Real mermaid can't render under happy-dom** (empty SVG), and happy-dom's `WheelEvent` drops `ctrlKey`/`clientX` (tests patch them), so check diagrams and zoom by hand in a browser.
+## App plugin events (`POST /api/hooks/event`) — sandboxed apps -> agents (2026-11-24)
+`server/lib/app_hook_events.py`. Parklet for Mac is sandboxed (can't run node/herdr or read
+`~/.config/theindie`), so it POSTs each plugin event here (IndieLibKit `spec/plugins/README.md`,
+"HTTP event sink"; Swift side `IndieHooks` `HTTPEventSink`). This server is then a normal spec host:
+every **enabled** plugin (sha256 of `plugin.json` in `~/.config/theindie/plugins-enabled.json`) with a
+hook for the event runs, event JSON on stdin, argv only (no shell), own process group, killed at
+`timeoutSec`; each run logged to `~/.config/theindie/logs/plugin-runs.jsonl` with `app` = sender.
+agent-relay (installed plugin) then types the line into the watching agent's herdr pane.
+- **Loopback main listener only** (403 for the tailscale remote listener and any other address).
+- Only ids-only events (`entry.created/updated`, `comment.added`, `reminder.due`, `item.tags.added`
+  with `paths {library}`), schema-checked by hand (unknown keys = 400); ids/tags must match
+  `[A-Za-z0-9._/:-]{1,128}`. Reply `202 {ok, event, eventId, plugins: <n matched>}`; delivery runs on a
+  background thread. `THEINDIE_CONFIG_DIR` overrides the config root (tests).
+- Tests: `python3 tests/test_app_hook_events.py` (uses IndieLibKit's shared fixtures when the sibling
+  checkout exists; `$(echo INJECTED)` sentinel). Agent Bar does not show watcher matches yet.
 
 ## Running it
 ```

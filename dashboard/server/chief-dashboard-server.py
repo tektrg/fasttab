@@ -223,6 +223,7 @@ import apns_devices  # noqa: E402  (iOS app APNs device-token registry)
 import apns_agent_push  # noqa: E402  (agent question/finished -> iOS push)
 import account_rotation  # noqa: E402  (limit wall -> resume on next login account)
 import account_login  # noqa: E402  (POST /api/accounts/login: `claude /login` in a herdr tab)
+import app_hook_events  # noqa: E402  (POST /api/hooks/event: sandboxed apps' plugin events)
 import account_edit  # noqa: E402  (POST /api/accounts/add-subscription|add-api|remove|reorder)
 
 ACCOUNT_EDIT_ROUTES = {
@@ -3512,6 +3513,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._note_agentbar_seen()
         path = urlparse(self.path).path
+        hook_event_reply = app_hook_events.handle_post(
+            path, self._read_request_body, self._is_remote_listener(),
+            (getattr(self, "client_address", None) or ("",))[0])
+        if hook_event_reply is not None:
+            self._send_json(*hook_event_reply)
+            return
         tui_reply = tui_status_events.handle_post(
             path, self._read_json_body, self._is_remote_listener())
         if tui_reply is not None:

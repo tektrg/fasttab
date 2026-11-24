@@ -79,14 +79,14 @@ def log_lines(root):
 
 
 print("== shared spec fixtures ==")
-if os.path.isdir(SPEC):
+if os.path.isdir(os.path.join(SPEC, "fixtures/sink/reject")):
     for name in ["entry.created", "entry.updated", "comment.added", "reminder.due", "item.tags.added.parklet"]:
         check(f"accepts fixture {name}", accepted(json.load(open(os.path.join(SPEC, "fixtures/events", f"{name}.v1.json")))), True)
     reject = os.path.join(SPEC, "fixtures/sink/reject")
     for f in sorted(os.listdir(reject)):
         check(f"rejects fixture {f}", accepted(json.load(open(os.path.join(reject, f)))), False)
 else:
-    print(f"  SKIP  spec folder not found at {SPEC} (set THEINDIE_SPEC_DIR)")
+    print(f"  SKIP  no sink fixtures in {SPEC} (IndieLibKit older than the HTTP event sink? set THEINDIE_SPEC_DIR)")
 
 print("== inline validation ==")
 check("base accepted", accepted(BASE), True)

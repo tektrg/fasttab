@@ -102,6 +102,9 @@ extension ContentView {
     }
 
     private static func sectionIcon(groupBy: CustomViewGroupBy, sectionID: String) -> String {
+        if sectionID == CustomViewGrouping.pinnedSectionID {
+            return "pin.fill"
+        }
         switch groupBy {
         case .none: return "square.stack.3d.up"
         case .domain: return "globe"

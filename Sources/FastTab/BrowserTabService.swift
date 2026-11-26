@@ -61,6 +61,7 @@ class BrowserTabService: ObservableObject {
     /// subject, not `@Published`, so it doesn't re-render every view that
     /// observes this service.
     let customViewSourcesDidChange = PassthroughSubject<Void, Never>()
+    private var cancellables: Set<AnyCancellable> = []
     var authoritativeLiveTabSnapshot: AuthoritativeLiveTabSnapshot { liveTabRefreshPipeline.snapshot }
     private var lastLiveTabsRefreshAt: Date = .distantPast
 
@@ -144,6 +145,10 @@ class BrowserTabService: ObservableObject {
         startActiveTabPoll()
         observeExtensionTabEvents()
         MyOrderStore.shared.twinAuditor = { [weak self] slots in self?.auditTwinTabs(slots) }
+        MyOrderStore.shared.$slots
+            .dropFirst()
+            .sink { [weak self] _ in self?.customViewSourcesDidChange.send() }
+            .store(in: &cancellables)
     }
 
     /// Wires the extension's real-time tab-activation events into frecency
@@ -1912,12 +1917,18 @@ class BrowserTabService: ObservableObject {
     // MARK: - Custom views data source
 
     /// Everything a custom view can show, straight from the existing caches:
-    /// open tabs (no ghost Stack slots), bookmarks, and recent history (the
+    /// open tabs (including ghost pinned tabs), bookmarks, and recent history (the
     /// cache holds the newest `historyCachePerBrowserLimit` rows per browser,
     /// so older visits are invisible to custom views). Feed this to
     /// `CustomViewFilter.evaluate`; observe `customViewSourcesDidChange`.
     func customViewCandidates() -> [BrowserSearchResult] {
-        cachedLiveTabs.filter { $0.type == .tab && !$0.isGhost }
+        let liveTabs = cachedLiveTabs.filter { $0.type == .tab && !$0.isGhost }
+        let ghostPinnedTabs = MyOrderStore.shared.slots.compactMap { slot -> BrowserSearchResult? in
+            guard slot.isPinned, slot.state == .ghost else { return nil }
+            return slot.asSearchResult
+        }
+        return liveTabs
+            + ghostPinnedTabs
             + cachedBookmarks.filter { $0.type == .bookmark }
             + cachedHistory.filter { $0.type == .history }
     }

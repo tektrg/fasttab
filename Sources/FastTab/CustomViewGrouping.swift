@@ -14,6 +14,9 @@ struct CustomViewSection: Identifiable, Hashable, Sendable {
 /// inside each section is preserved. Empty sections are omitted, so empty
 /// input yields no sections.
 enum CustomViewGrouping {
+    static let pinnedSectionID = "pinned"
+    static let pinnedSectionTitle = "Pinned"
+    static let unpinnedSectionTitle = "Other"
     static let otherDomainTitle = "Other"
 
     static func sections(
@@ -23,12 +26,23 @@ enum CustomViewGrouping {
         calendar: Calendar = .current
     ) -> [CustomViewSection] {
         guard !items.isEmpty else { return [] }
+        let pinned = items.filter(\.result.isPinned)
+        let rest = items.filter { !$0.result.isPinned }
+
+        var result: [CustomViewSection] = []
+        if !pinned.isEmpty {
+            result.append(CustomViewSection(id: pinnedSectionID, title: pinnedSectionTitle, items: pinned))
+        }
+        guard !rest.isEmpty else { return result }
+
         switch groupBy {
         case .none:
-            return [CustomViewSection(id: "all", title: "", items: items)]
+            let title = pinned.isEmpty ? "" : unpinnedSectionTitle
+            result.append(CustomViewSection(id: "all", title: title, items: rest))
         case .domain:
-            return domainSections(items: items)
+            result.append(contentsOf: domainSections(items: rest))
         }
+        return result
     }
 
     // MARK: Domain

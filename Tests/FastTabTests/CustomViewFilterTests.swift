@@ -264,4 +264,24 @@ struct CustomViewFilterTests {
         #expect(titles(CustomView(name: "v", pinned: .only), live) == ["safari pinned in FastTab"])
         #expect(titles(CustomView(name: "v", pinned: .exclude), live).isEmpty)
     }
+
+    @Test func pinnedTabsSortBeforeUnpinnedAndLiveBeforeGhost() {
+        let recentUnpinned = Self.item(.tab, "https://a.com/1", title: "recent plain", ago: 10)
+        let oldPinnedLive = BrowserSearchResult(
+            title: "old pinned live", url: "https://a.com/2", browserName: "Google Chrome",
+            type: .tab, timestamp: Date(timeIntervalSince1970: 0), windowIndex: 1, tabIndex: 1,
+            isPinned: true
+        )
+        let recentPinnedGhost = BrowserSearchResult(
+            title: "recent pinned ghost", url: "https://a.com/3", browserName: "Google Chrome",
+            type: .tab, timestamp: Self.now.addingTimeInterval(-5), windowIndex: 1, tabIndex: 2,
+            isPinned: true, isGhost: true
+        )
+        let ordered = CustomViewFilter.evaluate(
+            CustomView(name: "v"),
+            candidates: [recentUnpinned, recentPinnedGhost, oldPinnedLive],
+            now: Self.now
+        )
+        #expect(ordered.map(\.result.title) == ["old pinned live", "recent pinned ghost", "recent plain"])
+    }
 }

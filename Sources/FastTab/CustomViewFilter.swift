@@ -132,6 +132,12 @@ enum CustomViewFilter {
 
     static func sorted(_ items: [CustomViewItem]) -> [CustomViewItem] {
         items.sorted { a, b in
+            if a.result.isPinned != b.result.isPinned {
+                return a.result.isPinned
+            }
+            if a.result.isPinned && a.result.isGhost != b.result.isGhost {
+                return !a.result.isGhost
+            }
             switch (a.lastVisit, b.lastVisit) {
             case let (x?, y?) where x != y: return x > y
             case (.some, .none): return true

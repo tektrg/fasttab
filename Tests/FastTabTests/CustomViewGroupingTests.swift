@@ -18,11 +18,12 @@ struct CustomViewGroupingTests {
         calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute, second: second))!
     }
 
-    static func item(_ url: String, title: String, visit: Date?) -> CustomViewItem {
+    static func item(_ url: String, title: String, visit: Date?, isPinned: Bool = false) -> CustomViewItem {
         CustomViewItem(
             result: BrowserSearchResult(
-                title: title, url: url, browserName: "Safari", type: .history,
-                timestamp: visit ?? Date(timeIntervalSince1970: 0)
+                title: title, url: url, browserName: "Safari", type: isPinned ? .tab : .history,
+                timestamp: visit ?? Date(timeIntervalSince1970: 0),
+                isPinned: isPinned
             ),
             lastVisit: visit
         )
@@ -64,5 +65,48 @@ struct CustomViewGroupingTests {
     @Test(arguments: CustomViewGroupBy.allCases)
     func emptyInputHasNoSections(groupBy: CustomViewGroupBy) {
         #expect(CustomViewGrouping.sections(items: [], groupBy: groupBy, now: Self.now, calendar: Self.calendar).isEmpty)
+    }
+
+    // MARK: Pinned
+
+    @Test func pinnedItemsFormTopSectionWhenUngrouped() {
+        let items = [
+            Self.item("https://a.com/1", title: "plain1", visit: nil),
+            Self.item("https://b.com/1", title: "pin1", visit: nil, isPinned: true),
+            Self.item("https://a.com/2", title: "plain2", visit: nil),
+            Self.item("https://c.com/1", title: "pin2", visit: nil, isPinned: true),
+        ]
+        let sections = CustomViewGrouping.sections(items: items, groupBy: .none, now: Self.now, calendar: Self.calendar)
+        #expect(sections.map(\.id) == [CustomViewGrouping.pinnedSectionID, "all"])
+        #expect(sections.map(\.title) == [CustomViewGrouping.pinnedSectionTitle, CustomViewGrouping.unpinnedSectionTitle])
+        #expect(sections[0].items.map(\.result.title) == ["pin1", "pin2"])
+        #expect(sections[1].items.map(\.result.title) == ["plain1", "plain2"])
+    }
+
+    @Test func pinnedItemsFormTopSectionRegardlessOfDomainGrouping() {
+        let items = [
+            Self.item("https://a.com/1", title: "pin-a", visit: nil, isPinned: true),
+            Self.item("https://a.com/2", title: "plain-a", visit: nil),
+            Self.item("https://b.com/1", title: "plain-b1", visit: nil),
+            Self.item("https://b.com/2", title: "plain-b2", visit: nil),
+            Self.item("https://c.com/1", title: "pin-c", visit: nil, isPinned: true),
+        ]
+        let sections = CustomViewGrouping.sections(items: items, groupBy: .domain, now: Self.now, calendar: Self.calendar)
+        #expect(sections.map(\.id) == [CustomViewGrouping.pinnedSectionID, "domain.b.com", "domain.a.com"])
+        #expect(sections.map(\.title) == [CustomViewGrouping.pinnedSectionTitle, "b.com", "a.com"])
+        #expect(sections[0].items.map(\.result.title) == ["pin-a", "pin-c"])
+        #expect(sections[1].items.map(\.result.title) == ["plain-b1", "plain-b2"])
+        #expect(sections[2].items.map(\.result.title) == ["plain-a"])
+    }
+
+    @Test(arguments: CustomViewGroupBy.allCases)
+    func onlyPinnedItemsProducesSinglePinnedSection(groupBy: CustomViewGroupBy) {
+        let items = [
+            Self.item("https://a.com/1", title: "pin1", visit: nil, isPinned: true),
+            Self.item("https://b.com/1", title: "pin2", visit: nil, isPinned: true),
+        ]
+        let sections = CustomViewGrouping.sections(items: items, groupBy: groupBy, now: Self.now, calendar: Self.calendar)
+        #expect(sections.map(\.id) == [CustomViewGrouping.pinnedSectionID])
+        #expect(sections[0].items.map(\.result.title) == ["pin1", "pin2"])
     }
 }

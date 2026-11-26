@@ -73,6 +73,7 @@ public struct ReaderView: View {
     // End of article options
     @State private var showBookmarkPicker: Bool = false
     @State private var toast: String? = nil
+    @State private var showRingsPopup = false
     @State private var isDismissing: Bool = false
 
     private func handleBack() {
@@ -483,8 +484,18 @@ public struct ReaderView: View {
                 TranscriptCleanupToggle(cleanup: cleanup)
             }
 
-            ReaderRingsView(state: viewModel.ring)
-                .readerBarTapTarget()
+            Button {
+                showRingsPopup = true
+            } label: {
+                ReaderRingsView(state: viewModel.ring)
+                    .readerBarTapTarget()
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows article, today and weekly progress")
+            .popover(isPresented: $showRingsPopup) {
+                ReaderRingsPopupView(state: viewModel.ring)
+                    .presentationCompactAdaptation(.popover)
+            }
             moreActionsMenu
         }
     }

@@ -102,7 +102,8 @@ public final class ReaderViewModel: ObservableObject {
     /// Bottom-panel rings. Refreshed with the capped progress writes, never per scroll tick.
     let ring = ReaderRingState()
     private func refreshRing() {
-        ring.update(ReaderRingModel(articleProgress: scrollProgress, goal: dailyGoal))
+        ring.update(ReaderRingModel(articleProgress: scrollProgress, goal: dailyGoal),
+                    popup: ReaderRingsPopupModel(articleProgress: scrollProgress, goal: dailyGoal))
     }
     private var dailyGoalTask: Task<Void, Never>?
 

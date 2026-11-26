@@ -59,3 +59,19 @@ final class ReaderRingsTests: XCTestCase {
         c.cancel()
     }
 }
+
+final class ReaderBarMetricsTests: XCTestCase {
+    func testGlyphsMatchRingsAndGrewFromBody() {
+        XCTAssertEqual(ReaderBarMetrics.glyphSize, 24)
+        XCTAssertGreaterThan(ReaderBarMetrics.glyphSize, ReaderBarMetrics.legacyGlyphSize)
+        XCTAssertLessThanOrEqual(ReaderBarMetrics.glyphSize, ReaderBarMetrics.tapTarget)
+    }
+
+    /// Worst case (back, read aloud, video, cleanup, rings, more = 6) fits the 16e (390pt):
+    /// minus bar padding 2×24, outer padding 2×16, spacing 8.
+    func testWorstCaseBarFitsSmallestIPhone() {
+        let available: CGFloat = 390 - 2 * 24 - 2 * 16
+        XCTAssertLessThanOrEqual(ReaderBarMetrics.barContentWidth(items: 6, spacing: 8), available)  // 304 <= 310
+        XCTAssertEqual(ReaderBarMetrics.barContentWidth(items: 0, spacing: 8), 0)
+    }
+}

@@ -10,7 +10,7 @@ struct TranscriptCleanupToggle: View {
             cleanup.setShowsClean(!cleanup.showsClean)
         } label: {
             Image(systemName: cleanup.showsClean ? "wand.and.sparkles" : "text.alignleft")
-                .font(.body)
+                .readerBarGlyph()
                 .overlay(alignment: .topTrailing) {
                     if cleanup.showsClean && cleanup.isCleaning {
                         ProgressView()

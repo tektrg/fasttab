@@ -455,14 +455,14 @@ public struct ReaderView: View {
                 handleBack()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.body.weight(.semibold))
+                    .readerBarGlyph(.semibold)
                     .readerBarTapTarget()
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
 
             Divider()
-                .frame(height: 24)
+                .frame(height: ReaderBarMetrics.glyphSize)
 
             if case .loaded(let article) = viewModel.loadState {
                 ReadAloudButton(controller: readAloud, article: article)
@@ -473,7 +473,7 @@ public struct ReaderView: View {
                     viewModel.isVideoVisible.toggle()
                 } label: {
                     Image(systemName: viewModel.isVideoVisible ? "play.rectangle.fill" : "play.rectangle")
-                        .font(.body)
+                        .readerBarGlyph()
                         .readerBarTapTarget()
                 }
                 .accessibilityLabel(viewModel.isVideoVisible ? "Hide video" : "Show video")
@@ -550,6 +550,7 @@ public struct ReaderView: View {
             }
         } label: {
             Image(systemName: "ellipsis.circle")
+                .readerBarGlyph()
                 .readerBarTapTarget()
         }
         .accessibilityLabel("More actions")
@@ -823,8 +824,13 @@ public struct ReaderView: View {
 extension View {
     func readerBarTapTarget() -> some View {
         self
-            .frame(minWidth: 44, minHeight: 44)
+            .frame(minWidth: ReaderBarMetrics.tapTarget, minHeight: ReaderBarMetrics.tapTarget)
             .contentShape(Rectangle())
+    }
+
+    /// Bar glyph at the rings' height (`ReaderBarMetrics.glyphSize`).
+    func readerBarGlyph(_ weight: Font.Weight = .regular) -> some View {
+        self.font(.system(size: ReaderBarMetrics.glyphSize, weight: weight))
     }
 }
 

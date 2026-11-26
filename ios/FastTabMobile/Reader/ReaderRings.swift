@@ -53,6 +53,23 @@ final class ReaderRingState: ObservableObject {
     }
 }
 
+/// Sizes of the floating bottom bar's items. The rings are the reference: every other glyph
+/// is drawn at the rings' height, inside the same 44pt (HIG) tap target. Pure, headless-tested.
+enum ReaderBarMetrics {
+    /// Rings height; also the point size of every other bar glyph.
+    static let glyphSize: CGFloat = 24
+    /// Minimum tap target per item (HIG).
+    static let tapTarget: CGFloat = 44
+    /// Previous glyph size (`.body`, ~17pt at default Dynamic Type), kept for the test's before/after.
+    static let legacyGlyphSize: CGFloat = 17
+
+    /// Width of a bar with `items` controls and `spacing` between them (no padding).
+    static func barContentWidth(items: Int, spacing: CGFloat) -> CGFloat {
+        guard items > 0 else { return 0 }
+        return CGFloat(items) * tapTarget + CGFloat(items - 1) * spacing
+    }
+}
+
 /// Apple-Fitness-style rings: outer = article, inner = daily goal, centre = week.
 struct ReaderRingsView: View {
     @ObservedObject var state: ReaderRingState
@@ -71,7 +88,7 @@ struct ReaderRingsView: View {
             Circle().fill(Self.weekColor).frame(width: 5, height: 5)
                 .scaleEffect(max(m.week, 0.001))
         }
-        .frame(width: 24, height: 24)
+        .frame(width: ReaderBarMetrics.glyphSize, height: ReaderBarMetrics.glyphSize)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: m)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(m.accessibilityLabel)

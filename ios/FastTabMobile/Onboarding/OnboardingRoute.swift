@@ -11,6 +11,8 @@ enum OnboardingStep: String, CaseIterable, Identifiable {
     /// Reader-only path: put FastTab in the share sheet to save a first link.
     case saveFirstLink
     case done
+    /// Last screen: says what is free and what Premium adds; skippable, never blocks entering the app.
+    case premium
 
     var id: String { rawValue }
 }
@@ -37,8 +39,8 @@ struct OnboardingRoute: Equatable {
     /// The screens after the fork for each answer.
     static func path(for mode: AppMode) -> [OnboardingStep] {
         switch mode {
-        case .mac: return [.welcome, .connectMac, .tryReader, .sendToMac, .done]
-        case .standalone: return [.saveFirstLink, .tryReader, .done]
+        case .mac: return [.welcome, .connectMac, .tryReader, .sendToMac, .done, .premium]
+        case .standalone: return [.saveFirstLink, .tryReader, .done, .premium]
         }
     }
 

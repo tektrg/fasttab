@@ -156,6 +156,8 @@ public struct MoreView: View {
                 .dsListRow()
             }
 
+            PremiumCard()
+
             Section("Account") {
                 NavigationLink {
                     AccountSettingsView()

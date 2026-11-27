@@ -47,7 +47,7 @@ struct OnboardingDoneStep: View {
             }
             .dsCard()
         } actions: {
-            OnboardingPrimaryButton(title: "Start reading", action: onStart)
+            OnboardingPrimaryButton(title: "Continue", action: onStart)
         }
     }
 }

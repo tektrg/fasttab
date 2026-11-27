@@ -28,11 +28,17 @@ final class OnboardingTests: XCTestCase {
     }
 
     func testMacPathWalksEveryCompanionStep() {
-        XCTAssertEqual(walk(.mac), [.fork, .welcome, .connectMac, .tryReader, .sendToMac, .done])
+        XCTAssertEqual(walk(.mac), [.fork, .welcome, .connectMac, .tryReader, .sendToMac, .done, .premium])
     }
 
     func testReaderOnlyPathSavesThenReads() {
-        XCTAssertEqual(walk(.standalone), [.fork, .saveFirstLink, .tryReader, .done])
+        XCTAssertEqual(walk(.standalone), [.fork, .saveFirstLink, .tryReader, .done, .premium])
+    }
+
+    func testPremiumIsTheLastStepOnEveryPathAndReachableOnlyByContinuing() {
+        for mode in AppMode.allCases { XCTAssertEqual(walk(mode).last, .premium) }
+        var route = OnboardingRoute.single(.premium)
+        XCTAssertFalse(route.advance(), "a one-screen premium sheet finishes instead of moving on")
     }
 
     func testBackFromFirstPathStepReturnsToFork() {

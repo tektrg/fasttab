@@ -54,11 +54,11 @@ struct NaturalVoicePaywallView: View {
             Image(systemName: feature == .readerSummary ? "sparkles" : "waveform.circle.fill")
                 .font(.system(size: 48))
                 .foregroundStyle(.tint)
-            Text(feature == .readerSummary ? "AI Summary" : "Multi-language Voice")
+            Text(feature == .readerSummary ? "AI Summary" : "Natural Voice")
                 .font(.largeTitle.bold())
             Text(feature == .readerSummary
-                 ? "Get the gist of any article in seconds. Includes multi-language voice."
-                 : "Listen to articles and transcripts in a human-sounding voice.")
+                 ? "Get the gist of any article in seconds. Premium also includes Natural Voice."
+                 : "Listen to articles in natural voices, in languages other than English. Premium also includes AI Summary.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
         }
@@ -66,13 +66,11 @@ struct NaturalVoicePaywallView: View {
 
     private var benefits: some View {
         VStack(alignment: .leading, spacing: DS.Space.sm) {
-            if feature == .readerSummary {
-                Label("Structured AI summaries of any article", systemImage: "sparkles")
-                Label("Summaries are saved on your iPhone", systemImage: "arrow.down.circle")
-            }
-            Label("Lifelike voices streamed from the cloud", systemImage: "waveform")
+            Label("Structured AI summaries of any article", systemImage: "sparkles")
+            Label("Summaries are saved on your iPhone", systemImage: "arrow.down.circle")
+            Label("Natural voices streamed from the cloud, in many languages", systemImage: "waveform")
             Label("Keeps playing with the screen locked", systemImage: "lock.fill")
-            Label("Built-in iPhone voices stay free", systemImage: "checkmark.circle")
+            Label("Reading, highlights and built-in voices stay free", systemImage: "checkmark.circle")
         }
         .font(.body)
     }

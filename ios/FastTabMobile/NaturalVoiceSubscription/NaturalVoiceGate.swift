@@ -45,6 +45,10 @@ enum NaturalVoiceGate {
     /// Read Aloud uses the cloud voice only when the person turned it on and is entitled.
     static func usesNaturalVoice(toggleOn: Bool, entitled: Bool) -> Bool { toggleOn && entitled }
 
+    /// Summary uses the same subscription as Natural Voice. A summary already saved for this exact
+    /// text stays readable after a lapse; everyone else gets the paywall. Reading is never gated.
+    static func canOpenSummary(entitled: Bool, hasSavedSummary: Bool) -> Bool { entitled || hasSavedSummary }
+
     enum ToggleAction: Equatable { case turnOn, turnOff, showPaywall }
 
     /// What flipping the "Natural voice" switch does.

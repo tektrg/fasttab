@@ -5,7 +5,7 @@ import IndieMotion
 enum OnboardingExit {
     /// "Skip" on any screen of the full guide.
     case skipped
-    /// "Start reading" on the last screen.
+    /// "Maybe later" / Continue on the last screen.
     case finished
     /// "Done" on a one-screen sheet.
     case closed
@@ -118,6 +118,8 @@ struct OnboardingFlowView: View {
             OnboardingSendToMacStep(isStandalone: route.isSingleStep, onContinue: advance)
         case .done:
             OnboardingDoneStep(isReaderOnly: usesSampleOnly, onStart: advance)
+        case .premium:
+            OnboardingPremiumStep(onContinue: advance)
         }
     }
 

@@ -38,6 +38,12 @@ final class NaturalVoiceGateTests: XCTestCase {
         XCTAssertEqual(NaturalVoiceGate.toggleAction(wantsOn: false, entitled: false), .turnOff)
     }
 
+    func testSummaryNeedsTheSameSubscriptionOrASavedSummary() {
+        XCTAssertFalse(NaturalVoiceGate.canOpenSummary(entitled: false, hasSavedSummary: false))
+        XCTAssertTrue(NaturalVoiceGate.canOpenSummary(entitled: true, hasSavedSummary: false))
+        XCTAssertTrue(NaturalVoiceGate.canOpenSummary(entitled: false, hasSavedSummary: true))
+    }
+
     func testServerSubscriptionRequiredMapsToItsOwnError() {
         let body = Data(#"{"code":"tts_subscription_required"}"#.utf8)
         XCTAssertEqual(NaturalVoiceClient.error(status: 402, body: body), .subscriptionRequired)

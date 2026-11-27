@@ -650,7 +650,8 @@ public struct ReaderView: View {
     /// see the sheet; others the paywall (the server re-checks every request).
     private func startSummary(_ article: ReaderArticle) {
         ensureSummaryModel(article)
-        let canRead = NaturalVoiceAccess.shared.isEntitled || summaryModel?.hasSavedSummary() == true
+        let canRead = NaturalVoiceGate.canOpenSummary(entitled: NaturalVoiceAccess.shared.isEntitled,
+                                                      hasSavedSummary: summaryModel?.hasSavedSummary() == true)
         summarySheet = canRead ? .summary : .paywall
     }
 

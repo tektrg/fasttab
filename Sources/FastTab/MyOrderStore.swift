@@ -10,6 +10,7 @@ final class MyOrderStore: ObservableObject {
     static let slotsKey = "FastTab.myOrder.slots.v1"
     static let pendingClosesKey = "FastTab.myOrder.pendingCloses.v1"
     static let ghostExpiryDaysKey = "FastTab.myOrder.ghostExpiryDays"
+    static let lastOtherBrowserKey = "FastTab.pinnedTab.lastOtherBrowser.v1"
 
     private let logger = Logger(subsystem: "com.trungluong.FastTab", category: "MyOrderStore")
     private let defaults: UserDefaults
@@ -17,10 +18,12 @@ final class MyOrderStore: ObservableObject {
     @Published private(set) var slots: [OrderedTabSlot] = []
     @Published var isDragging: Bool = false
     @Published var ghostExpiryDays: Int
+    @Published private(set) var lastOtherBrowserName: String?
 
     var tabCloser: ((BrowserSearchResult) -> Void)?
     var tabActivator: ((BrowserSearchResult) -> Void)?
     var tabReopener: ((BrowserSearchResult) -> Void)?
+    var tabOtherBrowserOpener: ((BrowserSearchResult, String) -> Void)?
     var tabPinner: ((BrowserSearchResult, Bool) -> Void)?
     /// Called with the post-reconcile slot list so the owner (BrowserTabService)
     /// can run the phantom-twin audit — a browser-side existence check for live
@@ -38,6 +41,7 @@ final class MyOrderStore: ObservableObject {
         self.defaults = defaults
         let savedExpiry = defaults.object(forKey: Self.ghostExpiryDaysKey) as? Int ?? 7
         self.ghostExpiryDays = savedExpiry
+        self.lastOtherBrowserName = defaults.string(forKey: Self.lastOtherBrowserKey)
         self.slots = Self.loadSlots(from: defaults)
         self.partitionSlots()
         self.pendingCloses = Self.loadPendingCloses(from: defaults)
@@ -48,6 +52,7 @@ final class MyOrderStore: ObservableObject {
         closer: @escaping (BrowserSearchResult) -> Void,
         activator: @escaping (BrowserSearchResult) -> Void,
         reopener: ((BrowserSearchResult) -> Void)? = nil,
+        otherBrowserOpener: ((BrowserSearchResult, String) -> Void)? = nil,
         canceller: @escaping (String, String) -> Void,
         tabOrderSyncer: (([OrderedTabSlot]) -> Void)? = nil,
         pinner: ((BrowserSearchResult, Bool) -> Void)? = nil
@@ -55,6 +60,7 @@ final class MyOrderStore: ObservableObject {
         self.tabCloser = closer
         self.tabActivator = activator
         self.tabReopener = reopener ?? activator
+        self.tabOtherBrowserOpener = otherBrowserOpener
         self.tombstoneCanceller = canceller
         self.tabOrderSyncer = tabOrderSyncer
         self.tabPinner = pinner
@@ -200,6 +206,86 @@ final class MyOrderStore: ObservableObject {
         }
     }
 
+    /// Opens a pinned slot in `targetBrowserName` and remembers that browser on
+    /// both the slot itself (so future clicks/reopens use it) and as the last
+    /// chosen "other browser" for menu ordering.
+    func openSlotInBrowser(_ slotID: UUID, targetBrowserName: String) {
+        let trimmedTarget = targetBrowserName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTarget.isEmpty,
+              let index = slots.firstIndex(where: { $0.slotID == slotID }) else { return }
+
+        rememberLastOtherBrowser(trimmedTarget)
+
+        var updated = slots[index]
+        updated.browserName = trimmedTarget
+        updated.profileName = nil
+        updated.profileDirectory = nil
+        updated.boundTabID = nil
+        updated.windowIndex = nil
+        updated.tabIndex = nil
+        updated.confirmedInBrowser = false
+        updated.state = .live
+        updated.ghostedAt = nil
+        slots[index] = updated
+
+        pendingCloses.removeAll { $0.slotID == slotID || ($0.browserName == trimmedTarget && MyOrderReconciler.urlsMatch($0.url, updated.url)) }
+        tombstoneCanceller?(trimmedTarget, updated.url)
+        schedulePersist()
+
+        let result = updated.asSearchResult
+        if let opener = tabOtherBrowserOpener {
+            opener(result, trimmedTarget)
+        } else {
+            tabReopener?(result)
+        }
+    }
+
+    /// Result-row entry point for "Open in Other Browser" on a pinned tab.
+    func openSlotInBrowser(matching result: BrowserSearchResult, targetBrowserName: String) {
+        let trimmedTarget = targetBrowserName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTarget.isEmpty else { return }
+
+        if let index = slots.firstIndex(where: { Self.matchesSlot($0, browserName: result.browserName, url: result.url, tabID: result.tabID) }) {
+            openSlotInBrowser(slots[index].slotID, targetBrowserName: trimmedTarget)
+            return
+        }
+
+        rememberLastOtherBrowser(trimmedTarget)
+        let newSlot = OrderedTabSlot(
+            slotID: UUID(),
+            url: result.url,
+            matchKey: Frecency.normalizeURL(result.url),
+            title: result.title,
+            browserName: trimmedTarget,
+            profileName: nil,
+            profileDirectory: nil,
+            state: .live,
+            boundTabID: nil,
+            windowIndex: nil,
+            tabIndex: nil,
+            ghostedAt: nil,
+            lastSeenLiveAt: Date(),
+            isPinned: true,
+            confirmedInBrowser: false
+        )
+        slots.insert(newSlot, at: 0)
+        partitionSlots()
+        schedulePersist()
+
+        tombstoneCanceller?(trimmedTarget, result.url)
+        let openable = newSlot.asSearchResult
+        if let opener = tabOtherBrowserOpener {
+            opener(openable, trimmedTarget)
+        } else {
+            tabReopener?(openable)
+        }
+    }
+
+    private func rememberLastOtherBrowser(_ browserName: String) {
+        lastOtherBrowserName = browserName
+        defaults.set(browserName, forKey: Self.lastOtherBrowserKey)
+    }
+
     func deleteGhostSlot(matching result: BrowserSearchResult) {
         if let index = slots.firstIndex(where: { Self.matchesSlot($0, browserName: result.browserName, url: result.url, tabID: result.tabID) }) {
             let slot = slots[index]
@@ -315,12 +401,60 @@ final class MyOrderStore: ObservableObject {
 
     /// Pure helper that overlays FastTab's internal pin state using a given slots snapshot.
     /// Safe to call from background / nonisolated tasks.
+    /// Indexed in O(M + N) while preserving `slots.first(where: matchesSlot)` priority.
     nonisolated static func overlayPinStatus(on tabs: [BrowserSearchResult], using slots: [OrderedTabSlot]) -> [BrowserSearchResult] {
-        guard !slots.isEmpty else { return tabs }
+        guard !slots.isEmpty, !tabs.isEmpty else { return tabs }
+
+        // Build first-match indices for O(1) per-tab lookup.
+        var byTabID: [String: Int] = [:]
+        var byURLNoTabID: [String: Int] = [:]
+        var byURLAny: [String: Int] = [:]
+        byTabID.reserveCapacity(slots.count)
+        byURLAny.reserveCapacity(slots.count)
+
+        for (index, slot) in slots.enumerated() {
+            if let boundID = slot.boundTabID {
+                let idKey = "\(slot.browserName)|\(boundID)"
+                if byTabID[idKey] == nil { byTabID[idKey] = index }
+            }
+            let cURL = MyOrderReconciler.canonicalURL(slot.url)
+            if !cURL.isEmpty {
+                let key = "\(slot.browserName)|\(cURL)"
+                if byURLAny[key] == nil { byURLAny[key] = index }
+                if slot.boundTabID == nil, byURLNoTabID[key] == nil { byURLNoTabID[key] = index }
+            }
+            if slot.matchKey != slot.url {
+                let cMatch = MyOrderReconciler.canonicalURL(slot.matchKey)
+                if !cMatch.isEmpty, cMatch != cURL {
+                    let key = "\(slot.browserName)|\(cMatch)"
+                    if byURLAny[key] == nil { byURLAny[key] = index }
+                    if slot.boundTabID == nil, byURLNoTabID[key] == nil { byURLNoTabID[key] = index }
+                }
+            }
+        }
+
         return tabs.map { tab in
             guard tab.type == .tab else { return tab }
+            let matchedIndex: Int?
+            let cURL = MyOrderReconciler.canonicalURL(tab.url)
+            let urlKey = cURL.isEmpty ? nil : "\(tab.browserName)|\(cURL)"
+
+            if let tabID = tab.tabID {
+                let idMatch = byTabID["\(tab.browserName)|\(tabID)"]
+                let urlMatch = urlKey.flatMap { byURLNoTabID[$0] }
+                switch (idMatch, urlMatch) {
+                case let (a?, b?): matchedIndex = min(a, b)
+                case let (a?, nil): matchedIndex = a
+                case let (nil, b?): matchedIndex = b
+                case (nil, nil): matchedIndex = nil
+                }
+            } else {
+                matchedIndex = urlKey.flatMap { byURLAny[$0] }
+            }
+
             let pinned: Bool
-            if let slot = slots.first(where: { matchesSlot($0, browserName: tab.browserName, url: tab.url, tabID: tab.tabID) }) {
+            if let idx = matchedIndex {
+                let slot = slots[idx]
                 if slot.isPinned {
                     pinned = true
                 } else if !slot.confirmedInBrowser {

@@ -1,18 +1,56 @@
 import Foundation
 import AppKit
 
-/// Identifies the four data sources FastTab can search across.
+/// Identifies the data sources FastTab can search across: the built-in
+/// browsers/Finder plus any auto-detected Chromium-family browser (e.g. Ardia).
 ///
-/// `rawValue` is the persisted key in UserDefaults — do not rename without a
-/// migration. `appName` matches the `BrowserBackend.appName` produced by the
-/// corresponding backend so the selection set can gate backend construction
-/// without a second mapping table.
-enum SearchSource: String, CaseIterable, Identifiable, Sendable {
+/// `rawValue` is the persisted key in UserDefaults — do not rename built-in
+/// keys without a migration. `displayName` matches the `BrowserBackend.appName`
+/// produced by the corresponding backend so the selection set can gate backend
+/// construction without a second mapping table.
+enum SearchSource: Hashable, Identifiable, Sendable {
     case chrome
     case edge
     case brave
     case safari
     case finder
+    case customChromium(ChromiumBrowserSpec)
+
+    private static let customPrefix = "chromium:"
+
+    static var allCases: [SearchSource] {
+        [.chrome, .edge, .brave]
+            + ChromiumBrowserSpec.discoveredCustom.map { .customChromium($0) }
+            + [.safari, .finder]
+    }
+
+    var rawValue: String {
+        switch self {
+        case .chrome: return "chrome"
+        case .edge:   return "edge"
+        case .brave:  return "brave"
+        case .safari: return "safari"
+        case .finder: return "finder"
+        case .customChromium(let spec): return Self.customPrefix + spec.bundleIdentifier
+        }
+    }
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "chrome": self = .chrome
+        case "edge":   self = .edge
+        case "brave":  self = .brave
+        case "safari": self = .safari
+        case "finder": self = .finder
+        default:
+            guard rawValue.hasPrefix(Self.customPrefix) else { return nil }
+            let bundleID = String(rawValue.dropFirst(Self.customPrefix.count))
+            guard let spec = ChromiumBrowserSpec.discoveredCustom.first(where: { $0.bundleIdentifier == bundleID }) else {
+                return nil
+            }
+            self = .customChromium(spec)
+        }
+    }
 
     var id: String { rawValue }
 
@@ -23,6 +61,7 @@ enum SearchSource: String, CaseIterable, Identifiable, Sendable {
         case .brave:  return "Brave Browser"
         case .safari: return "Safari"
         case .finder: return "Finder"
+        case .customChromium(let spec): return spec.appName
         }
     }
 
@@ -34,6 +73,7 @@ enum SearchSource: String, CaseIterable, Identifiable, Sendable {
         case .brave:  return "Brave"
         case .safari: return "Safari"
         case .finder: return "Finder"
+        case .customChromium(let spec): return spec.shortName
         }
     }
 
@@ -58,6 +98,7 @@ enum SearchSource: String, CaseIterable, Identifiable, Sendable {
         case .brave:  return "com.brave.Browser"
         case .safari: return "com.apple.Safari"
         case .finder: return "com.apple.finder"
+        case .customChromium(let spec): return spec.bundleIdentifier
         }
     }
 
@@ -89,7 +130,12 @@ final class SourceSelectionStore: ObservableObject {
 
     private static let defaultsKey = "FastTab.enabledSources.v1"
     private static let seededKey = "FastTab.enabledSources.v1.seeded"
+    /// Tracks auto-discovered Chromium browsers that have already been offered
+    /// to the user so newly installed browsers auto-enable once, while a
+    /// browser the user explicitly turned off stays off.
+    private static let seenDiscoveredKey = "FastTab.seenDiscoveredSources.v1"
 
+    private let defaults: UserDefaults
     @Published private(set) var enabled: Set<SearchSource>
 
     /// Snapshot of `enabled` at process launch. Used by Settings to detect
@@ -97,6 +143,7 @@ final class SourceSelectionStore: ObservableObject {
     let launchSnapshot: Set<SearchSource>
 
     init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         let stored = Self.load(from: defaults)
         self.enabled = stored
         self.launchSnapshot = stored
@@ -122,21 +169,44 @@ final class SourceSelectionStore: ObservableObject {
 
     private func persist() {
         let raw = enabled.map { $0.rawValue }.sorted()
-        UserDefaults.standard.set(raw, forKey: Self.defaultsKey)
+        defaults.set(raw, forKey: Self.defaultsKey)
     }
 
-    /// Returns the persisted set on second+ launches; otherwise auto-detects
-    /// installed apps (Finder always counts) and writes the seed back so the
-    /// "Sources" Settings section reflects the same state on next launch.
+    /// Returns the persisted set on second+ launches (auto-enabling any newly
+    /// discovered Chromium browser that hasn't been seen before); otherwise
+    /// auto-detects installed apps (Finder always counts) and writes the seed
+    /// back so the "Sources" Settings section reflects the same state on next launch.
     private static func load(from defaults: UserDefaults) -> Set<SearchSource> {
+        let discoveredCustom = ChromiumBrowserSpec.discoveredCustom.map { SearchSource.customChromium($0) }
+
         if defaults.bool(forKey: seededKey),
            let raw = defaults.array(forKey: defaultsKey) as? [String] {
-            return Set(raw.compactMap { SearchSource(rawValue: $0) })
+            var loaded = Set(raw.compactMap { SearchSource(rawValue: $0) })
+
+            // Auto-enable newly installed Chromium browsers once when using the
+            // real store (and only when the user hasn't explicitly cleared all
+            // sources). Record them in `seenDiscoveredKey` so disabling one in
+            // Settings sticks.
+            if !loaded.isEmpty, !discoveredCustom.isEmpty {
+                var seen = Set(defaults.array(forKey: seenDiscoveredKey) as? [String] ?? [])
+                var didAdd = false
+                for source in discoveredCustom where !seen.contains(source.rawValue) {
+                    loaded.insert(source)
+                    seen.insert(source.rawValue)
+                    didAdd = true
+                }
+                if didAdd {
+                    defaults.set(loaded.map(\.rawValue).sorted(), forKey: defaultsKey)
+                    defaults.set(Array(seen).sorted(), forKey: seenDiscoveredKey)
+                }
+            }
+            return loaded
         }
 
         let detected = Set(SearchSource.allCases.filter { $0.isInstalled })
         defaults.set(detected.map { $0.rawValue }.sorted(), forKey: defaultsKey)
         defaults.set(true, forKey: seededKey)
+        defaults.set(discoveredCustom.map(\.rawValue).sorted(), forKey: seenDiscoveredKey)
         return detected
     }
 }

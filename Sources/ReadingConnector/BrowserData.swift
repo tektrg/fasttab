@@ -93,15 +93,24 @@ public struct BrowserData: Sendable {
         self.safariDirectory = safariDirectory
     }
 
-    /// Chrome, Edge, Brave and Safari in the user's Library (same browsers the app reads).
+    /// Chrome, Edge, Brave, Ardia (and any other known Chromium browser present on disk)
+    /// plus Safari in the user's Library.
     public static func standard(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> BrowserData {
         let support = home.appendingPathComponent("Library/Application Support", isDirectory: true)
+        let alwaysIncluded = [
+            ChromiumBrowser(name: "Chrome", directory: support.appendingPathComponent("Google/Chrome")),
+            ChromiumBrowser(name: "Edge", directory: support.appendingPathComponent("Microsoft Edge")),
+            ChromiumBrowser(name: "Brave", directory: support.appendingPathComponent("BraveSoftware/Brave-Browser")),
+        ]
+        let optionalKnown = [
+            ChromiumBrowser(name: "Ardia", directory: support.appendingPathComponent("com.ardia.browser/Chromium")),
+            ChromiumBrowser(name: "Arc", directory: support.appendingPathComponent("Arc/User Data")),
+            ChromiumBrowser(name: "Dia", directory: support.appendingPathComponent("Dia/User Data")),
+            ChromiumBrowser(name: "Vivaldi", directory: support.appendingPathComponent("Vivaldi")),
+            ChromiumBrowser(name: "Chromium", directory: support.appendingPathComponent("Chromium")),
+        ].filter { FileManager.default.fileExists(atPath: $0.directory.path) }
         return BrowserData(
-            chromium: [
-                ChromiumBrowser(name: "Chrome", directory: support.appendingPathComponent("Google/Chrome")),
-                ChromiumBrowser(name: "Edge", directory: support.appendingPathComponent("Microsoft Edge")),
-                ChromiumBrowser(name: "Brave", directory: support.appendingPathComponent("BraveSoftware/Brave-Browser")),
-            ],
+            chromium: alwaysIncluded + optionalKnown,
             safariDirectory: home.appendingPathComponent("Library/Safari", isDirectory: true))
     }
 

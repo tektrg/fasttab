@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import OSLog
+import os
 import IndieCommandBar
 import IndieBrowserTabs
 
@@ -32,6 +33,16 @@ struct ChromiumBackend: BrowserBackend {
     let supportDirectory: String
 
     private static let bookmarkFileLock = NSLock()
+    /// Caches `livingProfileNames()` per `(bundleIdentifier, sortedPIDs)` for 30s so
+    /// `ExtensionBackedBackend.servableView()` doesn't spawn `/usr/sbin/lsof` on every
+    /// bar open, 10s poll, and extension event.
+    private struct LivingProfilesCacheEntry {
+        let pids: [Int32]
+        let names: Set<String>
+        let capturedAt: Date
+    }
+    private static let livingProfilesCache = OSAllocatedUnfairLock<[String: LivingProfilesCacheEntry]>(initialState: [:])
+    private static let livingProfilesCacheTTL: TimeInterval = 30
 
     private var logger: Logger {
         Logger(subsystem: "com.trungluong.FastTab", category: "ChromiumBackend")
@@ -56,6 +67,10 @@ struct ChromiumBackend: BrowserBackend {
         activeTimes: inout [String: Date],
         currentFlowSourceAppBundleIdentifier: String?
     ) -> LiveTabFetchOutcome {
+        // Skip spawning `/usr/bin/osascript` completely when the browser isn't running.
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty else {
+            return .fetched([])
+        }
         // Shared tab read (IndieLibKit IndieBrowserTabs): one script per browser, title + URL per tab.
         // osascript keeps its own process timeout, so no Apple Event timeout in the script.
         let script = BrowserTabScripts.readScript(
@@ -88,8 +103,22 @@ struct ChromiumBackend: BrowserBackend {
             // Show the user's window name when set; the title (active tab +
             // profile suffix) is the fallback and the profile's source.
             let windowName = givenName.isEmpty ? windowTitle : givenName
-            // Reads Local State only when a title names something (Edge titles usually don't).
+            // Prefer the browser's direct window profile property (Ardia's `active profile`)
+            // when reported; otherwise fall back to parsing Chrome's " - <profile>" window title.
             let windowProfile: (displayName: String?, directory: String?) = {
+                if !live.windowProfileName.isEmpty {
+                    if knownProfiles == nil { knownProfiles = profiles() }
+                    if let matched = ProfileNames.pick(
+                        live.windowProfileName,
+                        in: knownProfiles ?? [],
+                        directory: \.name,
+                        displayName: \.displayName,
+                        displayNameFirst: true
+                    ) {
+                        return (matched.displayName, matched.name)
+                    }
+                    return (live.windowProfileName, nil)
+                }
                 guard BrowserWindowProfile.guess(fromTitle: windowTitle) != nil else { return (nil, nil) }
                 if knownProfiles == nil { knownProfiles = profiles() }
                 return Self.windowProfile(title: windowTitle, among: knownProfiles ?? [])
@@ -112,7 +141,6 @@ struct ChromiumBackend: BrowserBackend {
                 if isActive { return fetchStart.addingTimeInterval(-1) }
                 return storedTime ?? Date(timeIntervalSince1970: 0)
             }()
-            logger.info("recency-sort tab. browser='\(appName, privacy: .public)' win=\(winIdx) tab=\(tabIdx) isActive=\(isActive, privacy: .public) isFrontActive=\(isFrontActive, privacy: .public) hadStoredTime=\(storedTime != nil, privacy: .public) storedEpoch=\(storedTime?.timeIntervalSince1970 ?? -1) chosenEpoch=\(timestamp.timeIntervalSince1970) key='\(key, privacy: .public)' title='\(title, privacy: .public)'")
 
             if isFrontActive {
                 activeTimes[key] = fetchStart
@@ -147,6 +175,9 @@ struct ChromiumBackend: BrowserBackend {
     // MARK: - Lightweight active-tab poll
 
     func pollActiveTabKeys() -> [String] {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty else {
+            return []
+        }
         // Only stamp the active tab of the FRONT window (window 1). Stamping
         // every window's active tab on every tick falsely promotes background
         // windows' active tabs to "now" whenever this browser is frontmost.
@@ -786,14 +817,22 @@ struct ChromiumBackend: BrowserBackend {
                 try
                     set index of window \(win) to 1
                 end try
-                open location "\(safeURL)"
+                try
+                    open location "\(safeURL)"
+                on error
+                    make new tab at end of tabs of window 1 with properties {URL:"\(safeURL)"}
+                end try
             end tell
             """
         }
         return """
         tell application "\(appName)"
             activate
-            open location "\(safeURL)"
+            try
+                open location "\(safeURL)"
+            on error
+                make new tab at end of tabs of front window with properties {URL:"\(safeURL)"}
+            end try
         end tell
         """
     }
@@ -834,7 +873,11 @@ struct ChromiumBackend: BrowserBackend {
         let script = """
         tell application "\(result.browserName)"
             if (count of windows) < \(windowIndex) then return "missing"
-            return "title:" & (title of window \(windowIndex))
+            try
+                return "title:" & (title of window \(windowIndex))
+            on error
+                return "title:" & (name of window \(windowIndex))
+            end try
         end tell
         """
         guard let output = runProcess(launchPath: "/usr/bin/osascript", arguments: ["-e", script]),
@@ -1572,13 +1615,20 @@ struct ChromiumBackend: BrowserBackend {
     /// callers should fall back to the full disk count rather than
     /// under-count and risk treating a partial extension snapshot as complete.
     func livingProfileNames() -> Set<String>? {
+        let pids = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+            .map(\.processIdentifier)
+            .sorted()
+        guard !pids.isEmpty else { return nil }
+
+        let now = Date()
+        if let cached = Self.livingProfilesCache.withLock({ $0[bundleIdentifier] }),
+           cached.pids == pids,
+           now.timeIntervalSince(cached.capturedAt) < Self.livingProfilesCacheTTL {
+            return cached.names
+        }
+
         let knownNames = Set(profiles().map(\.name))
         guard !knownNames.isEmpty else { return nil }
-
-        let pids = NSWorkspace.shared.runningApplications
-            .filter { $0.bundleIdentifier == bundleIdentifier }
-            .map(\.processIdentifier)
-        guard !pids.isEmpty else { return nil }
 
         var living = Set<String>()
         for pid in pids {
@@ -1587,7 +1637,11 @@ struct ChromiumBackend: BrowserBackend {
                 living.insert(name)
             }
         }
-        return living
+        let frozenLiving = living
+        Self.livingProfilesCache.withLock {
+            $0[bundleIdentifier] = LivingProfilesCacheEntry(pids: pids, names: frozenLiving, capturedAt: now)
+        }
+        return frozenLiving
     }
 
     private static func runLSOF(pid: Int32) -> String? {

@@ -20,6 +20,10 @@ struct OrderedTabSlotRow: View {
     var reorderUpperBound: Int? = nil
     /// "Send to FastTab List & Close"; offered only on live web tabs (see `forStackSlot`).
     var onSendToFastTabList: (() -> Void)? = nil
+    /// Other browsers available for "Open in Other Browser" on pinned slots.
+    var otherBrowserNames: [String] = []
+    /// Called with the chosen browser name when the user picks "Open in Other Browser".
+    var onOpenInOtherBrowser: ((String) -> Void)? = nil
     /// ⋯ › Copy URL (same action as ⌘C).
     var onCopy: () -> Void = {}
 
@@ -208,11 +212,16 @@ struct OrderedTabSlotRow: View {
     private var menuActions: [CommandBarRowAction] {
         FastTabRowMenu.actions(
             for: slot,
-            bridge: onSendToFastTabList == nil ? nil : FastTabListRowBridge.forStackSlot(slot)
+            bridge: onSendToFastTabList == nil ? nil : FastTabListRowBridge.forStackSlot(slot),
+            otherBrowsers: onOpenInOtherBrowser == nil ? [] : otherBrowserNames
         )
     }
 
     private func perform(_ action: CommandBarRowAction) {
+        if let targetBrowser = FastTabRowMenu.otherBrowserName(from: action.id) {
+            onOpenInOtherBrowser?(targetBrowser)
+            return
+        }
         switch action.id {
         case FastTabRowMenu.openID: isGhost ? onReopen() : onSelect()
         case FastTabRowMenu.listBridgeID: onSendToFastTabList?()

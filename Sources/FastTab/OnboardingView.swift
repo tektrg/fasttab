@@ -327,15 +327,14 @@ struct SourcePickerStep: View {
                 .padding(.horizontal, 32)
                 .padding(.bottom, 20)
 
-            VStack(spacing: 8) {
-                ForEach(SearchSource.allCases) { source in
-                    SourceRow(
-                        source: source,
-                        isOn: Binding(
-                            get: { store.isEnabled(source) },
-                            set: { store.setEnabled(source, $0) }
-                        )
-                    )
+            Group {
+                if SearchSource.allCases.count > 5 {
+                    ScrollView {
+                        sourceRows
+                    }
+                    .frame(maxHeight: 240)
+                } else {
+                    sourceRows
                 }
             }
             .padding(.horizontal, 28)
@@ -358,6 +357,20 @@ struct SourcePickerStep: View {
             }
 
             Spacer(minLength: 12)
+        }
+    }
+
+    private var sourceRows: some View {
+        VStack(spacing: 8) {
+            ForEach(SearchSource.allCases) { source in
+                SourceRow(
+                    source: source,
+                    isOn: Binding(
+                        get: { store.isEnabled(source) },
+                        set: { store.setEnabled(source, $0) }
+                    )
+                )
+            }
         }
     }
 }

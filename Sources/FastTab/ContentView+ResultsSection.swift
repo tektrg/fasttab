@@ -305,6 +305,15 @@ extension ContentView {
                 },
                 onFastTabListBridge: {
                     performFastTabListBridge(result)
+                },
+                otherBrowserNames: FastTabRowMenu.otherBrowsers(
+                    excluding: result.browserName,
+                    available: appState.browserService.availableBrowserNames,
+                    lastChosen: myOrderStore.lastOtherBrowserName
+                ),
+                onOpenInOtherBrowser: { targetBrowser in
+                    dismissCommandBar()
+                    myOrderStore.openSlotInBrowser(matching: result, targetBrowserName: targetBrowser)
                 }
             )
             .contentShape(Rectangle())
@@ -336,6 +345,15 @@ extension ContentView {
                 reorderUpperBound: stackPinnedSlots.count,
                 onSendToFastTabList: {
                     sendStackSlotToFastTabList(slot)
+                },
+                otherBrowserNames: FastTabRowMenu.otherBrowsers(
+                    excluding: slot.browserName,
+                    available: appState.browserService.availableBrowserNames,
+                    lastChosen: myOrderStore.lastOtherBrowserName
+                ),
+                onOpenInOtherBrowser: { targetBrowser in
+                    dismissCommandBar()
+                    myOrderStore.openSlotInBrowser(slot.slotID, targetBrowserName: targetBrowser)
                 },
                 onCopy: {
                     performCopySlotURL(slot)

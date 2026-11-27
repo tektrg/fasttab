@@ -171,6 +171,9 @@ class AppState: ObservableObject {
             closer: { [weak self] result in self?.browserService.remove(result) },
             activator: { [weak self] result in self?.browserService.activate(result) },
             reopener: { [weak self] result in self?.browserService.openViaWebAppRoutingOrNormally(result) },
+            otherBrowserOpener: { [weak self] result, targetBrowser in
+                self?.browserService.openInBrowser(result, targetBrowserName: targetBrowser)
+            },
             canceller: { [weak self] browser, url in self?.browserService.cancelRecentlyClosedTombstone(browserName: browser, url: url) },
             tabOrderSyncer: { SyncService.shared.updateTabOrder($0) },
             pinner: { [weak self] result, pinned in self?.browserService.togglePin(result, pinned: pinned) }
@@ -415,6 +418,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AppState.shared.browserService.flushPendingPersistence()
         MyOrderStore.shared.flush()
         FastTabListStore.shared.flushPendingWrite()
         CustomViewSemanticCache.sharedIfLoaded?.flush()
@@ -875,9 +879,10 @@ private final class CommandBarPanelController: NSObject {
     /// keep tracking the cursor leaving that window.
     func startHoverDismissMonitoring() {
         guard !pointerLeaveMonitor.isRunning else { return }
-        // Hover opens need no grace (the pointer is on the bar); shortcut opens arm one
-        // via `armShortcutOpenGracePeriod` before this runs.
-        pointerLeaveMonitor.start(openGrace: 0)
+        // Brief open grace so minor pointer jitter while the hover reveal
+        // spring is expanding never prematurely dismisses the bar; shortcut
+        // opens extend this via `armShortcutOpenGracePeriod` before this runs.
+        pointerLeaveMonitor.start(openGrace: 0.2)
     }
 
     func stopHoverDismissMonitoring() {

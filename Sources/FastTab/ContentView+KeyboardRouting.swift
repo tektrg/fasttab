@@ -77,10 +77,8 @@ extension ContentView {
             dismissCommandBar()
             myOrderStore.reopenSlot(slot.slotID)
         case .browserFrozen:
-            if let url = URL(string: slot.url) {
-                NSWorkspace.shared.open(url)
-                dismissCommandBar()
-            }
+            dismissCommandBar()
+            myOrderStore.reopenSlot(slot.slotID)
         }
     }
 

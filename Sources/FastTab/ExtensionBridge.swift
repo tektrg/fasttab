@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import Darwin
 import OSLog
 
 /// Shared well-known Unix socket path between FastTab.app and the native host.
@@ -801,7 +803,8 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
 
         // Parse fully into Sendable values before entering the lock — the lock
         // body is @Sendable and cannot capture non-Sendable [String: Any].
-        let message = Self.decodeInboundMessage(type: type, payload: payload, now: now)
+        let peerBrowserAppName: String? = (type == "hello") ? Self.peerBrowserAppName(for: fd) : nil
+        let message = Self.decodeInboundMessage(type: type, payload: payload, now: now, peerBrowserAppName: peerBrowserAppName)
 
         let (connectionChanged, activation, removed, upserted, snapshot) = lock.withLock { registry -> (Bool, (appName: String, tabID: Int, url: String, at: Date)?, (appName: String, tabID: Int, url: String?)?, (appName: String, tab: ExtensionTabRecord)?, (appName: String, tabs: [ExtensionTabRecord])?) in
             guard var connection = registry.connections[fd] else { return (false, nil, nil, nil, nil) }
@@ -913,11 +916,23 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         return !["hello", "snapshot", "commandResult", "pong"].contains(type)
     }
 
-    static func decodeInboundMessage(type: String, payload: [String: Any], now: Date) -> InboundMessage {
+    static func decodeInboundMessage(
+        type: String,
+        payload: [String: Any],
+        now: Date,
+        peerBrowserAppName: String? = nil
+    ) -> InboundMessage {
         switch type {
         case "hello":
             let appRaw = payload["app"] as? String ?? ""
-            let appName = ChromiumBrowserSpec.all.first(where: { $0.source.rawValue == appRaw })?.appName ?? ""
+            let appName = peerBrowserAppName
+                ?? ChromiumBrowserSpec.all.first(where: {
+                    $0.source.rawValue == appRaw
+                        || $0.bundleIdentifier.caseInsensitiveCompare(appRaw) == .orderedSame
+                        || $0.appName.caseInsensitiveCompare(appRaw) == .orderedSame
+                        || $0.shortName.caseInsensitiveCompare(appRaw) == .orderedSame
+                })?.appName
+                ?? ""
             return .hello(appName: appName, extensionVersion: payload["extensionVersion"] as? String ?? "",
                           profileTag: payload["profileTag"] as? String ?? "")
 
@@ -960,6 +975,54 @@ final class ExtensionBridge: ObservableObject, ExtensionBridgeServing, @unchecke
         default:
             return .contactOnly // pong, windowFocusChanged, tabGroupUpdated
         }
+    }
+
+    /// Identifies which Chromium browser spawned the connected native host by
+    /// inspecting the Unix socket peer's parent process tree. This lets any
+    /// Chromium browser (including Ardia, Arc, Dia, Vivaldi, etc. whose
+    /// `navigator.userAgent` looks like Chrome) register under its real app name
+    /// without needing per-browser UA sniffing in the extension.
+    private static func peerBrowserAppName(for fd: Int32) -> String? {
+        var peerPID: pid_t = 0
+        var size = socklen_t(MemoryLayout<pid_t>.size)
+        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &peerPID, &size) == 0, peerPID > 0 else {
+            return nil
+        }
+
+        // Walk up a few ancestors (FastTabNativeHost -> browser main/helper process).
+        var currentPID = peerPID
+        for _ in 0..<5 {
+            var info = proc_bsdinfo()
+            let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
+            guard proc_pidinfo(currentPID, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize else {
+                break
+            }
+            let parentPID = pid_t(info.pbi_ppid)
+            guard parentPID > 1 else { break }
+
+            var pathBuffer = [CChar](repeating: 0, count: 4096)
+            let pathLen = proc_pidpath(parentPID, &pathBuffer, UInt32(pathBuffer.count))
+            if pathLen > 0,
+               let execPath = String(bytes: pathBuffer.prefix(Int(pathLen)).map { UInt8(bitPattern: $0) }, encoding: .utf8) {
+                if let matched = matchBrowserAppName(executablePath: execPath) {
+                    return matched
+                }
+            }
+            currentPID = parentPID
+        }
+        return nil
+    }
+
+    static func matchBrowserAppName(executablePath: String, specs: [ChromiumBrowserSpec] = ChromiumBrowserSpec.all) -> String? {
+        guard let range = executablePath.range(of: ".app/") else { return nil }
+        let appBundlePath = String(executablePath[..<range.upperBound].dropLast())
+        let appURL = URL(fileURLWithPath: appBundlePath)
+        if let bundleID = Bundle(url: appURL)?.bundleIdentifier,
+           let spec = specs.first(where: { $0.bundleIdentifier == bundleID }) {
+            return spec.appName
+        }
+        let appName = appURL.deletingPathExtension().lastPathComponent
+        return specs.first(where: { $0.appName.caseInsensitiveCompare(appName) == .orderedSame })?.appName
     }
 
     private func sendPings() {

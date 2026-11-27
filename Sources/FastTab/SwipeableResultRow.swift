@@ -21,6 +21,10 @@ struct SwipeableResultRow: View {
     var onPin: (() -> Void)? = nil
     /// FastTab List bridge (Read later / Move to Bookmarks); shown only when the row offers one.
     var onFastTabListBridge: (() -> Void)? = nil
+    /// Other browsers available for "Open in Other Browser" on pinned tabs.
+    var otherBrowserNames: [String] = []
+    /// Called with the chosen browser name when the user picks "Open in Other Browser".
+    var onOpenInOtherBrowser: ((String) -> Void)? = nil
 
     @AppStorage(CommandBarAppearance.resultRowStyleKey) private var rowStyle: ResultRowStyle = .minimal
 
@@ -44,7 +48,9 @@ struct SwipeableResultRow: View {
                 onCopy: onCopy,
                 onRemove: onRemove,
                 onPin: onPin,
-                onFastTabListBridge: onFastTabListBridge
+                onFastTabListBridge: onFastTabListBridge,
+                otherBrowserNames: otherBrowserNames,
+                onOpenInOtherBrowser: onOpenInOtherBrowser
             )
         }
     }
@@ -62,6 +68,8 @@ private struct ResultRowView: View {
     let onRemove: () -> Void
     var onPin: (() -> Void)? = nil
     var onFastTabListBridge: (() -> Void)? = nil
+    var otherBrowserNames: [String] = []
+    var onOpenInOtherBrowser: ((String) -> Void)? = nil
 
     @State private var isHovering = false
     @Environment(\.isCompactCommandBar) private var isCompact
@@ -177,11 +185,16 @@ private struct ResultRowView: View {
         FastTabRowMenu.actions(
             for: result,
             bridge: onFastTabListBridge == nil ? nil : fastTabListBridge,
-            offersPin: onPin != nil
+            offersPin: onPin != nil,
+            otherBrowsers: onOpenInOtherBrowser == nil ? [] : otherBrowserNames
         )
     }
 
     private func perform(_ action: CommandBarRowAction) {
+        if let targetBrowser = FastTabRowMenu.otherBrowserName(from: action.id) {
+            onOpenInOtherBrowser?(targetBrowser)
+            return
+        }
         switch action.id {
         case FastTabRowMenu.openID: onSelect()
         case FastTabRowMenu.listBridgeID: onFastTabListBridge?()
@@ -525,8 +538,19 @@ enum BrowserIconCache {
         let key = "\(browserName)@\(Int(size))"
         if let cached = iconStore[key] { return cached }
 
-        guard let appPath = appPathByName[browserName],
-              FileManager.default.fileExists(atPath: appPath) else {
+        let resolvedPath: String? = {
+            if let path = appPathByName[browserName], FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+            if let spec = ChromiumBrowserSpec.all.first(where: { $0.appName == browserName }),
+               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: spec.bundleIdentifier) {
+                return url.path
+            }
+            let fallbackPath = "/Applications/\(browserName).app"
+            return FileManager.default.fileExists(atPath: fallbackPath) ? fallbackPath : nil
+        }()
+
+        guard let appPath = resolvedPath else {
             return nil
         }
 

@@ -59,3 +59,56 @@ final class ReaderRingsTests: XCTestCase {
         c.cancel()
     }
 }
+
+final class ReaderBarMetricsTests: XCTestCase {
+    func testGlyphsMatchRingsAndGrewFromBody() {
+        XCTAssertEqual(ReaderBarMetrics.glyphSize, 24)
+        XCTAssertGreaterThan(ReaderBarMetrics.glyphSize, ReaderBarMetrics.legacyGlyphSize)
+        XCTAssertLessThanOrEqual(ReaderBarMetrics.glyphSize, ReaderBarMetrics.tapTarget)
+    }
+
+    /// Worst case (back, read aloud, video, cleanup, rings, more = 6) fits the 16e (390pt):
+    /// minus bar padding 2×24, outer padding 2×16, spacing 8.
+    func testWorstCaseBarFitsSmallestIPhone() {
+        let available: CGFloat = 390 - 2 * 24 - 2 * 16
+        XCTAssertLessThanOrEqual(ReaderBarMetrics.barContentWidth(items: 6, spacing: 8), available)  // 304 <= 310
+        XCTAssertEqual(ReaderBarMetrics.barContentWidth(items: 0, spacing: 8), 0)
+    }
+}
+
+@MainActor
+final class ReaderRingsPopupTests: XCTestCase {
+    private let goal = ReaderDailyGoal(wordsToday: 1000, articleWords: 1000, highWater: 0,
+                                       goal: 3000, wordsThisWeek: 4200)
+
+    func testThreeRowsWithWordsAndPercents() {
+        let m = ReaderRingsPopupModel(articleProgress: 0.5, goal: goal)
+        XCTAssertEqual(m.rows.map(\.title), ["Article", "Today", "This week"])
+        XCTAssertEqual(m.rows[0].detail, "50% read")
+        XCTAssertEqual(m.rows[1].detail, "1,500 / 3,000 words")
+        XCTAssertEqual(m.rows[1].percentText, "50%")
+        XCTAssertEqual(m.rows[2].detail, "4,700 / 21,000 words")
+        XCTAssertEqual(m.rows[2].percentText, "22%")
+    }
+
+    func testClampsOverGoalAndBadProgress() {
+        let m = ReaderRingsPopupModel(articleProgress: 9, goal: ReaderDailyGoal(
+            wordsToday: 5000, articleWords: 1000, highWater: 0, goal: 3000))
+        XCTAssertEqual(m.rows[0].fraction, 1)
+        XCTAssertEqual(m.rows[1].percentText, "100%")
+        XCTAssertEqual(ReaderRingsPopupModel(articleProgress: .nan, goal: nil).rows[0].fraction, 0)
+    }
+
+    func testNoGoalCase() {
+        let m = ReaderRingsPopupModel(articleProgress: 0.3, goal: nil)
+        XCTAssertEqual(m.rows[1].detail, "No goal loaded")
+        XCTAssertEqual(m.rows[2].fraction, 0)
+        XCTAssertEqual(m.accessibilityLabel,
+                       "Article: 30% read, 30%. Today: No goal loaded. This week: No goal loaded")
+    }
+
+    func testAccessibilityReadsAllThree() {
+        let l = ReaderRingsPopupModel(articleProgress: 0.5, goal: goal).accessibilityLabel
+        XCTAssertTrue(l.contains("Article") && l.contains("Today") && l.contains("This week"))
+    }
+}

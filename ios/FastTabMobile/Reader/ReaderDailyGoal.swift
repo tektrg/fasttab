@@ -25,6 +25,11 @@ public struct ReaderDailyGoal: Equatable, Encodable, Sendable {
         goal > 0 ? min(1, words(sessionProgress: sessionProgress) / Double(goal)) : 0
     }
 
+    /// Words read this week once the reader has reached `sessionProgress`.
+    func weekWords(sessionProgress: Double) -> Double {
+        wordsThisWeek + Double(articleWords) * max(0, min(1, sessionProgress) - highWater)
+    }
+
     /// 0...1 against 7 × the daily goal; the app has no separate weekly goal.
     func weekFraction(sessionProgress: Double) -> Double {
         guard goal > 0 else { return 0 }

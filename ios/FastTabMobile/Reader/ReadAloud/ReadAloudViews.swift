@@ -10,7 +10,7 @@ struct ReadAloudButton: View {
             controller.togglePlayback(article: article)
         } label: {
             Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle")
-                .font(.body)
+                .readerBarGlyph()
                 .readerBarTapTarget()
         }
         .accessibilityLabel(isPlaying ? "Pause reading aloud" : "Read aloud")

@@ -14,6 +14,9 @@ import claude_sessions  # P4: non-herdr Claude sessions as status-only rows
 import antigravity_hold_store  # Antigravity PreToolUse hook bridge
 import antigravity_sessions  # Antigravity hook-reported sessions as status-only rows
 import desktop_sessions  # sleeping Claude Desktop sessions (no live process)
+import agent_tree_desktop  # Desktop chiefs merged onto agent_tree (kept verbatim)
+import chief_roster  # Desktop chiefs: <project>/.claude/chief/<name>/ + linked sessions
+import desktop_wake  # transcript_path (chief check-in heartbeat)
 import hook_permissions  # prompts answerable via the PermissionRequest hook
 import image_attachments  # acceptsImages: which rows can Read an attached image
 import message_gate  # non-Claude panes are never typed into
@@ -708,8 +711,96 @@ def get_agent_tree_state():
     agents = build_agents_view(feeds_snap)
     status_by_pane = {pane_id: (cached.get("verdict"))
                       for pane_id, cached in _pane_tick_by_pane_id(feeds_snap).items()}
-    return agent_tree.build_agent_tree(agents, agent_tree.read_edges(),
-                                       status_by_pane=status_by_pane)
+    chiefs = desktop_chief_records(feeds_snap, agents)
+    timer = CHIEF_TIMER
+    for chief in chiefs:
+        try:
+            chief["checkIn"] = timer.view(chief) if timer else None
+        except Exception:
+            chief["checkIn"] = None
+    edges = agent_tree.read_edges()
+    tree = agent_tree.build_agent_tree(agents, edges, status_by_pane=status_by_pane)
+    return agent_tree_desktop.merge_desktop_chiefs(tree, chiefs, agents, edges)
+
+
+# ── Desktop chiefs + the check-in timer (rollout items 12-13) ──
+
+#: Chief folder definitions (`<project>/.claude/chief/<name>/`), mtime-cached.
+CHIEF_FOLDERS = chief_roster.ChiefFolderReader()
+#: chief_timer.ChiefTimer, set by the server at startup (None in tests that
+#: don't start one: chiefs then carry `checkIn: null`).
+CHIEF_TIMER = None
+
+
+def _chief_activity(live_row):
+    """busy | waiting | idle | sleeping — what decide_wake defers on."""
+    if not live_row:
+        return "sleeping"
+    if (live_row.get("hookRequest") or live_row.get("transcriptQuestion")
+            or live_row.get("sessionStatus") == "waiting"):
+        return "waiting"
+    if live_row.get("sessionStatus") == "busy":
+        return "busy"
+    return "idle"
+
+
+def desktop_chief_records(feeds_snap, agents, with_transcripts=False):
+    """chief_roster.build_desktop_chiefs over the desktopSessions feed's raw
+    rows, each also carrying `rowId` (the id messages + AgentBar rows use),
+    `activity`, and (only when asked: a glob) `transcriptPath`. Never
+    raises: a broken chief folder costs only the chief list."""
+    try:
+        desktop_rows = ((feeds_snap.get("desktopSessions") or {}).get("data")) or []
+        if not isinstance(desktop_rows, list):
+            desktop_rows = []
+        chiefs = chief_roster.build_desktop_chiefs(CHIEF_FOLDERS.read(), desktop_rows)
+    except Exception:
+        return []
+    live_by_desktop_id = {a.get("hostSessionId"): a for a in agents or [] if a.get("hostSessionId")}
+    for chief in chiefs:
+        session = chief.get("session") or {}
+        live = live_by_desktop_id.get(chief.get("desktopSessionId"))
+        row_id = (live or {}).get("agentSession") or session.get("cliSessionId")
+        chief["rowId"] = row_id
+        chief["activity"] = _chief_activity(live)
+        if with_transcripts:
+            chief["transcriptPath"] = desktop_wake.transcript_path(row_id) if row_id else None
+    return chiefs
+
+
+def chief_timer_chiefs():
+    """ChiefTimer's chiefs_provider: fresh snapshot, transcripts resolved."""
+    feeds_snap = {name: f.snapshot() for name, f in FEEDS.items()}
+    agents = build_agents_view(feeds_snap)
+    return desktop_chief_records(feeds_snap, agents, with_transcripts=True)
+
+
+def chief_checkins():
+    """GET /api/chief/checkins: {"chiefs": [{key, name, project, label,
+    rowId, desktopSessionId, briefPath, checkIn}]}."""
+    out = []
+    for chief in chief_timer_chiefs():
+        session = chief.get("session") or {}
+        try:
+            check_in = CHIEF_TIMER.view(chief) if CHIEF_TIMER else None
+        except Exception as e:
+            check_in = {"state": "error", "error": str(e)}
+        out.append({"key": chief["key"], "name": chief.get("name"), "project": chief.get("project"),
+                    "label": session.get("label") or chief.get("name"), "rowId": chief.get("rowId"),
+                    "desktopSessionId": chief.get("desktopSessionId"),
+                    "briefPath": chief.get("briefPath"), "workerCount": len(chief.get("children") or []),
+                    "checkIn": check_in})
+    return {"chiefs": out}
+
+
+def find_chief(chief_ref):
+    """A chief by key (`ssv-shared/digital`), Desktop id or row id, else None."""
+    if not chief_ref:
+        return None
+    for chief in chief_timer_chiefs():
+        if chief_ref in (chief.get("key"), chief.get("desktopSessionId"), chief.get("rowId")):
+            return chief
+    return None
 
 
 def _known_agent_ids_and_projects():

@@ -62,7 +62,16 @@ with tempfile.TemporaryDirectory() as tmp:
     check("compact shape", parsed, {
         "desktopSessionId": "local_aaa", "cliSessionId": "cli-aaa", "label": "Title aaa",
         "cwd": "/Users/x/01_Project/demo", "lastActiveTs": NOW - DAY,
-        "openUrl": "claude://code/continue?session=local_aaa"})
+        "openUrl": "claude://code/continue?session=local_aaa", "parentDesktopId": None})
+    linked = desktop_file("lnk", 1, spawnedFrom={"sessionId": "local_aaa", "taskId": "t"})
+    with open(os.path.join(org, "local_lnk.json"), "w") as f:
+        json.dump(dict(linked, sessionId="local_lnk"), f)
+    check("linked session -> parentDesktopId",
+          desktop_sessions.parse_session_file(os.path.join(org, "local_lnk.json"))["parentDesktopId"], "local_aaa")
+    with open(os.path.join(org, "local_lnk2.json"), "w") as f:
+        json.dump(dict(linked, sessionId="local_lnk2", spawnedFrom={"sessionId": "../evil"}), f)
+    check("bad spawnedFrom id -> None",
+          desktop_sessions.parse_session_file(os.path.join(org, "local_lnk2.json"))["parentDesktopId"], None)
     check("archived -> None", desktop_sessions.parse_session_file(os.path.join(org, "local_arch.json")), None)
     check("id Claude.app can't open -> None",
           desktop_sessions.parse_session_file(os.path.join(org, "local_badid.json")), None)

@@ -90,6 +90,47 @@ AptusFit's own review-mode plugin loader (`_load_plugin_module`/
 `_delivery_ops_shim`) was deliberately not ported — confirmed dead code
 even upstream (see `chief_dashboard_pass.py`'s module docstring).
 
+## Desktop chiefs + check-in timer (`/api/chief/*`, 2026-11-28)
+Chief redesign rollout items 12–14 (plan: agent-skills
+`plugins/delivery-ops/docs/2026-11-26-chief-redesign-plan.md`).
+- **Chief folder** = `<project>/.claude/chief/<name>/` (any `~/01_Project/*`,
+  env `CHIEF_HOMES` for tests): `brief.md` header names the chief's Desktop
+  session (`Session: local_…`), its `## Roster` section lists worker ids
+  (full, or `local_485c3041…` unique prefix); `config.yaml` = flat
+  `key: value`: `session`, `checkin_cron` (cron subset), `checkin_marker`,
+  `checkin_grace_min`, `wake` (on|off, default off). `chief_roster.py`.
+- **Tree (item 12)**: workers = Desktop linked sessions (`spawnedFrom`,
+  walked up ≤4 hops, now `parentDesktopId` on desktop_sessions rows) ∪
+  roster. Merged ON TOP of `agent_tree.build_agent_tree` by
+  `agent_tree_desktop.py` (agent_tree.py stays the verbatim AptusFit copy),
+  never written to agent-tree.json. Row ids = live session id, else
+  `cliSessionId` (= AgentBar's sleeping row id). User edges/tombstones win.
+  Desktop chief rows add `source: claude-desktop`, `chiefKey`, `chiefName`,
+  `desktopSessionId`, `briefPath`, `checkIn`.
+- **Timer (item 13)**: `chief_timer.ChiefTimer` = ONE owner of
+  `<state>/chief-checkins.json` + the only wake sender; 60s tick thread (first
+  after 30s), `_tick_lock` single-flight. Math in `chief_checkin.py` (pure):
+  only the latest slot is CURRENT (`now - slot < paced interval`) → a Mac
+  that slept catches up once; a check-in covers a slot by its START (a pass
+  can run an hour); `due` < grace (10m / `checkin_grace_min`) ≤ `overdue`.
+  Heartbeat = last COMPLETED check-in: transcript user line with a marker
+  (`[Chief check-in]` or `checkin_marker`) → next `stop_hook_summary` /
+  end_turn; or `GET /api/chief/pass?chief=<key>`. Wake (only `wake: on`):
+  idle/sleeping chief → `_handle_reach_action` message as actor
+  `chief-timer` (inbox, or Desktop wake-and-resend); busy/waiting → deferred
+  (not counted); record written `sending` BEFORE the send → a crash never
+  double-wakes; ≤2 attempts per slot, retry after 10m only on failure.
+  Gone chief (archived / outside the 14-day scan) → `gone`, no wakes.
+- **Endpoints**: `GET /api/chief/pass[?chief=]` (= `/api/deliver/pass`,
+  byte-identical without `?chief=`; with it: heartbeat + `chief` block),
+  `GET /api/chief/checkins`, `POST /api/chief/settings {chief, pace?:
+  rush|steady|pace-out|quiet, sleepCheckins?: bool}` (quiet = no
+  check-ins; sleep-time on = around the clock, every day).
+- Digital (`ssv-shared/digital`) has `wake: off` until rollout item 15
+  removes its own cron (else two check-ins per slot).
+- Tests: `tests/test_chief_checkin.py`, `test_chief_roster.py`,
+  `test_chief_timer.py`.
+
 ## Jev persona routing (`GET /api/personas`) — P1
 `server/lib/personas.py`. Registry: `~/.config/agentbar/personas.json`
 (override `AGENTBAR_PERSONAS_FILE` — tests, or a second local instance),

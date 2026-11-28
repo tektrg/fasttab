@@ -119,7 +119,20 @@ def parse_session_file(path):
         "cwd": cwd,
         "lastActiveTs": last_active,
         "openUrl": claude_sessions.DESKTOP_CONTINUE_URL.format(desktop_id),
+        # Who started this session (Desktop "linked sessions": `spawnedFrom`
+        # holds the starting session's Desktop id). Read by chief_roster.py
+        # to nest a Desktop chief's workers. Also rides along in
+        # computed.sleepingSessions (an extra key the apps ignore).
+        "parentDesktopId": _parent_desktop_id(entry.get("spawnedFrom")),
     }
+
+
+def _parent_desktop_id(spawned_from):
+    """`spawnedFrom.sessionId` when it is a Desktop id, else None."""
+    parent = spawned_from.get("sessionId") if isinstance(spawned_from, dict) else None
+    if isinstance(parent, str) and claude_sessions.DESKTOP_SESSION_ID_RE.fullmatch(parent):
+        return parent
+    return None
 
 
 class DesktopSessionScanner:

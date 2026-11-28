@@ -197,6 +197,9 @@ from chief_dashboard_views import (  # noqa: E402
 from chief_dashboard_memory import SAMPLER  # noqa: E402
 import chief_dashboard_actions as session_actions  # noqa: E402
 import chief_dashboard_pass  # noqa: E402  (chief_pass restored 2026-09-25, generic)
+import chief_dashboard_views  # noqa: E402  (Desktop chiefs + CHIEF_TIMER slot)
+import chief_timer  # noqa: E402  (chief check-in timer, rollout item 13)
+import dashboard_config  # noqa: E402  (STATE_HOME for chief-checkins.json)
 import personas  # noqa: E402  (Jev persona registry + routing, P1)
 import remote_access  # noqa: E402  (phase 1a: tailscale-fronted remote access)
 import hook_permission_routes  # noqa: E402  (PermissionRequest hook bridge)
@@ -3443,9 +3446,13 @@ class Handler(BaseHTTPRequestHandler):
             # caller would still serialize herdr, so: on demand only.
             payload, status = handle_pane_screen(parse_qs(parsed.query))
             self._send_json(payload, status=status)
-        elif path == "/api/deliver/pass":
-            # Restored 2026-09-25, generic — see chief_dashboard_pass.py.
-            self._send_json(chief_dashboard_pass.get_chief_pass(get_full_state))
+        elif path in ("/api/chief/pass", "/api/deliver/pass"):
+            # /api/chief/pass is the task-agnostic name (chief redesign item
+            # 13); /api/deliver/pass stays as AptusFit's alias. Without
+            # ?chief= the reply is byte-identical to the old one.
+            self._send_json(chief_pass_reply(parse_qs(parsed.query)))
+        elif path == "/api/chief/checkins":
+            self._send_json(chief_dashboard_views.chief_checkins())
         elif path == "/api/accounts":
             self._send_json(account_rotation.accounts_view(ROTATOR))
         elif path == "/api/personas":
@@ -3609,6 +3616,15 @@ class Handler(BaseHTTPRequestHandler):
             payload, status = agent_tree_attach(
                 body.get("child"), body.get("parent"),
                 confirm_cross_project=bool(body.get("confirmCrossProject")))
+            self._send_json(payload, status=status)
+            return
+        if path == "/api/chief/settings":
+            try:
+                body = self._read_json_body()
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=400)
+                return
+            payload, status = chief_settings_reply(body)
             self._send_json(payload, status=status)
             return
         if path == "/api/agent-tree/detach":
@@ -3847,6 +3863,62 @@ def resume_pane_on_next_account(body):
         return {"ok": False, "error": str(e)}
 
 
+# ── Chief check-in timer (rollout items 13-14) ──
+
+def _chief_timer_send(row_id, text):
+    """Wake a chief: the same message path as a person's Send (inbox for a
+    live Desktop row, wake-and-resend for a sleeping one), audited as
+    actor `chief-timer`. `confirm` because the timer already deferred a
+    busy chief (chief_checkin.decide_wake)."""
+    return _handle_reach_action("message", {"text": text, "confirm": True}, row_id, "chief-timer")
+
+
+CHIEF_TIMER = chief_timer.ChiefTimer(
+    os.path.join(dashboard_config.STATE_HOME, chief_timer.STATE_FILE_NAME),
+    chief_dashboard_views.chief_timer_chiefs, _chief_timer_send)
+chief_dashboard_views.CHIEF_TIMER = CHIEF_TIMER
+
+
+def chief_pass_reply(query):
+    """GET /api/chief/pass[?chief=<key|desktop id|row id>]. With a chief:
+    records its heartbeat (a pass = a check-in) and adds `chief` (its
+    check-in view + workers). Unknown chief -> `chief: null` + `chiefError`,
+    the pass itself still served."""
+    payload = chief_dashboard_pass.get_chief_pass(get_full_state)
+    ref = (query.get("chief") or [None])[0]
+    if not ref:
+        return payload
+    chief = chief_dashboard_views.find_chief(ref)
+    if chief is None:
+        payload["chief"] = None
+        payload["chiefError"] = f"no chief {ref!r} (no <project>/.claude/chief/<name>/ names it)"
+        return payload
+    CHIEF_TIMER.record_heartbeat(chief["key"], source="pass")
+    payload["chief"] = {
+        "key": chief["key"], "rowId": chief.get("rowId"), "briefPath": chief.get("briefPath"),
+        "checkIn": CHIEF_TIMER.view(chief),
+        "workers": [{"desktopSessionId": w.get("desktopSessionId"), "rowId": w.get("cliSessionId"),
+                     "label": w.get("label"), "lastActiveTs": w.get("lastActiveTs")}
+                    for w in chief.get("children") or []],
+    }
+    return payload
+
+
+def chief_settings_reply(body):
+    """POST /api/chief/settings {chief, pace?, sleepCheckins?} -> (payload, status)."""
+    body = body if isinstance(body, dict) else {}
+    chief = chief_dashboard_views.find_chief(body.get("chief"))
+    if chief is None:
+        return {"ok": False, "error": f"unknown chief {body.get('chief')!r}"}, 404
+    if "pace" not in body and "sleepCheckins" not in body:
+        return {"ok": False, "error": "nothing to change (pace or sleepCheckins)"}, 400
+    settings, error = CHIEF_TIMER.update_settings(
+        chief["key"], pace=body.get("pace"), sleep_checkins=body.get("sleepCheckins"))
+    if error:
+        return {"ok": False, "error": error}, 400
+    return {"ok": True, "settings": settings, "checkIn": CHIEF_TIMER.view(chief)}, 200
+
+
 def main():
     image_attachments.sweep_expired()
     chief_dashboard_feeds.SCREEN_LISTENERS.append(
@@ -3860,6 +3932,11 @@ def main():
     # picker and puts the model back (background threads; never re-sends a
     # follow-up).
     _compact_jobs().recover(_compact_io_for_saved_job)
+    # Chief check-in timer: first tick after the feeds warm up (a wake
+    # decided before the live-session feed has read would see every chief
+    # as sleeping).
+    threading.Thread(target=lambda: (STOP.wait(30), chief_timer.run_forever(CHIEF_TIMER, STOP)),
+                     daemon=True, name="chief-timer").start()
 
     server = QuietThreadingHTTPServer((HOST, PORT), Handler)
     server.remote_listener = False

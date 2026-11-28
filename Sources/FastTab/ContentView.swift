@@ -634,7 +634,6 @@ struct ContentView: View {
                                                     duplicateTabCount: duplicateTabTagCount,
                                                     onTapDuplicateTag: activateDuplicateFilterFromTag,
                                                     hoveredResult: hoveredResultFooterMetadata,
-                                                    showWindowName: shouldShowWindowName,
                                                     showProfileName: shouldShowProfileName
                                                 )
                                             }
@@ -650,7 +649,6 @@ struct ContentView: View {
                                                     duplicateTabCount: duplicateTabTagCount,
                                                     onTapDuplicateTag: activateDuplicateFilterFromTag,
                                                     hoveredResult: hoveredResultFooterMetadata,
-                                                    showWindowName: shouldShowWindowName,
                                                     showProfileName: shouldShowProfileName
                                                 )
                                             }

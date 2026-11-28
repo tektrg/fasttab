@@ -13,7 +13,6 @@ struct GuidanceBarView: View {
     var onTapDuplicateTag: (() -> Void)? = nil
     /// Hovered row's result, Minimal row style only (nil otherwise).
     var hoveredResult: BrowserSearchResult? = nil
-    var showWindowName: Bool = false
     var showProfileName: Bool = false
 
     @Environment(\.isCompactCommandBar) private var isCompact
@@ -23,7 +22,6 @@ struct GuidanceBarView: View {
             if let hoveredResult {
                 HoveredResultMetadataRow(
                     result: hoveredResult,
-                    showWindowName: showWindowName,
                     showProfileName: showProfileName
                 )
             } else if statusText != nil || duplicateTabCount > 0 {
@@ -44,12 +42,11 @@ struct GuidanceBarView: View {
     }
 }
 
-/// Hovered row's type icon, recency, window/profile, and URL — the same
-/// metadata Full row style shows inline, surfaced here because Minimal rows
-/// drop it to stay one line.
+/// Hovered row's type icon, profile, and URL — surfaced here (without recency
+/// or window name, which can crowd out the URL) because Minimal rows drop
+/// metadata to stay one line.
 private struct HoveredResultMetadataRow: View {
     let result: BrowserSearchResult
-    let showWindowName: Bool
     let showProfileName: Bool
 
     var body: some View {
@@ -59,15 +56,7 @@ private struct HoveredResultMetadataRow: View {
                 .foregroundStyle(.secondary)
                 .layoutPriority(1)
 
-            if let recency = result.relativeRecencyLabel {
-                Text(recency)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .layoutPriority(1)
-            }
-
-            ForEach(result.secondaryMetadata(showWindowName: showWindowName, showProfileName: showProfileName), id: \.self) { metadata in
+            ForEach(result.secondaryMetadata(showWindowName: false, showProfileName: showProfileName), id: \.self) { metadata in
                 Text(metadata)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

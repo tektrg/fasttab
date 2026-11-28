@@ -6,6 +6,7 @@ import { usePhoneLayout } from "./hooks/usePhoneLayout";
 import { FeedStrip } from "./components/FeedStrip";
 import { NeedsYou } from "./components/NeedsYou";
 import { BoardSection } from "./components/BoardSection";
+import { ChiefCheckinsCard } from "./components/ChiefCheckinsCard";
 import { PhoneShell } from "./components/phone/PhoneShell";
 import { FeedbackTab } from "./feedback/FeedbackTab";
 import { useFeedbackUnread } from "./feedback/feedbackUnread";
@@ -138,6 +139,8 @@ export default function App() {
           }
         />
       </div>
+
+      <ChiefCheckinsCard />
 
       <section>
         <h2>

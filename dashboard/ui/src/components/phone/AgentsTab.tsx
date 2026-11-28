@@ -4,6 +4,7 @@ import { fmtAge } from "../../api";
 import { filterAgents } from "../../agentMatch";
 import { AgentRow } from "../../ui/AgentRow";
 import { SwipeableAgentRow } from "./SwipeableAgentRow";
+import { ChiefCheckinsCard } from "../ChiefCheckinsCard";
 import { groupByFolder, persistGroupBy, readGroupBy } from "./folderGrouping";
 import {
   agentSearchable,
@@ -109,6 +110,7 @@ export function AgentsTab({
       </div>
 
       <div className="phone-list">
+        {!searching && <ChiefCheckinsCard collapsible />}
         {nothing && <div className="phone-empty">{agentsEmptyText(filter, searching)}</div>}
         {filter !== "folder" &&
           sections.map((s) => {

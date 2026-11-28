@@ -34,7 +34,10 @@ struct AgentListView: View {
         case .groupHeader(_, let title):
             SectionHeaderView(title: title)
         case .chiefPlaceholder(let node, _, let needsYouHint, _):
-            ChiefPlaceholderRowView(node: node, needsYouHint: needsYouHint)
+            ChiefPlaceholderRowView(node: node, needsYouHint: needsYouHint) { pace, sleep in
+                guard let key = node.checkIn?.chiefKey else { return }
+                model.treeModel.updateChiefCheckIn(chiefKey: key, pace: pace, sleepCheckins: sleep)
+            }
                 .modifier(TreeDropTarget(agentID: node.id, isChief: true, treeModel: model.treeModel))
         case .agent(let agent, let nesting):
             let isSelected = model.selectedAgentID == agent.id
@@ -54,7 +57,12 @@ struct AgentListView: View {
                 onPress: { model.press($0, on: agent.id) },
                 onReportTo: { model.reportTo($0, from: agent.id) },
                 onCopy: { model.copyIdentity(of: agent) },
-                onClearRoutedNote: { model.clearRoutedNote($0, for: agent.id) }
+                onClearRoutedNote: { model.clearRoutedNote($0, for: agent.id) },
+                chiefCheckIn: isChiefRow(nesting) ? model.treeModel.tree?.node(withID: agent.id)?.checkIn : nil,
+                onChiefCheckInChange: { pace, sleep in
+                    guard let key = model.treeModel.tree?.node(withID: agent.id)?.checkIn?.chiefKey else { return }
+                    model.treeModel.updateChiefCheckIn(chiefKey: key, pace: pace, sleepCheckins: sleep)
+                }
             )
                 .onHover { inside in
                     if inside { model.select(agentID: agent.id) }

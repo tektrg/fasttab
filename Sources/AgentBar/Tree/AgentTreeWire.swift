@@ -78,9 +78,11 @@ struct AgentTreeWireChief: Decodable {
     let isChiefMode: Bool?
     let status: String?
     let children: [AgentTreeWireAgent]
+    /// Desktop chiefs only (`agent_tree_desktop.py`): the check-in timer the dashboard owns.
+    let checkIn: ChiefCheckInWire?
 
     private enum CodingKeys: String, CodingKey {
-        case id, label, project, projectRoot, machine, paneId, alive, isChiefMode, status, children
+        case id, label, project, projectRoot, machine, paneId, alive, isChiefMode, status, children, checkIn
     }
 
     init(from decoder: Decoder) throws {
@@ -95,5 +97,6 @@ struct AgentTreeWireChief: Decodable {
         isChiefMode = container.lenient(.isChiefMode)
         status = container.lenient(.status)
         children = (container.lenient(.children) as LenientArray<AgentTreeWireAgent>?)?.elements ?? []
+        checkIn = container.lenient(.checkIn)
     }
 }

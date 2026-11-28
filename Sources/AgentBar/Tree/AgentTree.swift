@@ -16,11 +16,14 @@ struct AgentTreeNode: Identifiable, Equatable, Sendable {
     let crossProject: Bool
     /// Meaningful only on a chief row.
     let isChiefMode: Bool
+    /// A Desktop chief's check-in timer (chief redesign item 14); nil for every other row.
+    var checkIn: ChiefCheckIn?
     var children: [AgentTreeNode]
 
     init(
         id: String, label: String, project: String, projectRoot: String?, machine: String, paneId: String?,
-        alive: Bool, status: String?, crossProject: Bool, isChiefMode: Bool, children: [AgentTreeNode] = []
+        alive: Bool, status: String?, crossProject: Bool, isChiefMode: Bool, checkIn: ChiefCheckIn? = nil,
+        children: [AgentTreeNode] = []
     ) {
         self.id = id
         self.label = label
@@ -32,6 +35,7 @@ struct AgentTreeNode: Identifiable, Equatable, Sendable {
         self.status = status
         self.crossProject = crossProject
         self.isChiefMode = isChiefMode
+        self.checkIn = checkIn
         self.children = children
     }
 
@@ -61,6 +65,23 @@ struct AgentTree: Equatable, Sendable {
     static let empty = AgentTree(generatedAt: nil, chiefs: [], unassigned: [], parentGone: [])
 
     var isEmpty: Bool { chiefs.isEmpty && unassigned.isEmpty && parentGone.isEmpty }
+
+    /// The check-in timer of the chief whose dashboard key is `chiefKey`.
+    func chiefCheckIn(forKey chiefKey: String) -> ChiefCheckIn? {
+        chiefs.lazy.compactMap(\.checkIn).first { $0.chiefKey == chiefKey }
+    }
+
+    /// This tree with `checkIn` replacing the timer of the chief it names (by `chiefKey`).
+    func updatingCheckIn(_ checkIn: ChiefCheckIn) -> AgentTree {
+        var tree = self
+        tree.chiefs = chiefs.map { chief in
+            guard chief.checkIn?.chiefKey == checkIn.chiefKey else { return chief }
+            var chief = chief
+            chief.checkIn = checkIn
+            return chief
+        }
+        return tree
+    }
 
     /// True when `id` names one of `chiefs` — never a worker, even one with the same id shape.
     func isChief(_ id: String) -> Bool { chiefs.contains { $0.id == id } }

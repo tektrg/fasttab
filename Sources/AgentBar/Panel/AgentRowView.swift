@@ -29,6 +29,9 @@ struct AgentRowView: View {
     var onReportTo: (String) -> Void = { _ in }
     var onCopy: () -> Void = {}
     var onClearRoutedNote: (UUID) -> Void = { _ in }
+    /// A Desktop chief's check-in timer (chief rows only) and where its pace / sleep changes go.
+    var chiefCheckIn: ChiefCheckIn?
+    var onChiefCheckInChange: (ChiefCheckInPace?, Bool?) -> Void = { _, _ in }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -136,6 +139,9 @@ struct AgentRowView: View {
                     .foregroundStyle(Color.red)
             }
             if let machineBadge { MachineBadgeView(text: machineBadge) }
+            if let chiefCheckIn {
+                ChiefCheckInBadge(checkIn: chiefCheckIn, now: Date(), onChange: onChiefCheckInChange)
+            }
         case .child(let crossProject, let machineBadge):
             if crossProject {
                 Image(systemName: "arrow.triangle.branch")

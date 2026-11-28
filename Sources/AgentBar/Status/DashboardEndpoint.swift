@@ -212,6 +212,20 @@ struct DashboardEndpoint: Sendable {
         return request
     }
 
+    /// `POST /api/chief/settings`: a chief's check-in pace and/or sleep-time check-ins. Only the
+    /// fields given are sent; the dashboard persists them and re-times that chief's check-ins.
+    func chiefSettingsRequest(chiefKey: String, pace: ChiefCheckInPace?, sleepCheckins: Bool?) -> URLRequest {
+        var request = request(path: "/api/chief/settings")
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.agentTreeActionTimeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["chief": chiefKey]
+        if let pace { body["pace"] = pace.rawValue }
+        if let sleepCheckins { body["sleepCheckins"] = sleepCheckins }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
     /// `GET /api/accounts` (account rotation). Short: it rides the status refresh and must never stall it.
     var accountsRequest: URLRequest {
         var request = request(path: "/api/accounts")

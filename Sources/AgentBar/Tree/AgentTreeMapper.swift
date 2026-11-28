@@ -24,6 +24,7 @@ enum AgentTreeMapper {
             id: id, label: label, project: wire.project ?? "", projectRoot: wire.projectRoot,
             machine: wire.machine ?? "local", paneId: wire.paneId, alive: wire.alive ?? false,
             status: wire.status, crossProject: false, isChiefMode: wire.isChiefMode ?? false,
+            checkIn: wire.checkIn?.domain,
             children: wire.children.compactMap(workerNode)
         )
     }

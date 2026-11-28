@@ -211,6 +211,30 @@ final class AgentTreeModel: ObservableObject {
         }
     }
 
+    /// Sets a chief's check-in pace and/or sleep-time check-ins (nil = unchanged). Optimistic, then
+    /// replaced by the dashboard's own view of the timer; reverted on failure unless a fresher
+    /// snapshot already superseded the tree (same rule as `attach`/`detach`).
+    func updateChiefCheckIn(chiefKey: String, pace: ChiefCheckInPace? = nil, sleepCheckins: Bool? = nil) {
+        guard let editing else { errorMessage = "Not connected to the dashboard."; return }
+        guard let tree, let current = tree.chiefCheckIn(forKey: chiefKey),
+              !current.isUnchanged(pace: pace, sleepCheckins: sleepCheckins) else { return }
+        errorMessage = nil
+        let previousTree = tree
+        let generationAtStart = treeGeneration
+        self.tree = tree.updatingCheckIn(current.applying(pace: pace, sleepCheckins: sleepCheckins))
+        Task {
+            let outcome = await editing.updateChiefCheckIn(chiefKey: chiefKey, pace: pace, sleepCheckins: sleepCheckins)
+            let stillCurrent = treeGeneration == generationAtStart
+            switch outcome {
+            case .updated(let checkIn):
+                if stillCurrent, let checkIn, let tree = self.tree { self.tree = tree.updatingCheckIn(checkIn) }
+            case .failed(let message):
+                if stillCurrent { self.tree = previousTree }
+                errorMessage = message
+            }
+        }
+    }
+
     func confirmPendingAttach() {
         guard let pendingConfirm else { return }
         self.pendingConfirm = nil

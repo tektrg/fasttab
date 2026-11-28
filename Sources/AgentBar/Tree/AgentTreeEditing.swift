@@ -30,6 +30,15 @@ protocol AgentTreeEditing: Sendable {
     func attachToTree(child: String, parent: String, confirmCrossProject: Bool) async -> AttachOutcome
     /// Detaches `child`: it reports nowhere (Unassigned) until attached again.
     func detachFromTree(child: String) async -> DetachOutcome
+    /// Sets a chief's check-in pace and/or sleep-time check-ins (`POST /api/chief/settings`).
+    func updateChiefCheckIn(chiefKey: String, pace: ChiefCheckInPace?, sleepCheckins: Bool?) async -> ChiefCheckInSettingsOutcome
+}
+
+extension AgentTreeEditing {
+    /// Editors that predate chief check-ins (test fakes) refuse instead of failing to compile.
+    func updateChiefCheckIn(chiefKey: String, pace: ChiefCheckInPace?, sleepCheckins: Bool?) async -> ChiefCheckInSettingsOutcome {
+        .failed("Chief check-in settings aren't available here.")
+    }
 }
 
 /// `POST /api/agent-tree/attach` reply. Success: `{"ok":true,"warning":str|null}`. Needs

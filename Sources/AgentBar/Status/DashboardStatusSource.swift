@@ -336,6 +336,21 @@ actor DashboardStatusSource: AgentStatusSource, AgentTreeEditing, PersonaDirecto
         }
     }
 
+    func updateChiefCheckIn(chiefKey: String, pace: ChiefCheckInPace?, sleepCheckins: Bool?) async -> ChiefCheckInSettingsOutcome {
+        do {
+            let request = endpoint.chiefSettingsRequest(chiefKey: chiefKey, pace: pace, sleepCheckins: sleepCheckins)
+            let (body, statusCode) = try await transport.response(for: request)
+            if statusCode == 404, body.isEmpty { return .failed("This dashboard has no chief check-in settings yet.") }
+            return try JSONDecoder().decode(DashboardChiefSettingsResponse.self, from: body).outcome
+        } catch is DecodingError {
+            return .failed("The dashboard sent an unreadable reply.")
+        } catch let error as URLError where error.code == .timedOut {
+            return .failed("The dashboard took too long to answer. Check the chief's pace: it may have changed.")
+        } catch {
+            return .failed("Can't reach the status dashboard.")
+        }
+    }
+
     func approveFallback(id: String) async -> AccountActionOutcome {
         let outcome = await accountAction(endpoint.approveFallbackRequest(id: id))
         if outcome == .succeeded { accountsFetchedAt = nil }   // re-read promptly so the prompt goes

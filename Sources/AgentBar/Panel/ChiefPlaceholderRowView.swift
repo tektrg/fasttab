@@ -14,6 +14,8 @@ import SwiftUI
 struct ChiefPlaceholderRowView: View {
     let node: AgentTreeNode
     let needsYouHint: Int
+    var now: Date = Date()
+    var onChiefCheckInChange: (ChiefCheckInPace?, Bool?) -> Void = { _, _ in }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -29,6 +31,9 @@ struct ChiefPlaceholderRowView: View {
                     .foregroundStyle(Color.red.opacity(0.7))
             }
             if let machineBadge = node.machineBadge { MachineBadgeView(text: machineBadge) }
+            if let checkIn = node.checkIn {
+                ChiefCheckInBadge(checkIn: checkIn, now: now, onChange: onChiefCheckInChange)
+            }
             Spacer(minLength: 8)
         }
         .foregroundStyle(.secondary)
